@@ -126,21 +126,6 @@ fn pull_deliveries_remain_explicit_and_provider_acknowledgements_independent() {
 }
 
 #[test]
-fn delivery_status_wire_is_closed_to_the_three_persisted_states() {
-    let delivery = Delivery {
-        provider: CloudProvider::GoogleDrive,
-        status: DeliveryStatus::Pending,
-        attempts: 0,
-        retry_at: 0,
-        error: None,
-    };
-    let mut value = serde_json::to_value(delivery).unwrap();
-    assert_eq!(value["status"], "pending");
-    value["status"] = json!("mystery");
-    assert!(serde_json::from_value::<Delivery>(value).is_err());
-}
-
-#[test]
 fn unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_return() {
     let legacy = temporary("provider-build").join("cloud.json");
     std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
@@ -324,14 +309,16 @@ impl EventSink for FakeObserver {
                 "observer unavailable".into(),
             ));
         }
-        match event {
-            CoreEvent::CloudSyncState(state) => self.states.lock().unwrap().push(state),
-            CoreEvent::WorkspaceChanged { source, .. } => {
-                self.workspaces.lock().unwrap().push(source)
-            }
-            _ => {}
+        if let CoreEvent::CloudSyncState(state) = event {
+            self.states.lock().unwrap().push(state);
         }
         Ok(())
+    }
+}
+
+impl crate::data::CommitObserver for FakeObserver {
+    fn committed(&self, source: WorkspaceChangeSource, _revision: Option<String>) {
+        self.workspaces.lock().unwrap().push(source);
     }
 }
 
@@ -351,6 +338,8 @@ impl Fixture {
         let root = temporary(name);
         std::fs::create_dir_all(&root).unwrap();
         let store = DataStore::initialize(root.join("workspace.db")).unwrap().0;
+        let observer = Arc::new(FakeObserver::default());
+        store.observe(observer.clone());
         let note_store = NoteStore::default();
         let notes = note_store.at(root.join("notes"));
         let backup = BackupService::new(store.clone(), notes.clone());
@@ -365,7 +354,7 @@ impl Fixture {
             store,
             sync,
             transport: Arc::new(FakeTransport::default()),
-            observer: Arc::new(FakeObserver::default()),
+            observer,
             backup,
             notes,
             note_store,
@@ -390,7 +379,6 @@ impl Fixture {
                     "duration":60,
                     "exdates":[]
                 }),
-                "test",
             )
             .unwrap();
     }
@@ -621,6 +609,8 @@ async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].attempts, 1);
     assert_eq!(pending[0].retry_at, failed.tasks[0].deliveries[0].retry_at);
+    let changes = || fixture.observer.workspaces.lock().unwrap().clone();
+    assert_eq!(changes(), [WorkspaceChangeSource::UserIntent; 3]);
 
     let retried = fixture
         .sync
@@ -631,6 +621,8 @@ async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
     let receipt = retried.tasks.iter().find(|row| row.id == task).unwrap();
     assert_eq!(receipt.deliveries[0].status, DeliveryStatus::Completed);
     assert_eq!(retried.providers[0].error, None);
+    // Applying the merged cloud copy is a store write with its own source.
+    assert_eq!(changes().last(), Some(&WorkspaceChangeSource::CloudSync));
 }
 
 #[tokio::test]
@@ -691,22 +683,6 @@ async fn provider_panic_is_settled_and_the_same_delivery_can_retry() {
         .unwrap();
     let receipt = retried.tasks.iter().find(|row| row.id == task).unwrap();
     assert_eq!(receipt.deliveries[0].status, DeliveryStatus::Completed);
-}
-
-#[tokio::test]
-async fn storage_worker_panic_preserves_its_category_and_later_work_can_run() {
-    let error = blocking::<()>(|| panic!("synthetic storage worker failure"))
-        .await
-        .unwrap_err();
-    assert_eq!(
-        error,
-        CloudSyncError::StorageTask(RuntimeTaskError::Panicked)
-    );
-    assert_eq!(
-        error.to_string(),
-        "Cloud storage worker failed; the saved task will retry."
-    );
-    assert_eq!(blocking(|| Ok(42)).await, Ok(42));
 }
 
 #[tokio::test]

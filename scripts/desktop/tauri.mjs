@@ -13,7 +13,6 @@ const packageVersion = JSON.parse(
   readFileSync(path.join(root, "package.json"), "utf8"),
 ).version;
 const version = development ? developmentVersion(packageVersion) : undefined;
-const buildTarget = "desktop";
 const shouldSignMac =
   process.platform === "darwin" &&
   Boolean(process.env.APPLE_SIGNING_IDENTITY);
@@ -43,7 +42,6 @@ const child = spawn(
       ...nativeOAuthEnv(),
       // Always set, so a stale exported value cannot reach a release frontend.
       ISCT_APP_VERSION: version ?? packageVersion,
-      ISCT_BUILD_TARGET: buildTarget,
       TAURI_APP_PATH: path.join(root, "apps/desktop/src-tauri"),
       TAURI_FRONTEND_PATH: path.join(root, "apps/desktop"),
     },

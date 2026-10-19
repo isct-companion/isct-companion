@@ -1,8 +1,10 @@
 # Core consolidation
 
-Execution brief for consolidating application logic in shared Rust services that the
+The contracts that keep application logic in shared Rust services, which the
 desktop Tauri shell and future native mobile shells (SwiftUI, Jetpack Compose)
 call through one interface. Read `AGENTS.md` first; every rule there applies.
+The migration this file originally planned is complete; its acceptance record
+is [`verification/core-consolidation.md`](verification/core-consolidation.md).
 
 ## Goal
 
@@ -10,8 +12,9 @@ call through one interface. Read `AGENTS.md` first; every rule there applies.
 crates/isct-core   domain logic and state: parsing, acquisition, sync, scheduling, storage
 crates/isct-ocr    optional matrix recognition, independent of core and platform frameworks
 crates/isct-ffi    UniFFI facade over isct-core for Swift and Kotlin
-backend/           Tauri app (desktop today, Tauri mobile until native shells ship)
-src/               React UI: renders state from core, sends user intents to core
+apps/desktop/src-tauri  Tauri desktop shell: commands, platform ports, lifecycle
+apps/desktop/src        React UI: renders state from core, sends user intents to core
+apps/ios, apps/android  Native mobile shells over the Core FFI (crates/isct-ffi)
 ```
 
 - `isct-core` has no dependency on `tauri`, `wry`, `uniffi` or any UI crate.
@@ -20,7 +23,7 @@ src/               React UI: renders state from core, sends user intents to core
   returns a typed unavailable result without disabling other app services.
 - Shells render, forward intents, and implement platform ports. They contain no
   domain decisions.
-- Desktop behaviour is the acceptance baseline after every phase. Mobile UI
+- Desktop behaviour is the acceptance baseline after every change. Mobile UI
   and shells will be redesigned; preserving the old Tauri mobile design is
   not an acceptance requirement. Core portability to SwiftUI and Jetpack
   Compose remains a design requirement.
@@ -41,84 +44,11 @@ src/               React UI: renders state from core, sends user intents to core
 - Redesigning desktop UI or changing the persisted data/sync contract. Internal
   models and APIs may be simplified behind compatibility adapters.
 - Replacing `ts-rs`. Core types keep deriving `TS` behind a `ts` feature so
-  `src/generated` stays the desktop's type source.
-
-## Inventory baseline (2026-10-13)
-
-The counts below are an initial inventory, not a dependency graph or proof that
-a module can move independently. Recount production code, tests and generated
-files separately at each checkpoint. The OAuth script edits are deferred in a
-separate Git stash and are outside this migration.
-
-Backend: 34 top-level files in `backend/src`, ~21k lines, plus `data/`,
-`school_parser/`, `syllabus/`, `matrix_ocr/`.
-
-Tauri coupling by file (count of `tauri` mentions):
-
-| File | Lines | Refs | What couples it |
-|---|---|---|---|
-| `lib.rs` | 1908 | 280 | ~90 `#[tauri::command]`s, state wiring, `require_local_main` |
-| `lms_files.rs` | 1162 | 28 | commands, `AppHandle` for paths, opener |
-| `workspaces.rs` | 517 | 20 | commands, `AppHandle` paths, `async_runtime` |
-| `cloud_sync.rs` | 923 | 19 | `emit`, `Manager::state`, `async_runtime::spawn` |
-| `school_refresh.rs` | 338 | 9 | `AppHandle` |
-| `campus_wifi.rs` | 414 | 9 | commands (macOS system integration) |
-| `scheduler.rs` | 323 | 8 | 30 s `tokio` interval owned by core, `emit` |
-| `school_web_shared.rs` | 3444 | 6 | owns WebView handles, eval, bounds, downloads |
-| `pull_service.rs`, `reference_refresh.rs`, `cloud.rs`, `secrets.rs`, `school_web*.rs`, `lms_downloader.rs`, `school_webkit.rs`, `lms_protocol.rs`, `icloud.rs` | | 1–5 | `AppHandle`, events, plugins |
-
-Candidates with no direct Tauri imports: `syllabus.rs`, `subscriptions.rs`,
-`school_extract.rs`, `school_auth.rs`, `pull_coordinator.rs`, `policy.rs`,
-`plans.rs`, `matrix_red_crops.rs`, `lms_ingest.rs`, `lifecycle.rs`,
-`kyomu_ingest.rs`, `kyomu_guide.rs`, `contracts.rs`, and the `data/`,
-`school_parser/`, `syllabus/`, `matrix_ocr/` modules.
-
-Move dependency-closed groups. For example, `school_auth` depends on the
-`SecretVault` trait currently defined alongside a Tauri implementation; move
-the trait first. Embedded JS, fixtures, model paths and generated TS paths
-also belong to the dependency audit.
-
-Other facts that shape the plan:
-
-- `[profile.release] panic = "abort"`. A panic across FFI kills the app.
-- 395 `Result<_, String>` signatures; ~548 `unwrap`/`expect` (including tests).
-- 9 `app.emit(...)` calls: `workspace-changed` (with a `source`),
-  `cloud-sync-state`, pull progress.
-- No `rust-toolchain.toml`. `ort` is pinned to `=2.0.0-rc.12`.
-- Matrix OCR is required on mobile. `MatrixOcrService::scan` takes two base64
-  canvases produced in JS; HEIC is decoded in JS (`src/core/matrix-ocr.ts`).
-
-Frontend logic that belongs in core (non-test lines):
-
-| TS module | Lines | Logic |
-|---|---|---|
-| `src/storage/repository.ts` | 552 | export validation, schema checks, record collections |
-| `src/store/workspace.ts` | 541 | workspace mutations (keep the zustand store as a view cache only) |
-| `src/core/schedule.ts` | 448 | calendar state, quarter ranges, scheduled courses |
-| `src/core/lms-merge.ts` | 344 | LMS ↔ catalog diff and merge |
-| `src/platform/subscription-polling.ts` | 233 | poll due rules, reference kinds |
-| `src/platform/reminders.ts` | 194 | due reminders, fired log |
-| `src/platform/school-session.ts` | 173 | sign-in timeouts, focus re-check policy |
-| `src/core/user-schedule.ts` | 135 | plan occurrences, intensive days |
-| `src/core/course-workflows.ts` | 108 | batch edit/delete rules |
-| `src/platform/school-freshness.ts` | 50 | TTLs, stale source detection |
-| `src/core/*` (rest) | ~800 | academic calendar, ICS, credits, course query, text |
-| `src/core/matrix-ocr.ts` | — | image decode/resize before OCR |
-
-Stays in TS: rendering, layout (`school-web-bounds.ts`, timetable layout,
-course colours), routing, i18n, and `desktop-bridge.ts` as a thin invoke layer.
-
-Some listed code is already superseded: `subscriptionPollDue`,
-`pollReferenceSubscriptions` and `staleSources` have no production call sites
-at this baseline. Retain useful regression cases in the authoritative Rust
-implementation and remove the unused implementation instead of porting it
-again. Preserve any still-used exports in their appropriate shell/core layer.
+  `apps/desktop/src/generated` stays the desktop's type source.
 
 ## State ownership and compatibility contracts
 
-The existing pull migration at `4a32ccf` is the starting point; see
-[`school-refresh.md`](school-refresh.md). Consolidation must cover the whole
-application, not stop once the pull modules are moved.
+Pull scheduling is described in [`school-refresh.md`](school-refresh.md).
 
 | Layer | Owner | Responsibilities |
 |---|---|---|
@@ -138,7 +68,7 @@ extended runtime state. Total transitions alone do not prove runtime safety.
 school executor. Moving it must be explicit and tested, not inferred from the
 presence of that enum variant.
 
-Preserve these contracts through every applicable phase:
+Preserve these contracts:
 
 - One owner for each domain state and write path; UI caches cannot authorize
   or duplicate domain transitions. Reads expose a coherent revision/snapshot.
@@ -168,8 +98,6 @@ Preserve these contracts through every applicable phase:
 
 ## Rules for the consolidated code
 
-Add these to `AGENTS.md` in phase 0.
-
 1. **Core decides, shells render.** A conditional in TS, Swift or Kotlin that
    decides *what* the data means (due, stale, merged, valid) belongs in core.
 2. **Platform capabilities are ports.** Core defines a trait; each shell
@@ -186,37 +114,33 @@ Add these to `AGENTS.md` in phase 0.
    lifecycle; mobile must not depend on a continuously running timer.
 7. **Coarse FFI surface.** Expose services, not one function per Tauri command.
 8. **Remove the replaced owner.** Once a core service is authoritative, remove
-   superseded shell policy, state and queues. Temporary adapters need a stated
-   removal phase, not a second permanent source of truth.
+   superseded shell policy, state and queues. A temporary adapter needs a
+   stated removal point, not a second permanent source of truth.
 
 ## Target structure
 
 ```text
-Cargo.toml                 [workspace] members = ["backend", "crates/*"]
+Cargo.toml                 [workspace] desktop shell + crates/*
 rust-toolchain.toml        pinned toolchain + ios/android targets
 crates/isct-core/
   src/lib.rs               Core::new(ports) -> Core; service accessors
   src/ports.rs             all platform traits
-  src/error.rs             CoreError and per-service errors
   src/events.rs            CoreEvent
-  src/...                  moved modules
+  src/...                  domain services; tests in src/tests/
 crates/isct-ocr/
   src/lib.rs               independent scan API, typed errors and unavailable backend
-  models/paddle/           moved from backend/models/paddle
+  models/paddle/           recognition model
 crates/isct-ffi/
   src/lib.rs               #[uniffi::export] facade
   tests/                   Swift and Kotlin binding smoke tests
-backend/
+apps/desktop/src-tauri/
   src/lib.rs               Tauri setup only
   src/commands/*.rs        #[tauri::command] wrappers, one file per service
-  src/ports/*.rs           Tauri implementations of core ports
+  src/core_ports.rs        Tauri implementations of core ports
 ```
 
-Moving to a root workspace moves `Cargo.lock` and `target/` to the repo root.
-Update `.gitignore`, `package.json` scripts (`--manifest-path` keeps working),
-`scripts/tauri.mjs`, CI, and the `matrix_ocr` cfg. Build-script cfg values are
-crate-local: audit every consuming crate rather than assuming the core cfg
-propagates to backend. Keep Tauri build setup in `backend/build.rs`.
+Build-script cfg values are crate-local: audit every consuming crate rather
+than assuming a core cfg propagates to the shell.
 
 ### Ports
 
@@ -377,257 +301,9 @@ exports both call these.
 | `ocr` | `recognize_matrix_image` |
 | `agent` | `agent_command` |
 
-Desktop-only system integrations stay in `backend/` as shell code:
+Desktop-only system integrations stay in `apps/desktop/src-tauri` as shell code:
 `school_webkit`, `set_school_web_bounds`, `hide_school_web`,
 `save_file`, `open_external`.
-
-## Phases
-
-Use small dependency-closed commits/PRs; a phase may require several. Every
-completed checkpoint must preserve desktop behaviour. After workspace setup,
-run at the repo root:
-
-```bash
-cargo clippy --workspace --all-targets --locked -- -D warnings
-```
-
-```bash
-cargo test --workspace --locked
-```
-
-```bash
-yarn test
-```
-
-```bash
-yarn test:types
-```
-
-Desktop manual smoke test: launch, sign in, pull LMS and 教務Web, open Today,
-refresh subscriptions, exercise active workspace/file workflows, and run OCR
-on supported desktop targets. Preserve backups and sync compatibility.
-
-The smoke test is the part automation cannot reach. Since the test
-consolidation it is recorded as a row in
-[`verification/manual-checks.yaml`](verification/manual-checks.yaml) rather than
-prose here: each check names a persona, states why each step exists, says where
-to observe the result, and records its outcome with evidence. Run
-`yarn verify:manual stale` after a change to see which checks it invalidated, and
-`yarn verify:manual sheet <ID>` to get a run sheet to follow. Automated tests
-live under `apps/desktop/tests/`; see
-[apps/desktop/tests/README.md](../apps/desktop/tests/README.md).
-
-Cross-target checks validate core/FFI portability to `aarch64-apple-ios`,
-`aarch64-apple-ios-sim` and `aarch64-linux-android`. Existing CI already checks
-Tauri iOS device and Android; extend the relevant checks rather than duplicating
-them. The old mobile UI is not a behavioural acceptance gate.
-
-Replay the same input/event traces against the baseline contract and migrated
-service. Compare executed requests, write effects, emitted snapshots and caller
-outcomes, not only final rendered data. Cover join/priority, full/detail,
-cancel/apply races, preemption, stale callbacks, partial success, source edits,
-empty caches, restore, locale changes and suspend/resume. Treat expected fixes
-to inconsistent/crashing edge cases as explicit regression cases.
-
-At each checkpoint report production LOC separately from tests/generated code,
-removed modules and removed duplicate state owners. Expect a net simplification
-across the completed migration; early ports/tests may temporarily add lines.
-
-### Phase 0 — Guardrails
-
-- Record desktop acceptance traces, dependency boundaries and code-size baseline.
-- Add `rust-toolchain.toml` pinned to the toolchain verified for this repository.
-- Create the root workspace with `backend` as the only member; fix paths.
-- Switch every release profile to `panic = "unwind"` (decided: desktop and
-  mobile alike), then test the FFI panic boundary. Do not treat `unwind` alone
-  as crash recovery.
-- Adapt the existing CI checks to the workspace and add missing coverage.
-- Add the rules section above to `AGENTS.md`.
-- Validate a minimal foreign callback/runtime/disposal boundary early, before
-  committing the whole service API to an untested FFI design.
-
-Done when: builds and tests are green from the root; no code moved yet.
-
-### Phase 1 — Core crate and pure modules
-
-- Create `crates/isct-core` with `ports.rs`, `events.rs`, `error.rs` (types
-  only) and the `ts` feature for `ts-rs` derives.
-- Move dependency-closed groups from the candidate inventory, including the
-  pull reducer/coordinator, with their tests and embedded assets. Split traits
-  from shell implementations first where needed. Move OCR/model paths together
-  into the separate `isct-ocr` crate, not into Core.
-- Give new public boundaries typed errors immediately; avoid creating more
-  public String-error APIs to rewrite in phase 4.
-- `backend` depends on `isct-core` and re-exports where needed. Keep
-  `src/generated` output byte-identical.
-
-Done when: moved modules have zero `tauri` imports; generated TS unchanged.
-
-### Phase 2 — Ports replace `AppHandle`
-
-- Implement `Paths`, `EventSink`, `SecretStore`, `Notifier`, `Opener`,
-  `CloudDrive` in `backend/src/ports/`.
-- Introduce `Core` holding `Arc` services; Tauri manages one `Arc<Core>`.
-- Introduce the temporary school-executor port implemented by the existing
-  Controller, then move `pull_service` and `school_refresh` policy into Core.
-- Move the domain portions of scheduler, reference refresh, cloud sync,
-  credentials, files/downloads and assignment workspaces. CloudKit/Keychain
-  implementations, Tauri protocol handlers and native thread dispatch remain
-  shell adapters. Replace `AppHandle` lookup with explicit service dependencies.
-- Preserve the compile-time development Keychain fallback and CloudKit policy
-  in the platform implementation, including the startup regression coverage.
-- Core exposes due-work/lifecycle entry points; move periodic wakeups to
-  `backend` and define bounded task timeout ownership as above.
-- Split `backend/src/lib.rs` commands into `backend/src/commands/<service>.rs`.
-- Route desktop MCP tools through the same Core service facade. Keep the MCP
-  tool allowlist, authorization and audit boundary, while removing duplicate
-  validation, mutation and orchestration logic from the MCP executable.
-  Operations requiring the live school session or pull coordinator must reach
-  the desktop's existing Core runtime through a local bridge, rather than
-  creating another runtime in the MCP process. Document which headless
-  operations can run independently with database revision/transaction checks.
-
-Done when: only `backend/` imports `tauri`; event names and payloads seen by
-React are unchanged (add a test that serialises each `CoreEvent` through the
-Tauri sink and compares with the old JSON).
-
-### Phase 3 — Headless school web
-
-Largest and riskiest phase; design review before coding.
-
-- Split `school_web_shared.rs` into core logic (site policy, login scripts,
-  session checks, extraction orchestration, relays) and shell code (WebView
-  creation, data store selection, bounds, visibility, native download hooks).
-- Core drives the browser only through `SchoolBrowser`. Bounds, hide/show and
-  zoom never enter core.
-- Write fake-browser traces for the identity/preemption/cancellation contracts
-  first. Move the executor into Core and remove the temporary adapter; do not
-  leave parallel queues or session decisions in the shell.
-- Tauri implements `SchoolBrowser` for desktop, iOS (`school_web_ios.rs`) and
-  Android (`plugins/school-web`).
-- Login scripts and `lms_*.js` stay as shared assets in core
-  (`include_str!`), so every shell injects the same scripts.
-
-Done when: `isct-core` contains no WebView type; sign-in, pull and downloads
-work on desktop; core has trace tests for the session/extraction state machines
-using a fake `SchoolBrowser`, including late and duplicate callbacks.
-
-### Phase 4 — Typed errors and panic hygiene
-
-- Replace `Result<_, String>` in all public core APIs with typed errors.
-- Remove `unwrap`/`expect` from non-test core code; turn on the clippy denies.
-- Commands map typed errors back to the strings React expects.
-
-Done when: clippy denies are on for `isct-core` with no `allow` escapes except
-justified, commented ones.
-
-### Phase 5 — Move frontend logic into core
-
-Order by dependency; port tests together with code (TS tests become Rust
-tests with the same cases).
-
-1. Remove superseded freshness/polling code after transferring useful test
-   cases; move still-active policy such as `reminders.ts` into Core.
-2. `schedule.ts`, `user-schedule.ts`, `academic-calendar.ts`, `calendar-ics.ts`,
-   `declared-credits.ts`, `course-query.ts`
-3. `lms-merge.ts`, `course-workflows.ts`
-4. `storage/repository.ts` validation and the mutation logic in
-   `store/workspace.ts` (zustand becomes a cache of core read models)
-5. `school-session.ts` timing policy
-6. Matrix OCR input in `isct-ocr`: `scan` takes raw image bytes, decodes and produces the
-   2200 px and 600 px images itself, runs on `spawn_blocking`, reports
-   `OcrProgress`. HEIC → JPEG is a shell duty (ImageIO on Apple, `ImageDecoder`
-   on Android, `heic-to` on Windows desktop); document this on the API.
-7. Course colour: `displayColor` (`src/core/course-colors.ts`) becomes
-   `display_color` in core. Keep the FNV hash and palette byte-identical so
-   existing courses keep their colours; port the TS cases as fixtures. The
-   palette itself is a design token (`design/tokens/course.json`), generated
-   into `schedule/course_palette.rs`.
-8. Mobile read models on top of the moved schedule/reminder logic (see
-   `docs/ux/mobile.md`):
-   - `today(now)`: the Today phase (before/between classes, in class, after
-     classes, no classes), its hero and sections, and the day status. Shells
-     render it in order and do not decide what is due.
-   - `glance(now)`: next class, rest of today, nearest deadlines; a small
-     serialisable snapshot that widget extensions read without loading core.
-   - `notification_plan(now, horizon)`: every planned notification ordered by
-     priority, with time, title, body and deep-link target. Platform limits
-     (iOS 64 pending) are applied by the shell, not core.
-
-The dated calendar uses `schedule::calendar_between(workspace, from, to)` with
-inclusive civil dates. It returns dated agendas across quarters and academic
-years, including cancelled class context, calendar notices and important dates.
-`ScheduleView.term` supplies toolbar/credit context, never an agenda filter.
-ICS consumes the same agendas and omits cancelled classes; the quarter export
-only converts a quarter to its date bounds. Personal plans are resolved once
-per date and conflicts are calculated after the calendars are merged.
-`planning_week(term)` remains the recurring quarter template.
-
-On first school connection, `AccountActive` admits the existing automatic full
-LMS pull. Passive dashboard/course captures record `lms:summary`; only a complete
-explicit full scan updates `lms:full`, so passive ingestion cannot suppress it.
-After that first full scan, core enriches the all-quarter syllabus metadata and
-initializes an unreviewed timetable with no scheduled meeting times, using the
-same diff/apply implementation as the manual review. It checks that condition
-again inside the write transaction and records `timetableReviewedAt`. Later
-pulls preserve the user's timetable decisions and use the existing review flow.
-The shell exposes account setup from empty Home and renders the timetable
-preparation progress; it does not orchestrate the initial merge.
-
-The former `IDENTITY-PERIOD-OVERRIDE-UI` manual gap is automated by
-`apps/desktop/tests/e2e/settings.test.tsx` (save failure, persisted class times,
-view axis and restore official times), with clock validation and actual course
-occurrences covered in `crates/isct-core/src/tests/schedule.rs`.
-
-Preserve strict civil-date/timestamp parsing and JST academic semantics when
-moving calendar functions. Delete obsolete TS policy and mutation paths once
-Rust serves the corresponding read model or intent.
-
-Done when: the listed TS modules are deleted or reduced to calls into core;
-the UI renders the same results (existing acceptance tests pass).
-
-### Phase 6 — FFI facade
-
-- `crates/isct-ffi` with UniFFI proc-macros exporting `Core` services as async
-  functions, records and typed errors; ports become `#[uniffi::export(with_foreign)]`
-  traits.
-- Build an XCFramework (iOS device + simulator) and an Android AAR/so set.
-- Smoke tests: a Swift test and a Kotlin test that construct `Core` with fake
-  ports, load a workspace, run one parser fixture and one OCR fixture.
-
-Done when: both smoke tests pass in CI; OCR runs on the iOS simulator.
-
-### Final deliverable — shared API reference and shell integration guide
-
-Document the implemented Core facade for all four consumers: Tauri, Swift/iOS,
-Kotlin/Android and desktop MCP. Build the reference from the real exported
-services and records; clearly distinguish implemented contracts from remaining
-migration plans. Internal helpers are not public shell API.
-
-- Cover request/response records, typed errors, identifiers, timestamp rules,
-  revision conflicts, state/event snapshots, subscriptions and recovery.
-- Specify initialization, required platform ports, execution/thread ownership,
-  operation IDs, cancellation, suspend/resume and draining shutdown.
-- Include minimal Tauri, Swift and Kotlin call examples, plus an MCP tool-to-Core
-  mapping and examples. MCP shares domain invariants with the UI while retaining
-  its existing authorization and audit contract; exposing Core does not expose
-  every method as an MCP tool.
-- Keep examples checked against the actual signatures, link the reference from
-  the repository README, and update it with public API changes.
-
-Done when: a new shell or MCP adapter can implement the documented ports and
-invoke shared services without recreating business rules or state machines.
-
-## Risks
-
-- **School web split (phase 3)**: most behaviour lives in timing between page
-  loads and script evals. Write the fake-browser tests first.
-- **`ort` on mobile**: compiles for iOS and Android today but has not been run
-  on a device. Phase 6 must run OCR on the simulator, and on a device before
-  any release.
-- **Event payload drift**: guarded by the serialisation test in phase 2.
-- **Workspace move**: `target/` relocation breaks cached paths in scripts; grep
-  for `backend/target` before merging phase 0.
 
 ## Decisions
 
@@ -635,8 +311,8 @@ invoke shared services without recreating business rules or state machines.
   scan errors from domain state; native abort isolation would require a
   separate process and is not provided by a crate boundary.
 - Release builds use `panic = "unwind"` on every platform.
-- Campus Wi-Fi will ship on mobile later. Split `campus_wifi.rs` in phase 2:
-  policy moves to core, the macOS calls become the desktop `CampusWifi` port.
+- Campus Wi-Fi will ship on mobile later. When it does, its policy moves to
+  core and the macOS calls in `campus_wifi.rs` become the desktop port.
 - Desktop stays Tauri + React: it depends on web components (CodeMirror,
   Milkdown, PDF.js, KaTeX) with no native equivalents. Native desktop shells
   (SwiftUI, .NET) are out of scope.

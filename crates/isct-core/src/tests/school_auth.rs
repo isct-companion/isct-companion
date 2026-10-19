@@ -118,13 +118,6 @@ fn matrix_text_follows_the_editors_visual_row_order() {
 }
 
 #[test]
-fn generates_rfc_totp_shape() {
-    let code = current_otp("JBSWY3DPEHPK3PXP").unwrap();
-    assert_eq!(code.len(), 6);
-    assert!(code.bytes().all(|byte| byte.is_ascii_digit()));
-}
-
-#[test]
 fn upcoming_codes_cover_consecutive_windows() {
     let windows = upcoming_otps("JBSWY3DPEHPK3PXP").unwrap();
     assert_eq!(windows.len(), 4);

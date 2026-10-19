@@ -44,26 +44,12 @@ export type SectionContext = {
   extensionsAvailable: boolean;
 };
 
-/**
- * Whether a page exists on this platform at all, regardless of the switch.
- * Phone layouts and their feature set are designed separately; the
- * native-mobile target (iPhone and iPad alike) keeps its earlier pages.
- */
+/** Whether a page exists on this platform at all, regardless of the switch. */
 export function sectionSupported(id: Section, context: SectionContext) {
-  const desktop = context.platform === "native-desktop";
-  const mobile = context.platform === "native-mobile";
-  if (id === "files") return desktop;
+  if (id === "files") return context.platform === "native-desktop";
   if (id === "extensions") return context.extensionsAvailable;
   // ScienceTokyo Wi-Fi sign-in is compiled only into macOS builds.
   if (id === "wifi") return nativeOs() === "macos";
-  if (
-    mobile &&
-    (id === "calendar" ||
-      id === "developer" ||
-      id === "agent" ||
-      id === "diagnostics")
-  )
-    return false;
   return true;
 }
 

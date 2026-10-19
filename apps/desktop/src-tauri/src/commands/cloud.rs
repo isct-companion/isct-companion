@@ -95,12 +95,7 @@ pub(crate) async fn set_cloud_sync_provider(
                 .pointer("/settings/cloud/clientId")
                 .and_then(serde_json::Value::as_str)
                 .filter(|s| !s.is_empty());
-            #[cfg(desktop)]
             let configured = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID");
-            #[cfg(target_os = "ios")]
-            let configured = option_env!("ISCT_GOOGLE_IOS_CLIENT_ID");
-            #[cfg(target_os = "android")]
-            let configured = option_env!("ISCT_GOOGLE_ANDROID_CLIENT_ID");
             let client_id = override_id.or(configured).unwrap_or("").to_string();
             if let Err(error) = connect_cloud(
                 webview,
@@ -137,36 +132,18 @@ pub(crate) async fn connect_cloud(
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
     if provider == CloudProvider::Icloud {
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[cfg(target_os = "macos")]
         return service.connect_icloud().await;
-        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        #[cfg(not(target_os = "macos"))]
         return Err("iCloud sync is only available on Apple devices.".into());
     }
-    #[cfg(mobile)]
-    {
-        let _ = redirect_uri;
-        if provider != CloudProvider::GoogleDrive {
-            return Err("This cloud service is not available on this device.".into());
-        }
-        let token = tauri_plugin_google_drive_auth::sign_in(&app, &client_id)?;
-        service.connect_with_native_token(
-            provider,
-            &token.client_id,
-            token.access_token,
-            token.refresh_token,
-            token.expires_in,
-        )
-    }
-    #[cfg(desktop)]
-    {
-        service
-            .connect(provider, &client_id, &redirect_uri, move |url| {
-                app.opener()
-                    .open_url(url, None::<&str>)
-                    .map_err(|_| "system browser could not be opened".to_string())
-            })
-            .await
-    }
+    service
+        .connect(provider, &client_id, &redirect_uri, move |url| {
+            app.opener()
+                .open_url(url, None::<&str>)
+                .map_err(|_| "system browser could not be opened".to_string())
+        })
+        .await
 }
 
 #[tauri::command]
@@ -186,11 +163,6 @@ pub(crate) fn disconnect_cloud(
     provider: CloudProvider,
 ) -> Result<bool, String> {
     require_local_main(&webview)?;
-    #[cfg(target_os = "ios")]
-    if provider == CloudProvider::GoogleDrive {
-        tauri_plugin_google_drive_auth::sign_out(&app)?;
-    }
-    #[cfg(not(target_os = "ios"))]
     let _ = app;
     service.disconnect(provider)?;
     Ok(true)

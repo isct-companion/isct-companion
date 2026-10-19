@@ -1,5 +1,6 @@
 use super::*;
-use crate::data::migrations;
+use crate::data::{commit_on, migrations};
+use rusqlite::Connection;
 
 const FIXTURE_INDEX: &str = include_str!("../../tests/fixtures/subscriptions/index.json");
 const FIXTURE_INDEX_HASH: &str = include_str!("../../tests/fixtures/subscriptions/index.sha256");
@@ -105,11 +106,23 @@ fn exam_and_exam_week_class_feeds_validate_and_store_apart() {
     let class = published(classes, feed_json("class", periods));
     let mut connection = Connection::open_in_memory().unwrap();
     migrations::migrate(&mut connection).unwrap();
-    assert_eq!(apply_exam_feed(&mut connection, &exam).unwrap(), 1);
-    assert_eq!(apply_exam_feed(&mut connection, &class).unwrap(), 1);
+    assert_eq!(
+        commit_on(&mut connection, |tx| apply_exam_feed(tx, &exam))
+            .map(|(changed, _)| changed)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        commit_on(&mut connection, |tx| apply_exam_feed(tx, &class))
+            .map(|(changed, _)| changed)
+            .unwrap(),
+        1
+    );
     // Re-applying one dataset must not mark the other's rows missing, even
     // when both use the same entry id.
-    apply_exam_feed(&mut connection, &exam).unwrap();
+    commit_on(&mut connection, |tx| apply_exam_feed(tx, &exam))
+        .map(|(changed, _)| changed)
+        .unwrap();
     let rows: Vec<Value> = connection
         .prepare("SELECT value FROM exams WHERE missing_since IS NULL ORDER BY id")
         .unwrap()
@@ -138,23 +151,47 @@ fn exam_and_exam_week_class_feeds_validate_and_store_apart() {
 
 #[test]
 fn validates_important_date_ranges_and_sources() {
-    let raw = json!({
-        "schemaVersion": 1,
-        "academicYear": 2026,
-        "timezone": "Asia/Tokyo",
-        "source": source(),
-        "entries": [{
-            "id": "festival",
-            "startDate": "2026-11-01",
-            "endDate": "2026-11-02",
-            "label": {"ja": "工大祭"},
-            "category": "campus-festival",
-            "sourceIds": ["official"]
-        }]
-    })
-    .to_string();
-    let value = validate_important_dates(&raw, 2026).unwrap();
+    let entry = json!({
+        "id": "festival",
+        "startDate": "2026-11-01",
+        "endDate": "2026-11-02",
+        "label": {"ja": "工大祭"},
+        "category": "campus-festival",
+        "sourceIds": ["official"]
+    });
+    let feed = |entries: Value| {
+        json!({
+            "schemaVersion": 1,
+            "academicYear": 2026,
+            "timezone": "Asia/Tokyo",
+            "source": source(),
+            "entries": entries
+        })
+        .to_string()
+    };
+    let value = validate_important_dates(&feed(json!([entry])), 2026).unwrap();
     assert_eq!(value.entries.len(), 1);
+    assert!(validate_important_dates(&feed(json!([entry])), 2025).is_err());
+
+    let with = |field: &str, replacement: Value| {
+        let mut changed = entry.clone();
+        changed[field] = replacement;
+        feed(json!([changed]))
+    };
+    for (case, raw) in [
+        ("reversed range", with("startDate", json!("2026-11-03"))),
+        (
+            "outside the academic year",
+            with("endDate", json!("2027-04-01")),
+        ),
+        ("unknown source", with("sourceIds", json!(["unlisted"]))),
+        ("no source", with("sourceIds", json!([]))),
+        ("unknown category", with("category", json!("holiday"))),
+        ("blank label", with("label", json!({"ja": " "}))),
+        ("duplicate id", feed(json!([entry, entry]))),
+    ] {
+        assert!(validate_important_dates(&raw, 2026).is_err(), "{case}");
+    }
 }
 
 fn fixture_selection(
@@ -184,10 +221,9 @@ fn frozen_subscription_fixtures_validate_and_include_the_documented_cs_course() 
         .iter()
         .find(|department| department.id == "cs")
         .expect("Computer Science department");
-    assert!(cs
-        .recommended
-        .iter()
-        .any(|course| course.code == "CSC.T241" && course.group == "A"));
+    assert!(cs.recommended.iter().any(|course| course.code == "CSC.T241"
+        && course.group == "A"
+        && matches!(course.mark, Some(RecommendationMark::Recommended))));
 }
 
 #[test]
@@ -296,8 +332,16 @@ fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
     let (_, departments_2026) = fixture_selection(2026, 2026).unwrap();
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     migrations::migrate(&mut connection).expect("schema v3");
-    apply_reference(&mut connection, Some(&calendar), Some(&departments_2025)).unwrap();
-    apply_reference(&mut connection, Some(&calendar), Some(&departments_2026)).unwrap();
+    commit_on(&mut connection, |tx| {
+        apply_reference(tx, Some(&calendar), Some(&departments_2025))
+    })
+    .map(|(changed, _)| changed)
+    .unwrap();
+    commit_on(&mut connection, |tx| {
+        apply_reference(tx, Some(&calendar), Some(&departments_2026))
+    })
+    .map(|(changed, _)| changed)
+    .unwrap();
 
     let mut statement = connection
         .prepare(
@@ -331,9 +375,24 @@ fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
     let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
     migrations::migrate(&mut connection).expect("schema v3");
 
-    assert!(apply_reference(&mut connection, Some(&calendar), Some(&departments)).unwrap() > 0);
+    assert!(
+        commit_on(&mut connection, |tx| apply_reference(
+            tx,
+            Some(&calendar),
+            Some(&departments)
+        ))
+        .map(|(changed, _)| changed)
+        .unwrap()
+            > 0
+    );
     assert_eq!(
-        apply_reference(&mut connection, Some(&calendar), Some(&departments)).unwrap(),
+        commit_on(&mut connection, |tx| apply_reference(
+            tx,
+            Some(&calendar),
+            Some(&departments)
+        ))
+        .map(|(changed, _)| changed)
+        .unwrap(),
         0,
         "the same source hash must not rewrite rows"
     );
@@ -341,7 +400,13 @@ fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
     let mut changed = calendar.clone();
     changed.days[0].label.en = Some("Updated official label".into());
     assert_eq!(
-        apply_reference(&mut connection, Some(&changed), Some(&departments)).unwrap(),
+        commit_on(&mut connection, |tx| apply_reference(
+            tx,
+            Some(&changed),
+            Some(&departments)
+        ))
+        .map(|(changed, _)| changed)
+        .unwrap(),
         1,
         "one changed calendar day must produce one changed row"
     );
@@ -371,7 +436,11 @@ fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
     let (calendar, departments) = fixture_selection(2026, 2026).unwrap();
     let mut connection = Connection::open_in_memory().unwrap();
     migrations::migrate(&mut connection).unwrap();
-    apply_reference(&mut connection, Some(&calendar), Some(&departments)).unwrap();
+    commit_on(&mut connection, |tx| {
+        apply_reference(tx, Some(&calendar), Some(&departments))
+    })
+    .map(|(changed, _)| changed)
+    .unwrap();
     let count = |db: &Connection| {
         db.query_row(
             "SELECT COUNT(*) FROM recommended_courses WHERE deleted_at IS NULL",
@@ -382,10 +451,20 @@ fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
     };
     let before = count(&connection);
     assert!(before > 0);
-    apply_reference(&mut connection, Some(&calendar), None).unwrap();
+    commit_on(&mut connection, |tx| {
+        apply_reference(tx, Some(&calendar), None)
+    })
+    .map(|(changed, _)| changed)
+    .unwrap();
     assert_eq!(count(&connection), before);
     assert_eq!(
-        apply_reference(&mut connection, None, Some(&departments)).unwrap(),
+        commit_on(&mut connection, |tx| apply_reference(
+            tx,
+            None,
+            Some(&departments)
+        ))
+        .map(|(changed, _)| changed)
+        .unwrap(),
         0
     );
 }

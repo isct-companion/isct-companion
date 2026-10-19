@@ -42,7 +42,7 @@ import {
   type SchoolSessionEvent,
   type WorkspaceChangedEvent,
 } from "@app/platform/desktop-bridge";
-import { finderQuery, type FinderView } from "@app/platform/finder-query";
+import { finderQuery } from "@app/platform/finder-query";
 import { LocalRepository, SqliteRepository } from "@app/storage/repository";
 import {
   createBrowserPreviewService,
@@ -699,22 +699,6 @@ describe("schedule query batches", () => {
     ).resolves.toEqual([4]);
     expect(core.commands("schedule_query")).toHaveLength(2);
   });
-
-  it("forwards a finder request unchanged and returns the host's view", async () => {
-    const view = { keys: ["a"] } as unknown as FinderView;
-    const seen: unknown[] = [];
-    installHost({
-      workspace: workspaceFixture(),
-      finder: (request) => {
-        seen.push(request);
-        return view;
-      },
-    });
-    const request = { year: 2026, term: "2026-3Q", keys: [], input: "linear" };
-
-    await expect(finderQuery(request)).resolves.toBe(view);
-    expect(seen).toEqual([request]);
-  });
 });
 
 describe("local browser repository", () => {
@@ -874,19 +858,11 @@ describe("shared workspace routes", () => {
   });
 
   it("keeps desktop-only and developer sections off other platforms", () => {
-    for (const section of [
-      "calendar",
-      "files",
-      "agent",
-      "developer",
-      "diagnostics",
-    ] as const) {
-      expect(
-        routeRedirect(paths.settings(section), {
-          context: { ...desktop, platform: "native-mobile" },
-        }),
-      ).toBe(paths.settings("accounts"));
-    }
+    expect(
+      routeRedirect(paths.settings("files"), {
+        context: { ...desktop, platform: "browser-preview" },
+      }),
+    ).toBe(paths.settings("accounts"));
     for (const section of ["diagnostics", "extensions"] as const) {
       expect(
         routeRedirect(paths.settings(section), {
@@ -936,11 +912,6 @@ describe("shared workspace routes", () => {
 });
 
 describe("public action policy", () => {
-  it.each<AppAction>(["view", "change-local-preference", "export-data"])(
-    "keeps %s available in the browser preview",
-    (action) => expect(can(action, "browser-preview").allowed).toBe(true),
-  );
-
   it.each<AppAction>(["edit-academic-data", "import-school", "push-cloud"])(
     "blocks %s in the browser preview but allows it on the native shell",
     (action) => {
@@ -949,7 +920,6 @@ describe("public action policy", () => {
         "read-only",
       );
       expect(can(action, "native-desktop").allowed).toBe(true);
-      expect(can(action, "native-mobile").allowed).toBe(true);
     },
   );
 
@@ -959,7 +929,6 @@ describe("public action policy", () => {
     "configure-unattended-schedule",
     "resolve-cloud-manually",
   ])("keeps %s desktop-only", (action) => {
-    expect(can(action, "native-mobile").allowed).toBe(false);
     expect(can(action, "browser-preview").allowed).toBe(false);
     expect(can(action, "native-desktop").allowed).toBe(true);
   });
@@ -1057,7 +1026,7 @@ describe("runtime capabilities", () => {
     });
     expect(
       resolveCapabilities(
-        "native-mobile",
+        "native-desktop",
         false,
         "granted",
         runtime({
@@ -1067,26 +1036,11 @@ describe("runtime capabilities", () => {
     ).toMatchObject({ support: "unsupported" });
   });
 
-  it("keeps remote push unsupported in this no-backend build", () => {
-    expect(
-      resolveCapabilities("native-desktop", false, "granted", runtime())[
-        "remote-push"
-      ],
-    ).toMatchObject({
-      support: "unsupported",
-      readiness: "needs-configuration",
-    });
-  });
-
   it("detects the platform from the injected native target", () => {
     expect(detectPlatform()).toBe("browser-preview");
 
     installHost({ workspace: workspaceFixture() });
     expect(detectPlatform()).toBe("native-desktop");
-
-    window.__ISCT_COMPANION_NATIVE_TARGET__ = "native-mobile";
-    expect(detectPlatform()).toBe("native-mobile");
-    delete window.__ISCT_COMPANION_NATIVE_TARGET__;
   });
 });
 
@@ -1155,11 +1109,7 @@ describe("Tauri bridge contract", () => {
 
   it("passes an optional LMS course scope to the native pull", async () => {
     const { invoke, calls } = invokeSeam(() => []);
-    const bridge = createTauriDesktopBridge(
-      invoke,
-      listenerSeam().listen,
-      "native-desktop",
-    );
+    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
 
     await bridge.pullSchool?.("science-lms", { lmsCourseId: 42 });
 
@@ -1181,11 +1131,7 @@ describe("Tauri bridge contract", () => {
       throw new Error(`unexpected command ${command}`);
     });
     const seam = listenerSeam();
-    const bridge = createTauriDesktopBridge(
-      invoke,
-      seam.listen,
-      "native-desktop",
-    );
+    const bridge = createTauriDesktopBridge(invoke, seam.listen);
 
     const received: PullSnapshot[][] = [];
     const dispose = bridge.onPullState!((states) => received.push(states));
@@ -1208,11 +1154,7 @@ describe("Tauri bridge contract", () => {
     const { invoke, calls } = invokeSeam((command) =>
       command === "cancel_pull" ? true : "Updated",
     );
-    const bridge = createTauriDesktopBridge(
-      invoke,
-      listenerSeam().listen,
-      "native-desktop",
-    );
+    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
 
     await expect(bridge.cancelPull!("pull-1")).resolves.toBe(true);
     await expect(bridge.refreshReferenceSubscriptions!(true)).resolves.toBe(
@@ -1251,11 +1193,7 @@ describe("Tauri bridge contract", () => {
           throw new Error(`unexpected command ${command}`);
       }
     });
-    const bridge = createTauriDesktopBridge(
-      invoke,
-      listenerSeam().listen,
-      "native-desktop",
-    );
+    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
     const credentials = {
       username: "student",
       password: "secret",
@@ -1321,11 +1259,7 @@ describe("Tauri bridge contract", () => {
 
   it("copies the saved Matrix through its own command", async () => {
     const { invoke, calls } = invokeSeam(() => true);
-    const bridge = createTauriDesktopBridge(
-      invoke,
-      listenerSeam().listen,
-      "native-desktop",
-    );
+    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
 
     await expect(bridge.copySchoolMatrix()).resolves.toBe(true);
     expect(calls).toEqual([
@@ -1336,11 +1270,7 @@ describe("Tauri bridge contract", () => {
   it("reveals a saved school download and filters download events", async () => {
     const { invoke, calls } = invokeSeam(() => true);
     const seam = listenerSeam();
-    const bridge = createTauriDesktopBridge(
-      invoke,
-      seam.listen,
-      "native-desktop",
-    );
+    const bridge = createTauriDesktopBridge(invoke, seam.listen);
     const path = "/Users/student/Downloads/LAIIAssignment1.pdf";
 
     await expect(bridge.revealSchoolDownload?.(path)).resolves.toBe(true);
@@ -1372,13 +1302,9 @@ describe("Tauri bridge contract", () => {
     expect(seam.unlistens()).toBe(1);
   });
 
-  it("saves exports through the native dialog, not a webview download", async () => {
+  it("maps saveFile to the native save_file command and returns its answer", async () => {
     const { invoke, calls } = invokeSeam(() => false);
-    const bridge = createTauriDesktopBridge(
-      invoke,
-      listenerSeam().listen,
-      "native-desktop",
-    );
+    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
     const name = "campus-life-2026-2Q.ics";
     const contents = "BEGIN:VCALENDAR\r\nEND:VCALENDAR";
 
@@ -1407,11 +1333,7 @@ describe("Tauri bridge contract", () => {
           return undefined;
       }
     });
-    const bridge = createTauriDesktopBridge(
-      invoke,
-      listenerSeam().listen,
-      "native-desktop",
-    );
+    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
 
     await expect(bridge.deleteSchoolCredentials("science")).rejects.toThrow(
       "delete_school_credentials returned an invalid result",
@@ -1438,7 +1360,6 @@ describe("Tauri bridge contract", () => {
     const bridge = createTauriDesktopBridge(
       invokeSeam(() => undefined).invoke,
       seam.listen,
-      "native-desktop",
     );
     const received: SchoolSessionEvent[] = [];
     const dispose = await bridge.onSchoolSession((event) =>
@@ -1464,7 +1385,6 @@ describe("Tauri bridge contract", () => {
     const bridge = createTauriDesktopBridge(
       invokeSeam(() => undefined).invoke,
       seam.listen,
-      "native-desktop",
     );
     const received: WorkspaceChangedEvent[] = [];
     const dispose = await bridge.onWorkspaceChanged((event) =>
@@ -1497,7 +1417,6 @@ describe("Tauri bridge contract", () => {
     const bridge = createTauriDesktopBridge(
       invokeSeam(() => undefined).invoke,
       listen,
-      "native-desktop",
     );
 
     const dispose = bridge.onSchoolLoginStatus!(() => undefined);

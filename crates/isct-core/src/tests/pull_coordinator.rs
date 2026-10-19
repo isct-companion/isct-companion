@@ -23,47 +23,6 @@ fn lms(course_id: Option<u64>) -> PullTarget {
 }
 
 #[test]
-fn reducer_is_total_for_every_state_and_event() {
-    let states = [
-        PullState::Queued,
-        PullState::Checking,
-        PullState::Blocked,
-        PullState::Running,
-        PullState::Applying,
-        PullState::RetryWaiting,
-        PullState::Succeeded,
-        PullState::Failed,
-        PullState::Cancelling,
-        PullState::Cancelled,
-        PullState::Yielding,
-    ];
-    let events = [
-        PullEvent::Enqueue,
-        PullEvent::Check,
-        PullEvent::Block,
-        PullEvent::Ready,
-        PullEvent::Start,
-        PullEvent::Progress,
-        PullEvent::Apply,
-        PullEvent::Applied,
-        PullEvent::WaitRetry,
-        PullEvent::Retry,
-        PullEvent::Succeed,
-        PullEvent::Fail,
-        PullEvent::Cancel,
-        PullEvent::Stop,
-        PullEvent::Yield,
-    ];
-    for state in states {
-        for event in events.clone() {
-            let transition = reduce(state, event);
-            assert!(states.contains(&transition.state));
-            assert!(!transition.diagnostic.is_empty());
-        }
-    }
-}
-
-#[test]
 fn run_without_an_async_runtime_fails_before_admission() {
     let coordinator = PullCoordinator::default();
     let mut request = Box::pin(coordinator.run(

@@ -199,3 +199,51 @@ fn upload_reads_only_the_matching_assignments_submit_files_and_supports_zip() {
         .unwrap();
     assert!(service.prepare_upload(&workspace.path, "a1").is_err());
 }
+
+#[test]
+fn folder_deleted_outside_the_app_is_missing_and_hand_in_falls_back_to_lms() {
+    let fixture = Fixture::new("missing");
+    let service = Workspaces::new(fixture.0.clone());
+    let created = service
+        .create(
+            &course(),
+            "a".into(),
+            "Report".into(),
+            String::new(),
+            Vec::new(),
+        )
+        .unwrap();
+    fs::write(PathBuf::from(&created.path).join("submit/answer.txt"), "x").unwrap();
+    let open = service.hand_in(&course(), "a", false).unwrap();
+    assert_eq!(open.hand_in, HandIn::PrepareDraft);
+    // Closed work goes to LMS even while its workspace is still there.
+    let closed = service.hand_in(&course(), "a", true).unwrap();
+    assert_eq!(closed.hand_in, HandIn::OpenLms);
+    assert!(closed.workspace.is_some());
+
+    fs::remove_dir_all(&created.path).unwrap();
+    assert!(matches!(
+        service.prepare_upload(&created.path, "a"),
+        Err(WorkspaceError::Missing)
+    ));
+    assert!(matches!(
+        service.workspace_path(&created.path),
+        Err(WorkspaceError::Missing)
+    ));
+    assert!(matches!(
+        service.set_submission(&created.path, true, ""),
+        Err(WorkspaceError::Missing)
+    ));
+    service.delete(&created.path).unwrap();
+    // The shell reads the kind, not an OS message.
+    assert_eq!(
+        serde_json::to_value(crate::school_browser::SubmissionError::from(
+            WorkspaceError::Missing
+        ))
+        .unwrap(),
+        serde_json::json!({"kind": "workspaceMissing"})
+    );
+    let gone = service.hand_in(&course(), "a", false).unwrap();
+    assert_eq!(gone.hand_in, HandIn::OpenLms);
+    assert!(gone.workspace.is_none());
+}

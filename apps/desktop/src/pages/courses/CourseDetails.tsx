@@ -1,6 +1,6 @@
 import { submissionLabel } from "../../lib/academic";
 import { ExamCards } from "../../components/exams/ExamCards";
-import { Badge, Button, ScrollArea, Tabs } from "@mantine/core";
+import { Button, ScrollArea, Tabs } from "@mantine/core";
 import { useState } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
 import { PullRing } from "../../components/PullRing";
@@ -123,8 +123,9 @@ export function CourseDetails({
     (item) => item.id === detail?.offeringId,
   );
   const exams = detail?.exams ?? [];
+  // Plain text: a Badge shrinks to an empty pill when the tab runs out of room.
   const count = (value: number) =>
-    value > 0 ? <Badge size="xs">{value}</Badge> : null;
+    value > 0 ? <span className="courseTabCount">{value}</span> : null;
   const refresh = fetchLms && (
     <Button
       size="compact-xs"

@@ -4,7 +4,6 @@ use tauri_plugin_secure_storage::{OptionsRequest, SecureStorageExt};
 
 const LEGACY_SERVICES: &[&str] = &["app.isctcompanion.legacy", "jp.ac.isct.workstation.cloud"];
 const PREVIOUS_APP_ID: &str = "app.campuslife.sciencetokyo";
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 const PREVIOUS_PRODUCT_NAME: &str = "Campus Life";
 const APP_ID: &str = VAULT_SERVICE;
 
@@ -54,16 +53,14 @@ fn request(account: &str, data: Option<String>) -> Result<OptionsRequest, Secret
 // (errSecMissingEntitlement, -34018). They keep school logins in the login
 // keychain instead; only release builds use the synchronized keychain.
 fn apple_keychain_sync(account: &str) -> bool {
-    cfg!(any(
-        all(target_os = "macos", not(debug_assertions)),
-        target_os = "ios"
-    )) && vault_item(account).is_ok_and(|item| item.synchronized)
+    cfg!(all(target_os = "macos", not(debug_assertions)))
+        && vault_item(account).is_ok_and(|item| item.synchronized)
 }
 
 impl SecretVault for OsSecretVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
         validate_secret(secret)?;
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[cfg(target_os = "macos")]
         if apple_keychain_sync(account) {
             return set_apple_synced(account, secret);
         }
@@ -79,7 +76,7 @@ impl SecretVault for OsSecretVault {
         if stored.is_some() {
             return Ok(stored);
         }
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[cfg(target_os = "macos")]
         if apple_keychain_sync(account) {
             if let Some(secret) = self.load_local_current(account)? {
                 migrate_secret(self, account, &secret)?;
@@ -99,7 +96,7 @@ impl SecretVault for OsSecretVault {
     }
 
     fn delete(&self, account: &str) -> Result<(), SecretError> {
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[cfg(target_os = "macos")]
         if apple_keychain_sync(account) {
             delete_apple_synced(account)?;
             self.delete_local_current(account)?;
@@ -198,52 +195,8 @@ impl OsSecretVault {
         read_entry(&entry)
     }
 
-    #[cfg(target_os = "ios")]
-    fn load_current(&self, account: &str) -> Result<Option<String>, SecretError> {
-        if apple_keychain_sync(account) {
-            return get_apple_synced(account);
-        }
-        self.app
-            .secure_storage()
-            .get_item(self.app.clone(), request(account, None)?)
-            .map(|response| response.data)
-            .map_err(|_| access("OS credential vault read failed."))
-    }
-
-    #[cfg(target_os = "android")]
-    fn load_current(&self, account: &str) -> Result<Option<String>, SecretError> {
-        self.app
-            .secure_storage()
-            .get_item(self.app.clone(), request(account, None)?)
-            .map(|response| response.data)
-            .map_err(|_| access("OS credential vault read failed."))
-    }
-
-    #[cfg(target_os = "ios")]
-    fn load_local_current(&self, account: &str) -> Result<Option<String>, SecretError> {
-        let mut options = request(account, None)?;
-        options.sync = Some(false);
-        self.app
-            .secure_storage()
-            .get_item(self.app.clone(), options)
-            .map(|response| response.data)
-            .map_err(|_| access("Local credential vault read failed."))
-    }
-
-    #[cfg(target_os = "ios")]
-    fn delete_local_current(&self, account: &str) -> Result<(), SecretError> {
-        let mut options = request(account, None)?;
-        options.sync = Some(false);
-        self.app
-            .secure_storage()
-            .remove_item(self.app.clone(), options)
-            .map(|_| ())
-            .map_err(|_| access("Local credential vault delete failed."))
-    }
-
     // Desktop secure-storage uses productName as the service, independently of
     // the key prefix. Changing just the prefix cannot find the old item.
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     fn previous_entry(&self, account: &str) -> Result<keyring::Entry, SecretError> {
         keyring::Entry::new(
             PREVIOUS_PRODUCT_NAME,
@@ -252,44 +205,15 @@ impl OsSecretVault {
         .map_err(|_| access("Previous credential vault is unavailable."))
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     fn load_previous(&self, account: &str) -> Result<Option<String>, SecretError> {
         read_entry(&self.previous_entry(account)?)
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     fn delete_previous(&self, account: &str) -> Result<(), SecretError> {
         delete_entry(&self.previous_entry(account)?)
     }
 
-    #[cfg(any(target_os = "ios", target_os = "android"))]
-    fn previous_request(&self, account: &str) -> Result<OptionsRequest, SecretError> {
-        let mut options = request(account, None)?;
-        options.prefixed_key = Some(secure_key_for(PREVIOUS_APP_ID, account)?);
-        Ok(options)
-    }
-
-    #[cfg(any(target_os = "ios", target_os = "android"))]
-    fn load_previous(&self, account: &str) -> Result<Option<String>, SecretError> {
-        self.app
-            .secure_storage()
-            .get_item(self.app.clone(), self.previous_request(account)?)
-            .map(|response| response.data)
-            .map_err(|_| access("Previous credential vault read failed."))
-    }
-
-    #[cfg(any(target_os = "ios", target_os = "android"))]
-    fn delete_previous(&self, account: &str) -> Result<(), SecretError> {
-        if self.load_previous(account)?.is_some() {
-            self.app
-                .secure_storage()
-                .remove_item(self.app.clone(), self.previous_request(account)?)
-                .map_err(|_| access("Previous credential vault delete failed."))?;
-        }
-        Ok(())
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn load_legacy(&self, account: &str) -> Result<Option<String>, SecretError> {
         for service in LEGACY_SERVICES {
             let entry = keyring::Entry::new(service, account)
@@ -303,12 +227,12 @@ impl OsSecretVault {
         Ok(None)
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn load_legacy(&self, _account: &str) -> Result<Option<String>, SecretError> {
         Ok(None)
     }
 
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn delete_legacy(&self, account: &str) -> Result<(), SecretError> {
         for service in LEGACY_SERVICES {
             let entry = keyring::Entry::new(service, account)
@@ -318,13 +242,13 @@ impl OsSecretVault {
         Ok(())
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn delete_legacy(&self, _account: &str) -> Result<(), SecretError> {
         Ok(())
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "macos")]
 fn apple_sync_options(
     account: &str,
 ) -> Result<security_framework::passwords::PasswordOptions, SecretError> {
@@ -333,12 +257,11 @@ fn apple_sync_options(
         &secure_key(account)?,
     );
     options.set_access_synchronized(Some(true));
-    #[cfg(target_os = "macos")]
     options.use_protected_keychain();
     Ok(options)
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "macos")]
 fn set_apple_synced(account: &str, secret: &str) -> Result<(), SecretError> {
     security_framework::passwords::set_generic_password_options(
         secret.as_bytes(),
@@ -352,7 +275,7 @@ fn set_apple_synced(account: &str, secret: &str) -> Result<(), SecretError> {
     })
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "macos")]
 fn get_apple_synced(account: &str) -> Result<Option<String>, SecretError> {
     match security_framework::passwords::generic_password(apple_sync_options(account)?) {
         Ok(bytes) => String::from_utf8(bytes)
@@ -366,7 +289,7 @@ fn get_apple_synced(account: &str) -> Result<Option<String>, SecretError> {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "macos")]
 fn delete_apple_synced(account: &str) -> Result<(), SecretError> {
     match security_framework::passwords::delete_generic_password_options(apple_sync_options(
         account,
@@ -380,12 +303,6 @@ fn delete_apple_synced(account: &str) -> Result<(), SecretError> {
     }
 }
 
-#[cfg(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "windows",
-    target_os = "linux"
-))]
 fn read_entry(entry: &keyring::Entry) -> Result<Option<String>, SecretError> {
     match entry.get_password() {
         Ok(secret) => Ok(Some(secret)),
@@ -395,12 +312,6 @@ fn read_entry(entry: &keyring::Entry) -> Result<Option<String>, SecretError> {
     }
 }
 
-#[cfg(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "windows",
-    target_os = "linux"
-))]
 fn delete_entry(entry: &keyring::Entry) -> Result<(), SecretError> {
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),

@@ -13,10 +13,8 @@ function networkInformation(): NetworkInformation | undefined {
     .connection;
 }
 
-/** Unknown desktop links are treated as unmetered; unknown mobile links pause. */
-export function subscriptionNetwork(
-  platform: "native-desktop" | "native-mobile" | "browser-preview",
-): SubscriptionNetwork {
+/** Unknown links are treated as unmetered. */
+export function subscriptionNetwork(): SubscriptionNetwork {
   if (!navigator.onLine) return "offline";
   const connection = networkInformation();
   if (
@@ -25,6 +23,5 @@ export function subscriptionNetwork(
     connection?.metered === true
   )
     return "cellular";
-  if (["wifi", "ethernet"].includes(connection?.type ?? "")) return "wifi";
-  return platform === "native-mobile" ? "cellular" : "wifi";
+  return "wifi";
 }

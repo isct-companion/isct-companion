@@ -22,7 +22,8 @@ const MAX_UNPACK_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 50_000;
 const STALE_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Serialize)]
+#[serde(tag = "kind", content = "message", rename_all = "camelCase")]
 pub enum WorkspaceError {
     #[error("{0}")]
     Input(String),
@@ -30,6 +31,9 @@ pub enum WorkspaceError {
     Storage(String),
     #[error("{0}")]
     Archive(String),
+    /// The folder was removed outside the app, for example in Finder.
+    #[error("The workspace folder no longer exists")]
+    Missing,
 }
 
 impl From<StorageError> for WorkspaceError {
@@ -61,6 +65,23 @@ pub struct WorkspaceInfo {
     pub submit_files: Vec<String>,
     pub zip: bool,
     pub zip_name: String,
+}
+
+/// What the assignment's main button does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HandIn {
+    /// Open the assignment's LMS page; nothing local is read.
+    OpenLms,
+    /// Upload `submit/` to the LMS draft area, then open it.
+    PrepareDraft,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandInView {
+    pub workspace: Option<WorkspaceInfo>,
+    pub hand_in: HandIn,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -109,6 +130,24 @@ impl Workspaces {
     ) -> Result<Option<WorkspaceInfo>, WorkspaceError> {
         let parent = self.workspaces_dir(course)?;
         Ok(find(&parent, assignment).map(|(path, meta)| info(&path, &meta)))
+    }
+
+    /// The workspace and main action for one assignment. `closed` is the
+    /// assignment's membership in `TaskView::closed_ids`: closed work, and
+    /// open work without a workspace, go straight to LMS.
+    pub fn hand_in(
+        &self,
+        course: &CourseKey,
+        assignment: &str,
+        closed: bool,
+    ) -> Result<HandInView, WorkspaceError> {
+        let workspace = self.find(course, assignment)?;
+        let hand_in = if closed || workspace.is_none() {
+            HandIn::OpenLms
+        } else {
+            HandIn::PrepareDraft
+        };
+        Ok(HandInView { workspace, hand_in })
     }
 
     /// Creates a workspace once. Existing files are never overwritten.
@@ -269,8 +308,13 @@ impl Workspaces {
         })
     }
 
+    /// Deleting a folder that is already gone succeeds.
     pub fn delete(&self, path: &str) -> Result<(), WorkspaceError> {
-        let (dir, _) = self.workspace_dir(path)?;
+        let dir = match self.workspace_dir(path) {
+            Ok((dir, _)) => dir,
+            Err(WorkspaceError::Missing) => return Ok(()),
+            Err(error) => return Err(error),
+        };
         fs::remove_dir_all(dir).map_err(storage_error)
     }
 
@@ -307,7 +351,7 @@ impl Workspaces {
     }
 
     fn workspace_dir(&self, path: &str) -> Result<(PathBuf, Meta), WorkspaceError> {
-        let root = self.root.canonicalize().map_err(storage_error)?;
+        let root = self.root.canonicalize().map_err(lookup_error)?;
         let raw = PathBuf::from(path);
         let relative = raw.strip_prefix(&root).map_err(|_| not_workspace())?;
         let mut checked = root.clone();
@@ -317,14 +361,14 @@ impl Workspaces {
             };
             checked.push(component);
             if fs::symlink_metadata(&checked)
-                .map_err(storage_error)?
+                .map_err(lookup_error)?
                 .file_type()
                 .is_symlink()
             {
                 return Err(not_workspace());
             }
         }
-        let dir = raw.canonicalize().map_err(storage_error)?;
+        let dir = raw.canonicalize().map_err(lookup_error)?;
         let inside = dir
             .strip_prefix(&root)
             .ok()
@@ -616,6 +660,15 @@ fn last_change(dir: &Path) -> Option<SystemTime> {
 
 fn not_workspace() -> WorkspaceError {
     WorkspaceError::Input("Folder is not an assignment workspace".into())
+}
+
+/// A workspace path that no longer resolves was deleted behind the app.
+fn lookup_error(error: io::Error) -> WorkspaceError {
+    if error.kind() == io::ErrorKind::NotFound {
+        WorkspaceError::Missing
+    } else {
+        storage_error(error)
+    }
 }
 
 fn storage_error(error: impl ToString) -> WorkspaceError {

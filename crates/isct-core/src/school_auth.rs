@@ -781,14 +781,5 @@ pub fn upcoming_otps(raw: &str) -> Result<Vec<OtpWindow>, SchoolAuthError> {
 }
 
 #[cfg(test)]
-pub fn current_otp(raw: &str) -> Result<String, SchoolAuthError> {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| SchoolAuthError::storage("System time is unavailable."))?
-        .as_secs();
-    otp_at(raw, timestamp)
-}
-
-#[cfg(test)]
 #[path = "tests/school_auth.rs"]
 mod tests;

@@ -17,6 +17,8 @@ pub enum SubmissionError {
     Storage(String),
     #[error("{0}")]
     Browser(String),
+    #[error("The workspace folder no longer exists")]
+    WorkspaceMissing,
 }
 
 impl From<WorkspaceError> for SubmissionError {
@@ -26,6 +28,7 @@ impl From<WorkspaceError> for SubmissionError {
             WorkspaceError::Storage(message) | WorkspaceError::Archive(message) => {
                 Self::Storage(message)
             }
+            WorkspaceError::Missing => Self::WorkspaceMissing,
         }
     }
 }

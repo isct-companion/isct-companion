@@ -1,9 +1,7 @@
 //! Reference subscription refresh policy, acquisition, and persistence.
 
 use crate::{
-    data::{versioned::content_hash, DataError, DataStore},
-    events::{CoreEvent, WorkspaceChangeSource},
-    ports::EventSink,
+    data::{versioned::content_hash, DataError, DataStore, WorkspaceChangeSource},
     pull_coordinator::{
         PullContext, PullCoordinator, PullError, PullOptions, PullPriority, PullTarget,
     },
@@ -215,17 +213,15 @@ impl ReferenceTransport for HttpReferenceTransport {
 pub struct ReferenceService {
     store: DataStore,
     coordinator: PullCoordinator,
-    events: Arc<dyn EventSink>,
     transport: Arc<dyn ReferenceTransport>,
     clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
 }
 
 impl ReferenceService {
-    pub fn new(store: DataStore, coordinator: PullCoordinator, events: Arc<dyn EventSink>) -> Self {
+    pub fn new(store: DataStore, coordinator: PullCoordinator) -> Self {
         Self {
             store,
             coordinator,
-            events,
             transport: Arc::new(HttpReferenceTransport),
             clock: Arc::new(Utc::now),
         }
@@ -285,10 +281,6 @@ impl ReferenceService {
             }
         }
         self.store.record_reference_poll()?;
-        let _ = self.events.emit(CoreEvent::WorkspaceChanged {
-            source: WorkspaceChangeSource::ReferencePoll,
-            revision: None,
-        });
         if failures > 0 {
             Err(ReferenceError::PartialFailure(failures))
         } else if changed > 0 {
@@ -470,37 +462,38 @@ impl ReferenceService {
             self.store.put_user_record_checked(
                 "subscriptions",
                 row,
-                "pull-coordinator",
+                WorkspaceChangeSource::ReferencePull,
                 Some(revision),
             )?;
         }
-        let _ = self.events.emit(CoreEvent::WorkspaceChanged {
-            source: WorkspaceChangeSource::ReferencePull,
-            revision: None,
-        });
         result
     }
 
     fn apply_fetch(&self, fetched: TransportFetch) -> Result<Value, ReferenceError> {
-        let mut connection = rusqlite::Connection::open(self.store.path())
-            .map_err(|error| ReferenceError::Storage(error.to_string()))?;
+        let write =
+            |apply: &dyn Fn(&rusqlite::Transaction<'_>) -> Result<usize, SubscriptionError>| {
+                self.store
+                    .write(Some(WorkspaceChangeSource::ReferencePull), apply)
+            };
         let mut files = None;
         let changed = match fetched.value.as_ref() {
             None => return Ok(fetch_result(0, &fetched, None, true)),
-            Some(ReferencePayload::Calendar(value)) => {
-                subscriptions::apply_reference(&mut connection, Some(value), None)?
-            }
+            Some(ReferencePayload::Calendar(value)) => write(&|transaction| {
+                subscriptions::apply_reference(transaction, Some(value), None)
+            })?,
             Some(ReferencePayload::ImportantDates(value)) => {
-                subscriptions::apply_important_dates(&mut connection, value)?
+                write(&|transaction| subscriptions::apply_important_dates(transaction, value))?
             }
             Some(ReferencePayload::ClassSchedules(value)) => {
-                subscriptions::apply_class_schedules(&mut connection, value)?
+                write(&|transaction| subscriptions::apply_class_schedules(transaction, value))?
             }
             Some(ReferencePayload::Exams(feeds)) => {
                 let mut changed = 0;
                 let mut applied = Vec::new();
+                // Each exam feed keeps its own commit.
                 for feed in feeds {
-                    changed += subscriptions::apply_exam_feed(&mut connection, feed)?;
+                    changed +=
+                        write(&|transaction| subscriptions::apply_exam_feed(transaction, feed))?;
                     applied.push(json!({
                         "level":feed.level,
                         "quarter":feed.quarter.to_ascii_uppercase(),

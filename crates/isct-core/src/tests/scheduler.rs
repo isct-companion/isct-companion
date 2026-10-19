@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ports::{EventError, SecretError, SecretVault},
+    ports::{SecretError, SecretVault},
     pull_coordinator::{PullContext, PullCoordinator, PullNetwork},
     school_auth::SchoolAuthService,
     school_refresh::RefreshEvent,
@@ -9,7 +9,7 @@ use crate::{
 use serde_json::json;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Barrier, Mutex as StdMutex,
+    Barrier,
 };
 use uuid::Uuid;
 
@@ -48,22 +48,6 @@ impl SchoolExecutor for NoopExecutor {
                 message: String::new(),
             }])
         })
-    }
-}
-
-#[derive(Default)]
-struct RecordingEvents {
-    events: StdMutex<Vec<CoreEvent>>,
-    fail: AtomicBool,
-}
-
-impl EventSink for RecordingEvents {
-    fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
-        if self.fail.load(Ordering::Relaxed) {
-            return Err(EventError::Delivery("event channel closed".into()));
-        }
-        self.events.lock().unwrap().push(event);
-        Ok(())
     }
 }
 
@@ -126,26 +110,20 @@ fn store(name: &str) -> DataStore {
     DataStore::initialize(path).unwrap().0
 }
 
-fn services(
-    store: &DataStore,
-    exporter: Arc<dyn ScheduledExporter>,
-    events: Arc<dyn EventSink>,
-) -> SchedulerServices {
+fn services(store: &DataStore, exporter: Arc<dyn ScheduledExporter>) -> SchedulerServices {
     let coordinator = PullCoordinator::default();
     let refresh = SchoolRefresh::new(PullNetwork::Wifi);
     SchedulerServices {
         store: store.clone(),
-        references: ReferenceService::new(store.clone(), coordinator.clone(), events.clone()),
+        references: ReferenceService::new(store.clone(), coordinator.clone()),
         school: SchoolService::new(
             coordinator,
             Arc::new(SchoolAuthService::new(MemoryVault)),
-            events.clone(),
             refresh.clone(),
         ),
         refresh,
         executor: Arc::new(NoopExecutor),
         exporter,
-        events,
     }
 }
 
@@ -163,7 +141,6 @@ fn add_task(store: &DataStore, id: &str, action: &str, enabled: bool) -> Value {
                 "schedule":"launch",
                 "enabled":enabled
             }),
-            "test",
         )
         .unwrap()
 }
@@ -269,11 +246,7 @@ async fn durable_claim_precedes_the_export_side_effect() {
         id: "claim-first".into(),
         observed_claim: AtomicBool::new(false),
     });
-    let services = services(
-        &store,
-        exporter.clone(),
-        Arc::new(RecordingEvents::default()),
-    );
+    let services = services(&store, exporter.clone());
 
     assert_eq!(
         Scheduler::default()
@@ -290,11 +263,7 @@ async fn automatic_run_rechecks_disabled_task_before_claim() {
     let store = store("stale-auto");
     add_task(&store, "stale-auto", "export", false);
     let exporter = Arc::new(CountingExporter::default());
-    let services = services(
-        &store,
-        exporter.clone(),
-        Arc::new(RecordingEvents::default()),
-    );
+    let services = services(&store, exporter.clone());
     let result = Scheduler::default()
         .run(
             &services,
@@ -316,15 +285,16 @@ async fn invalid_subhour_schedule_is_recorded_once_without_blocking_other_tasks(
     let revision = invalid["rev"].as_u64().unwrap();
     invalid["schedule"] = json!("FREQ=MINUTELY;INTERVAL=30");
     store
-        .put_user_record_checked("scheduled_tasks", invalid, "test", Some(revision))
+        .put_user_record_checked(
+            "scheduled_tasks",
+            invalid,
+            crate::data::WorkspaceChangeSource::UserIntent,
+            Some(revision),
+        )
         .unwrap();
     add_task(&store, "z-valid", "export", true);
     let exporter = Arc::new(CountingExporter::default());
-    let services = services(
-        &store,
-        exporter.clone(),
-        Arc::new(RecordingEvents::default()),
-    );
+    let services = services(&store, exporter.clone());
     let scheduler = Scheduler::default();
 
     scheduler.tick(&services).await.unwrap();
@@ -345,11 +315,7 @@ async fn automatic_runs_defer_while_manual_runs_wait() {
     let store = store("running-lock");
     add_task(&store, "running-lock", "export", true);
     let exporter = Arc::new(CountingExporter::default());
-    let services = Arc::new(services(
-        &store,
-        exporter.clone(),
-        Arc::new(RecordingEvents::default()),
-    ));
+    let services = Arc::new(services(&store, exporter.clone()));
     let scheduler = Arc::new(Scheduler::default());
     let guard = scheduler.running.lock().await;
 
@@ -378,32 +344,10 @@ async fn automatic_runs_defer_while_manual_runs_wait() {
 }
 
 #[tokio::test]
-async fn event_delivery_failure_does_not_leave_task_running() {
-    let store = store("event-failure");
-    add_task(&store, "event-failure", "export", true);
-    let events = Arc::new(RecordingEvents::default());
-    events.fail.store(true, Ordering::Relaxed);
-    let services = services(&store, Arc::new(CountingExporter::default()), events);
-
-    Scheduler::default()
-        .run_now(&services, "event-failure")
-        .await
-        .unwrap();
-    assert_eq!(
-        task(&store, "event-failure")["lastResult"],
-        "Export completed"
-    );
-}
-
-#[tokio::test]
 async fn exporter_failure_is_typed_and_persisted() {
     let store = store("typed-export");
     add_task(&store, "typed-export", "export", true);
-    let services = services(
-        &store,
-        Arc::new(FailingExporter),
-        Arc::new(RecordingEvents::default()),
-    );
+    let services = services(&store, Arc::new(FailingExporter));
     assert!(matches!(
         execute(&services, action("export"), true).await,
         Err(SchedulerError::Export(ExportError::Failed(message)))
@@ -425,11 +369,7 @@ async fn exporter_failure_is_typed_and_persisted() {
 #[tokio::test]
 async fn action_dispatch_preserves_messages_and_foreground_policy() {
     let store = store("actions");
-    let services = services(
-        &store,
-        Arc::new(CountingExporter::default()),
-        Arc::new(RecordingEvents::default()),
-    );
+    let services = services(&store, Arc::new(CountingExporter::default()));
     services
         .refresh
         .event(RefreshEvent::lifecycle(false))
@@ -476,7 +416,6 @@ async fn in_flight_user_edit_wins_over_final_scheduler_write() {
     let services = Arc::new(services(
         &store,
         Arc::new(BlockingExporter { gate: gate.clone() }),
-        Arc::new(RecordingEvents::default()),
     ));
     let scheduler = Arc::new(Scheduler::default());
     let running = {
@@ -489,7 +428,12 @@ async fn in_flight_user_edit_wins_over_final_scheduler_write() {
     let revision = edited["rev"].as_u64().unwrap();
     edited["name"] = json!("User changed name");
     store
-        .put_user_record_checked("scheduled_tasks", edited, "user", Some(revision))
+        .put_user_record_checked(
+            "scheduled_tasks",
+            edited,
+            crate::data::WorkspaceChangeSource::UserIntent,
+            Some(revision),
+        )
         .unwrap();
     gate.wait();
 
@@ -508,7 +452,6 @@ async fn in_flight_user_delete_is_not_undone_by_final_write() {
     let services = Arc::new(services(
         &store,
         Arc::new(BlockingExporter { gate: gate.clone() }),
-        Arc::new(RecordingEvents::default()),
     ));
     let scheduler = Arc::new(Scheduler::default());
     let running = {
@@ -519,7 +462,7 @@ async fn in_flight_user_delete_is_not_undone_by_final_write() {
     gate.wait();
     let revision = task(&store, "delete-wins")["rev"].as_u64().unwrap();
     store
-        .delete_user_record_checked("scheduled_tasks", "delete-wins", "user", Some(revision))
+        .delete_user_record_checked("scheduled_tasks", "delete-wins", Some(revision))
         .unwrap();
     gate.wait();
 

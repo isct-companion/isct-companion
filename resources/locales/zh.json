@@ -894,6 +894,7 @@
   "The upload area is not available. Choose the files in LMS.": "上传区暂不可用，请在 LMS 中选择文件。",
   "Files upload to the LMS draft. Review and submit in LMS.": "文件会上传到 LMS 草稿区，请在 LMS 中检查并提交。",
   "Prepare in LMS": "在 LMS 中准备提交",
+  "The workspace folder “{{name}}” is gone. Create it again, or view the assignment in LMS and choose the files there.": "工作区文件夹“{{name}}”已不存在。可以重新创建，或在 LMS 中打开作业并在那里选择文件。",
   "Admission year": "入学年份",
   "Add degree programme": "添加学位课程",
   "Save enrollment details": "保存学籍信息",

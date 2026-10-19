@@ -10,14 +10,10 @@ use isct_core::ports::SecretVault;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-#[cfg(desktop)]
 use sha2::{Digest, Sha256};
-#[cfg(desktop)]
 use std::collections::BTreeMap;
-#[cfg(desktop)]
 use std::io::Read;
 use std::io::Write;
-#[cfg(desktop)]
 use std::net::TcpListener;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
@@ -35,7 +31,6 @@ struct GoogleDriveFiles {
     files: Option<Vec<GoogleDriveFile>>,
 }
 
-#[cfg(desktop)]
 pub fn validate_redirect_uri(raw: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "OAuth redirect URI is invalid.".to_string())?;
     if url.scheme() != "http"
@@ -50,7 +45,6 @@ pub fn validate_redirect_uri(raw: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-#[cfg(desktop)]
 pub fn validate_pkce_state(verifier: &str, state: &str) -> Result<(), String> {
     let url_safe = |value: &str| {
         value
@@ -86,12 +80,9 @@ struct TokenResponse {
 /// installed apps. `scripts/desktop/tauri.mjs` supplies both values at build time
 /// from config/oauth-clients.yaml, and the secret is only sent with the
 /// client it belongs to (not with a development override).
-#[cfg(desktop)]
 const GOOGLE_DESKTOP_CLIENT_ID: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID");
-#[cfg(desktop)]
 const GOOGLE_DESKTOP_CLIENT_SECRET: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET");
 
-#[cfg(desktop)]
 fn client_secret_for(provider: CloudProvider, client_id: &str) -> Option<&'static str> {
     if provider != CloudProvider::GoogleDrive || GOOGLE_DESKTOP_CLIENT_ID != Some(client_id) {
         return None;
@@ -215,7 +206,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
 
     /// The PKCE authorization request for a redirect; returns the URL to open
     /// and the verifier and state that the callback must match.
-    #[cfg(desktop)]
     fn authorization_request(
         provider: CloudProvider,
         client_id: &str,
@@ -251,7 +241,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
     }
 
     /// Desktop sign-in: the system browser returns to a loopback listener.
-    #[cfg(desktop)]
     pub async fn connect<F>(
         &self,
         provider: CloudProvider,
@@ -313,7 +302,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
     }
 
     /// Exchanges an authorization code and stores the token in the vault.
-    #[cfg(desktop)]
     async fn finish_connect(
         &self,
         provider: CloudProvider,
@@ -394,76 +382,13 @@ impl<V: SecretVault> DesktopCloudService<V> {
         Ok(authorized)
     }
 
-    /// Saves credentials issued by a provider's native mobile SDK.
-    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-    #[cfg(mobile)]
-    pub fn connect_with_native_token(
-        &self,
-        provider: CloudProvider,
-        client_id: &str,
-        access_token: String,
-        refresh_token: Option<String>,
-        expires_in: u64,
-    ) -> Result<bool, String> {
-        if provider != CloudProvider::GoogleDrive
-            || !valid_client_id(client_id)
-            || access_token.is_empty()
-        {
-            return Err("Native cloud authorization is invalid.".into());
-        }
-        let stored = StoredToken {
-            access_token,
-            refresh_token: refresh_token.filter(|value| !value.is_empty()),
-            expires_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                + bounded_expiry(Some(expires_in)).saturating_sub(60),
-            client_id: client_id.to_string(),
-        };
-        self.vault
-            .store(
-                provider_account(provider),
-                &serde_json::to_string(&stored).map_err(|_| "Token serialization failed.")?,
-            )
-            .map_err(|error| error.to_string())?;
-        Ok(true)
-    }
-
-    #[cfg(target_os = "android")]
-    pub fn refresh_android(&self, app: &tauri::AppHandle) -> Result<(), String> {
-        let raw = self
-            .vault
-            .load("google-drive")
-            .map_err(|error| error.to_string())?
-            .ok_or("Google Drive is not connected")?;
-        let stored: StoredToken =
-            serde_json::from_str(&raw).map_err(|_| "Invalid Google Drive token")?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        if stored.expires_at > now + 60 {
-            return Ok(());
-        }
-        let token = tauri_plugin_google_drive_auth::refresh(app, &stored.client_id)?;
-        self.connect_with_native_token(
-            CloudProvider::GoogleDrive,
-            &token.client_id,
-            token.access_token,
-            token.refresh_token,
-            token.expires_in,
-        )?;
-        Ok(())
-    }
-
     pub fn disconnect(&self, provider: CloudProvider) -> Result<(), String> {
         self.vault
             .delete(provider_account(provider))
             .map_err(|error| error.to_string())
     }
 
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(target_os = "macos")]
     pub async fn connect_icloud(&self) -> Result<bool, String> {
         crate::icloud::account_available().await?;
         self.vault
@@ -505,7 +430,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
                         ("refresh_token", refresh.as_str()),
                         ("grant_type", "refresh_token"),
                     ];
-                    #[cfg(desktop)]
                     if let Some(secret) = client_secret_for(provider, &token.client_id) {
                         form.push(("client_secret", secret));
                     }
@@ -658,9 +582,9 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 response
             }
             CloudProvider::Icloud => {
-                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                #[cfg(target_os = "macos")]
                 return crate::icloud::read(name).await;
-                #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+                #[cfg(not(target_os = "macos"))]
                 return Err("iCloud sync is only available on Apple devices.".into());
             }
         };
@@ -739,11 +663,11 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 .await?
             }
             CloudProvider::Icloud => {
-                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                #[cfg(target_os = "macos")]
                 {
                     return crate::icloud::write(name, bytes).await;
                 }
-                #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+                #[cfg(not(target_os = "macos"))]
                 return Err("iCloud sync is only available on Apple devices.".into());
             }
         };

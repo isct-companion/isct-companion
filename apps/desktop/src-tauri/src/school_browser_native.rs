@@ -21,7 +21,7 @@ pub use isct_core::school_browser::{
     SchoolWebResult, KYOMU_POPUP as KYOMU_POPUP_SCRIPT, SCHOOL_LINKS as SCHOOL_LINKS_SCRIPT,
 };
 pub use isct_core::school_service::IngestOutcome;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "macos")]
 pub(crate) const SCHOOL_DATA_STORE: [u8; 16] = [
     0x63, 0x61, 0x6d, 0x70, 0x75, 0x73, 0x2d, 0x6c, 0x69, 0x66, 0x65, 0x2d, 0x77, 0x65, 0x62, 0x31,
 ];
@@ -70,7 +70,6 @@ pub(crate) struct ViewCallbacks {
     pub title: Arc<dyn Fn(&str) + Send + Sync>,
     pub navigation: Arc<dyn Fn(&Url) -> bool + Send + Sync>,
     pub new_window: Arc<dyn Fn(Url) + Send + Sync>,
-    #[cfg(desktop)]
     pub download: Arc<dyn Fn(tauri::webview::DownloadEvent<'_>) -> bool + Send + Sync>,
 }
 struct View {
@@ -283,7 +282,6 @@ impl NativeBrowser {
         let nav_sequence = sequence.clone();
         let popup_weak = weak.clone();
         let popup_sequence = sequence.clone();
-        #[cfg(desktop)]
         let download_weak = weak.clone();
         let callbacks = ViewCallbacks {
             loaded: Arc::new(move |raw| {
@@ -358,7 +356,6 @@ impl NativeBrowser {
                     NewWindowDecision::Ignore => {}
                 }
             }),
-            #[cfg(desktop)]
             download: Arc::new(move |event| {
                 download_weak.upgrade().is_some_and(|native| {
                     native

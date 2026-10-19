@@ -40,7 +40,7 @@ fn missing_runtime_is_a_recoverable_admission_error() {
 }
 
 #[tokio::test]
-async fn worker_panic_is_typed_and_does_not_close_admission() {
+async fn worker_failures_are_typed_and_do_not_close_admission() {
     let tasks = RuntimeTasks::default();
     let result = tasks
         .run(async { panic!("synthetic worker failure") })
@@ -49,10 +49,8 @@ async fn worker_panic_is_typed_and_does_not_close_admission() {
     assert_eq!(tasks.run(async { 42 }).await, Ok(42));
     tasks.close();
     tasks.wait().await;
-}
 
-#[tokio::test]
-async fn unexpected_worker_cancellation_has_its_own_category() {
+    // A worker cancelled from outside is not a panic; it has its own category.
     let worker = tokio::spawn(std::future::pending::<()>());
     worker.abort();
     assert_eq!(

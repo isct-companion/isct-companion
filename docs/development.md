@@ -64,7 +64,6 @@ resources/locales/         shared UI translation resources
 resources/design/          original icon artwork; future shared visual tokens
 config/                    cross-platform build configuration (OAuth clients)
 scripts/                   desktop, bindings, checks, data and shared build tools
-deprecated/tauri-mobile/   retired Tauri mobile adapters, plugins and build notes
 docs/                      contracts, design and verification records
 ```
 
@@ -80,10 +79,10 @@ Generate desktop TypeScript contracts with `yarn core:types`; the exporter
 belongs to Core and does not require compiling Tauri. Subscription test data
 remains in `crates/isct-core/tests/fixtures/subscriptions/`.
 
-The retired mobile release workflows are archived outside GitHub's active
-workflow directory. Desktop releases build independently; platform checks
-continue to compile shared Core for iOS and Android. Historical plans and
-verification records may use paths from before this directory move.
+Desktop releases build independently; platform checks continue to compile
+shared Core for iOS and Android. Historical plans and verification records may
+use paths from before this directory move, including the removed Tauri mobile
+adapters.
 
 ## Desktop Core checkpoint
 

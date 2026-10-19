@@ -14,7 +14,12 @@
     const text = first && !first.children.length
       ? first.textContent.replace(/\s+/g, " ").trim() : "";
     const grade = text && text !== "-" ? text : null;
-    return { cmid, submission, grade, late: has("latesubmission") || has("overdue") };
+    // Moodle renders the add/edit submission button only while it still takes
+    // work from this student: before the cut-off date, late or not.
+    const acceptsSubmission = Boolean(page.querySelector(
+      '[href*="action=editsubmission"], input[name="action"][value="editsubmission"]'));
+    return { cmid, submission, grade, acceptsSubmission,
+      late: has("latesubmission") || has("overdue") };
   }
   if (module === "quiz") {
     // The attempt box is always rendered on the quiz view page; without it

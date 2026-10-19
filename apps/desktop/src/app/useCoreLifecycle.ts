@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { desktopBridge } from "./native";
 import { subscriptionNetwork } from "../platform/subscription-polling";
-import { detectPlatform } from "../platform/capabilities";
 
 export function useCoreLifecycle() {
   useEffect(() => {
@@ -10,7 +9,7 @@ export function useCoreLifecycle() {
       void desktopBridge
         ?.schoolRefreshEvent?.({
           kind,
-          network: subscriptionNetwork(detectPlatform()),
+          network: subscriptionNetwork(),
         })
         .catch(() => undefined);
       void desktopBridge?.cloudLifecycle?.(kind).catch(() => undefined);

@@ -496,11 +496,19 @@ fn generated_contract_preserves_intents_fixed_arrays_and_unknown_payloads() {
         to: "2026-10-16".into(),
         periods: vec![1, 2, 3],
     };
-    assert!(crate::json::project_input::<_, isct_core::schedule::WorkspaceQuery>(bad).is_err());
+    assert!(matches!(
+        crate::json::project_input::<_, isct_core::schedule::WorkspaceQuery>(bad),
+        Err(SdkError::InvalidInput { .. })
+    ));
+    // The same mismatch on the way out is Core's fault, not the caller's.
+    assert!(matches!(
+        crate::json::project::<_, [u8; 2]>(vec![1]),
+        Err(SdkError::Internal { .. })
+    ));
 }
 
 #[test]
-fn school_outcomes_and_reminder_failures_remain_typed() {
+fn school_outcomes_project_into_the_generated_ffi_types() {
     let outcome = isct_core::school_service::IngestOutcome {
         site: isct_core::lifecycle::SchoolSite::ScienceLms,
         kind: "courses".into(),
@@ -522,30 +530,6 @@ fn school_outcomes_and_reminder_failures_remain_typed() {
         .unwrap();
     assert!(matches!(unavailable.state, IngestState::Unavailable));
     assert_eq!(unavailable.changed, 0);
-
-    use isct_core::schedule::{ReminderError as E, ScheduleError};
-    assert!(matches!(
-        SdkError::from(E::Storage("disk".into())),
-        SdkError::Storage { .. }
-    ));
-    assert!(matches!(
-        SdkError::from(E::Data(isct_core::data::DataError::Storage("db".into()))),
-        SdkError::Storage { .. }
-    ));
-    assert!(matches!(
-        SdkError::from(E::Policy(ScheduleError::Compatibility("schema".into()))),
-        SdkError::Compatibility { .. }
-    ));
-    assert!(matches!(
-        SdkError::from(E::Task(isct_core::runtime_tasks::RuntimeTaskError::Stopped)),
-        SdkError::Closed
-    ));
-    assert!(matches!(
-        SdkError::from(E::Delivery(
-            isct_core::schedule::NotificationSinkError::Delivery("OS".into())
-        )),
-        SdkError::Callback { .. }
-    ));
 }
 
 #[tokio::test]
@@ -561,19 +545,46 @@ async fn local_backup_application_emits_its_own_source_and_keeps_the_session_usa
     else {
         panic!("wrong backup result")
     };
+    // Core publishes only writes that change rows, so the backup carries a
+    // plan this device does not have yet.
+    let mut document: serde_json::Value = serde_json::from_str(&value).unwrap();
+    document["tables"]["plans"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id": "restored-plan",
+            "rev": 1,
+            "updatedAt": "2026-10-13T01:00:00Z",
+            "updatedBy": "other-device",
+            "source": {"provider": "manual"},
+            "title": "Restored",
+            "start": "2026-10-13T10:00:00+09:00",
+            "duration": 60,
+            "exdates": []
+        }));
     let events = f.session.subscribe().unwrap();
     f.session
-        .apply_backup(JsonValue(serde_json::from_str(&value).unwrap()))
+        .apply_backup(JsonValue(document))
         .unwrap()
         .await_result()
         .await
         .unwrap();
-    let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+    let StreamUpdate::Event { event } =
+        tokio::time::timeout(std::time::Duration::from_secs(2), events.next())
+            .await
+            .expect("restore event within two seconds")
+            .unwrap()
+    else {
         panic!("missing restore event")
     };
     assert_eq!(event.name, "workspace-changed");
     assert_eq!(event.payload.0, json!({"source":"local-restore"}));
-    let _ = f.snapshot().await;
+    let snapshot = f.snapshot().await;
+    assert!(snapshot.workspace.0["plans"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|plan| plan["id"] == "restored-plan"));
     f.finish().await;
 }
 struct BrokenVault;

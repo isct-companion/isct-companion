@@ -43,7 +43,6 @@ impl Fixture {
             .put_workspace_setting(
                 "devicePreferences",
                 json!({"agentAccess":{"enabled":enabled}}),
-                "test",
             )
             .unwrap();
     }
@@ -114,14 +113,9 @@ async fn rpc(
 #[tokio::test]
 async fn http_protocol_permissions_mutations_and_shutdown() {
     let fixture = Fixture::new();
-    let server = AgentServer::bind(
-        fixture.core.clone(),
-        fixture.root.join("agent-token"),
-        None,
-        0,
-    )
-    .await
-    .unwrap();
+    let server = AgentServer::bind(fixture.core.clone(), fixture.root.join("agent-token"), 0)
+        .await
+        .unwrap();
     let connection = server.connection();
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -260,23 +254,15 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
         .is_err());
     // A restart reuses the token and can bind the same port.
     let port = url::Url::parse(&connection.url).unwrap().port().unwrap();
-    let restarted = AgentServer::bind(
-        fixture.core.clone(),
-        fixture.root.join("agent-token"),
-        None,
-        port,
-    )
-    .await
-    .unwrap();
+    let restarted = AgentServer::bind(fixture.core.clone(), fixture.root.join("agent-token"), port)
+        .await
+        .unwrap();
     assert_eq!(restarted.connection().token, connection.token);
-    assert!(AgentServer::bind(
-        fixture.core.clone(),
-        fixture.root.join("agent-token"),
-        None,
-        port
-    )
-    .await
-    .is_err());
+    assert!(
+        AgentServer::bind(fixture.core.clone(), fixture.root.join("agent-token"), port)
+            .await
+            .is_err()
+    );
     restarted.shutdown().await;
     fixture.core.shutdown().await;
 }
@@ -289,7 +275,6 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
     let permits = Arc::new(Semaphore::new(1));
     let handler = AgentHandler {
         core: fixture.core.clone(),
-        app: None,
         calls: tasks.clone(),
         work: permits.clone(),
     };
@@ -343,7 +328,7 @@ async fn listener_and_token_follow_the_agent_access_setting() {
     // Hold a free port to simulate another process using it.
     let blocker = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let port = blocker.local_addr().unwrap().port();
-    let access = AgentAccess::with(fixture.core.clone(), token_path.clone(), None, port);
+    let access = AgentAccess::with(fixture.core.clone(), token_path.clone(), port);
 
     assert!(matches!(access.reconcile().await, AgentConnection::Off));
     assert!(!token_path.exists(), "no token while agent access is off");

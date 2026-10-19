@@ -8,6 +8,7 @@ mod calendar;
 mod catalog;
 mod courses;
 
+pub(crate) use calendar::set_assignment_mark;
 use calendar::*;
 pub use catalog::catalog_course;
 use catalog::*;
@@ -315,7 +316,6 @@ pub fn declarations() -> Vec<String> {
 #[derive(Clone)]
 pub struct WorkspaceService {
     store: DataStore,
-    events: Option<Arc<dyn crate::ports::EventSink>>,
     /// What the last `AddCatalogCourses` placed and replaced, so
     /// `UndoCatalogCourses` reverses exactly that add.  Like the finder's undo
     /// toast it lasts for this session only.
@@ -337,15 +337,6 @@ impl WorkspaceService {
     pub fn new(store: DataStore) -> Self {
         Self {
             store,
-            events: None,
-            catalog_undo: Arc::default(),
-        }
-    }
-
-    pub fn with_events(store: DataStore, events: Arc<dyn crate::ports::EventSink>) -> Self {
-        Self {
-            store,
-            events: Some(events),
             catalog_undo: Arc::default(),
         }
     }
@@ -392,14 +383,39 @@ impl WorkspaceService {
             .catalog_undo
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = undo;
-        if let Some(events) = &self.events {
-            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged {
-                source: crate::events::WorkspaceChangeSource::UserIntent,
-                revision: Some(result.revision.clone()),
-            });
-        }
         Ok(result)
     }
+}
+
+/// Saves one personal plan and returns its id. Shared by the `SavePlan`
+/// intent and agent tools, so both meet one set of plan rules.
+pub(crate) fn save_plan(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    mut draft: Value,
+    existing_id: Option<String>,
+) -> Result<String, DataError> {
+    crate::plans::canonicalize_plan_draft(&mut draft)
+        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+    let id = existing_id.unwrap_or_else(|| Uuid::now_v7().to_string());
+    save_simple_record(
+        write,
+        current,
+        "plans",
+        "plans",
+        draft,
+        Some(id.clone()),
+        |_| Ok(()),
+    )?;
+    Ok(id)
+}
+
+pub(crate) fn delete_plan(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    plan_id: &str,
+) -> Result<(), DataError> {
+    delete_visible(write, current, "plans", "plans", plan_id)
 }
 
 fn snapshot(
@@ -550,19 +566,10 @@ fn apply_intent(
         WorkspaceIntent::DeleteEvent { event_id } => {
             delete_visible(write, current, "events", "personal_events", &event_id)
         }
-        WorkspaceIntent::SavePlan {
-            mut draft,
-            existing_id,
-        } => {
-            crate::plans::canonicalize_plan_draft(&mut draft)
-                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
-            save_simple_record(write, current, "plans", "plans", draft, existing_id, |_| {
-                Ok(())
-            })
+        WorkspaceIntent::SavePlan { draft, existing_id } => {
+            save_plan(write, current, draft, existing_id).map(|_| ())
         }
-        WorkspaceIntent::DeletePlan { plan_id } => {
-            delete_visible(write, current, "plans", "plans", &plan_id)
-        }
+        WorkspaceIntent::DeletePlan { plan_id } => delete_plan(write, current, &plan_id),
         WorkspaceIntent::SaveCalendarException { draft, existing_id } => {
             save_calendar_exception(write, current, draft, existing_id)
         }

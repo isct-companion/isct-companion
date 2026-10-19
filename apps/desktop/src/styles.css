@@ -809,268 +809,8 @@ p {
   min-height: 0;
   overflow: auto;
 }
-.drawerList .danger {
-  color: var(--danger);
-}
-.drawerList .warning {
-  color: var(--warn);
-}
-
-/* ---------- courses ---------- */
-.termTabs {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 9px;
-  background: var(--surface-3);
-  overflow-x: auto;
-  min-width: 0;
-}
-.termTabs button {
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-  padding: 5px 12px;
-  font-size: calc(12.5px * var(--text));
-  font-weight: 600;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.termTabs button i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.termTabs button.active {
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 1px 2px #0002;
-}
-.termTabs .addTerm {
-  padding: 5px 9px;
-  font-size: calc(14px * var(--text));
-  line-height: 1;
-}
-.courseRow {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding-right: 12px;
-  border-bottom: 1px solid var(--line);
-}
-.courseRow:not(:has(.courseSelect)) {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-.courseSelect {
-  display: grid;
-  place-items: center;
-  min-width: 38px;
-  min-height: 44px;
-  padding-left: 10px;
-}
-.courseSelect input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-}
-.courseFilters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-}
-.courseFilters select,
-.courseFilters button {
-  min-width: 0;
-  height: 30px;
-  font: inherit;
-  font-size: calc(11.5px * var(--text));
-}
-.courseFilters select {
-  width: 100%;
-  padding: 0 24px 0 8px;
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: 7px;
-}
-.filterClear {
-  border: 0;
-  background: none;
-  color: var(--accent);
-  text-align: left;
-  padding: 0 4px;
-}
-.courseBatchBar {
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--line);
-}
-.courseBatchBar > span {
-  flex: 1 1 120px;
-  color: var(--muted);
-  font-size: calc(10.5px * var(--text));
-  white-space: nowrap;
-}
-.courseBatchBar .textButton {
-  white-space: nowrap;
-}
-.compactButton {
-  min-height: 28px;
-  padding: 4px 9px;
-  white-space: nowrap;
-}
-.batchCourseDialog {
-  display: grid;
-  gap: 12px;
-}
-.batchCourseActions {
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-.batchPreview {
-  padding: 0 16px 12px;
-  color: var(--muted);
-  font-size: calc(12px * var(--text));
-}
-.batchEditFields {
-  display: grid;
-  gap: 10px;
-  padding: 16px;
-}
-.batchEditFields label {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  color: var(--muted);
-  font-size: calc(12px * var(--text));
-}
-.batchEditFields input {
-  width: 100%;
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-}
-.courseRow.off .courseRowMain {
-  opacity: 0.55;
-}
-.courseRow.conflict .courseRowMain i {
-  box-shadow:
-    0 0 0 2px var(--danger-soft),
-    0 0 0 3px var(--danger);
-}
-.courseRowMain {
-  width: 100%;
-  border: 0;
-  background: none;
-  color: var(--ink);
-  text-align: left;
-  display: grid;
-  grid-template-columns: 4px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  min-height: 52px;
-}
-.courseRowMain:hover {
-  background: var(--surface-2);
-}
-.courseRowMain i {
-  height: 30px;
-  border-radius: 3px;
-  background: var(--line-strong);
-}
-.courseRowMain b,
-.courseRowMain small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.courseRowMain b {
-  font-size: calc(12.5px * var(--text));
-}
-.courseRowMain small {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: calc(11px * var(--text));
-}
-.courseRow.event {
-  display: grid;
-  grid-template-columns: 4px minmax(0, 1fr);
-  padding-right: 12px;
-}
-.listSub {
-  padding: 10px 14px 4px;
-  font-size: calc(10.5px * var(--text));
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
 
 /* ---------- drawer ---------- */
-.drawerBody {
-  flex: 1;
-  padding: 6px 18px;
-}
-.drawerBody dl {
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  margin: 0;
-  font-size: calc(12.5px * var(--text));
-}
-.drawerBody dt,
-.drawerBody dd {
-  padding: 11px 0;
-  border-bottom: 1px solid var(--line);
-  margin: 0;
-}
-.drawerBody dt {
-  color: var(--muted);
-}
-.drawerBody dd div + div {
-  margin-top: 3px;
-}
-.drawerList article {
-  border-bottom: 1px solid var(--line);
-  padding: 11px 0;
-}
-.drawerList article b,
-.drawerList article small,
-.drawerList article a {
-  display: block;
-}
-.drawerList article small {
-  color: var(--muted);
-  font-size: calc(11px * var(--text));
-  margin-bottom: 3px;
-}
-.drawerList article a {
-  font-weight: 600;
-  text-decoration: none;
-}
-.drawerList article p {
-  font-size: calc(12px * var(--text));
-  color: var(--muted);
-  margin-top: 4px;
-}
 .drawerActions {
   padding: 12px 18px;
   border-top: 1px solid var(--line);
@@ -1677,10 +1417,6 @@ p {
 }
 
 /* ---------- density ---------- */
-[data-density="compact"] .courseRowMain {
-  min-height: 42px;
-  padding-block: 6px;
-}
 [data-density="compact"] .row {
   min-height: 44px;
   padding-block: 5px;
@@ -1820,29 +1556,11 @@ p {
   background: var(--surface);
   border-top: 1px solid var(--line);
 }
-.syllabusDetailsHeader {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.syllabusDetailsHeader h2 {
-  margin: 0 0 6px;
-  font-size: 17px;
-}
-.syllabusDetailsHeader p,
 .syllabusStatus {
   margin: 0 0 12px;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
-}
-.syllabusDetailsActions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-shrink: 0;
-  font-size: 13px;
 }
 .syllabusDetails details {
   border-top: 1px solid var(--line);
@@ -1898,9 +1616,6 @@ p {
   color: var(--muted);
 }
 @media (max-width: 650px) {
-  .syllabusDetailsHeader {
-    flex-direction: column;
-  }
   .syllabusMetadata > div {
     grid-template-columns: 1fr;
     gap: 4px;
@@ -1912,8 +1627,7 @@ p {
 }
 
 /* ---------- task workspace ---------- */
-.todayPage,
-.schedulePage {
+.todayPage {
   max-width: 1120px;
   margin: 0 auto;
 }
@@ -2136,10 +1850,6 @@ p {
   color: var(--muted);
   font-size: calc(13px * var(--text));
 }
-.scheduleHeader {
-  padding: 14px 0 12px;
-  border-bottom: 1px solid var(--line);
-}
 .scheduleControls {
   display: flex;
   align-items: center;
@@ -2158,160 +1868,6 @@ p {
 .scheduleControls button:hover {
   background: var(--surface-3);
   color: var(--ink);
-}
-.scheduleCanvas {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.tasksPage {
-  max-width: 1040px;
-  margin: 0 auto;
-}
-.tasksHeader {
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
-}
-.taskTimeline {
-  min-height: 0;
-  overflow: auto;
-  padding-bottom: 24px;
-}
-.taskGroup {
-  display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
-  border-bottom: 1px solid var(--line);
-}
-.taskGroup > header {
-  grid-row: 1 / span 999;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 18px 18px 18px 0;
-}
-.taskGroup > header h2 {
-  font-size: calc(13px * var(--text));
-  font-weight: 700;
-}
-.taskGroup > header span {
-  color: var(--muted);
-  font-size: calc(11px * var(--text));
-}
-.taskRow {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
-}
-.taskRow:last-child {
-  border-bottom: 0;
-}
-.taskState {
-  width: 8px;
-  height: 8px;
-  border: 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  justify-self: center;
-  background: var(--line-strong);
-  color: transparent;
-  font-size: 0;
-}
-.taskState.submitted {
-  width: 18px;
-  height: 18px;
-  background: var(--ok);
-  color: var(--accent-ink);
-  font-size: 11px;
-}
-.taskState.late,
-.taskState.not-submitted {
-  background: var(--danger);
-}
-.taskState.draft {
-  background: var(--warn);
-}
-.taskMain {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-  padding: 0;
-  border: 0;
-  background: none;
-  text-align: left;
-}
-.taskMain b,
-.taskMain span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.taskMain b {
-  font-size: calc(13.5px * var(--text));
-}
-.taskMain span {
-  color: var(--muted);
-  font-size: calc(11.5px * var(--text));
-}
-.taskMain .submissionStatus {
-  color: var(--muted);
-  font-size: calc(10.5px * var(--text));
-}
-.taskMain .submissionStatus.submitted {
-  color: var(--ok);
-}
-.taskMain .submissionStatus.late,
-.taskMain .submissionStatus.not-submitted {
-  color: var(--danger);
-}
-.taskMain .submissionStatus.draft {
-  color: var(--warn);
-}
-.taskRow time {
-  color: var(--muted);
-  font-size: calc(11.5px * var(--text));
-  white-space: nowrap;
-}
-.taskRow time.danger {
-  color: var(--danger);
-}
-.taskRow time.warn {
-  color: var(--warn);
-}
-.taskActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-.taskRow:hover .taskActions,
-.taskRow:focus-within .taskActions {
-  opacity: 1;
-}
-.taskActions button {
-  border: 0;
-  background: none;
-  color: var(--muted);
-  padding: 4px;
-  font-size: calc(11px * var(--text));
-  text-decoration: none;
-}
-.taskActions button:hover {
-  color: var(--ink);
-}
-.taskEmpty {
-  padding: 17px 0;
-  color: var(--muted);
-  font-size: calc(12px * var(--text));
 }
 
 /* ---------- school services ---------- */
@@ -2478,20 +2034,6 @@ p {
 }
 
 @media (max-width: 760px) {
-  .taskGroup {
-    grid-template-columns: 1fr;
-  }
-  .taskGroup > header {
-    grid-row: auto;
-    padding: 18px 0 6px;
-  }
-  .taskRow {
-    grid-template-columns: 22px minmax(0, 1fr) auto;
-  }
-  .taskActions {
-    grid-column: 2 / -1;
-    opacity: 1;
-  }
   .servicesBody {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
@@ -2520,39 +2062,6 @@ p {
   .webStatus {
     display: none;
   }
-}
-
-.catalogTeacher {
-  grid-column: 1 / -1;
-}
-.unscheduledDrafts {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-.unscheduledDrafts > b {
-  display: block;
-  font-size: 13px;
-}
-.unscheduledDrafts > span {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-  margin: 4px 0 8px;
-}
-.unscheduledDrafts > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.unscheduledDrafts button {
-  font: inherit;
-  font-size: 12px;
-  padding: 5px 8px;
-  background: var(--surface-2);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 5px;
 }
 
 .ttBlock {
@@ -3428,6 +2937,12 @@ p {
   flex: 1;
   min-height: 0;
 }
+.courseTabCount {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .courseDetailsBody dl {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
@@ -3626,24 +3141,6 @@ p {
 }
 .courseExamList small {
   color: var(--accent);
-}
-
-.referenceSource {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--line);
-}
-.referenceSource label {
-  display: grid;
-  gap: 6px;
-}
-.referenceSource .actions {
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 12px;
-}
-.referenceLocation {
-  overflow-wrap: anywhere;
-  font-size: 13px;
 }
 /* One schedule workspace: dated week for viewing, quarter pattern for editing. */
 .scheduleTitleRow {
@@ -4073,47 +3570,6 @@ p {
   color: var(--muted);
   text-align: center;
   font-size: calc(12.5px * var(--text));
-}
-.itemList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.itemList li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-}
-.itemList li:last-child {
-  border-bottom: 0;
-}
-.itemList li:hover {
-  background: var(--surface-2);
-}
-.itemMain {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.itemMain b {
-  font-size: calc(13px * var(--text));
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.itemMain small {
-  color: var(--muted);
-  font-size: calc(11.5px * var(--text));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .row > .actions.reverse,
 .actions.reverse {

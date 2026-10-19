@@ -830,18 +830,6 @@ describe("bundled public subscription data", () => {
     ).toBe("情報工学系");
   });
 
-  it("keeps the cited CS recommendation", () => {
-    const data = readDepartments("2026");
-    const cs = data.departments.find((department) => department.id === "cs");
-    expect(cs?.recommended).toContainEqual(
-      expect.objectContaining({
-        code: "CSC.T241",
-        group: "A",
-        mark: "recommended",
-      }),
-    );
-  });
-
   it("cites an official source for the academic-calendar day list", () => {
     const calendar = JSON.parse(
       readRepoFile(

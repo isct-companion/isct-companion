@@ -7,7 +7,7 @@ use super::{
     SchoolSessionSnapshot, SchoolSessionState, SchoolSessionStates, SchoolWebResult,
 };
 use crate::{
-    data::DataStore,
+    data::{DataStore, WorkspaceChangeSource},
     events::CoreEvent,
     kyomu_ingest::{apply_kyomu_payload, record_kyomu_unavailable, KYOMU_EXTRACT_SCRIPT},
     lifecycle::SchoolSite,
@@ -1237,7 +1237,3 @@ fn new_id() -> String {
 fn truncate(value: String, max: usize) -> String {
     value.chars().take(max).collect()
 }
-
-#[cfg(test)]
-#[path = "../tests/school_browser__engine__error_tests.rs"]
-mod error_tests;

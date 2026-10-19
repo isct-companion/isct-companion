@@ -8,10 +8,8 @@ use axum::{
     response::{IntoResponse, Response},
     Router,
 };
-use isct_core::ports::EventSink;
 use isct_core::{
-    agent::{is_write_tool, AgentError, AgentPolicy},
-    events::{CoreEvent, WorkspaceChangeSource},
+    agent::{AgentError, AgentPolicy},
     runtime_tasks::RuntimeTasks,
     Core,
 };
@@ -88,7 +86,6 @@ pub(crate) struct AgentAccess {
     core: Arc<Core>,
     token_path: PathBuf,
     port: u16,
-    app: Option<tauri::AppHandle>,
     state: Mutex<AccessState>,
     closed: std::sync::atomic::AtomicBool,
     next_check: std::sync::Mutex<std::time::Instant>,
@@ -104,20 +101,14 @@ impl AgentAccess {
             .map_err(|error| error.to_string())?
             .join("agent-token");
         let core = crate::core_ports::core(&app);
-        Ok(Self::with(core, token_path, Some(app), PORT))
+        Ok(Self::with(core, token_path, PORT))
     }
 
-    fn with(
-        core: Arc<Core>,
-        token_path: PathBuf,
-        app: Option<tauri::AppHandle>,
-        port: u16,
-    ) -> Self {
+    fn with(core: Arc<Core>, token_path: PathBuf, port: u16) -> Self {
         Self {
             core,
             token_path,
             port,
-            app,
             state: Mutex::new(AccessState::Off),
             closed: std::sync::atomic::AtomicBool::new(false),
             next_check: std::sync::Mutex::new(std::time::Instant::now()),
@@ -140,7 +131,6 @@ impl AgentAccess {
                     let next = match AgentServer::bind(
                         self.core.clone(),
                         self.token_path.clone(),
-                        self.app.clone(),
                         self.port,
                     )
                     .await
@@ -211,12 +201,7 @@ impl AgentAccess {
 }
 
 impl AgentServer {
-    async fn bind(
-        core: Arc<Core>,
-        token_path: PathBuf,
-        app: Option<tauri::AppHandle>,
-        port: u16,
-    ) -> Result<Self, String> {
+    async fn bind(core: Arc<Core>, token_path: PathBuf, port: u16) -> Result<Self, String> {
         let token = load_or_create_token(&token_path)?;
         let listener =
             TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).map_err(|error| {
@@ -240,7 +225,6 @@ impl AgentServer {
         let calls = RuntimeTasks::default();
         let router = router(
             core,
-            app,
             &connection,
             address.port(),
             stop.clone(),
@@ -367,7 +351,6 @@ struct HttpPolicy {
 
 fn router(
     core: Arc<Core>,
-    app: Option<tauri::AppHandle>,
     connection: &ConnectionInfo,
     port: u16,
     stop: CancellationToken,
@@ -375,7 +358,6 @@ fn router(
 ) -> Router {
     let handler = AgentHandler {
         core,
-        app,
         calls,
         work: Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS)),
     };
@@ -431,7 +413,6 @@ fn authorized(headers: &HeaderMap, expected: &str) -> bool {
 #[derive(Clone)]
 struct AgentHandler {
     core: Arc<Core>,
-    app: Option<tauri::AppHandle>,
     calls: RuntimeTasks,
     work: Arc<Semaphore>,
 }
@@ -445,8 +426,6 @@ impl AgentHandler {
             .map_err(|_| "Too many MCP tool calls are still running.".to_string())?;
         let (send, receive) = tokio::sync::oneshot::channel();
         let core = self.core.clone();
-        let app = self.app.clone();
-        let write = is_write_tool(&name);
         if !self.calls.spawn(async move {
             let _permit = permit;
             let result = tokio::task::spawn_blocking(move || {
@@ -460,20 +439,8 @@ impl AgentHandler {
                 INTERNAL_ERROR.to_string()
             })
             .and_then(|result| result);
-            let notify = result.is_ok() && write;
-            if let Some(app) = app.as_ref().filter(|_| notify) {
-                let _ = crate::core_ports::DesktopEvents(app.clone()).emit(
-                    CoreEvent::WorkspaceChanged {
-                        source: WorkspaceChangeSource::Mcp,
-                        revision: None,
-                    },
-                );
-            }
+            // Core publishes committed writes and schedules cloud capture.
             let _ = send.send(result);
-            // This work remains owned after the HTTP caller disconnects.
-            if let Some(app) = app.filter(|_| notify) {
-                crate::cloud_sync::CloudSync::changed(&app).await;
-            }
         }) {
             return Err("The MCP server is shutting down.".into());
         }

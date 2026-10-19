@@ -46,9 +46,10 @@ Task 1 first. Then 2–5 in parallel. Then 6–10 (7 and 9 share ICS export: do 
 ## Verify
 
 ```bash
-cargo test --manifest-path backend/Cargo.toml --locked
-./node_modules/.bin/tsc -b
-./node_modules/.bin/vitest run
+yarn backend:test
+yarn test:types
+yarn test
 ```
 
-(On the original machine the `node`/`yarn` shell functions are broken; call binaries by path as above.)
+Test placement and the manual checks are described in
+[apps/desktop/tests/README.md](../../apps/desktop/tests/README.md).

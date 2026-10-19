@@ -16,7 +16,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-#[cfg(desktop)]
 use tauri::webview::DownloadEvent;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
@@ -52,7 +51,6 @@ impl SchoolDownloads {
         }
     }
 
-    #[cfg(desktop)]
     pub(crate) fn download(
         &self,
         app: &AppHandle,

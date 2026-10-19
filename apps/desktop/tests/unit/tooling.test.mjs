@@ -35,10 +35,7 @@ import {
 } from "@repo/scripts/desktop/third-party-notices.mjs";
 import {
   googleDriveClientId,
-  googleRedirectScheme,
-  iosInfoPlist,
   nativeOAuthEnv,
-  oauthClientTarget,
   readOAuthClients,
 } from "@repo/scripts/lib/oauth-config.mjs";
 
@@ -109,30 +106,11 @@ describe("third-party notices", () => {
 });
 
 describe("OAuth client configuration", () => {
-  it("chooses the Google client type from Tauri's target platform", () => {
-    expect(oauthClientTarget("ios")).toBe("ios");
-    expect(oauthClientTarget(undefined, { PLATFORM_NAME: "iphoneos" })).toBe(
-      "ios",
-    );
-    expect(
-      oauthClientTarget(undefined, { SDK_NAME: "iphonesimulator27.0" }),
-    ).toBe("ios");
-    expect(oauthClientTarget("android")).toBe("android");
-    expect(oauthClientTarget("darwin")).toBe("desktop");
-    expect(oauthClientTarget(undefined, {})).toBe("desktop");
-  });
-
-  it("resolves a platform's client id from the committed OAuth config", () => {
+  it("resolves the desktop client id from the committed OAuth config", () => {
     const committed = readRepoFile("config/oauth-clients.yaml");
-    const ios = googleDriveClientId(oauthClientTarget("ios"));
-    expect(ios).toMatch(/^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/);
-    expect(committed).toContain(ios);
-    expect(googleDriveClientId("desktop")).toMatch(
-      /\.apps\.googleusercontent\.com$/,
-    );
-    expect(googleDriveClientId("android")).toMatch(
-      /\.apps\.googleusercontent\.com$/,
-    );
+    const desktop = googleDriveClientId("desktop");
+    expect(desktop).toMatch(/^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/);
+    expect(committed).toContain(desktop);
   });
 
   it("treats a platform with no configured client as having no id", () => {
@@ -144,27 +122,9 @@ describe("OAuth client configuration", () => {
     ).toBe("d");
   });
 
-  it("reverses a client id into Google's iOS callback scheme", () => {
-    expect(googleRedirectScheme("1-ios.apps.googleusercontent.com")).toBe(
-      "com.googleusercontent.apps.1-ios",
-    );
-  });
-
-  it("writes the iOS client id and its callback scheme into the merged Info.plist", () => {
-    const clientId = readOAuthClients()["google-drive"].ios;
-    const plist = iosInfoPlist(clientId);
-    expect(plist).toContain("<key>GIDClientID</key>");
-    expect(plist).toContain(`<string>${clientId}</string>`);
-    expect(plist).toContain(
-      `<string>${googleRedirectScheme(clientId)}</string>`,
-    );
-  });
-
-  it("hands every platform client id and the desktop secret to the native build", () => {
+  it("hands the desktop client id and secret to the native build", () => {
     const google = readOAuthClients()["google-drive"];
     expect(nativeOAuthEnv(readOAuthClients(), {})).toEqual({
-      ISCT_GOOGLE_IOS_CLIENT_ID: google.ios,
-      ISCT_GOOGLE_ANDROID_CLIENT_ID: google.android,
       ISCT_GOOGLE_DESKTOP_CLIENT_ID: google.desktop,
       ISCT_GOOGLE_DESKTOP_CLIENT_SECRET: google["desktop-secret"],
     });

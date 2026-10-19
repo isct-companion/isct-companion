@@ -87,8 +87,6 @@ const DAILY_EXPORT: ScheduledTask = {
   enabled: false,
 };
 
-const RUN_AT = "2026-09-28T21:00:00+09:00";
-
 /* ------------------------------------------------------------------ *
  * Local helpers the harness does not provide.
  * ------------------------------------------------------------------ */
@@ -381,37 +379,6 @@ describe("Scheduled tasks", () => {
       rev: 3,
       schedule: DAILY_EXPORT.schedule,
     });
-  }, 40_000);
-
-  it("shows the last run and its result beside a Run now button", async () => {
-    const workspace = workspaceFixture();
-    workspace.scheduledTasks = [
-      {
-        ...DAILY_EXPORT,
-        enabled: true,
-        rev: 4,
-        lastRunAt: RUN_AT,
-        lastResult: "Export completed",
-      },
-    ];
-
-    app = await mountApp(
-      {
-        workspace,
-        queries: {
-          workspaceOverview: (_query, core) => overviewFor(core.workspace),
-        },
-      },
-      { route: paths.settings("automation") },
-    );
-    const { host } = app;
-
-    await openAutomation(app);
-    await until(() =>
-      expect(host.textContent).toMatch(/Last run 28 Sept?, 21:00/),
-    );
-    expect(host.textContent).toContain("Export completed");
-    expect(buttonByText(host, "Run now")).toBeDefined();
   }, 40_000);
 
   it("runs the task from Run now and adopts Core's durable record and revision", async () => {

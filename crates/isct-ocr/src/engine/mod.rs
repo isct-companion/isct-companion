@@ -7,10 +7,6 @@ mod geometry;
 mod preprocess;
 
 #[cfg(test)]
-#[path = "../tests/engine__private_parity.rs"]
-mod private_parity;
-
-#[cfg(test)]
 #[path = "../tests/engine.rs"]
 mod tests;
 

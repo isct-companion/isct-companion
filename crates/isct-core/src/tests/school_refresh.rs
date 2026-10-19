@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
-    events::CoreEvent,
-    ports::{EventError, EventSink, SecretError, SecretVault},
+    ports::{SecretError, SecretVault},
     pull_coordinator::PullContext,
     school_auth::SchoolAuthService,
     school_service::{IngestOutcome, IngestState, SchoolExecution, SchoolExecutorError},
@@ -26,14 +25,6 @@ impl SecretVault for EmptyVault {
     }
 
     fn delete(&self, _account: &str) -> Result<(), SecretError> {
-        Ok(())
-    }
-}
-
-struct NoopEvents;
-
-impl EventSink for NoopEvents {
-    fn emit(&self, _event: CoreEvent) -> Result<(), EventError> {
         Ok(())
     }
 }
@@ -236,7 +227,6 @@ async fn manual_partial_pull_cools_automatic_retries_but_can_be_forced_again() {
     let service = SchoolService::new(
         coordinator.clone(),
         Arc::new(SchoolAuthService::new(EmptyVault)),
-        Arc::new(NoopEvents),
         refresh.clone(),
     );
     let partial = vec![IngestOutcome {
@@ -350,7 +340,6 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
     let service = SchoolService::new(
         coordinator,
         Arc::new(SchoolAuthService::new(EmptyVault)),
-        Arc::new(NoopEvents),
         refresh.clone(),
     );
     let executor = Arc::new(SequencedExecutor {
@@ -469,7 +458,6 @@ async fn batch_rechecks_later_profiles_after_a_manual_pull_and_keeps_detail_orde
     let service = SchoolService::new(
         coordinator.clone(),
         Arc::new(SchoolAuthService::new(EmptyVault)),
-        Arc::new(NoopEvents),
         refresh.clone(),
     );
     refresh

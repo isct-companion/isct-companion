@@ -265,9 +265,6 @@ pub enum PullState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PullEvent {
-    // Reducer contract only: the runtime creates a fresh job for each enqueue.
-    #[cfg_attr(not(test), allow(dead_code))]
-    Enqueue,
     Check,
     Block,
     Ready,
@@ -283,7 +280,7 @@ enum PullEvent {
     Cancel,
     Stop,
     // Reserved until browser preemption migrates from the school executor.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     Yield,
 }
 
@@ -317,7 +314,6 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
     use PullState::*;
     match state {
         Queued => match event {
-            Enqueue => accepted(Queued),
             Check => accepted(Checking),
             Block => accepted(Blocked),
             Ready => accepted(Queued),
@@ -332,11 +328,10 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Block => accepted(Blocked),
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
-            Enqueue | Check | Start | Progress | Apply | Applied | WaitRetry | Retry | Succeed
-            | Fail | Stop | Yield => rejected(Checking),
+            Check | Start | Progress | Apply | Applied | WaitRetry | Retry | Succeed | Fail
+            | Stop | Yield => rejected(Checking),
         },
         Blocked => match event {
-            Enqueue => accepted(Blocked),
             Check => accepted(Checking),
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
@@ -351,7 +346,7 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Fail => accepted(Failed),
             Cancel => accepted(Cancelling),
             Yield => accepted(Yielding),
-            Enqueue | Check | Block | Ready | Start | Applied | Retry | Stop => rejected(Running),
+            Check | Block | Ready | Start | Applied | Retry | Stop => rejected(Running),
         },
         Applying => match event {
             Progress => accepted(Applying),
@@ -360,24 +355,19 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             WaitRetry => accepted(RetryWaiting),
             Succeed => accepted(Succeeded),
             Fail => accepted(Failed),
-            Enqueue | Check | Block | Ready | Start | Retry | Cancel | Stop | Yield => {
-                rejected(Applying)
-            }
+            Check | Block | Ready | Start | Retry | Cancel | Stop | Yield => rejected(Applying),
         },
         RetryWaiting => match event {
-            Enqueue => accepted(RetryWaiting),
             Retry => accepted(Queued),
             Cancel => accepted(Cancelled),
             Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Succeed
             | Fail | Stop | Yield => rejected(RetryWaiting),
         },
         Succeeded => match event {
-            Enqueue => accepted(Queued),
             Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Retry
             | Succeed | Fail | Cancel | Stop | Yield => rejected(Succeeded),
         },
         Failed => match event {
-            Enqueue => accepted(Queued),
             Retry => accepted(Queued),
             Cancel => accepted(Cancelled),
             Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Succeed
@@ -386,11 +376,10 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
         Cancelling => match event {
             Stop | Succeed | Fail => accepted(Cancelled),
             Cancel => accepted(Cancelling),
-            Enqueue | Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry
-            | Retry | Yield => rejected(Cancelling),
+            Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Retry
+            | Yield => rejected(Cancelling),
         },
         Cancelled => match event {
-            Enqueue => accepted(Queued),
             Check | Block | Ready | Start | Progress | Apply | Applied | WaitRetry | Retry
             | Succeed | Fail | Cancel | Stop | Yield => rejected(Cancelled),
         },
@@ -398,8 +387,8 @@ fn reduce(state: PullState, event: PullEvent) -> PullTransition {
             Ready => accepted(Queued),
             Cancel => accepted(Cancelled),
             Stop => accepted(Yielding),
-            Enqueue | Check | Block | Start | Progress | Apply | Applied | WaitRetry | Retry
-            | Succeed | Fail | Yield => rejected(Yielding),
+            Check | Block | Start | Progress | Apply | Applied | WaitRetry | Retry | Succeed
+            | Fail | Yield => rejected(Yielding),
         },
     }
 }

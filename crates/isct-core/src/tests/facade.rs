@@ -1,13 +1,21 @@
 use super::*;
+use crate::workspace::{WorkspaceIntent, WorkspaceMutation, WorkspaceSnapshot};
 use crate::{
-    cloud_sync::{CloudFuture, CloudProvider, CloudSyncError, CloudTransport, CloudVersion},
+    agent::AgentPolicy,
+    cloud_sync::{
+        CloudFuture, CloudProvider, CloudSync, CloudSyncError, CloudTransport, CloudVersion,
+    },
+    events::CoreEvent,
+    notes::CourseFolder,
     ports::{EventError, SecretError, SecretVault},
     schedule::{NotificationItem, NotificationSink, NotificationSinkError},
     scheduler::{ExportError, ScheduledExporter},
     school_service::{SchoolExecution, SchoolExecutor, SchoolExecutorFuture},
 };
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -158,11 +166,7 @@ async fn wake_reports_every_service_after_runtime_failure() {
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
         PullNetwork::Wifi,
     );
-    let scheduler = core.services(
-        Arc::new(NoopEvents),
-        Arc::new(NoopExecutor),
-        Arc::new(NoopExporter),
-    );
+    let scheduler = core.services(Arc::new(NoopExecutor), Arc::new(NoopExporter));
     let cloud = crate::cloud_sync::CloudServices {
         backup: crate::backup::BackupService::new(store, core.runtime.notes.at(files)),
         transport: Arc::new(NoopCloud),
@@ -208,4 +212,153 @@ async fn shutdown_releases_the_native_event_port() {
     assert!(!dropped.load(Ordering::Acquire));
     core.shutdown().await;
     assert!(dropped.load(Ordering::Acquire));
+}
+
+#[derive(Default)]
+struct WorkspaceEvents {
+    changes: Mutex<Vec<(WorkspaceChangeSource, Option<String>)>>,
+    fail: AtomicBool,
+}
+
+impl EventSink for WorkspaceEvents {
+    fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
+        if let CoreEvent::WorkspaceChanged { source, revision } = event {
+            self.changes.lock().unwrap().push((source, revision));
+        }
+        if self.fail.load(Ordering::Relaxed) {
+            return Err(EventError::Delivery("event channel closed".into()));
+        }
+        Ok(())
+    }
+}
+
+fn admission_year(
+    core: &Core,
+    expected_revision: String,
+    year: i32,
+) -> Result<WorkspaceSnapshot, WorkspaceError> {
+    core.workspace.mutate(WorkspaceMutation {
+        expected_revision,
+        intent: WorkspaceIntent::SetAdmissionYear {
+            admission_year: Some(year),
+        },
+    })
+}
+
+/// Shells and agent adapters must not have to publish what they wrote: the
+/// store's commit path reports every change, once, with its source.
+#[test]
+fn core_publishes_each_committed_write_once_whoever_made_it() {
+    let store = store("published-writes");
+    store
+        .put_workspace_setting("devicePreferences", json!({"agentAccess":{"enabled":true}}))
+        .unwrap();
+    let events = Arc::new(WorkspaceEvents::default());
+    let core = Core::with_events(
+        store,
+        Arc::new(SchoolAuthService::new(MemoryVault::default())),
+        PullNetwork::Wifi,
+        events.clone(),
+    );
+    let changes = || events.changes.lock().unwrap().clone();
+
+    let committed =
+        admission_year(&core, core.workspace.snapshot().unwrap().revision, 2026).unwrap();
+    assert_eq!(
+        changes(),
+        [(
+            WorkspaceChangeSource::UserIntent,
+            Some(committed.revision.clone())
+        )]
+    );
+
+    // A rejected intent and one that changes no row publish nothing.
+    assert!(matches!(
+        admission_year(&core, "stale".into(), 2025),
+        Err(WorkspaceError::Conflict(_))
+    ));
+    admission_year(&core, committed.revision.clone(), 2026).unwrap();
+    assert_eq!(changes().len(), 1);
+
+    // An MCP tool writes outside WorkspaceService and is still published.
+    core.agent
+        .call(
+            "plan_event_create",
+            &json!({"title":"Review","start":"2026-10-19T09:00:00+09:00","duration":45}),
+            AgentPolicy { allow_writes: true },
+        )
+        .unwrap();
+    assert_eq!(changes().last(), Some(&(WorkspaceChangeSource::Mcp, None)));
+
+    // A failed delivery neither fails nor undoes the committed write.
+    events.fail.store(true, Ordering::Relaxed);
+    let after = admission_year(&core, core.workspace.snapshot().unwrap().revision, 2027).unwrap();
+    assert_eq!(after.workspace["academicProfile"]["admissionYear"], 2027);
+    assert_eq!(changes().len(), 3);
+}
+
+/// Cloud capture follows local changes without a shell asking for it: a
+/// committed write or a saved note makes the next wake capture at once
+/// instead of after the periodic interval.
+#[tokio::test]
+async fn local_changes_bring_the_next_cloud_capture_forward() {
+    let root = std::env::temp_dir().join(format!("isct-core-capture-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let store = store("capture");
+    let core = Core::new(
+        store.clone(),
+        Arc::new(SchoolAuthService::new(MemoryVault::default())),
+        PullNetwork::Wifi,
+    );
+    core.runtime
+        .attach_cloud(
+            CloudSync::new(root.join("cloud.json"), &[CloudProvider::GoogleDrive], &[]).unwrap(),
+        )
+        .unwrap();
+    let notes = core.runtime.notes.at(root.join("notes"));
+    let services = crate::cloud_sync::CloudServices {
+        backup: crate::backup::BackupService::new(store, notes.clone()),
+        transport: Arc::new(NoopCloud),
+        events: Arc::new(NoopEvents),
+    };
+    let wake = || core.runtime.wake_cloud(services.clone()).unwrap();
+    async fn settle(wake: impl Fn() -> bool) {
+        // The interval is five seconds, so no capture is due while idle.
+        for _ in 0..15 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            assert!(!wake());
+        }
+    }
+    async fn captures(wake: impl Fn() -> bool) -> bool {
+        for _ in 0..100 {
+            if wake() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    assert!(wake());
+    settle(&wake).await;
+    admission_year(&core, core.workspace.snapshot().unwrap().revision, 2026).unwrap();
+    assert!(captures(&wake).await);
+
+    settle(&wake).await;
+    notes
+        .save(
+            CourseFolder {
+                term: "2026-3Q".into(),
+                course: "CSC.T251".into(),
+                section: "section-1".into(),
+            },
+            String::new(),
+            "Note".into(),
+            "device",
+        )
+        .unwrap();
+    assert!(captures(&wake).await);
+
+    core.shutdown().await;
+    let _ = std::fs::remove_dir_all(root);
 }

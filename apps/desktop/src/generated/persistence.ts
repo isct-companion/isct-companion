@@ -696,26 +696,6 @@ export type CatalogSearchItem = {
   syllabusUrl: string;
 };
 
-export type LifetimePolicy =
-  | { kind: "session" }
-  | { kind: "until-disabled" }
-  | { kind: "expires-at"; expiresAt: string };
-
-export type RefreshPolicy = { staleAfterSeconds: number; refreshMode: string };
-
-export type EvictionPolicy = {
-  evictAfterUnusedSeconds: number;
-  maxBytes: number | null;
-};
-
-export type DataPolicy = {
-  lms: RefreshPolicy;
-  timetable: RefreshPolicy;
-  kyomu: RefreshPolicy;
-  syllabus: RefreshPolicy;
-  courseMaterials: EvictionPolicy;
-};
-
 export type IntegerPolicy = { default: number; min: number; max: number };
 
 export type CourseFilePolicy = {
@@ -1158,6 +1138,12 @@ export type TaskView = {
    * instead of applying their own rule.
    */
   submittedIds: Array<string>;
+  /**
+   * Visible assignments that no longer take a hand-in: submitted, or past
+   * the deadline unless the LMS page last showed it still accepting late
+   * work. Shells open the LMS page for these instead of preparing a draft.
+   */
+  closedIds: Array<string>;
   nearestByCourse: { [key in string]?: string };
   byTerm: { [key in string]?: TermTaskView };
 };
@@ -1721,29 +1707,6 @@ export type OtpImportAccount = {
    * Sensitive: only the selected value enters the unsaved credential draft.
    */
   setup: string;
-};
-
-export const DATA_POLICY: DataPolicy = {
-  lms: {
-    staleAfterSeconds: 43200,
-    refreshMode: "on-access",
-  },
-  timetable: {
-    staleAfterSeconds: 2592000,
-    refreshMode: "manual-review",
-  },
-  kyomu: {
-    staleAfterSeconds: 604800,
-    refreshMode: "on-access",
-  },
-  syllabus: {
-    staleAfterSeconds: 604800,
-    refreshMode: "on-access",
-  },
-  courseMaterials: {
-    evictAfterUnusedSeconds: 2592000,
-    maxBytes: null,
-  },
 };
 
 export const COURSE_FILE_POLICY: CourseFilePolicy = {

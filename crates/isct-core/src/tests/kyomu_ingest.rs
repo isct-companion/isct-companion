@@ -41,8 +41,9 @@ fn duplicate_graduate_grade_identity_rolls_back_the_page() {
             }),
             message: String::new(),
         };
-    let mut connection = Connection::open(store.path()).unwrap();
-    assert!(apply_kyomu_payload(&mut connection, &payload).is_err());
+    assert!(store
+        .write(None, |tx| apply_kyomu_payload(tx, &payload))
+        .is_err());
     assert!(store.table_rows("grades").unwrap().is_empty());
 }
 
@@ -105,25 +106,25 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
         "instructionLanguage":"en","color":"#112233",
         "meetings":[{"days":[5],"periods":[5,6],"startTime":"13:30","endTime":"15:10","room":"Personal room"}],
         "source":{"provider":"lms"}});
-    store
-        .put_user_record("manual_courses", original, "test")
-        .unwrap();
+    store.put_user_record("manual_courses", original).unwrap();
     store
         .put_user_record(
             "plan_items",
             json!({"id":"personal-plan","kind":"plan-item",
         "courseId":"2026-202602431","termId":"2026-3Q","state":"planned"}),
-            "test",
         )
         .unwrap();
-    let mut connection = Connection::open(store.path()).unwrap();
     let mut payload: crate::school_parser::lms::LmsPayload = serde_json::from_value(json!({
         "status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","language":"en",
         "courses":[{"id":99,"idnumber":"202602431","shortname":"CSC.T273[2026]","fullname":"LMS course","coursecategory":3},
             {"id":100,"idnumber":"202600001","shortname":"CSC.T101[2026]","fullname":"Earlier course","coursecategory":1}],
         "timetable":{"term":"2026-1Q","meetings":{"100":[{"day":1,"periods":[1,2]}]},"unscheduled":[]}
     })).unwrap();
-    crate::lms_ingest::apply_lms_payload(&mut connection, &payload).unwrap();
+    store
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_payload(tx, &payload)
+        })
+        .unwrap();
     let service = crate::workspace::WorkspaceService::new(store.clone());
     let saved = service
         .mutate(crate::workspace::WorkspaceMutation {
@@ -151,10 +152,10 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
         data: json!({"state":{"state":"registered"},"quarters":["3Q","4Q"],"courses":courses}),
         message: String::new(),
     };
-    apply_kyomu_payload(&mut connection,&registration(json!([{
+    store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!([{
         "offeringId":"202602431","code":"CSC.T273","title":"Official course","instructor":"Teacher",
         "schedule":[{"quarter":"3Q","day":"月","periods":[3,4],"room":"Official room"}]
-    }]))).unwrap();
+    }])))).unwrap();
     let workspace = store.load_workspace().unwrap();
     let current = crate::schedule::scheduled_courses(&workspace, "2026-3Q");
     assert_eq!(current.len(), 1);
@@ -164,7 +165,9 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     assert_eq!(current[0]["meetings"][0]["room"], "Personal room");
     assert_eq!(current[0]["meetings"][0]["days"], json!([5]));
     assert!(crate::schedule::scheduled_courses(&workspace, "2026-4Q").is_empty());
-    apply_kyomu_payload(&mut connection, &registration(json!([]))).unwrap();
+    store
+        .write(None, |tx| apply_kyomu_payload(tx, &registration(json!([]))))
+        .unwrap();
     assert_eq!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-3Q").len(),
         1
@@ -176,7 +179,11 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
         meetings: std::collections::HashMap::new(),
         unscheduled: vec![],
     });
-    crate::lms_ingest::apply_lms_payload(&mut connection, &payload).unwrap();
+    store
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_payload(tx, &payload)
+        })
+        .unwrap();
     assert!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q").is_empty()
     );
@@ -188,7 +195,6 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
 fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_choices() {
     let path = std::env::temp_dir().join(format!("isct-academic-id-{}.db", Uuid::new_v4()));
     let store = crate::data::DataStore::initialize(path).unwrap().0;
-    let mut connection = Connection::open(store.path()).unwrap();
     let payload = KyomuPayload {
         status: "ok".into(),
         source_url: String::new(),
@@ -196,7 +202,9 @@ fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_ch
         data: json!({"department":"情報工学系","admittedOn":"2025-04-01","programme":"学士課程","entryCategory":"前期日程"}),
         message: String::new(),
     };
-    apply_kyomu_payload(&mut connection, &payload).unwrap();
+    store
+        .write(None, |tx| apply_kyomu_payload(tx, &payload))
+        .unwrap();
     let initial = store.load_workspace().unwrap();
     assert_eq!(initial["settings"]["departmentId"], "cs");
     assert_eq!(initial["academicProfile"]["admissionYear"], 2025);
@@ -205,14 +213,16 @@ fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_ch
         json!({"stage":"undergraduate","entryKind":"regular","entryGrade":1,"admittedTerm":"2025-1Q"})
     );
     store
-        .put_workspace_setting("userPreferences", json!({"departmentId":"mcs"}), "test")
+        .put_workspace_setting("userPreferences", json!({"departmentId":"mcs"}))
         .unwrap();
     let mut profile = initial["academicProfile"].clone();
     profile["admissionYear"] = json!(2024);
     store
-        .put_workspace_setting("academicProfile", profile, "test")
+        .put_workspace_setting("academicProfile", profile)
         .unwrap();
-    apply_kyomu_payload(&mut connection, &payload).unwrap();
+    store
+        .write(None, |tx| apply_kyomu_payload(tx, &payload))
+        .unwrap();
     let updated = store.load_workspace().unwrap();
     assert_eq!(updated["settings"]["departmentId"], "mcs");
     assert_eq!(updated["academicProfile"]["admissionYear"], 2024);
@@ -224,7 +234,6 @@ fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_ch
 fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official_refreshes() {
     let path = std::env::temp_dir().join(format!("isct-lms-fallback-{}.db", Uuid::new_v4()));
     let store = crate::data::DataStore::initialize(path).unwrap().0;
-    let mut connection = Connection::open(store.path()).unwrap();
     let registration = |quarters: Value, courses: Value| KyomuPayload {
         status: "ok".into(),
         source_url: String::new(),
@@ -232,11 +241,11 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
         data: json!({"state":{"state":"registered"},"quarters":quarters,"courses":courses}),
         message: String::new(),
     };
-    apply_kyomu_payload(
-        &mut connection,
-        &registration(json!(["3Q", "4Q"]), json!([])),
-    )
-    .unwrap();
+    store
+        .write(None, |tx| {
+            apply_kyomu_payload(tx, &registration(json!(["3Q", "4Q"]), json!([])))
+        })
+        .unwrap();
     let raw = json!({
         "status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","language":"en",
         "courses":[
@@ -254,14 +263,18 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
         .1
         .unwrap();
     assert_eq!(lms.timetables.len(), 2);
-    crate::lms_ingest::apply_lms_payload(&mut connection, &lms).unwrap();
+    store
+        .write(None, |tx| crate::lms_ingest::apply_lms_payload(tx, &lms))
+        .unwrap();
     lms.timetables.clear();
     lms.timetable = Some(crate::school_parser::lms::LmsTimetable {
         term: "2026-2Q".into(),
         meetings: std::collections::HashMap::from([(42, vec![json!({"day":2,"periods":[5,8]})])]),
         unscheduled: vec![],
     });
-    crate::lms_ingest::apply_lms_payload(&mut connection, &lms).unwrap();
+    store
+        .write(None, |tx| crate::lms_ingest::apply_lms_payload(tx, &lms))
+        .unwrap();
     let workspace = store.load_workspace().unwrap();
     let first = crate::schedule::scheduled_courses(&workspace, "2026-1Q");
     assert_eq!(first.len(), 1);
@@ -306,15 +319,17 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
             },
         })
         .unwrap();
-    crate::lms_ingest::apply_lms_payload(&mut connection, &lms).unwrap();
+    store
+        .write(None, |tx| crate::lms_ingest::apply_lms_payload(tx, &lms))
+        .unwrap();
     assert!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-2Q").is_empty()
     );
     // Official evidence cannot replace LMS clocks or the user's overlay.
-    apply_kyomu_payload(&mut connection,&registration(json!(["1Q","2Q"]),json!([{
+    store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!(["1Q","2Q"]),json!([{
         "offeringId":"202600041","code":"CSC.T101","title":"Official earlier","instructor":"Teacher",
         "schedule":[{"quarter":"1Q","day":"木","periods":[1,2],"room":"Official room"}]
-    }]))).unwrap();
+    }])))).unwrap();
     let upgraded = store.load_workspace().unwrap();
     let first = crate::schedule::scheduled_courses(&upgraded, "2026-1Q");
     assert_eq!(first.len(), 1);
@@ -326,17 +341,19 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     assert_eq!(first[0]["meetings"][0]["days"], json!([1]));
     assert!(crate::schedule::scheduled_courses(&upgraded, "2026-2Q").is_empty());
     // Without a syllabus room, the official room of the same slot fills it.
-    apply_kyomu_payload(&mut connection,&registration(json!(["1Q","2Q"]),json!([{
+    store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!(["1Q","2Q"]),json!([{
         "offeringId":"202600041","code":"CSC.T101","title":"Official earlier","instructor":"Teacher",
         "schedule":[{"quarter":"1Q","day":"月","periods":[3,4],"room":"Official room"}]
-    }]))).unwrap();
+    }])))).unwrap();
     let first = crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q");
     assert_eq!(first[0]["meetings"][0]["room"], "Official room");
     assert_eq!(first[0]["meetings"][0]["startTime"], "10:45");
     // Maintenance/unavailable extraction does not manufacture authoritative emptiness.
     let mut unavailable = registration(json!(["1Q", "2Q"]), json!([]));
     unavailable.status = "unavailable".into();
-    assert!(apply_kyomu_payload(&mut connection, &unavailable).is_err());
+    assert!(store
+        .write(None, |tx| apply_kyomu_payload(tx, &unavailable))
+        .is_err());
     assert_eq!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q").len(),
         1

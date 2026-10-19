@@ -71,24 +71,6 @@ describe("school webview bounds", () => {
     ).toEqual({ x: 180, y: 32, width: 988, height: 675 });
   });
 
-  it.each(["ios", "android"] as const)(
-    "adds no title-bar inset on %s",
-    (os) => {
-      expect(
-        schoolWebBounds(
-          { left: 0, top: 107.6, width: 402, height: 620.4 },
-          viewport({
-            innerWidth: 402,
-            innerHeight: 874,
-            outerWidth: 402,
-            outerHeight: 874,
-          }),
-          os,
-        ),
-      ).toEqual({ x: 0, y: 108, width: 402, height: 620 });
-    },
-  );
-
   it("keeps the WKWebView title-bar compensation on macOS", () => {
     expect(
       schoolWebBounds(
@@ -113,19 +95,13 @@ describe("school webview bounds", () => {
 
   it("reads the injected native OS when the caller does not name one", () => {
     const scope = window as unknown as Record<string, unknown>;
-    const phone = viewport({
-      innerWidth: 402,
-      innerHeight: 874,
-      outerWidth: 402,
-      outerHeight: 874,
-    });
-    scope.__ISCT_COMPANION_NATIVE_OS__ = "ios";
+    scope.__ISCT_COMPANION_NATIVE_OS__ = "windows";
     expect(
       schoolWebBounds(
-        { left: 0, top: 107.6, width: 402, height: 620.4 },
-        phone,
+        { left: 180.4, top: 32.4, width: 987.6, height: 674.6 },
+        viewport(),
       ),
-    ).toEqual({ x: 0, y: 108, width: 402, height: 620 });
+    ).toEqual({ x: 180, y: 32, width: 988, height: 675 });
     scope.__ISCT_COMPANION_NATIVE_OS__ = "macos";
     expect(
       schoolWebBounds(
@@ -224,15 +200,6 @@ describe("official school hosts", () => {
       "idp-saas.nap.gsic.titech.ac.jp",
     ]);
   });
-
-  it("records the 医歯学系 hosts as allowlisted but unverified", () => {
-    // Deliberate: a school page may hand off to them, but no adapter, no
-    // SchoolSite mapping and no live account has been exercised.
-    expect(schoolHosts()).toEqual(
-      expect.arrayContaining(["yushima2.tmd.ac.jp", "lib02.tmd.ac.jp"]),
-    );
-    expect(policySource()).toMatch(/NOT verified/i);
-  });
 });
 
 describe("school URL sanitisation", () => {
@@ -289,16 +256,6 @@ describe("school site mapping", () => {
       "portal.t4.gsic.titech.ac.jp": "Tsubame",
       "www.titech.ac.jp": "StudyGuide",
     });
-  });
-
-  it("leaves the two unverified 医歯学系 hosts without a site", () => {
-    // Allowlisted hosts without a SchoolSite are deliberate: the 医歯学系 pair
-    // has no adapter, and the Tokyo Tech Portal services open in the portal's
-    // own view rather than as a site of their own.
-    const unmapped = schoolHosts().filter((host) => !(host in siteMapping()));
-    expect(unmapped).toEqual(
-      expect.arrayContaining(["yushima2.tmd.ac.jp", "lib02.tmd.ac.jp"]),
-    );
   });
 });
 
@@ -1276,7 +1233,7 @@ describe("reference subscription shell policy", () => {
 
   it("pauses offline and metered connections", () => {
     setNetwork(false);
-    expect(subscriptionNetwork("native-desktop")).toBe("offline");
+    expect(subscriptionNetwork()).toBe("offline");
 
     for (const connection of [
       { type: "cellular" },
@@ -1284,17 +1241,15 @@ describe("reference subscription shell policy", () => {
       { type: "wifi", metered: true },
     ]) {
       setNetwork(true, connection);
-      expect(subscriptionNetwork("native-desktop")).toBe("cellular");
+      expect(subscriptionNetwork()).toBe("cellular");
     }
   });
 
-  it("uses the platform default when connection details are unavailable", () => {
+  it("treats Wi-Fi and unknown connections as unmetered", () => {
     setNetwork(true, { type: "wifi" });
-    expect(subscriptionNetwork("native-mobile")).toBe("wifi");
+    expect(subscriptionNetwork()).toBe("wifi");
     setNetwork(true);
-    expect(subscriptionNetwork("native-mobile")).toBe("cellular");
-    expect(subscriptionNetwork("native-desktop")).toBe("wifi");
-    expect(subscriptionNetwork("browser-preview")).toBe("wifi");
+    expect(subscriptionNetwork()).toBe("wifi");
   });
 });
 

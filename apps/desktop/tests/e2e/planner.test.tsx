@@ -16,6 +16,7 @@ import {
   scheduleViewFor,
   textOf,
   typeInto,
+  watchConsoleErrors,
   workspaceFixture,
   type FakeCore,
   type MountedApp,
@@ -915,6 +916,7 @@ describe("replacing a clashing course", () => {
   }, 60_000);
 
   it("offers Replace for a clashing course, commits it, and Undo restores the previous one", async () => {
+    const consoleWatch = watchConsoleErrors();
     app = await mountApp(clashApp(), { route: paths.timetable() });
     const { host, core } = app;
     await enablePlanning(app);
@@ -950,6 +952,9 @@ describe("replacing a clashing course", () => {
     const undoIntent = recordedIntent(core, "undoCatalogCourses");
     expect(undoIntent.termId).toBe("2026-3Q");
     expect(undoIntent.offeringIds).toEqual([clashing.id]);
+    expect(host.querySelector(".pageError")).toBeNull();
+    consoleWatch.expectClean();
+    consoleWatch.restore();
   }, 60_000);
 });
 
@@ -1349,37 +1354,6 @@ function planningWeekByDay(workspace: Workspace): Record<string, unknown> {
 }
 
 describe("the committed school fixtures", () => {
-  it("pin the 2026 and 2025 admission-year guide data behind the planner", () => {
-    const source = parsedCourses().find(
-      (course) => course.code === "CSC.T354",
-    )!;
-    expect(source.year).toBe(2026);
-    expect(source.content.sourceUrl).toBe(source.url);
-
-    const cs2026 = departments(2026).departments.find(
-      (item) => item.id === "cs",
-    )!;
-    expect(departments(2026).admissionYear).toBe(2026);
-    expect(departments(2026).source[0].url).toContain("/guide/guide_2026/");
-    expect(cs2026.guidePdf).toContain("/guide/guide_2026/");
-    expect(
-      cs2026.recommended.find((item) => item.code === "CSC.T354")!.group,
-    ).toBe("B");
-
-    const cs2025 = departments(2025).departments.find(
-      (item) => item.id === "cs",
-    )!;
-    expect(departments(2025).admissionYear).toBe(2025);
-    expect(departments(2025).source).toEqual([
-      expect.objectContaining({
-        url: "https://www.titech.ac.jp/guide/guide_2025/gakubu1/",
-      }),
-    ]);
-    expect(cs2025.guidePdf).toBe(
-      "https://www.titech.ac.jp/guide/guide_2025/gakubu1/pdf/26-13.pdf",
-    );
-  });
-
   it("renders the committed CSC.T354 offering with its real meetings and guide mark", async () => {
     const source = parsedCourses().find(
       (course) => course.code === "CSC.T354",

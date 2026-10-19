@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 use isct_core::course_materials::CourseMaterials;
 pub use isct_core::course_materials::{CourseKey, Material};
@@ -47,14 +48,11 @@ pub(crate) fn root(app: &AppHandle) -> Result<(PathBuf, bool), String> {
     }
 }
 fn default_root(app: &AppHandle) -> Result<PathBuf, String> {
-    #[cfg(desktop)]
     let base = app
         .path()
         .document_dir()
         .or_else(|_| app.path().app_data_dir())
         .map_err(|e| e.to_string())?;
-    #[cfg(mobile)]
-    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(base.join("IsctCompanion"))
 }
 
@@ -79,10 +77,7 @@ pub(crate) fn debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
     storage::storage_dir(&root(app)?.0, &["debug"]).map_err(|error| error.to_string())
 }
 pub(crate) fn materials(app: &AppHandle) -> Result<CourseMaterials, String> {
-    #[cfg(desktop)]
     let session = Some(crate::lms_downloader::session(app));
-    #[cfg(mobile)]
-    let session = None;
     Ok(CourseMaterials::new(
         app.state::<DataStore>().inner().clone(),
         root(app)?.0,
@@ -113,7 +108,7 @@ pub async fn course_storage_info(
     Ok(StorageInfo {
         root: display_root(&root),
         custom,
-        can_choose: cfg!(desktop),
+        can_choose: true,
     })
 }
 #[tauri::command]
@@ -128,29 +123,19 @@ pub async fn choose_course_storage(
         let selection = if reset {
             default_root(&handle)?
         } else {
-            #[cfg(desktop)]
-            {
-                use tauri_plugin_dialog::DialogExt;
-                let Some(chosen) = handle
-                    .dialog()
-                    .file()
-                    .set_title("Course materials and notes")
-                    .blocking_pick_folder()
-                else {
-                    return Ok(());
-                };
-                chosen
-                    .into_path()
-                    .map_err(|e| e.to_string())?
-                    .canonicalize()
-                    .map_err(|e| e.to_string())?
-            }
-            #[cfg(mobile)]
-            {
-                return Err(
-                    "Folder selection is available on desktop; mobile uses app storage".into(),
-                );
-            }
+            let Some(chosen) = handle
+                .dialog()
+                .file()
+                .set_title("Course materials and notes")
+                .blocking_pick_folder()
+            else {
+                return Ok(());
+            };
+            chosen
+                .into_path()
+                .map_err(|e| e.to_string())?
+                .canonicalize()
+                .map_err(|e| e.to_string())?
         };
         let config = config(&handle)?;
         let bytes = serde_json::to_vec(&selection).map_err(|error| error.to_string())?;
@@ -199,7 +184,6 @@ pub async fn save_course_note(
             })
             .await
             .map_err(|error| error.to_string())??;
-            crate::cloud_sync::CloudSync::changed(&app).await;
             Ok::<LocalFile, String>(file)
         })
         .await
@@ -241,7 +225,6 @@ pub async fn move_course_note(
             })
             .await
             .map_err(|error| error.to_string())??;
-            crate::cloud_sync::CloudSync::changed(&app).await;
             Ok::<bool, String>(moved)
         })
         .await

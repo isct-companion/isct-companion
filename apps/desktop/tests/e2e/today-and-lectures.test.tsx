@@ -219,6 +219,8 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
         ]),
     ),
     submittedIds: pick("closed", "handed-in"),
+    // Core closes submitted work and past-due work that takes no late hand-in.
+    closedIds: pick("closed", "handed-in", "missed", "early"),
     nearestByCourse: {},
     byTerm: {
       [term]: {

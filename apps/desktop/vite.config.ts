@@ -4,10 +4,7 @@ import { dirname } from "node:path";
 import { defineConfig, normalizePath } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteStaticCopy } from "vite-plugin-static-copy";
-import {
-  googleDriveClientId,
-  oauthClientTarget,
-} from "../../scripts/lib/oauth-config.mjs";
+import { googleDriveClientId } from "../../scripts/lib/oauth-config.mjs";
 import { thirdPartyNotices } from "../../scripts/desktop/third-party-notices.mjs";
 import { interactionTrace } from "../../scripts/desktop/interaction-trace.mjs";
 import { developmentVersion } from "../../scripts/lib/build-version.mjs";
@@ -50,8 +47,6 @@ export default defineConfig(({ command }) => ({
       process.env.ISCT_APP_VERSION ??
         (command === "serve" ? developmentVersion(version) : version),
     ),
-    __GOOGLE_DRIVE_CLIENT_ID__: JSON.stringify(
-      googleDriveClientId(oauthClientTarget(process.env.ISCT_BUILD_TARGET)),
-    ),
+    __GOOGLE_DRIVE_CLIENT_ID__: JSON.stringify(googleDriveClientId("desktop")),
   },
 }));

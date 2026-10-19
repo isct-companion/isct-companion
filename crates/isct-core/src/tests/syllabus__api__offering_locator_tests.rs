@@ -1,5 +1,5 @@
 #[test]
-fn a_bare_offering_id_uses_the_canonical_detail_path() {
+fn offering_locators_resolve_to_the_canonical_detail_path() {
     let url = super::offering_url("202608712").unwrap();
     assert_eq!(
         url.as_str(),
@@ -9,10 +9,6 @@ fn a_bare_offering_id_uses_the_canonical_detail_path() {
     assert!(super::localized_detail_url(&url, "en")
         .as_str()
         .ends_with("/202608712?hl=en"));
-}
-
-#[test]
-fn malformed_locator_is_an_input_error() {
     assert!(matches!(
         super::offering_url("not a URL"),
         Err(super::SyllabusError::InvalidInput(_))

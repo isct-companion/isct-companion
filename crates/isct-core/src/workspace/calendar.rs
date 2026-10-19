@@ -231,7 +231,8 @@ pub(super) fn save_intensive(
     )
 }
 
-pub(super) fn set_assignment_mark(
+/// Hides, pins or completes one assignment; agent tools share this rule.
+pub(crate) fn set_assignment_mark(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
     assignment_id: &str,

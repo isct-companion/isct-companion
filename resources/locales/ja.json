@@ -894,6 +894,7 @@
   "The upload area is not available. Choose the files in LMS.": "アップロード領域を利用できません。LMS でファイルを選択してください。",
   "Files upload to the LMS draft. Review and submit in LMS.": "ファイルは LMS の下書きにアップロードされます。LMS で確認して提出してください。",
   "Prepare in LMS": "LMS で提出を準備",
+  "The workspace folder “{{name}}” is gone. Create it again, or view the assignment in LMS and choose the files there.": "ワークスペースのフォルダ「{{name}}」が見つかりません。作り直すか、LMS で課題を開いてファイルを選んでください。",
   "Admission year": "入学年度",
   "Add degree programme": "学位課程を追加",
   "Save enrollment details": "学籍情報を保存",

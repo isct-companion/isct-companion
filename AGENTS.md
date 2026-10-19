@@ -21,9 +21,9 @@ login scripts and relays used by every school-web adapter; the route table in
 ## 3. Isolate native differences at compile time, not with runtime checks
 
 Behaviour that differs because of the native platform is separated in source
-at build time, like `#ifdef`: Rust `#[cfg(...)]` (`desktop`, `mobile`,
-`target_os`), per-platform files (`school_web_ios.rs`, `school_web_android.rs`),
-and the values the binary injects at startup (`__ISCT_COMPANION_NATIVE_TARGET__`,
+at build time, like `#ifdef`: Rust `#[cfg(...)]` (`target_os`, `matrix_ocr`),
+per-platform files (`notifications_macos.rs`, `school_webkit.rs`), separate
+native apps (`apps/ios`, `apps/android`), and the values the binary injects at startup (`__ISCT_COMPANION_NATIVE_TARGET__`,
 `__ISCT_COMPANION_NATIVE_OS__`, read via `nativeOs()`). Never detect the
 platform at runtime from `navigator.userAgent`, `navigator.platform`, touch
 points or similar heuristics.

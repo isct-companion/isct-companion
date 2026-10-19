@@ -2,7 +2,7 @@
 use crate::school_browser::{SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError};
 use crate::{
     agent::AgentService,
-    data::DataStore,
+    data::{CommitObserver, DataStore, WorkspaceChangeSource},
     ports::EventSink,
     pull_coordinator::PullNetwork,
     reference_refresh::ReferenceService,
@@ -51,6 +51,24 @@ impl EventSink for CoreEvents {
     }
 }
 
+/// Every committed workspace write reaches shells and cloud sync from here,
+/// whichever service, executor or agent tool made it.
+struct StoreChanges {
+    events: Option<Arc<CoreEvents>>,
+    runtime: Arc<CoreRuntime>,
+}
+
+impl CommitObserver for StoreChanges {
+    fn committed(&self, source: WorkspaceChangeSource, revision: Option<String>) {
+        if let Some(events) = &self.events {
+            // Events are hints with snapshot recovery; a failed delivery does
+            // not undo the committed write.
+            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged { source, revision });
+        }
+        self.runtime.request_cloud_capture();
+    }
+}
+
 impl CoreEvents {
     fn clear(&self) {
         if let Ok(mut sink) = self.0.lock() {
@@ -80,17 +98,19 @@ impl Core {
         events: Option<Arc<dyn EventSink>>,
     ) -> Self {
         let events = events.map(|events| Arc::new(CoreEvents(Mutex::new(Some(events)))));
+        let runtime = Arc::new(CoreRuntime::new(network));
+        store.observe(Arc::new(StoreChanges {
+            events: events.clone(),
+            runtime: runtime.clone(),
+        }));
         Self {
             agent: AgentService::new(store.clone()),
-            workspace: events
-                .clone()
-                .map(|events| WorkspaceService::with_events(store.clone(), events))
-                .unwrap_or_else(|| WorkspaceService::new(store.clone())),
+            workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),
             school_browser: Mutex::new(None),
             store,
             auth,
-            runtime: Arc::new(CoreRuntime::new(network)),
+            runtime,
             events,
         }
     }
@@ -202,25 +222,18 @@ impl Core {
     /// Ports are scoped to operations, so completed work releases native handles.
     pub fn services(
         &self,
-        events: Arc<dyn EventSink>,
         executor: Arc<dyn SchoolExecutor>,
         exporter: Arc<dyn ScheduledExporter>,
     ) -> SchedulerServices {
         SchedulerServices {
-            references: ReferenceService::new(
-                self.store.clone(),
-                self.runtime.coordinator.clone(),
-                events.clone(),
-            ),
+            references: ReferenceService::new(self.store.clone(), self.runtime.coordinator.clone()),
             school: SchoolService::new(
                 self.runtime.coordinator.clone(),
                 self.auth.clone(),
-                events.clone(),
                 self.runtime.refresh.clone(),
             ),
             refresh: self.runtime.refresh.clone(),
             store: self.store.clone(),
-            events,
             executor,
             exporter,
         }

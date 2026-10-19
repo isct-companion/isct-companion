@@ -119,8 +119,19 @@ impl CoreRuntime {
 
     pub fn attach_cloud(&self, cloud: crate::cloud_sync::CloudSync) -> Result<(), RuntimeError> {
         self.cloud
-            .set(cloud)
-            .map_err(|_| RuntimeError::CloudAlreadyAttached)
+            .set(cloud.clone())
+            .map_err(|_| RuntimeError::CloudAlreadyAttached)?;
+        // Notes live outside school.db, so they report their own changes.
+        self.notes.on_change(move || cloud.request_capture());
+        Ok(())
+    }
+
+    /// Bring the next cloud capture forward after local content changed.
+    /// The shell's next wake runs it; nothing is captured without a wake.
+    pub(crate) fn request_cloud_capture(&self) {
+        if let Some(cloud) = self.cloud.get() {
+            cloud.request_capture();
+        }
     }
 
     pub fn wake_cloud(
