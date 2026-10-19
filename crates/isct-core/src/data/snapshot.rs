@@ -74,6 +74,9 @@ impl DataStore {
         Ok((parts, hash))
     }
 
+    /// Applies one user intent after checking the revision it was made
+    /// against. `operation` returns its result with the snapshot parts and
+    /// content hash as committed; the parts' revision reaches the observer.
     pub(crate) fn workspace_write<T>(
         &self,
         expected_revision: &str,
@@ -96,34 +99,39 @@ impl DataStore {
             .connection
             .as_mut()
             .ok_or_else(|| DataError::storage("Snapshot connection unavailable"))?;
-        let transaction =
-            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let version: i64 = transaction.query_row("PRAGMA data_version", [], |row| row.get(0))?;
-        let actual = intent_revision(&transaction)?;
-        if actual != expected_revision {
-            return Err(DataError::conflict(format!(
-                "workspace revision conflict: expected {expected_revision}, actual {actual}"
-            )));
-        }
-        let (current, school_records, _) = match prior {
-            Some((v, day, parts, _)) if v == version && day == today => parts,
-            _ => (
-                Self::load_workspace_from(&transaction)?,
-                Self::school_records_from(&transaction)?,
-                actual,
-            ),
-        };
-        let (result, parts, hash) = operation(
-            &WorkspaceWrite {
-                transaction: &transaction,
-            },
-            &current,
-            &school_records,
-        )?;
-        transaction.commit()?;
+        let ((result, parts, hash, version), changed) = commit_on(connection, |transaction| {
+            let version: i64 =
+                transaction.query_row("PRAGMA data_version", [], |row| row.get(0))?;
+            let actual = intent_revision(transaction)?;
+            if actual != expected_revision {
+                return Err(DataError::conflict(format!(
+                    "workspace revision conflict: expected {expected_revision}, actual {actual}"
+                )));
+            }
+            let (current, school_records, _) = match prior {
+                Some((v, day, parts, _)) if v == version && day == today => parts,
+                _ => (
+                    Self::load_workspace_from(transaction)?,
+                    Self::school_records_from(transaction)?,
+                    actual,
+                ),
+            };
+            let write = WorkspaceWrite {
+                transaction,
+                actor: WorkspaceChangeSource::UserIntent.actor(),
+            };
+            let (result, parts, hash) = operation(&write, &current, &school_records)?;
+            Ok((result, parts, hash, version))
+        })?;
+        let revision = parts.2.clone();
         // Own-connection commits do not change data_version. This update is
         // atomic with the write; any later external commit invalidates it.
         reader.cached = Some((version, today, parts, hash));
+        drop(reader);
+        if changed {
+            self.observer
+                .committed(WorkspaceChangeSource::UserIntent, Some(revision));
+        }
         Ok(result)
     }
 

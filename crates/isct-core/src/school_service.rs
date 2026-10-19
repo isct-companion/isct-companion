@@ -1,9 +1,7 @@
 //! Coordinated school extraction independent of the native webview implementation.
 
 use crate::{
-    events::{CoreEvent, WorkspaceChangeSource},
     lifecycle::SchoolSite,
-    ports::EventSink,
     pull_coordinator::{PullContext, PullCoordinator, PullError, PullOptions, PullTarget},
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
 };
@@ -44,29 +42,11 @@ impl IngestState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
-#[serde(rename_all = "kebab-case")]
-pub enum SchoolPageAvailabilityState {
-    Available,
-    Unavailable,
-}
-
-/// Latest authoritative capability observation for one school page.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolPageAvailability {
-    pub state: SchoolPageAvailabilityState,
-    pub checked_at: String,
-    pub message: String,
-}
-
 #[cfg(feature = "ts")]
 pub fn declarations() -> Vec<String> {
     vec![
-        SchoolPageAvailabilityState::decl(),
-        SchoolPageAvailability::decl(),
+        crate::contracts::SchoolPageAvailabilityState::decl(),
+        crate::contracts::SchoolPageAvailability::decl(),
     ]
 }
 
@@ -161,7 +141,6 @@ impl From<PullError> for SchoolError {
 pub struct SchoolService {
     coordinator: PullCoordinator,
     auth: Arc<SchoolAuthService>,
-    events: Arc<dyn EventSink>,
     refresh: crate::school_refresh::SchoolRefresh,
 }
 
@@ -169,13 +148,11 @@ impl SchoolService {
     pub fn new(
         coordinator: PullCoordinator,
         auth: Arc<SchoolAuthService>,
-        events: Arc<dyn EventSink>,
         refresh: crate::school_refresh::SchoolRefresh,
     ) -> Self {
         Self {
             coordinator,
             auth,
-            events,
             refresh,
         }
     }
@@ -275,14 +252,6 @@ impl SchoolService {
                                 context.clone(),
                             )
                             .await;
-                        // 教務Web commits per page, so a run cancelled between pages
-                        // may already have changed rows.
-                        if matches!(result, Ok(_) | Err(SchoolExecutorError::Cancelled)) {
-                            let _ = service.events.emit(CoreEvent::WorkspaceChanged {
-                                source: WorkspaceChangeSource::SchoolPull,
-                                revision: None,
-                            });
-                        }
                         let result = result.map_err(map_executor_error)?;
                         if context.is_cancelled() {
                             return Err(PullError::Cancelled);

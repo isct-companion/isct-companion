@@ -170,9 +170,19 @@ links to [the native SDK reference](core-ffi.md) for foreign method signatures.
 `Core::new(DataStore, Arc<SchoolAuthService>, PullNetwork)` constructs one
 application owner containing `store`, `auth`, `agent`, `workspace`, `reminders` and `Arc<CoreRuntime>`.
 Production shells use `Core::with_events(..., EventSink)` and call
-`Core::start(&Handle)` once; Core owns the pull-event forwarding task. Successful
-workspace mutations emit `workspace-changed` with `source: "user-intent"` and
-the committed workspace `revision` after commit. The initiating shell uses that
+`Core::start(&Handle)` once; Core owns the pull-event forwarding task.
+
+Every commit to school.db goes through `DataStore::write(source, |tx| ...)`
+(user intents through `workspace_write`, which shares its commit). It holds the
+IMMEDIATE transaction and, when the commit changed a row, tells the observer
+`Core` installs. That observer emits `workspace-changed` with the write's
+source and brings the next cloud capture forward. Services, executors, agent
+tools and shells therefore never emit the event or ask for a capture
+themselves, and a write that changes nothing publishes nothing. Catalog cache
+rows and reference cache markers commit with no source and are not published.
+
+Successful workspace mutations emit `workspace-changed` with
+`source: "user-intent"` and the committed workspace `revision` after commit. The initiating shell uses that
 revision to associate the event with the snapshot returned by its command and
 avoid a redundant reload. Other workspace-change sources omit `revision`; they
 still require snapshot recovery and must not be ignored, including MCP writes.
@@ -542,8 +552,8 @@ reach clients as a generic message and are logged locally.
 
 Concurrent plan additions converge on one stable identity. Writes recheck
 permission and commit mutations and audit together in one SQLite transaction.
-Successful writes emit the existing workspace change event and notify the same
-cloud service. Accepted work remains owned after a client disconnect; shutdown
+Writes commit through the same store path as user intents, so Core publishes
+them with source `mcp` and schedules the same cloud capture. Accepted work remains owned after a client disconnect; shutdown
 stops HTTP admission and drains work before shutting down Core.
 
 A broken connection can leave a caller uncertain whether a write committed;

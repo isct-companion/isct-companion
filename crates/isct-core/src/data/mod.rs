@@ -1,5 +1,6 @@
 mod backup_store;
 mod catalog_store;
+mod changes;
 mod defaults;
 mod lms_store;
 mod records;
@@ -12,7 +13,6 @@ pub use defaults::initial_workspace;
 use defaults::*;
 use records::*;
 pub(crate) use records::{canonical_course_id, lms_course_code, resolve_course_id};
-pub(crate) use settings::ADMISSION_YEARS;
 use settings::*;
 
 pub mod cloud_merge;
@@ -20,15 +20,17 @@ mod error;
 pub mod migrations;
 pub mod versioned;
 
+pub use changes::{CommitObserver, WorkspaceChangeSource};
 pub use error::DataError;
 
-use crate::school_service::{SchoolPageAvailability, SchoolPageAvailabilityState};
+use crate::contracts::{SchoolPageAvailability, SchoolPageAvailabilityState};
 use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use uuid::Uuid;
 use versioned::{content_hash, VersionedValue};
 
@@ -516,15 +518,12 @@ impl From<DataError> for AgentWriteError {
     }
 }
 
-pub(crate) struct AgentWriteTransaction<'transaction, 'connection> {
-    transaction: &'transaction rusqlite::Transaction<'connection>,
-}
-
-/// Narrow database capabilities used by the workspace domain service.  The
-/// service owns policy; this type only provides revision-checked persistence
-/// inside the service's single IMMEDIATE transaction.
+/// Narrow database capabilities used by the workspace domain rules, for user
+/// intents and agent tools alike. The rules own policy; this type only
+/// provides revision-checked persistence inside one IMMEDIATE transaction.
 pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
     transaction: &'transaction rusqlite::Transaction<'connection>,
+    actor: &'static str,
 }
 
 impl WorkspaceWrite<'_, '_> {
@@ -547,7 +546,7 @@ impl WorkspaceWrite<'_, '_> {
         value: Value,
         expected_rev: Option<u64>,
     ) -> Result<Value, DataError> {
-        put_user_record_in_transaction(self.transaction, table, value, "workspace", expected_rev)
+        put_user_record_in_transaction(self.transaction, table, value, self.actor, expected_rev)
     }
 
     pub(crate) fn delete(
@@ -556,7 +555,20 @@ impl WorkspaceWrite<'_, '_> {
         id: &str,
         expected_rev: Option<u64>,
     ) -> Result<bool, DataError> {
-        delete_user_record_in_transaction(self.transaction, table, id, "workspace", expected_rev)
+        delete_user_record_in_transaction(self.transaction, table, id, self.actor, expected_rev)
+    }
+
+    /// Every stored row of a user table, deleted ones included.
+    pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
+        if !DataStore::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        read_rows(self.transaction, table)
+    }
+
+    /// A detailed catalog offering; search-only rows cannot be planned.
+    pub(crate) fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
+        catalog_offering_in(self.transaction, id)
     }
 
     /// Whether a live row with this ID is stored in the given user table.
@@ -598,7 +610,7 @@ impl WorkspaceWrite<'_, '_> {
         validate_setting(key, value)?;
         let actor = read_setting(self.transaction, "deviceId")?
             .and_then(|value| value.as_str().map(str::to_string))
-            .unwrap_or_else(|| "workspace".to_string());
+            .unwrap_or_else(|| self.actor.to_string());
         save_setting(self.transaction, key, value, &actor).map(|_| ())
     }
 
@@ -608,44 +620,6 @@ impl WorkspaceWrite<'_, '_> {
         self.save_setting("userPreferences", &user)?;
         self.save_setting("devicePreferences", &device)?;
         self.save_setting("cloud", &cloud)
-    }
-}
-
-impl AgentWriteTransaction<'_, '_> {
-    /// Latest workspace assembled under the agent write transaction's
-    /// IMMEDIATE lock. Domain gates must use this snapshot rather than the
-    /// preflight read made before the transaction began.
-    pub(crate) fn workspace(&self) -> Result<Value, DataError> {
-        DataStore::load_workspace_from(self.transaction)
-    }
-
-    pub(crate) fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
-        catalog_offering_in(self.transaction, id)
-    }
-
-    pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
-        if !DataStore::user_table(table) {
-            return Err("table is not user-owned".into());
-        }
-        read_rows(self.transaction, table)
-    }
-
-    pub(crate) fn put(
-        &self,
-        table: &str,
-        value: Value,
-        expected_rev: Option<u64>,
-    ) -> Result<Value, DataError> {
-        put_user_record_in_transaction(self.transaction, table, value, "mcp", expected_rev)
-    }
-
-    pub(crate) fn delete(
-        &self,
-        table: &str,
-        id: &str,
-        expected_rev: Option<u64>,
-    ) -> Result<bool, DataError> {
-        delete_user_record_in_transaction(self.transaction, table, id, "mcp", expected_rev)
     }
 }
 
@@ -713,6 +687,30 @@ fn catalog_row_in(connection: &Connection, id: &str) -> Result<Option<Value>, Da
     .transpose()
 }
 
+fn total_changes(connection: &Connection) -> Result<i64, DataError> {
+    connection
+        .query_row("SELECT total_changes()", [], |row| row.get(0))
+        .map_err(DataError::from)
+}
+
+/// Runs `operation` in an IMMEDIATE transaction on `connection` and commits
+/// it. Also returns whether the transaction changed any row. `write` and
+/// `workspace_write` commit through this; executor tests on an in-memory
+/// database use it to commit the same way.
+pub(crate) fn commit_on<T, E: From<DataError>>(
+    connection: &mut Connection,
+    operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
+) -> Result<(T, bool), E> {
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(DataError::from)?;
+    let before = total_changes(&transaction)?;
+    let value = operation(&transaction)?;
+    let changed = total_changes(&transaction)? != before;
+    transaction.commit().map_err(DataError::from)?;
+    Ok((value, changed))
+}
+
 fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
     Ok(read_setting(connection, "devicePreferences")?
         .or(read_setting(connection, "settings")?)
@@ -754,10 +752,54 @@ fn record_agent_write_in(
     save_setting(transaction, key, &settings, "mcp").map(|_| ())
 }
 
+/// Device identity, settings and built-in tasks a new or reset database needs.
+fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
+    let existing_device_id = read_setting(transaction, "deviceId")?;
+    let workspace = empty_workspace();
+    let device_id = existing_device_id
+        .as_ref()
+        .and_then(Value::as_str)
+        .unwrap_or(string_field(&workspace, "deviceId")?);
+    if existing_device_id.is_none() {
+        for key in [
+            "deviceId",
+            "selectedTerm",
+            "terms",
+            "academicProfile",
+            "classGroups",
+            "importStatus",
+            "syncStatus",
+            "logs",
+        ] {
+            if let Some(value) = workspace.get(key) {
+                save_setting(transaction, key, value, device_id)?;
+            }
+        }
+        let (user, device, cloud) = settings_parts(&workspace["settings"]);
+        save_setting(transaction, "userPreferences", &user, device_id)?;
+        save_setting(transaction, "devicePreferences", &device, device_id)?;
+        save_setting(transaction, "cloud", &cloud, device_id)?;
+    }
+    upsert_row(
+        transaction,
+        "scheduled_tasks",
+        &reference_refresh_task(device_id),
+        false,
+    )?;
+    upsert_row(
+        transaction,
+        "scheduled_tasks",
+        &lms_background_refresh_task(device_id),
+        false,
+    )?;
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct DataStore {
     path: PathBuf,
-    snapshot_reader: std::sync::Arc<std::sync::Mutex<snapshot::SnapshotReader>>,
+    snapshot_reader: Arc<std::sync::Mutex<snapshot::SnapshotReader>>,
+    observer: changes::Observer,
 }
 
 impl DataStore {
@@ -767,20 +809,24 @@ impl DataStore {
         }
         let mut connection = Connection::open(&path).map_err(DataError::from)?;
         let schema_changed = migrations::migrate(&mut connection)?;
-        // Catalog offerings are never deleted by the person; earlier workspace
-        // saves tombstoned rows the window had not loaded yet. Restore them.
-        connection
-            .execute(
-                "UPDATE offerings SET deleted_at=NULL, value=json_remove(value,'$.deletedAt')
-                 WHERE deleted_at IS NOT NULL",
-                [],
-            )
-            .map_err(DataError::from)?;
+        drop(connection);
         let store = Self {
             path,
-            snapshot_reader: std::sync::Arc::default(),
+            snapshot_reader: Arc::default(),
+            observer: changes::Observer::default(),
         };
-        store.ensure_defaults()?;
+        store.write(None, |transaction| {
+            // Catalog offerings are never deleted by the person; earlier workspace
+            // saves tombstoned rows the window had not loaded yet. Restore them.
+            transaction
+                .execute(
+                    "UPDATE offerings SET deleted_at=NULL, value=json_remove(value,'$.deletedAt')
+                     WHERE deleted_at IS NOT NULL",
+                    [],
+                )
+                .map_err(DataError::from)?;
+            ensure_defaults_in(transaction)
+        })?;
         Ok((store, schema_changed))
     }
 
@@ -790,48 +836,27 @@ impl DataStore {
         Ok(connection)
     }
 
-    fn ensure_defaults(&self) -> Result<(), DataError> {
-        let mut connection = self.open()?;
-        let existing_device_id = read_setting(&connection, "deviceId")?;
-        let workspace = empty_workspace();
-        let device_id = existing_device_id
-            .as_ref()
-            .and_then(Value::as_str)
-            .unwrap_or(string_field(&workspace, "deviceId")?);
-        let transaction = connection.transaction().map_err(DataError::from)?;
-        if existing_device_id.is_none() {
-            for key in [
-                "deviceId",
-                "selectedTerm",
-                "terms",
-                "academicProfile",
-                "classGroups",
-                "importStatus",
-                "syncStatus",
-                "logs",
-            ] {
-                if let Some(value) = workspace.get(key) {
-                    save_setting(&transaction, key, value, device_id)?;
-                }
-            }
-            let (user, device, cloud) = settings_parts(&workspace["settings"]);
-            save_setting(&transaction, "userPreferences", &user, device_id)?;
-            save_setting(&transaction, "devicePreferences", &device, device_id)?;
-            save_setting(&transaction, "cloud", &cloud, device_id)?;
+    /// Core installs the one observer every clone of this store reports to.
+    pub(crate) fn observe(&self, observer: Arc<dyn CommitObserver>) {
+        self.observer.set(observer);
+    }
+
+    /// The one commit path for school.db. The operation runs inside an
+    /// IMMEDIATE transaction this store owns; once it commits with changed
+    /// rows, the observer hears `source`. `None` marks local caches the
+    /// workspace hint does not cover: syllabus catalog rows, which a sync
+    /// stores one offering at a time and shells query on demand, and
+    /// reference cache markers.
+    pub(crate) fn write<T, E: From<DataError>>(
+        &self,
+        source: Option<WorkspaceChangeSource>,
+        operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let (value, changed) = commit_on(&mut self.open()?, operation)?;
+        if let Some(source) = source.filter(|_| changed) {
+            self.observer.committed(source, None);
         }
-        upsert_row(
-            &transaction,
-            "scheduled_tasks",
-            &reference_refresh_task(device_id),
-            false,
-        )?;
-        upsert_row(
-            &transaction,
-            "scheduled_tasks",
-            &lms_background_refresh_task(device_id),
-            false,
-        )?;
-        transaction.commit().map_err(DataError::from)
+        Ok(value)
     }
 
     fn user_table(table: &str) -> bool {
@@ -852,16 +877,11 @@ impl DataStore {
         )
     }
 
-    /// Test shorthand for an unchecked write; production writers pass the
-    /// revision they read to `put_user_record_checked`.
+    /// Test shorthand for an unchecked user write; production writers pass
+    /// the revision they read to `put_user_record_checked`.
     #[cfg(test)]
-    pub fn put_user_record(
-        &self,
-        table: &str,
-        value: Value,
-        actor: &str,
-    ) -> Result<Value, DataError> {
-        self.put_user_record_checked(table, value, actor, None)
+    pub fn put_user_record(&self, table: &str, value: Value) -> Result<Value, DataError> {
+        self.put_user_record_checked(table, value, WorkspaceChangeSource::UserIntent, None)
     }
 
     /// User-owned records are changed one row at a time. The database owns
@@ -870,44 +890,31 @@ impl DataStore {
         &self,
         table: &str,
         value: Value,
-        actor: &str,
+        source: WorkspaceChangeSource,
         expected_rev: Option<u64>,
     ) -> Result<Value, DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)?;
-        let value =
-            put_user_record_in_transaction(&transaction, table, value, actor, expected_rev)?;
-        transaction.commit().map_err(DataError::from)?;
-        Ok(value)
+        self.write(Some(source), |transaction| {
+            put_user_record_in_transaction(transaction, table, value, source.actor(), expected_rev)
+        })
     }
 
     #[cfg(test)]
-    pub fn delete_user_record(
-        &self,
-        table: &str,
-        id: &str,
-        actor: &str,
-    ) -> Result<bool, DataError> {
-        self.delete_user_record_checked(table, id, actor, None)
+    pub fn delete_user_record(&self, table: &str, id: &str) -> Result<bool, DataError> {
+        self.delete_user_record_checked(table, id, None)
     }
 
+    /// A user delete, as a test stands in for one racing background work.
+    #[cfg(test)]
     pub fn delete_user_record_checked(
         &self,
         table: &str,
         id: &str,
-        actor: &str,
         expected_rev: Option<u64>,
     ) -> Result<bool, DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)?;
-        let deleted =
-            delete_user_record_in_transaction(&transaction, table, id, actor, expected_rev)?;
-        transaction.commit().map_err(DataError::from)?;
-        Ok(deleted)
+        let source = WorkspaceChangeSource::UserIntent;
+        self.write(Some(source), |transaction| {
+            delete_user_record_in_transaction(transaction, table, id, source.actor(), expected_rev)
+        })
     }
 
     pub fn user_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
@@ -922,29 +929,28 @@ impl DataStore {
         agent_access_enabled_in(&connection)
     }
 
+    /// One agent tool's writes, on the same rules and commit path as user
+    /// intents. Each row's revision is checked under this IMMEDIATE lock, and
+    /// `action` reads the workspace as of that lock, not a preflight read.
     pub(crate) fn agent_write<T>(
         &self,
         tool: &str,
-        action: impl FnOnce(&AgentWriteTransaction<'_, '_>) -> Result<T, DataError>,
+        action: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value) -> Result<T, DataError>,
     ) -> Result<T, AgentWriteError> {
-        let mut connection = self.open().map_err(AgentWriteError::Data)?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)
-            .map_err(AgentWriteError::Data)?;
-        if !agent_access_enabled_in(&transaction).map_err(AgentWriteError::Data)? {
-            return Err(AgentWriteError::Disabled);
-        }
-        let result = action(&AgentWriteTransaction {
-            transaction: &transaction,
+        let source = WorkspaceChangeSource::Mcp;
+        self.write(Some(source), |transaction| {
+            if !agent_access_enabled_in(transaction)? {
+                return Err(AgentWriteError::Disabled);
+            }
+            let current = Self::load_workspace_from(transaction)?;
+            let write = WorkspaceWrite {
+                transaction,
+                actor: source.actor(),
+            };
+            let result = action(&write, &current)?;
+            record_agent_write_in(transaction, tool)?;
+            Ok(result)
         })
-        .map_err(AgentWriteError::Data)?;
-        record_agent_write_in(&transaction, tool).map_err(AgentWriteError::Data)?;
-        transaction
-            .commit()
-            .map_err(DataError::from)
-            .map_err(AgentWriteError::Data)?;
-        Ok(result)
     }
 
     // Local reference markers are excluded from user backups and cloud exports.
@@ -963,78 +969,50 @@ impl DataStore {
         year: i32,
         marker: Value,
     ) -> Result<(), DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)?;
-        save_setting(
-            &transaction,
-            &format!("referenceCache:{kind}:{year}"),
-            &marker,
-            "reference-pull",
-        )?;
-        transaction.commit().map_err(DataError::from)
+        self.write(None, |transaction| {
+            save_setting(
+                transaction,
+                &format!("referenceCache:{kind}:{year}"),
+                &marker,
+                "reference-pull",
+            )
+            .map(|_| ())
+        })
     }
 
     /// Patch only the poll clock under the same SQL lock as local preferences.
     pub fn record_reference_poll(&self) -> Result<(), DataError> {
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)?;
-        let key = if read_setting(&transaction, "devicePreferences")?.is_some() {
-            "devicePreferences"
-        } else {
-            "settings"
-        };
-        let mut settings = read_setting(&transaction, key)?.unwrap_or_else(|| json!({}));
-        let refresh = settings
-            .as_object_mut()
-            .ok_or("settings must be an object")?
-            .entry("subscriptionRefresh")
-            .or_insert_with(|| json!({"frequency":"daily","allowCellular":false}));
-        refresh
-            .as_object_mut()
-            .ok_or("subscription refresh must be an object")?
-            .insert("lastCheckedAt".into(), json!(now()));
-        save_setting(&transaction, key, &settings, "pull-coordinator")?;
-        transaction.commit().map_err(DataError::from)
+        self.write(Some(WorkspaceChangeSource::ReferencePoll), |transaction| {
+            let key = if read_setting(transaction, "devicePreferences")?.is_some() {
+                "devicePreferences"
+            } else {
+                "settings"
+            };
+            let mut settings = read_setting(transaction, key)?.unwrap_or_else(|| json!({}));
+            let refresh = settings
+                .as_object_mut()
+                .ok_or("settings must be an object")?
+                .entry("subscriptionRefresh")
+                .or_insert_with(|| json!({"frequency":"daily","allowCellular":false}));
+            refresh
+                .as_object_mut()
+                .ok_or("subscription refresh must be an object")?
+                .insert("lastCheckedAt".into(), json!(now()));
+            save_setting(transaction, key, &settings, "pull-coordinator").map(|_| ())
+        })
     }
 
-    pub fn put_workspace_setting(
-        &self,
-        key: &str,
-        value: Value,
-        actor: &str,
-    ) -> Result<(), DataError> {
-        if !matches!(
-            key,
-            "selectedTerm"
-                | "terms"
-                | "academicProfile"
-                | "classGroups"
-                | "userPreferences"
-                | "devicePreferences"
-                | "cloud"
-                | "importStatus"
-                | "syncStatus"
-                | "logs"
-        ) {
-            return Err("setting key is not writable".into());
-        }
-        validate_setting(key, &value)?;
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(DataError::from)?;
-        let device = read_setting(&transaction, "deviceId")?;
-        save_setting(
-            &transaction,
-            key,
-            &value,
-            device.as_ref().and_then(Value::as_str).unwrap_or(actor),
-        )?;
-        transaction.commit().map_err(DataError::from)
+    /// Saves one workspace setting as a user write, under the same key
+    /// allowlist and validation as a workspace intent.
+    pub fn put_workspace_setting(&self, key: &str, value: Value) -> Result<(), DataError> {
+        let source = WorkspaceChangeSource::UserIntent;
+        self.write(Some(source), |transaction| {
+            WorkspaceWrite {
+                transaction,
+                actor: source.actor(),
+            }
+            .save_setting(key, &value)
+        })
     }
 
     pub fn table_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {

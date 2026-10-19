@@ -1197,12 +1197,11 @@ async fn full_lms_pull_rejects_the_preempted_relay_and_resumes_the_same_caller()
 
 #[tokio::test]
 async fn kyomu_partial_commit_marks_coordinator_failed_when_the_next_page_fails() {
-    let (engine, browser, events, store) = engine();
+    let (engine, browser, _, store) = engine();
     let coordinator = PullCoordinator::default();
     let service = SchoolService::new(
         coordinator.clone(),
         Arc::new(SchoolAuthService::new(EmptyVault)),
-        events,
         SchoolRefresh::new(PullNetwork::Unknown),
     );
     let request = {

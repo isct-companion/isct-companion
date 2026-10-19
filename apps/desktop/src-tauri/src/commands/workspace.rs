@@ -32,13 +32,9 @@ pub(crate) async fn mutate_workspace(
             })
     })
     .await?;
-    let persisted = std::time::Instant::now();
-    cloud_sync::CloudSync::changed(&app).await;
     if std::env::var_os("ISCT_TRACE_READS").is_some() {
         log::info!(
-            "[native-mutation] persist_ms={} cloud_capture_ms={} total_ms={}",
-            persisted.duration_since(started).as_millis(),
-            persisted.elapsed().as_millis(),
+            "[native-mutation] persist_ms={}",
             started.elapsed().as_millis()
         );
     }
@@ -80,9 +76,5 @@ pub(crate) async fn reset_workspace(
         .prepare_reset(&app)
         .await?;
     let store = store.inner().clone();
-    let result =
-        run_data_command(move || store.reset_workspace().map_err(|error| error.to_string()))
-            .await?;
-    cloud_sync::CloudSync::changed(&app).await;
-    Ok(result)
+    run_data_command(move || store.reset_workspace().map_err(|error| error.to_string())).await
 }
