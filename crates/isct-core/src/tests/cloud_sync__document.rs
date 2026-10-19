@@ -112,6 +112,10 @@ impl WorkspaceTransport for ConflictOnce {
             Ok(())
         })
     }
+
+    fn disconnect(&self, _provider: CloudProvider) -> Result<(), DocumentError> {
+        Ok(())
+    }
 }
 
 #[tokio::test]
@@ -212,4 +216,84 @@ async fn exhausted_remote_revision_returns_before_writing() {
 
     assert_eq!(error, DocumentError::RevisionExhausted);
     assert_eq!(transport.state.lock().unwrap().writes, 0);
+}
+
+/// An object store that keeps one object per provider and bumps its tag on
+/// every accepted write, like CloudKit's record change tag.
+#[derive(Default)]
+struct Objects {
+    stored: Mutex<Option<StoredObject>>,
+    writes: Mutex<Vec<Option<String>>>,
+}
+
+impl ObjectStore for Objects {
+    fn read<'a>(&'a self, _provider: CloudProvider) -> BoxFuture<'a, Option<StoredObject>> {
+        Box::pin(async move { Ok(self.stored.lock().unwrap().clone()) })
+    }
+
+    fn write<'a>(
+        &'a self,
+        _provider: CloudProvider,
+        bytes: Vec<u8>,
+        expected: Option<String>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            self.writes.lock().unwrap().push(expected.clone());
+            let mut stored = self.stored.lock().unwrap();
+            if stored.as_ref().map(|object| object.tag.clone()) != expected {
+                return Err(DocumentError::Conflict);
+            }
+            let tag = format!("tag-{}", self.writes.lock().unwrap().len());
+            *stored = Some(StoredObject { bytes, tag });
+            Ok(())
+        })
+    }
+
+    fn disconnect(&self, _provider: CloudProvider) -> Result<(), DocumentError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn tagged_writes_carry_the_tag_read_with_the_expected_revision() {
+    let note = |id: &str| json!({"id": id, "rev": 1, "updatedAt": "2026-01-01T00:00:00Z", "updatedBy": "device"});
+    let cloud = DocumentCloud::new(
+        TaggedWorkspace::new(Objects::default()),
+        Some("iPhone".into()),
+    );
+    let provider = CloudProvider::Icloud;
+
+    // First copy: created only if nothing exists, then a second device's
+    // edit is conditional on the tag of the copy it read.
+    cloud
+        .merge_and_push(provider, &document(json!([note("mac")])), "mac")
+        .await
+        .unwrap();
+    let merged = cloud
+        .merge_and_push(provider, &document(json!([note("phone")])), "phone")
+        .await
+        .unwrap();
+    let ids: Vec<_> = merged["localNotes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|note| note["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["mac", "phone"]);
+    let store = cloud.transport().store();
+    assert_eq!(*store.writes.lock().unwrap(), [None, Some("tag-1".into())]);
+    let versions = cloud.versions(provider).await.unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].device, "iPhone");
+
+    // A write whose revision was not the last one read never reaches the
+    // store: another device may have replaced the object since.
+    let workspace = cloud.transport();
+    let current = workspace.read(provider).await.unwrap().unwrap();
+    let stale = current.revision - 1;
+    assert_eq!(
+        workspace.write(provider, &current, Some(stale)).await,
+        Err(DocumentError::Conflict)
+    );
+    assert_eq!(store.writes.lock().unwrap().len(), 2);
 }

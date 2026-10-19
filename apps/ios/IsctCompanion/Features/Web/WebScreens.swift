@@ -128,9 +128,9 @@ struct SitePickerRows: View {
             row(.site(site), WebRouter.name(site), icon: site == web.tabSite ? "checkmark" : nil)
         }
         Divider()
-        row(.reload, "再読み込み", icon: "arrow.clockwise")
+        row(.reload, t("Reload"), icon: "arrow.clockwise")
         if web.browser.webView(for: web.tabSite)?.url != nil {
-            row(.openInBrowser, "ブラウザで開く", icon: "safari")
+            row(.openInBrowser, t("Open in browser"), icon: "safari")
         }
     }
 
@@ -304,7 +304,7 @@ struct WebPageScreen: View {
 
     private var topBar: some View {
         HStack(spacing: 8) {
-            circle("chevron.left", label: "戻る") { dismiss() }
+            circle("chevron.left", label: t("Back")) { dismiss() }
             VStack(spacing: 0) {
                 Text(page.title).font(.subheadline.weight(.semibold)).lineLimit(1)
                 Label(WebRouter.name(page.site), systemImage: "lock.fill")
@@ -317,12 +317,12 @@ struct WebPageScreen: View {
             Button {
                 web.browser.cycleTextScale()
             } label: {
-                Text("ぁあ")
+                Text(t("Aa"))
                     .font(.subheadline.weight(.semibold))
                     .frame(width: 40, height: 40)
                     .background(.regularMaterial, in: Circle())
             }
-            .accessibilityLabel("文字の大きさ")
+            .accessibilityLabel(t("Text size"))
         }
         .foregroundStyle(Theme.ink)
         .padding(.horizontal, 12)
@@ -332,16 +332,16 @@ struct WebPageScreen: View {
     private var bottomBar: some View {
         HStack {
             Button { web.back(page.site) } label: { Image(systemName: "chevron.left") }
-                .accessibilityLabel("前のページ")
+                .accessibilityLabel(t("Previous page"))
             Spacer()
             Button { web.forward(page.site) } label: { Image(systemName: "chevron.right") }
-                .accessibilityLabel("次のページ")
+                .accessibilityLabel(t("Next page"))
             Spacer()
             if let url = web.browser.webView(for: page.site)?.url {
                 ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
                 Spacer()
                 Link(destination: url) { Image(systemName: "safari") }
-                    .accessibilityLabel("ブラウザで開く")
+                    .accessibilityLabel(t("Open in browser"))
             }
         }
         .font(.title3)

@@ -14,7 +14,7 @@ struct DataUpdatesScreen: View {
     var body: some View {
         Form {
             Section {
-                Toggle("モバイル通信でも更新", isOn: Binding(
+                Toggle(t("Update on cellular data"), isOn: Binding(
                     get: { refresh["allowCellular"] as? Bool ?? false },
                     set: { on in
                         Task {
@@ -26,13 +26,13 @@ struct DataUpdatesScreen: View {
                         }
                     }))
             } footer: {
-                Text("オフのときは Wi-Fi に接続するまで自動更新を待ちます。")
+                Text(t("When off, automatic updates wait until you are on Wi-Fi."))
             }
             if let sources = model.schoolStatus?.sources, !sources.isEmpty {
-                Section("最終更新") {
+                Section(t("Last updated")) {
                     ForEach(sources, id: \.site) { source in
                         LabeledContent(WebRouter.name(source.site)) {
-                            Text(source.lastUpdated.map { Format.due($0) } ?? "未取得")
+                            Text(source.lastUpdated.map { Format.due($0) } ?? t("Not fetched yet"))
                         }
                     }
                 }
@@ -42,7 +42,7 @@ struct DataUpdatesScreen: View {
                     model.refreshFromSchool()
                 } label: {
                     HStack {
-                        Text("今すぐ更新")
+                        Text(t("Refresh now"))
                         Spacer()
                         if let status = model.schoolStatus, let progress = status.headline.ringProgress(status) {
                             SyncRing(progress: progress, emphasized: status.headline.isBusy)
@@ -52,7 +52,7 @@ struct DataUpdatesScreen: View {
                 .disabled(model.schoolStatus?.headline.isBusy == true)
             }
         }
-        .navigationTitle("データ更新")
+        .navigationTitle(t("Data updates"))
         .navigationBarTitleDisplayMode(.inline)
     }
 }

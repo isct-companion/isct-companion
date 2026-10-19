@@ -1,5 +1,8 @@
 package app.isctcompanion.features.assignments
 
+import app.isctcompanion.core.AssignmentBoard
+import app.isctcompanion.design.t
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -71,68 +74,43 @@ import app.isctcompanion.features.today.rememberNow
 import java.time.Instant
 import kotlinx.coroutines.launch
 
-/** 課題: what is left to do this quarter, in the groups of Core's task
- * timeline (`AssignmentBoard.today`). Swipe right pins, swipe left hides;
- * every assignment, submitted and hidden included, sits behind one row. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AssignmentsScreen() {
-    val model = LocalModel.current
-    val navigator = LocalNavigator.current
-    val now = rememberNow(60)
-    val board = model.board
-    TabPage(
-        "課題",
-        actions = {
-            if (model.isPulling) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(16.dp))
-            }
-        },
-        onRefresh = { model.refreshFromSchool() },
-    ) {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+/** 今日's 課題: what is left to do this quarter, in the groups of Core's task
+ * timeline (`AssignmentBoard.today`), as items of 今日's list. Swipe right
+ * pins, swipe left hides; every assignment, submitted and hidden included,
+ * sits behind すべて. */
+fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRecord: () -> Unit) {
+    board ?: return
+    item(key = "assignments-header") {
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 20.dp, start = 4.dp),
+        ) {
+            Text(t("Assignments"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
+            Text(
+                t("{{quarter}} · Unsubmitted only", "quarter" to Format.quarter(board.term)),
+                style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
+                modifier = Modifier.weight(1f).padding(bottom = 3.dp),
+            )
+            TextButton(onClick = openRecord) { Text(t("See all")) }
+        }
+    }
+    val today = board.today
+    group(t("Pinned"), today.pinned, now, Format.OverdueStyle.Elapsed)
+    group(t("This week"), today.dueThisWeek, now, Format.OverdueStyle.Elapsed)
+    group(t("Next week and later"), today.later, now, Format.OverdueStyle.Elapsed)
+    group(t("Overdue"), today.pastRecent, now, Format.OverdueStyle.Elapsed)
+    if (today.isEmpty()) {
+        item(key = "assignments-empty") {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
             ) {
-                item { PageSubtitle("${Format.quarter(board?.term.orEmpty())} · 未提出のみ") }
-                model.problem?.let { item { Box(Modifier.padding(top = 12.dp)) { ProblemBanner(it) } } }
-                if (board != null) {
-                    val today = board.today
-                    group("ピン留め", today.pinned, now, Format.OverdueStyle.Elapsed)
-                    group("今週", today.dueThisWeek, now, Format.OverdueStyle.Elapsed)
-                    group("来週以降", today.later, now, Format.OverdueStyle.Elapsed)
-                    group("期限切れ", today.pastRecent, now, Format.OverdueStyle.Elapsed)
-                    if (today.isEmpty()) {
-                        item {
-                            Column(
-                                Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Icon(Icons.Outlined.CheckCircle, null, tint = Theme.colors.muted, modifier = Modifier.size(40.dp))
-                                Text("未提出の課題はありません", style = MaterialTheme.typography.titleMedium, color = Theme.colors.ink)
-                            }
-                        }
-                    }
-                    item {
-                        Box(Modifier.padding(top = 24.dp)) {
-                            GroupCard {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { navigator.openRecord() }
-                                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                                ) {
-                                    Text("提出済・非表示を含むすべて", color = Theme.colors.ink, modifier = Modifier.weight(1f))
-                                    Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted)
-                                }
-                            }
-                        }
-                    }
-                }
+                Icon(Icons.Outlined.CheckCircle, null, tint = Theme.colors.muted, modifier = Modifier.size(20.dp))
+                Text(t("No unsubmitted assignments"), color = Theme.colors.muted)
             }
+        }
     }
 }
 
@@ -205,9 +183,9 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
         backgroundContent = {
             when (state.dismissDirection) {
                 SwipeToDismissBoxValue.StartToEnd ->
-                    SwipeAction(Theme.colors.accent, if (item.pinned) "外す" else "ピン留め", Icons.Outlined.PushPin, Alignment.CenterStart)
+                    SwipeAction(Theme.colors.accent, if (item.pinned) t("Unpin") else t("Pin"), Icons.Outlined.PushPin, Alignment.CenterStart)
                 SwipeToDismissBoxValue.EndToStart ->
-                    SwipeAction(Theme.colors.muted, "非表示", Icons.Outlined.VisibilityOff, Alignment.CenterEnd)
+                    SwipeAction(Theme.colors.muted, t("Hide"), Icons.Outlined.VisibilityOff, Alignment.CenterEnd)
                 SwipeToDismissBoxValue.Settled -> Unit
             }
         },
@@ -233,7 +211,7 @@ private fun RestoreRow(item: DeadlineItem, now: Instant) {
     SwipeToDismissBox(
         state = state,
         enableDismissFromStartToEnd = false,
-        backgroundContent = { SwipeAction(Theme.colors.accent, "戻す", Icons.Outlined.Visibility, Alignment.CenterEnd) },
+        backgroundContent = { SwipeAction(Theme.colors.accent, t("Restore"), Icons.Outlined.Visibility, Alignment.CenterEnd) },
     ) {
         Box(Modifier.background(Theme.colors.surface)) { DeadlineRow(item, now) }
     }
@@ -261,28 +239,28 @@ fun RecordScreen() {
     val record = model.board?.record
     Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
         TopAppBar(
-            title = { Text("すべての課題") },
+            title = { Text(t("All assignments")) },
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "戻る") }
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
             if (record != null) {
-                group("ピン留め", record.pinned, now)
-                group("今週", record.dueThisWeek, now)
-                group("来週以降", record.later, now)
-                group("期限なし", record.undated, now)
-                group("過去", record.pastRecent, now)
+                group(t("Pinned"), record.pinned, now)
+                group(t("This week"), record.dueThisWeek, now)
+                group(t("Next week and later"), record.later, now)
+                group(t("No deadline"), record.undated, now)
+                group(t("Past"), record.pastRecent, now)
                 if (record.pastEarlier.isNotEmpty()) {
                     if (unfolded) {
-                        group("それ以前", record.pastEarlier, now)
+                        group(t("Earlier"), record.pastEarlier, now)
                     } else {
                         item {
                             Box(Modifier.padding(top = 12.dp)) {
                                 GroupCard {
                                     Text(
-                                        "それ以前の ${record.pastEarlier.size} 件を表示", color = Theme.colors.accent,
+                                        t("Show {{count}} earlier", "count" to record.pastEarlier.size), color = Theme.colors.accent,
                                         modifier = Modifier.fillMaxWidth().clickable { unfolded = true }.padding(16.dp),
                                     )
                                 }
@@ -290,7 +268,7 @@ fun RecordScreen() {
                         }
                     }
                 }
-                group("非表示", record.hidden, now, restores = true)
+                group(t("Hidden"), record.hidden, now, restores = true)
             }
         }
     }

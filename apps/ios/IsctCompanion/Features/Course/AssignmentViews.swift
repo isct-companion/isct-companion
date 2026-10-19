@@ -92,11 +92,11 @@ struct AssignmentBody: View {
                 HStack(spacing: 8) {
                     AssignmentState(assignment: assignment)
                     if let due = assignment.dueAt {
-                        Text("締切 \(Format.due(due))").font(.subheadline).foregroundStyle(Theme.muted)
+                        Text(t("Due {{date}}", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
                     }
                 }
             } else if let due = assignment.dueAt {
-                Text("締切 \(Format.due(due))").font(.subheadline).foregroundStyle(Theme.muted)
+                Text(t("Due {{date}}", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
             }
             if !assignment.bodyHtml.isEmpty {
                 HTMLText(html: assignment.bodyHtml)
@@ -115,7 +115,7 @@ struct AssignmentBody: View {
                 Button {
                     navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: assignment.title))
                 } label: {
-                    Label("LMS で提出", systemImage: "arrow.up.forward.square")
+                    Label(t("Submit in LMS"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -136,7 +136,7 @@ private struct AssignmentState: View {
         let done = ["submitted", "graded"].contains(assignment.submission ?? "")
         let past = Format.date(assignment.dueAt).map { $0 < Date() } ?? false
         let (ink, fill) = DeadlineChip.colors(done ? "done" : past ? "past" : "soon")
-        Text(done ? (assignment.grade ?? "提出済") : Format.countdown(assignment.dueAt, now: Date()))
+        Text(done ? (assignment.grade ?? t("Submitted")) : Format.countdown(assignment.dueAt, now: Date()))
             .font(.caption.weight(.semibold).monospacedDigit())
             .foregroundStyle(ink)
             .padding(.horizontal, 7)
@@ -223,9 +223,9 @@ struct MaterialOpener<Label: View>: View {
             preview = URL(fileURLWithPath: file.path)
             opened += 1
         case let .tooLarge(bytes)?:
-            notice = "このファイルは大きすぎます（\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))）。LMS で開いてください。"
+            notice = t("This file is too large ({{size}}). Open it in the LMS.", ["size": ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)])
         case .failed(.login)?:
-            notice = "LMS に再ログインが必要です。設定から学校アカウントを確認してください。"
+            notice = t("Sign in to the LMS again. Check your school account in Settings.")
         case let .external(url)?:
             push(url)
         default:

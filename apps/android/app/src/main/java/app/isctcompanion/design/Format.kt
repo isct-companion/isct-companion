@@ -1,11 +1,13 @@
 package app.isctcompanion.design
 
+import android.text.format.DateFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import kotlin.math.ceil
 import kotlin.math.max
@@ -15,11 +17,22 @@ import kotlin.math.roundToInt
 val Tokyo: ZoneId = ZoneId.of("Asia/Tokyo")
 
 /** Text formatting of Core's timestamps. Urgency (`tone`) comes from Core; the
- * shell only turns times into words. */
+ * shell only turns times into words, in the UI language. */
 object Format {
-    private val weekdays = listOf("月", "火", "水", "木", "金", "土", "日")
+    /** `木`, `Thu`, `周四` */
+    fun weekday(date: LocalDate): String =
+        date.dayOfWeek.getDisplayName(TextStyle.SHORT_STANDALONE, Localizer.locale)
 
-    fun weekday(date: LocalDate): String = weekdays[date.dayOfWeek.value - 1]
+    /** A weekday as Core numbers them, from Sunday (0). */
+    fun weekday(day: Int): String =
+        java.time.DayOfWeek.of(if (day.coerceIn(0, 6) == 0) 7 else day.coerceIn(0, 6))
+            .getDisplayName(TextStyle.SHORT_STANDALONE, Localizer.locale)
+
+    /** A date written from a skeleton in the UI language (`MMMdEEE` → 10月15日(木), Thu 15 Oct). */
+    fun written(date: LocalDate, skeleton: String): String {
+        val pattern = DateFormat.getBestDateTimePattern(Localizer.locale, skeleton)
+        return DateTimeFormatter.ofPattern(pattern, Localizer.locale).format(date)
+    }
 
     fun date(raw: String?): Instant? =
         raw?.let { runCatching { OffsetDateTime.parse(it).toInstant() }.getOrNull() }
@@ -36,10 +49,10 @@ object Format {
 
     fun today(now: Instant = Instant.now()): LocalDate = tokyo(now).toLocalDate()
 
-    /** `10月15日（木）` */
+    /** `10月15日(木)`, `Thu 15 Oct` */
     fun dayTitle(civil: String): String {
         val date = civilDate(civil) ?: return civil
-        return "${date.monthValue}月${date.dayOfMonth}日（${weekday(date)}）"
+        return written(date, "MMMdEEE")
     }
 
     /** `3Q` from a term id such as `2026-3Q`. */
@@ -51,20 +64,20 @@ object Format {
         return "%d:%02d".format(at.hour, at.minute)
     }
 
-    /** `今日 23:59`, `明日 23:59`, `10/18（日）23:59` */
+    /** `今日 23:59`, `Tomorrow 23:59`, `10/18(日) 23:59` */
     fun due(raw: String?, now: Instant = Instant.now()): String {
-        val due = date(raw) ?: return "期限なし"
+        val due = date(raw) ?: return t("No deadline")
         val day = tokyo(due).toLocalDate()
         val today = today(now)
         val time = time(due)
         return when (day) {
-            today -> "今日 $time"
-            today.plusDays(1) -> "明日 $time"
-            else -> "${day.monthValue}/${day.dayOfMonth}（${weekday(day)}）$time"
+            today -> t("Today {{time}}", "time" to time)
+            today.plusDays(1) -> t("Tomorrow {{time}}", "time" to time)
+            else -> "${written(day, "MdEEE")} $time"
         }
     }
 
-    /** Minutes until `instant`, rounded up so "あと 1 分" lasts until the minute. */
+    /** Minutes until `instant`, rounded up so "1 min left" lasts until the minute. */
     fun minutes(until: Instant, now: Instant): Int =
         ceil((until.toEpochMilli() - now.toEpochMilli()) / 60_000.0).toInt()
 
@@ -72,25 +85,25 @@ object Format {
 
     /** Countdown words for a deadline chip. */
     fun countdown(raw: String?, now: Instant, overdueStyle: OverdueStyle = OverdueStyle.Label): String {
-        val due = date(raw) ?: return "期限なし"
+        val due = date(raw) ?: return t("No deadline")
         val minutes = minutes(due, now)
         if (minutes < 0) {
             return when (overdueStyle) {
-                OverdueStyle.Label -> "期限切れ"
-                OverdueStyle.Elapsed -> "${max(1, -minutes / (60 * 24))} 日超過"
+                OverdueStyle.Label -> t("Overdue")
+                OverdueStyle.Elapsed -> t("{{count}}d overdue", "count" to max(1, -minutes / (60 * 24)))
             }
         }
-        if (minutes < 60) return "あと ${max(minutes, 1)} 分"
-        if (minutes < 60 * 24) return "あと ${minutes / 60} 時間"
-        if (tokyo(due).toLocalDate() == today(now).plusDays(1)) return "明日"
-        return "あと ${(minutes / (60.0 * 24)).roundToInt()} 日"
+        if (minutes < 60) return t("{{count}} min left", "count" to max(minutes, 1))
+        if (minutes < 60 * 24) return t("{{count}}h left", "count" to minutes / 60)
+        if (tokyo(due).toLocalDate() == today(now).plusDays(1)) return t("Tomorrow")
+        return t("{{count}}d left", "count" to (minutes / (60.0 * 24)).roundToInt())
     }
 
-    /** `3–4限` */
+    /** `3–4限`, `Periods 3–4` */
     fun periods(value: ByteArray?): String? {
         if (value == null || value.size != 2) return null
         val first = value[0].toUByte()
         val last = value[1].toUByte()
-        return if (first == last) "${first}限" else "${first}–${last}限"
+        return t("Periods {{range}}", "range" to if (first == last) "$first" else "$first–$last")
     }
 }

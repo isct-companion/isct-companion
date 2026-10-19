@@ -1688,6 +1688,49 @@ checks:
         settings and both logins retained.
       evidence: docs/verification/desktop-updater.md
 
+  - id: DESKTOP-WINDOWS-UPDATES
+    area: desktop
+    title: Windows updates download on a slow link and report the install result
+    persona: undergraduate-senior
+    preconditions: |
+      An installed Windows release built from this source with the updater key,
+      a newer signed release published, and a Windows PC whose Smart App
+      Control can be switched between Off and On (or a second PC with it On).
+    steps:
+      - action: Throttle the connection to about 2 Mbps (e.g. a metered hotspot or
+          a router limit), open Settings > About and press Download update.
+        reason: The installer is over 30 MB; only a real slow link shows whether the
+          download outlives the old 30-second whole-request timeout and whether
+          the byte counter moves while the command is still running.
+      - action: Disconnect the network mid-download and wait about a minute.
+        reason: A stalled transfer must end in an error that names the stall, not
+          leave the panel on "Downloading" forever.
+      - action: With Smart App Control Off, press Install and quit, let the NSIS
+          installer finish and reopen the app.
+        reason: On Windows the process exits before the installer runs, so the
+          success notice depends on the next launch comparing versions.
+      - action: Repeat the install with Smart App Control On.
+        reason: Smart App Control blocks the unsigned installer after the app has
+          exited; only a real policy shows what the next launch reports.
+    observe: Settings > About status line, the notice at launch, and the version
+      shown in About.
+    expected: |
+      The About line shows "Downloading update… · x / y MB" with x increasing,
+      and the download completes on the slow link. A disconnect ends in
+      "Update check failed · The update download stopped receiving data…".
+      After a successful install the app reopens on the new version with
+      "Updated to <version>." After a blocked install the old version opens
+      with a red notice saying the update did not install, and About repeats it.
+    why_manual: Needs a signed release on GitHub, a Windows PC, a real slow or
+      broken network, and the Smart App Control policy, none of which a
+      headless test can provide.
+    covers:
+      - apps/desktop/src-tauri/src/desktop_updates.rs
+      - apps/desktop/src/app/useDesktopUpdates.ts
+      - apps/desktop/src/pages/settings/AboutSettings.tsx
+      - crates/isct-core/src/app_updates.rs
+    verified: null
+
   - id: DESKTOP-WINDOWS-LAUNCH
     area: desktop
     title: Windows release launches without a companion terminal
@@ -2006,7 +2049,7 @@ checks:
           while it runs, with a warn-coloured countdown chip; 次の授業 on an
           exam means the kind is ignored.
       - action: |
-          Read the 試験 card above 期限.
+          Read the 試験 card above 課題.
         reason: |
           It lists Core's upcomingExams within 14 days (date · periods or
           time · room, course square) and is absent when there are none;
@@ -2028,9 +2071,9 @@ checks:
     title: iPhone assignment rows without chevrons, hide needs a tap
     persona: careless-multidevice
     preconditions: |
-      The iPhone app with open assignments in 課題.
+      The iPhone app with open assignments on 今日.
     steps:
-      - action: Read the rows in 課題 and すべての課題.
+      - action: Read the rows under 今日's 課題 and in すべての課題.
         reason: |
           No disclosure chevron at the trailing end; the countdown chip is the
           last thing on the row. A chevron means the row went back to a
@@ -2045,7 +2088,7 @@ checks:
         reason: |
           Tap opens the assignment page; long press offers open course,
           LMS で提出, pin and hide, as before.
-    observe: The 課題 tab and the すべての課題 page.
+    observe: 今日's 課題 sections and the すべての課題 page.
     expected: |
       Rows have no chevrons, pin is a full swipe, hide needs a tap, and the
       haptic fires once per action.
@@ -2053,7 +2096,7 @@ checks:
       Swipe feel and haptics need a phone; the hide and pin intents are
       covered by Core's assignment board tests.
     covers:
-      - apps/ios/IsctCompanion/Features/Assignments/AssignmentsScreen.swift
+      - apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift
     verified: null
 
   - id: IOS-WEB-TAB-PICKER
@@ -2150,6 +2193,139 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
       - apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift
       - apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift
+    verified: null
+
+  - id: IOS-TODAY-CLASS-STACK
+    area: native
+    title: iPhone Today stacks the next three classes and carries the assignments
+    persona: undergraduate-first-term
+    preconditions: |
+      The iPhone app on a teaching day with at least three classes left this
+      week and open assignments in the current quarter.
+    steps:
+      - action: Read the tab bar.
+        reason: |
+          Four tabs, 今日 · 時間割 · ウェブ · 設定, with 設定 last and no 課題 tab;
+          今日 has no gear button. An iPad adds 授業.
+      - action: |
+          Before the first class, read the card under the date, then swipe up
+          on it twice and down once.
+        reason: |
+          Core's upcoming list leads with the next class (次の授業, countdown
+          chip) and the two after it peek behind; each swipe turns one card,
+          the label above follows the front card's day and the counter reads
+          1 / 3 to 3 / 3. The stack never changes height, so nothing below
+          moves.
+      - action: |
+          On the first card swipe down, and on the last card swipe up.
+        reason: |
+          Past either end the swipe scrolls the page instead; a stuck page
+          means the stack claims gestures it cannot use.
+      - action: Tap the front card, then a card behind it after turning to it.
+        reason: |
+          The whole card opens that card's course; only the front card takes
+          the tap.
+      - action: |
+          Scroll to 課題: read the header and the groups, then tap すべて.
+        reason: |
+          The quarter's groups from Core's board (ピン留め, 今週, 来週以降,
+          期限切れ) follow the stack in the page's own scroll, not in a box;
+          すべて opens すべての課題.
+      - action: During a class, and after the last class, read 今日 again.
+        reason: |
+          In class the hero is the class in progress and the stack starts
+          with the next one; after classes tonight's deadline leads and the
+          stack starts with the next class day.
+    observe: The 今日 tab on the device.
+    expected: |
+      Four tabs with 設定 last, a three-card stack that turns by swiping and
+      hands the swipe to the page at its ends, and the assignment groups
+      flowing below it.
+    why_manual: |
+      The swipe hand-off between the stack and the list's scrolling exists
+      only in UIKit on a device; which classes are upcoming is Core's today
+      read model, covered by its test.
+    covers:
+      - apps/ios/IsctCompanion/Features/Today/TodayScreen.swift
+      - apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift
+      - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
+    verified: null
+
+  - id: ANDROID-TODAY-CLASS-STACK
+    area: native
+    title: Android Today stacks the next three classes and carries the assignments
+    persona: undergraduate-first-term
+    preconditions: |
+      The Android app on a teaching day with at least three classes left this
+      week and open assignments in the current quarter.
+    steps:
+      - action: Read the navigation bar.
+        reason: |
+          Four destinations, 今日 · 時間割 · ウェブ · 設定, with 設定 last; 設定
+          is a page in its own tab, no longer a sheet from 今日.
+      - action: |
+          Swipe up and down on the class card, and past either end of the
+          stack.
+        reason: |
+          Each swipe turns one card with a haptic and the counter follows;
+          past the ends the list scrolls instead.
+      - action: |
+          Swipe an assignment row right, another left, then tap すべて.
+        reason: |
+          Right pins and left hides, as before the 課題 tab moved onto 今日;
+          すべて opens すべての課題.
+    observe: The 今日 and 設定 tabs on the device or emulator.
+    expected: |
+      Four destinations with 設定 last, a turning three-card stack that
+      yields to the list at its ends, and swipeable assignment rows below.
+    why_manual: |
+      Gesture hand-off and haptics need a running Compose app; the data is
+      Core's today and board read models, covered by their tests.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/App.kt
+    verified: null
+
+  - id: MOBILE-UI-LANGUAGE
+    area: native
+    title: Phone language rows switch the whole app and follow the desktop
+    persona: careless-multidevice
+    preconditions: |
+      The iPhone or Android app and the desktop app on the same workspace
+      with cloud sync on.
+    steps:
+      - action: |
+          In 設定 set Language to English, then 中文, then 日本語, watching
+          the tab bar and 今日 after each.
+        reason: |
+          Every string, tab label, date (Thu 15 Oct, 10月15日(木)) and
+          countdown switches at once without a relaunch; a stray Japanese
+          string under English means a literal escaped the catalog.
+      - action: |
+          Set School content language to English with the UI in 日本語, then
+          back to Automatic.
+        reason: |
+          Course names, rooms and calendar labels follow the content language
+          independently of the menus; Automatic follows the UI language.
+      - action: Check the desktop's Appearance settings after sync.
+        reason: |
+          Both are workspace settings (locale, contentLanguage), so the
+          desktop shows the same choices.
+    observe: 設定, 今日 and 時間割 on the phone, and the desktop settings.
+    expected: |
+      The UI and school text switch independently and immediately, and the
+      desktop shows the same two choices.
+    why_manual: |
+      The live switch and how each screen reads in three languages is a
+      glance on a device; the catalog's coverage and placeholders are
+      checked by the text-and-locales suite.
+    covers:
+      - apps/ios/IsctCompanion/Design/Localization.swift
+      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
     verified: null
 
   - id: DESKTOP-CALENDAR-NOW-LINE
@@ -2294,4 +2470,57 @@ checks:
     why_manual: A label read at a glance; the data is Core's CourseDetail.exams.
     covers:
       - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
+    verified: null
+
+  - id: IOS-ICLOUD-BACKUP
+    area: cloud
+    title: iPhone and Mac load each other's data through one iCloud record
+    persona: careless-multidevice
+    preconditions: |
+      The released (Developer ID) Mac app and the iPhone app, both signed with
+      the team that owns `iCloud.app.isctcompanion`, on one Apple Account. The
+      iPhone build carries the Production container environment, so both read
+      the same CloudKit database.
+    steps:
+      - action: |
+          On the Mac, Settings → Backup: turn on iCloud and Upload. On the
+          iPhone, 設定 › バックアップ: turn on iCloud and Pull.
+        reason: |
+          The phone must load the Mac's plans, notes and hidden assignments.
+          Nothing arriving usually means the two builds use different CloudKit
+          environments or containers, not a merge bug.
+      - action: |
+          On the iPhone hide an assignment and Upload; on the Mac Pull.
+        reason: |
+          The reverse direction goes through the phone's CloudKitStore write;
+          a refused or partial write shows as an iCloud error on the phone.
+      - action: |
+          Without pulling first, edit a different record on each device, then
+          Upload on both.
+        reason: |
+          The second upload must lose CloudKit's conditional save, re-read and
+          merge. Losing either edit means a write replaced a record it had not
+          read.
+      - action: |
+          On the iPhone, open 以前のバージョン and restore one; then export a
+          backup file on the Mac and import it on the phone with 読み込む….
+        reason: |
+          Restore and import both start a new generation on every device and
+          leave a local recovery file; the Mac must follow on its next Pull.
+    observe: |
+      The Backup pages on both devices (provider line, versions, recovery
+      files) and the records themselves on each.
+    expected: |
+      Each device shows the other's changes after a Pull, both concurrent edits
+      survive, the version list names both devices, and a restore or import on
+      the phone reaches the Mac with a recovery file kept on each.
+    why_manual: |
+      CloudKit needs a signed build, an iCloud account and a device; the
+      merge, tag-conditional write and journal behind it are covered by
+      `sessions_sharing_one_cloud_record_load_each_others_data` and
+      `tagged_writes_carry_the_tag_read_with_the_expected_revision`.
+    covers:
+      - apps/ios/IsctCompanion/Core/CloudKitStore.swift
+      - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
+      - apps/desktop/src-tauri/src/icloud.rs
     verified: null

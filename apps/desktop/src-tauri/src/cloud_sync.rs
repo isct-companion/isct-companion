@@ -1,70 +1,46 @@
 //! Native cloud ports; queue, recovery and retry policy live in Core.
 use crate::{cloud::DesktopCloudService, secrets::OsSecretVault};
-use isct_core::cloud_sync::{CloudFuture, CloudServices, CloudSyncError, CloudTransport};
-pub use isct_core::cloud_sync::{CloudProvider, CloudVersion, Direction, SyncState};
+use isct_core::cloud_sync::document::{
+    BoxFuture, CloudWorkspaceFile, DocumentCloud, DocumentError, WorkspaceTransport,
+};
+use isct_core::cloud_sync::CloudServices;
+pub use isct_core::cloud_sync::{CloudProvider, Direction, SyncState};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc};
 use tauri::{AppHandle, Manager};
 
+/// Reads the managed service on each call so the transport never outlives it.
 struct NativeCloud(AppHandle);
-impl CloudTransport for NativeCloud {
-    fn disconnect(&self, provider: CloudProvider) -> Result<(), CloudSyncError> {
-        self.0
-            .state::<DesktopCloudService<OsSecretVault>>()
-            .disconnect(provider)
-            .map_err(CloudSyncError::Transport)
+impl WorkspaceTransport for NativeCloud {
+    fn read<'a>(&'a self, provider: CloudProvider) -> BoxFuture<'a, Option<CloudWorkspaceFile>> {
+        WorkspaceTransport::read(self.service(), provider)
     }
-    fn read_workspace<'a>(&'a self, provider: CloudProvider) -> CloudFuture<'a, Option<Value>> {
-        Box::pin(async move {
-            let transport = self.0.state::<DesktopCloudService<OsSecretVault>>();
-            transport
-                .read_workspace(provider)
-                .await
-                .map(|value| value.map(|file| file.merged_document()))
-                .map_err(CloudSyncError::Transport)
-        })
-    }
-    fn merge_and_push<'a>(
+    fn write<'a>(
         &'a self,
         provider: CloudProvider,
-        document: &'a Value,
-        device: &'a str,
-    ) -> CloudFuture<'a, Value> {
-        Box::pin(async move {
-            self.0
-                .state::<DesktopCloudService<OsSecretVault>>()
-                .merge_and_push(provider, document, device)
-                .await
-                .map_err(CloudSyncError::Transport)
-        })
+        file: &'a CloudWorkspaceFile,
+        expected_revision: Option<u64>,
+    ) -> BoxFuture<'a, ()> {
+        WorkspaceTransport::write(self.service(), provider, file, expected_revision)
     }
-    fn versions<'a>(&'a self, provider: CloudProvider) -> CloudFuture<'a, Vec<CloudVersion>> {
-        Box::pin(async move {
-            self.0
-                .state::<DesktopCloudService<OsSecretVault>>()
-                .versions(provider)
-                .await
-                .map_err(CloudSyncError::Transport)
-        })
+    fn disconnect(&self, provider: CloudProvider) -> Result<(), DocumentError> {
+        WorkspaceTransport::disconnect(self.service(), provider)
     }
-    fn version_document<'a>(
-        &'a self,
-        provider: CloudProvider,
-        revision: u64,
-    ) -> CloudFuture<'a, Value> {
-        Box::pin(async move {
-            self.0
-                .state::<DesktopCloudService<OsSecretVault>>()
-                .version_document(provider, revision)
-                .await
-                .map_err(CloudSyncError::Transport)
-        })
+}
+impl NativeCloud {
+    fn service(&self) -> &DesktopCloudService<OsSecretVault> {
+        self.0.state::<DesktopCloudService<OsSecretVault>>().inner()
     }
 }
 pub(crate) fn services(app: &AppHandle) -> Result<CloudServices, String> {
     Ok(CloudServices {
         backup: crate::commands::backup::service(app)?,
-        transport: Arc::new(NativeCloud(app.clone())),
+        transport: Arc::new(DocumentCloud::new(
+            NativeCloud(app.clone()),
+            std::env::var("COMPUTERNAME")
+                .or_else(|_| std::env::var("HOSTNAME"))
+                .ok(),
+        )),
         events: Arc::new(crate::core_ports::DesktopEvents(app.clone())),
     })
 }

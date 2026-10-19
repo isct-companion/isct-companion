@@ -2,7 +2,10 @@
 use crate::{
     json::{project, project_input},
     types::*,
-    JsonValue, SdkError,
+    SdkError,
+};
+use isct_core::cloud_sync::document::{
+    BoxFuture, DocumentCloud, DocumentError, ObjectStore, StoredObject, TaggedWorkspace,
 };
 use isct_core::{ports as core, school_browser as browser};
 use std::sync::{Arc, Mutex, Weak};
@@ -319,97 +322,119 @@ impl isct_core::downloads::DownloadSession for DownloadSession {
         })
     }
 }
+/// One stored workspace object and the provider's opaque change tag for it.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct CloudObject {
+    pub bytes: Vec<u8>,
+    pub tag: String,
+}
+/// Moves the cloud workspace object's bytes. Core parses the envelope,
+/// merges, keeps history and decides which revision a write may replace.
 #[uniffi::export(rust, foreign)]
 #[async_trait::async_trait]
 pub trait NativeCloud: Send + Sync {
+    /// The name cloud version lists show for this device, if the OS gives one.
+    fn device_name(&self) -> Option<String>;
     fn disconnect(&self, provider: CloudProvider) -> Result<(), SdkError>;
-    async fn read_workspace(&self, provider: CloudProvider) -> Result<Option<JsonValue>, SdkError>;
-    async fn merge_and_push(
+    async fn read(&self, provider: CloudProvider) -> Result<Option<CloudObject>, SdkError>;
+    /// `expected` is the tag of the object last read, or none when nothing
+    /// existed. Fail with `SdkError::Conflict` when the stored object differs.
+    async fn write(
         &self,
         provider: CloudProvider,
-        document: JsonValue,
-        device: String,
-    ) -> Result<JsonValue, SdkError>;
-    async fn versions(&self, provider: CloudProvider) -> Result<Vec<CloudVersion>, SdkError>;
-    async fn version_document(
-        &self,
-        provider: CloudProvider,
-        revision: u64,
-    ) -> Result<JsonValue, SdkError>;
+        bytes: Vec<u8>,
+        expected: Option<String>,
+    ) -> Result<(), SdkError>;
 }
-pub(crate) struct Cloud(pub Arc<dyn NativeCloud>);
-fn cloud_error(e: SdkError) -> isct_core::cloud_sync::CloudSyncError {
-    isct_core::cloud_sync::CloudSyncError::Transport(e.to_string())
+pub(crate) struct Cloud(Arc<dyn NativeCloud>);
+fn cloud_error(e: SdkError) -> DocumentError {
+    match e {
+        SdkError::Conflict { .. } => DocumentError::Conflict,
+        other => DocumentError::Transport(other.to_string()),
+    }
 }
-impl isct_core::cloud_sync::CloudTransport for Cloud {
-    fn disconnect(
-        &self,
+pub(crate) fn cloud_transport(
+    native: Arc<dyn NativeCloud>,
+) -> DocumentCloud<TaggedWorkspace<Cloud>> {
+    let name = native.device_name();
+    DocumentCloud::new(TaggedWorkspace::new(Cloud(native)), name)
+}
+impl ObjectStore for Cloud {
+    fn read<'a>(
+        &'a self,
         p: isct_core::cloud_sync::CloudProvider,
-    ) -> Result<(), isct_core::cloud_sync::CloudSyncError> {
+    ) -> BoxFuture<'a, Option<StoredObject>> {
+        Box::pin(async move {
+            Ok(self
+                .0
+                .read(project(p).map_err(cloud_error)?)
+                .await
+                .map_err(cloud_error)?
+                .map(|object| StoredObject {
+                    bytes: object.bytes,
+                    tag: object.tag,
+                }))
+        })
+    }
+    fn write<'a>(
+        &'a self,
+        p: isct_core::cloud_sync::CloudProvider,
+        bytes: Vec<u8>,
+        expected: Option<String>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            self.0
+                .write(project(p).map_err(cloud_error)?, bytes, expected)
+                .await
+                .map_err(cloud_error)
+        })
+    }
+    fn disconnect(&self, p: isct_core::cloud_sync::CloudProvider) -> Result<(), DocumentError> {
         self.0
             .disconnect(project(p).map_err(cloud_error)?)
             .map_err(cloud_error)
     }
+}
+/// Stands in when the shell has no cloud store: the journal still owns
+/// imports and recovery points, and no provider can be enabled.
+pub(crate) struct NoCloud;
+impl isct_core::cloud_sync::CloudTransport for NoCloud {
+    fn disconnect(
+        &self,
+        _: isct_core::cloud_sync::CloudProvider,
+    ) -> Result<(), isct_core::cloud_sync::CloudSyncError> {
+        Ok(())
+    }
     fn read_workspace<'a>(
         &'a self,
-        p: isct_core::cloud_sync::CloudProvider,
+        _: isct_core::cloud_sync::CloudProvider,
     ) -> isct_core::cloud_sync::CloudFuture<'a, Option<serde_json::Value>> {
-        Box::pin(async move {
-            Ok(self
-                .0
-                .read_workspace(project(p).map_err(cloud_error)?)
-                .await
-                .map_err(cloud_error)?
-                .map(|v| v.0))
-        })
+        Box::pin(async { Err(no_cloud()) })
     }
     fn merge_and_push<'a>(
         &'a self,
-        p: isct_core::cloud_sync::CloudProvider,
-        d: &'a serde_json::Value,
-        device: &'a str,
+        _: isct_core::cloud_sync::CloudProvider,
+        _: &'a serde_json::Value,
+        _: &'a str,
     ) -> isct_core::cloud_sync::CloudFuture<'a, serde_json::Value> {
-        Box::pin(async move {
-            Ok(self
-                .0
-                .merge_and_push(
-                    project(p).map_err(cloud_error)?,
-                    JsonValue(d.clone()),
-                    device.into(),
-                )
-                .await
-                .map_err(cloud_error)?
-                .0)
-        })
+        Box::pin(async { Err(no_cloud()) })
     }
     fn versions<'a>(
         &'a self,
-        p: isct_core::cloud_sync::CloudProvider,
+        _: isct_core::cloud_sync::CloudProvider,
     ) -> isct_core::cloud_sync::CloudFuture<'a, Vec<isct_core::cloud_sync::CloudVersion>> {
-        Box::pin(async move {
-            project_input(
-                self.0
-                    .versions(project(p).map_err(cloud_error)?)
-                    .await
-                    .map_err(cloud_error)?,
-            )
-            .map_err(cloud_error)
-        })
+        Box::pin(async { Err(no_cloud()) })
     }
     fn version_document<'a>(
         &'a self,
-        p: isct_core::cloud_sync::CloudProvider,
-        r: u64,
+        _: isct_core::cloud_sync::CloudProvider,
+        _: u64,
     ) -> isct_core::cloud_sync::CloudFuture<'a, serde_json::Value> {
-        Box::pin(async move {
-            Ok(self
-                .0
-                .version_document(project(p).map_err(cloud_error)?, r)
-                .await
-                .map_err(cloud_error)?
-                .0)
-        })
+        Box::pin(async { Err(no_cloud()) })
     }
+}
+fn no_cloud() -> isct_core::cloud_sync::CloudSyncError {
+    isct_core::cloud_sync::CloudSyncError::Transport("No cloud store is installed.".into())
 }
 
 /// Keychain location of a `NativeVault` account, shared with the desktop app.
@@ -419,6 +444,27 @@ pub struct VaultItem {
     pub key: String,
     /// Store as an iCloud Keychain / backed-up item rather than device-only.
     pub synchronized: bool,
+}
+
+/// The CloudKit record a `NativeCloud` on Apple devices reads and writes,
+/// shared with the Mac app.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct CloudKitRecord {
+    pub container: String,
+    pub record_type: String,
+    pub record_name: String,
+    pub asset_key: String,
+}
+
+#[uniffi::export]
+pub fn cloudkit_record() -> CloudKitRecord {
+    use isct_core::cloud_sync::document as d;
+    CloudKitRecord {
+        container: d::CLOUDKIT_CONTAINER.into(),
+        record_type: d::CLOUDKIT_RECORD_TYPE.into(),
+        record_name: d::CLOUD_FILE_NAME.into(),
+        asset_key: d::CLOUDKIT_ASSET_KEY.into(),
+    }
 }
 
 /// The page a school site opens at, for "back to this site's start".

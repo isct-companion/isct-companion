@@ -1,5 +1,29 @@
 package app.isctcompanion.features.today
 
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
+import kotlin.math.abs
+import app.isctcompanion.features.assignments.todayAssignments
+import app.isctcompanion.design.t
+import app.isctcompanion.core.OccurrenceKind
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.gestures.verticalDrag
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +32,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,19 +41,15 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -43,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,7 +97,6 @@ import app.isctcompanion.design.TagChip
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.courseColor
 import app.isctcompanion.design.tabular
-import app.isctcompanion.features.settings.SettingsSheet
 import java.time.Instant
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -92,49 +113,47 @@ fun rememberNow(seconds: Long): Instant {
     return now
 }
 
-/** 今日: one hero chosen by Core for this moment, then at most two short
- * sections. The shell renders `TodayView` in order and never sorts or filters. */
+/** 今日: what Core chose for this moment (the class in progress or tonight's
+ * deadline), the stack of the next classes, then the quarter's assignments.
+ * The shell renders `TodayView` and `AssignmentBoard` in order and never
+ * sorts or filters. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen() {
     val model = LocalModel.current
-    var showsSettings by remember { mutableStateOf(false) }
+    val navigator = LocalNavigator.current
     val now = rememberNow(30)
     TabPage(
-        "今日",
+        t("Today"),
         actions = {
             if (model.isPulling) {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(16.dp))
             }
-            IconButton(onClick = { showsSettings = true }) { Icon(Icons.Outlined.Settings, "設定") }
         },
         onRefresh = { model.refreshFromSchool() },
     ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            PageSubtitle(subtitle(model.today))
-            model.problem?.let { ProblemBanner(it) }
-            if (model.needsAccount) ConnectCard { showsSettings = true }
-            model.today?.let { TodayContent(it, now) }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+            item(key = "today") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PageSubtitle(subtitle(model.today))
+                    model.problem?.let { ProblemBanner(it) }
+                    if (model.needsAccount) ConnectCard { navigator.openSettings() }
+                    model.today?.let { TodayContent(it, now) }
+                }
+            }
+            if (model.today != null) todayAssignments(model.board, now) { navigator.openRecord() }
         }
     }
-    if (showsSettings) SettingsSheet { showsSettings = false }
 }
 
 private fun subtitle(today: TodayView?): String {
     today ?: return ""
     val parts = mutableListOf(Format.dayTitle(today.date))
     if (today.noClasses) {
-        parts.add(today.calendarNotice ?: "休日")
+        parts.add(today.calendarNotice ?: t("Holiday"))
     } else {
-        today.teachingWeek?.let { parts.add("${Format.quarter(today.term)} 第${it}週") }
+        today.teachingWeek?.let { parts.add(t("{{quarter}} week {{week}}", "quarter" to Format.quarter(today.term), "week" to it)) }
     }
     return parts.joinToString(" · ")
 }
@@ -143,45 +162,202 @@ private fun subtitle(today: TodayView?): String {
 private fun TodayContent(today: TodayView, now: Instant) {
     when (today.phase) {
         TodayPhase.BEFORE_CLASSES, TodayPhase.BETWEEN_CLASSES -> {
-            today.hero?.let { NextClassHero(it, now) }
-            if (today.later.isNotEmpty()) {
-                SectionLabel("このあと")
-                ClassList(today.later)
-            }
-            DeadlineSection("期限", today.deadlines, now)
+            ClassStack(today.upcoming, now)
         }
         TodayPhase.IN_CLASS -> {
             today.hero?.let { CurrentClassHero(it, now) }
             if (today.classMaterials.isNotEmpty() || today.classAssignments.isNotEmpty()) {
-                SectionLabel("この授業")
+                SectionLabel(t("This class"))
                 ThisClassCard(today.classMaterials, today.classAssignments, now)
             }
-            val next = today.later.firstOrNull()
-            if (next != null && today.hero != null) {
-                SectionLabel("次")
-                ClassList(listOf(next), breakAfter = today.hero)
-            }
-            DeadlineSection("期限", today.deadlines, now)
+            ClassStack(today.upcoming, now)
         }
         TodayPhase.AFTER_CLASSES -> {
             today.deadlineHero?.let { TonightHero(it, now) }
-            today.nextClass?.let { next ->
-                val tomorrow = Format.civilDate(next.occurrence.date) == Format.today(now).plusDays(1)
-                SectionLabel(if (tomorrow) "明日の授業" else "次の授業")
-                NextDayCard(next)
-            }
-            DeadlineSection("期限", today.deadlines, now)
+            ClassStack(today.upcoming, now)
         }
         TodayPhase.NO_CLASSES -> {
-            DeadlineSection("期限", today.deadlines, now)
             if (today.recent.isNotEmpty()) {
-                SectionLabel("新着")
+                SectionLabel(t("New"))
                 RecentCard(today.recent)
             }
-            today.nextClass?.let {
-                SectionLabel("次の授業")
-                NextDayCard(it)
+            ClassStack(today.upcoming, now)
+        }
+    }
+}
+
+// Class stack
+
+private val stackCardHeight = 150.dp
+/** How far each card behind shows below the one in front. */
+private val stackStep = 16.dp
+/** How much narrower each card behind is. */
+private const val stackShrink = 0.07f
+
+/** The next class and up to two after it (Core's `upcoming`), stacked like
+ * grouped notifications: swipe up for the next card, down to go back. The
+ * stack keeps one height, so the page never moves while it turns, and it
+ * consumes every vertical drag that starts on it: past either end the front
+ * card only stretches, so the drag never reaches the list's scrolling or its
+ * pull to refresh. */
+@Composable
+private fun ClassStack(items: List<TodayClass>, now: Instant) {
+    if (items.isEmpty()) return
+    var front by remember(items.firstOrNull()?.startsAt) { mutableIntStateOf(0) }
+    // Where the stack stands, in cards: `front` at rest, between two while a
+    // drag brings the next or previous card in.
+    val position = remember(items.firstOrNull()?.startsAt) { Animatable(0f) }
+    var stretch by remember { mutableFloatStateOf(0f) }
+    val index = front.coerceAtMost(items.lastIndex)
+    val current by rememberUpdatedState(index)
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val turn = with(LocalDensity.current) { 60.dp.toPx() }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) { SectionLabel(stackTitle(items[index], index == 0, now)) }
+        if (items.size > 1) {
+            Text(
+                "${index + 1} / ${items.size}", style = MaterialTheme.typography.bodySmall.tabular(),
+                color = Theme.colors.muted, modifier = Modifier.padding(end = 4.dp),
+            )
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(stackCardHeight + stackStep * minOf(items.size - 1, 2))
+            .pointerInput(items.size) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var travel = 0f
+                    val start = awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
+                        change.consume()
+                        travel = over
+                    } ?: return@awaitEachGesture
+                    verticalDrag(start.id) { change ->
+                        travel += change.positionChange().y
+                        change.consume()
+                        val open = if (travel < 0) current < items.lastIndex else current > 0
+                        if (open) {
+                            stretch = 0f
+                            val progress = (-travel / turn).coerceIn(-1f, 1f)
+                            scope.launch { position.snapTo(current + progress) }
+                        } else {
+                            // Past an end the card stretches a little and springs back.
+                            stretch = travel * 0.2f
+                        }
+                    }
+                    val next = when {
+                        travel < -turn / 2 -> (current + 1).coerceAtMost(items.lastIndex)
+                        travel > turn / 2 -> (current - 1).coerceAtLeast(0)
+                        else -> current
+                    }
+                    stretch = 0f
+                    if (next != current) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    front = next
+                    scope.launch { position.animateTo(next.toFloat(), spring(stiffness = Spring.StiffnessMediumLow)) }
+                }
+            },
+    ) {
+        val height = with(LocalDensity.current) { stackCardHeight.toPx() }
+        val step = with(LocalDensity.current) { stackStep.toPx() }
+        items.forEachIndexed { at, item ->
+            val depth = at - position.value
+            Box(
+                Modifier
+                    .zIndex(items.size - abs(depth))
+                    .graphicsLayer {
+                        translationY = when {
+                            depth < 0 -> depth * height / 3
+                            else -> depth * step
+                        } + if (at == index) stretch else 0f
+                        val scale = if (depth <= 0) 1f else 1f - depth * stackShrink
+                        scaleX = scale
+                        scaleY = scale
+                        transformOrigin = TransformOrigin(0.5f, 0f)
+                        alpha = when {
+                            depth <= -1 -> 0f
+                            depth < 0 -> 1 + depth
+                            else -> 1f
+                        }
+                    },
+            ) {
+                StackCard(item, now, leads = at == 0, enabled = at == index)
+                if (depth > 0) {
+                    // Cards behind dim a little per level, so the stack reads as layers.
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .clip(RoundedCornerShape(Theme.radiusPanel))
+                            .background(Color.Black.copy(alpha = (0.04f * depth).coerceAtMost(0.1f))),
+                    )
+                }
             }
+        }
+    }
+}
+
+/** The card's day, said once above the stack: 次の授業 for the first class
+ * still to come today, then today, tomorrow or the date. */
+@Composable
+private fun stackTitle(item: TodayClass, first: Boolean, now: Instant): String {
+    val exam = item.occurrence.kind == OccurrenceKind.EXAM
+    val date = Format.civilDate(item.occurrence.date)
+    val today = Format.today(now)
+    return when (date) {
+        today -> if (first) t(if (exam) "Next exam" else "Next class") else t("Later today")
+        today.plusDays(1) -> t(if (exam) "Tomorrow’s exam" else "Tomorrow’s class")
+        else -> Format.dayTitle(item.occurrence.date)
+    }
+}
+
+/** One class in the stack: periods, start time and room in large figures, and
+ * how long until it starts while that is today. */
+@Composable
+private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: Boolean) {
+    val tint = courseColor(item.occurrence.color)
+    val navigator = LocalNavigator.current
+    val id = item.occurrence.courseId
+    val exam = item.occurrence.kind == OccurrenceKind.EXAM
+    val starts = Format.date(item.startsAt)
+    val today = starts?.let { Format.tokyo(it).toLocalDate() == Format.today(now) } == true
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(stackCardHeight)
+            .shadow(6.dp, RoundedCornerShape(Theme.radiusPanel))
+            .clip(RoundedCornerShape(Theme.radiusPanel))
+            .background(Theme.colors.surface),
+    ) {
+        Hero(
+            tint.copy(alpha = Theme.tintSoft),
+            Modifier.fillMaxHeight(),
+            onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it) } },
+        ) {
+            HeroLine(listOfNotNull(if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
+                if (leads && today && starts != null) {
+                    val minutes = maxOf(Format.minutes(starts, now), 0)
+                    TagChip(
+                        if (minutes < 60) t("{{count}} min left", "count" to minutes) else Format.time(starts),
+                        ink = if (exam) Theme.colors.warn else tint, fill = Theme.colors.surface,
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    item.occurrence.startTime, fontSize = 40.sp, fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink, maxLines = 1,
+                )
+                Text(
+                    item.occurrence.room, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                    color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+            Text(
+                item.occurrence.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -189,12 +365,18 @@ private fun TodayContent(today: TodayView, now: Instant) {
 // Heroes
 
 @Composable
-private fun Hero(fill: Color, content: @Composable () -> Unit) {
+private fun Hero(
+    fill: Color,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusPanel))
             .background(fill)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) { content() }
@@ -213,31 +395,6 @@ private fun HeroLine(text: String, tint: Color, trailing: @Composable () -> Unit
 
 private val bigFigure = 48.sp
 
-/** Before or between classes: start time and room in large figures. */
-@Composable
-private fun NextClassHero(item: TodayClass, now: Instant) {
-    val tint = courseColor(item.occurrence.color)
-    Hero(tint.copy(alpha = Theme.tintSoft)) {
-        HeroLine(listOfNotNull("次の授業", Format.periods(item.periods)).joinToString(" · "), tint) {
-            Format.date(item.startsAt)?.let {
-                TagChip("あと ${maxOf(Format.minutes(it, now), 0)} 分", ink = tint, fill = Theme.colors.surface)
-            }
-        }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                item.occurrence.startTime, fontSize = bigFigure, fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.displayMedium.tabular(), color = Theme.colors.ink, maxLines = 1,
-            )
-            Text(
-                item.occurrence.room, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
-                color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
-        }
-        CourseLink(item.occurrence.courseId, item.occurrence.title)
-    }
-}
-
 /** In class: minutes left, progress and end time. */
 @Composable
 private fun CurrentClassHero(item: TodayClass, now: Instant) {
@@ -246,30 +403,39 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
     val ends = Format.date(item.endsAt) ?: now
     val total = maxOf(ends.toEpochMilli() - starts.toEpochMilli(), 1L)
     val progress = ((now.toEpochMilli() - starts.toEpochMilli()).toFloat() / total).coerceIn(0f, 1f)
-    Hero(tint.copy(alpha = Theme.tintSoft)) {
+    val navigator = LocalNavigator.current
+    val id = item.occurrence.courseId
+    Hero(tint.copy(alpha = Theme.tintSoft), onClick = id?.let { { navigator.openCourse(it) } }) {
         HeroLine(
-            listOfNotNull("授業中", Format.periods(item.periods), item.occurrence.room)
+            listOfNotNull(t("In class"), Format.periods(item.periods), item.occurrence.room)
                 .filter { it.isNotEmpty() }.joinToString(" · "),
             tint,
         ) {
             Text(
-                "${item.occurrence.endTime} まで", style = MaterialTheme.typography.bodyMedium.tabular(),
+                t("Until {{time}}", "time" to item.occurrence.endTime), style = MaterialTheme.typography.bodyMedium.tabular(),
                 fontWeight = FontWeight.SemiBold, color = tint,
             )
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("あと", style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+            // The figure sits where the language puts the count: あと 45 分,
+            // 45 min left, 还剩 45 分钟.
+            val words = t("{{count}} min left").split("{{count}}").map { it.trim() }
+            words.first().takeIf { it.isNotEmpty() }?.let {
+                Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+            }
             Text(
                 "${maxOf(Format.minutes(ends, now), 0)}", fontSize = bigFigure, fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.displayMedium.tabular(), color = Theme.colors.ink,
             )
-            Text("分", style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+            words.getOrNull(1)?.takeIf { it.isNotEmpty() }?.let {
+                Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
+            }
         }
         LinearProgressIndicator(
             progress = { progress }, color = tint, trackColor = tint.copy(alpha = 0.2f),
             modifier = Modifier.fillMaxWidth(),
         )
-        CourseLink(item.occurrence.courseId, item.occurrence.title)
+        CourseTitle(item.occurrence.courseId != null, item.occurrence.title)
     }
 }
 
@@ -278,15 +444,15 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
 private fun TonightHero(item: DeadlineItem, now: Instant) {
     val navigator = LocalNavigator.current
     Hero(Theme.colors.dangerSoft) {
-        HeroLine("今夜の期限", Theme.colors.danger) { DeadlineChip(item, now) }
+        HeroLine(t("Due tonight"), Theme.colors.danger) { DeadlineChip(item, now) }
         Text(
-            Format.due(item.dueAt, now).replace("今日 ", ""), fontSize = bigFigure, fontWeight = FontWeight.Bold,
+            Format.date(item.dueAt)?.let(Format::time) ?: Format.due(item.dueAt, now), fontSize = bigFigure, fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.displayMedium.tabular(), color = Theme.colors.ink,
         )
         Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         item.courseTitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
         item.sourceUrl?.let { url ->
-            PillButton("提出ページを開く", Icons.AutoMirrored.Outlined.OpenInNew, Theme.colors.danger) {
+            PillButton(t("Open submission page"), Icons.AutoMirrored.Outlined.OpenInNew, Theme.colors.danger) {
                 navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title))
             }
         }
@@ -295,72 +461,15 @@ private fun TonightHero(item: DeadlineItem, now: Instant) {
 
 // Sections
 
+/** The hero's course title; the chevron says the whole card opens it. */
 @Composable
-private fun CourseLink(id: String?, title: String) {
-    val navigator = LocalNavigator.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = if (id != null) Modifier.clickable { navigator.openCourse(id) } else Modifier,
-    ) {
+private fun CourseTitle(opens: Boolean, title: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
             color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
         )
-        if (id != null) Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
-    }
-}
-
-/** Rows of classes: time, course square, title and periods, room. */
-@Composable
-private fun ClassList(items: List<TodayClass>, breakAfter: TodayClass? = null) {
-    val navigator = LocalNavigator.current
-    Card {
-        items.forEachIndexed { index, item ->
-            if (index > 0) RowDivider(inset = 76.dp)
-            val id = item.occurrence.courseId
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (id != null) Modifier.clickable { navigator.openCourse(id) } else Modifier)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Text(
-                    item.occurrence.startTime, style = MaterialTheme.typography.titleMedium.tabular(),
-                    fontWeight = FontWeight.SemiBold, color = Theme.colors.ink, modifier = Modifier.width(48.dp),
-                )
-                CourseSquare(item.occurrence.color)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(item.occurrence.title, color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    detail(item, breakAfter)?.let {
-                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
-                    }
-                }
-                Text(item.occurrence.room, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
-            }
-        }
-    }
-}
-
-private fun detail(item: TodayClass, breakAfter: TodayClass?): String? {
-    val parts = listOfNotNull(Format.periods(item.periods)).toMutableList()
-    val ends = Format.date(breakAfter?.endsAt)
-    val starts = Format.date(item.startsAt)
-    if (ends != null && starts != null) parts.add("休憩 ${(starts.epochSecond - ends.epochSecond) / 60} 分")
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
-}
-
-@Composable
-private fun DeadlineSection(title: String, items: List<DeadlineItem>, now: Instant) {
-    if (items.isEmpty()) return
-    SectionLabel(title)
-    Card {
-        items.forEachIndexed { index, item ->
-            if (index > 0) RowDivider()
-            DeadlineLink(item) { DeadlineRow(item, now) }
-        }
+        if (opens) Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -392,56 +501,6 @@ private fun ThisClassCard(materials: List<MaterialItem>, assignments: List<Deadl
     }
 }
 
-/** After classes or on a day off: the next class day's first class. */
-@Composable
-private fun NextDayCard(item: TodayClass) {
-    val navigator = LocalNavigator.current
-    val date = Format.civilDate(item.occurrence.date)
-    val id = item.occurrence.courseId
-    Card {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (id != null) Modifier.clickable { navigator.openCourse(id) } else Modifier)
-                .padding(14.dp),
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier
-                    .size(width = 52.dp, height = 56.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Theme.colors.surface2),
-            ) {
-                Text(
-                    date?.let { Format.weekday(it) }.orEmpty(), style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold, color = Theme.colors.muted,
-                )
-                Text(
-                    date?.dayOfMonth?.toString().orEmpty(), style = MaterialTheme.typography.titleLarge.tabular(),
-                    fontWeight = FontWeight.Bold, color = Theme.colors.ink,
-                )
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        item.occurrence.startTime, style = MaterialTheme.typography.titleLarge.tabular(),
-                        fontWeight = FontWeight.Bold, color = Theme.colors.ink,
-                    )
-                    Text(
-                        item.occurrence.room, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                        color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Text(item.occurrence.title, color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
 /** Day off: grades and materials that changed recently. */
 @Composable
 private fun RecentCard(items: List<RecentItem>) {
@@ -452,9 +511,9 @@ private fun RecentCard(items: List<RecentItem>) {
                 is RecentItem.Grade -> RecentRow(
                     item.v1.color, listOfNotNull(item.v1.title, item.v1.grade).joinToString(" · "), item.v1.courseTitle,
                     item.v1.courseId,
-                ) { TagChip("採点済", ink = Theme.colors.ok, fill = Theme.colors.okSoft) }
+                ) { TagChip(t("Graded"), ink = Theme.colors.ok, fill = Theme.colors.okSoft) }
                 is RecentItem.Material -> RecentRow(item.v1.color, item.v1.title, item.v1.courseTitle, item.v1.courseId) {
-                    TagChip("資料")
+                    TagChip(t("Material"))
                 }
             }
         }
@@ -492,9 +551,9 @@ private fun ConnectCard(onConnect: () -> Unit) {
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("学校アカウントを接続", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
+        Text(t("Connect school accounts"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
         Text(
-            "時間割・課題・資料を学校のサイトから読み込みます。パスワードはこの端末のキーストアで暗号化して保存され、学校のサイトにだけ送られます。",
+            t("Reads your timetable, assignments and materials from the school sites. Your password is encrypted in this device’s keystore and sent only to the school sites."),
             style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted,
         )
         Box(
@@ -506,7 +565,7 @@ private fun ConnectCard(onConnect: () -> Unit) {
                 .padding(vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("Science Tokyo で接続", color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(t("Connect with Science Tokyo"), color = Color.White, fontWeight = FontWeight.SemiBold)
         }
     }
 }

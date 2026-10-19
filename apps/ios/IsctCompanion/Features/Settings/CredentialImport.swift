@@ -67,7 +67,7 @@ struct OtpImportField: View {
     @State private var error: String?
 
     var body: some View {
-        TextField(saved ? "設定済み（変更する場合のみ）" : "TOTP シークレットまたは otpauth:// リンク", text: $setup)
+        TextField(saved ? t("Saved (enter only to change)") : t("TOTP secret or otpauth:// link"), text: $setup)
             .textContentType(nil)
             .keyboardType(.asciiCapable)
             .textInputAutocapitalization(.never)
@@ -76,24 +76,24 @@ struct OtpImportField: View {
             .onChange(of: setup) { _, _ in label = nil }
         SourceTiles {
             if DataScannerViewController.isSupported {
-                Button("QR を読み取る", systemImage: "qrcode.viewfinder") { scanning = true }
+                Button(t("Scan QR"), systemImage: "qrcode.viewfinder") { scanning = true }
             }
             PhotosPicker(selection: $photo, matching: .images) {
-                Label("写真から", systemImage: "photo")
+                Label(t("From photo"), systemImage: "photo")
             }
-            Button("貼り付け", systemImage: "doc.on.clipboard") {
-                if let text = UIPasteboard.general.string { read(text) } else { error = "クリップボードが空です。" }
+            Button(t("Paste"), systemImage: "doc.on.clipboard") {
+                if let text = UIPasteboard.general.string { read(text) } else { error = t("The clipboard is empty.") }
             }
         }
         if let label {
-            Text("「\(label)」を読み取りました。保存すると使われます。")
+            Text(t("Read “{{label}}”. Save to use it.", ["label": label]))
                 .font(.footnote)
                 .foregroundStyle(Theme.ok)
         }
         if let error {
             Text(error).font(.footnote).foregroundStyle(Theme.danger)
         }
-        Text("Google Authenticator は「アカウントを移行 → エクスポート」で学校のアカウントだけを選び、表示された QR のスクリーンショットを「写真から」で読み込めます。")
+        Text(t("In Google Authenticator, choose Transfer accounts → Export, select only your school account, and load a screenshot of the QR code with From photo."))
             .font(.footnote)
             .foregroundStyle(Theme.muted)
             .sheet(isPresented: $scanning) {
@@ -108,11 +108,11 @@ struct OtpImportField: View {
                 photo = nil
                 Task { await readPhoto(item) }
             }
-            .confirmationDialog("どのアカウントを使いますか？", isPresented: .constant(!choices.isEmpty), titleVisibility: .visible) {
+            .confirmationDialog(t("Which account should be used?"), isPresented: .constant(!choices.isEmpty), titleVisibility: .visible) {
                 ForEach(Array(choices.enumerated()), id: \.offset) { _, account in
                     Button(Self.name(account)) { choose(account) }
                 }
-                Button("キャンセル", role: .cancel) { choices = [] }
+                Button(t("Cancel"), role: .cancel) { choices = [] }
             }
     }
 
@@ -128,11 +128,11 @@ struct OtpImportField: View {
             let accounts = try importOtp(payload: text)
             if accounts.count == 1 { choose(accounts[0]) } else { choices = accounts }
         } catch OtpImportError.MultiplePages {
-            error = "学校のアカウントだけをエクスポートして、もう一度読み込んでください。"
+            error = t("Export only your school account, then load it again.")
         } catch OtpImportError.Unsupported {
-            error = "このアカウントの認証コード形式には対応していません。"
+            error = t("This account uses a code format that is not supported.")
         } catch {
-            self.error = "対応している認証アプリの QR コードではありません。"
+            self.error = t("This is not a QR code from a supported authenticator app.")
         }
     }
 
@@ -140,11 +140,11 @@ struct OtpImportField: View {
         guard let data = try? await item.loadTransferable(type: Data.self),
             let image = UIImage(data: data)?.cgImage
         else {
-            error = "画像を読み込めませんでした。"
+            error = t("Could not load the image.")
             return
         }
         guard let payload = await Self.qrPayload(in: image) else {
-            error = "QR コードが見つかりません。QR 全体が写った画像を選んでください。"
+            error = t("No QR code found. Choose an image that shows the whole code.")
             return
         }
         read(payload)
@@ -230,21 +230,21 @@ struct MatrixImportSection: View {
     var body: some View {
         Section {
             if !editing {
-                Text(saved ? "設定済み" : "未設定")
+                Text(saved ? t("Saved") : t("Not set"))
                     .foregroundStyle(saved ? Theme.ok : Theme.muted)
             }
             SourceTiles {
                 if model.canScanMatrix {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                        Button("撮影", systemImage: "camera") { camera = true }
+                        Button(t("Take photo"), systemImage: "camera") { camera = true }
                     }
                     PhotosPicker(selection: $photo, matching: .images) {
-                        Label("写真から", systemImage: "photo")
+                        Label(t("From photo"), systemImage: "photo")
                     }
                 }
-                Button("貼り付け", systemImage: "doc.on.clipboard") { paste(UIPasteboard.general.string ?? "") }
+                Button(t("Paste"), systemImage: "doc.on.clipboard") { paste(UIPasteboard.general.string ?? "") }
                 if !editing {
-                    Button("入力", systemImage: "keyboard") { editing = true }
+                    Button(t("Enter manually"), systemImage: "keyboard") { editing = true }
                 }
             }
             .disabled(reading)
@@ -256,7 +256,7 @@ struct MatrixImportSection: View {
                 photo = nil
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
-                        error = "画像を読み込めませんでした。"
+                        error = t("Could not load the image.")
                         return
                     }
                     await scan(data)
@@ -275,7 +275,7 @@ struct MatrixImportSection: View {
             }
             if reading {
                 ProgressView(value: Double(model.ocrProgress), total: 70) {
-                    Text("読み取り中 \(model.ocrProgress)/70").font(.footnote)
+                    Text(t("Reading {{done}}/70", ["done": model.ocrProgress])).font(.footnote)
                 }
             }
             if editing {
@@ -285,19 +285,19 @@ struct MatrixImportSection: View {
             if let note { Text(note).font(.footnote).foregroundStyle(Theme.muted) }
             if let error { Text(error).font(.footnote).foregroundStyle(Theme.danger) }
         } header: {
-            Text("マトリクス表")
+            Text(t("Matrix card"))
         } footer: {
             Text(model.canScanMatrix
-                ? "カードを平らな場所に置き、表全体が写るように撮影してください。"
-                : "この端末では読み取りを使えません。デスクトップ版でコピーした 70 文字を貼り付けるか、入力してください。")
+                ? t("Lay the card flat and photograph the whole grid.")
+                : t("Reading is not available on this device. Paste the 70 letters copied from the desktop app, or type them."))
         }
     }
 
     private var legend: some View {
         HStack(spacing: 12) {
-            swatch(Theme.okSoft, "確実")
-            swatch(Theme.warnSoft, "要確認")
-            swatch(Theme.dangerSoft, "読めない")
+            swatch(Theme.okSoft, t("Certain"))
+            swatch(Theme.warnSoft, t("Check"))
+            swatch(Theme.dangerSoft, t("Unreadable"))
         }
         .font(.caption)
         .foregroundStyle(Theme.muted)
@@ -313,7 +313,7 @@ struct MatrixImportSection: View {
     private func scan(_ data: Data) async {
         // OCR reads PNG/JPEG/WebP; HEIC photos are converted here.
         guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.95) else {
-            error = "画像を読み込めませんでした。"
+            error = t("Could not load the image.")
             return
         }
         await scan(jpeg: jpeg)
@@ -332,13 +332,13 @@ struct MatrixImportSection: View {
         do {
             let result = try await model.scanMatrix(jpeg)
             guard result.count == 70 else {
-                error = "表を見つけられませんでした。表全体が写るように撮り直してください。"
+                error = t("Could not find the grid. Retake the photo with the whole grid in view.")
                 return
             }
             cells = result.map(\.text)
             confidence = result.map(\.confidence)
             editing = true
-            note = "色の付いたマスをカードと照らし合わせて確認してください。"
+            note = t("Check the coloured cells against your card.")
         } catch {
             self.error = AppModel.describe(error)
         }
@@ -347,7 +347,7 @@ struct MatrixImportSection: View {
     private func paste(_ text: String) {
         let letters = text.uppercased().filter { !$0.isWhitespace }
         guard letters.count == 70, letters.allSatisfy({ $0.isASCII && $0.isLetter }) else {
-            error = "A1…J1、A2…J2 の順に 70 文字を貼り付けてください（空白と改行は無視されます）。"
+            error = t("Paste exactly 70 letters in row order (A1…J1, A2…J2, …). Spaces and line breaks are ignored.")
             return
         }
         error = nil

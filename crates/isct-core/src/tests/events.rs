@@ -11,7 +11,6 @@ fn workspace_events_preserve_desktop_names_and_payloads() {
         (WorkspaceChangeSource::Mcp, "mcp"),
         (WorkspaceChangeSource::CloudSync, "cloud-sync"),
         (WorkspaceChangeSource::CloudRestore, "cloud-restore"),
-        (WorkspaceChangeSource::LocalRestore, "local-restore"),
     ] {
         let event = CoreEvent::WorkspaceChanged {
             source,

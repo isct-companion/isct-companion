@@ -3,20 +3,48 @@ import IsctCore
 import SwiftUI
 
 /// Text formatting of Core's timestamps. Urgency (`tone`) comes from Core; the
-/// shell only turns times into words.
+/// shell only turns times into words, in the UI language.
 enum Format {
-    private static let weekdays = ["日", "月", "火", "水", "木", "金", "土"]
 
     static func date(_ raw: String?) -> Date? {
         raw.flatMap(AppModel.date)
     }
 
-    /// `10月15日（木）`
+    /// `10月15日(木)`, `Thu 15 Oct`
     static func dayTitle(_ civil: String) -> String {
         guard let date = civilDate(civil) else { return civil }
-        let parts = Calendar.tokyo.dateComponents([.month, .day, .weekday], from: date)
-        return "\(parts.month ?? 0)月\(parts.day ?? 0)日（\(weekdays[(parts.weekday ?? 1) - 1])）"
+        return written(date, "MMMdEEE")
     }
+
+    /// `木`, `Thu`, `周四`
+    static func weekday(_ date: Date) -> String {
+        written(date, "EEE")
+    }
+
+    /// Short weekday names from Sunday, as Core numbers days (`日`, `Sun`, `周日`).
+    static var weekdays: [String] {
+        let formatter = DateFormatter()
+        formatter.locale = Localizer.shared.locale
+        return formatter.shortStandaloneWeekdaySymbols
+    }
+
+    /// A Tokyo date written from a template in the UI language.
+    static func written(_ date: Date, _ template: String) -> String {
+        let locale = Localizer.shared.locale
+        let key = "\(locale.identifier) \(template)"
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
+        if let formatter = formatters[key] { return formatter.string(from: date) }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = .tokyo
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        formatters[key] = formatter
+        return formatter.string(from: date)
+    }
+
+    private nonisolated(unsafe) static var formatters: [String: DateFormatter] = [:]
+    private static let formatterLock = NSLock()
 
     static func civilDate(_ civil: String) -> Date? {
         let parts = civil.split(separator: "-").compactMap { Int($0) }
@@ -35,50 +63,48 @@ enum Format {
         return String(format: "%d:%02d", parts.hour ?? 0, parts.minute ?? 0)
     }
 
-    /// `今日 23:59`, `明日 23:59`, `10/18（日）23:59`
+    /// `今日 23:59`, `Tomorrow 23:59`, `10/18(日) 23:59`
     static func due(_ raw: String?, now: Date = Date()) -> String {
-        guard let due = date(raw) else { return "期限なし" }
+        guard let due = date(raw) else { return t("No deadline") }
         let calendar = Calendar.tokyo
         let time = self.time(due)
-        if calendar.isDate(due, inSameDayAs: now) { return "今日 \(time)" }
+        if calendar.isDate(due, inSameDayAs: now) { return t("Today {{time}}", ["time": time]) }
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(due, inSameDayAs: tomorrow) {
-            return "明日 \(time)"
+            return t("Tomorrow {{time}}", ["time": time])
         }
-        let parts = calendar.dateComponents([.month, .day, .weekday], from: due)
-        return "\(parts.month ?? 0)/\(parts.day ?? 0)（\(weekdays[(parts.weekday ?? 1) - 1])）\(time)"
+        return "\(written(due, "MdEEE")) \(time)"
     }
 
-    /// Minutes until `date`, rounded up so "あと 1 分" lasts until the minute.
+    /// Minutes until `date`, rounded up so "1 min left" lasts until the minute.
     static func minutes(until date: Date, now: Date) -> Int {
         Int((date.timeIntervalSince(now) / 60).rounded(.up))
     }
 
     /// Countdown words for a deadline chip.
     static func countdown(_ raw: String?, now: Date, overdueStyle: OverdueStyle = .label) -> String {
-        guard let due = date(raw) else { return "期限なし" }
+        guard let due = date(raw) else { return t("No deadline") }
         let minutes = minutes(until: due, now: now)
         if minutes < 0 {
             switch overdueStyle {
-            case .label: return "期限切れ"
+            case .label: return t("Overdue")
             case .elapsed:
-                let days = max(1, -minutes / (60 * 24))
-                return "\(days) 日超過"
+                return t("{{count}}d overdue", ["count": max(1, -minutes / (60 * 24))])
             }
         }
-        if minutes < 60 { return "あと \(max(minutes, 1)) 分" }
-        if minutes < 60 * 24 { return "あと \(minutes / 60) 時間" }
+        if minutes < 60 { return t("{{count}} min left", ["count": max(minutes, 1)]) }
+        if minutes < 60 * 24 { return t("{{count}}h left", ["count": minutes / 60]) }
         if Calendar.tokyo.isDate(due, inSameDayAs: Calendar.tokyo.date(byAdding: .day, value: 1, to: now) ?? now) {
-            return "明日"
+            return t("Tomorrow")
         }
-        return "あと \(Int((Double(minutes) / (60 * 24)).rounded())) 日"
+        return t("{{count}}d left", ["count": Int((Double(minutes) / (60 * 24)).rounded())])
     }
 
     enum OverdueStyle { case label, elapsed }
 
-    /// `3–4限`
+    /// `3–4限`, `Periods 3–4`
     static func periods<Periods: Collection>(_ value: Periods?) -> String? where Periods.Element == UInt8 {
         guard let value, value.count == 2, let first = value.first, let last = value.dropFirst().first else { return nil }
-        return first == last ? "\(first)限" : "\(first)–\(last)限"
+        return t("Periods {{range}}", ["range": first == last ? "\(first)" : "\(first)–\(last)"])
     }
 }
 
@@ -90,7 +116,7 @@ struct DeadlineChip: View {
 
     var body: some View {
         let (ink, fill) = Self.colors(item.submitted ? "done" : item.tone)
-        Text(item.submitted ? (item.grade ?? "提出済") : Format.countdown(item.dueAt, now: now, overdueStyle: overdueStyle))
+        Text(item.submitted ? (item.grade ?? t("Submitted")) : Format.countdown(item.dueAt, now: now, overdueStyle: overdueStyle))
             .font(.caption.weight(.semibold).monospacedDigit())
             .foregroundStyle(ink)
             .padding(.horizontal, 7)
@@ -109,7 +135,7 @@ struct DeadlineChip: View {
     }
 }
 
-/// Small text chip (`今日`, `資料`, `採点済`).
+/// Small text chip (`Today`, `Material`, `Graded`).
 struct TagChip: View {
     let text: String
     var ink: Color = Theme.accent

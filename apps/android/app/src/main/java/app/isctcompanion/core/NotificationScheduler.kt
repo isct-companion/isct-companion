@@ -32,7 +32,7 @@ object NotificationScheduler {
         if (!allowed(context)) return
         val now = Instant.now()
         val horizon = now.plusSeconds(HORIZON_DAYS * 24 * 3600)
-        val query = WorkspaceQuery.NotificationPlan(Format.timestamp(now), Format.timestamp(horizon), NotificationLocale.JA)
+        val query = WorkspaceQuery.NotificationPlan(Format.timestamp(now), Format.timestamp(horizon), null)
         val result = runCatching { session.scheduleQuery(listOf(query)).value() }.getOrNull()
         val plan = ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
             as? WorkspaceQueryResult.NotificationPlan)?.v1 ?: return

@@ -41,11 +41,11 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
     let cases = [
         (
             CoreEvent::WorkspaceChanged {
-                source: WorkspaceChangeSource::LocalRestore,
+                source: WorkspaceChangeSource::CloudRestore,
                 revision: None,
             },
             "workspace-changed",
-            json!({"source":"local-restore"}),
+            json!({"source":"cloud-restore"}),
         ),
         (
             CoreEvent::OcrProgress {

@@ -1,5 +1,6 @@
 package app.isctcompanion.features.web
 
+import app.isctcompanion.design.t
 import android.content.Intent
 import android.net.Uri
 import android.view.ViewGroup
@@ -105,7 +106,7 @@ private fun PageMenu(site: SchoolSite) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }) { Icon(Icons.Outlined.MoreVert, "その他") }
+        IconButton(onClick = { open = true }) { Icon(Icons.Outlined.MoreVert, t("More")) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             val item = @Composable { label: String, icon: ImageVector, action: () -> Unit ->
                 DropdownMenuItem(text = { Text(label) }, leadingIcon = { Icon(icon, null) }, onClick = {
@@ -113,11 +114,11 @@ private fun PageMenu(site: SchoolSite) {
                     action()
                 })
             }
-            item("進む", Icons.AutoMirrored.Outlined.ArrowForward) { web.forward(site) }
-            item("再読み込み", Icons.Outlined.Refresh) { web.reload(site) }
-            item("文字の大きさ（${web.browser.textScale}%）", Icons.Outlined.FormatSize) { web.browser.cycleTextScale() }
+            item(t("Forward"), Icons.AutoMirrored.Outlined.ArrowForward) { web.forward(site) }
+            item(t("Reload"), Icons.Outlined.Refresh) { web.reload(site) }
+            item(t("Text size ({{percent}}%)", "percent" to web.browser.textScale), Icons.Outlined.FormatSize) { web.browser.cycleTextScale() }
             web.browser.webView(site)?.url?.let { url ->
-                item("ブラウザで開く", Icons.AutoMirrored.Outlined.OpenInNew) {
+                item(t("Open in browser"), Icons.AutoMirrored.Outlined.OpenInNew) {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 }
             }
@@ -196,7 +197,7 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
     Column(Modifier.fillMaxSize().background(Theme.colors.surface)) {
         TopAppBar(
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.Outlined.Close, "閉じる") }
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.Outlined.Close, t("Close")) }
             },
             title = {
                 Column {
@@ -212,7 +213,7 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
                     IconButton(onClick = {
                         val share = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
                         context.startActivity(Intent.createChooser(share, null))
-                    }) { Icon(Icons.Outlined.Share, "共有") }
+                    }) { Icon(Icons.Outlined.Share, t("Share")) }
                 }
                 PageMenu(page.site)
             },

@@ -1,13 +1,27 @@
 //! Cloud workspace envelope, history, and optimistic merge ownership.
 
-use super::{CloudProvider, CloudVersion};
+use super::{CloudFuture, CloudProvider, CloudSyncError, CloudTransport, CloudVersion};
 use crate::data::cloud_merge;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{future::Future, pin::Pin};
+use std::{
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::{Mutex, MutexGuard},
+};
 
 const CLOUD_FORMAT: &str = "IsctCompanion";
 const CLOUD_FORMAT_VERSION: u64 = 2;
+/// Every provider stores the workspace envelope under this one name.
+pub const CLOUD_FILE_NAME: &str = "IsctCompanion.json";
+pub const MAX_DOCUMENT_BYTES: usize = 25 * 1024 * 1024;
+/// Where Apple devices keep the workspace: one record in this container's
+/// private database, its envelope in an asset field. The Mac and iOS apps must
+/// both use these, so they are named once here.
+pub const CLOUDKIT_CONTAINER: &str = "iCloud.app.isctcompanion";
+pub const CLOUDKIT_RECORD_TYPE: &str = "IsctCompanionBackup";
+pub const CLOUDKIT_ASSET_KEY: &str = "payload";
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, DocumentError>> + Send + 'a>>;
 
@@ -27,6 +41,8 @@ pub enum DocumentError {
     RevisionExhausted,
     #[error("Cloud version no longer exists.")]
     VersionMissing,
+    #[error("Cloud workspace exceeds the size limit.")]
+    TooLarge,
     #[error("{0}")]
     Transport(String),
 }
@@ -77,6 +93,206 @@ pub trait WorkspaceTransport: Send + Sync {
         file: &'a CloudWorkspaceFile,
         expected_revision: Option<u64>,
     ) -> BoxFuture<'a, ()>;
+
+    fn disconnect(&self, provider: CloudProvider) -> Result<(), DocumentError>;
+}
+
+/// The queue's `CloudTransport` over any workspace transport, so every shell
+/// shares one envelope parse, history listing and merge-and-push loop.
+pub struct DocumentCloud<T> {
+    transport: T,
+    device_name: Option<String>,
+}
+
+impl<T: WorkspaceTransport> DocumentCloud<T> {
+    pub fn new(transport: T, device_name: Option<String>) -> Self {
+        Self {
+            transport,
+            device_name,
+        }
+    }
+
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+}
+
+fn transport_error(error: DocumentError) -> CloudSyncError {
+    CloudSyncError::Transport(error.to_string())
+}
+
+impl<T: WorkspaceTransport> CloudTransport for DocumentCloud<T> {
+    fn disconnect(&self, provider: CloudProvider) -> Result<(), CloudSyncError> {
+        self.transport.disconnect(provider).map_err(transport_error)
+    }
+
+    fn read_workspace<'a>(&'a self, provider: CloudProvider) -> CloudFuture<'a, Option<Value>> {
+        Box::pin(async move {
+            Ok(self
+                .transport
+                .read(provider)
+                .await
+                .map_err(transport_error)?
+                .map(|file| file.merged_document()))
+        })
+    }
+
+    /// Re-read before committing: another device may have written since the
+    /// multi-provider pull phase. Conditional writes retain that guarantee.
+    fn merge_and_push<'a>(
+        &'a self,
+        provider: CloudProvider,
+        document: &'a Value,
+        device: &'a str,
+    ) -> CloudFuture<'a, Value> {
+        Box::pin(async move {
+            // Version lists name the writer; an unnamed device is labelled by
+            // its OS and the start of its device id.
+            let device_name = self.device_name.clone().unwrap_or_else(|| {
+                format!(
+                    "{} · {}",
+                    std::env::consts::OS,
+                    device.chars().take(8).collect::<String>()
+                )
+            });
+            merge_and_push(
+                &self.transport,
+                provider,
+                document,
+                device,
+                Some(&device_name),
+            )
+            .await
+            .map_err(transport_error)
+        })
+    }
+
+    fn versions<'a>(&'a self, provider: CloudProvider) -> CloudFuture<'a, Vec<CloudVersion>> {
+        Box::pin(async move {
+            Ok(self
+                .transport
+                .read(provider)
+                .await
+                .map_err(transport_error)?
+                .map(|file| versions(provider, &file))
+                .unwrap_or_default())
+        })
+    }
+
+    fn version_document<'a>(
+        &'a self,
+        provider: CloudProvider,
+        revision: u64,
+    ) -> CloudFuture<'a, Value> {
+        Box::pin(async move {
+            self.transport
+                .read(provider)
+                .await
+                .map_err(transport_error)?
+                .and_then(|file| file.version_document(revision).cloned())
+                .ok_or_else(|| transport_error(DocumentError::VersionMissing))
+        })
+    }
+}
+
+/// The stored workspace object and the provider's opaque change tag for it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredObject {
+    pub bytes: Vec<u8>,
+    pub tag: String,
+}
+
+/// A provider that keeps the workspace as one object with a change tag (a
+/// CloudKit record's change tag, for example). Implementations move bytes
+/// only; parsing, size limits and revision checks stay in `TaggedWorkspace`.
+pub trait ObjectStore: Send + Sync {
+    fn read<'a>(&'a self, provider: CloudProvider) -> BoxFuture<'a, Option<StoredObject>>;
+
+    /// `expected` is the tag of the object last read, or `None` when none
+    /// existed. Return `DocumentError::Conflict` if the stored object differs.
+    fn write<'a>(
+        &'a self,
+        provider: CloudProvider,
+        bytes: Vec<u8>,
+        expected: Option<String>,
+    ) -> BoxFuture<'a, ()>;
+
+    fn disconnect(&self, provider: CloudProvider) -> Result<(), DocumentError>;
+}
+
+/// Adapts an `ObjectStore` to envelope revisions: a write is conditional on
+/// the change tag that was read together with the expected revision.
+pub struct TaggedWorkspace<S> {
+    store: S,
+    read_tags: Mutex<ReadTags>,
+}
+
+/// The envelope revision and change tag of each provider's last read.
+type ReadTags = HashMap<CloudProvider, (u64, String)>;
+
+impl<S: ObjectStore> TaggedWorkspace<S> {
+    pub fn new(store: S) -> Self {
+        Self {
+            store,
+            read_tags: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+
+    fn tags(&self) -> Result<MutexGuard<'_, ReadTags>, DocumentError> {
+        self.read_tags
+            .lock()
+            .map_err(|_| DocumentError::Transport("Cloud tag cache is unavailable.".into()))
+    }
+}
+
+impl<S: ObjectStore> WorkspaceTransport for TaggedWorkspace<S> {
+    fn read<'a>(&'a self, provider: CloudProvider) -> BoxFuture<'a, Option<CloudWorkspaceFile>> {
+        Box::pin(async move {
+            let Some(object) = self.store.read(provider).await? else {
+                self.tags()?.remove(&provider);
+                return Ok(None);
+            };
+            if object.bytes.len() > MAX_DOCUMENT_BYTES {
+                return Err(DocumentError::TooLarge);
+            }
+            let file = parse_cloud_workspace(&object.bytes)?;
+            self.tags()?.insert(provider, (file.revision, object.tag));
+            Ok(Some(file))
+        })
+    }
+
+    fn write<'a>(
+        &'a self,
+        provider: CloudProvider,
+        file: &'a CloudWorkspaceFile,
+        expected_revision: Option<u64>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let expected = match expected_revision {
+                None => None,
+                Some(revision) => match self.tags()?.get(&provider) {
+                    Some((read, tag)) if *read == revision => Some(tag.clone()),
+                    // A newer read replaced the tag; the caller re-reads.
+                    _ => return Err(DocumentError::Conflict),
+                },
+            };
+            let bytes =
+                serde_json::to_vec(file).map_err(|e| DocumentError::Transport(e.to_string()))?;
+            if bytes.len() > MAX_DOCUMENT_BYTES {
+                return Err(DocumentError::TooLarge);
+            }
+            self.store.write(provider, bytes, expected).await
+        })
+    }
+
+    fn disconnect(&self, provider: CloudProvider) -> Result<(), DocumentError> {
+        self.tags()?.remove(&provider);
+        self.store.disconnect(provider)
+    }
 }
 
 pub fn parse_cloud_workspace(bytes: &[u8]) -> Result<CloudWorkspaceFile, DocumentError> {

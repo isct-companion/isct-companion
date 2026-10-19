@@ -193,10 +193,7 @@ impl Session {
     }
     pub fn set_cloud_automatic(&self, enabled: bool) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            let (sync, services) = i
-                .cloud
-                .as_ref()
-                .ok_or_else(|| unavailable("Cloud transport"))?;
+            let (sync, services) = i.cloud()?;
             Ok(OperationResult::Cloud {
                 state: project(sync.set_automatic(services.clone(), enabled).await?)?,
             })
@@ -204,10 +201,7 @@ impl Session {
     }
     pub fn restore_cloud(&self, id: String) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            let (sync, services) = i
-                .cloud
-                .as_ref()
-                .ok_or_else(|| unavailable("Cloud transport"))?;
+            let (sync, services) = i.cloud()?;
             Ok(OperationResult::Cloud {
                 state: project(sync.restore(services.clone(), id).await?)?,
             })

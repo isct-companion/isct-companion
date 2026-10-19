@@ -149,7 +149,7 @@ Everything not in the table above is pushed or presented from a page.
 |---|---|---|
 | Course page (push, zoom) | Any class or assignment row, timetable block, 授業 | Header (room, LMS and syllabus links, the course's exams), then the LMS content one lesson at a time (see [Course page](#course-page)) |
 | School web (push, full screen) | Course page, assignment, notification | The page fills the screen; back returns to where it was opened from |
-| Settings (pushed pages) | Gear on the Today title; sidebar in split | The desktop settings sections that apply on a phone, under the desktop's keys so cloud sync keeps both ends equal: school accounts (with matrix card import), notifications (class, exam and assignment reminders), 学習プロフィール, データ更新 (cellular, last pull per site, pull now), ウェブ (text size, first site; device-local), 情報. iCloud backup waits for the entitlement. |
+| Settings (pushed pages) | Gear on the Today title; sidebar in split | The desktop settings sections that apply on a phone, under the desktop's keys so cloud sync keeps both ends equal: school accounts (with matrix card import), notifications (class, exam and assignment reminders), 学習プロフィール, データ更新 (cellular, last pull per site, pull now), ウェブ (text size, first site; device-local), バックアップ (iCloud, earlier versions, recovery files, backup file), 情報. |
 
 Navigation follows the platform: stack pushes with edge-swipe back (Android
 back), sheets for settings-like content, pull to refresh as a fallback only.

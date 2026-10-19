@@ -1,5 +1,6 @@
 package app.isctcompanion.core
 
+import app.isctcompanion.design.t
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -9,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.isctcompanion.design.Format
+import app.isctcompanion.design.Localizer
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -42,8 +44,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Course id → Core's display colour, identical on every surface. */
     var colors: Map<String, String> by mutableStateOf(emptyMap())
         private set
-    var records: WorkspaceRecords by mutableStateOf(WorkspaceRecords())
-        private set
+    private var shownRecords by mutableStateOf(WorkspaceRecords())
+    var records: WorkspaceRecords
+        get() = shownRecords
+        private set(value) {
+            shownRecords = value
+            Localizer.use(value.settings.optString("locale"))
+        }
     var credentials: SchoolCredentialStatus? by mutableStateOf(null)
         private set
     var sessions: SchoolSessionStates? by mutableStateOf(null)
@@ -365,16 +372,21 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (profile == SchoolAuthProfile.SCIENCE) refreshFromSchool()
     }
 
-    /** Edits `settings.notifications` and replaces the settings object. Like the
-     * desktop store's `updateSettings`, edits run one at a time, each on the
-     * settings the previous one committed, so two quick toggles cannot both
-     * copy the same old object. */
-    suspend fun setNotifications(edit: (JSONObject) -> Unit): Unit = settingsWrite.withLock {
-        val session = session ?: return@withLock
-        val settings = JSONObject(records.settings.toString())
+    /** Edits `settings.notifications` and replaces the settings object. */
+    suspend fun setNotifications(edit: (JSONObject) -> Unit) = updateSettings { settings ->
         val notifications = settings.optJSONObject("notifications") ?: JSONObject()
         edit(notifications)
         settings.put("notifications", notifications)
+    }
+
+    /** Edits the settings object and replaces it. Like the desktop store's
+     * `updateSettings`, edits run one at a time, each on the settings the
+     * previous one committed, so two quick toggles cannot both copy the same
+     * old object. */
+    suspend fun updateSettings(edit: (JSONObject) -> Unit): Unit = settingsWrite.withLock {
+        val session = session ?: return@withLock
+        val settings = JSONObject(records.settings.toString())
+        edit(settings)
         val mutation = WorkspaceMutation(revision, WorkspaceIntent.ReplaceSettings(settings.toString()))
         try {
             (session.mutate(mutation).value() as? OperationResult.Workspace)?.snapshot?.let {
@@ -409,12 +421,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         fun describe(error: Throwable): String {
             Log.w("isct", "core error", error)
             return when (error) {
-                is SdkException.Network -> "オフラインです。保存済みのデータを表示しています。"
-                is SdkException.Authentication -> "学校アカウントに再ログインが必要です。"
-                is SdkException.Maintenance -> "学校のサイトはメンテナンス中です。"
-                is SdkException.Timeout -> "学校サイトの応答がありません。"
-                is SdkException.Busy -> "前の処理がまだ終わっていません。"
-                is SdkException.Unavailable -> error.detail.ifEmpty { "この機能は今使えません。" }
+                is SdkException.Network -> t("You're offline. Showing saved data.")
+                is SdkException.Authentication -> t("Sign in to your school account again.")
+                is SdkException.Maintenance -> t("The school site is under maintenance.")
+                is SdkException.Timeout -> t("The school site is not responding.")
+                is SdkException.Busy -> t("The previous task has not finished yet.")
+                is SdkException.Unavailable -> error.detail.ifEmpty { t("This is not available right now.") }
                 else -> error.message ?: error.toString()
             }
         }

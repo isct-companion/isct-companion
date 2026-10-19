@@ -26,8 +26,7 @@ export type WorkspaceChangedEvent = {
     | "scheduler"
     | "mcp"
     | "cloud-sync"
-    | "cloud-restore"
-    | "local-restore";
+    | "cloud-restore";
   /** The committed user-intent revision, when the source can provide it. */
   revision?: string;
 };
@@ -332,11 +331,18 @@ export interface AppUpdateStatus {
     | "downloading"
     | "ready"
     | "error";
-  version?: string;
-  message?: string;
+  version?: string | null;
+  message?: string | null;
   releaseUrl: string;
   signedUpdates: boolean;
+  progress?: { downloaded: number; total?: number | null } | null;
+  /** How the install attempted before this launch turned out; Core judges it. */
+  lastInstall?: AppLastInstall | null;
 }
+export type AppLastInstall =
+  | { outcome: "installed"; version: string }
+  | { outcome: "incomplete"; version: string }
+  | { outcome: "failed"; version: string; message: string };
 export type ApplicationLog = {
   id: number;
   at: string;

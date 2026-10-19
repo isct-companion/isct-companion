@@ -1,5 +1,6 @@
 package app.isctcompanion.features.course
 
+import app.isctcompanion.design.t
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,7 +84,7 @@ fun CourseDetailScreen(courseId: String) {
     TabPage(
         title,
         navigationIcon = {
-            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "戻る") }
+            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) }
         },
     ) {
         Column(
@@ -98,7 +99,7 @@ fun CourseDetailScreen(courseId: String) {
             meeting?.let { RoomCard(it, tint) }
             val assignments = assignments(courseId)
             if (assignments.isNotEmpty()) {
-                SectionLabel("課題")
+                SectionLabel(t("Assignments"))
                 Card {
                     assignments.forEachIndexed { index, item ->
                         if (index > 0) RowDivider()
@@ -108,7 +109,7 @@ fun CourseDetailScreen(courseId: String) {
             }
             val materials = materials(courseId, detail)
             if (materials.isNotEmpty()) {
-                SectionLabel("資料")
+                SectionLabel(t("Materials"))
                 Card {
                     materials.forEachIndexed { index, item ->
                         if (index > 0) RowDivider()
@@ -135,16 +136,15 @@ private fun meetings(course: JSONObject): List<Meeting> {
 @Composable
 private fun subtitle(course: JSONObject, meeting: Meeting?): String {
     val model = LocalModel.current
-    val days = listOf("日", "月", "火", "水", "木", "金", "土")
     val parts = listOfNotNull(course.text("code")).toMutableList()
     if (meeting != null) {
         val start = model.periods.firstOrNull { it.startTime == meeting.start }?.periods?.firstOrNull()
         val end = model.periods.firstOrNull { it.endTime == meeting.end }?.periods?.lastOrNull()
         val periods = if (start != null && end != null) Format.periods(byteArrayOf(start, end)) else null
-        parts.add("${days[meeting.day.coerceIn(0, 6)]} ${periods ?: "${meeting.start}–${meeting.end}"}")
+        parts.add("${Format.weekday(meeting.day)} ${periods ?: "${meeting.start}–${meeting.end}"}")
     }
     course.number("credits")?.takeIf { it > 0 }?.let {
-        parts.add("${if (it % 1.0 == 0.0) it.toInt().toString() else it.toString()} 単位")
+        parts.add(t("{{count}} credits", "count" to if (it % 1.0 == 0.0) it.toInt().toString() else it.toString()))
     }
     return parts.joinToString(" · ")
 }
@@ -161,7 +161,7 @@ private fun RoomCard(meeting: Meeting, tint: Color) {
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                meeting.room.ifEmpty { "教室未定" }, style = MaterialTheme.typography.headlineMedium,
+                meeting.room.ifEmpty { t("Room not set") }, style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold, color = Theme.colors.ink,
             )
             Text("${meeting.start} – ${meeting.end}", style = MaterialTheme.typography.bodyMedium.tabular(), color = tint)
@@ -201,13 +201,13 @@ private fun Links(detail: CourseDetail?, title: String) {
     if (lms == null && syllabus == null) return
     Card(Modifier.padding(top = 8.dp)) {
         if (lms != null) {
-            LinkRow("LMS で開く", Icons.Outlined.Language) {
+            LinkRow(t("Open in LMS"), Icons.Outlined.Language) {
                 navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, lms, title))
             }
         }
         if (lms != null && syllabus != null) RowDivider()
         if (syllabus != null) {
-            LinkRow("シラバス", Icons.Outlined.Description) {
+            LinkRow(t("Syllabus"), Icons.Outlined.Description) {
                 navigator.openPage(WebRouter.PushedPage(SchoolSite.SYLLABUS, syllabus, title))
             }
         }

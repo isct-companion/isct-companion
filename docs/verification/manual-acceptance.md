@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 47 checks must be re-run before the next release.**
+**7 of 52 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**38 checks have never been run or could not be run:**
+**43 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -52,6 +52,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-REMINDER-TIMES` — never verified
 - `DESKTOP-PHYSICS-PAIR` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
+- `DESKTOP-WINDOWS-UPDATES` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
 - `SCHOOL-OTP-QR` — never verified
 - `SCHOOL-SIGNIN-TOKYO-VISIBLE` — never verified
@@ -63,10 +64,14 @@ an unverified area becomes an assumed-good one.
 - `IOS-ASSIGNMENT-ROWS` — never verified
 - `IOS-WEB-TAB-PICKER` — never verified
 - `IOS-SETTINGS-PAGES` — never verified
+- `IOS-TODAY-CLASS-STACK` — never verified
+- `ANDROID-TODAY-CLASS-STACK` — never verified
+- `MOBILE-UI-LANGUAGE` — never verified
 - `DESKTOP-CALENDAR-NOW-LINE` — never verified
 - `IOS-COURSE-LESSON-PAGING` — never verified
 - `IOS-COURSE-LESSON-MARK` — never verified
 - `IOS-COURSE-EXAM-LINE` — never verified
+- `IOS-ICLOUD-BACKUP` — never verified
 
 ## Status
 
@@ -104,6 +109,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
+| `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/isct-core/src/app_updates.rs |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
@@ -112,13 +118,17 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/extraction.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
-| `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentsScreen.swift |
+| `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
 | `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
+| `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
+| `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx |
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
+| `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs |
 
 ## Personas
 
@@ -1933,6 +1943,55 @@ Developer-ID-signed local 1.0.0 to 1.0.1-dev.1; tampered archive rejected; Cmd-Q
 
 Evidence: `docs/verification/desktop-updater.md`
 
+### Windows updates download on a slow link and report the install result (`DESKTOP-WINDOWS-UPDATES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An installed Windows release built from this source with the updater key,
+a newer signed release published, and a Windows PC whose Smart App
+Control can be switched between Off and On (or a second PC with it On).
+
+**Steps**
+
+1. Throttle the connection to about 2 Mbps (e.g. a metered hotspot or a router limit), open Settings > About and press Download update.
+   - *Why:* The installer is over 30 MB; only a real slow link shows whether the download outlives the old 30-second whole-request timeout and whether the byte counter moves while the command is still running.
+2. Disconnect the network mid-download and wait about a minute.
+   - *Why:* A stalled transfer must end in an error that names the stall, not leave the panel on "Downloading" forever.
+3. With Smart App Control Off, press Install and quit, let the NSIS installer finish and reopen the app.
+   - *Why:* On Windows the process exits before the installer runs, so the success notice depends on the next launch comparing versions.
+4. Repeat the install with Smart App Control On.
+   - *Why:* Smart App Control blocks the unsigned installer after the app has exited; only a real policy shows what the next launch reports.
+
+**Where to look**
+
+Settings > About status line, the notice at launch, and the version shown in About.
+
+**Expected**
+
+The About line shows "Downloading update… · x / y MB" with x increasing,
+and the download completes on the slow link. A disconnect ends in
+"Update check failed · The update download stopped receiving data…".
+After a successful install the app reopens on the new version with
+"Updated to <version>." After a blocked install the old version opens
+with a red notice saying the update did not install, and About repeats it.
+
+**Why this is manual**
+
+Needs a signed release on GitHub, a Windows PC, a real slow or broken network, and the Smart App Control policy, none of which a headless test can provide.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/desktop_updates.rs`
+- `apps/desktop/src/app/useDesktopUpdates.ts`
+- `apps/desktop/src/pages/settings/AboutSettings.tsx`
+- `crates/isct-core/src/app_updates.rs`
+
+**Last recorded** never run
+
 ### Windows release launches without a companion terminal (`DESKTOP-WINDOWS-LAUNCH`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
@@ -2320,7 +2379,7 @@ from 時間割 for tomorrow.
    - *Why:* A class marked as an exam must read 明日の試験 / 次の試験, and 試験中
      while it runs, with a warn-coloured countdown chip; 次の授業 on an
      exam means the kind is ignored.
-2. Read the 試験 card above 期限.
+2. Read the 試験 card above 課題.
    - *Why:* It lists Core's upcomingExams within 14 days (date · periods or
      time · room, course square) and is absent when there are none;
      tapping a row with a course opens that course page.
@@ -2354,11 +2413,11 @@ tests.
 
 **Preconditions**
 
-The iPhone app with open assignments in 課題.
+The iPhone app with open assignments on 今日.
 
 **Steps**
 
-1. Read the rows in 課題 and すべての課題.
+1. Read the rows under 今日's 課題 and in すべての課題.
    - *Why:* No disclosure chevron at the trailing end; the countdown chip is the
      last thing on the row. A chevron means the row went back to a
      NavigationLink.
@@ -2372,7 +2431,7 @@ The iPhone app with open assignments in 課題.
 
 **Where to look**
 
-The 課題 tab and the すべての課題 page.
+今日's 課題 sections and the すべての課題 page.
 
 **Expected**
 
@@ -2386,7 +2445,7 @@ covered by Core's assignment board tests.
 
 **Covers**
 
-- `apps/ios/IsctCompanion/Features/Assignments/AssignmentsScreen.swift`
+- `apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift`
 
 **Last recorded** never run
 
@@ -2498,6 +2557,165 @@ object itself is covered by Core's workspace tests.
 - `apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift`
 - `apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift`
 - `apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift`
+
+**Last recorded** never run
+
+### iPhone Today stacks the next three classes and carries the assignments (`IOS-TODAY-CLASS-STACK`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app on a teaching day with at least three classes left this
+week and open assignments in the current quarter.
+
+**Steps**
+
+1. Read the tab bar.
+   - *Why:* Four tabs, 今日 · 時間割 · ウェブ · 設定, with 設定 last and no 課題 tab;
+     今日 has no gear button. An iPad adds 授業.
+2. Before the first class, read the card under the date, then swipe up
+   on it twice and down once.
+   - *Why:* Core's upcoming list leads with the next class (次の授業, countdown
+     chip) and the two after it peek behind; each swipe turns one card,
+     the label above follows the front card's day and the counter reads
+     1 / 3 to 3 / 3. The stack never changes height, so nothing below
+     moves.
+3. On the first card swipe down, and on the last card swipe up.
+   - *Why:* Past either end the swipe scrolls the page instead; a stuck page
+     means the stack claims gestures it cannot use.
+4. Tap the front card, then a card behind it after turning to it.
+   - *Why:* The whole card opens that card's course; only the front card takes
+     the tap.
+5. Scroll to 課題: read the header and the groups, then tap すべて.
+   - *Why:* The quarter's groups from Core's board (ピン留め, 今週, 来週以降,
+     期限切れ) follow the stack in the page's own scroll, not in a box;
+     すべて opens すべての課題.
+6. During a class, and after the last class, read 今日 again.
+   - *Why:* In class the hero is the class in progress and the stack starts
+     with the next one; after classes tonight's deadline leads and the
+     stack starts with the next class day.
+
+**Where to look**
+
+The 今日 tab on the device.
+
+**Expected**
+
+Four tabs with 設定 last, a three-card stack that turns by swiping and
+hands the swipe to the page at its ends, and the assignment groups
+flowing below it.
+
+**Why this is manual**
+
+The swipe hand-off between the stack and the list's scrolling exists
+only in UIKit on a device; which classes are upcoming is Core's today
+read model, covered by its test.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Today/TodayScreen.swift`
+- `apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift`
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+
+**Last recorded** never run
+
+### Android Today stacks the next three classes and carries the assignments (`ANDROID-TODAY-CLASS-STACK`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app on a teaching day with at least three classes left this
+week and open assignments in the current quarter.
+
+**Steps**
+
+1. Read the navigation bar.
+   - *Why:* Four destinations, 今日 · 時間割 · ウェブ · 設定, with 設定 last; 設定
+     is a page in its own tab, no longer a sheet from 今日.
+2. Swipe up and down on the class card, and past either end of the
+   stack.
+   - *Why:* Each swipe turns one card with a haptic and the counter follows;
+     past the ends the list scrolls instead.
+3. Swipe an assignment row right, another left, then tap すべて.
+   - *Why:* Right pins and left hides, as before the 課題 tab moved onto 今日;
+     すべて opens すべての課題.
+
+**Where to look**
+
+The 今日 and 設定 tabs on the device or emulator.
+
+**Expected**
+
+Four destinations with 設定 last, a turning three-card stack that
+yields to the list at its ends, and swipeable assignment rows below.
+
+**Why this is manual**
+
+Gesture hand-off and haptics need a running Compose app; the data is
+Core's today and board read models, covered by their tests.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+
+**Last recorded** never run
+
+### Phone language rows switch the whole app and follow the desktop (`MOBILE-UI-LANGUAGE`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone or Android app and the desktop app on the same workspace
+with cloud sync on.
+
+**Steps**
+
+1. In 設定 set Language to English, then 中文, then 日本語, watching
+   the tab bar and 今日 after each.
+   - *Why:* Every string, tab label, date (Thu 15 Oct, 10月15日(木)) and
+     countdown switches at once without a relaunch; a stray Japanese
+     string under English means a literal escaped the catalog.
+2. Set School content language to English with the UI in 日本語, then
+   back to Automatic.
+   - *Why:* Course names, rooms and calendar labels follow the content language
+     independently of the menus; Automatic follows the UI language.
+3. Check the desktop's Appearance settings after sync.
+   - *Why:* Both are workspace settings (locale, contentLanguage), so the
+     desktop shows the same choices.
+
+**Where to look**
+
+設定, 今日 and 時間割 on the phone, and the desktop settings.
+
+**Expected**
+
+The UI and school text switch independently and immediately, and the
+desktop shows the same two choices.
+
+**Why this is manual**
+
+The live switch and how each screen reads in three languages is a
+glance on a device; the catalog's coverage and placeholders are
+checked by the text-and-locales suite.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Design/Localization.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
 
 **Last recorded** never run
 
@@ -2683,5 +2901,64 @@ A label read at a glance; the data is Core's CourseDetail.exams.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+
+**Last recorded** never run
+
+### iPhone and Mac load each other's data through one iCloud record (`IOS-ICLOUD-BACKUP`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The released (Developer ID) Mac app and the iPhone app, both signed with
+the team that owns `iCloud.app.isctcompanion`, on one Apple Account. The
+iPhone build carries the Production container environment, so both read
+the same CloudKit database.
+
+**Steps**
+
+1. On the Mac, Settings → Backup: turn on iCloud and Upload. On the
+   iPhone, 設定 › バックアップ: turn on iCloud and Pull.
+   - *Why:* The phone must load the Mac's plans, notes and hidden assignments.
+     Nothing arriving usually means the two builds use different CloudKit
+     environments or containers, not a merge bug.
+2. On the iPhone hide an assignment and Upload; on the Mac Pull.
+   - *Why:* The reverse direction goes through the phone's CloudKitStore write;
+     a refused or partial write shows as an iCloud error on the phone.
+3. Without pulling first, edit a different record on each device, then
+   Upload on both.
+   - *Why:* The second upload must lose CloudKit's conditional save, re-read and
+     merge. Losing either edit means a write replaced a record it had not
+     read.
+4. On the iPhone, open 以前のバージョン and restore one; then export a
+   backup file on the Mac and import it on the phone with 読み込む….
+   - *Why:* Restore and import both start a new generation on every device and
+     leave a local recovery file; the Mac must follow on its next Pull.
+
+**Where to look**
+
+The Backup pages on both devices (provider line, versions, recovery
+files) and the records themselves on each.
+
+**Expected**
+
+Each device shows the other's changes after a Pull, both concurrent edits
+survive, the version list names both devices, and a restore or import on
+the phone reaches the Mac with a recovery file kept on each.
+
+**Why this is manual**
+
+CloudKit needs a signed build, an iCloud account and a device; the
+merge, tag-conditional write and journal behind it are covered by
+`sessions_sharing_one_cloud_record_load_each_others_data` and
+`tagged_writes_carry_the_tag_read_with_the_expected_revision`.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/CloudKitStore.swift`
+- `apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift`
+- `apps/desktop/src-tauri/src/icloud.rs`
 
 **Last recorded** never run

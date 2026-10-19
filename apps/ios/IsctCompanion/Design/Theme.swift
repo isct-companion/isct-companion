@@ -63,8 +63,8 @@ struct Card<Content: View>: View {
 
 /// Small grey caption above a card.
 struct SectionLabel: View {
-    let text: LocalizedStringKey
-    init(_ text: LocalizedStringKey) { self.text = text }
+    let text: String
+    init(_ text: String) { self.text = text }
     var body: some View {
         Text(text)
             .font(.footnote.weight(.semibold))

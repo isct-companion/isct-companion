@@ -17,7 +17,7 @@ enum NotificationScheduler {
         let now = Date()
         let horizon = now.addingTimeInterval(TimeInterval(horizonDays * 24 * 3600))
         guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-            .notificationPlan(now: AppModel.timestamp(now), horizon: AppModel.timestamp(horizon), locale: .ja)
+            .notificationPlan(now: AppModel.timestamp(now), horizon: AppModel.timestamp(horizon), locale: nil)
         ]).value(), case let .notificationPlan(plan)? = result.values.first
         else { return }
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(prefix) }

@@ -62,7 +62,10 @@ pub(crate) struct Inner {
     shutdown: tokio::sync::Mutex<bool>,
     closed: CancellationToken,
     pub backup: BackupService,
-    pub cloud: Option<(CloudSync, CloudServices)>,
+    /// Always present so imports and recovery go through the journal; the
+    /// providers only run when the shell installed a `NativeCloud`.
+    sync: CloudSync,
+    sync_services: CloudServices,
     pub notifications: Option<Arc<dyn NativeNotifications>>,
     pub download_session: Option<Arc<dyn NativeDownloadSession>>,
     pub files: PathBuf,
@@ -71,6 +74,16 @@ pub(crate) struct Inner {
     browser_shutdown_error: Option<Arc<Mutex<Option<SdkError>>>>,
     #[cfg(feature = "ocr")]
     pub scanner: isct_ocr::MatrixOcrService,
+}
+impl Inner {
+    /// The journal and its providers, when the shell installed a cloud store.
+    pub(crate) fn cloud(&self) -> Result<(&CloudSync, &CloudServices), SdkError> {
+        if self.capabilities.cloud {
+            Ok((&self.sync, &self.sync_services))
+        } else {
+            Err(unavailable("Cloud transport"))
+        }
+    }
 }
 #[derive(uniffi::Object)]
 pub struct Session {
@@ -451,7 +464,7 @@ impl Session {
     pub fn resume(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, |i, _| async move {
             i.core.runtime.resume().await;
-            if let Some((sync, services)) = &i.cloud {
+            if let Ok((sync, services)) = i.cloud() {
                 sync.resume(services.clone()).await?;
             }
             Ok(OperationResult::Done)
@@ -492,7 +505,7 @@ impl Session {
                 .wake(isct_core::facade::WakeServices {
                     scheduler: services(&i)?,
                     school_visible,
-                    cloud: i.cloud.as_ref().map(|(_, services)| services.clone()),
+                    cloud: i.cloud().ok().map(|(_, services)| services.clone()),
                     reminders: i.notifications.as_ref().map(|sink| {
                         isct_core::facade::ReminderWake {
                             sink: Arc::new(Notifications(sink.clone())),
@@ -520,23 +533,19 @@ impl Session {
             })
         })
     }
+    /// Import a backup file: Core saves a recovery point, starts a new
+    /// restore generation and journals the apply so an interruption replays.
     pub fn apply_backup(&self, document: JsonValue) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            i.backup
-                .apply(
-                    &document.0,
-                    isct_core::data::WorkspaceChangeSource::LocalRestore,
-                )
-                .map_err(backup_error)?;
+        self.start(false, move |i, _| async move {
+            i.sync
+                .restore_document(i.sync_services.clone(), document.0)
+                .await?;
             Ok(OperationResult::Done)
         })
     }
     pub fn cloud_state(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(|i| {
-            let (sync, _) = i
-                .cloud
-                .as_ref()
-                .ok_or_else(|| unavailable("Cloud transport"))?;
+            let (sync, _) = i.cloud()?;
             Ok(OperationResult::Cloud {
                 state: project(sync.state()?)?,
             })
@@ -544,10 +553,7 @@ impl Session {
     }
     pub fn sync_cloud(&self, direction: Direction) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            let (sync, services) = i
-                .cloud
-                .as_ref()
-                .ok_or_else(|| unavailable("Cloud transport"))?;
+            let (sync, services) = i.cloud()?;
             Ok(OperationResult::Cloud {
                 state: project(
                     sync.sync(services.clone(), project_input(direction)?)
@@ -562,10 +568,7 @@ impl Session {
         enabled: bool,
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            let (sync, services) = i
-                .cloud
-                .as_ref()
-                .ok_or_else(|| unavailable("Cloud transport"))?;
+            let (sync, services) = i.cloud()?;
             Ok(OperationResult::Cloud {
                 state: project(
                     sync.set_enabled(services.clone(), project_input(provider)?, enabled)
@@ -670,26 +673,24 @@ async fn initialize(
         PullNetwork::Wifi => isct_core::pull_coordinator::PullNetwork::Wifi,
         PullNetwork::Cellular => isct_core::pull_coordinator::PullNetwork::Cellular,
     };
-    let (store, auth, cloud_service) = tokio::task::spawn_blocking(move || {
+    let native_cloud = cloud.clone();
+    let (store, auth, sync) = tokio::task::spawn_blocking(move || {
         let (store, _) = DataStore::initialize(data.join("school.db"))?;
         let auth = Arc::new(SchoolAuthService::with_status_cache(
             Vault(vault),
             data.join("school-credential-status.json"),
         ));
-        let sync = if cloud.is_some() {
-            Some(CloudSync::new(
-                data.join("cloud-sync-state.json"),
-                &project_input::<_, Vec<isct_core::cloud_sync::CloudProvider>>(
-                    config.cloud_providers,
-                )?,
-                &project_input::<_, Vec<isct_core::cloud_sync::CloudProvider>>(
-                    config.authorized_cloud_providers,
-                )?,
-            )?)
+        let (supported, authorized) = if cloud.is_some() {
+            (config.cloud_providers, config.authorized_cloud_providers)
         } else {
-            None
+            (Vec::new(), Vec::new())
         };
-        Ok::<_, SdkError>((store, auth, sync.map(|sync| (sync, cloud))))
+        let sync = CloudSync::new(
+            data.join("cloud-sync-state.json"),
+            &project_input::<_, Vec<isct_core::cloud_sync::CloudProvider>>(supported)?,
+            &project_input::<_, Vec<isct_core::cloud_sync::CloudProvider>>(authorized)?,
+        )?;
+        Ok::<_, SdkError>((store, auth, sync))
     })
     .await
     .map_err(isct_core::runtime_tasks::RuntimeTaskError::from)??;
@@ -709,20 +710,17 @@ async fn initialize(
         None
     };
     let backup = BackupService::new(core.store.clone(), core.runtime.notes.at(files.clone()));
-    let cloud = if let Some((sync, Some(transport))) = cloud_service {
-        core.runtime
-            .attach_cloud(sync.clone())
-            .map_err(runtime_error)?;
-        Some((
-            sync,
-            CloudServices {
-                backup: backup.clone(),
-                transport: Arc::new(Cloud(transport)),
-                events: events.clone(),
-            },
-        ))
-    } else {
-        None
+    core.runtime
+        .attach_cloud(sync.clone())
+        .map_err(runtime_error)?;
+    let transport: Arc<dyn isct_core::cloud_sync::CloudTransport> = match native_cloud {
+        Some(native) => Arc::new(cloud_transport(native)),
+        None => Arc::new(NoCloud),
+    };
+    let sync_services = CloudServices {
+        backup: backup.clone(),
+        transport,
+        events: events.clone(),
     };
     let inner = Arc::new(Inner {
         core,
@@ -735,7 +733,8 @@ async fn initialize(
         shutdown: tokio::sync::Mutex::new(false),
         closed: CancellationToken::new(),
         backup,
-        cloud,
+        sync,
+        sync_services,
         notifications,
         download_session: downloads,
         files,

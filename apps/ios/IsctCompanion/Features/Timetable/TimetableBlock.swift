@@ -34,10 +34,10 @@ private struct SessionMarks: ViewModifier {
 
     func body(content: Content) -> some View {
         content.contextMenu {
-            Picker("この回", selection: Binding(get: { state }, set: { mark($0) })) {
-                Text("試験にする").tag("exam")
-                Text("休講にする").tag("cancelled")
-                Text("通常の授業に戻す").tag("class")
+            Picker(t("This lesson"), selection: Binding(get: { state }, set: { mark($0) })) {
+                Text(t("Mark as exam")).tag("exam")
+                Text(t("Mark as cancelled")).tag("cancelled")
+                Text(t("Back to a regular class")).tag("class")
             }
             .pickerStyle(.inline)
         }

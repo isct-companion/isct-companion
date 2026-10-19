@@ -19,16 +19,15 @@ struct IsctCompanionApp: App {
 
 /// The desktop's pages (`routes.ts`), as tabs, sidebar rows or both.
 enum AppTab: Hashable, CaseIterable {
-    case today, timetable, lectures, assignments, web, settings
+    case today, timetable, lectures, web, settings
 
     var title: String {
         switch self {
-        case .today: "今日"
-        case .timetable: "時間割"
-        case .lectures: "授業"
-        case .assignments: "課題"
-        case .web: "ウェブ"
-        case .settings: "設定"
+        case .today: t("Today")
+        case .timetable: t("Timetable")
+        case .lectures: t("Courses")
+        case .web: t("Web")
+        case .settings: t("Settings")
         }
     }
 
@@ -37,7 +36,6 @@ enum AppTab: Hashable, CaseIterable {
         case .today: "calendar"
         case .timetable: "square.grid.3x3"
         case .lectures: "books.vertical"
-        case .assignments: "checklist"
         case .web: "globe"
         case .settings: "gearshape"
         }
@@ -54,13 +52,14 @@ enum Layout {
 
     /// iPhone and iPad differ on purpose: the iPad adds 授業. This is the one
     /// runtime device check AGENTS.md allows (one iOS binary, two idioms).
+    /// Assignments live on 今日, and 設定 is the last tab.
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     static var tabs: [AppTab] {
-        isPad ? [.today, .timetable, .lectures, .assignments, .web] : [.today, .timetable, .assignments, .web]
+        isPad ? [.today, .timetable, .lectures, .web, .settings] : [.today, .timetable, .web, .settings]
     }
 
-    static let sidebar: [AppTab] = [.today, .timetable, .lectures, .assignments, .web, .settings]
+    static let sidebar: [AppTab] = [.today, .timetable, .lectures, .web, .settings]
 }
 
 /// A course pushed from any row, block or card. `zoom` names the view it
@@ -100,11 +99,18 @@ struct RootView: View {
     @Namespace private var zoom
 
     var body: some View {
+        // System controls (date pickers, number formats) follow the app's
+        // language rather than the phone's.
+        content.environment(\.locale, Localizer.shared.locale)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch model.status {
         case .opening:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.bg)
         case let .failed(message):
-            ContentUnavailableView("起動できませんでした", systemImage: "exclamationmark.triangle", description: Text(message))
+            ContentUnavailableView(t("Could not start"), systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
             GeometryReader { proxy in
                 Group {
@@ -139,8 +145,7 @@ struct RootView: View {
             }
             SitePickerPanel(press: sitePress) { pickSite($0) }
         }
-        // Turning an iPad upright from 設定 in the sidebar lands on a page the
-        // tab bar has.
+        // A page the tab bar lacks falls back to 今日.
         .onAppear { if !Layout.tabs.contains(navigator.tab) { navigator.tab = .today } }
     }
 
@@ -190,7 +195,6 @@ struct RootView: View {
         case .today: stack(.today) { TodayScreen() }
         case .timetable: stack(.timetable) { TimetableScreen() }
         case .lectures: stack(.lectures) { LecturesScreen() }
-        case .assignments: stack(.assignments) { AssignmentsScreen() }
         case .web: WebTabScreen()
         case .settings: stack(.settings) { SettingsScreen() }
         }

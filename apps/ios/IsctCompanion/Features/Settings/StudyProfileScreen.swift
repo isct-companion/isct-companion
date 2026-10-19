@@ -14,40 +14,42 @@ struct StudyProfileScreen: View {
     @State private var currentYear: Int32?
     @State private var error: String?
 
-    private static let stages: [(StudyStage, String)] = [
-        (.unknown, "未設定"), (.undergraduate, "学士課程"), (.master, "修士課程"),
-        (.professional, "専門職学位課程"), (.doctoral, "博士課程"),
-    ]
+    private static var stages: [(StudyStage, String)] {
+        [
+            (.unknown, t("Not set")), (.undergraduate, t("Undergraduate")), (.master, t("Master")),
+            (.professional, t("Professional degree")), (.doctoral, t("Doctoral")),
+        ]
+    }
 
     var body: some View {
         Form {
             Section {
-                Picker("所属", selection: departmentBinding) {
-                    Text("未設定").tag("")
+                Picker(t("Department"), selection: departmentBinding) {
+                    Text(t("Not set")).tag("")
                     ForEach(departments, id: \.id) { department in
-                        Text(department.name["ja"] ?? department.id).tag(department.id)
+                        Text(Localizer.shared.pick(department.name, content: model.records.settings) ?? department.id).tag(department.id)
                     }
                     // A stored id this list does not hold still shows.
                     if !departmentId.isEmpty, !departments.contains(where: { $0.id == departmentId }) {
                         Text(departmentId).tag(departmentId)
                     }
                 }
-                Picker("入学年度", selection: Binding(get: { year }, set: { choose(year: $0, stage: stage) })) {
-                    Text("未設定").tag(Int32?.none)
-                    ForEach(years, id: \.self) { Text("\(String($0))年度入学").tag(Int32?.some($0)) }
+                Picker(t("Admission year"), selection: Binding(get: { year }, set: { choose(year: $0, stage: stage) })) {
+                    Text(t("Not set")).tag(Int32?.none)
+                    ForEach(years, id: \.self) { Text(t("Entered {{year}}", ["year": String($0)])).tag(Int32?.some($0)) }
                 }
-                Picker("課程", selection: Binding(get: { stage }, set: { choose(year: year, stage: $0) })) {
+                Picker(t("Degree stage"), selection: Binding(get: { stage }, set: { choose(year: year, stage: $0) })) {
                     ForEach(Self.stages, id: \.0) { Text($0.1).tag($0.0) }
                 }
             } footer: {
                 if let error {
                     Text(error).foregroundStyle(Theme.danger)
                 } else {
-                    Text("おすすめの授業や学修案内に使います。デスクトップ版と同期されます。")
+                    Text(t("Used for course suggestions and the study guide. Syncs with the desktop app."))
                 }
             }
         }
-        .navigationTitle("学習プロフィール")
+        .navigationTitle(t("Study profile"))
         .navigationBarTitleDisplayMode(.inline)
         .task { departments = await model.departments() }
         .task { currentYear = await model.academicYear(of: Date()) }
@@ -105,7 +107,7 @@ struct StudyProfileScreen: View {
         }
         if enrollments.contains(where: { $0.admittedTerm.isEmpty }) {
             guard let year else {
-                error = "入学年度を選択してください。"
+                error = t("Choose an admission year.")
                 return
             }
             for index in enrollments.indices where enrollments[index].admittedTerm.isEmpty {

@@ -11,26 +11,26 @@ enum SchoolStatusText {
 
     static func waiting(_ reason: WaitReason) -> String {
         switch reason {
-        case .queued: return "順番を待っています"
-        case .offline: return "接続を待っています"
-        case .cellular: return "Wi-Fi を待っています"
-        case .background: return "アプリを開くと再開します"
-        case .schoolVisible: return "学校のページを閉じると再開します"
-        case .suspended: return "一時停止中"
-        case .other: return "待機中"
+        case .queued: return t("Waiting for school refresh")
+        case .offline: return t("Waiting for a connection")
+        case .cellular: return t("Waiting for Wi-Fi")
+        case .background: return t("Resumes when the app is in front")
+        case .schoolVisible: return t("Resumes after you leave the school page")
+        case .suspended: return t("Paused")
+        case .other: return t("Waiting")
         }
     }
 
     /// A step with nothing reported yet reads as its label alone.
     static func step(_ step: PullStep) -> String {
         let label: String = switch step.kind {
-        case .catalog: "履修中の授業を読み込み中"
-        case .course: "授業を読み込み中"
-        case .material: "資料を読み込み中"
-        case .assignment: "課題を確認中"
-        case .timetable: "時間割を準備中"
-        case .saving: "変更を保存中"
-        case .kyomu: "教務Webを読み込み中"
+        case .catalog: t("Reading enrolled courses")
+        case .course: t("Loading course")
+        case .material: t("Reading material")
+        case .assignment: t("Checking assignment")
+        case .timetable: t("Preparing your timetable")
+        case .saving: t("Saving LMS changes")
+        case .kyomu: t("Reading 教務Web pages")
         }
         guard step.total > 0 || !step.courseTitle.isEmpty || !step.itemTitle.isEmpty else { return label }
         let context = [step.courseTitle, step.itemTitle].filter { !$0.isEmpty }.joined(separator: " · ")
@@ -40,27 +40,27 @@ enum SchoolStatusText {
     static func problem(_ problem: SchoolProblem, site: SchoolSite) -> String {
         let name = source(site)
         switch problem {
-        case let .maintenance(detail): return ["\(name) はメンテナンス中です", detail].joined(separator: " · ")
-        case let .failed(detail): return ["\(name) を更新できませんでした", detail].compactMap { $0 }.joined(separator: " · ")
-        case let .partial(detail): return ["\(name) の一部を読み込めませんでした", detail].compactMap { $0 }.joined(separator: " · ")
+        case let .maintenance(detail): return [t("{{source}} is under maintenance", ["source": name]), detail].joined(separator: " · ")
+        case let .failed(detail): return [t("Could not update {{source}}", ["source": name]), detail].compactMap { $0 }.joined(separator: " · ")
+        case let .partial(detail): return [t("Part of {{source}} could not be read", ["source": name]), detail].compactMap { $0 }.joined(separator: " · ")
         }
     }
 
     static func signIn(_ state: SignInState) -> String {
         switch state {
-        case .connected: return "ログイン済み"
+        case .connected: return t("Signed in")
         case let .step(step):
             let detail: String? = switch step {
-            case .agree: "利用規約に同意中"
-            case .identifier: "ID を入力中"
-            case .password: "パスワードを確認中"
-            case .method: "認証方法を選択中"
-            case .otp: "ワンタイムパスワードを確認中"
-            case .matrix: "マトリクスコードを確認中"
+            case .agree: t("Accepting portal terms")
+            case .identifier: t("Entering account")
+            case .password: t("Checking password")
+            case .method: t("Selecting sign-in method")
+            case .otp: t("Verifying one-time code")
+            case .matrix: t("Verifying matrix code")
             case .other: nil
             }
-            return ["ログイン中", detail].compactMap { $0 }.joined(separator: " · ")
-        case .needsUser: return "操作が必要です"
+            return [t("Signing in"), detail].compactMap { $0 }.joined(separator: " · ")
+        case .needsUser: return t("Waiting for you")
         case let .failed(message): return message
         }
     }
@@ -83,11 +83,11 @@ extension SchoolHeadline {
     /// One line for the first-load hint and the ring's accessibility label.
     var line: String {
         switch self {
-        case .idle: return "最新です"
+        case .idle: return t("Up to date")
         case let .busy(site, _, step, waiting, _):
             return "\(SchoolStatusText.source(site)) · \(waiting.map(SchoolStatusText.waiting) ?? SchoolStatusText.step(step))"
         case let .background(site, waiting):
-            return "\(SchoolStatusText.source(site)) · \(waiting.map(SchoolStatusText.waiting) ?? "バックグラウンドで更新中")"
+            return "\(SchoolStatusText.source(site)) · \(waiting.map(SchoolStatusText.waiting) ?? t("Updating in the background"))"
         case let .problem(site, problem): return SchoolStatusText.problem(problem, site: site)
         }
     }
@@ -137,7 +137,7 @@ struct SyncRingButton: View {
                     .foregroundStyle(Theme.ok)
                     .frame(width: 40, height: 40)
                     .transition(.movingParts.pop(Theme.ok))
-                    .accessibilityLabel("更新しました")
+                    .accessibilityLabel(t("Updated"))
             }
         }
         .animation(.snappy, value: showsDone)
@@ -174,11 +174,11 @@ struct SchoolStatusSheet: View {
                     SourceRow(source: source)
                 }
             }
-            .navigationTitle("学校との接続")
+            .navigationTitle(t("School connection"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("閉じる") { dismiss() }
+                    Button(t("Close")) { dismiss() }
                 }
             }
         }
@@ -209,8 +209,8 @@ private struct SourceRow: View {
     private var activity: String {
         switch source.activity {
         case .idle:
-            guard let last = source.lastUpdated else { return "まだ更新していません" }
-            return "\(Format.due(last)) 更新"
+            guard let last = source.lastUpdated else { return t("Never updated") }
+            return t("Updated {{date}}", ["date": Format.due(last)])
         case let .waiting(reason, _): return SchoolStatusText.waiting(reason)
         case let .running(_, _, step): return SchoolStatusText.step(step)
         case let .problem(problem): return SchoolStatusText.problem(problem, site: source.site)
@@ -236,7 +236,7 @@ struct SchoolProblemBanner: View {
             Text(SchoolStatusText.problem(problem, site: site)).font(.subheadline).foregroundStyle(Theme.ink)
             Spacer()
             if !isMaintenance {
-                Button("再試行") { model.refreshFromSchool() }
+                Button(t("Retry")) { model.refreshFromSchool() }
                     .font(.subheadline.weight(.semibold))
             }
         }
@@ -261,7 +261,7 @@ struct FirstLoadCard: View {
         HStack(spacing: 14) {
             SyncRing(progress: status.headline.ringProgress(status) ?? 0.05)
             VStack(alignment: .leading, spacing: 4) {
-                Text("学校のデータを読み込んでいます").font(.body.weight(.semibold)).foregroundStyle(Theme.ink)
+                Text(t("Loading school data")).font(.body.weight(.semibold)).foregroundStyle(Theme.ink)
                 Text(status.headline.line).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
             }
         }
