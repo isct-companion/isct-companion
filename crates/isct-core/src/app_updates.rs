@@ -20,6 +20,55 @@ pub fn automatic_updates(workspace: &Value) -> bool {
         == Some(true)
 }
 
+/// What the native installer port records just before the process exits. On
+/// Windows the installer runs after exit, so the record stays at `installing`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InstallRecord {
+    pub phase: InstallPhase,
+    pub version: String,
+    pub message: Option<String>,
+    pub at: String,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InstallPhase {
+    Installing,
+    Installed,
+    Error,
+}
+
+/// The previous install attempt, judged against the version now running.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+pub enum LastInstall {
+    Installed {
+        version: String,
+    },
+    /// The installer was started but this launch is still the old version:
+    /// it was blocked, cancelled or failed after the app exited.
+    Incomplete {
+        version: String,
+    },
+    Failed {
+        version: String,
+        message: String,
+    },
+}
+
+pub fn last_install(record: &InstallRecord, running: &str) -> Result<LastInstall, AppUpdateError> {
+    let version = record.version.clone();
+    if !newer_release(running, &record.version)? {
+        return Ok(LastInstall::Installed { version });
+    }
+    Ok(match (record.phase, &record.message) {
+        (InstallPhase::Error, Some(message)) => LastInstall::Failed {
+            version,
+            message: message.clone(),
+        },
+        _ => LastInstall::Incomplete { version },
+    })
+}
+
 pub fn check_due(last_checked: Option<&str>, now: DateTime<Utc>, manual: bool) -> bool {
     manual
         || last_checked

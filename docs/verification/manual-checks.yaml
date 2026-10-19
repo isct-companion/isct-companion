@@ -1688,6 +1688,49 @@ checks:
         settings and both logins retained.
       evidence: docs/verification/desktop-updater.md
 
+  - id: DESKTOP-WINDOWS-UPDATES
+    area: desktop
+    title: Windows updates download on a slow link and report the install result
+    persona: undergraduate-senior
+    preconditions: |
+      An installed Windows release built from this source with the updater key,
+      a newer signed release published, and a Windows PC whose Smart App
+      Control can be switched between Off and On (or a second PC with it On).
+    steps:
+      - action: Throttle the connection to about 2 Mbps (e.g. a metered hotspot or
+          a router limit), open Settings > About and press Download update.
+        reason: The installer is over 30 MB; only a real slow link shows whether the
+          download outlives the old 30-second whole-request timeout and whether
+          the byte counter moves while the command is still running.
+      - action: Disconnect the network mid-download and wait about a minute.
+        reason: A stalled transfer must end in an error that names the stall, not
+          leave the panel on "Downloading" forever.
+      - action: With Smart App Control Off, press Install and quit, let the NSIS
+          installer finish and reopen the app.
+        reason: On Windows the process exits before the installer runs, so the
+          success notice depends on the next launch comparing versions.
+      - action: Repeat the install with Smart App Control On.
+        reason: Smart App Control blocks the unsigned installer after the app has
+          exited; only a real policy shows what the next launch reports.
+    observe: Settings > About status line, the notice at launch, and the version
+      shown in About.
+    expected: |
+      The About line shows "Downloading update… · x / y MB" with x increasing,
+      and the download completes on the slow link. A disconnect ends in
+      "Update check failed · The update download stopped receiving data…".
+      After a successful install the app reopens on the new version with
+      "Updated to <version>." After a blocked install the old version opens
+      with a red notice saying the update did not install, and About repeats it.
+    why_manual: Needs a signed release on GitHub, a Windows PC, a real slow or
+      broken network, and the Smart App Control policy, none of which a
+      headless test can provide.
+    covers:
+      - apps/desktop/src-tauri/src/desktop_updates.rs
+      - apps/desktop/src/app/useDesktopUpdates.ts
+      - apps/desktop/src/pages/settings/AboutSettings.tsx
+      - crates/isct-core/src/app_updates.rs
+    verified: null
+
   - id: DESKTOP-WINDOWS-LAUNCH
     area: desktop
     title: Windows release launches without a companion terminal

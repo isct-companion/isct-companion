@@ -6,7 +6,7 @@ import {
 } from "../../components/forms";
 import { UiButton } from "../../components/mantine";
 import { desktopBridge } from "../../app/native";
-import { useAppUpdate } from "../../app/useDesktopUpdates";
+import { lastInstallText, useAppUpdate } from "../../app/useDesktopUpdates";
 import { workspaceStore } from "../../store/workspace";
 import type { Workspace } from "../../lib/model";
 import { t } from "../../i18n";
@@ -29,6 +29,13 @@ export function AboutSettings({
     ready: "Update ready to install",
     error: "Update check failed",
   };
+  const megabytes = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+  const progress =
+    status?.phase === "downloading" && status.progress
+      ? ` · ${megabytes(status.progress.downloaded)}${
+          status.progress.total ? ` / ${megabytes(status.progress.total)}` : ""
+        } MB`
+      : "";
   return (
     <>
       <SettingsHeader title="About" />
@@ -44,12 +51,18 @@ export function AboutSettings({
               title="App updates"
               hint={
                 <span role="status">
-                  {t(
-                    pending
-                      ? "Checking for updates…"
-                      : labels[status?.phase ?? "idle"],
-                  )}
+                  {t(labels[status?.phase ?? (pending ? "checking" : "idle")])}
                   {status?.version ? ` · ${status.version}` : ""}
+                  {progress}
+                  {status?.phase === "error" && status.message
+                    ? ` · ${status.message}`
+                    : ""}
+                  {status?.lastInstall && (
+                    <>
+                      <br />
+                      {lastInstallText(status.lastInstall)}
+                    </>
+                  )}
                 </span>
               }
             >
