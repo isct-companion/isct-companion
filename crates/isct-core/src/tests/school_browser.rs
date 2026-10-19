@@ -2130,11 +2130,25 @@ async fn hidden_catalogue_search_preserves_the_foreground_web_location() {
                 .await
         })
     };
-    browser.navigation(0).await;
+    // A direct search URL without a 教務Web session lands on the GetAccess
+    // resource list, so the search enters through the entry page first.
+    let entry = browser.navigation(0).await;
+    assert!(matches!(&entry.command, BrowserAction::Navigate(url)
+        if url.as_str() == "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx"));
     browser.listener().page_loaded(PageLoaded {
         page: PageId {
             browser: id,
             sequence: 2,
+        },
+        cause: None,
+        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/").unwrap(),
+    });
+    let opened = browser.navigation(1).await;
+    assert!(matches!(&opened.command, BrowserAction::Navigate(url) if url.as_str() == search));
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 3,
         },
         cause: None,
         url: Url::parse(&search).unwrap(),
@@ -2149,7 +2163,7 @@ async fn hidden_catalogue_search_preserves_the_foreground_web_location() {
     browser.listener().decide_navigation(
         PageId {
             browser: id,
-            sequence: 2,
+            sequence: 3,
         },
         relay,
         true,
