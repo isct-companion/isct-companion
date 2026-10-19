@@ -66,6 +66,10 @@ pub struct TaskView {
     /// or graded, or LMS `submissionStatus` submitted). Shells render this
     /// instead of applying their own rule.
     pub submitted_ids: Vec<String>,
+    /// Visible assignments that no longer take a hand-in: submitted, or past
+    /// the deadline unless the LMS page last showed it still accepting late
+    /// work. Shells open the LMS page for these instead of preparing a draft.
+    pub closed_ids: Vec<String>,
     pub nearest_by_course: BTreeMap<String, String>,
     pub by_term: BTreeMap<String, TermTaskView>,
 }
@@ -100,6 +104,20 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
     let submitted_ids = array(workspace, "assignments")
         .iter()
         .filter(|row| visible(row) && assignment_submitted(row))
+        .filter_map(|row| text(row, "id").map(str::to_owned))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let closed_ids = array(workspace, "assignments")
+        .iter()
+        .filter(|row| visible(row))
+        .filter(|row| {
+            assignment_submitted(row)
+                || (text(row, "id")
+                    .and_then(|id| parsed.get(id))
+                    .is_some_and(|due| *due < now)
+                    && row.get("acceptsSubmission").and_then(Value::as_bool) != Some(true))
+        })
         .filter_map(|row| text(row, "id").map(str::to_owned))
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
@@ -236,6 +254,7 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
     Ok(TaskView {
         deadlines,
         submitted_ids,
+        closed_ids,
         nearest_by_course: nearest_by_course
             .into_iter()
             .map(|(k, (_, v))| (k, v))

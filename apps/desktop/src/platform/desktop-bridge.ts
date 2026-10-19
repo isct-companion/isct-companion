@@ -11,9 +11,9 @@ import type { SyllabusCourse } from "../lib/syllabus";
 import type { SchoolPageAvailability } from "../generated/persistence";
 
 export type DesktopRuntime = "tauri";
-export type NativeTarget = "native-desktop" | "native-mobile";
+export type NativeTarget = "native-desktop";
 /** Rust's `std::env::consts::OS` for this build, injected at startup. */
-export type NativeOs = "macos" | "ios" | "android" | "windows" | "linux";
+export type NativeOs = "macos" | "windows" | "linux";
 export type WorkspaceChangedEvent = {
   source:
     | "user-intent"
@@ -393,7 +393,6 @@ export interface DesktopBridge {
     values: { kind: string; value: unknown }[];
   }>;
   runtime: DesktopRuntime;
-  target: NativeTarget;
   /** The build's operating system; see `nativeOs`. */
   os?: NativeOs;
   getRuntimeCapabilities(): Promise<NativeCapabilitySnapshot>;
@@ -585,8 +584,6 @@ const requireObject = <T>(command: string, value: unknown): T => {
 export function createTauriDesktopBridge(
   invoke: InvokeNative,
   listen: ListenNative,
-  target: NativeTarget = window.__ISCT_COMPANION_NATIVE_TARGET__ ??
-    "native-desktop",
 ): DesktopBridge {
   const invokeCommand = async <T>(
     command: string,
@@ -610,19 +607,14 @@ export function createTauriDesktopBridge(
   ) => requireBoolean(command, await invokeCommand(command, payload));
   return {
     runtime: "tauri",
-    target,
     os: nativeOs(),
-    ...(target === "native-desktop"
-      ? {
-          checkAppUpdate: (manual: boolean, download = false) =>
-            result<AppUpdateStatus>("check_app_update", { manual, download }),
-          applicationLogs: (after) => result("application_logs", { after }),
-          recordApplicationError: (message) =>
-            result("application_error", { message }),
-          appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
-          installAppUpdate: () => invokeCommand<void>("install_app_update"),
-        }
-      : {}),
+    checkAppUpdate: (manual: boolean, download = false) =>
+      result<AppUpdateStatus>("check_app_update", { manual, download }),
+    applicationLogs: (after) => result("application_logs", { after }),
+    recordApplicationError: (message) =>
+      result("application_error", { message }),
+    appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
+    installAppUpdate: () => invokeCommand<void>("install_app_update"),
     workspaceSnapshot: () => result("workspace_snapshot"),
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),

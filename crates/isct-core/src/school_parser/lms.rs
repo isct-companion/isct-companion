@@ -116,6 +116,9 @@ pub struct LmsTimetable {
 pub struct AssignState {
     pub submission: String,
     pub grade: Option<String>,
+    /// Whether the page still offers to add or edit a submission. Absent for
+    /// quizzes.
+    pub accepts_submission: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -480,6 +483,7 @@ pub fn parse_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), School
                 AssignState {
                     submission: state.to_string(),
                     grade,
+                    accepts_submission: row.get("acceptsSubmission").and_then(Value::as_bool),
                 },
             ))
         })

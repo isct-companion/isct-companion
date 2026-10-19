@@ -752,7 +752,7 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         {"id":"later","courseId":"course","title":"Later","dueAt":"2026-04-22T10:00:00+09:00","pinned":true},
         {"id":"past","courseId":"course","title":"Past","dueAt":"2026-04-12T10:00:00+09:00","pinned":true},
         {"id":"past-done","courseId":"course","title":"Past done","dueAt":"2026-04-11T10:00:00+09:00","submission":"graded","pinned":true},
-        {"id":"missed","courseId":"course","title":"Missed","dueAt":"2026-04-10T10:00:00+09:00"},
+        {"id":"missed","courseId":"course","title":"Missed","dueAt":"2026-04-10T10:00:00+09:00","acceptsSubmission":true},
         {"id":"old","courseId":"course","title":"Old","dueAt":"2026-03-20T10:00:00+09:00","submission":"submitted"},
         {"id":"orphan","courseId":"gone","title":"Unlinked","dueAt":"2026-04-12T12:00:00+09:00"},
         {"id":"done","courseId":"course","title":"Done","dueAt":"2026-04-14T10:00:00+09:00","submission":"submitted"},
@@ -796,6 +796,20 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert_eq!(
         view.submitted_ids,
         vec!["done", "lms-done", "old", "past-done", "undated-done"]
+    );
+    // Closed for hand-in: submitted work, and past deadlines unless LMS last
+    // showed the page still taking late work ("missed").
+    assert_eq!(
+        view.closed_ids,
+        vec![
+            "done",
+            "lms-done",
+            "old",
+            "orphan",
+            "past",
+            "past-done",
+            "undated-done"
+        ]
     );
     // Another quarter lists all of its past work at once; unlinked work
     // belongs only to the current quarter.

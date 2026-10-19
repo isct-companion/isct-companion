@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useWindowEvent } from "@mantine/hooks";
 import { t } from "../../i18n";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { UiInput } from "../../components/mantine";
@@ -11,7 +12,9 @@ import {
   openWorkspace,
   prepareSubmission,
   setWorkspaceSubmission,
+  workspaceMissing,
   type AssignmentWorkspace,
+  type HandInView,
 } from "./assignment-workspace";
 
 /**
@@ -22,49 +25,74 @@ export function AssignmentWorkspaceFooter({
   assignment,
   html,
   brief,
-  done,
+  closed,
   submit,
 }: {
   context: CourseFolder;
   assignment: { id: string; title: string; sourceUrl?: string };
   html: string;
   brief: (attachments: string[]) => string;
-  done: boolean;
+  /** In `TaskView.closedIds`: submitted, or past a deadline LMS no longer extends. */
+  closed: boolean;
   /** Opens the assignment in the LMS; undefined when it has no LMS page. */
   submit?: (preparedUrl?: string) => void;
 }) {
-  const [workspace, setWorkspace] = useState<AssignmentWorkspace | null>();
+  const [view, setView] = useState<HandInView>();
+  const workspace = view?.workspace;
+  // The workspace on screen, to tell a folder deleted in Finder from one never made.
+  const shown = useRef<AssignmentWorkspace | null>(null);
+  const [lost, setLost] = useState<string>();
   const { busy, error, run } = useSubmissionGuard();
   const [zipName, setZipName] = useState("");
+  const load = useCallback(
+    () =>
+      findWorkspace(context, assignment.id, closed).then((next) => {
+        if (next.workspace) setLost(undefined);
+        else if (shown.current) setLost(shown.current.name);
+        shown.current = next.workspace;
+        setView(next);
+      }),
+    [context, assignment.id, closed],
+  );
   useEffect(() => {
-    let live = true;
-    void findWorkspace(context, assignment.id)
-      .then((found) => live && setWorkspace(found))
-      .catch(() => live && setWorkspace(null));
-    return () => {
-      live = false;
-    };
-  }, [context, assignment.id]);
+    void load().catch(() => setView({ workspace: null, handIn: "openLms" }));
+  }, [load]);
+  // Folders are also edited in Finder and VS Code; look again on return.
+  useWindowEvent("focus", () => void load().catch(() => undefined));
   useEffect(() => setZipName(workspace?.zipName ?? ""), [workspace?.zipName]);
 
-  const handIn = () =>
+  const update = (next: AssignmentWorkspace) => {
+    shown.current = next;
+    setView((current) => current && { ...current, workspace: next });
+  };
+  /** A folder that vanished becomes the notice below, not an OS error. */
+  const act = (work: () => Promise<unknown>) =>
     run(async () => {
-      if (workspace && !done && assignment.sourceUrl) {
-        const prepared = await prepareSubmission(
-          workspace.path,
-          assignment.id,
-          assignment.sourceUrl,
-        );
-        setWorkspace(prepared.workspace);
-        submit?.(prepared.url);
-      } else submit?.();
+      try {
+        await work();
+      } catch (cause) {
+        if (!workspaceMissing(cause)) throw cause;
+        await load();
+      }
+    });
+  const prepare = () =>
+    act(async () => {
+      if (!workspace || !assignment.sourceUrl) return submit?.();
+      const prepared = await prepareSubmission(
+        workspace.path,
+        assignment.id,
+        assignment.sourceUrl,
+      );
+      update(prepared.workspace);
+      submit?.(prepared.url);
     });
   const saveSubmission = (zip: boolean, name = zipName) => {
     if (!workspace) return;
-    void run(async () =>
-      setWorkspace(await setWorkspaceSubmission(workspace.path, zip, name)),
+    void act(async () =>
+      update(await setWorkspaceSubmission(workspace.path, zip, name)),
     );
   };
+  const draft = view?.handIn === "prepareDraft";
 
   return (
     <>
@@ -99,7 +127,8 @@ export function AssignmentWorkspaceFooter({
                   return;
                 void run(async () => {
                   await deleteWorkspace(workspace.path);
-                  setWorkspace(null);
+                  shown.current = null;
+                  await load();
                 });
               }}
             >
@@ -110,7 +139,7 @@ export function AssignmentWorkspaceFooter({
             <button
               type="button"
               onClick={() =>
-                void run(() => openWorkspace(workspace.path, "vscode"))
+                void act(() => openWorkspace(workspace.path, "vscode"))
               }
             >
               <LmsIcon name="code" size={14} />
@@ -119,7 +148,7 @@ export function AssignmentWorkspaceFooter({
             <button
               type="button"
               onClick={() =>
-                void run(() => openWorkspace(workspace.path, "finder"))
+                void act(() => openWorkspace(workspace.path, "finder"))
               }
             >
               <LmsIcon name="folder" size={14} />
@@ -166,34 +195,52 @@ export function AssignmentWorkspaceFooter({
           </div>
         </section>
       )}
-      {workspace && !done && (
+      {draft && (
         <p className="lmsWorkspaceHint">
           {t("Files upload to the LMS draft. Review and submit in LMS.")}
         </p>
       )}
+      {lost && !closed && !workspace && (
+        <p className="lmsWorkspaceHint" role="status">
+          {t(
+            "The workspace folder “{{name}}” is gone. Create it again, or view the assignment in LMS and choose the files there.",
+            { name: lost },
+          )}
+        </p>
+      )}
       <footer>
         {submit && (
+          // Opening the page reads nothing local, so only the draft upload waits.
           <button
             type="button"
-            className={done ? "lmsTextLink" : "lmsSubmit"}
-            disabled={busy}
-            onClick={() => void handIn()}
+            className={closed ? "lmsTextLink" : "lmsSubmit"}
+            disabled={busy && draft}
+            onClick={() => (draft ? void prepare() : submit())}
           >
-            {t(done ? "View in LMS" : "Prepare in LMS")}{" "}
+            {t(draft ? "Prepare in LMS" : "View in LMS")}{" "}
             <LmsIcon name="external" size={13} />
           </button>
         )}
-        {workspace === null && (
+        {submit && draft && (
+          // Opens the page only, so it works whatever state the folder is in.
+          <button
+            type="button"
+            className="lmsTextLink"
+            onClick={() => submit()}
+          >
+            {t("View in LMS")} <LmsIcon name="external" size={13} />
+          </button>
+        )}
+        {view && !workspace && (
           <button
             type="button"
             className="lmsTextLink"
             disabled={busy}
             onClick={() =>
-              void run(async () =>
-                setWorkspace(
-                  await createWorkspace(context, assignment, html, brief),
-                ),
-              )
+              void run(async () => {
+                await createWorkspace(context, assignment, html, brief);
+                await load();
+              })
             }
           >
             {t(busy ? "Creating workspace…" : "Create workspace")}
