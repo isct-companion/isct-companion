@@ -4,16 +4,25 @@ import Observation
 import UIKit
 
 /// Which school page is on screen. Two entries share the resident views: the
-/// ウェブ tab (site switcher) and pushes from a course or assignment. Opening a
+/// ウェブ tab (site picker) and pushes from a course or assignment. Opening a
 /// page asks Core (`openSchool`), which ensures and navigates the view; the
 /// visibility fact goes back to Core so hidden pulls yield to it.
 @MainActor
 @Observable
 final class WebRouter {
-    /// Sites in the ウェブ tab's switcher, in order.
+    /// Sites in the ウェブ tab's picker, in order.
     static let tabSites: [SchoolSite] = [.sciencePortal, .scienceLms, .kyomu, .tokyoMail, .library]
 
-    private(set) var tabSite: SchoolSite = .scienceLms
+    /// Where the site the ウェブ tab opens on is kept on this device (設定 › ウェブ).
+    static let firstSiteKey = "web.firstSite"
+
+    /// The site the ウェブ tab opens on at launch.
+    static var firstSite: SchoolSite {
+        get { tabSites.first { wireName($0) == UserDefaults.standard.string(forKey: firstSiteKey) } ?? .scienceLms }
+        set { UserDefaults.standard.set(wireName(newValue), forKey: firstSiteKey) }
+    }
+
+    private(set) var tabSite: SchoolSite = WebRouter.firstSite
     private(set) var titles: [SchoolSite: String] = [:]
     private(set) var loading: SchoolSite?
     private(set) var error: String?
@@ -30,7 +39,7 @@ final class WebRouter {
         browser.onOpenExternal = { url in UIApplication.shared.open(url) }
     }
 
-    /// A page pushed from context (course → T2SCHOLA, assignment → submission).
+    /// A page pushed from context (course → LMS, assignment → submission).
     struct PushedPage: Identifiable, Hashable {
         let site: SchoolSite
         let target: String?
@@ -70,7 +79,7 @@ final class WebRouter {
         open(site, target: try? schoolStartUrl(site: site))
     }
 
-    /// Picks a site in the switcher; picking the shown one returns it home.
+    /// Picks a site in the picker; picking the shown one returns it home.
     func choose(_ site: SchoolSite) {
         if site == tabSite, opened.contains(site) {
             goHome(site)
@@ -100,7 +109,7 @@ final class WebRouter {
     static func name(_ site: SchoolSite) -> String {
         switch site {
         case .sciencePortal: return "ポータル"
-        case .scienceLms: return "T2SCHOLA"
+        case .scienceLms: return "LMS"
         case .kyomu: return "教務Web"
         case .tokyoMail: return "メール"
         case .library: return "図書館"
@@ -114,6 +123,21 @@ final class WebRouter {
     private static func object(_ json: String) -> [String: Any]? {
         guard let data = json.data(using: .utf8) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// Core's wire name for a site, the inverse of `site(_:)`.
+    static func wireName(_ site: SchoolSite) -> String {
+        switch site {
+        case .sciencePortal: "science-portal"
+        case .scienceLms: "science-lms"
+        case .tokyoPortal: "tokyo-portal"
+        case .tokyoMail: "tokyo-mail"
+        case .kyomu: "kyomu"
+        case .library: "library"
+        case .tsubame: "tsubame"
+        case .syllabus: "syllabus"
+        case .studyGuide: "study-guide"
+        }
     }
 
     /// Core's wire names for sites (`SchoolSite` serde names).

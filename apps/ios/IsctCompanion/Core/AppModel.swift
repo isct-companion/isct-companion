@@ -480,26 +480,33 @@ final class AppModel {
         if profile == .science { refreshFromSchool() }
     }
 
-    /// Edits `settings.notifications` and replaces the settings object. Like the
-    /// desktop store's `updateSettings`, edits run one at a time, each on the
-    /// settings the previous one committed, so two quick toggles cannot both
-    /// copy the same old object.
+    /// Edits `settings.notifications` and replaces the settings object.
     func setNotifications(_ edit: @escaping @MainActor (inout [String: Any]) -> Void) async {
+        await updateSettings { settings in
+            var notifications = settings["notifications"] as? [String: Any] ?? [:]
+            edit(&notifications)
+            settings["notifications"] = notifications
+        }
+    }
+
+    /// Edits the settings object and replaces it, as the desktop store's
+    /// `updateSettings` does: edits run one at a time, each on the settings
+    /// the previous one committed, so two quick toggles cannot both copy the
+    /// same old object.
+    func updateSettings(_ edit: @escaping @MainActor (inout [String: Any]) -> Void) async {
         let previous = settingsWrite
         let write = Task {
             await previous?.value
-            await replaceNotifications(edit)
+            await replaceSettings(edit)
         }
         settingsWrite = write
         await write.value
     }
 
-    private func replaceNotifications(_ edit: (inout [String: Any]) -> Void) async {
+    private func replaceSettings(_ edit: (inout [String: Any]) -> Void) async {
         guard let session else { return }
         var settings = records.settings
-        var notifications = settings["notifications"] as? [String: Any] ?? [:]
-        edit(&notifications)
-        settings["notifications"] = notifications
+        edit(&settings)
         guard let data = try? JSONSerialization.data(withJSONObject: settings),
             let json = String(data: data, encoding: .utf8)
         else { return }
@@ -589,4 +596,70 @@ extension Calendar {
         calendar.firstWeekday = 2
         return calendar
     }()
+}
+
+// MARK: Settings pages (学習プロフィール, データ更新)
+
+extension AppModel {
+    /// The study profile as the workspace stores it (`academicProfile`).
+    struct StudyProfile: Equatable {
+        var admissionYear: Int32?
+        var enrollments: [StudyEnrollment]
+    }
+
+    func studyProfile() async -> StudyProfile? {
+        guard let session,
+            case let .workspace(snapshot)? = try? await session.snapshot().value(),
+            let root = (try? JSONSerialization.jsonObject(with: Data(snapshot.workspace.utf8))) as? [String: Any]
+        else { return nil }
+        let profile = root["academicProfile"] as? [String: Any] ?? [:]
+        let rows = profile["studyEnrollments"] as? [[String: Any]] ?? []
+        return StudyProfile(
+            admissionYear: (profile["admissionYear"] as? NSNumber)?.int32Value,
+            enrollments: rows.map { row in
+                StudyEnrollment(
+                    stage: Self.stage(row["stage"] as? String),
+                    entryKind: Self.entryKind(row["entryKind"] as? String),
+                    entryGrade: (row["entryGrade"] as? NSNumber)?.uint8Value,
+                    admittedTerm: row["admittedTerm"] as? String ?? "")
+            })
+    }
+
+    /// Saves the cohort and degree history through the desktop's intent.
+    func setStudyProfile(_ profile: StudyProfile) async throws {
+        guard let session else { return }
+        let mutation = WorkspaceMutation(
+            expectedRevision: revision,
+            intent: .setStudyProfile(admissionYear: profile.admissionYear, studyEnrollments: profile.enrollments))
+        _ = try await session.mutate(mutation: mutation).value()
+        await refresh()
+    }
+
+    /// The syllabus departments, as the desktop's course finder lists them.
+    func departments() async -> [FinderDepartment] {
+        guard let session, let term = today?.term, let year = UInt16(term.prefix(4)),
+            case let .finder(view)? = try? await session.finderQuery(request: FinderRequest(
+                year: year, term: term, includeIneligible: false, keys: [], input: "", remoteIds: nil, action: nil
+            )).value()
+        else { return [] }
+        return view.context.departments
+    }
+
+    private static func stage(_ raw: String?) -> StudyStage {
+        switch raw {
+        case "undergraduate": .undergraduate
+        case "master": .master
+        case "professional": .professional
+        case "doctoral": .doctoral
+        default: .unknown
+        }
+    }
+
+    private static func entryKind(_ raw: String?) -> StudyEntryKind {
+        switch raw {
+        case "regular": .regular
+        case "transfer": .transfer
+        default: .unknown
+        }
+    }
 }

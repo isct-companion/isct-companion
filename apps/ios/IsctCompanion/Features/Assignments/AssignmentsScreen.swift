@@ -49,7 +49,6 @@ struct AssignmentsScreen: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .sensoryFeedback(.impact(weight: .medium), trigger: model.undo?.assignmentId)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .refreshable { model.refreshFromSchool() }
@@ -63,27 +62,9 @@ struct AssignmentsScreen: View {
         if !items.isEmpty {
             Section(title) {
                 ForEach(items, id: \.assignmentId) { item in
-                    DeadlineLink(item: item) {
+                    AssignmentListRow(item: item) {
                         DeadlineRow(item: item, now: now, overdueStyle: .elapsed)
                     }
-                    .listRowInsets(EdgeInsets())
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            Task { await model.setPinned(item, !item.pinned) }
-                        } label: {
-                            Label(item.pinned ? "外す" : "ピン留め", systemImage: item.pinned ? "pin.slash" : "pin")
-                        }
-                        .tint(Theme.accent)
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button {
-                            Task { await model.setHidden(item, true) }
-                        } label: {
-                            Label("非表示", systemImage: "eye.slash")
-                        }
-                        .tint(Theme.muted)
-                    }
-                    .sensoryFeedback(.impact(weight: .light), trigger: item.pinned)
                 }
             }
         }
@@ -123,16 +104,7 @@ struct RecordScreen: View {
                 if !record.hidden.isEmpty {
                     Section("非表示") {
                         ForEach(record.hidden, id: \.assignmentId) { item in
-                            DeadlineRow(item: item, now: Date())
-                                .listRowInsets(EdgeInsets())
-                                .swipeActions(edge: .trailing) {
-                                    Button {
-                                        Task { await model.setHidden(item, false) }
-                                    } label: {
-                                        Label("戻す", systemImage: "eye")
-                                    }
-                                    .tint(Theme.accent)
-                                }
+                            AssignmentListRow(item: item, hidden: true) { DeadlineRow(item: item, now: Date()) }
                         }
                     }
                 }
@@ -151,10 +123,79 @@ struct RecordScreen: View {
         if !items.isEmpty {
             Section(title) {
                 ForEach(items, id: \.assignmentId) { item in
-                    DeadlineLink(item: item) { DeadlineRow(item: item, now: Date()) }
-                        .listRowInsets(EdgeInsets())
+                    AssignmentListRow(item: item) { DeadlineRow(item: item, now: Date()) }
                 }
             }
         }
+    }
+}
+
+/// One assignment in a 課題 list. A plain button rather than a NavigationLink,
+/// so List draws no disclosure chevron, and with the system row highlight
+/// rather than `PressableStyle`, whose dip on touch-down fights the swipe.
+/// Swipe right pins (full swipe allowed); swipe left hides, never by a long
+/// pull alone. A hidden row offers only 戻す.
+private struct AssignmentListRow<Content: View>: View {
+    let item: DeadlineItem
+    var hidden = false
+    @ViewBuilder var label: Content
+    @Environment(AppModel.self) private var model
+    @Environment(Navigator.self) private var navigator
+    /// Bumped by every pin or hide, so each one answers with a tap.
+    @State private var acted = 0
+
+    var body: some View {
+        Button {
+            navigator.push(AssignmentRoute(id: item.assignmentId))
+        } label: {
+            label
+        }
+        .listRowInsets(EdgeInsets())
+        .contextMenu {
+            if let course = item.courseId {
+                Button("授業を開く", systemImage: "book") { navigator.push(CourseRoute(id: course)) }
+            }
+            if let url = item.sourceUrl {
+                Button("LMS で提出", systemImage: "arrow.up.forward.square") {
+                    navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
+                }
+            }
+            if hidden {
+                Button("戻す", systemImage: "eye") { setHidden(false) }
+            } else {
+                Button(item.pinned ? "ピン留めを外す" : "ピン留め", systemImage: "pin") { togglePin() }
+                Button("非表示", systemImage: "eye.slash", role: .destructive) { setHidden(true) }
+            }
+        }
+        .swipeActions(edge: .leading) {
+            if !hidden {
+                Button {
+                    togglePin()
+                } label: {
+                    Label(item.pinned ? "外す" : "ピン留め", systemImage: item.pinned ? "pin.slash" : "pin")
+                }
+                .tint(Theme.accent)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: hidden) {
+            if hidden {
+                Button { setHidden(false) } label: { Label("戻す", systemImage: "eye") }
+                    .tint(Theme.accent)
+            } else {
+                Button { setHidden(true) } label: { Label("非表示", systemImage: "eye.slash") }
+                    .tint(Theme.muted)
+            }
+        }
+        .sensoryFeedback(.impact(weight: .light), trigger: acted)
+    }
+
+    private func togglePin() {
+        acted += 1
+        Task { await model.setPinned(item, !item.pinned) }
+    }
+
+    private func setHidden(_ hide: Bool) {
+        acted += 1
+        Task { await model.setHidden(item, hide) }
     }
 }
