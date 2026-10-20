@@ -94,7 +94,7 @@ Table groups:
 | User overlays              | `course_overrides`, `assignment_marks`                                                                                                          | SQLite; reference a school `sourceKey`; independent revision and lifetime; included in local backup |
 | Local notes                | Markdown under the course `notes` / `deleted-notes` directories                                                                                 | Local user data; included in local and cloud workspace backups, excluded from cache cleanup         |
 | School records and catalog | `timetable_courses`, `memberships`, `registrations`, `grades`, `lms_courses`, `lms_items`, `assignments`, `offerings`, reference tables         | Rebuildable SQLite cache; `lastSeenAt` / `missingSince`; never exported                             |
-| Derived caches             | `offering_content`, `catalog_search_items`, `offerings_fts`, `import_runs`, downloaded attachments                                              | Rebuildable; never exported                                                                         |
+| Derived caches             | `offering_content`, `catalog_search_items`, `offerings_fts`, `dataset_state`, `sync_runs`, downloaded attachments                              | Rebuildable; never exported                                                                         |
 
 Only user records and overlays use tombstones. School rows use `missingSince`
 and automatically become visible again if the source returns them.

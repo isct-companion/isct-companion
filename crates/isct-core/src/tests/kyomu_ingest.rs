@@ -1,4 +1,12 @@
 use super::*;
+use uuid::Uuid;
+
+const ACCOUNT: &str = "tokyotech:student";
+
+fn page_state(store: &crate::data::DataStore, kind: &str) -> Option<sync_state::KeyState> {
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    sync_state::get(&connection, &Key::new(Dataset::KyomuPage, kind)).unwrap()
+}
 
 #[test]
 fn graduate_grade_identity_survives_reordering_and_display_value_changes() {
@@ -42,9 +50,11 @@ fn duplicate_graduate_grade_identity_rolls_back_the_page() {
             message: String::new(),
         };
     assert!(store
-        .write(None, |tx| apply_kyomu_payload(tx, &payload))
+        .write(None, |tx| apply_kyomu_payload(tx, &payload, ACCOUNT))
         .is_err());
     assert!(store.table_rows("grades").unwrap().is_empty());
+    // The rolled-back page is not marked fresh either.
+    assert_eq!(page_state(&store, "grades"), None);
 }
 
 #[test]
@@ -155,7 +165,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!([{
         "offeringId":"202602431","code":"CSC.T273","title":"Official course","instructor":"Teacher",
         "schedule":[{"quarter":"3Q","day":"月","periods":[3,4],"room":"Official room"}]
-    }])))).unwrap();
+    }])), ACCOUNT)).unwrap();
     let workspace = store.load_workspace().unwrap();
     let current = crate::schedule::scheduled_courses(&workspace, "2026-3Q");
     assert_eq!(current.len(), 1);
@@ -166,7 +176,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     assert_eq!(current[0]["meetings"][0]["days"], json!([5]));
     assert!(crate::schedule::scheduled_courses(&workspace, "2026-4Q").is_empty());
     store
-        .write(None, |tx| apply_kyomu_payload(tx, &registration(json!([]))))
+        .write(None, |tx| apply_kyomu_payload(tx, &registration(json!([])), ACCOUNT))
         .unwrap();
     assert_eq!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-3Q").len(),
@@ -203,8 +213,13 @@ fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_ch
         message: String::new(),
     };
     store
-        .write(None, |tx| apply_kyomu_payload(tx, &payload))
+        .write(None, |tx| apply_kyomu_payload(tx, &payload, ACCOUNT))
         .unwrap();
+    // The page's rows and its freshness key commit together.
+    let state = page_state(&store, "profile").unwrap();
+    assert_eq!(state.account, ACCOUNT);
+    assert_eq!(state.outcome, Some(Outcome::Complete));
+    assert!(state.fetched_at.is_some());
     let initial = store.load_workspace().unwrap();
     assert_eq!(initial["settings"]["departmentId"], "cs");
     assert_eq!(initial["academicProfile"]["admissionYear"], 2025);
@@ -221,7 +236,7 @@ fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_ch
         .put_workspace_setting("academicProfile", profile)
         .unwrap();
     store
-        .write(None, |tx| apply_kyomu_payload(tx, &payload))
+        .write(None, |tx| apply_kyomu_payload(tx, &payload, ACCOUNT))
         .unwrap();
     let updated = store.load_workspace().unwrap();
     assert_eq!(updated["settings"]["departmentId"], "mcs");
@@ -243,7 +258,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     };
     store
         .write(None, |tx| {
-            apply_kyomu_payload(tx, &registration(json!(["3Q", "4Q"]), json!([])))
+            apply_kyomu_payload(tx, &registration(json!(["3Q", "4Q"]), json!([])), ACCOUNT)
         })
         .unwrap();
     let raw = json!({
@@ -329,7 +344,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!(["1Q","2Q"]),json!([{
         "offeringId":"202600041","code":"CSC.T101","title":"Official earlier","instructor":"Teacher",
         "schedule":[{"quarter":"1Q","day":"木","periods":[1,2],"room":"Official room"}]
-    }])))).unwrap();
+    }])), ACCOUNT)).unwrap();
     let upgraded = store.load_workspace().unwrap();
     let first = crate::schedule::scheduled_courses(&upgraded, "2026-1Q");
     assert_eq!(first.len(), 1);
@@ -344,16 +359,29 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!(["1Q","2Q"]),json!([{
         "offeringId":"202600041","code":"CSC.T101","title":"Official earlier","instructor":"Teacher",
         "schedule":[{"quarter":"1Q","day":"月","periods":[3,4],"room":"Official room"}]
-    }])))).unwrap();
+    }])), ACCOUNT)).unwrap();
     let first = crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q");
     assert_eq!(first[0]["meetings"][0]["room"], "Official room");
     assert_eq!(first[0]["meetings"][0]["startTime"], "10:45");
     // Maintenance/unavailable extraction does not manufacture authoritative emptiness.
     let mut unavailable = registration(json!(["1Q", "2Q"]), json!([]));
     unavailable.status = "unavailable".into();
+    unavailable.message = "Registration is closed".into();
     assert!(store
-        .write(None, |tx| apply_kyomu_payload(tx, &unavailable))
+        .write(None, |tx| apply_kyomu_payload(tx, &unavailable, ACCOUNT))
         .is_err());
+    // Recorded instead, the page is current but unavailable and its rows
+    // stay; the snapshot shows both under the keys the shells read.
+    store
+        .write(None, |tx| record_kyomu_unavailable(tx, &unavailable, ACCOUNT))
+        .unwrap();
+    let (_, records, _) = store.workspace_snapshot_parts().unwrap();
+    let availability = &records["pageAvailability"]["kyomu:registrations"];
+    assert_eq!(availability["state"], "unavailable");
+    assert_eq!(availability["message"], "Registration is closed");
+    let freshness = &records["freshness"]["kyomu.page/registrations"];
+    assert_eq!(freshness["outcome"], "unavailable");
+    assert_eq!(freshness["fetchedAt"], availability["checkedAt"]);
     assert_eq!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q").len(),
         1

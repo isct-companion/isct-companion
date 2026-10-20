@@ -304,72 +304,64 @@ impl DataStore {
                 Value::Array(read_visible_rows(connection, table)?),
             );
         }
-        records.insert("lastRuns".into(), Self::last_import_runs_from(connection)?);
+        let freshness = crate::sync_state::list(connection, None)?;
+        records.insert("freshness".into(), Self::freshness_from(&freshness));
         records.insert(
             "pageAvailability".into(),
-            Self::page_availability_from(connection)?,
+            Self::page_availability_from(&freshness)?,
         );
         Ok(Value::Object(records))
     }
 
-    pub(super) fn last_import_runs_from(connection: &Connection) -> Result<Value, DataError> {
-        let mut statement = connection
-            .prepare(
-                "SELECT provider, scope, MAX(finished_at) FROM import_runs
-                 WHERE state IN ('complete','unavailable') AND finished_at IS NOT NULL
-                 GROUP BY provider, scope",
-            )
-            .map_err(DataError::from)?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(DataError::from)?;
-        let mut runs = Map::new();
-        for row in rows {
-            let (provider, scope, finished) = row.map_err(DataError::from)?;
-            runs.insert(format!("{provider}:{scope}"), Value::String(finished));
-        }
-        Ok(Value::Object(runs))
+    /// `dataset/key` → when the key was last read in full and how its latest
+    /// attempt went, for shells that show data age.
+    fn freshness_from(states: &[crate::sync_state::KeyState]) -> Value {
+        let time = |at: Option<DateTime<Utc>>| at.map(|at| at.to_rfc3339());
+        Value::Object(
+            states
+                .iter()
+                .map(|state| {
+                    (
+                        format!("{}/{}", state.dataset, state.key),
+                        json!({
+                            "fetchedAt": time(state.fetched_at),
+                            "outcome": state.outcome,
+                            "message": state.message,
+                            "failures": state.failures,
+                            "nextEligible": time(state.next_eligible),
+                            "lastError": state.last_error,
+                        }),
+                    )
+                })
+                .collect(),
+        )
     }
 
-    pub(super) fn page_availability_from(connection: &Connection) -> Result<Value, DataError> {
-        let mut statement = connection
-            .prepare(
-                "SELECT provider,scope,state,finished_at,COALESCE(message,'') FROM import_runs
-                 WHERE state IN ('complete','unavailable') AND finished_at IS NOT NULL
-                 ORDER BY finished_at,rowid",
-            )
-            .map_err(DataError::from)?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })
-            .map_err(DataError::from)?;
+    /// The latest complete read of each 教務Web page, keyed `kyomu:<kind>`.
+    fn page_availability_from(states: &[crate::sync_state::KeyState]) -> Result<Value, DataError> {
         let mut availability = Map::new();
-        for row in rows {
-            let (provider, scope, state, checked_at, message) = row.map_err(DataError::from)?;
-            let availability_state = if state == "unavailable" {
-                SchoolPageAvailabilityState::Unavailable
-            } else {
-                SchoolPageAvailabilityState::Available
+        for state in states
+            .iter()
+            .filter(|state| state.dataset == crate::sync_state::Dataset::KyomuPage.name())
+        {
+            let Some(checked_at) = state.fetched_at else {
+                continue;
             };
+            let unavailable = state.outcome == Some(crate::sync_state::Outcome::Unavailable);
             availability.insert(
-                format!("{provider}:{scope}"),
+                format!("kyomu:{}", state.key),
                 serde_json::to_value(SchoolPageAvailability {
-                    state: availability_state,
-                    checked_at,
-                    message,
+                    state: if unavailable {
+                        SchoolPageAvailabilityState::Unavailable
+                    } else {
+                        SchoolPageAvailabilityState::Available
+                    },
+                    checked_at: checked_at.to_rfc3339(),
+                    message: if unavailable {
+                        state.message.clone().unwrap_or_default()
+                    } else {
+                        String::new()
+                    },
                 })
                 .map_err(DataError::from)?,
             );

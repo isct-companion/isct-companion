@@ -5,7 +5,6 @@ use crate::{
     school_auth::SchoolAuthService,
     school_service::{IngestOutcome, IngestState, SchoolExecution, SchoolExecutorError},
 };
-use serde_json::json;
 use std::{
     collections::VecDeque,
     sync::atomic::{AtomicUsize, Ordering},
@@ -53,28 +52,62 @@ fn store(name: &str) -> DataStore {
     DataStore::initialize(path).unwrap().0
 }
 
-#[test]
-fn freshness_checks_all_six_kyomu_pages_and_exact_ttl() {
-    let now: DateTime<Utc> = "2026-10-12T00:00:00Z".parse().unwrap();
-    let mut runs = json!({});
-    for page in [
-        "gpa",
-        "registrations",
-        "declared",
-        "profile",
-        "grades",
-        "requirements",
-    ] {
-        runs[format!("kyomu:{page}")] = json!(now.to_rfc3339());
+fn fresh(dataset: Dataset, key: &str, fetched_at: DateTime<Utc>) -> KeyState {
+    KeyState {
+        dataset: dataset.name().into(),
+        key: key.into(),
+        account: "tokyotech:student".into(),
+        generation: 0,
+        fetched_at: Some(fetched_at),
+        validator: None,
+        outcome: Some(sync_state::Outcome::Complete),
+        message: None,
+        failures: 0,
+        next_eligible: None,
+        last_error: None,
+        last_used: None,
     }
-    assert!(!due(SchoolAuthProfile::TokyoTech, &runs, now));
+}
+
+fn kyomu_pages(fetched_at: DateTime<Utc>) -> Vec<KeyState> {
+    crate::school_parser::kyomu::PAGES
+        .iter()
+        .map(|(_, page)| fresh(Dataset::KyomuPage, page, fetched_at))
+        .collect()
+}
+
+#[test]
+fn freshness_checks_every_key_of_a_profile_with_its_ttl_and_backoff() {
+    let now: DateTime<Utc> = "2026-10-12T00:00:00Z".parse().unwrap();
+    let ttl = sync_state::ttl(Dataset::KyomuPage, Term::Current).unwrap();
+    let mut pages = kyomu_pages(now);
+    assert!(!due(SchoolAuthProfile::TokyoTech, &pages, now));
+    assert!(due(SchoolAuthProfile::TokyoTech, &pages, now + ttl));
+    // A page backing off after a failure does not make the profile due.
+    let grades = pages.iter_mut().find(|state| state.key == "grades").unwrap();
+    grades.fetched_at = None;
+    grades.next_eligible = Some(now + chrono::Duration::minutes(5));
+    assert!(!due(SchoolAuthProfile::TokyoTech, &pages, now));
+    // Once the backoff ends the missing page is due again.
     assert!(due(
         SchoolAuthProfile::TokyoTech,
-        &runs,
-        now + chrono::Duration::seconds(KYOMU_STALE_SECONDS as i64)
+        &pages,
+        now + chrono::Duration::minutes(5)
     ));
-    runs.as_object_mut().unwrap().remove("kyomu:grades");
-    assert!(due(SchoolAuthProfile::TokyoTech, &runs, now));
+    pages.retain(|state| state.key != "grades");
+    assert!(due(SchoolAuthProfile::TokyoTech, &pages, now));
+
+    // Science needs both its course list and its deadlines; a fresh course
+    // key does not stand in for them.
+    let mut lms = vec![
+        fresh(Dataset::LmsEnrolment, "all", now),
+        fresh(Dataset::LmsCourse, "42", now),
+    ];
+    assert!(due(SchoolAuthProfile::Science, &lms, now));
+    lms.push(fresh(Dataset::LmsDeadlines, "all", now));
+    assert!(!due(SchoolAuthProfile::Science, &lms, now));
+    let deadlines = sync_state::ttl(Dataset::LmsDeadlines, Term::Current).unwrap();
+    assert!(due(SchoolAuthProfile::Science, &lms, now + deadlines));
 }
 
 #[test]
@@ -92,7 +125,7 @@ fn foreground_rechecks_each_known_profile_once() {
     }
     let now: DateTime<Utc> = "2026-10-12T00:00:00Z".parse().unwrap();
     let (profiles, _) = refresh
-        .take_ready(&json!({}), now, Instant::now())
+        .take_ready(&[], now, Instant::now())
         .unwrap()
         .unwrap();
     refresh.0.lock().unwrap().running = false;
@@ -101,13 +134,13 @@ fn foreground_rechecks_each_known_profile_once() {
         [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech]
     );
     assert!(refresh
-        .take_ready(&json!({}), now, Instant::now())
+        .take_ready(&[], now, Instant::now())
         .unwrap()
         .is_none());
     refresh.event(RefreshEvent::lifecycle(true)).unwrap();
     assert_eq!(
         refresh
-            .take_ready(&json!({}), now, Instant::now())
+            .take_ready(&[], now, Instant::now())
             .unwrap()
             .unwrap()
             .0,
@@ -116,12 +149,12 @@ fn foreground_rechecks_each_known_profile_once() {
     // A running batch defers newly due work instead of interleaving it.
     refresh.event(RefreshEvent::lifecycle(true)).unwrap();
     assert!(refresh
-        .take_ready(&json!({}), now, Instant::now())
+        .take_ready(&[], now, Instant::now())
         .unwrap()
         .is_none());
     drop(RunningBatch(refresh.clone()));
     assert!(refresh
-        .take_ready(&json!({}), now, Instant::now())
+        .take_ready(&[], now, Instant::now())
         .unwrap()
         .is_some());
 }
@@ -135,7 +168,7 @@ fn full_pull_lifetime_defers_stale_intents_until_cooldown_expires() {
     let now = Utc::now();
     let lease = refresh.begin_full_pull(SchoolSite::Kyomu).unwrap();
     assert!(refresh
-        .take_ready(&json!({}), now, Instant::now() + FULL_PULL_COOLDOWN * 2)
+        .take_ready(&[], now, Instant::now() + FULL_PULL_COOLDOWN * 2)
         .unwrap()
         .is_none());
     drop(lease);
@@ -148,16 +181,16 @@ fn full_pull_lifetime_defers_stale_intents_until_cooldown_expires() {
     }
     assert!(refresh
         .take_ready(
-            &json!({}),
+            &[],
             now,
             finished + FULL_PULL_COOLDOWN - Duration::from_nanos(1)
         )
         .unwrap()
         .is_none());
-    assert!(due(SchoolAuthProfile::TokyoTech, &json!({}), now));
+    assert!(due(SchoolAuthProfile::TokyoTech, &[], now));
     assert_eq!(
         refresh
-            .take_ready(&json!({}), now, finished + FULL_PULL_COOLDOWN)
+            .take_ready(&[], now, finished + FULL_PULL_COOLDOWN)
             .unwrap()
             .unwrap()
             .0,
@@ -165,7 +198,7 @@ fn full_pull_lifetime_defers_stale_intents_until_cooldown_expires() {
     );
     drop(RunningBatch(refresh.clone()));
     assert!(refresh
-        .take_ready(&json!({}), now, finished + FULL_PULL_COOLDOWN)
+        .take_ready(&[], now, finished + FULL_PULL_COOLDOWN)
         .unwrap()
         .is_none());
 
@@ -186,7 +219,7 @@ fn full_pull_lifetime_defers_stale_intents_until_cooldown_expires() {
     assert_eq!(retry_after(30), FULL_PULL_MAX_COOLDOWN);
     refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
     assert!(refresh
-        .take_ready(&json!({}), now, finished + FULL_PULL_COOLDOWN * 9)
+        .take_ready(&[], now, finished + FULL_PULL_COOLDOWN * 9)
         .unwrap()
         .is_none());
     drop(refresh.begin_full_pull(SchoolSite::Kyomu).unwrap());
@@ -196,13 +229,9 @@ fn full_pull_lifetime_defers_stale_intents_until_cooldown_expires() {
     );
 
     // Observing every page fresh forgets the misses.
-    let mut fresh = json!({});
-    for (_, page) in crate::school_parser::kyomu::PAGES {
-        fresh[format!("kyomu:{page}")] = json!(now.to_rfc3339());
-    }
     refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
     assert!(refresh
-        .take_ready(&fresh, now, Instant::now())
+        .take_ready(&kyomu_pages(now), now, Instant::now())
         .unwrap()
         .is_none());
     assert_eq!(
@@ -258,7 +287,7 @@ async fn manual_partial_pull_cools_automatic_retries_but_can_be_forced_again() {
         refresh.enqueue_scheduled(SchoolSite::Kyomu).unwrap();
         refresh.event(RefreshEvent::lifecycle(true)).unwrap();
         assert!(refresh
-            .take_ready(&json!({}), Utc::now(), Instant::now())
+            .take_ready(&[], Utc::now(), Instant::now())
             .unwrap()
             .is_none());
     }
@@ -355,6 +384,28 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
             }]),
         ])),
     });
+    let keys = [
+        Key::new(Dataset::LmsCourse, "42"),
+        Key::new(Dataset::LmsAssign, "42"),
+    ];
+    store
+        .write(None, |transaction| {
+            for key in &keys {
+                sync_state::commit(
+                    transaction,
+                    key,
+                    sync_state::Commit {
+                        account: "science:student",
+                        validator: None,
+                        outcome: sync_state::Outcome::Complete,
+                        message: None,
+                    },
+                    Utc::now(),
+                )?;
+            }
+            Ok::<_, crate::data::DataError>(())
+        })
+        .unwrap();
     refresh
         .event(RefreshEvent {
             kind: RefreshKind::LectureOpened,
@@ -365,7 +416,11 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
         .unwrap();
     refresh.0.lock().unwrap().details[0].1 = Instant::now();
     let tasks = RuntimeTasks::default();
-    let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
+    let inputs = refresh.load_inputs(&store).await.unwrap();
+    // Opening the lecture marks both of its keys used, for gc.
+    for state in store.freshness(None).unwrap() {
+        assert!(state.last_used.is_some(), "{}/{}", state.dataset, state.key);
+    }
     refresh
         .tick(&inputs, &service, executor.clone(), &tasks)
         .unwrap();
@@ -383,7 +438,7 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
         .unwrap();
     refresh.0.lock().unwrap().details[0].1 = Instant::now();
     let tasks = RuntimeTasks::default();
-    let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
+    let inputs = refresh.load_inputs(&store).await.unwrap();
     refresh
         .tick(&inputs, &service, executor.clone(), &tasks)
         .unwrap();
@@ -401,7 +456,7 @@ async fn tick_retries_a_failed_detail_but_keeps_a_successful_one_seen() {
         .unwrap();
     assert!(refresh.0.lock().unwrap().details.is_empty());
     let tasks = RuntimeTasks::default();
-    let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
+    let inputs = refresh.load_inputs(&store).await.unwrap();
     refresh
         .tick(&inputs, &service, executor.clone(), &tasks)
         .unwrap();
@@ -485,7 +540,7 @@ async fn batch_rechecks_later_profiles_after_a_manual_pull_and_keeps_detail_orde
         release_lms: tokio::sync::Notify::new(),
     });
     let tasks = RuntimeTasks::default();
-    let inputs = SchoolRefresh::load_inputs(&store).await.unwrap();
+    let inputs = refresh.load_inputs(&store).await.unwrap();
     refresh
         .tick(&inputs, &service, executor.clone(), &tasks)
         .unwrap();

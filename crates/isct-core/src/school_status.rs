@@ -11,9 +11,9 @@ use crate::{
     school_auth::SchoolAuthProfile,
     school_browser::{SchoolLoginEvent, SchoolPullProgress},
     school_service::{IngestOutcome, IngestState},
+    sync_state::{Dataset, KeyState},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
@@ -72,8 +72,8 @@ pub struct SchoolSourceStatus {
     pub activity: SourceActivity,
     /// The latest sign-in report for the profile that reads this source.
     pub sign_in: Option<SignInState>,
-    /// When Core last finished reading this source (RFC 3339), from the
-    /// stored import runs.
+    /// When Core last finished reading this source (RFC 3339): the newest
+    /// complete read of its course list and deadlines, or of any 教務 page.
     pub last_updated: Option<String>,
 }
 
@@ -243,13 +243,13 @@ pub(crate) struct SchoolStatusTracker {
     kyomu_maintenance: Option<String>,
     science_sign_in: Option<SignInState>,
     tokyo_tech_sign_in: Option<SignInState>,
-    /// `provider:scope` → last finished import (`DataStore::last_import_runs`).
-    runs: Value,
+    /// Stored freshness (`DataStore::freshness`).
+    freshness: Vec<KeyState>,
 }
 
 impl SchoolStatusTracker {
-    /// Takes in one event. Returns whether the stored import runs may have
-    /// changed, so the owner re-reads them before the next [`Self::status`].
+    /// Takes in one event. Returns whether stored freshness may have changed,
+    /// so the owner re-reads it before the next [`Self::status`].
     pub(crate) fn observe(&mut self, event: &CoreEvent) -> bool {
         match event {
             CoreEvent::PullStateChanged(pulls) => self.pulls_changed(pulls),
@@ -269,12 +269,12 @@ impl SchoolStatusTracker {
         }
     }
 
-    pub(crate) fn set_runs(&mut self, runs: Value) {
-        self.runs = runs;
+    pub(crate) fn set_freshness(&mut self, freshness: Vec<KeyState>) {
+        self.freshness = freshness;
     }
 
     fn pulls_changed(&mut self, pulls: &[PullSnapshot]) -> bool {
-        // A school pull that just finished wrote its import run.
+        // A school pull that just finished committed its keys.
         let finished = pulls.iter().any(|next| {
             school_site(next).is_some()
                 && matches!(next.state, PullState::Succeeded | PullState::Failed)
@@ -501,12 +501,12 @@ impl SchoolStatusTracker {
         let (sign_in, last_updated) = if site == SchoolSite::Kyomu {
             (
                 self.tokyo_tech_sign_in.clone(),
-                self.last_run(|key| key.starts_with("kyomu:")),
+                self.last_read(&[Dataset::KyomuPage]),
             )
         } else {
             (
                 self.science_sign_in.clone(),
-                self.last_run(|key| key == "lms:all" || key == "lms:summary"),
+                self.last_read(&[Dataset::LmsEnrolment, Dataset::LmsDeadlines]),
             )
         };
         SchoolSourceStatus {
@@ -517,14 +517,13 @@ impl SchoolStatusTracker {
         }
     }
 
-    fn last_run(&self, matches: impl Fn(&str) -> bool) -> Option<String> {
-        self.runs
-            .as_object()?
+    fn last_read(&self, datasets: &[Dataset]) -> Option<String> {
+        self.freshness
             .iter()
-            .filter(|(key, _)| matches(key))
-            .filter_map(|(_, at)| at.as_str())
+            .filter(|state| datasets.iter().any(|dataset| dataset.name() == state.dataset))
+            .filter_map(|state| state.fetched_at)
             .max()
-            .map(str::to_owned)
+            .map(|at| at.to_rfc3339())
     }
 }
 

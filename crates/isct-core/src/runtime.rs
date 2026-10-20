@@ -36,6 +36,11 @@ pub enum CloudWakeError {
     Sync(#[from] crate::cloud_sync::CloudSyncError),
 }
 
+/// Cache gc stays clear of startup work, then asks again now and then;
+/// `sync_gc::gc` decides whether a day has passed since its last run.
+const GC_START_DELAY: Duration = Duration::from_secs(60);
+const GC_CHECK_INTERVAL: Duration = Duration::from_secs(10 * 60);
+
 #[cfg(test)]
 #[path = "tests/runtime.rs"]
 mod tests;
@@ -52,6 +57,7 @@ pub struct CoreRuntime {
     scheduler: Scheduler,
     tasks: RuntimeTasks,
     next_scheduled: Mutex<Instant>,
+    next_gc: Mutex<Instant>,
     ticking: Arc<tokio::sync::Mutex<()>>,
     lifecycle: tokio::sync::Mutex<()>,
     suspended: AtomicBool,
@@ -70,6 +76,7 @@ impl CoreRuntime {
             scheduler: Scheduler::default(),
             tasks: RuntimeTasks::default(),
             next_scheduled: Mutex::new(Instant::now()),
+            next_gc: Mutex::new(Instant::now() + GC_START_DELAY),
             ticking: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle: tokio::sync::Mutex::new(()),
             suspended: AtomicBool::new(false),
@@ -158,7 +165,7 @@ impl CoreRuntime {
         }
         // Storage reads happen before the lifecycle lock, so suspend/resume
         // (called on the UI thread) only ever wait for in-memory work.
-        let inputs = SchoolRefresh::load_inputs(&services.store).await;
+        let inputs = self.refresh.load_inputs(&services.store).await;
         let _lifecycle = self.lifecycle.lock().await;
         if self.tasks.is_closed() {
             return Err(RuntimeTaskError::Stopped.into());
@@ -178,6 +185,32 @@ impl CoreRuntime {
             )?;
         }
         let now = Instant::now();
+        let gc_due = {
+            let mut next = self.next_gc.lock().map_err(|_| RuntimeError::Clock)?;
+            if now < *next {
+                false
+            } else {
+                *next = now + GC_CHECK_INTERVAL;
+                true
+            }
+        };
+        if gc_due {
+            // `sync_gc::gc` itself runs at most once a day, across restarts.
+            let store = services.store.clone();
+            self.tasks.spawn(async move {
+                let collected = tokio::task::spawn_blocking(move || {
+                    store.write(None, |transaction| {
+                        crate::sync_gc::gc(transaction, chrono::Utc::now())
+                    })
+                })
+                .await;
+                match collected {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => crate::diagnostics::report("sync-gc", &error),
+                    Err(error) => crate::diagnostics::report("sync-gc", &error),
+                }
+            });
+        }
         let due = {
             let mut next = self
                 .next_scheduled

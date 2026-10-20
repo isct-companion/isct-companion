@@ -14,8 +14,13 @@ queue. `App.tsx` reports foreground/network and lecture
 navigation events without a clock or a session-local detail cache. Native
 session completion also reports directly, including before the UI subscribes.
 
-- LMS source TTL: 12 hours. 教務Web TTL: 7 days, with every required page
-  included in the freshness check (`contracts.rs` is the shared policy).
+- Freshness is per key in `dataset_state` (`sync_state.rs` holds the TTLs).
+  Science is due when `lms.enrolment/all` or `lms.deadlines/all` is due;
+  Tokyo Tech when any of the six `kyomu.page/<kind>` keys is. A key backing
+  off after a failed read is not due. An automatic 教務Web pull reads only
+  the due pages, missing ones first; a manual pull reads all six.
+- Opening a lecture touches `lms.course/<id>` and `lms.assign/<id>` at the
+  next wake; `sync_gc.rs` drops long-unused content once a day.
 - Lecture details wait 2 seconds before becoming eligible, and wait until
   the visible school view closes. Repeated opens within 60 seconds coalesce;
   a failed fill can be requested again on reentry.
@@ -165,7 +170,7 @@ The workstation footer shows a progress bar only for pulls the user started
 (the view progress or a `manual` coordinator snapshot). Automatic pulls show a
 one-line note with a small spinner, including why Core is holding them. When
 nothing runs, the footer shows how long ago LMS and 教務Web last imported
-successfully (`schoolRecords.lastRuns`), not a generic "Ready".
+successfully (`SchoolSourceStatus.lastUpdated`), not a generic "Ready".
 
 ## Runtime lifetime
 

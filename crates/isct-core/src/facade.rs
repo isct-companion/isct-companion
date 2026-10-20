@@ -40,8 +40,8 @@ struct SchoolStatusHub {
 }
 
 impl SchoolStatusHub {
-    /// The new status when `event` changed it. Import runs are re-read only
-    /// when a school pull or extractor finished, a few times per pull.
+    /// The new status when `event` changed it. Freshness is re-read only
+    /// when a school pull or page read finished, a few times per pull.
     fn observe(&self, event: &crate::events::CoreEvent) -> Option<SchoolStatus> {
         use crate::events::CoreEvent::*;
         if !matches!(
@@ -53,8 +53,8 @@ impl SchoolStatusHub {
         let mut tracker = self.tracker.lock().ok()?;
         let before = tracker.status();
         if tracker.observe(event) {
-            if let Ok(runs) = self.store.last_import_runs() {
-                tracker.set_runs(runs);
+            if let Ok(freshness) = self.store.freshness(None) {
+                tracker.set_freshness(freshness);
             }
         }
         let after = tracker.status();
@@ -171,7 +171,7 @@ impl Core {
     pub async fn school_status(&self) -> Result<SchoolStatus, crate::data::DataError> {
         let pulls = self.runtime.pull_snapshots().await;
         let store = self.store.clone();
-        let runs = tokio::task::spawn_blocking(move || store.last_import_runs())
+        let freshness = tokio::task::spawn_blocking(move || store.freshness(None))
             .await
             .map_err(|error| crate::data::DataError::Storage(error.to_string()))??;
         let mut tracker =
@@ -179,7 +179,7 @@ impl Core {
                 crate::data::DataError::Storage("School status is unavailable.".into())
             })?;
         tracker.observe(&crate::events::CoreEvent::PullStateChanged(pulls));
-        tracker.set_runs(runs);
+        tracker.set_freshness(freshness);
         Ok(tracker.status())
     }
 

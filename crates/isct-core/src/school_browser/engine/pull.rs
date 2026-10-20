@@ -202,46 +202,190 @@ impl SchoolBrowserEngine {
         })
     }
 
+    /// Reads the 教務Web pages one freshness key at a time. An automatic pull
+    /// reads only due pages, missing ones first; a manual pull reads all six.
+    /// Each page's rows, its `kyomu.page` key and its `sync_runs` row commit
+    /// in one transaction; a failed page writes no rows and backs off alone.
     async fn pull_kyomu(
         &self,
         context: &PullContext,
     ) -> Result<Vec<IngestOutcome>, SchoolBrowserError> {
+        use crate::data::DataError;
+        use crate::lms_ingest::IngestError;
+        use crate::sync_state::{self, Dataset, Due, Key, RunOutcome, RunRecord, Term};
+        use chrono::{DateTime, Utc};
+
+        /// The facts every `sync_runs` row of one page read carries.
+        struct PageRun {
+            run: String,
+            key: Key,
+            account: String,
+            source: String,
+            started: DateTime<Utc>,
+        }
+
+        impl PageRun {
+            fn record(
+                &self,
+                connection: &rusqlite::Connection,
+                outcome: RunOutcome,
+                changed: usize,
+                error_kind: Option<&str>,
+            ) -> Result<(), DataError> {
+                sync_state::record_run(
+                    connection,
+                    &RunRecord {
+                        run: &self.run,
+                        key: &self.key,
+                        account: &self.account,
+                        started_at: self.started,
+                        finished_at: Utc::now(),
+                        outcome,
+                        changed,
+                        requests: None,
+                        bytes: None,
+                        source: &self.source,
+                        error_kind,
+                    },
+                )
+            }
+
+            /// A read that wrote no rows. `backoff` is false when the cause
+            /// is not this page (a paused host, a lost sign-in), so the key
+            /// keeps its own failure count.
+            fn fail(
+                &self,
+                connection: &rusqlite::Connection,
+                outcome: RunOutcome,
+                error_kind: &str,
+                backoff: bool,
+            ) -> Result<(), DataError> {
+                if backoff {
+                    sync_state::fail(connection, &self.key, &self.account, error_kind, Utc::now())?;
+                }
+                self.record(connection, outcome, 0, Some(error_kind))
+            }
+        }
+
+        fn error_kind(error: &NetError) -> String {
+            match error {
+                NetError::Offline => "offline".into(),
+                NetError::Dns => "dns".into(),
+                NetError::Tls(_) => "tls".into(),
+                NetError::Connect(_) => "connect".into(),
+                NetError::Stalled => "stalled".into(),
+                NetError::Deadline => "timeout".into(),
+                NetError::TooLarge => "too-large".into(),
+                NetError::Http(status) => format!("http-{status}"),
+                NetError::HostPaused { .. } => "host-paused".into(),
+                NetError::SignInRequired => "sign-in".into(),
+                NetError::Cancelled => "cancelled".into(),
+                NetError::Invalid(_) => "parse".into(),
+            }
+        }
+
         let site = SchoolSite::Kyomu;
         let kyomu = self.transport()?.kyomu.clone();
+        let auth = self.0.auth.clone();
+        let store = self.0.store.clone();
+        let (account, pages) = tokio::task::spawn_blocking(move || {
+            let account = auth
+                .sync_account(SchoolAuthProfile::TokyoTech)
+                .map_err(|error| SchoolBrowserError::Auth(error.to_string()))?;
+            let states = store
+                .freshness(Some(Dataset::KyomuPage))
+                .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
+            let ttl = sync_state::ttl(Dataset::KyomuPage, Term::Current);
+            let now = Utc::now();
+            let mut pages: Vec<(Due, &'static str)> = crate::school_parser::kyomu::PAGES
+                .iter()
+                .map(|(_, kind)| {
+                    let state = states.iter().find(|state| state.key == *kind);
+                    (sync_state::due(state, ttl, &account, now), *kind)
+                })
+                .collect();
+            // Stable, so pages of the same urgency keep the menu order.
+            pages.sort_by_key(|(due, _)| *due);
+            Ok::<_, SchoolBrowserError>((account, pages))
+        })
+        .await
+        .map_err(|_| SchoolBrowserError::Stopped)??;
+        let run = new_id();
         let mut outcomes = Vec::new();
-        for (_, kind) in crate::school_parser::kyomu::PAGES {
+        for (due, kind) in pages {
             if context.is_cancelled() {
                 return Err(SchoolBrowserError::Cancelled);
             }
-            let outcome = match kyomu.page(kind).await {
-                Ok(KeyOutcome::Complete(payload))
-                | Ok(KeyOutcome::Partial { data: payload, .. }) => {
+            // Read again per page: a manual join can promote this pull.
+            if !due.is_due() && context.priority() != PullPriority::Manual {
+                continue;
+            }
+            let page = PageRun {
+                run: run.clone(),
+                key: Key::new(Dataset::KyomuPage, kind),
+                account: account.clone(),
+                source: crate::school_parser::kyomu::page_url(kind)
+                    .and_then(|url| url::Url::parse(&url).ok())
+                    .map(|url| sync_state::source_of_url(&url))
+                    .unwrap_or_default(),
+                started: Utc::now(),
+            };
+            let error_outcome = |message: String| IngestOutcome {
+                site,
+                kind: kind.into(),
+                state: IngestState::Error,
+                changed: 0,
+                message,
+            };
+            // `failure` is the run outcome, error kind and backoff of a read
+            // that wrote no rows; `abort` ends the whole pull after it.
+            let mut abort = None;
+            let (outcome, failure) = match kyomu.page(kind).await {
+                Ok(KeyOutcome::Complete(payload)) => {
                     if !context.applying().await {
                         return Err(SchoolBrowserError::Cancelled);
                     }
                     let store = self.0.store.clone();
                     let unavailable = payload.status == "unavailable";
-                    let kind = payload.kind.clone();
                     let message = payload.message.clone();
                     let applied = tokio::task::spawn_blocking(move || {
-                        store.write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
-                            if unavailable {
-                                record_kyomu_unavailable(transaction, &payload).map(|()| 0)
-                            } else {
-                                apply_kyomu_payload(transaction, &payload)
+                        let written =
+                            store.write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
+                                let changed = if unavailable {
+                                    record_kyomu_unavailable(transaction, &payload, &page.account)
+                                        .map(|()| 0)?
+                                } else {
+                                    apply_kyomu_payload(transaction, &payload, &page.account)?
+                                };
+                                let outcome = if unavailable {
+                                    RunOutcome::Unavailable
+                                } else {
+                                    RunOutcome::Complete
+                                };
+                                page.record(transaction, outcome, changed, None)?;
+                                Ok::<_, IngestError>(changed)
+                            });
+                        // A page projection refused rolled back whole; it
+                        // backs off like any other failed read.
+                        if written.is_err() {
+                            if let Err(error) = store.write(None, |transaction| {
+                                page.fail(transaction, RunOutcome::Failed, "parse", true)
+                            }) {
+                                crate::diagnostics::report("school-pull", &error);
                             }
-                        })
+                        }
+                        written
                     })
                     .await;
                     // The write gate covers this page's commit only; the next
                     // page can still be cancelled.
                     context.applied().await;
-                    match applied.map_err(|_| SchoolBrowserError::Stopped)? {
+                    let outcome = match applied.map_err(|_| SchoolBrowserError::Stopped)? {
                         Ok(changed) => {
                             self.clear_kyomu_maintenance();
                             IngestOutcome {
                                 site,
-                                kind,
+                                kind: kind.into(),
                                 state: if unavailable {
                                     IngestState::Unavailable
                                 } else {
@@ -255,48 +399,77 @@ impl SchoolBrowserEngine {
                                 },
                             }
                         }
-                        Err(error) => IngestOutcome {
-                            site,
-                            kind,
-                            state: IngestState::Error,
-                            changed: 0,
-                            message: error.to_string(),
-                        },
-                    }
+                        Err(error) => error_outcome(error.to_string()),
+                    };
+                    let _ = self.0.events.emit(CoreEvent::SchoolIngest(outcome.clone()));
+                    outcomes.push(outcome);
+                    continue;
                 }
-                Ok(KeyOutcome::Unavailable(what)) => IngestOutcome {
-                    site,
-                    kind: kind.into(),
-                    state: IngestState::Unavailable,
-                    changed: 0,
-                    message: what.into(),
-                },
-                Ok(KeyOutcome::SignInRequired) | Err(NetError::SignInRequired) => {
-                    sign_in_required(site, kind)
-                }
+                // The 教務 client never splits a page; treat a split as failed.
+                Ok(KeyOutcome::Partial { missing, .. }) => (
+                    error_outcome(format!("not read: {}", missing.join(", "))),
+                    (RunOutcome::Failed, "partial".to_string(), true),
+                ),
+                Ok(KeyOutcome::Unavailable(what)) => (
+                    IngestOutcome {
+                        site,
+                        kind: kind.into(),
+                        state: IngestState::Unavailable,
+                        changed: 0,
+                        message: what.into(),
+                    },
+                    (RunOutcome::Failed, "unsupported".to_string(), true),
+                ),
+                Ok(KeyOutcome::SignInRequired) | Err(NetError::SignInRequired) => (
+                    sign_in_required(site, kind),
+                    (RunOutcome::SignInRequired, "sign-in".to_string(), false),
+                ),
+                // Maintenance pauses the host, not this page: no backoff.
                 Err(NetError::HostPaused { .. }) => {
                     let message = kyomu
                         .maintenance_notice()
                         .unwrap_or_else(|| "School service under maintenance.".into());
                     self.0.report_kyomu_maintenance(&message);
-                    IngestOutcome {
-                        site,
-                        kind: "service".into(),
-                        state: IngestState::Maintenance,
-                        changed: 0,
-                        message,
-                    }
+                    (
+                        IngestOutcome {
+                            site,
+                            kind: "service".into(),
+                            state: IngestState::Maintenance,
+                            changed: 0,
+                            message,
+                        },
+                        (RunOutcome::Failed, "host-paused".to_string(), false),
+                    )
                 }
+                // Cancelled reads write nothing: the gate is closed to them.
                 Err(NetError::Cancelled) => return Err(SchoolBrowserError::Cancelled),
-                Err(error) if outcomes.is_empty() => return Err(net_error(error)),
-                Err(error) => IngestOutcome {
-                    site,
-                    kind: kind.into(),
-                    state: IngestState::Error,
-                    changed: 0,
-                    message: error.to_string(),
-                },
+                Err(error) => {
+                    let failure = (RunOutcome::Failed, error_kind(&error), true);
+                    let outcome = error_outcome(error.to_string());
+                    if outcomes.is_empty() {
+                        abort = Some(net_error(error));
+                    }
+                    (outcome, failure)
+                }
             };
+            if !context.applying().await {
+                return Err(SchoolBrowserError::Cancelled);
+            }
+            let store = self.0.store.clone();
+            let (run_outcome, kind_code, backoff) = failure;
+            let written = tokio::task::spawn_blocking(move || {
+                store.write(None, |transaction| {
+                    page.fail(transaction, run_outcome, &kind_code, backoff)
+                })
+            })
+            .await;
+            context.applied().await;
+            if let Err(error) = written.map_err(|_| SchoolBrowserError::Stopped)? {
+                crate::diagnostics::report("school-pull", &error);
+            }
+            if let Some(error) = abort {
+                return Err(error);
+            }
             let stop = matches!(
                 outcome.state,
                 IngestState::ReconnectRequired | IngestState::Maintenance

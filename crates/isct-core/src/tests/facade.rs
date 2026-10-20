@@ -247,14 +247,22 @@ impl EventSink for WorkspaceEvents {
 #[tokio::test]
 async fn the_relay_sends_school_status_after_the_events_that_change_it() {
     use crate::pull_coordinator::{PullPriority, PullSnapshot, PullState, PullTarget};
+    use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
     let store = store("school-status");
-    rusqlite::Connection::open(store.path())
-        .unwrap()
-        .execute(
-            "INSERT INTO import_runs(id,provider,scope,state,started_at,finished_at)
-             VALUES('run','lms','summary','complete','2026-10-19T02:46:12+00:00','2026-10-19T02:46:13+00:00')",
-            [],
-        )
+    store
+        .write(None, |transaction| {
+            sync_state::commit(
+                transaction,
+                &Key::new(Dataset::LmsDeadlines, "all"),
+                Commit {
+                    account: "science:student",
+                    validator: None,
+                    outcome: Outcome::Complete,
+                    message: None,
+                },
+                "2026-10-19T02:46:13Z".parse().unwrap(),
+            )
+        })
         .unwrap();
     let recorded = Arc::new(RecordedEvents::default());
     let core = Core::with_events(

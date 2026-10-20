@@ -723,19 +723,20 @@ itself, where courses are still being edited, is not yet observed.
      申告 period", the extractor's unavailable pattern must learn that
      notice and its element. If the data is visible but the selector
      does not match, the selector is broken.
-5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT scope,state,max(finished_at) FROM import_runs WHERE provider='kyomu' GROUP BY scope,state"`.
-   - *Why:* Freshness counts only `complete` or `unavailable` runs. A page with
-     neither keeps 教務Web due for an automatic refresh indefinitely.
+5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
+   - *Why:* Only a complete read sets `fetched_at`, with outcome `complete` or
+     `unavailable`. A page without one stays due and backs off after
+     each failure, recorded in `failures` and `last_error`.
 
 **Where to look**
 
 artifacts/kyomu-pull.log, the two 教務Web pages in the visible view, and
-the import_runs query output.
+the dataset_state query output.
 
 **Expected**
 
-`registrations` and `requirements` each have a `complete` or an
-`unavailable` run, the log has no `school-pull` line for either page,
+`registrations` and `requirements` each have a `fetched_at` with outcome
+`complete` or `unavailable`, the log has no `school-pull` line for either page,
 and the footer no longer shows a 教務Web failure after a refresh.
 
 **Why this is manual**

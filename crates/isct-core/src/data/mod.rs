@@ -1054,11 +1054,13 @@ impl DataStore {
         read_visible_rows(&connection, table)
     }
 
-    /// When each importer (`lms`, `kyomu` per page kind) last finished a
-    /// complete run: the cache age the app compares with its TTLs.
-    pub fn last_import_runs(&self) -> Result<Value, DataError> {
-        let connection = self.open()?;
-        Self::last_import_runs_from(&connection)
+    /// Freshness of every key of `dataset`, or of all datasets
+    /// (`crate::sync_state::list`): the only record of when data was read.
+    pub fn freshness(
+        &self,
+        dataset: Option<crate::sync_state::Dataset>,
+    ) -> Result<Vec<crate::sync_state::KeyState>, DataError> {
+        crate::sync_state::list(&self.open()?, dataset)
     }
 
     pub fn path(&self) -> &Path {

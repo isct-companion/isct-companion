@@ -12,8 +12,8 @@ class WorkspaceRecords(workspace: String? = null, schoolRecords: String? = null)
     val assignments: Map<String, JSONObject>
     /** The complete settings object; forms edit a copy and replace it. */
     val settings: JSONObject
-    /** `provider:scope` → when Core last finished that import, from the stored runs. */
-    val lastRuns: Map<String, String>
+    /** `dataset/key` → when Core last read that key in full, from its stored freshness. */
+    val fetchedAt: Map<String, String>
 
     init {
         val root = workspace?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
@@ -21,15 +21,20 @@ class WorkspaceRecords(workspace: String? = null, schoolRecords: String? = null)
         materials = index(root.optJSONArray("materials"))
         assignments = index(root.optJSONArray("assignments"))
         settings = root.optJSONObject("settings") ?: JSONObject()
-        val runs = schoolRecords?.let { runCatching { JSONObject(it) }.getOrNull() }?.optJSONObject("lastRuns")
-        lastRuns = buildMap { runs?.keys()?.forEach { key -> runs.text(key)?.let { put(key, it) } } }
+        val freshness = schoolRecords?.let { runCatching { JSONObject(it) }.getOrNull() }?.optJSONObject("freshness")
+        fetchedAt = buildMap {
+            freshness?.keys()?.forEach { key -> freshness.optJSONObject(key)?.text("fetchedAt")?.let { put(key, it) } }
+        }
     }
 
-    /** When the profile's school data was last read, picked the way the desktop
-     * footer does (`usePullState.ts`): LMS runs for Science Tokyo, any 教務Web
-     * run for Tokyo Tech. */
-    fun lastRun(profile: SchoolAuthProfile): String? = lastRuns
-        .filterKeys { if (profile == SchoolAuthProfile.SCIENCE) it == "lms:all" || it == "lms:summary" else it.startsWith("kyomu:") }
+    /** When the profile's school data was last read, picked the way Core's
+     * school status does: the course list and deadlines for Science Tokyo,
+     * any 教務Web page for Tokyo Tech. */
+    fun lastRun(profile: SchoolAuthProfile): String? = fetchedAt
+        .filterKeys {
+            if (profile == SchoolAuthProfile.SCIENCE) it == "lms.enrolment/all" || it == "lms.deadlines/all"
+            else it.startsWith("kyomu.page/")
+        }
         .values.maxOrNull()
 
     private fun index(rows: JSONArray?): Map<String, JSONObject> = buildMap {

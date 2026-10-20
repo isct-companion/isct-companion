@@ -799,8 +799,8 @@ export type SchoolSourceStatus = {
    */
   signIn: SignInState | null;
   /**
-   * When Core last finished reading this source (RFC 3339), from the
-   * stored import runs.
+   * When Core last finished reading this source (RFC 3339): the newest
+   * complete read of its course list and deadlines, or of any 教務 page.
    */
   lastUpdated: string | null;
 };
