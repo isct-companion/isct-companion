@@ -188,8 +188,31 @@ fn invalid_capture_does_not_advance_clock_or_fill_candidates() {
         .candidates
         .iter()
         .all(|&n| n == 0));
+    for (sharpness, source_size) in [(9., 20.), (100., 9.)] {
+        let mut low_quality = frame(|_| true, 0);
+        for glyph in &mut low_quality.glyphs {
+            glyph.sharpness = sharpness;
+            glyph.source_size = source_size;
+        }
+        assert_eq!(
+            scanner
+                .observe(&id, Some(low_quality), now + Duration::from_millis(500))
+                .unwrap()
+                .capture_elapsed_ms,
+            0.
+        );
+    }
+    let mut camera_resolution_boundary = frame(|_| true, 0);
+    for glyph in &mut camera_resolution_boundary.glyphs {
+        glyph.sharpness = 10.;
+        glyph.source_size = 10.;
+    }
     scanner
-        .observe(&id, Some(frame(|_| true, 0)), now + Duration::from_secs(1))
+        .observe(
+            &id,
+            Some(camera_resolution_boundary),
+            now + Duration::from_secs(1),
+        )
         .unwrap();
     assert!(scanner.observe(&id, Some(frame(|_| true, 0)), now).is_err());
 }

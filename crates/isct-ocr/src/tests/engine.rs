@@ -521,6 +521,20 @@ fn outlined_card() -> RgbImage {
     }
     image
 }
+
+fn dim_blue_camera_card() -> RgbImage {
+    let mut image = outlined_card();
+    for pixel in image.pixels_mut() {
+        *pixel = match pixel.0 {
+            [30, 30, 30] => Rgb([10, 35, 75]),
+            [70, 70, 70] => Rgb([105, 125, 145]),
+            [245, 210, 210] => Rgb([48, 70, 96]),
+            [20, 20, 20] => Rgb([5, 10, 15]),
+            _ => *pixel,
+        };
+    }
+    image
+}
 #[test]
 fn arbitrary_rotation_stretch_and_perspective_keep_cell_order() {
     use imageproc::geometric_transformations::{warp, Border, Interpolation, Projection};
@@ -561,6 +575,30 @@ fn arbitrary_rotation_stretch_and_perspective_keep_cell_order() {
                 let expected = transform * original;
                 assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "incorrect cell order/geometry at {degrees} degrees: {actual:?} vs {expected:?}");
             }
+        }
+    }
+    // A backlit webcam can expose the blue card body below the old fixed dark
+    // threshold. The camera path must still separate the darker header/labels,
+    // and preserve cell order at every right-angle device orientation.
+    let image = dim_blue_camera_card();
+    for degrees in [0., 90., 180., 270.] {
+        let transform = Projection::translate(300., 300.)
+            * Projection::rotate(f32::to_radians(degrees))
+            * Projection::translate(-300., -300.);
+        let rotated = warp(
+            &image,
+            transform,
+            Interpolation::Bilinear,
+            Border::Constant(Rgb([255; 3])),
+        );
+        let camera = geometry::locate_capture(&rotated)
+            .unwrap_or_else(|| panic!("dim blue camera grid lost at {degrees} degrees"));
+        for (actual, original) in [(camera[0][0], (150., 210.)), (camera[69][2], (450., 420.))] {
+            let expected = transform * original;
+            assert!(
+                (actual.x - expected.0 as f64).hypot(actual.y - expected.1 as f64) < 6.,
+                "dim camera crop changed cell identity at {degrees} degrees: {actual:?} vs {expected:?}"
+            );
         }
     }
 }
