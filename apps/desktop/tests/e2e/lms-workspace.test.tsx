@@ -340,6 +340,56 @@ const lectureRoute = (courseId: string) =>
   `/lectures/${encodeURIComponent(courseId)}`;
 
 describe("the LMS reading workspace", () => {
+  it("restores a saved reader when the app starts at a narrow snap size", async () => {
+    const fixture = lectureFixture();
+    const key = `${fixture.workspace.deviceId}:${fixture.course.id}`;
+    sessionStorage.setItem(
+      `lms-reading:${key}`,
+      JSON.stringify({
+        version: 3,
+        expanded: [],
+        scroll: 0,
+        opened: { id: "m1", title: "Lecture file", kind: "material" },
+      }),
+    );
+    const previousMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: (media: string) => ({
+        media,
+        matches: true,
+        onchange: null,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+        dispatchEvent: () => false,
+      }),
+    });
+
+    try {
+      const { host } = await openWorkspace(fixture);
+      expect(
+        host.querySelector(".lmsWorkspace")?.classList.contains("narrowReader"),
+      ).toBe(true);
+      expect(
+        host.querySelector(".lmsWorkspace")?.classList.contains("viewing"),
+      ).toBe(true);
+      expect(host.querySelector(".lmsViewerBody")?.textContent).toContain(
+        "Readable file body",
+      );
+    } finally {
+      if (previousMatchMedia)
+        Object.defineProperty(window, "matchMedia", {
+          configurable: true,
+          writable: true,
+          value: previousMatchMedia,
+        });
+      else delete (window as unknown as { matchMedia?: unknown }).matchMedia;
+    }
+  }, 30_000);
+
   it("lays out every lesson as a page and opens the outline where the course is", async () => {
     const f = lectureFixture();
     f.record.sections = [

@@ -9,6 +9,7 @@ import {
   workspaceRoutes,
   type DrawerTab,
 } from "@app/app/routes";
+import { formFactorFor } from "@app/app/form-factor";
 import { seedWorkspace, type Workspace } from "@app/lib/model";
 import type {
   CoreWorkspaceSnapshot,
@@ -1040,6 +1041,18 @@ describe("runtime capabilities", () => {
 
     installHost({ workspace: workspaceFixture() });
     expect(detectPlatform()).toBe("native-desktop");
+  });
+});
+
+describe("responsive form factor", () => {
+  it("keeps the native desktop shell stable at snapped viewport sizes", () => {
+    expect(formFactorFor("native-desktop", true)).toBe("workstation");
+    expect(formFactorFor("native-desktop", false)).toBe("workstation");
+  });
+
+  it("keeps compact layout available to narrow browser previews", () => {
+    expect(formFactorFor("browser-preview", true)).toBe("mobile");
+    expect(formFactorFor("browser-preview", false)).toBe("workstation");
   });
 });
 

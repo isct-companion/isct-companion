@@ -39,7 +39,7 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-ONEDRIVE-WRITE` — never verified
 - `CLOUD-RESILIENCE` — never verified
-- `DESKTOP-COMPACT-LAYOUT` — never verified
+- `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-LOG-EXPORT` — never verified
@@ -97,7 +97,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
-| `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
+| `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/form-factor.ts<br>apps/desktop/src/app/App.tsx<br>apps/desktop/src/layouts/compact/**<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
@@ -233,6 +233,16 @@ keyboard and never touches the mouse.
 
 Resizes the window until the layout changes. Uses the number shortcuts
 and Escape. Tabs through a form and expects focus to stay visible.
+
+### Windows user snapping the desktop app (`windows-snap-user`)
+
+Identity: undergraduate · Language: zh · Device: windows-x64
+
+Uses the Windows desktop build on a laptop and keeps the app beside a
+browser or course document using Windows Snap.
+
+Expects the desktop navigation and current course reader to remain usable
+as the app moves between full-size, half-screen and quarter-screen sizes.
 
 ## Checks
 
@@ -1029,46 +1039,56 @@ Recorded in docs/verification/core-consolidation.md.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
 
-### Keyboard-only use in a narrow window (`DESKTOP-COMPACT-LAYOUT`)
+### Windows Snap keeps the desktop shell and open LMS reader usable (`DESKTOP-WINDOWS-SNAP-LAYOUT`)
 
-**Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
 
 > Not verified: never verified
 
 **Preconditions**
 
-A desktop build and a resizable window.
+A Windows desktop build, a resizable window, and a course with a saved
+open LMS document.
 
 **Steps**
 
-1. Resize the window until the layout switches to the compact shell.
-   - *Why:* The switch is the boundary where a page that fits the workstation
-     layout starts scrolling or clipping instead.
-2. Navigate with the number shortcuts and Escape, then open a course.
-   - *Why:* Keyboard reachability is invisible to a DOM test that fires clicks;
-     only real focus and real shortcuts prove the wiring.
-3. Tab through the course editor and place a course.
-   - *Why:* Focus must stay visible and land in a sensible order, which a
-     rendered-DOM assertion cannot establish.
+1. Snap the app to half the screen, then to a quarter-screen zone.
+   - *Why:* Snap changes the WebView's CSS viewport and aspect ratio; these are
+     the conditions that previously switched the native desktop app into
+     its compact shell.
+2. Open the Lectures page and confirm the saved document remains visible
+   in its reader after each resize.
+   - *Why:* A narrow reader can otherwise restore its outline while hiding the
+     previously selected document, which looks like course data vanished.
+3. Restore the app to full size and check the workstation navigation and
+   reader layout again.
+   - *Why:* Confirms Snap did not leave the app in a compact shell after the
+     viewport widens.
 
 **Where to look**
 
-The window at each size, the focus ring, and the page that each shortcut
-reaches.
+The Windows app window at each size, its navigation shell, the open LMS
+document, and the state after restoring full size.
 
 **Expected**
 
-Every screen fits without page scroll, focus stays visible, and the
-shortcuts reach the same destinations as the tabs.
+The native desktop app keeps the workstation shell at every snapped size;
+an already-open LMS document remains visible after each resize, and
+restoring full size returns to the normal desktop layout.
 
 **Why this is manual**
 
-Depends on real window sizing, real focus and real keyboard events.
+Windows Snap and WebView2 determine the actual CSS viewport and resize
+timing. The scripted frontend can test the target policy and restored
+reader state, but it cannot reproduce the native window transition.
 
 **Covers**
 
+- `apps/desktop/src/app/form-factor.ts`
+- `apps/desktop/src/app/App.tsx`
 - `apps/desktop/src/layouts/compact/**`
-- `apps/desktop/src/app/routes.ts`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/features/lms/lms.css`
 
 **Last recorded** never run
 

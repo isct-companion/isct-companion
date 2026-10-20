@@ -233,7 +233,9 @@ export function LmsWorkspace({
   const flip = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
   const [original, setOriginal] = useState(false);
-  const [mobileViewer, setMobileViewer] = useState(false);
+  // A saved reader can be restored while the window is already narrow. Keep
+  // it selected so the narrow-reader rules do not hide its contents on launch.
+  const [mobileViewer, setMobileViewer] = useState(Boolean(saved?.opened));
   const outline = useRef<HTMLDivElement>(null);
   const [narrowWindow, setNarrowWindow] = useState(
     () => window.matchMedia?.(NARROW_QUERY).matches ?? false,

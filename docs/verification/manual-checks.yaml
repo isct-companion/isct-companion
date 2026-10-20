@@ -163,6 +163,18 @@ personas:
     language: en
     device: macos-arm64
 
+  - id: windows-snap-user
+    label: Windows user snapping the desktop app
+    identity: undergraduate
+    context: |
+      Uses the Windows desktop build on a laptop and keeps the app beside a
+      browser or course document using Windows Snap.
+    behaviour: |
+      Expects the desktop navigation and current course reader to remain usable
+      as the app moves between full-size, half-screen and quarter-screen sizes.
+    language: zh
+    device: windows-x64
+
 # ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
@@ -820,7 +832,8 @@ checks:
       commit: 7fdf1b6
       by: human
       result: pass
-      notes: 67 expected cells recognised, no wrong accepted cells; private image not
+      notes:
+        67 expected cells recognised, no wrong accepted cells; private image not
         committed.
       evidence: docs/verification/core-consolidation.md#automated-acceptance
 
@@ -869,39 +882,49 @@ checks:
       notes: Recorded in docs/verification/core-consolidation.md.
       evidence: docs/verification/core-consolidation.md#live-macos-acceptance
 
-  - id: DESKTOP-COMPACT-LAYOUT
+  - id: DESKTOP-WINDOWS-SNAP-LAYOUT
     area: desktop
-    title: Keyboard-only use in a narrow window
-    persona: narrow-window-keyboard
+    title: Windows Snap keeps the desktop shell and open LMS reader usable
+    persona: windows-snap-user
     preconditions: |
-      A desktop build and a resizable window.
+      A Windows desktop build, a resizable window, and a course with a saved
+      open LMS document.
     steps:
       - action: |
-          Resize the window until the layout switches to the compact shell.
+          Snap the app to half the screen, then to a quarter-screen zone.
         reason: |
-          The switch is the boundary where a page that fits the workstation
-          layout starts scrolling or clipping instead.
+          Snap changes the WebView's CSS viewport and aspect ratio; these are
+          the conditions that previously switched the native desktop app into
+          its compact shell.
       - action: |
-          Navigate with the number shortcuts and Escape, then open a course.
+          Open the Lectures page and confirm the saved document remains visible
+          in its reader after each resize.
         reason: |
-          Keyboard reachability is invisible to a DOM test that fires clicks;
-          only real focus and real shortcuts prove the wiring.
+          A narrow reader can otherwise restore its outline while hiding the
+          previously selected document, which looks like course data vanished.
       - action: |
-          Tab through the course editor and place a course.
+          Restore the app to full size and check the workstation navigation and
+          reader layout again.
         reason: |
-          Focus must stay visible and land in a sensible order, which a
-          rendered-DOM assertion cannot establish.
+          Confirms Snap did not leave the app in a compact shell after the
+          viewport widens.
     observe: |
-      The window at each size, the focus ring, and the page that each shortcut
-      reaches.
+      The Windows app window at each size, its navigation shell, the open LMS
+      document, and the state after restoring full size.
     expected: |
-      Every screen fits without page scroll, focus stays visible, and the
-      shortcuts reach the same destinations as the tabs.
+      The native desktop app keeps the workstation shell at every snapped size;
+      an already-open LMS document remains visible after each resize, and
+      restoring full size returns to the normal desktop layout.
     why_manual: |
-      Depends on real window sizing, real focus and real keyboard events.
+      Windows Snap and WebView2 determine the actual CSS viewport and resize
+      timing. The scripted frontend can test the target policy and restored
+      reader state, but it cannot reproduce the native window transition.
     covers:
+      - apps/desktop/src/app/form-factor.ts
+      - apps/desktop/src/app/App.tsx
       - apps/desktop/src/layouts/compact/**
-      - apps/desktop/src/app/routes.ts
+      - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/features/lms/lms.css
     verified: null
 
   - id: DESKTOP-CAMPUS-WIFI
@@ -1704,17 +1727,23 @@ checks:
       the app and its data. A debug build may use the strictly loopback fixture
       origin; release builds always use the source repository.
     steps:
-      - action: Detect an update, download a tampered copy, then retry with the valid
+      - action:
+          Detect an update, download a tampered copy, then retry with the valid
           signed bundle.
-        reason: The real native updater must reject modified bytes before permitting
+        reason:
+          The real native updater must reject modified bytes before permitting
           installation; fixtures alone do not exercise the packaged app and key.
-      - action: Enable automatic updates, quit through the app menu or Cmd-Q, and
+      - action:
+          Enable automatic updates, quit through the app menu or Cmd-Q, and
           reopen.
-        reason: Cocoa's predefined Quit can bypass ExitRequested; the native menu must
+        reason:
+          Cocoa's predefined Quit can bypass ExitRequested; the native menu must
           enter owned shutdown before installing verified bytes.
-      - action: Compare the installed version, login state, saved settings, timetable
+      - action:
+          Compare the installed version, login state, saved settings, timetable
           and course records with the rollback copy.
-        reason: A real bundle replacement must preserve the same app-data and Keychain
+        reason:
+          A real bundle replacement must preserve the same app-data and Keychain
           access; an isolated parser test cannot verify that.
     observe: Settings > About, the application bundle version,
       updater-install-result.json in app data, and the retained workspace.
@@ -1722,7 +1751,8 @@ checks:
       Tampered content is rejected, the valid bundle installs through Cmd-Q,
       the new version reopens and saved data and login credentials remain.
       A source repository with no stable release is reported as unpublished.
-    why_manual: Requires Developer ID signing, real macOS menu dispatch, Keychain
+    why_manual:
+      Requires Developer ID signing, real macOS menu dispatch, Keychain
       access and native app-bundle replacement.
     covers:
       - apps/desktop/src-tauri/src/desktop_updates.rs
@@ -1748,13 +1778,16 @@ checks:
       a newer signed release published, and a Windows PC whose Smart App
       Control can be switched between Off and On (or a second PC with it On).
     steps:
-      - action: Throttle the connection to about 2 Mbps (e.g. a metered hotspot or
+      - action:
+          Throttle the connection to about 2 Mbps (e.g. a metered hotspot or
           a router limit), open Settings > About and press Download update.
-        reason: The installer is over 30 MB; only a real slow link shows whether the
+        reason:
+          The installer is over 30 MB; only a real slow link shows whether the
           download outlives the old 30-second whole-request timeout and whether
           the byte counter moves while the command is still running.
       - action: Disconnect the network mid-download and wait about a minute.
-        reason: A stalled transfer must end in an error that names the stall, not
+        reason:
+          A stalled transfer must end in an error that names the stall, not
           leave the panel on "Downloading" forever.
       - action: With Smart App Control Off, press Install and quit, let the NSIS
           installer finish and reopen the app.
@@ -1763,7 +1796,8 @@ checks:
           drains background work for up to 15 seconds; a window left on screen
           meanwhile looks frozen.
       - action: Repeat the install with Smart App Control On.
-        reason: Smart App Control blocks the unsigned installer after the app has
+        reason:
+          Smart App Control blocks the unsigned installer after the app has
           exited; only a real policy shows what the next launch reports.
     observe: Settings > About status line, the notice at launch, and the version
       shown in About.
@@ -1861,16 +1895,19 @@ checks:
     area: desktop
     title: Windows release launches without a companion terminal
     persona: undergraduate-senior
-    preconditions: A Windows release installer built from the current desktop source
+    preconditions:
+      A Windows release installer built from the current desktop source
       and a real Windows desktop.
     steps:
       - action: Install the release, launch it from Explorer, and open a course
           workspace file.
-        reason: Windows subsystem and child-process consoles cannot be observed by
+        reason:
+          Windows subsystem and child-process consoles cannot be observed by
           headless Unix tests.
     observe: The Windows desktop, app window and taskbar.
     expected: The app and workspace open without an accompanying console window.
-    why_manual: Requires a native Windows release executable, Explorer and the real
+    why_manual:
+      Requires a native Windows release executable, Explorer and the real
       desktop shell.
     covers:
       - apps/desktop/src-tauri/src/main.rs

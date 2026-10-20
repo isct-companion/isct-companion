@@ -979,8 +979,38 @@ describe("Chinese UI", () => {
  * Mobile / compact shell.
  * ------------------------------------------------------------------ */
 
+describe("native desktop shell when snapped", () => {
+  beforeEach(() => {
+    (
+      window as unknown as Record<string, unknown>
+    ).__ISCT_COMPANION_NATIVE_TARGET__ = "native-desktop";
+    window.matchMedia = ((media: string) => ({
+      media,
+      matches: media === STACKED_QUERY,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  it("keeps workstation navigation at a narrow snapped viewport", async () => {
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:native-desktop-snap",
+      }),
+      { route: paths.home() },
+    );
+    const { host } = app;
+    await until(() => expect(host.querySelector(".rail")).not.toBeNull());
+    expect(host.querySelector(".mobileShell")).toBeNull();
+  }, 20_000);
+});
+
 describe("mobile shell", () => {
   beforeEach(() => {
+    (
+      window as unknown as Record<string, unknown>
+    ).__ISCT_COMPANION_NATIVE_TARGET__ = "browser-preview";
     window.matchMedia = ((media: string) => ({
       media,
       matches: media === STACKED_QUERY,
@@ -1313,6 +1343,9 @@ describe("swipe actions on list rows", () => {
 
 describe("edge-swipe back on the mobile shell", () => {
   beforeEach(() => {
+    (
+      window as unknown as Record<string, unknown>
+    ).__ISCT_COMPANION_NATIVE_TARGET__ = "browser-preview";
     window.matchMedia = ((media: string) => ({
       media,
       matches: media === STACKED_QUERY,
