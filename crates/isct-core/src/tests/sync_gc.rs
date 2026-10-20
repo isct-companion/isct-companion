@@ -24,19 +24,19 @@ fn course(connection: &Connection, lms_id: i64) {
         "sections": [{"id": 1, "title": "Week 1", "bodyHtml": "<p>Welcome</p>"}]});
     connection
         .execute(
-            "INSERT INTO lms_courses(id,lms_id,value,hash,updated_at,updated_by,rev)
-             VALUES(?1,?2,?3,'old','2025-04-01T00:00:00+00:00','lms',1)",
-            params![format!("lms-course:{lms_id}"), lms_id, value.to_string()],
+            "INSERT INTO lms_courses(id,value,hash,updated_at,updated_by,rev)
+             VALUES(?1,?2,'old','2025-04-01T00:00:00+00:00','lms',1)",
+            params![format!("lms-course:{lms_id}"), value.to_string()],
         )
         .unwrap();
-    let item = json!({"id": format!("lms-item:{lms_id}0"), "lmsCourseId": lms_id,
+    let item = json!({"id": format!("lms-item:{lms_id}0"), "cmid": lms_id * 10, "lmsCourseId": lms_id,
         "name": "Notes", "rev": 1, "bodyHtml": "<p>Notes</p>",
         "resourceUrl": "https://lms.s.isct.ac.jp/2025/notes.pdf", "folderFiles": [{"name": "a.pdf"}]});
     connection
         .execute(
-            "INSERT INTO lms_items(id,cmid,value,hash,updated_at,updated_by,rev)
-             VALUES(?1,?2,?3,'old','2025-04-01T00:00:00+00:00','lms',1)",
-            params![format!("lms-item:{lms_id}0"), lms_id * 10, item.to_string()],
+            "INSERT INTO lms_items(id,value,hash,updated_at,updated_by,rev)
+             VALUES(?1,?2,'old','2025-04-01T00:00:00+00:00','lms',1)",
+            params![format!("lms-item:{lms_id}0"), item.to_string()],
         )
         .unwrap();
 }

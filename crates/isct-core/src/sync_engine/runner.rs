@@ -1397,7 +1397,7 @@ fn load_inputs(
         let courses = crate::lms_ingest::stored_courses(transaction)
             .map_err(|error| DataError::Storage(error.to_string()))?;
         let mut statement = transaction.prepare(
-            "SELECT json_extract(value,'$.lmsId'), json_extract(value,'$.offeringId')
+            "SELECT lms_id, json_extract(value,'$.offeringId')
              FROM lms_courses WHERE missing_since IS NULL",
         )?;
         let offerings = statement

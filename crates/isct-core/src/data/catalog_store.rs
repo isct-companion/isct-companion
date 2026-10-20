@@ -86,8 +86,7 @@ impl DataStore {
         let delivered = {
             let mut statement = transaction.prepare(
                 "SELECT id FROM offerings
-                 WHERE json_extract(value,'$.year')=?1 AND json_extract(value,'$.pack') IS NOT NULL
-                   AND json_extract(value,'$.kyomu') IS NULL
+                 WHERE year=?1 AND pack=1 AND NOT kyomu
                    AND missing_since IS NULL AND deleted_at IS NULL",
             )?;
             let ids = statement
@@ -115,8 +114,7 @@ impl DataStore {
     ) -> Result<usize, DataError> {
         let count: i64 = connection.query_row(
             "SELECT COUNT(*) FROM offerings
-             WHERE json_extract(value,'$.year')=?1 AND json_extract(value,'$.pack') IS NOT NULL
-               AND missing_since IS NULL AND deleted_at IS NULL",
+             WHERE year=?1 AND pack=1 AND missing_since IS NULL AND deleted_at IS NULL",
             [year],
             |row| row.get(0),
         )?;
@@ -307,13 +305,13 @@ fn upsert_offering_in(transaction: &Transaction<'_>, offering: &Value) -> Result
 fn rebuild_year_index(transaction: &Transaction<'_>, year: u16) -> Result<(), DataError> {
     transaction.execute(
         "DELETE FROM offerings_fts WHERE offering_id IN
-           (SELECT id FROM offerings WHERE json_extract(value,'$.year')=?1)",
+           (SELECT id FROM offerings WHERE year=?1)",
         [year],
     )?;
     let rows = {
         let mut statement = transaction.prepare(
             "SELECT value FROM offerings
-             WHERE json_extract(value,'$.year')=?1 AND missing_since IS NULL AND deleted_at IS NULL",
+             WHERE year=?1 AND missing_since IS NULL AND deleted_at IS NULL",
         )?;
         let rows = statement
             .query_map([year], |row| row.get::<_, String>(0))?

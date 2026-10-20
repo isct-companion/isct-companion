@@ -84,7 +84,6 @@ fn upsert_versioned(
     table: &str,
     id: &str,
     value: &Value,
-    columns: &[(&str, rusqlite::types::Value)],
 ) -> Result<bool, IngestError> {
     let hash = content_hash(value)?;
     let existing: Option<(String, Option<String>)> = tx
@@ -107,29 +106,6 @@ fn upsert_versioned(
         ).map_err(IngestError::from)?;
         return Ok(changed);
     }
-    let mut names = vec![
-        "id",
-        "value",
-        "hash",
-        "updated_at",
-        "updated_by",
-        "rev",
-        "source",
-        "deleted_at",
-        "last_seen_at",
-        "missing_since",
-    ];
-    names.extend(columns.iter().map(|(name, _)| *name));
-    let marks = (1..=names.len())
-        .map(|n| format!("?{n}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let updates = names
-        .iter()
-        .skip(1)
-        .map(|name| format!("{name}=excluded.{name}"))
-        .collect::<Vec<_>>()
-        .join(",");
     let old_rev: u64 = tx
         .query_row(&format!("SELECT rev FROM {table} WHERE id=?1"), [id], |r| {
             r.get(0)
@@ -149,25 +125,17 @@ fn upsert_versioned(
         object.remove("deletedAt");
     }
     let json = serde_json::to_string(&stored).map_err(IngestError::from)?;
-    let mut values = vec![
-        id.to_string().into(),
-        json.into(),
-        hash.into(),
-        timestamp.clone().into(),
-        String::from("lms").into(),
-        (rev as i64).into(),
-        String::from("lms").into(),
-        rusqlite::types::Value::Null,
-        timestamp.clone().into(),
-        rusqlite::types::Value::Null,
-    ];
-    values.extend(columns.iter().map(|(_, value)| value.clone()));
     tx.execute(
         &format!(
-            "INSERT INTO {table} ({}) VALUES ({marks}) ON CONFLICT(id) DO UPDATE SET {updates}",
-            names.join(",")
+            "INSERT INTO {table}
+             (id,value,hash,updated_at,updated_by,rev,source,deleted_at,last_seen_at,missing_since)
+             VALUES (?1,?2,?3,?4,'lms',?5,'lms',NULL,?4,NULL)
+             ON CONFLICT(id) DO UPDATE SET value=excluded.value,hash=excluded.hash,
+               updated_at=excluded.updated_at,updated_by=excluded.updated_by,rev=excluded.rev,
+               source=excluded.source,deleted_at=NULL,last_seen_at=excluded.last_seen_at,
+               missing_since=NULL"
         ),
-        rusqlite::params_from_iter(values),
+        params![id, json, hash, timestamp, rev as i64],
     )
     .map_err(IngestError::from)?;
     Ok(true)
@@ -381,20 +349,6 @@ impl Assignment {
             "assignments",
             &format!("lms-assignment:{cmid}"),
             &assignment,
-            &[
-                ("title", self.title.clone().into()),
-                (
-                    "due_at",
-                    self.due_at
-                        .clone()
-                        .map(Into::into)
-                        .unwrap_or(rusqlite::types::Value::Null),
-                ),
-                ("source_url", self.url.clone().into()),
-                ("lms_cmid", (cmid as i64).into()),
-                ("lms_course_id", (self.lms_course as i64).into()),
-                ("submission", self.submission.clone().into()),
-            ],
         )
     }
 }
@@ -448,13 +402,7 @@ pub fn apply_lms_enrolment(
             "shortname":course.shortname,"title":split_title(&course.fullname,&enrolment.language),"year":year,
             "quarters":quarter_of(year,course.coursecategory),"url":course.viewurl,"hidden":course.hidden,
             "timetables":timetables,"sections":sections});
-        changed += usize::from(upsert_versioned(
-            tx,
-            "lms_courses",
-            &lms_course_id,
-            &value,
-            &[("lms_id", (course.id as i64).into())],
-        )?);
+        changed += usize::from(upsert_versioned(tx, "lms_courses", &lms_course_id, &value)?);
         let lms_id = course.id.to_string();
         let academic_year = year.unwrap_or_else(|| Utc::now().year() as u32) as i32;
         resolve_course_id(tx, "lms", &lms_id, academic_year, offering.as_deref())?;
@@ -523,7 +471,6 @@ pub fn apply_lms_course(
         "lms_courses",
         &lms_course_id,
         &course,
-        &[("lms_id", (course_id as i64).into())],
     )?);
 
     let section_of: HashMap<u64, (&str, i64)> = sections
@@ -569,13 +516,7 @@ pub fn apply_lms_course(
             "sectionId":id_of(cm.get("sectionid")),"bodyHtml":body,"resourceUrl":resource_url,"folderFiles":folder_files,"sectionTitle":section.0,"module":module,"name":name,
             "session":section.1,"title":name,"type":"link","url":url,"modified":cm.get("modified"),
             "visible":cm.get("visible").and_then(Value::as_bool).unwrap_or(false) && cm.get("uservisible").and_then(Value::as_bool).unwrap_or(false)});
-        changed += usize::from(upsert_versioned(
-            tx,
-            "lms_items",
-            &item_id,
-            &item,
-            &[("cmid", (cmid as i64).into())],
-        )?);
+        changed += usize::from(upsert_versioned(tx, "lms_items", &item_id, &item)?);
         if matches!(module, "assign" | "quiz") {
             let row = match Assignment::load(tx, cmid)? {
                 Some(mut row) => {
@@ -597,7 +538,7 @@ pub fn apply_lms_course(
     changed += mark_missing(
         tx,
         "lms_items",
-        "SELECT id FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1 AND missing_since IS NULL",
+        "SELECT id FROM lms_items WHERE lms_course_id=?1 AND missing_since IS NULL",
         [course_id],
         &live,
     )?;
@@ -834,7 +775,7 @@ pub fn stored_modules(
     lms_course: u64,
 ) -> Result<HashMap<u64, StoredModule>, IngestError> {
     let mut statement = connection
-        .prepare("SELECT value FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1 AND missing_since IS NULL")
+        .prepare("SELECT value FROM lms_items WHERE lms_course_id=?1 AND missing_since IS NULL")
         .map_err(IngestError::from)?;
     let rows = statement
         .query_map([lms_course], |row| row.get::<_, String>(0))
