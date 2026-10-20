@@ -1,4 +1,4 @@
-use super::{apply_lms_payload, IngestError, LMS_EXTRACT_SCRIPT};
+use super::{apply_lms_payload, IngestError};
 use crate::data::{commit_on, migrations};
 use crate::school_parser::lms::{LmsCourse, LmsPayload, LmsStructure};
 use rusqlite::Connection;
@@ -39,19 +39,6 @@ fn invalid_item_payload() -> LmsPayload {
         timetable_errors: Vec::new(),
         skipped: 0,
     }
-}
-
-#[test]
-fn extractor_routes_work_by_loaded_page_and_explicit_scope() {
-    assert!(LMS_EXTRACT_SCRIPT
-        .contains("const fullScan = globalThis.__ISCT_COMPANION_LMS_FULL__ === true"));
-    assert!(LMS_EXTRACT_SCRIPT
-        .contains("const requestedCourseId = explicitCourseId || (!fullScan ? pageCourseId : 0)"));
-    assert!(LMS_EXTRACT_SCRIPT.contains("'core_calendar_get_action_events_by_course'"));
-    assert!(LMS_EXTRACT_SCRIPT
-        .contains("if (requestedCourseId) return Number(course.id) === requestedCourseId;"));
-    assert!(LMS_EXTRACT_SCRIPT
-        .contains("return fullScan || (currentScan && currentIds.has(Number(course.id)));"));
 }
 
 #[test]

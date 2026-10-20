@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 57 checks must be re-run before the next release.**
+**7 of 58 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,8 +27,9 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**48 checks have never been run or could not be run:**
+**49 checks have never been run or could not be run:**
 
+- `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
 - `IDENTITY-DOCTORAL-RULES` — never verified
@@ -83,7 +84,8 @@ an unverified area becomes an assumed-good one.
 | Check | Area | Persona | Result | Covers |
 | --- | --- | --- | --- | --- |
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/school_browser/engine/**<br>crates/isct-core/src/school_service.rs |
-| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/lms_ingest.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>crates/isct-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
+| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/lms_ingest.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs<br>crates/isct-core/src/school_parser/lms/pages.rs<br>crates/isct-core/src/net/moodle/pull.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>crates/isct-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
+| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/moodle/token.rs<br>crates/isct-core/src/net/moodle/rest.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/school_auth.rs<br>docs/lms-api/README.md |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
@@ -91,7 +93,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/isct-core/src/kyomu_ingest.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/study_profile.rs |
 | `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/kyomu_ingest.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
-| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
+| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
@@ -110,7 +112,7 @@ an unverified area becomes an assumed-good one.
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
-| `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/lms_submission_status.js<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
+| `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_parser/lms/pages.rs<br>crates/isct-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>crates/isct-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
@@ -350,6 +352,9 @@ enrolment.
 - `crates/isct-core/src/lms_ingest.rs`
 - `crates/isct-core/src/lms_session.rs`
 - `crates/isct-core/src/school_parser/lms.rs`
+- `crates/isct-core/src/school_parser/lms/pages.rs`
+- `crates/isct-core/src/net/moodle/pull.rs`
+- `crates/isct-core/src/net/moodle/ajax.rs`
 - `crates/isct-core/src/catalog.rs`
 - `crates/isct-core/src/data/school_projection.rs`
 - `crates/isct-core/src/schedule/search.rs`
@@ -360,6 +365,84 @@ enrolment.
 7 matched courses, no differences.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
+
+### LMS pull over the mobile token, and its fallback to the session cookie (`SCHOOL-LMS-TOKEN-PULL`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The account from SCHOOL-SIGNIN-SCIENCE is Signed in, with at least one
+course that has an assignment, a quiz and an announcement forum. A debug
+desktop build with the app log visible.
+
+**Steps**
+
+1. With no LMS token in the vault (fresh profile, or after forgetting
+   and re-adding the school account), run a full LMS pull.
+   - *Why:* The token comes from one cookie-authenticated launch.php GET answered
+     by a 302 to moodlemobile://; only the real site proves the redirect,
+     the base64 layout and the md5(wwwroot + passport) signature agree
+     with the parser.
+2. Search the exported app log and the database file for the token's
+   first characters (read them from the OS keychain item
+   "lms-token-science" yourself; never paste the token anywhere).
+   - *Why:* The token cannot be revoked by a student. A leak into a log, a row or
+     an error message is the failure this step exists to catch.
+3. Compare courses, assignment states (submitted, graded with grade,
+   late-allowed), quiz states and announcement bodies with the LMS
+   pages and with the previous cookie-based pull.
+   - *Why:* Several REST functions (`mod_quiz_*`, `mod_forum_get_forums_by_courses`,
+     the module getters, the calendar views, the timeline course list) are
+     listed by the site but their answers were never probed. A silently
+     empty mapping looks like "nothing to do" in Today.
+4. Quit and restart the app, then pull the deadlines before opening any
+   school page.
+   - *Why:* The token survives the restart while the web session does not; the
+     pull must not wait for a WebView sign-in except for the timetable.
+5. Replace the keychain item's token with a random 32-character value and
+   pull again.
+   - *Why:* A refused token arrives as HTTP 200 with errorcode invalidtoken; the
+     client must drop it, sign in once and launch a new one rather than
+     loop or fall back silently forever.
+6. Block `webservice/rest/server.php` (for example with a local proxy
+   rule) and pull once more.
+   - *Why:* The cookie transport must take over with the same results; the app
+     log names the fallback reason without any credential.
+
+**Where to look**
+
+The LMS page lists, Today's assignment rows, the app log export and the
+keychain item.
+
+**Expected**
+
+The first pull creates exactly one vault item and matches the LMS like
+SCHOOL-LMS-PULL. No log line, database row or error contains the token,
+sesskey or passport. After the restart the deadlines refresh before any
+school page opens. The forged token is replaced after one sign-in and
+the pull completes. With REST blocked the pull completes through the
+cookie path with the same courses and states, and the log says the
+token transport was unavailable.
+
+**Why this is manual**
+
+Needs a real account's web session to launch a token, and the answers of
+account-scoped REST functions that no fixture can stand in for. The pure
+parsing and mapping are covered by the net::moodle unit tests.
+
+**Covers**
+
+- `crates/isct-core/src/net/moodle/mod.rs`
+- `crates/isct-core/src/net/moodle/token.rs`
+- `crates/isct-core/src/net/moodle/rest.rs`
+- `crates/isct-core/src/net/moodle/ajax.rs`
+- `crates/isct-core/src/school_auth.rs`
+- `docs/lms-api/README.md`
+
+**Last recorded** never run
 
 ### A first-year student is refused an upper-level course with a reason (`IDENTITY-FIRST-YEAR-GATE`)
 
@@ -729,8 +812,8 @@ The school has moved the LMS to a new academic-year path.
    - *Why:* The pinned year must come from the site, not from memory. This step
      is the trigger for the rest of the check.
 2. If it differs from the pinned year, update LMS_HOME in
-   crates/isct-core/src/lms_session.rs and the path literals in
-   crates/isct-core/src/lms_ingest.rs.
+   crates/isct-core/src/lms_session.rs and LMS_WWWROOT and LMS_PATH in
+   crates/isct-core/src/school_parser/lms.rs.
    - *Why:* A stale literal does not fail loudly; it silently extracts nothing.
      The edit is mechanical, which is exactly why it must be paired with
      the real pull below rather than trusted.
@@ -756,7 +839,7 @@ suite fails but only a real account can confirm the new path works.
 **Covers**
 
 - `crates/isct-core/src/lms_session.rs`
-- `crates/isct-core/src/lms_ingest.rs`
+- `crates/isct-core/src/school_parser/lms.rs`
 
 **Last recorded** pass · 2026-10-16 · agent · `b598ae6` · `1.0.0-rc.3`
 
@@ -1790,7 +1873,8 @@ covered by the workspace Core tests and the lms-workspace e2e suite.
 
 **Covers**
 
-- `crates/isct-core/src/lms_submission_status.js`
+- `crates/isct-core/src/school_parser/lms/pages.rs`
+- `crates/isct-core/src/net/moodle/mapping.rs`
 - `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
 
 **Last recorded** never run
