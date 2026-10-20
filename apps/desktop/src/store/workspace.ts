@@ -279,10 +279,6 @@ export const workspaceActions = {
   markTimetableReviewed() {
     return internalWorkspaceStore.mutate({ kind: "markTimetableReviewed" });
   },
-  async reset() {
-    await repository.reset();
-    await internalWorkspaceStore.reload();
-  },
   exportData() {
     return repository.export();
   },

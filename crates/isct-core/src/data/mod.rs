@@ -4,6 +4,7 @@ mod changes;
 mod defaults;
 mod lms_store;
 mod records;
+mod reset_store;
 mod school_projection;
 mod settings;
 mod snapshot;

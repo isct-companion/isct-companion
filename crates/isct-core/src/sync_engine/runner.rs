@@ -1430,6 +1430,15 @@ impl SyncEngine {
         guard(&self.0.state).plan.clone()
     }
 
+    /// The commit gate an executor leased at `generation` writes through.
+    pub(crate) fn writer_for_test(&self, generation: u64) -> LeaseWriter {
+        LeaseWriter {
+            store: self.0.store.clone(),
+            gate: self.0.gate.clone(),
+            generation,
+        }
+    }
+
     /// A lease as `pump` would make it, without running it.
     pub(crate) fn lease_for_test(&self, lane: Lane) -> Option<Lease> {
         let mut state = guard(&self.0.state);
@@ -1454,16 +1463,7 @@ impl SyncEngine {
             .push((ManualTarget::Scope(scope), Instant::now()));
     }
 
-    /// `Hint::Open` without starting the driver.
-    pub(crate) fn open_for_test(&self, view: View) {
-        guard(&self.0.state).opens.insert(view, Instant::now());
-    }
-
     pub(crate) fn set_signed_in(&self, profile: SchoolAuthProfile) {
         guard(&self.0.state).facts.signed_in.insert(profile);
-    }
-
-    pub(crate) fn set_network(&self, network: Network) {
-        guard(&self.0.state).facts.network = network;
     }
 }

@@ -522,7 +522,6 @@ fn backup_error(e: isct_core::backup::BackupError) -> SdkError {
 fn runtime_error(e: isct_core::runtime::RuntimeError) -> SdkError {
     match e {
         isct_core::runtime::RuntimeError::Task(e) => e.into(),
-        isct_core::runtime::RuntimeError::School(e) => e.into(),
         other => SdkError::Internal {
             detail: other.to_string(),
         },
@@ -538,29 +537,10 @@ impl isct_core::scheduler::ScheduledExporter for Exporter {
     }
 }
 fn services(i: &Arc<Inner>) -> Result<isct_core::scheduler::SchedulerServices, SdkError> {
-    let executor: Arc<dyn isct_core::school_service::SchoolExecutor> = match i.core.school_browser()
-    {
-        Ok(browser) => browser,
-        Err(_) => Arc::new(NoBrowser),
-    };
-    Ok(i.core.services(
-        executor,
-        Arc::new(Exporter(i.backup.clone(), i.backup_directory.clone())),
-    ))
-}
-struct NoBrowser;
-impl isct_core::school_service::SchoolExecutor for NoBrowser {
-    fn execute(
-        &self,
-        _: isct_core::school_service::SchoolExecution,
-        _: isct_core::pull_coordinator::PullContext,
-    ) -> isct_core::school_service::SchoolExecutorFuture<'_> {
-        Box::pin(async {
-            Err(isct_core::school_service::SchoolExecutorError::Execution(
-                "School browser is not installed".into(),
-            ))
-        })
-    }
+    Ok(i.core.services(Arc::new(Exporter(
+        i.backup.clone(),
+        i.backup_directory.clone(),
+    ))))
 }
 fn ocr_available() -> bool {
     #[cfg(feature = "ocr")]

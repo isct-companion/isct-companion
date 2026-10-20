@@ -26,6 +26,7 @@ pub use json::JsonValue;
 mod events;
 mod operation;
 pub mod ports;
+mod reset;
 mod session;
 pub use events::{Event, StreamUpdate, Subscription};
 pub use operation::{Operation, OperationResult, OperationStatus, ScheduleSnapshot};

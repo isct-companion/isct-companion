@@ -24,6 +24,7 @@ pub struct Core {
     pub(crate) sync: Arc<SyncEngine>,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
+    pub(crate) reset_lease: crate::reset::ResetLease,
 }
 
 struct CoreEvents {
@@ -131,6 +132,7 @@ impl Core {
             auth,
             runtime,
             events,
+            reset_lease: Default::default(),
         }
     }
 

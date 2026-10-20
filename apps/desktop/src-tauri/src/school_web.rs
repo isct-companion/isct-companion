@@ -3,7 +3,7 @@ use crate::lifecycle::SchoolSite;
 #[cfg(target_os = "macos")]
 use crate::school_browser_native::SCHOOL_DATA_STORE;
 pub use crate::school_browser_native::{
-    IngestOutcome, SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds,
+    SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds,
 };
 use crate::school_browser_native::{ViewCallbacks, KYOMU_POPUP_SCRIPT, SCHOOL_LINKS_SCRIPT};
 #[cfg(target_os = "macos")]

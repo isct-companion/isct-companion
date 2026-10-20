@@ -1,5 +1,4 @@
 //! Desktop adapters. Domain services and their task lifetime belong to Core.
-use crate::school_web::SchoolWebController;
 use isct_core::{
     events::CoreEvent,
     ports::{EventError, EventSink},
@@ -54,10 +53,7 @@ pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
 // Operation-scoped ports avoid retaining AppHandle in the core's permanent
 // service state. Completed coordinator jobs release their work closures too.
 pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
-    core(app).services(
-        app.state::<SchoolWebController>().engine.clone(),
-        Arc::new(DesktopExport(app.clone())),
-    )
+    core(app).services(Arc::new(DesktopExport(app.clone())))
 }
 
 /// The main window's focus as a planner fact. The desktop window counts as

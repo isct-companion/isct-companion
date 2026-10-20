@@ -2990,3 +2990,74 @@ checks:
       - apps/ios/IsctCompanion/Core/WebCookieSession.swift
       - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt
     verified: null
+
+  - id: SETTINGS-RESET
+    area: desktop
+    title: Clear school caches and resync, and Full reset, from Settings → Backup
+    persona: careless-multidevice
+    preconditions: |
+      The desktop app signed in to Science Tokyo with saved credentials, school
+      data synced (Today, assignments, 教務Web grades, course search all
+      populated), at least one downloaded course file and one course note, one
+      plan and one hidden assignment, and iCloud or Google Drive sync on with a
+      recent upload.
+    steps:
+      - action: |
+          Settings → バックアップ → 「学校のキャッシュを消去して再同期」 → 消去…;
+          read the panel, tick both options, then press 消去して再同期.
+        reason: |
+          The panel must list what goes and what stays, and the two options
+          must move "school web sign-in" and "downloaded course files" from
+          the kept list to the deleted list. A missing or zero size estimate
+          means the preview command or `dbstat` failed.
+      - action: |
+          While it runs, look at the refresh buttons and the status line;
+          press the open button again.
+        reason: |
+          During a reset the refresh buttons show リセット中… from the
+          snapshot's `resetting` flag, and a second press cannot start a
+          second reset.
+      - action: |
+          Open Today, Assignments and the course search, then a course with
+          the downloaded file and its notes.
+        reason: |
+          The views must show the empty state with cold-start progress and
+          then refill; the plan, the hidden assignment's mark and the notes
+          must still be there; the file card must read "not downloaded" and
+          download again on open; the school browser must sign in again with
+          the saved credentials before LMS data arrives.
+      - action: |
+          Settings → バックアップ → 「完全リセット」 → リセット…; check that この端末を
+          リセット stays disabled until the confirmation box is ticked; choose
+          クラウドから復元する and confirm.
+        reason: |
+          A full reset deletes user data, settings and saved logins; the
+          extra confirmation and the cloud question are the only guard. With
+          restore chosen, the plan and the hidden assignment must come back
+          from the cloud copy, while school data resyncs only after signing in
+          again.
+      - action: |
+          On the second device, Pull.
+        reason: |
+          A reset must not write tombstones: the second device must keep every
+          plan, mark and note.
+    observe: |
+      Settings → Backup (panel, buttons, the notice after each reset), the
+      status line, Today / Assignments / course search, a course page's files
+      and notes, Settings → School accounts, and the second device.
+    expected: |
+      Clearing keeps plans, marks, notes and saved logins, deletes downloaded
+      files and the web sign-in, and resyncs everything; the course folder's
+      notes are untouched. Full reset returns to first launch, restores the
+      user data from the cloud when asked, and the second device loses
+      nothing.
+    why_manual: |
+      The WebView cookie store, the course folder on disk, real school sign-in
+      and a cloud provider cannot be driven headless. What each scope deletes,
+      the lease, the generation and the downloads purge are covered by
+      `crates/isct-core/src/tests/reset.rs`; this check is the shell wiring
+      and what a person sees.
+    covers:
+      - apps/desktop/src/pages/settings/ResetSettings.tsx
+      - apps/desktop/src-tauri/src/commands/reset.rs
+    verified: null
