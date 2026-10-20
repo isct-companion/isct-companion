@@ -156,6 +156,14 @@ impl From<isct_core::school_browser::SchoolBrowserError> for SdkError {
             E::Storage(detail) => Self::Storage { detail },
             E::Auth(detail) => Self::Authentication { detail },
             E::Timeout(detail) => Self::Timeout { detail },
+            E::PayloadTooLarge {
+                observed_bytes,
+                limit_bytes,
+            } => Self::Unavailable {
+                detail: format!(
+                    "School extraction result exceeded the safe size limit ({observed_bytes} > {limit_bytes} bytes)."
+                ),
+            },
             E::Cancelled | E::Preempted => Self::Cancelled,
             E::Stopped => Self::Closed,
             E::Maintenance(detail) => Self::Maintenance { detail },
@@ -163,6 +171,27 @@ impl From<isct_core::school_browser::SchoolBrowserError> for SdkError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SdkError;
+
+    #[test]
+    fn oversized_school_payload_keeps_its_size_diagnostic() {
+        let error: SdkError = isct_core::school_browser::SchoolBrowserError::PayloadTooLarge {
+            observed_bytes: 33,
+            limit_bytes: 32,
+        }
+        .into();
+
+        assert!(matches!(
+            error,
+            SdkError::Unavailable { detail }
+                if detail == "School extraction result exceeded the safe size limit (33 > 32 bytes)."
+        ));
+    }
+}
+
 impl From<isct_core::pull_coordinator::PullError> for SdkError {
     fn from(e: isct_core::pull_coordinator::PullError) -> Self {
         use isct_core::pull_coordinator::PullError as E;
