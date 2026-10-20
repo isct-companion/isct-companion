@@ -408,7 +408,8 @@ fn view_keys(
                 Vec::new()
             },
             Priority::Interactive,
-            Rule::Open,
+            // Details change rarely: an open renews one only past its TTL.
+            Rule::Ttl,
         ),
         View::Grades => (
             unscoped(

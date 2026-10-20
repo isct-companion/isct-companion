@@ -29,7 +29,7 @@ pub(crate) async fn syllabus_course(
     let core = core_ports::core(&app);
     let runtime = core.runtime.clone();
     runtime
-        .run(async move { isct_core::catalog::syllabus_course(&core.store, id, language).await })
+        .run(async move { core.syllabus_course(id, language).await })
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())

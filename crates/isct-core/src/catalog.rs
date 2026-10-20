@@ -5,9 +5,7 @@
 use crate::course_query::OfficialFilterOption;
 use crate::net::{kyomu::KyomuClient, KeyOutcome, NetError};
 use crate::sync_engine::{KeyEnd, Lease};
-use crate::sync_state::{
-    self, Commit, Dataset, Key, KeyState, Outcome, RunOutcome, RunRecord, Term,
-};
+use crate::sync_state::{self, Commit, Dataset, Key, Outcome, RunOutcome, RunRecord};
 use crate::{data, school_auth::SchoolAuthProfile, syllabus};
 use chrono::{DateTime, Utc};
 
@@ -23,18 +21,62 @@ pub enum CatalogError {
     InvalidInput(String),
 }
 
-/// Fetch and project one syllabus course for a shell editor.
+/// The offering id a syllabus locator names: the id itself, a `jwc` query
+/// value or the last path segment.
+pub fn offering_id_of(id: &str) -> Option<String> {
+    if id.len() == 9 && id.chars().all(|value| value.is_ascii_digit()) {
+        return Some(id.to_string());
+    }
+    url::Url::parse(id)
+        .ok()
+        .and_then(|url| {
+            url.query_pairs()
+                .find(|(k, _)| k == "jwc")
+                .map(|(_, v)| v.into_owned())
+                .or_else(|| url.path_segments()?.next_back().map(str::to_string))
+        })
+        .filter(|value| value.len() == 9 && value.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// How long a detail nobody has stored yet is awaited from the planner.
+const DETAIL_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// One syllabus course for a shell editor or detail panel, from the stored
+/// detail. The planner reads `catalog.detail/{id}` (the caller sends
+/// `Hint::Open { Offering }`): a stored detail answers at once, also while
+/// a stale one is renewed, and a missing one is awaited until its key
+/// commits or its read fails.
 pub async fn syllabus_course(
     store: &data::DataStore,
-    id: String,
-    language: String,
+    offering_id: &str,
+    language: &str,
 ) -> Result<serde_json::Value, CatalogError> {
     if language != "en" && language != "ja" {
         return Err(CatalogError::InvalidInput(
             "Unsupported syllabus language.".into(),
         ));
     }
-    let synced = catalog_sync_offering(store, id).await?;
+    let key = detail_key(offering_id);
+    let failures = |store: &data::DataStore| -> Result<u32, CatalogError> {
+        Ok(store
+            .catalog_key_states(std::slice::from_ref(&key))?
+            .pop()
+            .flatten()
+            .map_or(0, |state| state.failures))
+    };
+    let failed_before = failures(store)?;
+    let deadline = std::time::Instant::now() + DETAIL_WAIT;
+    let synced = loop {
+        if let Some(stored) = stored_detail(store, offering_id)? {
+            break stored;
+        }
+        if failures(store)? > failed_before || std::time::Instant::now() >= deadline {
+            return Err(CatalogError::Syllabus(syllabus::SyllabusError::network(
+                "The syllabus page could not be read. Try again later.",
+            )));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    };
     // The interface reads this detail now, so gc keeps it.
     store.write(None, |transaction| {
         sync_state::touch(transaction, &[detail_key(&synced.offering.id)], Utc::now())
@@ -51,68 +93,19 @@ pub async fn syllabus_course(
     let workspace = store.load_workspace()?;
     let teaching_periods = crate::schedule::teaching_periods(&workspace)
         .map_err(|error| CatalogError::InvalidInput(error.to_string()))?;
-    crate::workspace::catalog_course(&offering, &language, content.as_ref(), &teaching_periods)
+    crate::workspace::catalog_course(&offering, language, content.as_ref(), &teaching_periods)
         .map_err(|error| CatalogError::InvalidInput(error.to_string()))
-}
-
-pub async fn catalog_sync_offering(
-    store: &data::DataStore,
-    id: String,
-) -> Result<syllabus::SyncOfferingResult, CatalogError> {
-    let offering_id = if id.len() == 9 && id.chars().all(|value| value.is_ascii_digit()) {
-        Some(id.clone())
-    } else {
-        url::Url::parse(&id)
-            .ok()
-            .and_then(|url| {
-                url.query_pairs()
-                    .find(|(k, _)| k == "jwc")
-                    .map(|(_, v)| v.into_owned())
-                    .or_else(|| url.path_segments()?.next_back().map(str::to_string))
-            })
-            .filter(|value| value.len() == 9 && value.chars().all(|c| c.is_ascii_digit()))
-    };
-    if let Some(offering_id) = offering_id.as_deref() {
-        if let Some(stored) = stored_detail(store, offering_id)? {
-            return Ok(stored);
-        }
-    }
-    let run = uuid::Uuid::new_v4().to_string();
-    let started = Utc::now();
-    match syllabus::sync_offering(&id).await {
-        Ok(synced) => store_detail(store, &run, started, synced),
-        Err(error) => {
-            if let Some(offering_id) = offering_id.as_deref() {
-                record_detail_failure(store, &run, offering_id, &id, started, &error)?;
-            }
-            Err(error.into())
-        }
-    }
 }
 
 fn detail_key(offering_id: &str) -> Key {
     Key::new(Dataset::CatalogDetail, offering_id)
 }
 
-/// Whether an offering's syllabus detail should be read now: missing or
-/// older than its TTL, and not backing off after a failure.
-fn detail_due(state: Option<&KeyState>, now: DateTime<Utc>) -> bool {
-    let ttl = sync_state::ttl(Dataset::CatalogDetail, Term::Current);
-    sync_state::due(state, ttl, "", now).is_due()
-}
-
-/// The stored bilingual detail, when its key needs no read now.
+/// The stored bilingual detail, whatever its age; the planner renews it.
 fn stored_detail(
     store: &data::DataStore,
     offering_id: &str,
 ) -> Result<Option<syllabus::SyncOfferingResult>, CatalogError> {
-    let state = store
-        .catalog_key_states(&[detail_key(offering_id)])?
-        .pop()
-        .flatten();
-    if detail_due(state.as_ref(), Utc::now()) {
-        return Ok(None);
-    }
     let Some(stored) = store.catalog_offering(offering_id)? else {
         return Ok(None);
     };
@@ -178,41 +171,6 @@ fn store_detail(
         synced.offering = serde_json::from_value(merged)?;
     }
     Ok(synced)
-}
-
-/// A failed detail read: stored rows stay, the key backs off.
-fn record_detail_failure(
-    store: &data::DataStore,
-    run: &str,
-    offering_id: &str,
-    locator: &str,
-    started: DateTime<Utc>,
-    error: &syllabus::SyllabusError,
-) -> Result<(), CatalogError> {
-    let key = detail_key(offering_id);
-    let kind = detail_error_kind(error);
-    let source = detail_source(locator);
-    let finished = Utc::now();
-    store.write(None, |transaction| {
-        sync_state::fail(transaction, &key, "", kind, finished)?;
-        sync_state::record_run(
-            transaction,
-            &RunRecord {
-                run,
-                key: &key,
-                account: "",
-                started_at: started,
-                finished_at: finished,
-                outcome: RunOutcome::Failed,
-                changed: 0,
-                requests: None,
-                bytes: None,
-                source: &source,
-                error_kind: Some(kind),
-            },
-        )
-    })?;
-    Ok(())
 }
 
 /// Stored offerings for one year, including search rows until details arrive.
