@@ -48,14 +48,6 @@ async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
     assert!(result.warnings.is_empty());
     assert_eq!(offerings(&store, 2026).unwrap().len(), 1);
     assert!(offerings(&store, 2025).unwrap().is_empty());
-    let warnings = catalog_sync_offerings(&store, vec!["202602431".into(), "missing".into()])
-        .await
-        .unwrap();
-    assert_eq!(warnings, vec!["missing: not in the catalog"]);
-    assert!(matches!(
-        catalog_sync_offerings(&store, vec![String::new(); 21]).await,
-        Err(CatalogError::InvalidInput(_))
-    ));
     std::fs::remove_dir_all(root).unwrap();
 }
 

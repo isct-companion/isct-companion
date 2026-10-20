@@ -2502,6 +2502,7 @@ dependencies = [
  "data-encoding",
  "ego-tree",
  "encoding_rs",
+ "flate2",
  "futures-util",
  "log",
  "md-5",

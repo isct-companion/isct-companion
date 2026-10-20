@@ -1,6 +1,7 @@
 //! Catalog acquisition: the official 教務 department reads and シラバス
-//! details as sync keys, and the stored offerings the finder searches. A
-//! search never reads the network.
+//! details as sync keys, and the stored offerings the finder searches. The
+//! catalog skeleton of a year comes from the Isct-Data pack
+//! (`catalog_pack`). A search never reads the network.
 use crate::course_query::OfficialFilterOption;
 use crate::net::{kyomu::KyomuClient, KeyOutcome, NetError};
 use crate::sync_engine::{KeyEnd, Lease};
@@ -9,7 +10,6 @@ use crate::sync_state::{
 };
 use crate::{data, school_auth::SchoolAuthProfile, syllabus};
 use chrono::{DateTime, Utc};
-use futures_util::{stream::FuturesOrdered, StreamExt};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -213,120 +213,6 @@ fn record_detail_failure(
         )
     })?;
     Ok(())
-}
-
-/// Fetches detail pages for offerings whose `catalog.detail` key is due,
-/// storing each one as it arrives.
-async fn sync_stale_details(
-    store: &data::DataStore,
-    targets: Vec<(String, String)>,
-    summary_only: bool,
-) -> Result<(Vec<syllabus::SyncOfferingResult>, Vec<String>), CatalogError> {
-    let started = Utc::now();
-    let keys = targets
-        .iter()
-        .map(|(id, _)| detail_key(id))
-        .collect::<Vec<_>>();
-    let stale = targets
-        .into_iter()
-        .zip(store.catalog_key_states(&keys)?)
-        .filter(|(_, state)| detail_due(state.as_ref(), started))
-        .map(|(target, _)| target)
-        .collect::<Vec<_>>();
-    let run = uuid::Uuid::new_v4().to_string();
-    let mut offerings = Vec::with_capacity(stale.len());
-    let mut warnings = Vec::new();
-    // All at once: the syllabus transport's limiter paces the requests.
-    let mut handles = stale
-        .iter()
-        .map(|(_, url)| {
-            let url = url.clone();
-            async move {
-                if summary_only {
-                    syllabus::sync_offering_summary(&url).await
-                } else {
-                    syllabus::sync_offering(&url).await
-                }
-            }
-        })
-        .collect::<FuturesOrdered<_>>();
-    // Each result is stored as soon as it (and those before it) arrive.
-    for (id, url) in &stale {
-        let Some(result) = handles.next().await else {
-            break;
-        };
-        match result {
-            Ok(synced) => offerings.push(store_detail(store, &run, started, synced)?),
-            Err(error) => {
-                record_detail_failure(store, &run, id, url, started, &error)?;
-                warnings.push(format!("{id}: {error}"));
-            }
-        }
-    }
-    Ok((offerings, warnings))
-}
-
-pub async fn catalog_sync_department(
-    store: &data::DataStore,
-    year: u16,
-    scope_path: String,
-    quarter: Option<String>,
-) -> Result<syllabus::DepartmentSyncResult, CatalogError> {
-    let catalog = syllabus::department_catalog(year, &scope_path, quarter.as_deref()).await?;
-    let targets = catalog
-        .items
-        .iter()
-        .map(|item| (item.id.clone(), item.syllabus_url.clone()))
-        .collect();
-    let (offerings, warnings) = sync_stale_details(store, targets, false).await?;
-    Ok(syllabus::DepartmentSyncResult {
-        listed: catalog.items.len(),
-        synced: offerings.len(),
-        truncated: catalog.truncated,
-        offerings,
-        warnings,
-    })
-}
-
-/// Detail pages for the given stored offerings (schedule, credits, format).
-pub async fn catalog_sync_offerings(
-    store: &data::DataStore,
-    ids: Vec<String>,
-) -> Result<Vec<String>, CatalogError> {
-    if ids.len() > 20 {
-        return Err(CatalogError::InvalidInput(
-            "Too many offerings in one request.".into(),
-        ));
-    }
-    let mut targets = Vec::new();
-    let mut missing = Vec::new();
-    for id in ids {
-        // A course found by a search is stored as a search row until its
-        // details have been read once.
-        let url = [
-            store.catalog_offering(&id)?,
-            store.catalog_search_item(&id)?,
-        ]
-        .into_iter()
-        .flatten()
-        .find_map(|row| {
-            row.get("syllabusUrl")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        });
-        match url {
-            Some(url) => targets.push((id, url)),
-            // An LMS offering id is already an official syllabus locator;
-            // a fresh install need not search the catalog before reading it.
-            None if id.len() == 9 && id.bytes().all(|byte| byte.is_ascii_digit()) => {
-                targets.push((id.clone(), id));
-            }
-            None => missing.push(format!("{id}: not in the catalog")),
-        }
-    }
-    let (_, mut warnings) = sync_stale_details(store, targets, true).await?;
-    warnings.extend(missing);
-    Ok(warnings)
 }
 
 /// Stored offerings for one year, including search rows until details arrive.
