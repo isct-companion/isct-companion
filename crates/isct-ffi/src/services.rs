@@ -92,8 +92,8 @@ impl Session {
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
             let session = i.download_session.clone().map(|port| {
-                Arc::new(crate::ports::DownloadSession(port))
-                    as Arc<dyn isct_core::downloads::DownloadSession>
+                Arc::new(crate::ports::NativeCookies(port))
+                    as Arc<dyn isct_core::net::SessionCookies>
             });
             let service = isct_core::course_materials::CourseMaterials::new(
                 i.core.store.clone(),

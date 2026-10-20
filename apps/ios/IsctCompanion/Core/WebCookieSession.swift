@@ -2,8 +2,9 @@ import Foundation
 import IsctCore
 import WebKit
 
-/// Lets Core download LMS files with the sign-in of the resident school web
-/// view: the cookies its data store holds for the file's URL.
+/// Lets Core's HTTP requests (course files, LMS, 教務Web) use the sign-in of
+/// the resident school web view: the cookies its data store holds for a URL,
+/// and the cookies Core's responses set, written back to the same store.
 final class WebCookieSession: NativeDownloadSession {
     func cookieHeader(url: String) async throws -> String {
         guard let url = URL(string: url), let host = url.host?.lowercased() else {
@@ -19,5 +20,24 @@ final class WebCookieSession: NativeDownloadSession {
                 && (cookie.expiresDate.map { $0 > Date() } ?? true)
         }
         return HTTPCookie.requestHeaderFields(with: cookies)["Cookie"] ?? ""
+    }
+
+    func storeSetCookies(url: String, setCookie: [String]) async throws {
+        guard let url = URL(string: url) else {
+            throw SdkError.InvalidInput(detail: "url")
+        }
+        // One header per value: folding them into one comma-joined field
+        // breaks on the comma inside `Expires`.
+        let cookies = setCookie.flatMap { value in
+            HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": value], for: url)
+        }
+        await Self.store(cookies)
+    }
+
+    @MainActor private static func store(_ cookies: [HTTPCookie]) async {
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        for cookie in cookies {
+            await store.setCookie(cookie)
+        }
     }
 }

@@ -198,7 +198,7 @@ pub struct DesktopCloudService<V: SecretVault> {
 
 impl<V: SecretVault> DesktopCloudService<V> {
     pub fn new(vault: V) -> Result<Self, String> {
-        let client = reqwest::Client::builder()
+        let client = isct_core::net::client_builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(45))
             .build()

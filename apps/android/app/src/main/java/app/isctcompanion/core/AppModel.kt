@@ -104,7 +104,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 initialNetwork = PullNetwork.UNKNOWN, cloudProviders = emptyList(),
                 authorizedCloudProviders = emptyList(),
             )
-            val session = Session.open(config, KeystoreVault(context), browser, null, null, null)
+            val session = Session.open(config, KeystoreVault(context), browser, null, null, WebCookieSession())
             this.session = session
             web.session = session
             val stream = session.subscribe()

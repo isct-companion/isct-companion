@@ -2725,3 +2725,77 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
     verified: null
+
+  - id: ANDROID-TLS-VERIFIER
+    area: native
+    title: Android Core HTTPS verifies through the system trust store
+    persona: undergraduate-senior
+    preconditions: |
+      A release-profile SDK and app built from this source, installed fresh
+      on an arm64 phone with network access.
+    steps:
+      - action: |
+          Launch the app, let the session open, then open Settings →
+          Application logs.
+        reason: |
+          Core verifies certificates with Android's trust manager through JNI;
+          if TlsVerifier.install did not run, or R8 stripped the verifier's
+          Kotlin classes, the first HTTPS request fails or crashes the worker.
+      - action: |
+          Pull to refresh reference data, then open the same log again.
+        reason: |
+          The Isct-Data refresh is an HTTPS request that needs no school
+          account, so it isolates TLS from sign-in.
+    observe: |
+      The application log and the calendar/reference data on Today.
+    expected: |
+      The reference refresh succeeds with no TLS or "rustls-platform-verifier"
+      error, and the app stays open.
+    why_manual: |
+      The JNI call into the Android trust manager and R8 keep rules only exist
+      in a signed APK on a device; host tests run the desktop verifier.
+    covers:
+      - crates/isct-ffi/src/android_tls.rs
+      - bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt
+      - apps/android/app/build.gradle.kts
+      - apps/android/app/proguard-rules.pro
+    verified: null
+
+  - id: SCHOOL-KYOMU-RUST-TLS
+    area: school
+    title: 教務Web pages load over Rust HTTP on every platform
+    persona: undergraduate-senior
+    preconditions: |
+      A build where 教務Web pages are read by Core's HTTP client (sync-engine
+      checkpoint 1), saved Tokyo Tech credentials, and one of macOS, Windows,
+      iPhone or Android (repeat per platform).
+    steps:
+      - action: |
+          Sign in to 教務Web in the app, then refresh 教務Web data from
+          Settings.
+        reason: |
+          kyomu0 sends the wrong intermediate certificate. Apple and Windows
+          may repair the chain on their own, Android does not, so only a run on
+          each platform shows the vendored G7 intermediate is what makes it work.
+      - action: |
+          Open the 教務Web page in the app's school browser afterwards.
+        reason: |
+          Cookies the server set on Core's requests are written back to the
+          WebView store; a broken write-back shows up as the browser being
+          signed out or bounced to GetAccess.
+    observe: |
+      The 教務Web status in Settings, the application log, and the school
+      browser page.
+    expected: |
+      All six 教務Web pages refresh with no TLS error in the log, and the
+      school browser opens 教務Web still signed in.
+    why_manual: |
+      Needs a real Tokyo Tech account and the real kyomu0 certificate chain on
+      each OS verifier; no test can reach the school server.
+    covers:
+      - crates/isct-core/src/net/tls.rs
+      - crates/isct-core/src/net/certs/nii-odca4g7rsa.pem
+      - apps/desktop/src-tauri/src/lms_downloader.rs
+      - apps/ios/IsctCompanion/Core/WebCookieSession.swift
+      - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt
+    verified: null

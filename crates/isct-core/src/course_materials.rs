@@ -3,7 +3,8 @@
 use crate::{
     contracts::FolderFile,
     data::DataStore,
-    downloads::{DownloadSession, Downloader, FetchError, Fetched, ResolvedResource},
+    downloads::{Downloader, FetchError, Fetched, ResolvedResource},
+    net::SessionCookies,
     school_parser::lms::ResolvedFile,
     storage::{self, component, describe, regular_file, storage_dir, LocalFile, StorageError},
 };
@@ -91,7 +92,7 @@ pub struct CourseMaterials {
     store: DataStore,
     root: PathBuf,
     downloads: Downloader,
-    session: Option<Arc<dyn DownloadSession>>,
+    session: Option<Arc<dyn SessionCookies>>,
 }
 
 impl CourseMaterials {
@@ -99,7 +100,7 @@ impl CourseMaterials {
         store: DataStore,
         root: PathBuf,
         downloads: Downloader,
-        session: Option<Arc<dyn DownloadSession>>,
+        session: Option<Arc<dyn SessionCookies>>,
     ) -> Self {
         Self {
             store,

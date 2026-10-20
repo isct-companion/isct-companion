@@ -8,9 +8,20 @@ use uuid::Uuid;
 
 struct CookieSession;
 
-impl DownloadSession for CookieSession {
-    fn cookie_header<'a>(&'a self, _url: &'a Url) -> FetchFuture<'a, String> {
+impl SessionCookies for CookieSession {
+    fn cookie_header<'a>(
+        &'a self,
+        _url: &'a Url,
+    ) -> crate::net::BoxFuture<'a, Result<String, NetError>> {
         Box::pin(async { Ok("MoodleSession=test".into()) })
+    }
+
+    fn store_set_cookies<'a>(
+        &'a self,
+        _url: &'a Url,
+        _set_cookie: &'a [String],
+    ) -> crate::net::BoxFuture<'a, Result<(), NetError>> {
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -78,7 +89,7 @@ impl Drop for ActiveDownload<'_> {
 impl DownloadTransport for FakeTransport {
     fn probe<'a>(
         &'a self,
-        _session: Arc<dyn DownloadSession>,
+        _session: Arc<dyn SessionCookies>,
         _url: &'a Url,
         _tasks: RuntimeTasks,
     ) -> FetchFuture<'a, u64> {
@@ -98,7 +109,7 @@ impl DownloadTransport for FakeTransport {
 
     fn download<'a>(
         &'a self,
-        _session: Arc<dyn DownloadSession>,
+        _session: Arc<dyn SessionCookies>,
         _url: &'a Url,
         mut file: File,
         _limit: Option<u64>,
@@ -158,7 +169,7 @@ impl DownloadTransport for FakeTransport {
 
     fn resolve<'a>(
         &'a self,
-        _session: Arc<dyn DownloadSession>,
+        _session: Arc<dyn SessionCookies>,
         _url: &'a Url,
         _cmid: u64,
         _module: &'a str,
@@ -181,7 +192,7 @@ fn target(name: &str) -> PathBuf {
     directory.join("file.pdf")
 }
 
-fn session() -> Arc<dyn DownloadSession> {
+fn session() -> Arc<dyn SessionCookies> {
     Arc::new(CookieSession)
 }
 
