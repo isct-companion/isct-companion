@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 52 checks must be re-run before the next release.**
+**7 of 55 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**43 checks have never been run or could not be run:**
+**46 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -42,6 +42,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-COMPACT-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
+- `DESKTOP-LOG-EXPORT` — never verified
 - `DESKTOP-PULL-STRESS` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
@@ -72,6 +73,8 @@ an unverified area becomes an assumed-good one.
 - `IOS-COURSE-LESSON-MARK` — never verified
 - `IOS-COURSE-EXAM-LINE` — never verified
 - `IOS-ICLOUD-BACKUP` — never verified
+- `IOS-LOG-EXPORT` — never verified
+- `ANDROID-LOG-EXPORT` — never verified
 
 ## Status
 
@@ -96,6 +99,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/usePullState.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
@@ -105,7 +109,7 @@ an unverified area becomes an assumed-good one.
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/lms_submission_status.js<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
-| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>crates/isct-core/src/schedule/reminders.rs |
+| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>crates/isct-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
@@ -129,6 +133,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs |
+| `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
+| `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 
 ## Personas
 
@@ -909,6 +915,10 @@ camera or a photo of the card.
    After acquisition, the dialog closes, the camera indicator turns off,
    and inline processing progress appears. Put the card down and verify
    results arrive; insufficient votes must be highlighted for review.
+   Repeat with the card rotated 90, 180 and 270 degrees. Each orientation
+   must keep the same cell order. If processing produces no readable
+   letters, it must show a retryable error without reopening the stopped
+   camera or returning to a 70/70 capture loop.
    Inspect matrix-scan/latest.json under the app cache for separate
    acquisition/processing times, per-cell candidate and qualified-vote
    counts. Compare all 70 letters with the real card.
@@ -1196,6 +1206,52 @@ whether the PDF.js data files ship with it.
 - `apps/desktop/src/features/lms/PdfDocument.tsx`
 - `apps/desktop/vite.config.ts`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+
+**Last recorded** never run
+
+### Application logs saved to a file and copied to the clipboard (`DESKTOP-LOG-EXPORT`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Developer mode is on, and the app has run long enough to log a school
+pull or a sync.
+
+**Steps**
+
+1. Open Settings → Application logs and choose Save to file. Keep the
+   suggested name and save to the Desktop, then open the file.
+   - *Why:* The save goes through the native Save dialog; a dialog that does not
+     open, a wrong extension filter, or an empty file is the failure.
+2. Choose Copy, then paste into a text editor.
+   - *Why:* The shell writes the clipboard; a paste that is empty or only
+     partial means the write was rejected or truncated.
+3. Search both texts for the student id, password and any token.
+   - *Why:* The export must carry only the redacted log the screen shows.
+
+**Where to look**
+
+The saved IsctCompanion-logs-<date>.txt, the pasted text, and the toast.
+
+**Expected**
+
+Both texts start with the app version and platform, then one line per
+entry with time, level and target, matching the on-screen entries, and
+contain no credential. The toast says the file was saved or copied.
+
+**Why this is manual**
+
+The Save dialog and the system clipboard exist only in the native shell;
+the e2e suite proves the buttons call the right commands over a scripted
+host, and Core's test pins the text format and redaction.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/commands/platform.rs`
+- `apps/desktop/src/pages/settings/DiagnosticsSettings.tsx`
 
 **Last recorded** never run
 
@@ -1747,11 +1803,16 @@ An updated native desktop build and OS notification permission available.
 
 **Steps**
 
-1. Grant notification permission, enable class, exam and assignment reminders,
+1. On both macOS and Windows, open Settings > Notifications, click Test
+   notification, then click the native banner while the app is behind
+   another window.
+   - *Why:* A successful command is not enough: this checks actual OS delivery
+     and that the native activation callback returns focus to the app.
+2. Grant notification permission, enable class, exam and assignment reminders,
    and choose a separate non-default lead time for each type.
    - *Why:* Real OS consent and notification delivery are unavailable to the
      headless settings and reminder-plan tests.
-2. In a disposable local workspace, arrange a class, a linked subscription
+3. In a disposable local workspace, arrange a class, a linked subscription
    exam and an assignment so their reminder times occur shortly. Turn class
    reminders off while leaving exam reminders on, then background the app.
    - *Why:* Verifies that native lifecycle wakeups deliver the selected times
@@ -1764,9 +1825,10 @@ in Settings > Notifications after reopening the page.
 
 **Expected**
 
-Each native notification arrives at the configured time with the correct
-exam or assignment title; the disabled class reminder stays silent, and
-selected times remain saved.
+The test notification appears and clicking it focuses the app. Each
+scheduled native notification arrives while the app process remains
+running, with the correct exam or assignment title; the disabled class
+reminder stays silent, and selected times remain saved.
 
 **Why this is manual**
 
@@ -1777,6 +1839,7 @@ and native notification delivery; tests use a headless notification sink.
 
 - `apps/desktop/src/pages/settings/NotificationSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/notifications.rs`
+- `apps/desktop/src-tauri/src/notifications_macos.rs`
 - `crates/isct-core/src/schedule/reminders.rs`
 
 **Last recorded** never run
@@ -2960,5 +3023,96 @@ merge, tag-conditional write and journal behind it are covered by
 - `apps/ios/IsctCompanion/Core/CloudKitStore.swift`
 - `apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift`
 - `apps/desktop/src-tauri/src/icloud.rs`
+
+**Last recorded** never run
+
+### iOS application logs saved to Files and copied (`IOS-LOG-EXPORT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The app on a real iPhone has opened its session and pulled school data
+at least once since launch.
+
+**Steps**
+
+1. Settings → Application logs → Save to file; keep the suggested name
+   and save to On My iPhone, then open the file in Files.
+   - *Why:* The save goes through the system export sheet; a sheet that does not
+     open, a missing .txt extension or an empty file is the failure.
+2. Tap Copy, then paste into Notes.
+   - *Why:* UIPasteboard receives the whole text; an empty or cut-off paste means
+     the write failed.
+3. Search both texts for the student id, password and any token.
+   - *Why:* The export must carry only Core's redacted log.
+
+**Where to look**
+
+The saved IsctCompanion-logs-<date>.txt and the pasted note.
+
+**Expected**
+
+Both start with "IsctCompanion <version> · iOS <version> · iPhone",
+list "Application started" and the pull's entries, and contain no
+credential. On an iPad the header names iPadOS.
+
+**Why this is manual**
+
+The export sheet and the pasteboard exist only on a device; the SDK
+smoke tests prove a session installs the logger and the export reaches
+Swift, and Core's test pins the format and redaction.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+
+**Last recorded** never run
+
+### Android application logs saved as a document and copied (`ANDROID-LOG-EXPORT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The app on a phone has opened its session and pulled school data at
+least once since launch.
+
+**Steps**
+
+1. Settings → Application logs → Save to file; keep the suggested name
+   in the system picker and save to Downloads, then open the file.
+   - *Why:* The save goes through the Storage Access Framework; a picker that
+     does not open, an empty file or a failure toast is the failure.
+2. Tap Copy, then paste into a notes app.
+   - *Why:* Android shows its own copy confirmation; an empty or cut-off paste
+     means the clipboard write failed.
+3. Search both texts for the student id, password and any token.
+   - *Why:* The export must carry only Core's redacted log.
+
+**Where to look**
+
+The saved IsctCompanion-logs-<date>.txt, the system copy confirmation
+and the pasted text.
+
+**Expected**
+
+Both start with "IsctCompanion <version> · Android <version> · <maker>
+<model>", list "Application started" and the pull's entries, and contain
+no credential.
+
+**Why this is manual**
+
+The document picker and clipboard exist only on a device or emulator;
+the SDK smoke tests prove a session installs the logger and the export
+reaches Kotlin, and Core's test pins the format and redaction.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
 
 **Last recorded** never run

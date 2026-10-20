@@ -1291,6 +1291,8 @@
   "App logs are available in the installed app.": "ログはインストール済みのアプリで確認できます。",
   "Could not update this cloud copy. Your data is saved on this device.": "クラウドを更新できませんでした。データはこの端末に保存されています。",
   "Sync needs attention": "同期の確認が必要です",
+  "Save to file": "ファイルに保存",
+  "Logs could not be copied to the clipboard.": "ログをクリップボードにコピーできませんでした。",
   "Earlier version pages": "過去のバージョンのページ",
   "Local recovery pages": "ローカル復元ファイルのページ",
   "Backups older than 30 days are removed only when at least four newer backups exist.": "30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。",

@@ -11,11 +11,13 @@
     )
 )]
 uniffi::setup_scaffolding!();
+mod diagnostics;
 mod error;
 mod json;
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/contracts.rs"));
 }
+pub use diagnostics::export_application_logs;
 pub use error::SdkError;
 pub use json::JsonValue;
 

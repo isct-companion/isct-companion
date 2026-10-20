@@ -194,6 +194,8 @@ pub fn run() {
             commands::platform::install_app_update,
             commands::platform::runtime_capabilities,
             commands::platform::application_logs,
+            commands::platform::export_application_logs,
+            commands::platform::copy_application_logs,
             commands::platform::application_error,
             lms_files::course_storage_info,
             lms_files::choose_course_storage,

@@ -1291,6 +1291,8 @@
   "App logs are available in the installed app.": "请在已安装的应用中查看日志。",
   "Could not update this cloud copy. Your data is saved on this device.": "云端副本未能更新，数据已保存在本机。",
   "Sync needs attention": "同步需要处理",
+  "Save to file": "保存为文件",
+  "Logs could not be copied to the clipboard.": "无法将日志复制到剪贴板。",
   "Earlier version pages": "历史版本页码",
   "Local recovery pages": "本地恢复文件页码",
   "Backups older than 30 days are removed only when at least four newer backups exist.": "备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",

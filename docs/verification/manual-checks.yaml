@@ -1022,6 +1022,44 @@ checks:
       - apps/desktop/src-tauri/src/school_downloads.rs
     verified: null
 
+  - id: DESKTOP-LOG-EXPORT
+    area: desktop
+    title: Application logs saved to a file and copied to the clipboard
+    persona: undergraduate-senior
+    preconditions: |
+      Developer mode is on, and the app has run long enough to log a school
+      pull or a sync.
+    steps:
+      - action: |
+          Open Settings → Application logs and choose Save to file. Keep the
+          suggested name and save to the Desktop, then open the file.
+        reason: |
+          The save goes through the native Save dialog; a dialog that does not
+          open, a wrong extension filter, or an empty file is the failure.
+      - action: |
+          Choose Copy, then paste into a text editor.
+        reason: |
+          The shell writes the clipboard; a paste that is empty or only
+          partial means the write was rejected or truncated.
+      - action: |
+          Search both texts for the student id, password and any token.
+        reason: |
+          The export must carry only the redacted log the screen shows.
+    observe: |
+      The saved IsctCompanion-logs-<date>.txt, the pasted text, and the toast.
+    expected: |
+      Both texts start with the app version and platform, then one line per
+      entry with time, level and target, matching the on-screen entries, and
+      contain no credential. The toast says the file was saved or copied.
+    why_manual: |
+      The Save dialog and the system clipboard exist only in the native shell;
+      the e2e suite proves the buttons call the right commands over a scripted
+      host, and Core's test pins the text format and redaction.
+    covers:
+      - apps/desktop/src-tauri/src/commands/platform.rs
+      - apps/desktop/src/pages/settings/DiagnosticsSettings.tsx
+    verified: null
+
   - id: DESKTOP-PULL-STRESS
     area: desktop
     title: Fast navigation while a live LMS pull lands data
@@ -2536,4 +2574,79 @@ checks:
       - apps/ios/IsctCompanion/Core/CloudKitStore.swift
       - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
       - apps/desktop/src-tauri/src/icloud.rs
+    verified: null
+
+  - id: IOS-LOG-EXPORT
+    area: native
+    title: iOS application logs saved to Files and copied
+    persona: undergraduate-senior
+    preconditions: |
+      The app on a real iPhone has opened its session and pulled school data
+      at least once since launch.
+    steps:
+      - action: |
+          Settings → Application logs → Save to file; keep the suggested name
+          and save to On My iPhone, then open the file in Files.
+        reason: |
+          The save goes through the system export sheet; a sheet that does not
+          open, a missing .txt extension or an empty file is the failure.
+      - action: |
+          Tap Copy, then paste into Notes.
+        reason: |
+          UIPasteboard receives the whole text; an empty or cut-off paste means
+          the write failed.
+      - action: |
+          Search both texts for the student id, password and any token.
+        reason: |
+          The export must carry only Core's redacted log.
+    observe: |
+      The saved IsctCompanion-logs-<date>.txt and the pasted note.
+    expected: |
+      Both start with "IsctCompanion <version> · iOS <version> · iPhone",
+      list "Application started" and the pull's entries, and contain no
+      credential. On an iPad the header names iPadOS.
+    why_manual: |
+      The export sheet and the pasteboard exist only on a device; the SDK
+      smoke tests prove a session installs the logger and the export reaches
+      Swift, and Core's test pins the format and redaction.
+    covers:
+      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+    verified: null
+
+  - id: ANDROID-LOG-EXPORT
+    area: native
+    title: Android application logs saved as a document and copied
+    persona: undergraduate-senior
+    preconditions: |
+      The app on a phone has opened its session and pulled school data at
+      least once since launch.
+    steps:
+      - action: |
+          Settings → Application logs → Save to file; keep the suggested name
+          in the system picker and save to Downloads, then open the file.
+        reason: |
+          The save goes through the Storage Access Framework; a picker that
+          does not open, an empty file or a failure toast is the failure.
+      - action: |
+          Tap Copy, then paste into a notes app.
+        reason: |
+          Android shows its own copy confirmation; an empty or cut-off paste
+          means the clipboard write failed.
+      - action: |
+          Search both texts for the student id, password and any token.
+        reason: |
+          The export must carry only Core's redacted log.
+    observe: |
+      The saved IsctCompanion-logs-<date>.txt, the system copy confirmation
+      and the pasted text.
+    expected: |
+      Both start with "IsctCompanion <version> · Android <version> · <maker>
+      <model>", list "Application started" and the pull's entries, and contain
+      no credential.
+    why_manual: |
+      The document picker and clipboard exist only on a device or emulator;
+      the SDK smoke tests prove a session installs the logger and the export
+      reaches Kotlin, and Core's test pins the format and redaction.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
     verified: null

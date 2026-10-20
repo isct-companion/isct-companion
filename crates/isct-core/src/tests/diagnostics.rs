@@ -11,6 +11,19 @@ fn bounded_log_reads_report_gaps_and_do_not_export_secrets() {
         assert!(!text.contains(secret), "{text}");
     }
     assert!(text.contains("[redacted]"));
+    buffer.push("WARN", "sync", "first line\nsecond line");
+    let export = buffer.export("IsctCompanion 1.0.0", "2026-10-20T00:00:00Z");
+    assert!(
+        export.starts_with("IsctCompanion 1.0.0\nExported 2026-10-20T00:00:00Z · 2 entries\n\n")
+    );
+    assert!(export.contains(" ERROR [auth] https://example.org/?access_token=[redacted]"));
+    assert!(
+        export.ends_with(" WARN [sync] first line\n    second line\n"),
+        "{export}"
+    );
+    for secret in ["private", "123456", "hidden", "private-token"] {
+        assert!(!export.contains(secret), "{export}");
+    }
     for _ in 0..CAPACITY + 3 {
         buffer.push("INFO", "sync", "saved");
     }
