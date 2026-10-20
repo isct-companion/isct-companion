@@ -7,10 +7,6 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-/// App-owned, read-only reader for the five approved 教務 pages. It only
-/// inspects the current document and returns plain data through the relay.
-pub const KYOMU_EXTRACT_SCRIPT: &str = include_str!("school_browser/assets/kyomu-extract.js");
-
 fn upsert(
     tx: &Transaction<'_>,
     table: &str,

@@ -1,7 +1,27 @@
+//! 教務Web: the Rust readers for its pages and course search, and the trust
+//! boundary every read passes before persistence sees it.
 use super::SchoolParseError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
+
+/// A compiled constant pattern, built once. `None` only if the literal is
+/// invalid, which callers treat as "no match" instead of panicking.
+macro_rules! regex {
+    ($pattern:literal) => {{
+        static PATTERN: std::sync::LazyLock<Option<regex::Regex>> =
+            std::sync::LazyLock::new(|| regex::Regex::new($pattern).ok());
+        PATTERN.as_ref()
+    }};
+}
+
+mod html;
+mod pages;
+pub mod search;
+
+pub use pages::extract_page;
+
+pub(crate) const HOST: &str = "kyomu0.gakumu.titech.ac.jp";
 
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RECORDS: usize = 5_000;
@@ -53,14 +73,21 @@ pub(crate) const PAGES: [(&str, &str); 6] = [
     ),
 ];
 
+/// The page kind an approved path belongs to (case-insensitive, like the
+/// school's IIS).
 pub(crate) fn expected_kind(path: &str) -> Option<&'static str> {
-    if path.eq_ignore_ascii_case(crate::catalog::KYOMU_SEARCH_PATH) {
-        return Some("catalog");
-    }
     PAGES
         .iter()
         .find(|(approved, _)| path.eq_ignore_ascii_case(approved))
         .map(|(_, kind)| *kind)
+}
+
+/// The absolute URL of one of the six approved pages.
+pub(crate) fn page_url(kind: &str) -> Option<String> {
+    PAGES
+        .iter()
+        .find(|(_, approved)| *approved == kind)
+        .map(|(path, _)| format!("https://{HOST}{path}"))
 }
 
 /// The page kind owned by an approved 教務 source URL, read from the URL alone
@@ -76,16 +103,17 @@ pub(crate) fn source_kind(raw: &str) -> Option<&'static str> {
     }
     let source: Source = serde_json::from_str(raw).ok()?;
     let url = Url::parse(&source.source_url).ok()?;
-    if url.scheme() != "https" || url.host_str() != Some("kyomu0.gakumu.titech.ac.jp") {
+    if url.scheme() != "https" || url.host_str() != Some(HOST) {
         return None;
     }
     expected_kind(url.path())
 }
 
-/// Validates the bounded DTO produced by the WebView capture adapter.
+/// Validates the bounded DTO produced by [`extract_page`].
 ///
-/// The adapter only reads the live DOM. Trust starts here: source identity,
-/// completeness, and collection limits are checked before persistence sees it.
+/// The reader only reads the fetched HTML. Trust starts here: source
+/// identity, completeness, and collection limits are checked before
+/// persistence sees it.
 pub fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), SchoolParseError> {
     if raw.len() > MAX_PAYLOAD_BYTES {
         return Err("kyomu payload exceeds the size limit".into());
@@ -95,7 +123,7 @@ pub fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), Sc
     let url = Url::parse(&payload.source_url).map_err(|_| "kyomu source URL is invalid")?;
     if payload.status == "maintenance" {
         if url.scheme() != "https"
-            || url.host_str() != Some("kyomu0.gakumu.titech.ac.jp")
+            || url.host_str() != Some(HOST)
             || payload.message.trim().is_empty()
             || payload.message.len() > 8192
         {
@@ -106,14 +134,14 @@ pub fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), Sc
     if payload.status == "login" {
         let known_login_host = matches!(
             url.host_str(),
-            Some("kyomu0.gakumu.titech.ac.jp" | "portal.titech.ac.jp" | "rp.nap.gsic.titech.ac.jp")
+            Some(HOST | "portal.titech.ac.jp" | "rp.nap.gsic.titech.ac.jp")
         );
         if url.scheme() == "https" && known_login_host {
             return Ok((KyomuStage::ReconnectRequired, None));
         }
     }
     if url.scheme() != "https"
-        || url.host_str() != Some("kyomu0.gakumu.titech.ac.jp")
+        || url.host_str() != Some(HOST)
         || expected_kind(url.path()) != Some(payload.kind.as_str())
     {
         return Err("kyomu source page is not approved".into());
@@ -159,30 +187,6 @@ pub fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), Sc
                 return Err("kyomu registration state is missing".into());
             }
             array("courses")?.len()
-        }
-        "catalog" if shape == "course-search" => {
-            let courses = array("courses")?;
-            if courses.len() > 100
-                || payload
-                    .data
-                    .get("nextCursor")
-                    .and_then(Value::as_str)
-                    .is_some_and(|cursor| uuid::Uuid::parse_str(cursor).is_err())
-            {
-                return Err("kyomu course page exceeds its limit or has an invalid cursor".into());
-            }
-            for course in courses {
-                let id = course["id"].as_str().unwrap_or("");
-                if id.len() != 9
-                    || !id.bytes().all(|b| b.is_ascii_digit())
-                    || course["year"].as_i64() != id[..4].parse::<i64>().ok()
-                {
-                    return Err("kyomu course identity is invalid".into());
-                }
-                serde_json::from_value::<crate::syllabus::model::Offering>(course.clone())
-                    .map_err(|_| SchoolParseError::from("kyomu course result is invalid"))?;
-            }
-            courses.len()
         }
         "profile" if shape == "academic-profile" => {
             for field in ["department", "programme", "admittedOn"] {
