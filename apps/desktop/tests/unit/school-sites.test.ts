@@ -20,7 +20,7 @@ import type {
 import { bootstrapReminders } from "@app/platform/reminders";
 import { schoolSessions } from "@app/platform/school-session";
 import { schoolWebBounds } from "@app/platform/school-web-bounds";
-import { subscriptionNetwork } from "@app/platform/subscription-polling";
+import { networkHint } from "@app/platform/sync";
 import { readRepoFile } from "@tests/harness";
 
 /**
@@ -1225,7 +1225,7 @@ function restoreProperty(
   else Reflect.deleteProperty(navigator, name);
 }
 
-describe("reference subscription shell policy", () => {
+describe("network hint for the sync planner", () => {
   afterEach(() => {
     restoreProperty("onLine", onlineDescriptor);
     restoreProperty("connection", connectionDescriptor);
@@ -1233,7 +1233,7 @@ describe("reference subscription shell policy", () => {
 
   it("pauses offline and metered connections", () => {
     setNetwork(false);
-    expect(subscriptionNetwork()).toBe("offline");
+    expect(networkHint()).toBe("offline");
 
     for (const connection of [
       { type: "cellular" },
@@ -1241,15 +1241,15 @@ describe("reference subscription shell policy", () => {
       { type: "wifi", metered: true },
     ]) {
       setNetwork(true, connection);
-      expect(subscriptionNetwork()).toBe("cellular");
+      expect(networkHint()).toBe("cellular");
     }
   });
 
-  it("treats Wi-Fi and unknown connections as unmetered", () => {
+  it("names Wi-Fi and leaves an unreported link unknown for Core", () => {
     setNetwork(true, { type: "wifi" });
-    expect(subscriptionNetwork()).toBe("wifi");
+    expect(networkHint()).toBe("wifi");
     setNetwork(true);
-    expect(subscriptionNetwork()).toBe("wifi");
+    expect(networkHint()).toBe("unknown");
   });
 });
 
@@ -1397,74 +1397,5 @@ describe("assignment upload injection", () => {
       "filemanager fm-loaded";
     await Promise.resolve();
     expect(changed.drops).toHaveLength(0);
-  });
-});
-
-describe("complete native extraction relay", () => {
-  const prefix = "isct-companion-extract://test/";
-  // A small part size makes every result cross in several parts.
-  const render = (extractor: string) =>
-    readScript("extraction-relay.js")
-      .replace("__ISCT_RELAY__", JSON.stringify(prefix))
-      .replace("__ISCT_RUN__", JSON.stringify("run-test"))
-      .replace("__ISCT_PART__", "16")
-      .replace("__ISCT_EXTRACTOR__", extractor);
-  const execute = async (extractor: string) => {
-    const sent: string[] = [];
-    const location = {
-      get href() {
-        return sent.at(-1) ?? "https://example.invalid/";
-      },
-      set href(value: string) {
-        sent.push(value);
-      },
-    };
-    const scope: Record<string, unknown> = {
-      location,
-      btoa: (text: string) => Buffer.from(text, "binary").toString("base64"),
-      unescape,
-      encodeURIComponent,
-      setTimeout,
-    };
-    runInNewContext(render(extractor), scope);
-    // Core asks for each next part once it holds the previous one.
-    const parts: string[] = [];
-    for (let index = 0; ; index += 1) {
-      await vi.waitFor(() => expect(sent).toHaveLength(index + 1));
-      const [run, count, at, data] = sent[index]!.slice(prefix.length).split("/");
-      expect([run, Number(at)]).toEqual(["run-test", index]);
-      expect(data!.length).toBeLessThanOrEqual(16);
-      parts.push(data!);
-      if (index + 1 === Number(count)) break;
-      const request = scope.__isctRelayPart as (run: string, index: number) => void;
-      request("another-run", index + 1);
-      request("run-test", index + 1);
-    }
-    return JSON.parse(Buffer.from(parts.join(""), "base64url").toString("utf8"));
-  };
-  it("executes real semicolon-terminated scripts and relays async failures instead of timing out", async () => {
-    for (const name of ["kyomu-extract.js", "kyomu-search.js"]) {
-      const result = await execute(readScript(name));
-      expect(result._isctExtractionRun).toBe("run-test");
-      expect(result.status).toBeDefined();
-    }
-    expect(
-      await execute(
-        "// leading comment\n(async () => ({ status: 'ok', title: '日本語' }))();",
-      ),
-    ).toMatchObject({
-      status: "ok",
-      title: "日本語",
-      _isctExtractionRun: "run-test",
-    });
-    expect(
-      await execute(
-        "(async () => { throw new Error('private page contents'); })();",
-      ),
-    ).toMatchObject({
-      status: "error",
-      error: "School page extraction failed.",
-      _isctExtractionRun: "run-test",
-    });
   });
 });

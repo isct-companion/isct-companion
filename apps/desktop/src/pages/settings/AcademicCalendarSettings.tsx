@@ -1,4 +1,6 @@
 import { formatJst } from "../../lib/civil-date";
+import { refresh, useSync } from "../../app/useSync";
+import { runsFor } from "../../platform/sync";
 import { notify as appNotify } from "../../app/notify";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { t } from "../../i18n";
@@ -83,9 +85,11 @@ export function AcademicCalendarSettings({
   mutate: (intent: WorkspaceIntent) => Promise<unknown>;
   notify: (message: string) => void;
   readOnly: boolean;
-  refreshReferences?: () => Promise<string>;
+  /** Whether this shell can ask Core to check the reference data now. */
+  refreshReferences?: boolean;
   back: () => void;
 }) {
+  const sync = useSync();
   const locale = data.settings.locale;
   const subscription = useSubscriptionViews().value?.calendar;
   const followedYear =
@@ -98,7 +102,6 @@ export function AcademicCalendarSettings({
     setYear(subscription.year);
   }, [subscription?.year]);
   const [editing, setEditing] = useState<Editing | null>(null);
-  const [busy, setBusy] = useState(false);
   const [showPast, setShowPast] = useState(false);
   const view = useScheduleQuery<AcademicYearCalendar>({
     kind: "academicYear",
@@ -119,17 +122,9 @@ export function AcademicCalendarSettings({
     (a, b) => b - a,
   );
 
-  const checkNow = async () => {
-    if (!refreshReferences) return;
-    setBusy(true);
-    try {
-      notify(t(await refreshReferences()));
-    } catch (error) {
-      appNotify.error(error);
-    } finally {
-      setBusy(false);
-    }
-  };
+  // Core runs the check; the button only follows the reference run.
+  const busy = runsFor(sync, ["reference"]).some((run) => !run.held);
+  const checkNow = () => refresh({ kind: "references" });
   const checkButton = refreshReferences && year === followedYear && (
     <UiButton className="textButton" disabled={busy} onClick={checkNow}>
       {busy ? t("Checking…") : t("Check now")}

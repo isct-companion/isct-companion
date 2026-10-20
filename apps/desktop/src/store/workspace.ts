@@ -1,7 +1,5 @@
 import { getDesktopBridge } from "../platform/desktop-bridge";
 import type {
-  SchoolIngestOutcome,
-  SchoolPullOptions,
   SchoolRecords,
   WorkspaceChangedEvent,
 } from "../platform/desktop-bridge";
@@ -9,10 +7,12 @@ import type { Workspace } from "../lib/model";
 import type { ClassGroup } from "../generated/persistence";
 import { repository } from "../storage/repository";
 import type {
+  CoreWorkspacePatch,
   CoreWorkspaceSnapshot,
   WorkspaceIntent,
   WorkspaceMutation,
 } from "../lib/workspace-intents";
+import type { WorkspaceChange } from "../generated/persistence";
 import { requireAction } from "../platform/actions";
 import { detectPlatform } from "../platform/capabilities";
 import { createStore } from "zustand/vanilla";
@@ -23,48 +23,52 @@ export type WorkspaceSnapshot = {
   readonly status: "idle" | "loading" | "ready" | "error";
   /** Baseline for user intents; school and reference ingests keep it. */
   readonly revision: string;
-  /** Changes with any snapshot content; read-model caches key on it. */
+  /** Changes with any snapshot content, whole or patched. */
   readonly contentRevision: string;
+  /** Counts patches per change name; a whole snapshot counts as `all`.
+   * Read-model caches key on the names their views read. */
+  readonly viewRevisions: ViewRevisions;
   readonly error?: string;
 };
+export type ViewRevisions = Readonly<
+  Partial<Record<WorkspaceChange | "all", number>>
+>;
 export type WorkspaceEdit = (draft: Workspace) => Workspace | void;
 
 type WorkspaceService = {
   snapshot(): Promise<CoreWorkspaceSnapshot>;
+  records(changes: readonly WorkspaceChange[]): Promise<CoreWorkspacePatch>;
   mutate(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
 };
 
-export function createWorkspaceStore(
-  service: WorkspaceService,
-  school?: {
-    pull?(
-      site: "science-lms" | "kyomu",
-      options?: SchoolPullOptions,
-    ): Promise<SchoolIngestOutcome[]>;
-  },
-) {
+export function createWorkspaceStore(service: WorkspaceService) {
   const state = createStore<WorkspaceSnapshot>(() =>
     Object.freeze({
       status: "idle",
       revision: "",
       contentRevision: "",
+      viewRevisions: {},
     }),
   );
   let loading: Promise<void> | undefined;
   let writes: Promise<unknown> = Promise.resolve();
   let refreshing: Promise<SchoolRecords | undefined> | undefined;
   let refreshRequest = 0;
+  let patching: Promise<void> | undefined;
+  const unpatched = new Set<WorkspaceChange>();
   const localMutationRevisions = new Set<string>();
   const publish = (next: WorkspaceSnapshot) => {
     state.setState(Object.freeze(next), true);
   };
   const adopt = (snapshot: CoreWorkspaceSnapshot) => {
+    const { viewRevisions } = state.getState();
     publish({
       workspace: snapshot.workspace,
       schoolRecords: snapshot.schoolRecords,
       status: "ready",
       revision: snapshot.revision,
       contentRevision: snapshot.contentRevision,
+      viewRevisions: { ...viewRevisions, all: (viewRevisions.all ?? 0) + 1 },
       error: undefined,
     });
   };
@@ -128,8 +132,71 @@ export function createWorkspaceStore(
     });
     return refreshing;
   };
+  /** Re-reads only the records `changes` feed and merges them over the
+   * snapshot; views that read none of the names keep their answers. Changes
+   * heard while a read is in flight join the next read. */
+  const patch = (changes: readonly WorkspaceChange[]) => {
+    for (const change of changes) unpatched.add(change);
+    if (patching || !unpatched.size) return patching ?? Promise.resolve();
+    const run = async () => {
+      try {
+        while (unpatched.size) {
+          await writes;
+          const before = state.getState();
+          // Opening reads everything; nothing to patch yet.
+          if (!before.workspace || !before.schoolRecords) {
+            unpatched.clear();
+            return;
+          }
+          const requested = [...unpatched];
+          unpatched.clear();
+          let result: CoreWorkspacePatch;
+          try {
+            result = await service.records(requested);
+          } catch (error) {
+            // Keep the names for the next change to retry with.
+            for (const change of requested) unpatched.add(change);
+            throw error;
+          }
+          const current = state.getState();
+          if (current.contentRevision !== before.contentRevision) {
+            // A mutation or a whole read landed meanwhile; this patch may be
+            // older than it, so read the same records again.
+            for (const change of requested) unpatched.add(change);
+            continue;
+          }
+          const viewRevisions: Partial<
+            Record<WorkspaceChange | "all", number>
+          > = { ...current.viewRevisions };
+          for (const change of requested)
+            viewRevisions[change] = (viewRevisions[change] ?? 0) + 1;
+          publish({
+            ...current,
+            workspace: { ...current.workspace!, ...result.workspace },
+            schoolRecords: {
+              ...current.schoolRecords!,
+              ...result.schoolRecords,
+            },
+            revision: result.revision,
+            contentRevision: result.contentRevision,
+            viewRevisions,
+          });
+        }
+      } finally {
+        // Cleared in the same turn the loop ends, so a change heard right
+        // after starts a new read instead of joining a finished one.
+        patching = undefined;
+      }
+    };
+    patching = run();
+    return patching;
+  };
   const handleWorkspaceChanged = async (event: WorkspaceChangedEvent) => {
-    if (event.source !== "user-intent" || !event.revision) return reload();
+    if (event.source !== "user-intent") return patch(event.changes);
+    if (!event.revision) {
+      await reload();
+      return;
+    }
     // Core emits before the native command resolves. Wait for the command's
     // authoritative snapshot, then read only if this came from another client.
     await writes;
@@ -137,8 +204,8 @@ export function createWorkspaceStore(
       state.getState().revision === event.revision ||
       localMutationRevisions.has(event.revision)
     )
-      return state.getState().schoolRecords;
-    return reload();
+      return;
+    await reload();
   };
   return {
     getState: state.getState,
@@ -166,20 +233,6 @@ export function createWorkspaceStore(
     },
     reload,
     handleWorkspaceChanged,
-    pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
-      if (!school?.pull)
-        return Promise.reject(new Error("School pull needs the desktop app."));
-      // Native PullCoordinator owns admission and request coalescing.
-      return (async () => {
-        await writes;
-        if (state.getState().error) throw new Error(state.getState().error);
-        const outcomes = options
-          ? await school.pull!(site, options)
-          : await school.pull!(site);
-        await reload();
-        return outcomes;
-      })();
-    },
     mutate,
     export() {
       const workspace = state.getState().workspace;
@@ -203,7 +256,7 @@ const emptySchoolRecords = (): SchoolRecords => ({
   grades: [],
   gpaByTerm: [],
   requirements: [],
-  lastRuns: {},
+  freshness: {},
   pageAvailability: {},
 });
 
@@ -223,6 +276,10 @@ export function createBrowserPreviewService(
       workspace ??= await previewRepository.load();
       return snapshot();
     },
+    async records() {
+      // Nothing changes underneath a preview.
+      return { ...snapshot(), workspace: {}, schoolRecords: {} };
+    },
     async mutate() {
       throw new Error("Workspace edits need the native app.");
     },
@@ -233,12 +290,10 @@ const internalWorkspaceStore = createWorkspaceStore(
   desktopBridge
     ? {
         snapshot: () => desktopBridge.workspaceSnapshot(),
+        records: (changes) => desktopBridge.workspaceRecords(changes),
         mutate: (mutation) => desktopBridge.mutateWorkspace(mutation),
       }
     : browserPreviewService,
-  desktopBridge?.pullSchool
-    ? { pull: (site, options) => desktopBridge.pullSchool!(site, options) }
-    : undefined,
 );
 
 /** Read/lifecycle surface. Mutations are available only through workspaceActions. */
@@ -256,10 +311,6 @@ export const workspaceActions = {
   /** Refresh canonical workspace and parsed school records in one publication. */
   refreshSchool() {
     return internalWorkspaceStore.reload();
-  },
-  pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
-    requireAction("import-school", detectPlatform());
-    return internalWorkspaceStore.pullSchool(site, options);
   },
   mutate(intent: WorkspaceIntent) {
     return internalWorkspaceStore.mutate(intent);
@@ -309,10 +360,6 @@ export const workspaceActions = {
   /** The timetable was compared with LMS; its cache TTL restarts now. */
   markTimetableReviewed() {
     return internalWorkspaceStore.mutate({ kind: "markTimetableReviewed" });
-  },
-  async reset() {
-    await repository.reset();
-    await internalWorkspaceStore.reload();
   },
   exportData() {
     return repository.export();

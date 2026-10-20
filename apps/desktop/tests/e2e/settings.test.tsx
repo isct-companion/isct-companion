@@ -1810,7 +1810,10 @@ describe("Study profile", () => {
         expect(mounted.core.listenerCount("workspace-changed")).toBe(1),
       );
       await act(async () =>
-        emitNative(mounted.core, "workspace-changed", { source: "cloud-sync" }),
+        emitNative(mounted.core, "workspace-changed", {
+          source: "cloud-sync",
+          changes: ["settings"],
+        }),
       );
       // The department is not part of the draft, so it proves the newer profile
       // has really been adopted before Save is pressed.
@@ -1866,7 +1869,10 @@ describe("Study profile", () => {
         expect(mounted.core.listenerCount("workspace-changed")).toBe(1),
       );
       await act(async () =>
-        emitNative(mounted.core, "workspace-changed", { source: "cloud-sync" }),
+        emitNative(mounted.core, "workspace-changed", {
+          source: "cloud-sync",
+          changes: ["settings"],
+        }),
       );
       await wait(() => expect(stageSelect(pane).value).toBe("Doctoral"));
     },

@@ -62,8 +62,8 @@ build the SDK with the release profile for real use.
 
 ## Not yet
 
-Recognition of a real Matrix card on an arm64 device, cloud backup (`NativeCloud`), downloads
-(`NativeDownloadSession`), widgets (Glance), the intensive-course row in
+Recognition of a real Matrix card on an arm64 device, cloud backup (`NativeCloud`),
+widgets (Glance), the intensive-course row in
 時間割.
 
 UI strings are keyed by their English text and translated at runtime from the

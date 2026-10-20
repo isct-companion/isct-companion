@@ -84,7 +84,7 @@ user-table rewrite.
 
 ## Where data lives
 
-**One SQLite database for structured application data** (`school.db` in the app data dir, owned by the Rust backend). It replaces `workspace.json`, the localStorage caches and `school-cache.json`. The UI reads and writes only through narrow Tauri commands; it never parses HTML and never opens the database itself. Downloaded material bytes and user-authored note files are the explicit filesystem exception; their types, TTL and paths are defined in [course-file-storage.md](course-file-storage.md).
+**SQLite for structured application data**, owned by the Rust backend: `user.db` holds what the person made or chose (the only file backup and cloud sync read), `cache.db` every school cache, which is fetched again when lost; both live in the app data dir. It replaces `workspace.json`, the localStorage caches and `school-cache.json`. The UI reads and writes only through narrow Tauri commands; it never parses HTML and never opens the database itself. Downloaded material bytes and user-authored note files are the explicit filesystem exception; their types, TTL and paths are defined in [course-file-storage.md](course-file-storage.md).
 
 Table groups:
 
@@ -94,7 +94,7 @@ Table groups:
 | User overlays              | `course_overrides`, `assignment_marks`                                                                                                          | SQLite; reference a school `sourceKey`; independent revision and lifetime; included in local backup |
 | Local notes                | Markdown under the course `notes` / `deleted-notes` directories                                                                                 | Local user data; included in local and cloud workspace backups, excluded from cache cleanup         |
 | School records and catalog | `timetable_courses`, `memberships`, `registrations`, `grades`, `lms_courses`, `lms_items`, `assignments`, `offerings`, reference tables         | Rebuildable SQLite cache; `lastSeenAt` / `missingSince`; never exported                             |
-| Derived caches             | `offering_content`, `catalog_search_items`, `offerings_fts`, `import_runs`, downloaded attachments                                              | Rebuildable; never exported                                                                         |
+| Derived caches             | `offering_content`, `catalog_search_items`, `offerings_fts`, `dataset_state`, `sync_runs`, downloaded attachments                              | Rebuildable; never exported                                                                         |
 
 Only user records and overlays use tombstones. School rows use `missingSince`
 and automatically become visible again if the source returns them.
@@ -153,7 +153,7 @@ type Localized = Partial<Record<Lang, string>>;
 
 ## Records
 
-### Catalog (`school.db`)
+### Catalog (`cache.db`)
 
 ```ts
 type Quarter = "1Q" | "2Q" | "3Q" | "4Q";
@@ -223,7 +223,7 @@ type OfferingContent = {
 
 `SyllabusContent` (existing) stays per language. Only opened, planned or registered offerings get content; list rows come from search.
 
-### LMS (`school.db`)
+### LMS (`cache.db`)
 
 ```ts
 type LmsCourse = {
@@ -239,9 +239,9 @@ type LmsCourse = {
 };
 ```
 
-Assignments keep their current workspace shape, with `dueAt` taken from the event's `timesort` (Unix) and a stable `source.externalId` = module id (`mod/assign/view.php?id=…`). Material metadata keeps the module id in `school.db`; attachment bytes are downloaded on demand under the separate [course-file storage contract](course-file-storage.md).
+Assignments keep their current workspace shape, with `dueAt` taken from the event's `timesort` (Unix) and a stable `source.externalId` = module id (`mod/assign/view.php?id=…`). Material metadata keeps the module id in `cache.db`; attachment bytes are downloaded on demand under the separate [course-file storage contract](course-file-storage.md).
 
-### Registration, grades, requirements (`school.db`, rebuildable school cache)
+### Registration, grades, requirements (`cache.db`, rebuildable school cache)
 
 ```ts
 type RequirementMark =

@@ -20,7 +20,6 @@ use url::Url;
 pub use isct_core::school_browser::{
     SchoolWebResult, KYOMU_POPUP as KYOMU_POPUP_SCRIPT, SCHOOL_LINKS as SCHOOL_LINKS_SCRIPT,
 };
-pub use isct_core::school_service::IngestOutcome;
 #[cfg(target_os = "macos")]
 pub(crate) const SCHOOL_DATA_STORE: [u8; 16] = [
     0x63, 0x61, 0x6d, 0x70, 0x75, 0x73, 0x2d, 0x6c, 0x69, 0x66, 0x65, 0x2d, 0x77, 0x65, 0x62, 0x31,
@@ -508,12 +507,6 @@ pub struct SchoolWebController {
 impl SchoolWebController {
     pub(crate) fn new(native: Arc<NativeBrowser>, engine: Arc<SchoolBrowserEngine>) -> Self {
         Self { native, engine }
-    }
-    pub fn is_visible(&self) -> bool {
-        self.native
-            .presentation
-            .lock()
-            .is_ok_and(|p| p.visible.is_some())
     }
     pub fn configure(&self, app: &AppHandle, policy: SchoolWebPolicy) -> Result<bool, String> {
         use tauri::Manager;

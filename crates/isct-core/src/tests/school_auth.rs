@@ -447,3 +447,49 @@ fn undergraduate_student_numbers_suggest_only_the_guide_entry_year() {
         assert_eq!(student_admission_year(number), expected);
     }
 }
+
+#[test]
+fn lms_token_belongs_to_the_account_that_obtained_it() {
+    let vault = MemoryVault::default();
+    let service = SchoolAuthService::new(vault.clone());
+    let science = SchoolAuthProfile::Science;
+    service.save(science, test_credentials()).unwrap();
+    let token = MoodleToken::new("0123456789abcdef".into());
+    service.store_moodle_token(science, &token).unwrap();
+    // Its own device-only vault item, naming the account it belongs to.
+    assert!(vault
+        .load("lms-token-science")
+        .unwrap()
+        .unwrap()
+        .contains("test-user"));
+    assert!(
+        !crate::ports::vault_item("lms-token-science")
+            .unwrap()
+            .synchronized
+    );
+    assert_eq!(
+        service.load_moodle_token(science).unwrap(),
+        Some(token.clone())
+    );
+
+    // Another account signs in: the old account's token is dropped, not used.
+    service
+        .save(
+            science,
+            SchoolCredentials {
+                username: "other-user".into(),
+                ..test_credentials()
+            },
+        )
+        .unwrap();
+    assert_eq!(service.load_moodle_token(science).unwrap(), None);
+    assert!(vault.load("lms-token-science").unwrap().is_none());
+
+    // Forgetting the account forgets its token; students cannot revoke it.
+    service.store_moodle_token(science, &token).unwrap();
+    service.delete(science).unwrap();
+    assert!(vault.load("lms-token-science").unwrap().is_none());
+    assert!(service
+        .store_moodle_token(SchoolAuthProfile::TokyoTech, &token)
+        .is_err());
+}

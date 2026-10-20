@@ -1,6 +1,8 @@
-//! LMS session readiness policy independent of native webview handles.
+//! School WebView cookies for Rust HTTP, independent of native webview
+//! handles: which origins may be read, when a session exists, and the LMS
+//! readiness wait that lets a hidden view finish the LMS sign-in.
 
-use crate::{downloads::FetchError, school_parser::lms::is_lms_origin};
+use crate::net::{cookies, Host, NetError};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use url::Url;
@@ -19,15 +21,50 @@ pub enum SessionState {
     Failed,
 }
 
-pub trait LmsSessionPort: Send + Sync {
-    fn school_state(&self) -> Result<SessionState, FetchError>;
-    fn request_school_session(&self) -> Result<(), FetchError>;
-    fn ensure_lms_view(&self) -> Result<(), FetchError>;
-    fn lms_ready(&self) -> Result<bool, FetchError>;
-    fn navigate_lms_home(&self) -> Result<(), FetchError>;
-    fn cookies(&self, url: &Url) -> Result<String, FetchError>;
+/// The shell's school WebView store and the hidden LMS view.
+pub trait SchoolCookiePort: Send + Sync {
+    fn school_state(&self) -> Result<SessionState, NetError>;
+    fn request_school_session(&self) -> Result<(), NetError>;
+    fn ensure_lms_view(&self) -> Result<(), NetError>;
+    /// The LMS view shows an LMS page and the store holds a MoodleSession.
+    fn lms_ready(&self) -> Result<bool, NetError>;
+    fn navigate_lms_home(&self) -> Result<(), NetError>;
+    /// The name/value pairs the school store sends to `url`.
+    fn cookies(&self, url: &Url) -> Result<Vec<(String, String)>, NetError>;
+    /// Stores Set-Cookie values already vetted by [`cookies::storable`].
+    fn set_cookies(&self, url: &Url, set_cookie: &[String]) -> Result<(), NetError>;
 }
 
+/// The cookie that marks a live session on `host`, when one is known. 教務Web
+/// is ASP.NET; GetAccess has no single marker, so any cookie counts.
+fn session_cookie(host: Host) -> Option<&'static str> {
+    match host {
+        Host::Kyomu => Some("ASP.NET_SessionId"),
+        _ => None,
+    }
+}
+
+fn session_header(host: Host, pairs: &[(String, String)]) -> Result<String, NetError> {
+    let signed_in = match session_cookie(host) {
+        Some(marker) => pairs
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case(marker) && !value.is_empty()),
+        None => !pairs.is_empty(),
+    };
+    if signed_in {
+        Ok(cookies::header(
+            pairs
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        ))
+    } else {
+        Err(NetError::SignInRequired)
+    }
+}
+
+/// Serializes the LMS readiness wait: one caller drives the hidden view at a
+/// time. Other origins are read directly; their sign-in is the WebView SSO
+/// that `net::SignInGate` starts.
 #[derive(Default)]
 pub struct LmsSession {
     gate: Mutex<()>,
@@ -36,12 +73,36 @@ pub struct LmsSession {
 impl LmsSession {
     pub async fn cookie_header(
         &self,
-        port: &dyn LmsSessionPort,
+        port: &dyn SchoolCookiePort,
         url: &Url,
-    ) -> Result<String, FetchError> {
-        if !is_lms_origin(url) {
-            return Err(FetchError::Invalid);
+    ) -> Result<String, NetError> {
+        match Host::of(url) {
+            Some(Host::Moodle) => self.lms_cookie_header(port, url).await,
+            Some(host @ (Host::Kyomu | Host::GetAccess)) => {
+                session_header(host, &port.cookies(url)?)
+            }
+            _ => Err(NetError::Invalid("not a school sign-in origin".into())),
         }
+    }
+
+    pub fn store_set_cookies(
+        &self,
+        port: &dyn SchoolCookiePort,
+        url: &Url,
+        set_cookie: &[String],
+    ) -> Result<(), NetError> {
+        let storable = cookies::storable(url, set_cookie);
+        if storable.is_empty() {
+            return Ok(());
+        }
+        port.set_cookies(url, &storable)
+    }
+
+    async fn lms_cookie_header(
+        &self,
+        port: &dyn SchoolCookiePort,
+        url: &Url,
+    ) -> Result<String, NetError> {
         let _gate = self.gate.lock().await;
         self.wait_for_school(port).await?;
         port.ensure_lms_view()?;
@@ -49,12 +110,7 @@ impl LmsSession {
         for attempt in 0..LMS_ATTEMPTS {
             for _ in 0..LMS_POLLS_PER_ATTEMPT {
                 if port.lms_ready()? {
-                    let cookies = port.cookies(url)?;
-                    return if cookies.trim().is_empty() {
-                        Err(FetchError::Login)
-                    } else {
-                        Ok(cookies)
-                    };
+                    return session_header(Host::Moodle, &port.cookies(url)?);
                 }
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
@@ -66,10 +122,10 @@ impl LmsSession {
                 port.navigate_lms_home()?;
             }
         }
-        Err(FetchError::Login)
+        Err(NetError::SignInRequired)
     }
 
-    async fn wait_for_school(&self, port: &dyn LmsSessionPort) -> Result<(), FetchError> {
+    async fn wait_for_school(&self, port: &dyn SchoolCookiePort) -> Result<(), NetError> {
         if port.school_state()? == SessionState::Active {
             return Ok(());
         }
@@ -78,13 +134,13 @@ impl LmsSession {
             loop {
                 match port.school_state()? {
                     SessionState::Active => return Ok(()),
-                    SessionState::Failed => return Err(FetchError::Login),
+                    SessionState::Failed => return Err(NetError::SignInRequired),
                     SessionState::Pending => tokio::time::sleep(POLL_INTERVAL).await,
                 }
             }
         })
         .await
-        .map_err(|_| FetchError::Login)?
+        .map_err(|_| NetError::SignInRequired)?
     }
 }
 

@@ -292,15 +292,15 @@ same intent to core, and undo comes from the mutation result core returns.
 
 ## Sync feedback
 
-The pull state machine (`PullState`, 11 states) is mapped to three levels by
-Core's school status (`crates/isct-core/src/school_status.rs`), the read model
-the desktop footer also renders; the UI keeps no busy flags of its own.
+Core's sync snapshot (`SyncSnapshot`, see [`../school-refresh.md`](../school-refresh.md)),
+the same value the desktop footer renders, is mapped to three levels; the UI
+keeps no busy flags or progress estimates of its own.
 
-| Level | States | Display |
+| Level | Snapshot | Display |
 |---|---|---|
-| Quiet | Succeeded · Queued · Checking | Nothing. Settings shows "updated 12:40". |
-| In progress | Running · Applying · Yielding | Sync ring beside the settings button, from `SchoolPullProgress` completed/total. Cancel disappears after Applying. |
-| Needs you | Failed · Blocked · RetryWaiting | One banner at the top of Today with one action. |
+| Quiet | No working run | Nothing. Settings shows each source's "updated 12:40". |
+| In progress | A working run | A ring beside the settings button only when the run has a `total`; a small spinner otherwise and for background-only work. |
+| Needs you | A run with `failure` or a foreground run `held` | One banner at the top of Today naming the dataset, when Core retries, and one action (Retry sends `Refresh` for its scope; sign-in opens the account). |
 
 Banner actions by `CoreError`: `NeedsSignIn` → sign in; `Network` → retry or
 "offline, showing 12:40 data"; `SiteChanged` → open in web, noting how many

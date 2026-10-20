@@ -77,9 +77,9 @@ import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolSessionState
 import app.isctcompanion.core.exportApplicationLogs
 import app.isctcompanion.design.Card
-import app.isctcompanion.design.Format
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
+import app.isctcompanion.design.SyncSources
 import app.isctcompanion.design.Theme
 import java.io.IOException
 import java.time.LocalDate
@@ -166,13 +166,19 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
     Page {
         SectionLabel(t("School accounts"))
         Card {
-            AccountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.records.lastRun(SchoolAuthProfile.SCIENCE)) {
+            AccountRow("Science Tokyo", model.credentials?.science, model.sessions?.science) {
                 open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, "Science Tokyo"))
             }
             RowDivider(inset = 36.dp)
-            AccountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.records.lastRun(SchoolAuthProfile.TOKYO_TECH)) {
+            AccountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech) {
                 open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, t("Tokyo Tech (former)")))
             }
+        }
+        val sources = model.syncSnapshot?.sources.orEmpty()
+        if (sources.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            SectionLabel(t("Sync"))
+            SyncSources(sources, onRetry = { model.refresh(it) })
         }
         Card(Modifier.padding(top = 16.dp)) {
             Row(
@@ -269,14 +275,13 @@ private fun AccountRow(
     name: String,
     credential: CredentialSummary?,
     session: SchoolSessionState?,
-    lastRun: String?,
     onClick: () -> Unit,
 ) {
     val connected = credential?.availability == CredentialAvailability.AVAILABLE ||
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
         !connected -> t("Not connected") to Theme.colors.muted
-        session == SchoolSessionState.ACTIVE -> (lastRun?.let { t("Connected · updated {{time}}", "time" to Format.due(it)) } ?: t("Connected")) to Theme.colors.ok
+        session == SchoolSessionState.ACTIVE -> t("Connected") to Theme.colors.ok
         session == SchoolSessionState.FAILED -> t("Sign-in failed") to Theme.colors.danger
         session == SchoolSessionState.MAINTENANCE -> t("Under maintenance") to Theme.colors.warn
         else -> t("Checking") to Theme.colors.muted

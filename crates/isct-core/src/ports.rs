@@ -55,6 +55,7 @@ pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
         "onedrive" => "passwords.onedrive",
         "icloud" => "passwords.icloud",
         "cloud-credential-sync" => "passwords.cloud-credential-sync",
+        "lms-token-science" => "passwords.lms-token-science",
         _ => return Err(SecretError::InvalidAccount),
     };
     Ok(format!("{app_id}.{suffix}"))

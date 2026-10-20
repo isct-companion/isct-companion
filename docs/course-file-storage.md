@@ -1,7 +1,7 @@
 # Course file storage contract
 
 This is the authoritative contract for downloaded LMS files and local course
-notes. School record metadata remains in `school.db`; file bytes do not.
+notes. School record metadata remains in `cache.db`; file bytes do not.
 
 ## Types at the frontend/native boundary
 

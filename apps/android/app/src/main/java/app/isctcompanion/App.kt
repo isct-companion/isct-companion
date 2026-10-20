@@ -59,6 +59,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.TlsVerifier
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.design.IsctTheme
 import app.isctcompanion.design.Localizer
@@ -82,6 +83,8 @@ class IsctApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Localizer.attach(this)
+        // Before the session opens: Core's HTTPS verifies through Android.
+        TlsVerifier.install(this)
         scope.launch { model.start() }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = model.foreground(true)

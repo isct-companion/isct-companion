@@ -1,6 +1,6 @@
-use crate::{cloud_sync, core_ports, data, require_local_main, run_data_command};
+use crate::{core_ports, data, require_local_main, run_data_command};
 use isct_core::workspace::{WorkspaceError, WorkspaceMutation, WorkspaceSnapshot};
-use tauri::Manager;
+use isct_core::workspace_changes::{WorkspaceChange, WorkspacePatch};
 
 #[tauri::command]
 pub(crate) async fn workspace_snapshot(
@@ -10,6 +10,23 @@ pub(crate) async fn workspace_snapshot(
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
     run_data_command(move || core.workspace.snapshot().map_err(|error| error.to_string())).await
+}
+
+/// The records a `workspace-changed` event's `changes` feed; the window
+/// patches its copy with them instead of reading the whole snapshot.
+#[tauri::command]
+pub(crate) async fn workspace_records(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    changes: Vec<WorkspaceChange>,
+) -> Result<WorkspacePatch, String> {
+    require_local_main(&webview)?;
+    let core = core_ports::core(&app);
+    run_data_command(move || {
+        core.workspace_records(&changes)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -63,18 +80,4 @@ pub(crate) async fn run_scheduled_task(
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(crate) async fn reset_workspace(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    store: tauri::State<'_, data::DataStore>,
-) -> Result<serde_json::Value, String> {
-    require_local_main(&webview)?;
-    app.state::<cloud_sync::CloudSync>()
-        .prepare_reset(&app)
-        .await?;
-    let store = store.inner().clone();
-    run_data_command(move || store.reset_workspace().map_err(|error| error.to_string())).await
 }

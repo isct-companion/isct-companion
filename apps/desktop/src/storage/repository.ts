@@ -5,7 +5,6 @@ export interface WorkspaceRepository {
   load(): Promise<Workspace>;
   export(): Promise<string>;
   import?(document: string): Promise<Workspace>;
-  reset(): Promise<Workspace>;
 }
 
 /** Browser preview has no persistence or domain engine. */
@@ -21,10 +20,6 @@ export class LocalRepository implements WorkspaceRepository {
   async import(_document: string): Promise<Workspace> {
     throw new Error("Workspace import needs the native app.");
   }
-
-  async reset(): Promise<Workspace> {
-    throw new Error("Workspace reset needs the native app.");
-  }
 }
 
 /** Desktop adapter. Rust owns validation, migration, persistence and backups. */
@@ -39,10 +34,6 @@ export class SqliteRepository implements WorkspaceRepository {
 
   async import(document: string) {
     return invoke<Workspace>("import_data", { document });
-  }
-
-  async reset() {
-    return invoke<Workspace>("reset_workspace");
   }
 }
 

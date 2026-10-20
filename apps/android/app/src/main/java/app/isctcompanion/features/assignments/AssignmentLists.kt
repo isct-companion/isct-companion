@@ -1,6 +1,7 @@
 package app.isctcompanion.features.assignments
 
 import app.isctcompanion.core.AssignmentBoard
+import app.isctcompanion.core.SyncView
 import app.isctcompanion.design.t
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.background
@@ -42,6 +43,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -236,6 +238,7 @@ fun RecordScreen() {
     val navigator = LocalNavigator.current
     val now = rememberNow(60)
     var unfolded by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { model.open(SyncView.Assignments) }
     val record = model.board?.record
     Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
         TopAppBar(

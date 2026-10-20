@@ -2,8 +2,8 @@ import IsctCore
 import SwiftUI
 
 /// データ更新: whether Core's automatic school reads may use cellular data
-/// (`settings.subscriptionRefresh.allowCellular`, read by `school_refresh.rs`),
-/// when each school site was last read, and a manual refresh.
+/// (`settings.subscriptionRefresh.allowCellular`), Core's sync sources and
+/// runs, and a manual refresh that asks Core's planner for everything.
 struct DataUpdatesScreen: View {
     @Environment(AppModel.self) private var model
 
@@ -28,15 +28,7 @@ struct DataUpdatesScreen: View {
             } footer: {
                 Text(t("When off, automatic updates wait until you are on Wi-Fi."))
             }
-            if let sources = model.schoolStatus?.sources, !sources.isEmpty {
-                Section(t("Last updated")) {
-                    ForEach(sources, id: \.site) { source in
-                        LabeledContent(WebRouter.name(source.site)) {
-                            Text(source.lastUpdated.map { Format.due($0) } ?? t("Not fetched yet"))
-                        }
-                    }
-                }
-            }
+            SyncSections()
             Section {
                 Button {
                     model.refreshFromSchool()
@@ -44,12 +36,11 @@ struct DataUpdatesScreen: View {
                     HStack {
                         Text(t("Refresh now"))
                         Spacer()
-                        if let status = model.schoolStatus, let progress = status.headline.ringProgress(status) {
-                            SyncRing(progress: progress, emphasized: status.headline.isBusy)
+                        if let indicator = model.syncSnapshot?.indicator {
+                            SyncIndicatorView(indicator: indicator)
                         }
                     }
                 }
-                .disabled(model.schoolStatus?.headline.isBusy == true)
             }
         }
         .navigationTitle(t("Data updates"))

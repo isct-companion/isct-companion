@@ -4,6 +4,7 @@ import type {
   CourseBatchChanges as GeneratedCourseBatchChanges,
   WorkspaceIntent as GeneratedWorkspaceIntent,
   WorkspaceMutation as GeneratedWorkspaceMutation,
+  WorkspacePatch as GeneratedWorkspacePatch,
   WorkspaceSnapshot as GeneratedWorkspaceSnapshot,
 } from "../generated/persistence";
 
@@ -16,4 +17,12 @@ export type CoreWorkspaceSnapshot = Omit<
 > & {
   workspace: Workspace;
   schoolRecords: SchoolRecords;
+};
+/** Only the fields the requested changes feed, to merge over a snapshot. */
+export type CoreWorkspacePatch = Omit<
+  GeneratedWorkspacePatch,
+  "workspace" | "schoolRecords"
+> & {
+  workspace: Partial<Workspace>;
+  schoolRecords: Partial<SchoolRecords>;
 };

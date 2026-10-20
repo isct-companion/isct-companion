@@ -1,100 +1,166 @@
+import Foundation
 import IsctCore
 import Pow
 import SwiftUI
 
-/// Words for Core's school status (`school_status.rs`). Core decides what is
-/// shown and in which order; these only name it.
-enum SchoolStatusText {
-    static func source(_ site: SchoolSite) -> String {
-        site == .kyomu ? "教務Web" : "LMS"
+/// Words for Core's sync snapshot (`sync_engine`). Core decides what runs, what
+/// waits, what failed and when it retries; these only name it.
+enum SyncText {
+    /// A source as Core names it in `SourceView.source`.
+    static func source(_ source: String) -> String {
+        switch source {
+        case "lms": return "LMS"
+        case "kyomu": return "教務Web"
+        case "references": return t("Reference data")
+        case "catalog": return t("Course catalog")
+        default: return source
+        }
     }
 
-    static func waiting(_ reason: WaitReason) -> String {
-        switch reason {
-        case .queued: return t("Waiting for school refresh")
+    /// Dataset names, keyed by the dataset id Core puts in `RunView.dataset`
+    /// and in its labels' keys.
+    private static func datasetName(_ key: String) -> String? {
+        switch key {
+        case "lms.enrolment": return t("Courses")
+        case "lms.deadlines": return t("Deadlines")
+        case "lms.course": return t("Course content")
+        case "lms.assign": return t("Assignments")
+        case "lms.history": return t("Past courses")
+        case "kyomu.page": return t("教務Web pages")
+        case "catalog.official": return t("Course catalog")
+        case "catalog.detail": return t("Syllabus details")
+        case "reference": return t("Reference data")
+        default: return nil
+        }
+    }
+
+    static func dataset(_ dataset: String) -> String {
+        datasetName(dataset) ?? dataset
+    }
+
+    /// A Core label: a dataset key reads as the dataset's name; any other key
+    /// is a catalog key filled with Core's arguments.
+    static func label(_ label: SyncLabel) -> String {
+        let key = label.key.hasPrefix("sync.") ? String(label.key.dropFirst("sync.".count)) : label.key
+        if let name = datasetName(key) ?? datasetName(label.key) { return name }
+        let values = (try? JSONSerialization.jsonObject(with: Data(label.args.utf8))) as? [String: Any] ?? [:]
+        return t(label.key, values)
+    }
+
+    static func held(_ held: Held) -> String {
+        switch held {
         case .offline: return t("Waiting for a connection")
         case .cellular: return t("Waiting for Wi-Fi")
+        case .powerSaver: return t("Paused for Low Power Mode")
         case .background: return t("Resumes when the app is in front")
-        case .schoolVisible: return t("Resumes after you leave the school page")
-        case .suspended: return t("Paused")
-        case .other: return t("Waiting")
+        case let .backoff(until): return retry(at: until)
+        case let .hostPaused(host, until): return t("{{host}} is paused until {{time}}", ["host": host, "time": Format.due(until)])
+        case .signInRequired: return t("Sign in required")
+        case .resetting: return t("Resetting")
         }
     }
 
-    /// A step with nothing reported yet reads as its label alone.
-    static func step(_ step: PullStep) -> String {
-        let label: String = switch step.kind {
-        case .catalog: t("Reading enrolled courses")
-        case .course: t("Loading course")
-        case .material: t("Reading material")
-        case .assignment: t("Checking assignment")
-        case .timetable: t("Preparing your timetable")
-        case .saving: t("Saving LMS changes")
-        case .kyomu: t("Reading 教務Web pages")
-        }
-        guard step.total > 0 || !step.courseTitle.isEmpty || !step.itemTitle.isEmpty else { return label }
-        let context = [step.courseTitle, step.itemTitle].filter { !$0.isEmpty }.joined(separator: " · ")
-        return [label, context, "\(step.completed)/\(step.total)"].filter { !$0.isEmpty }.joined(separator: " · ")
+    static func retry(at raw: String) -> String {
+        t("Retry at {{time}}", ["time": Format.due(raw)])
     }
 
-    static func problem(_ problem: SchoolProblem, site: SchoolSite) -> String {
-        let name = source(site)
-        switch problem {
-        case let .maintenance(detail): return [t("{{source}} is under maintenance", ["source": name]), detail].joined(separator: " · ")
-        case let .failed(detail): return [t("Could not update {{source}}", ["source": name]), detail].compactMap { $0 }.joined(separator: " · ")
-        case let .partial(detail): return [t("Part of {{source}} could not be read", ["source": name]), detail].compactMap { $0 }.joined(separator: " · ")
-        }
+    /// "Could not update Deadlines · Retry at Today 14:05".
+    static func failure(_ failure: SyncFailure, name: String) -> String {
+        [t("Could not update {{source}}", ["source": name]), failure.retryAt.map(retry(at:))]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
-    static func signIn(_ state: SignInState) -> String {
-        switch state {
-        case .connected: return t("Signed in")
-        case let .step(step):
-            let detail: String? = switch step {
-            case .agree: t("Accepting portal terms")
-            case .identifier: t("Entering account")
-            case .password: t("Checking password")
-            case .method: t("Selecting sign-in method")
-            case .otp: t("Verifying one-time code")
-            case .matrix: t("Verifying matrix code")
-            case .other: nil
-            }
-            return [t("Signing in"), detail].compactMap { $0 }.joined(separator: " · ")
-        case .needsUser: return t("Waiting for you")
-        case let .failed(message): return message
+    /// What a Retry asks Core to read again for a failed run.
+    static func scope(for run: RunView) -> SyncScope {
+        if run.dataset.hasPrefix("lms.") {
+            if let id = run.scope.flatMap(UInt64.init) { return .course(lmsCourseId: id) }
+            return .site(site: .scienceLms)
+        }
+        if run.dataset.hasPrefix("kyomu.") { return .site(site: .kyomu) }
+        if run.dataset == "reference" { return .references }
+        if run.dataset.hasPrefix("catalog."), let year = run.scope.flatMap(UInt16.init) { return .catalog(year: year) }
+        return .everything
+    }
+
+    /// What a Retry asks Core to read again for a failed source.
+    static func scope(for source: SourceView) -> SyncScope {
+        switch source.source {
+        case "lms": return .site(site: .scienceLms)
+        case "kyomu": return .site(site: .kyomu)
+        case "references": return .references
+        default: return .everything
         }
     }
 }
 
-extension SchoolHeadline {
-    /// The ring's fill, when a pull is underway.
-    func ringProgress(_ status: SchoolStatus) -> Double? {
-        switch self {
-        case let .busy(_, progress, _, _, _): return Double(progress) / 100
-        case let .background(site, _):
-            switch status.sources.first(where: { $0.site == site })?.activity {
-            case let .running(_, progress, _)?: return Double(progress) / 100
-            default: return 0.05
-            }
-        case .idle, .problem: return nil
+/// What the header shows for Core's runs: a ring only when a run has a total,
+/// a spinner for other work, an icon when everything waits or failed.
+enum SyncIndicator: Equatable {
+    case progress(Double, emphasized: Bool)
+    case spinner(emphasized: Bool)
+    case failed
+    case held
+}
+
+/// The one thing that needs the person, for 今日's banner.
+struct SyncProblem {
+    let text: String
+    let retry: SyncScope?
+    let signIn: SchoolAuthProfile?
+}
+
+extension SyncSnapshot {
+    /// Runs reading now: neither held nor failed.
+    var activeRuns: [RunView] { runs.filter { $0.held == nil && $0.failure == nil } }
+
+    /// Work the person asked for or is looking at, as opposed to background reads.
+    var isBusy: Bool { resetting || activeRuns.contains { $0.priority != .background } }
+
+    var indicator: SyncIndicator? {
+        let active = activeRuns
+        if let run = active.first(where: { $0.total != nil }), let total = run.total {
+            return .progress(Double(min(run.done, total)) / Double(max(total, 1)), emphasized: run.priority != .background)
         }
+        if resetting { return .spinner(emphasized: true) }
+        if let run = active.first { return .spinner(emphasized: run.priority != .background) }
+        if problem != nil { return .failed }
+        if runs.contains(where: { $0.held != nil }) { return .held }
+        return nil
     }
 
-    /// One line for the first-load hint and the ring's accessibility label.
-    var line: String {
-        switch self {
-        case .idle: return t("Up to date")
-        case let .busy(site, _, step, waiting, _):
-            return "\(SchoolStatusText.source(site)) · \(waiting.map(SchoolStatusText.waiting) ?? SchoolStatusText.step(step))"
-        case let .background(site, waiting):
-            return "\(SchoolStatusText.source(site)) · \(waiting.map(SchoolStatusText.waiting) ?? t("Updating in the background"))"
-        case let .problem(site, problem): return SchoolStatusText.problem(problem, site: site)
+    var problem: SyncProblem? {
+        let held = runs.compactMap(\.held) + sources.compactMap(\.held)
+        for case let .signInRequired(profile) in held {
+            return SyncProblem(text: t("Sign in required"), retry: nil, signIn: profile)
         }
+        if let run = runs.first(where: { $0.failure != nil }), let failure = run.failure {
+            return SyncProblem(
+                text: SyncText.failure(failure, name: SyncText.label(run.label)), retry: SyncText.scope(for: run), signIn: nil)
+        }
+        if let source = sources.first(where: { $0.failure != nil }), let failure = source.failure {
+            return SyncProblem(
+                text: SyncText.failure(failure, name: SyncText.source(source.source)),
+                retry: SyncText.scope(for: source), signIn: nil)
+        }
+        return nil
+    }
+
+    /// One line for the first-load card and the indicator's accessibility label.
+    var line: String {
+        if resetting { return t("Resetting") }
+        if let run = activeRuns.first {
+            return ([SyncText.label(run.label)] + [run.current.map(SyncText.label)].compactMap { $0 }).joined(separator: " · ")
+        }
+        if let problem { return problem.text }
+        if let run = runs.first(where: { $0.held != nil }), let held = run.held {
+            return "\(SyncText.label(run.label)) · \(SyncText.held(held))"
+        }
+        return t("Up to date")
     }
 }
 
 /// The sync ring beside the settings button (`docs/ux/mobile.md`, Sync
-/// feedback): the shape of desktop's `PullRing`. Hidden when nothing runs.
+/// feedback): the shape of desktop's `PullRing`.
 struct SyncRing: View {
     let progress: Double
     var emphasized = true
@@ -112,7 +178,24 @@ struct SyncRing: View {
     }
 }
 
-/// The ring as a button that opens the connection sheet. When a pull the
+struct SyncIndicatorView: View {
+    let indicator: SyncIndicator
+
+    var body: some View {
+        switch indicator {
+        case let .progress(progress, emphasized):
+            SyncRing(progress: progress, emphasized: emphasized)
+        case let .spinner(emphasized):
+            ProgressView().controlSize(.small).tint(emphasized ? Theme.accent : Theme.muted)
+        case .failed:
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
+        case .held:
+            Image(systemName: "pause.circle").foregroundStyle(Theme.muted)
+        }
+    }
+}
+
+/// The indicator as a button that opens the connection sheet. When work the
 /// person started finishes cleanly, a check pops in its place for a moment.
 struct SyncRingButton: View {
     @Environment(AppModel.self) private var model
@@ -122,15 +205,15 @@ struct SyncRingButton: View {
 
     var body: some View {
         ZStack {
-            if let status = model.schoolStatus, let progress = status.headline.ringProgress(status) {
+            if let snapshot = model.syncSnapshot, let indicator = snapshot.indicator {
                 Button {
                     showsSheet = true
                 } label: {
-                    SyncRing(progress: progress, emphasized: status.headline.isBusy)
+                    SyncIndicatorView(indicator: indicator)
                         .frame(width: 40, height: 40)
                         .contentShape(Rectangle())
                 }
-                .accessibilityLabel(status.headline.line)
+                .accessibilityLabel(snapshot.line)
             } else if showsDone {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title3)
@@ -142,9 +225,9 @@ struct SyncRingButton: View {
         }
         .animation(.snappy, value: showsDone)
         .sensoryFeedback(.success, trigger: finished)
-        .sheet(isPresented: $showsSheet) { SchoolStatusSheet() }
-        .onChange(of: model.schoolStatus?.headline) { old, new in
-            guard old?.isBusy == true, case .idle? = new else { return }
+        .sheet(isPresented: $showsSheet) { SyncStatusSheet() }
+        .onChange(of: model.syncSnapshot?.isBusy) { old, new in
+            guard old == true, new == false, model.syncSnapshot?.indicator == nil else { return }
             finished += 1
             showsDone = true
             Task {
@@ -155,24 +238,15 @@ struct SyncRingButton: View {
     }
 }
 
-extension SchoolHeadline {
-    var isBusy: Bool {
-        if case .busy = self { return true }
-        return false
-    }
-}
-
-/// The connection sheet: one row per source, as Core lists them.
-struct SchoolStatusSheet: View {
+/// The connection sheet: Core's sources, then its runs, as Core lists them.
+struct SyncStatusSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(model.schoolStatus?.sources ?? [], id: \.site) { source in
-                    SourceRow(source: source)
-                }
+                SyncSections()
             }
             .navigationTitle(t("School connection"))
             .navigationBarTitleDisplayMode(.inline)
@@ -182,87 +256,159 @@ struct SchoolStatusSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 }
 
-private struct SourceRow: View {
-    let source: SchoolSourceStatus
+/// Sources with their last update, then the runs underway, for the sheet and
+/// データ更新.
+struct SyncSections: View {
+    @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(SchoolStatusText.source(source.site)).font(.body.weight(.semibold))
-                Spacer()
-                if case let .running(_, progress, _) = source.activity {
-                    SyncRing(progress: Double(progress) / 100)
+        if let snapshot = model.syncSnapshot {
+            if !snapshot.sources.isEmpty {
+                Section(t("Last updated")) {
+                    ForEach(snapshot.sources, id: \.source) { SyncSourceRow(source: $0) }
                 }
             }
-            Text(activity).font(.subheadline).foregroundStyle(tint)
-            if let signIn = source.signIn, signIn != .connected {
-                Text(SchoolStatusText.signIn(signIn)).font(.footnote).foregroundStyle(Theme.muted)
+            if snapshot.resetting || !snapshot.runs.isEmpty {
+                Section {
+                    if snapshot.resetting {
+                        HStack {
+                            Text(t("Resetting"))
+                            Spacer()
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                    ForEach(snapshot.runs, id: \.run) { SyncRunRow(run: $0) }
+                }
             }
         }
-        .padding(.vertical, 4)
-    }
-
-    private var activity: String {
-        switch source.activity {
-        case .idle:
-            guard let last = source.lastUpdated else { return t("Never updated") }
-            return t("Updated {{date}}", ["date": Format.due(last)])
-        case let .waiting(reason, _): return SchoolStatusText.waiting(reason)
-        case let .running(_, _, step): return SchoolStatusText.step(step)
-        case let .problem(problem): return SchoolStatusText.problem(problem, site: source.site)
-        }
-    }
-
-    private var tint: Color {
-        if case .problem = source.activity { return Theme.danger }
-        return Theme.muted
     }
 }
 
-/// "Needs you" (Sync feedback level 3): Core's problem, once nothing runs.
-struct SchoolProblemBanner: View {
-    let site: SchoolSite
-    let problem: SchoolProblem
+private struct SyncSourceRow: View {
+    let source: SourceView
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(SyncText.source(source.source)).font(.body.weight(.semibold))
+                Spacer()
+                if source.running { ProgressView().controlSize(.small) }
+            }
+            Text(source.lastUpdated.map { t("Updated {{date}}", ["date": Format.due($0)]) } ?? t("Never updated"))
+                .font(.subheadline)
+                .foregroundStyle(Theme.muted)
+            if let maintenance = source.maintenance {
+                Text([t("{{source}} is under maintenance", ["source": SyncText.source(source.source)]), maintenance]
+                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.footnote)
+                    .foregroundStyle(Theme.warn)
+            } else if let failure = source.failure {
+                FailureLine(text: SyncText.failure(failure, name: SyncText.source(source.source))) {
+                    model.syncHint(.refresh(scope: SyncText.scope(for: source)))
+                }
+            } else if let held = source.held {
+                Text(SyncText.held(held)).font(.footnote).foregroundStyle(Theme.muted)
+            } else if source.session == "signed-out" {
+                Text(t("Not connected")).font(.footnote).foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// One run: a bar only when Core knows its total, a spinner otherwise.
+private struct SyncRunRow: View {
+    let run: RunView
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(SyncText.label(run.label))
+                Spacer()
+                if let total = run.total {
+                    Text(verbatim: "\(run.done)/\(total)")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(Theme.muted)
+                } else if run.held == nil, run.failure == nil {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            if let total = run.total, run.failure == nil {
+                ProgressView(value: Double(min(run.done, total)), total: Double(max(total, 1)))
+                    .tint(run.priority == .background ? Theme.muted : Theme.accent)
+            }
+            if let current = run.current {
+                Text(SyncText.label(current)).font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            if let failure = run.failure {
+                FailureLine(text: SyncText.failure(failure, name: SyncText.dataset(run.dataset))) {
+                    model.syncHint(.refresh(scope: SyncText.scope(for: run)))
+                }
+            } else if let held = run.held {
+                Text(SyncText.held(held)).font(.footnote).foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct FailureLine: View {
+    let text: String
+    let retry: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(text).font(.footnote).foregroundStyle(Theme.danger)
+            Spacer()
+            Button(t("Retry"), action: retry)
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.borderless)
+        }
+    }
+}
+
+/// "Needs you" (Sync feedback level 3): a failed read with Retry, or an
+/// account to sign in to again.
+struct SyncProblemBanner: View {
+    let problem: SyncProblem
     @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: isMaintenance ? "wrench.and.screwdriver.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(isMaintenance ? Theme.warn : Theme.danger)
-            Text(SchoolStatusText.problem(problem, site: site)).font(.subheadline).foregroundStyle(Theme.ink)
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
+            Text(problem.text).font(.subheadline).foregroundStyle(Theme.ink)
             Spacer()
-            if !isMaintenance {
-                Button(t("Retry")) { model.refreshFromSchool() }
+            if let profile = problem.signIn {
+                NavigationLink(value: SettingsRoute.account(profile)) {
+                    Text(t("Sign in")).font(.subheadline.weight(.semibold))
+                }
+            } else if let scope = problem.retry {
+                Button(t("Retry")) { model.syncHint(.refresh(scope: scope)) }
                     .font(.subheadline.weight(.semibold))
             }
         }
         .padding(14)
-        .background(
-            isMaintenance ? Theme.warnSoft : Theme.dangerSoft,
-            in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
-    }
-
-    private var isMaintenance: Bool {
-        if case .maintenance = problem { return true }
-        return false
+        .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
     }
 }
 
 /// First launch after signing in: Today has nothing yet, so say what is
 /// being read instead of showing a blank page.
 struct FirstLoadCard: View {
-    let status: SchoolStatus
+    let snapshot: SyncSnapshot
 
     var body: some View {
         HStack(spacing: 14) {
-            SyncRing(progress: status.headline.ringProgress(status) ?? 0.05)
+            SyncIndicatorView(indicator: snapshot.indicator ?? .spinner(emphasized: true))
             VStack(alignment: .leading, spacing: 4) {
                 Text(t("Loading school data")).font(.body.weight(.semibold)).foregroundStyle(Theme.ink)
-                Text(status.headline.line).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
+                Text(snapshot.line).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
             }
         }
         .padding(18)

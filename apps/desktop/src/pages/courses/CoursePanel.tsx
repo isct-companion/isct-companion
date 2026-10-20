@@ -1,3 +1,4 @@
+import type { PageProgress } from "../../platform/sync";
 import { ExternalLink } from "../../components/ExternalLink";
 import { Button, Paper } from "@mantine/core";
 import { t } from "../../i18n";
@@ -41,7 +42,7 @@ export function CoursePanel({
   openWeb: (url: string) => void;
   /** Pulls LMS (assignments and materials) without changing the timetable. */
   fetchLms?: () => void;
-  progress?: number | null;
+  progress?: PageProgress;
   /** This course's clashes on the quarter template, from Core. */
   conflicts?: CourseConflict[];
   /** Shows another timetable course in this panel. */

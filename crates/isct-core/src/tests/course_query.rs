@@ -38,7 +38,6 @@ fn first_year_eligibility_uses_the_planned_year_and_keeps_all_course_search_visi
         include_ineligible,
         keys: keys.into_iter().map(str::to_string).collect(),
         input: String::new(),
-        remote_ids: None,
         action,
     };
 
@@ -215,8 +214,6 @@ fn matches_original_typescript_finder_traces() {
     let fixture: Value =
         serde_json::from_str(include_str!("../course_query/fixtures.json")).unwrap();
     let ctx: FinderContext = serde_json::from_value(fixture["context"].clone()).unwrap();
-    let scopes: BTreeMap<String, String> =
-        serde_json::from_value(fixture["scopes"].clone()).unwrap();
     let courses = fixture["courses"].as_array().unwrap();
     for (index, case) in fixture["cases"].as_array().unwrap().iter().enumerate() {
         let mut ctx = ctx.clone();
@@ -231,7 +228,6 @@ fn matches_original_typescript_finder_traces() {
             "condition" => serde_json::to_value(condition(text(input, "word"), &ctx)).unwrap(),
             "factors" => serde_json::to_value(factors).unwrap(),
             "run" => json!(run(courses, &factors.factors, &ctx, "")),
-            "plan" => remote_plan(&factors.factors, &scopes),
             "suggest" => json!(suggest(text(input, "input"), &keys, courses, &ctx)),
             "live" => json!(live_text(text(input, "input"), &keys, courses, &ctx)),
             other => panic!("unknown trace {other}"),
@@ -241,7 +237,7 @@ fn matches_original_typescript_finder_traces() {
 }
 
 #[test]
-fn teacher_queries_use_official_search_while_rooms_and_overlap_stay_local() {
+fn teacher_room_and_overlap_filters_run_on_the_stored_catalog() {
     let context = FinderContext::default();
     let keys = ["teacher:Tanaka", "room:W9", "3Q", "火3-4"].map(str::to_string);
     let factors = factors_of(&keys, &context).factors;
@@ -265,11 +261,6 @@ fn teacher_queries_use_official_search_while_rooms_and_overlap_stay_local() {
             .collect::<Vec<_>>(),
         vec!["match"]
     );
-    let plan = remote_plan(&factors, &BTreeMap::new());
-    assert_eq!(
-        plan["queries"],
-        json!([{"q":".","teacher":"tanaka","quarters":[3],"days":[2],"periodStarts":[1,2,3,4]}])
-    );
 }
 
 #[test]
@@ -282,8 +273,7 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
     ]});
     let request = |keys: Value, input: &str| {
         serde_json::from_value(json!({
-            "year":2026,"term":"2026-3Q","keys":keys,"input":input,
-            "remoteIds":["fresh"]
+            "year":2026,"term":"2026-3Q","keys":keys,"input":input
         }))
         .unwrap()
     };
@@ -291,19 +281,12 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
     let view = finder_view(
         &workspace,
         courses.clone(),
-        request(json!(["推荐", "400", "研究関連科目"]), "400"),
+        request(json!(["400", "研究関連科目"]), "400"),
     )
     .unwrap();
     assert!(view.context.recommended.is_empty());
-    assert_eq!(view.rows.len(), 1); // official result survives absent local guide marks
-    assert_eq!(view.plan["queries"][0]["recommended"], true);
-    assert_eq!(
-        view.plan["queries"][0]["controls"],
-        json!([
-            {"id":"ctl00_ContentPlaceHolder1_cblKamokuCodeSeries_0","value":"on"},
-            {"id":"drpKamokuKbnMidashiSenmon","value":"121100"}
-        ])
-    );
+    // Official form choices match the stored row locally, with no guide marks.
+    assert_eq!(view.rows.len(), 1);
     workspace["kyomuSearchOptions"].as_array_mut().unwrap().extend([
         json!({"id":"graduate_level","value":"live-600","label":"600","family":"level"}),
         json!({"id":"graduate_period","value":"live-12","label":"12時限","family":"start"}),
@@ -326,25 +309,6 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
             .suggestions
             .is_empty()
     );
-    let graduate = finder_view(
-        &workspace,
-        courses.clone(),
-        request(json!(["6xx", "12時限", "英語", "新しい授業形式"]), ""),
-    )
-    .unwrap();
-    assert_eq!(
-        graduate.plan["queries"][0]["controls"],
-        json!([
-            {"id":"graduate_level","value":"live-600"}, {"id":"graduate_period","value":"live-12"},
-            {"id":"graduate_language","value":"live-en"}, {"id":"future_filter","value":"live-new"},
-        ])
-    );
-    assert_eq!(
-        finder_view(&workspace, courses.clone(), request(json!(["600番台"]), ""))
-            .unwrap()
-            .plan["queries"][0]["controls"][0]["value"],
-        "live-600"
-    );
     // Switching form metadata removes unsupported graduate suggestions, without
     // hardcoding an undergraduate/graduate range in the product vocabulary.
     workspace["kyomuSearchOptions"][0]["label"] = json!("100");
@@ -354,21 +318,4 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
     ));
     assert!(view.context.recommended.is_empty());
     assert!(finder_view(&workspace, vec![], request(json!(["!100"]), "")).is_err());
-    workspace["kyomuSearchOptions"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({
-            "id":"drpKamokuKbnMidashiSenmon","value":"120900","label":"専門科目","family":"category"
-        }));
-    let view = finder_view(
-        &workspace,
-        vec![],
-        request(json!(["研究関連科目", "専門科目"]), ""),
-    )
-    .unwrap();
-    let queries = view.plan["queries"].as_array().unwrap();
-    assert_eq!(queries.len(), 2);
-    assert!(queries
-        .iter()
-        .all(|q| q["controls"].as_array().unwrap().len() == 1));
 }

@@ -38,7 +38,7 @@ impl UpdateSource {
             .and_then(|config| config.get("origin"))
             .and_then(serde_json::Value::as_str)
         {
-            let url = reqwest::Url::parse(&origin).map_err(|e| e.to_string())?;
+            let url = reqwest::Url::parse(origin).map_err(|e| e.to_string())?;
             if url.scheme() != "http"
                 || url.host_str() != Some("127.0.0.1")
                 || url.port().is_none()
@@ -243,7 +243,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
     phase(&app, "checking", None, None)?;
     let result = async {
         let source = UpdateSource::current(&app)?;
-        let response = reqwest::Client::builder()
+        let response = isct_core::net::client_builder()
             .timeout(Duration::from_secs(20))
             .user_agent(concat!("IsctCompanion/", env!("CARGO_PKG_VERSION")))
             .build()

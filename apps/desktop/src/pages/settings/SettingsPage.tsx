@@ -108,7 +108,8 @@ export function Settings({
   notify: (s: string) => void;
   showLoginPage: (profile: SchoolAuthProfile) => void;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
-  refreshReferences?: () => Promise<string>;
+  /** Whether reference data can be checked now (the desktop app). */
+  refreshReferences?: boolean;
   matrixOcrAvailable?: boolean;
   capabilitiesReady?: boolean;
   /** Mobile shows the section list and one section as separate screens. */
@@ -237,7 +238,6 @@ export function Settings({
         update={update}
         platform={platform}
         refreshReferences={refreshReferences}
-        notify={notify}
         tasks={
           <AutomationSettings
             data={data}

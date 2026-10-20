@@ -177,15 +177,15 @@ describe.skipIf(!enabled)("live Science Tokyo syllabus site", () => {
       `lms.s.isct.ac.jp/${year}/`,
     );
 
-    // Every path literal in the injected extractor must agree with the same
-    // year; a stale one silently disables extraction instead of failing loudly.
-    const ingest = readRepoFile("crates/isct-core/src/lms_ingest.rs");
+    // Every LMS path literal in the Rust readers must agree with the same
+    // year; a stale one silently breaks reading instead of failing loudly.
+    const parser = readRepoFile("crates/isct-core/src/school_parser/lms.rs");
     const pinned = new Set(
-      [...ingest.matchAll(/\/(\d{4})\//g)].map((match) => match[1]),
+      [...parser.matchAll(/\/(\d{4})\//g)].map((match) => match[1]),
     );
     expect(
       [...pinned],
-      `the injected LMS extractor pins a year other than the live one (${year})`,
+      `the LMS readers pin a year other than the live one (${year})`,
     ).toEqual([year]);
   });
 });

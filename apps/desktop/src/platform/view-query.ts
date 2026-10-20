@@ -1,18 +1,33 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../store/useWorkspace";
+import type { ViewRevisions } from "../store/workspace";
+import type { WorkspaceChange } from "../generated/persistence";
 import type { QueryState } from "./core-query";
+
+/** The revision of the records a view family reads: a whole snapshot read,
+ * or a patch of any change it names, makes a new one. */
+const viewRevision = (
+  revisions: ViewRevisions,
+  reads: readonly WorkspaceChange[],
+) =>
+  [revisions.all ?? 0, ...reads.map((change) => revisions[change] ?? 0)].join(
+    ":",
+  );
 
 // React owns view retention; Core owns the data. This bounded transport cache
 // is shared by finder and schedule hooks so late responses cannot mix snapshots.
 const requests = new Map<string, Promise<unknown>>();
 export function useViewQuery<T>(
   namespace: string,
+  reads: readonly WorkspaceChange[],
   input: unknown,
   load: () => Promise<T>,
   enabled = true,
   refresh: unknown = 0,
 ): QueryState<T> {
-  const revision = useWorkspace((state) => state.contentRevision);
+  const revision = useWorkspace((state) =>
+    viewRevision(state.viewRevisions, reads),
+  );
   const key = JSON.stringify([namespace, revision, input, refresh]);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<QueryState<T> & { key?: string }>({

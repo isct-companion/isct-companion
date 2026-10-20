@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,7 +38,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,7 +45,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -55,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -76,6 +74,7 @@ import app.isctcompanion.core.DeadlineItem
 import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.RecentItem
 import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TodayClass
 import app.isctcompanion.core.TodayPhase
 import app.isctcompanion.core.TodayView
@@ -93,6 +92,8 @@ import app.isctcompanion.design.PillButton
 import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
+import app.isctcompanion.design.SyncNotices
+import app.isctcompanion.design.SyncSpinner
 import app.isctcompanion.design.TagChip
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.courseColor
@@ -123,14 +124,10 @@ fun TodayScreen() {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     val now = rememberNow(30)
+    LaunchedEffect(Unit) { model.open(SyncView.Today) }
     TabPage(
         t("Today"),
-        actions = {
-            if (model.isPulling) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(16.dp))
-            }
-        },
+        actions = { SyncSpinner(model.syncSnapshot) },
         onRefresh = { model.refreshFromSchool() },
     ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
@@ -138,6 +135,7 @@ fun TodayScreen() {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PageSubtitle(subtitle(model.today))
                     model.problem?.let { ProblemBanner(it) }
+                    SyncNotices(model.syncSnapshot, onRetry = { model.refresh(it) }, onSignIn = { navigator.openSettings() })
                     if (model.needsAccount) ConnectCard { navigator.openSettings() }
                     model.today?.let { TodayContent(it, now) }
                 }

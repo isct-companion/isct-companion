@@ -2,6 +2,7 @@
 
 pub use crate::school_parser::lms::ResolvedResource;
 use crate::{
+    net::{NetError, SessionCookies, USER_AGENT},
     runtime_tasks::RuntimeTasks,
     school_browser::is_login_url,
     school_parser::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page},
@@ -27,19 +28,11 @@ use tokio::{
 use url::Url;
 
 const SMALL_FILE: u64 = 2 * 1024 * 1024;
-const USER_AGENT: &str = "Mozilla/5.0 (compatible; IsctCompanion/0.1)";
 const SESSION_TIMEOUT: Duration = Duration::from_secs(230);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const RESOURCE_TIMEOUT: Duration = Duration::from_secs(260);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_RESOURCE_PAGE: u64 = 1_000_000;
-
-pub trait DownloadSession: Send + Sync {
-    fn cookie_header<'a>(
-        &'a self,
-        url: &'a Url,
-    ) -> Pin<Box<dyn Future<Output = Result<String, FetchError>> + Send + 'a>>;
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Fetched {
@@ -63,6 +56,18 @@ pub enum FetchError {
     WriteDenied,
 }
 
+/// What a failed cookie read means for a download. Cookie-store failures stay
+/// network errors so they never ask the user to sign in again.
+fn session_error(error: NetError) -> FetchError {
+    match error {
+        NetError::SignInRequired => FetchError::Login,
+        NetError::Invalid(_) => FetchError::Invalid,
+        NetError::Stalled | NetError::Deadline => FetchError::Timeout,
+        NetError::Cancelled => FetchError::Cancelled,
+        _ => FetchError::Network,
+    }
+}
+
 /// The course folder refused the file; any other local failure stays a
 /// failed request the user can retry.
 fn write_error(error: std::io::Error) -> FetchError {
@@ -78,14 +83,14 @@ type FetchFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, FetchError>> + S
 trait DownloadTransport: Send + Sync {
     fn probe<'a>(
         &'a self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &'a Url,
         tasks: RuntimeTasks,
     ) -> FetchFuture<'a, u64>;
 
     fn download<'a>(
         &'a self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &'a Url,
         file: File,
         limit: Option<u64>,
@@ -94,7 +99,7 @@ trait DownloadTransport: Send + Sync {
 
     fn resolve<'a>(
         &'a self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &'a Url,
         cmid: u64,
         module: &'a str,
@@ -109,7 +114,7 @@ struct HttpTransport {
 impl Default for HttpTransport {
     fn default() -> Self {
         Self {
-            client: reqwest::Client::builder()
+            client: crate::net::client_builder()
                 .redirect(reqwest::redirect::Policy::custom(|attempt| {
                     if !is_lms_origin(attempt.url()) {
                         attempt.stop()
@@ -129,7 +134,7 @@ impl Default for HttpTransport {
 impl HttpTransport {
     async fn request(
         &self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &Url,
         range: Option<&str>,
         tasks: &RuntimeTasks,
@@ -140,7 +145,7 @@ impl HttpTransport {
         let cookie = tokio::select! {
             _ = tasks.closed() => return Err(FetchError::Cancelled),
             cookie = tokio::time::timeout(SESSION_TIMEOUT, session.cookie_header(url)) => {
-                cookie.map_err(|_| FetchError::Timeout)??
+                cookie.map_err(|_| FetchError::Timeout)?.map_err(session_error)?
             },
         };
         if cookie.trim().is_empty() {
@@ -164,7 +169,7 @@ impl HttpTransport {
 impl DownloadTransport for HttpTransport {
     fn probe<'a>(
         &'a self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &'a Url,
         tasks: RuntimeTasks,
     ) -> FetchFuture<'a, u64> {
@@ -199,7 +204,7 @@ impl DownloadTransport for HttpTransport {
 
     fn download<'a>(
         &'a self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &'a Url,
         mut file: File,
         limit: Option<u64>,
@@ -237,7 +242,7 @@ impl DownloadTransport for HttpTransport {
 
     fn resolve<'a>(
         &'a self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &'a Url,
         cmid: u64,
         module: &'a str,
@@ -451,7 +456,7 @@ impl Downloader {
 
     pub async fn fetch(
         &self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &Url,
         target: PathBuf,
         limit: Option<u64>,
@@ -528,7 +533,7 @@ impl Downloader {
 
     async fn fetch_once(
         &self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &Url,
         target: PathBuf,
         limit: Option<u64>,
@@ -617,7 +622,7 @@ impl Downloader {
 
     pub async fn resolve(
         &self,
-        session: Arc<dyn DownloadSession>,
+        session: Arc<dyn SessionCookies>,
         url: &Url,
         cmid: u64,
         module: &str,

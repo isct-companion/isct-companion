@@ -364,7 +364,10 @@ fn client(interface: &str, address: Ipv4Addr) -> Result<Client, String> {
     }
     let resolver =
         TokioResolver::builder_with_config(config, TokioConnectionProvider::default()).build();
-    Client::builder()
+    // Bound to the Wi-Fi interface: a system proxy would carry the splash
+    // requests off it.
+    isct_core::net::client_builder()
+        .no_proxy()
         .interface(interface)
         .dns_resolver(Arc::new(WifiResolver(resolver)))
         .cookie_store(true)

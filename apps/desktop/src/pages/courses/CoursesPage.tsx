@@ -21,7 +21,8 @@ import { tokyoDate } from "../../lib/civil-date";
 import type { CalendarExportScope } from "../../generated/persistence";
 import { UiButton } from "../../components/mantine";
 import { YearQuarterPicker } from "./YearQuarterPicker";
-import { PullRing } from "../../components/PullRing";
+import { SyncRing, progressLabel } from "../../components/PullRing";
+import type { PageProgress } from "../../platform/sync";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import {
   useScheduleQueries,
@@ -98,7 +99,7 @@ export function Courses({
   /** Refreshes official enrollment and times from 教務Web. */
   refreshSchedule?: () => void;
   /** 0–100 while an official pull runs, else null. */
-  pullProgress?: number | null;
+  pullProgress?: PageProgress;
   /** Opens 教務Web registration with this quarter's planned courses queued. */
   register?: (term: TermId) => void;
   /** GPA / credits summary opened from the top toolbar. */
@@ -249,14 +250,14 @@ export function Courses({
               disabled={pullProgress !== null}
               leftSection={
                 pullProgress !== null ? (
-                  <PullRing value={pullProgress} />
+                  <SyncRing progress={pullProgress} />
                 ) : undefined
               }
               onClick={refreshSchedule}
               title={t("Refresh timetable")}
             >
               {pullProgress !== null
-                ? `${Math.round(pullProgress)}%`
+                ? progressLabel(pullProgress)
                 : t("Refresh timetable")}
             </Button>
           )}

@@ -30,6 +30,8 @@ reference-demo/
 .env.*
 !.env.example
 *.pem
+# Public CA certificates Core vendors for TLS (net/tls.rs), not secrets.
+!crates/isct-core/src/net/certs/*.pem
 *.key
 *.p8
 *.p12

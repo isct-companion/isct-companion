@@ -1,3 +1,4 @@
+import type { PageProgress } from "../../platform/sync";
 import { Button, Drawer, Group, Text, ThemeIcon } from "@mantine/core";
 import { t } from "../../i18n";
 import type { Course, Workspace } from "../../lib/model";
@@ -31,7 +32,7 @@ export function CourseDrawer({
   editIntensive: () => void;
   openWeb: (url: string) => void;
   fetchLms?: () => void;
-  progress?: number | null;
+  progress?: PageProgress;
 }) {
   return (
     <Drawer

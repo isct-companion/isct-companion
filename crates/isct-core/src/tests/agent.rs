@@ -11,7 +11,7 @@ impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("isct-agent-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let store = DataStore::initialize(root.join("workspace.db")).unwrap().0;
+        let store = DataStore::initialize_dir(root.clone()).unwrap().0;
         store
             .put_workspace_setting(
                 "devicePreferences",
@@ -262,7 +262,7 @@ fn transaction_rechecks_revoked_access_before_running_the_write() {
 fn rejected_audit_rolls_back_every_row_of_plan_add() {
     let fixture = Fixture::new();
     fixture.seed_offering();
-    let connection = rusqlite::Connection::open(fixture.store.path()).unwrap();
+    let connection = fixture.store.test_connection();
     connection
         .execute_batch(
             "CREATE TRIGGER reject_mcp_audit BEFORE UPDATE ON settings
@@ -469,7 +469,7 @@ fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
     let mut school = course.clone();
     school["id"] = json!("2026-school-202612345");
     school["source"] = json!({"provider":"kyomu"});
-    let connection = rusqlite::Connection::open(fixture.store.path()).unwrap();
+    let connection = fixture.store.test_connection();
     connection
         .execute(
             "INSERT INTO timetable_courses (id,value,hash,updated_at,updated_by,rev)

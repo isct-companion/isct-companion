@@ -3,7 +3,8 @@
 use crate::{
     contracts::FolderFile,
     data::DataStore,
-    downloads::{DownloadSession, Downloader, FetchError, Fetched, ResolvedResource},
+    downloads::{Downloader, FetchError, Fetched, ResolvedResource},
+    net::SessionCookies,
     school_parser::lms::ResolvedFile,
     storage::{self, component, describe, regular_file, storage_dir, LocalFile, StorageError},
 };
@@ -91,7 +92,7 @@ pub struct CourseMaterials {
     store: DataStore,
     root: PathBuf,
     downloads: Downloader,
-    session: Option<Arc<dyn DownloadSession>>,
+    session: Option<Arc<dyn SessionCookies>>,
 }
 
 impl CourseMaterials {
@@ -99,7 +100,7 @@ impl CourseMaterials {
         store: DataStore,
         root: PathBuf,
         downloads: Downloader,
-        session: Option<Arc<dyn DownloadSession>>,
+        session: Option<Arc<dyn SessionCookies>>,
     ) -> Self {
         Self {
             store,
@@ -471,12 +472,44 @@ fn storage_error(error: impl std::fmt::Display + 'static) -> MaterialError {
 }
 
 fn clean_materials(root: &Path, days: u64) -> Result<usize, MaterialError> {
-    if !root.exists() {
-        return Ok(0);
-    }
-    let root = root.canonicalize().map_err(storage_error)?;
     let age = Duration::from_secs(days.clamp(1, MAX_RETENTION_DAYS) * 24 * 60 * 60);
     let mut removed = 0;
+    for directory in material_directories(root)? {
+        removed += sweep_material_directory(&directory, Some(age), true)?.files;
+    }
+    Ok(removed)
+}
+
+/// Files a sweep removed, or would remove.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RemovedFiles {
+    pub files: usize,
+    pub bytes: u64,
+}
+
+/// The downloaded course files a reset removes, or with `delete` false would
+/// remove: every material cache file and every partial download orphaned by
+/// another process under `root`, whatever its age. Notes, workspaces,
+/// symlinks and this process's partial downloads are never traversed or
+/// removed.
+pub fn purge_downloads(root: &Path, delete: bool) -> Result<RemovedFiles, MaterialError> {
+    let mut removed = RemovedFiles::default();
+    for directory in material_directories(root)? {
+        let swept = sweep_material_directory(&directory, None, delete)?;
+        removed.files += swept.files;
+        removed.bytes += swept.bytes;
+    }
+    Ok(removed)
+}
+
+/// The `materials` folders of the current and legacy layouts:
+/// `<term>/<course>/materials` and `<term>/<course>/<section>/materials`.
+fn material_directories(root: &Path) -> Result<Vec<PathBuf>, MaterialError> {
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let root = root.canonicalize().map_err(storage_error)?;
+    let mut directories = Vec::new();
     for term in child_directories(&root)? {
         let term_name = term
             .file_name()
@@ -489,7 +522,7 @@ fn clean_materials(root: &Path, days: u64) -> Result<usize, MaterialError> {
             continue;
         }
         for course in child_directories(&term)? {
-            removed += clean_material_directory(&course.join("materials"), age)?;
+            directories.push(course.join("materials"));
             for section in child_directories(&course)? {
                 if section.file_name().is_some_and(|name| {
                     matches!(
@@ -499,11 +532,11 @@ fn clean_materials(root: &Path, days: u64) -> Result<usize, MaterialError> {
                 }) {
                     continue;
                 }
-                removed += clean_material_directory(&section.join("materials"), age)?;
+                directories.push(section.join("materials"));
             }
         }
     }
-    Ok(removed)
+    Ok(directories)
 }
 
 fn child_directories(path: &Path) -> Result<Vec<PathBuf>, MaterialError> {
@@ -518,14 +551,20 @@ fn child_directories(path: &Path) -> Result<Vec<PathBuf>, MaterialError> {
     Ok(directories)
 }
 
-fn clean_material_directory(path: &Path, age: Duration) -> Result<usize, MaterialError> {
+/// Cache files of one `materials` folder older than `age` (`None`: of any
+/// age), and partial downloads another process left behind.
+fn sweep_material_directory(
+    path: &Path,
+    age: Option<Duration>,
+    delete: bool,
+) -> Result<RemovedFiles, MaterialError> {
+    let mut removed = RemovedFiles::default();
     let Ok(metadata) = fs::symlink_metadata(path) else {
-        return Ok(0);
+        return Ok(removed);
     };
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Ok(0);
+        return Ok(removed);
     }
-    let mut removed = 0;
     for entry in fs::read_dir(path).map_err(storage_error)? {
         let entry = entry.map_err(storage_error)?;
         let file_type = entry.file_type().map_err(storage_error)?;
@@ -539,19 +578,25 @@ fn clean_material_directory(path: &Path, age: Duration) -> Result<usize, Materia
             .and_then(crate::downloads::partial_download_owner)
             .map(|owner| owner != std::process::id());
         let limit = match orphaned_partial {
-            Some(true) => STALE_PARTIAL_AGE,
+            Some(true) => Some(STALE_PARTIAL_AGE),
             Some(false) => continue,
             None if is_material_cache_name(&path) => age,
             None => continue,
         };
-        let stale = entry
-            .metadata()
-            .and_then(|metadata| metadata.modified())
-            .ok()
-            .and_then(|modified| modified.elapsed().ok())
-            .is_some_and(|elapsed| elapsed > limit);
-        if stale && fs::remove_file(path).is_ok() {
-            removed += 1;
+        let metadata = entry.metadata().ok();
+        let stale = limit.is_none_or(|limit| {
+            metadata
+                .as_ref()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|elapsed| elapsed > limit)
+        });
+        if !stale {
+            continue;
+        }
+        if !delete || fs::remove_file(path).is_ok() {
+            removed.files += 1;
+            removed.bytes += metadata.map_or(0, |metadata| metadata.len());
         }
     }
     Ok(removed)

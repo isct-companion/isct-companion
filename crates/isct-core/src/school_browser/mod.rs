@@ -45,23 +45,6 @@ pub struct SchoolLoginEvent {
     pub message: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolPullProgress {
-    pub site: SchoolSite,
-    pub phase: String,
-    pub completed: usize,
-    pub total: usize,
-    #[serde(default)]
-    pub course_id: u64,
-    #[serde(default)]
-    pub course_title: String,
-    #[serde(default)]
-    pub term: String,
-    #[serde(default)]
-    pub item_title: String,
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SchoolSessionState {
@@ -147,9 +130,3 @@ impl From<BrowserError> for SchoolBrowserError {
 #[cfg(test)]
 #[path = "../tests/school_browser.rs"]
 mod tests;
-
-impl From<SchoolBrowserError> for crate::pull_coordinator::PullError {
-    fn from(error: SchoolBrowserError) -> Self {
-        crate::school_service::map_executor_error(engine::map_executor(error))
-    }
-}

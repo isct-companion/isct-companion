@@ -186,6 +186,45 @@ pub enum CredentialAvailability {
 }
 
 const SCHOOL_CREDENTIAL_ACCOUNT: &str = "school-accounts";
+
+/// A Moodle mobile web-service token. It lives only in memory and in the OS
+/// vault; `Debug` never prints it and it has no `Serialize`.
+#[derive(Clone, Eq, PartialEq)]
+pub struct MoodleToken(String);
+
+impl MoodleToken {
+    pub(crate) fn new(token: String) -> Self {
+        Self(token)
+    }
+
+    /// The raw value, for the one form field or file query that carries it.
+    pub(crate) fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for MoodleToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("MoodleToken([redacted])")
+    }
+}
+
+/// The vault record of a token: whose it is, so a token never outlives the
+/// account it was issued to. Device-only (see `ports::vault_item`).
+#[derive(Deserialize, Serialize)]
+struct StoredMoodleToken {
+    version: u8,
+    account: String,
+    token: String,
+}
+
+/// Only the Science profile has an LMS.
+fn moodle_token_account(profile: SchoolAuthProfile) -> Option<&'static str> {
+    match profile {
+        SchoolAuthProfile::Science => Some("lms-token-science"),
+        SchoolAuthProfile::TokyoTech => None,
+    }
+}
 #[derive(Deserialize, Serialize)]
 struct SchoolCredentialBundle {
     version: u8,
@@ -556,8 +595,78 @@ impl SchoolAuthService {
         self.write_accounts(&accounts)?;
         let _ = self.vault.delete(profile.account());
         unlocked.insert(profile, None);
+        drop(unlocked);
+        // Signing out also forgets the LMS token; students cannot revoke it.
+        let _ = self.delete_moodle_token(profile);
         self.record_summary(profile, None, CredentialAvailability::NotConfigured);
         Ok(true)
+    }
+
+    /// Who a token belongs to: the saved username, or "" while the school
+    /// web session was signed in without saved credentials.
+    fn moodle_token_owner(&self, profile: SchoolAuthProfile) -> Result<String, SchoolAuthError> {
+        Ok(self
+            .load(profile)?
+            .map(|credentials| credentials.username)
+            .unwrap_or_default())
+    }
+
+    /// The account synced school data belongs to (`crate::sync_state::account`).
+    pub fn sync_account(&self, profile: SchoolAuthProfile) -> Result<String, SchoolAuthError> {
+        Ok(crate::sync_state::account(
+            profile,
+            &self.moodle_token_owner(profile)?,
+        ))
+    }
+
+    /// The stored token of this profile's current account. A record for
+    /// another account, or one this version cannot read, is deleted.
+    pub fn load_moodle_token(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<Option<MoodleToken>, SchoolAuthError> {
+        let Some(account) = moodle_token_account(profile) else {
+            return Ok(None);
+        };
+        let Some(payload) = self.vault.load(account)? else {
+            return Ok(None);
+        };
+        let stored = serde_json::from_str::<StoredMoodleToken>(&payload)
+            .ok()
+            .filter(|stored| stored.version == 1 && !stored.token.is_empty());
+        let owner = self.moodle_token_owner(profile)?;
+        match stored {
+            Some(stored) if stored.account == owner => Ok(Some(MoodleToken(stored.token))),
+            _ => {
+                self.vault.delete(account)?;
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn store_moodle_token(
+        &self,
+        profile: SchoolAuthProfile,
+        token: &MoodleToken,
+    ) -> Result<(), SchoolAuthError> {
+        let account = moodle_token_account(profile)
+            .ok_or_else(|| SchoolAuthError::invalid("This school account has no LMS."))?;
+        let payload = serde_json::to_string(&StoredMoodleToken {
+            version: 1,
+            account: self.moodle_token_owner(profile)?,
+            token: token.0.clone(),
+        })
+        .map_err(|_| SchoolAuthError::storage("The LMS token could not be encoded."))?;
+        self.vault
+            .store(account, &payload)
+            .map_err(SchoolAuthError::from)
+    }
+
+    pub fn delete_moodle_token(&self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
+        match moodle_token_account(profile) {
+            Some(account) => self.vault.delete(account).map_err(SchoolAuthError::from),
+            None => Ok(()),
+        }
     }
 
     pub fn status(&self) -> Result<SchoolCredentialStatus, SchoolAuthError> {

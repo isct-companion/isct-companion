@@ -9,7 +9,7 @@ import type {
 } from "../lib/model";
 
 import type * as Protocol from "../generated/persistence";
-import type { WorkspaceQuery } from "../generated/persistence";
+import type { WorkspaceChange, WorkspaceQuery } from "../generated/persistence";
 // Fields with serde defaults may be omitted by shells; all other request fields
 // are checked against the generated Core protocol.
 type Defaulted =
@@ -142,6 +142,24 @@ export async function scheduleQuery<T>(query: ScheduleQuery): Promise<T> {
   return (await scheduleQueries<[T]>([query]))[0];
 }
 
+/** Schedule read models evaluate the whole workspace with registrations,
+ * grades and LMS courses; only sync freshness is outside them. */
+const SCHEDULE_READS: readonly WorkspaceChange[] = [
+  "courses",
+  "materials",
+  "assignments",
+  "registrations",
+  "grades",
+  "finder",
+  "calendar",
+  "exams",
+  "plans",
+  "events",
+  "subscriptions",
+  "scheduled-tasks",
+  "settings",
+];
+
 /** Cache query results, never domain decisions. A new revision or query owns
  * a new request; late responses cannot replace the currently rendered view. */
 export function useScheduleQueries<T extends unknown[]>(
@@ -150,6 +168,7 @@ export function useScheduleQueries<T extends unknown[]>(
 ): QueryState<T> {
   return useViewQuery(
     "schedule",
+    SCHEDULE_READS,
     queries,
     () => scheduleQueries<T>(queries),
     enabled,

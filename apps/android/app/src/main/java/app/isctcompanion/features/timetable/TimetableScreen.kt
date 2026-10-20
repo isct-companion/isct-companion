@@ -58,6 +58,7 @@ import app.isctcompanion.core.DatedAgenda
 import app.isctcompanion.core.Occurrence
 import app.isctcompanion.core.OccurrenceKind
 import app.isctcompanion.core.ScheduleView
+import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TeachingPeriod
 import app.isctcompanion.core.TodayPhase
 import app.isctcompanion.design.Format
@@ -84,6 +85,7 @@ fun TimetableScreen() {
     var week by androidx.compose.runtime.remember { mutableStateOf<ScheduleView?>(null) }
     var drag by androidx.compose.runtime.remember { mutableFloatStateOf(0f) }
     val offset by animateFloatAsState(drag, label = "week drag")
+    LaunchedEffect(Unit) { model.open(SyncView.Timetable) }
     LaunchedEffect(monday, model.contentRevision) { week = model.week(monday) }
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
 

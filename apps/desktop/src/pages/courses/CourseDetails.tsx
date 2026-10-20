@@ -3,7 +3,8 @@ import { ExamCards } from "../../components/exams/ExamCards";
 import { Button, ScrollArea, Tabs } from "@mantine/core";
 import { useState } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
-import { PullRing } from "../../components/PullRing";
+import { SyncRing, progressLabel } from "../../components/PullRing";
+import type { PageProgress } from "../../platform/sync";
 import { dayNames } from "../../components/timetable/timetable";
 import {
   contentLanguage,
@@ -94,7 +95,7 @@ export function CourseDetails({
   /** Pulls LMS materials and assignments (the timetable is unchanged). */
   fetchLms?: () => void;
   /** 0–100 while an LMS pull runs, else null. */
-  progress?: number | null;
+  progress?: PageProgress;
 }) {
   const [localTab, setTab] = useState<CourseTab>(initialTab);
   const tab = onTabChange ? initialTab : localTab;
@@ -132,11 +133,11 @@ export function CourseDetails({
       variant="subtle"
       disabled={progress !== null}
       leftSection={
-        progress !== null ? <PullRing value={progress} size={14} /> : undefined
+        progress !== null ? <SyncRing progress={progress} size={14} /> : undefined
       }
       onClick={fetchLms}
     >
-      {progress !== null ? `${Math.round(progress)}%` : t("Fetch")}
+      {progress !== null ? progressLabel(progress) : t("Fetch")}
     </Button>
   );
 

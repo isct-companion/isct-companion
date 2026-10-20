@@ -1,6 +1,7 @@
 import { Button, Paper, Popover, Text } from "@mantine/core";
 import { useState } from "react";
-import { PullRing } from "../../components/PullRing";
+import { SyncRing, progressLabel } from "../../components/PullRing";
+import type { PageProgress } from "../../platform/sync";
 import i18n, { t, intlLocale } from "../../i18n";
 import { formatTimestamp } from "../../lib/civil-date";
 import type { GpaSummary } from "../../lib/model";
@@ -25,7 +26,7 @@ export function AcademicSummary({
 }: {
   summaries: GpaSummary[];
   termCredits: number;
-  progress?: number | null;
+  progress?: PageProgress;
   availability?: SchoolPageAvailability;
   refresh?: () => void;
   openOfficial: () => void;
@@ -154,13 +155,13 @@ export function AcademicSummary({
                     disabled={progress !== null}
                     leftSection={
                       progress !== null ? (
-                        <PullRing value={progress} size={14} />
+                        <SyncRing progress={progress} size={14} />
                       ) : undefined
                     }
                     onClick={refresh}
                   >
                     {progress !== null
-                      ? `${Math.round(progress)}%`
+                      ? progressLabel(progress)
                       : t("Refresh")}
                   </Button>
                 )}

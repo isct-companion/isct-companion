@@ -17,11 +17,6 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
-    for declaration in isct_core::school_status::declarations() {
-        output.push_str("export ");
-        output.push_str(&declaration);
-        output.push_str("\n\n");
-    }
     for declaration in isct_core::schedule::declarations() {
         output.push_str("export ");
         output.push_str(&declaration);

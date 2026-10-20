@@ -310,6 +310,8 @@ pub fn declarations() -> Vec<String> {
         WorkspaceMutation::decl(),
         WorkspaceIntent::decl(),
         CourseBatchChanges::decl(),
+        crate::workspace_changes::WorkspaceChange::decl(),
+        crate::workspace_changes::WorkspacePatch::decl(),
     ]
 }
 

@@ -12,7 +12,7 @@ impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("core-backup-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let store = DataStore::initialize(root.join("workspace.db")).unwrap().0;
+        let store = DataStore::initialize_dir(root.clone()).unwrap().0;
         let notes = NoteStore::default().at(root.join("files"));
         let backup = BackupService::new(store.clone(), notes.clone());
         Self {

@@ -70,7 +70,7 @@ struct ReminderInner {
 
 impl ReminderService {
     pub fn new(store: crate::data::DataStore) -> Self {
-        let fired_path = fired_path(store.path());
+        let fired_path = fired_path(store.user_path());
         Self(Arc::new(ReminderInner {
             store,
             tasks: crate::runtime_tasks::RuntimeTasks::default(),

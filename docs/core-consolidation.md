@@ -48,7 +48,7 @@ apps/ios, apps/android  Native mobile shells over the Core FFI (crates/isct-ffi)
 
 ## State ownership and compatibility contracts
 
-Pull scheduling is described in [`school-refresh.md`](school-refresh.md).
+School sync (hints in, one snapshot out) is described in [`school-refresh.md`](school-refresh.md).
 
 | Layer | Owner | Responsibilities |
 |---|---|---|
@@ -289,11 +289,12 @@ exports both call these.
 
 | Service | Current commands (examples) |
 |---|---|
-| `workspace` | `load_workspace`, `put_user_record`, `delete_user_record`, `put_workspace_setting`, `reset_workspace`, `export_data`, `import_data` |
+| `workspace` | `load_workspace`, `put_user_record`, `delete_user_record`, `put_workspace_setting`, `export_data`, `import_data` |
+| `reset` | `reset_caches`, `reset_caches_preview` (`Core::reset`: one lease, admission gate, generation) |
 | `catalog` | `catalog_*`, `preview_plan_recurrence` |
-| `school` | `pull_school`, `pull_state`, `cancel_pull`, `school_records`, `login_school`, `ensure_school_session`, credentials, `set_kyomu_guide`, `test_school_connection` |
+| `sync` | `sync_hint`, `sync_snapshot` (the planner decides every school and reference read) |
+| `school` | `school_records`, `login_school`, `ensure_school_session`, credentials, `set_kyomu_guide`, `test_school_connection` |
 | `school_browser` | `open_school_site`, `navigate/back/forward/reload_school_web`, `set_school_web_zoom`, `resolve_school_url` (layout commands stay in the shell) |
-| `references` | `refresh_reference_subscriptions` (source selection, acquisition and cache policy are internal) |
 | `course_files` | `course_storage_info`, `*_course_note*`, `open_course_*`, `clean_course_materials` |
 | `workspaces` (desktop cfg) | `assignment_workspace`, `*_workspace*` |
 | `cloud` | `cloud_*`, `connect/disconnect_cloud`, credential sync |

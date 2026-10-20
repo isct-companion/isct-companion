@@ -18,14 +18,14 @@ struct TodayScreen: View {
                     header
                     if let problem = model.problem {
                         ProblemBanner(text: problem)
-                    } else if case let .problem(site, problem)? = model.schoolStatus?.headline {
-                        SchoolProblemBanner(site: site, problem: problem)
+                    } else if let problem = model.syncSnapshot?.problem {
+                        SyncProblemBanner(problem: problem)
                     }
                     if model.needsAccount { ConnectCard() }
-                    if let status = model.schoolStatus, status.headline.ringProgress(status) != nil,
+                    if let snapshot = model.syncSnapshot, !snapshot.activeRuns.isEmpty || snapshot.resetting,
                         model.records.courses.isEmpty, model.records.assignments.isEmpty
                     {
-                        FirstLoadCard(status: status)
+                        FirstLoadCard(snapshot: snapshot)
                     }
                     if let today = model.today {
                         TodayContent(today: today, now: context.date, exams: exams)
@@ -46,6 +46,7 @@ struct TodayScreen: View {
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) { UndoToast() }
+        .onAppear { model.syncHint(.open(view: .today)) }
         .task(id: "\(model.contentRevision)-\(model.today?.date ?? "")") {
             let loaded = await model.upcomingExams()
             if !Task.isCancelled { exams = loaded }

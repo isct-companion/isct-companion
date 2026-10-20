@@ -27,6 +27,12 @@ tokio-util = { version = "0.7", features = ["rt"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 url = "2.5"
 
+# Android TLS: rustls-platform-verifier needs the app Context through JNI
+# (android_tls.rs). Same versions as the verifier reqwest 0.13 pulls in.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.22", default-features = false }
+rustls-platform-verifier = "0.7"
+
 [build-dependencies]
 syn = { version = "2", features = ["full", "visit-mut"] }
 quote = "1"

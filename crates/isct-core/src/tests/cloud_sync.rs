@@ -317,7 +317,12 @@ impl EventSink for FakeObserver {
 }
 
 impl crate::data::CommitObserver for FakeObserver {
-    fn committed(&self, source: WorkspaceChangeSource, _revision: Option<String>) {
+    fn committed(
+        &self,
+        source: WorkspaceChangeSource,
+        _revision: Option<String>,
+        _tables: &std::collections::BTreeSet<String>,
+    ) {
         self.workspaces.lock().unwrap().push(source);
     }
 }
@@ -337,7 +342,7 @@ impl Fixture {
     fn new(name: &str) -> Self {
         let root = temporary(name);
         std::fs::create_dir_all(&root).unwrap();
-        let store = DataStore::initialize(root.join("workspace.db")).unwrap().0;
+        let store = DataStore::initialize_dir(root.clone()).unwrap().0;
         let observer = Arc::new(FakeObserver::default());
         store.observe(observer.clone());
         let note_store = NoteStore::default();

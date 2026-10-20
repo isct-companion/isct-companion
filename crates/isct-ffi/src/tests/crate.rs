@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ports::{CloudObject, NativeCloud, NativeVault},
+    ports::{CloudObject, NativeCloud, NativeDownloadSession, NativeVault},
     types::*,
 };
 use serde_json::json;
@@ -12,6 +12,17 @@ use std::{
     },
 };
 static NEXT: AtomicU64 = AtomicU64::new(1);
+/// A school cookie store with nobody signed in; a browser needs one.
+struct NoCookies;
+#[async_trait::async_trait]
+impl NativeDownloadSession for NoCookies {
+    async fn cookie_header(&self, _: String) -> Result<String, SdkError> {
+        Ok(String::new())
+    }
+    async fn store_set_cookies(&self, _: String, _: Vec<String>) -> Result<(), SdkError> {
+        Ok(())
+    }
+}
 #[derive(Default)]
 struct Vault(Mutex<HashMap<String, String>>);
 impl NativeVault for Vault {
@@ -50,7 +61,7 @@ impl Fixture {
             SessionConfig {
                 data_directory: root.join("data").to_string_lossy().into(),
                 files_directory: root.join("files").to_string_lossy().into(),
-                initial_network: PullNetwork::Offline,
+                initial_network: SyncNetwork::Offline,
                 cloud_providers: providers.clone(),
                 authorized_cloud_providers: providers,
             },
@@ -109,14 +120,41 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
         snapshot.workspace.0["academicProfile"]["admissionYear"],
         2026
     );
-    let StreamUpdate::Event { event } = events.next().await.unwrap() else {
-        panic!("missing mutation event")
+    // Sync snapshots stream on the same channel; the mutation's own event is
+    // the workspace change.
+    let event = loop {
+        let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+            panic!("missing mutation event")
+        };
+        if event.name == "workspace-changed" {
+            break event;
+        }
     };
-    assert_eq!(event.name, "workspace-changed");
-    assert_eq!(
-        event.payload.0,
-        json!({"source":"user-intent","revision":snapshot.revision})
+    assert_eq!(event.payload.0["source"], "user-intent");
+    assert_eq!(event.payload.0["revision"], json!(snapshot.revision));
+    let changes: Vec<WorkspaceChange> =
+        serde_json::from_value(event.payload.0["changes"].clone()).unwrap();
+    assert!(
+        event.payload.0["changes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("settings")),
+        "{}",
+        event.payload.0
     );
+    // The event's names read back only what they feed, from the same state.
+    let OperationResult::WorkspaceRecords { patch } = f
+        .session
+        .workspace_records(changes)
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    assert_eq!(patch.content_revision, snapshot.content_revision);
+    assert_eq!(patch.workspace.0["academicProfile"]["admissionYear"], 2026);
     assert!(matches!(
         f.session.mutate(mutation).unwrap().await_result().await,
         Err(SdkError::Conflict { .. })
@@ -518,6 +556,72 @@ fn generated_contract_preserves_intents_fixed_arrays_and_unknown_payloads() {
     ));
 }
 
+/// The sync types are renamed for the shells (`SyncView`, `SyncNetwork`, …)
+/// and carry timestamps as text; the JSON both sides agree on must not change.
+#[test]
+fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
+    use isct_core::sync_engine as core;
+    let retry = chrono::DateTime::parse_from_rfc3339("2026-10-20T03:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let snapshot = core::SyncSnapshot {
+        generation: 3,
+        resetting: false,
+        runs: vec![core::RunView {
+            run: "run-1".into(),
+            dataset: "lms.course".into(),
+            label: core::Label {
+                key: "sync.dataset.lms.course".into(),
+                args: json!({"term": "2026-3Q"}),
+            },
+            priority: core::Priority::Interactive,
+            done: 4,
+            total: Some(9),
+            current: None,
+            scope: Some("123".into()),
+            held: Some(core::Held::Backoff { until: retry }),
+            failure: Some(core::SyncFailure {
+                kind: "http-503".into(),
+                keys_failed: 1,
+                retry_at: Some(retry),
+            }),
+        }],
+        sources: vec![],
+    };
+    let payload = serde_json::to_value(&snapshot).unwrap();
+    let decoded = crate::decode_sync_snapshot(crate::JsonValue(payload.clone())).unwrap();
+    assert!(matches!(
+        decoded.runs[0].priority,
+        SyncPriority::Interactive
+    ));
+    assert!(
+        matches!(&decoded.runs[0].held, Some(Held::Backoff { until }) if until.starts_with("2026-10-20T03:00:00"))
+    );
+    assert_eq!(decoded.runs[0].label.args.0["term"], "2026-3Q");
+    assert_eq!(serde_json::to_value(&decoded).unwrap(), payload);
+
+    let hint = Hint::Open {
+        view: SyncView::Course { lms_course_id: 123 },
+    };
+    let core_hint: core::Hint = crate::json::project_input(hint).unwrap();
+    assert_eq!(
+        core_hint,
+        core::Hint::Open {
+            view: core::View::Course { lms_course_id: 123 }
+        }
+    );
+    let network: core::Hint = crate::json::project_input(Hint::Network {
+        network: SyncNetwork::Cellular,
+    })
+    .unwrap();
+    assert_eq!(
+        network,
+        core::Hint::Network {
+            network: core::Network::Cellular
+        }
+    );
+}
+
 #[test]
 fn school_outcomes_project_into_the_generated_ffi_types() {
     let outcome = isct_core::school_service::IngestOutcome {
@@ -595,7 +699,15 @@ async fn backup_import_restores_through_the_journal_without_a_cloud_store() {
             break event;
         }
     };
-    assert_eq!(event.payload.0, json!({"source":"cloud-restore"}));
+    assert_eq!(event.payload.0["source"], "cloud-restore");
+    assert!(
+        event.payload.0["changes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("plans")),
+        "{}",
+        event.payload.0
+    );
     let snapshot = f.snapshot().await;
     assert!(snapshot.workspace.0["plans"]
         .as_array()
@@ -635,7 +747,7 @@ async fn callback_errors_keep_their_category_and_last_session_drop_releases_port
         SessionConfig {
             data_directory: root.join("data").to_string_lossy().into(),
             files_directory: root.join("files").to_string_lossy().into(),
-            initial_network: PullNetwork::Offline,
+            initial_network: SyncNetwork::Offline,
             cloud_providers: vec![],
             authorized_cloud_providers: vec![],
         },
@@ -745,7 +857,7 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
     let config = SessionConfig {
         data_directory: f.root.join("browser-data").to_string_lossy().into(),
         files_directory: f.root.join("browser-files").to_string_lossy().into(),
-        initial_network: PullNetwork::Offline,
+        initial_network: SyncNetwork::Offline,
         cloud_providers: vec![],
         authorized_cloud_providers: vec![],
     };
@@ -755,7 +867,7 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
         Some(browser.clone()),
         None,
         None,
-        None,
+        Some(Arc::new(NoCookies)),
     )
     .await
     .unwrap();
