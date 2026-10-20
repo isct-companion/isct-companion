@@ -925,7 +925,11 @@ camera or a photo of the card.
    camera or returning to a 70/70 capture loop.
    Inspect matrix-scan/latest.json under the app cache for separate
    acquisition/processing times, per-cell candidate and qualified-vote
-   counts. Compare all 70 letters with the real card.
+   counts. Use an optimized build and move the framed card continuously:
+   the red outline must update at least 10 times per second (30 preferred).
+   Check frameMs and frames/elapsedMs alongside the visible tracking;
+   a smoothly interpolated stale outline does not count as a new detection.
+   Compare all 70 letters with the real card.
    - *Why:* OS camera permissions, native WebView video capture, optical focus,
      and the alignment of recognition boxes over a physical card require
      real hardware. Scripted frames cannot validate these surfaces.

@@ -9,6 +9,7 @@ import {
   courseFor,
   offering,
   flush,
+  advance,
   DEFAULT_TIMETABLE_AXIS,
   mountApp,
   overviewFor,
@@ -810,6 +811,13 @@ describe("Matrix scan and paste", () => {
           expect(document.body.textContent).toContain(
             "Processing Matrix… You can put your card down.",
           ),
+        );
+        // Let the real modal finish hiding while native recognition is pending.
+        // A detached video ref must not cancel that work and reopen capture.
+        await advance(500);
+        expect(mounted.core.commands("begin_matrix_camera")).toHaveLength(1);
+        expect(document.body.textContent).toContain(
+          "Processing Matrix… You can put your card down.",
         );
         expect(stop).toHaveBeenCalledTimes(1);
         expect(matrixInputs(card).every((input) => input.value === "")).toBe(
