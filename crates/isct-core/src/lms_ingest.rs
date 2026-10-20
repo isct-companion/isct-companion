@@ -4,7 +4,6 @@ use chrono::{Datelike, Utc};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum IngestError {
@@ -284,21 +283,6 @@ fn write_assignment(
 /// commits or rolls back as a whole.
 pub fn apply_lms_payload(tx: &Transaction<'_>, payload: &LmsPayload) -> Result<usize, IngestError> {
     let mut changed = 0;
-    let run_id = Uuid::new_v4().to_string();
-    let started = Utc::now().to_rfc3339();
-    let scope = if payload.full_scan
-        && payload.courses_complete
-        && payload.timetable_errors.is_empty()
-        && payload
-            .structures
-            .iter()
-            .all(|structure| structure.complete)
-    {
-        "all"
-    } else {
-        "summary"
-    };
-    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'lms',?2,'running',?3)", params![run_id, scope, started]).map_err(IngestError::from)?;
     let action_ids: HashSet<u64> = payload
         .action_events
         .iter()
@@ -601,15 +585,6 @@ pub fn apply_lms_payload(tx: &Transaction<'_>, payload: &LmsPayload) -> Result<u
         )?);
         written.insert(cmid);
     }
-    tx.execute(
-        "UPDATE import_runs SET state='complete',finished_at=?2,message=?3 WHERE id=?1",
-        params![
-            run_id,
-            Utc::now().to_rfc3339(),
-            format!("{changed} rows changed")
-        ],
-    )
-    .map_err(IngestError::from)?;
     Ok(changed)
 }
 

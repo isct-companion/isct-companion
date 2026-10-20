@@ -53,6 +53,7 @@ pub mod storage;
 pub mod study_profile;
 pub mod subscriptions;
 pub mod syllabus;
+pub mod sync_gc;
 pub mod sync_state;
 pub mod workspace;
 

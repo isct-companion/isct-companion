@@ -104,35 +104,3 @@ fn page_state_survives_missing_page_then_accepts_reopened_state() {
         }
     }
 }
-
-#[test]
-fn page_captures_do_not_make_the_full_refresh_look_fresh() {
-    let path = std::env::temp_dir().join(format!("isct-lms-scope-{}.db", uuid::Uuid::new_v4()));
-    let store = crate::data::DataStore::initialize(path).unwrap().0;
-    let raw = json!({"status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","coursesComplete":true,"courses":[]});
-    let (_, payload) = crate::school_parser::lms::parse_payload(&raw.to_string()).unwrap();
-    let mut payload = payload.unwrap();
-    store
-        .write(None, |tx| apply_lms_payload(tx, &payload))
-        .unwrap();
-    let runs = store.last_import_runs().unwrap();
-    assert!(runs["lms:summary"].is_string());
-    assert!(runs["lms:all"].is_null());
-    payload.full_scan = true;
-    store
-        .write(None, |tx| apply_lms_payload(tx, &payload))
-        .unwrap();
-    let full = store.last_import_runs().unwrap()["lms:all"].clone();
-    assert!(full.is_string());
-    payload.full_scan = false;
-    store
-        .write(None, |tx| apply_lms_payload(tx, &payload))
-        .unwrap();
-    assert_eq!(store.last_import_runs().unwrap()["lms:all"], full);
-    payload.full_scan = true;
-    payload.courses_complete = false;
-    store
-        .write(None, |tx| apply_lms_payload(tx, &payload))
-        .unwrap();
-    assert_eq!(store.last_import_runs().unwrap()["lms:all"], full);
-}

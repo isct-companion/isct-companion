@@ -109,9 +109,14 @@ pub(crate) fn has_warnings(value: &Value) -> bool {
             .get("warningcode")
             .map(|code| code.to_string())
             .unwrap_or_default();
-        let id = warning.get("itemid").map(|id| id.to_string()).unwrap_or_default();
+        let id = warning
+            .get("itemid")
+            .map(|id| id.to_string())
+            .unwrap_or_default();
         log::info!(target: "isct_core::net::moodle", "LMS warning item={item} itemid={id} code={code}");
-        if item != "course" {
+        // A course or module the student cannot open (hidden, restricted,
+        // not yet available) cannot be read by any transport.
+        if !matches!(item, "course" | "module") {
             missing = true;
         }
     }

@@ -344,10 +344,8 @@ impl Core {
         let mut workspace = snapshot.workspace;
         workspace["kyomuSearchOptions"] = self
             .store
-            .reference_cache_marker("kyomu-search-options", i32::from(request.year))
-            .map_err(crate::catalog::CatalogError::from)?
-            .map(|marker| marker["options"].clone())
-            .unwrap_or_else(|| serde_json::json!([]));
+            .kyomu_search_options(request.year)
+            .map_err(crate::catalog::CatalogError::from)?;
         Ok(crate::course_query::finder_view(
             &workspace, offerings, request,
         )?)

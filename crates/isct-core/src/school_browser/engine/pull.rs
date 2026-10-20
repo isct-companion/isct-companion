@@ -10,6 +10,7 @@ use crate::{
         BoxFuture, Http, KeyOutcome, NetError, SessionCookies, SignIn, SignInGate,
     },
     school_parser::lms::LmsPayload,
+    sync_state::{self, Commit, Dataset, Key, Outcome},
 };
 
 /// The HTTP clients a pull reads with. Built once, when the shell attaches its
@@ -101,9 +102,10 @@ impl SchoolBrowserEngine {
         let has_all = self
             .0
             .store
-            .last_import_runs()
-            .map_err(|e| SchoolBrowserError::Storage(e.to_string()))?["lms:all"]
-            .is_string();
+            .freshness(Some(Dataset::LmsEnrolment))
+            .map_err(|e| SchoolBrowserError::Storage(e.to_string()))?
+            .iter()
+            .any(|state| state.fetched_at.is_some());
         let scope = if course_id.is_some() {
             LmsScope::Summary
         } else if context.current_quarter() {
@@ -170,9 +172,32 @@ impl SchoolBrowserEngine {
             payload.timetable_errors.first().cloned().or_else(|| {
                 (!missing.is_empty()).then(|| format!("not read: {}", missing.join(", ")))
             });
+        let account = self
+            .0
+            .auth
+            .sync_account(SchoolAuthProfile::Science)
+            .map_err(|error| SchoolBrowserError::Storage(error.to_string()))?;
+        let complete = failed == 0 && payload.full_scan && payload.courses_complete;
         let applied = tokio::task::spawn_blocking(move || {
             store.write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
-                apply_lms_payload(transaction, &payload)
+                let changed = apply_lms_payload(transaction, &payload)?;
+                if complete {
+                    let now = chrono::Utc::now();
+                    for dataset in [Dataset::LmsEnrolment, Dataset::LmsDeadlines] {
+                        sync_state::commit(
+                            transaction,
+                            &Key::new(dataset, "all"),
+                            Commit {
+                                account: &account,
+                                validator: None,
+                                outcome: Outcome::Complete,
+                                message: None,
+                            },
+                            now,
+                        )?;
+                    }
+                }
+                Ok::<_, crate::lms_ingest::IngestError>(changed)
             })
         })
         .await;
