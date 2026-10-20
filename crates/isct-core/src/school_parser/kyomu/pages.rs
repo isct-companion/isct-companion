@@ -346,7 +346,7 @@ fn registrations(document: &Html, base: Option<&url::Url>) -> Read {
             "timetableAlert22",
         ]
         .iter()
-        .any(|class| marked(*class))
+        .any(|class| marked(class))
         {
             "needs-approval"
         } else if marked("timetableUnchecked") {

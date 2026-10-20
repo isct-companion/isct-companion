@@ -203,9 +203,9 @@ async fn read_page(
                 return Err(MoodleError::SignInRequired);
             }
             if let Ok(next) = target.join(&location) {
-                if is_lms_origin(&next) && next.path().contains("/pluginfile.php/") {
-                    detail.resource = Some(next.into());
-                } else if module == "url" && next.scheme() == "https" && !is_lms_origin(&next) {
+                let file = is_lms_origin(&next) && next.path().contains("/pluginfile.php/");
+                let external = module == "url" && next.scheme() == "https" && !is_lms_origin(&next);
+                if file || external {
                     detail.resource = Some(next.into());
                 }
             }

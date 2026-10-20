@@ -43,3 +43,25 @@ fn only_a_redirect_to_getaccess_means_the_session_expired() {
         assert_eq!(classify(status, location), Reply::Unexpected(status));
     }
 }
+
+#[test]
+fn a_capped_catalog_search_narrows_to_one_quarter() {
+    let query = |quarter| CatalogSearch {
+        code: "LA".into(),
+        quarter,
+        ..CatalogSearch::default()
+    };
+    let pairs = |quarter| -> Vec<(String, String)> {
+        search_url(2026, &query(quarter))
+            .unwrap()
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect()
+    };
+    let whole = pairs(0);
+    assert!(whole.contains(&("ShinkokuNoS".into(), "LA".into())));
+    assert!(!whole.iter().any(|(key, _)| key == "Quarters"));
+    assert!(pairs(3).contains(&("Quarters".into(), "3".into())));
+    // Out-of-range quarters search the whole year, never an invalid value.
+    assert!(!pairs(5).iter().any(|(key, _)| key == "Quarters"));
+}

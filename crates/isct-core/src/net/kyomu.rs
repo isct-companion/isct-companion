@@ -53,6 +53,8 @@ pub struct CatalogSearch {
     pub name: String,
     /// Instructor name (`KyouinName`).
     pub teacher: String,
+    /// One quarter, 1–4 (`Quarters`); 0 searches every quarter.
+    pub quarter: u8,
 }
 
 #[derive(Clone)]
@@ -135,6 +137,10 @@ pub(crate) fn search_url(year: u16, query: &CatalogSearch) -> Result<Url, NetErr
             url.query_pairs_mut().append_pair(key, value);
         }
     }
+    if (1..=4).contains(&query.quarter) {
+        url.query_pairs_mut()
+            .append_pair("Quarters", &query.quarter.to_string());
+    }
     Ok(url)
 }
 
@@ -180,19 +186,49 @@ impl KyomuClient {
 
     /// Whole-department official catalog: GET the search for one code
     /// prefix, then one ViewState postback to the largest page size.
+    /// A prefix over the school's per-search cap is read again one quarter
+    /// at a time; still `truncated` means some rows were not read.
     pub async fn catalog(
         &self,
         year: u16,
         code_prefix: &str,
     ) -> Result<KeyOutcome<CatalogRows>, NetError> {
-        self.search(
-            year,
-            &CatalogSearch {
-                code: code_prefix.into(),
-                ..CatalogSearch::default()
-            },
-        )
-        .await
+        let whole = CatalogSearch {
+            code: code_prefix.into(),
+            ..CatalogSearch::default()
+        };
+        let first = match self.search(year, &whole).await? {
+            KeyOutcome::Complete(rows) if rows.truncated => rows,
+            other => return Ok(other),
+        };
+        let mut seen = std::collections::HashSet::new();
+        let mut merged = CatalogRows {
+            courses: Vec::new(),
+            search_options: first.search_options,
+            truncated: false,
+        };
+        for quarter in 1..=4 {
+            let part = CatalogSearch {
+                quarter,
+                ..whole.clone()
+            };
+            let rows = match self.search(year, &part).await? {
+                KeyOutcome::Complete(rows) => rows,
+                other => return Ok(other),
+            };
+            merged.truncated |= rows.truncated;
+            // A course of several quarters is listed once per quarter.
+            for course in rows.courses {
+                let id = course
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                if id.is_none_or(|id| seen.insert(id)) {
+                    merged.courses.push(course);
+                }
+            }
+        }
+        Ok(KeyOutcome::Complete(merged))
     }
 
     /// The official course search for any query the URL can carry.

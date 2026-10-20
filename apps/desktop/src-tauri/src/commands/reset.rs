@@ -56,7 +56,10 @@ fn sign_out(app: &AppHandle) -> Result<(), String> {
         .cookies()
         .map_err(|error| format!("School cookies are unreadable: {error}"))
         .and_then(|cookies| {
-            for cookie in cookies.into_iter().filter(|cookie| removable(cookie.domain())) {
+            for cookie in cookies
+                .into_iter()
+                .filter(|cookie| removable(cookie.domain()))
+            {
                 view.delete_cookie(cookie)
                     .map_err(|error| format!("A school cookie could not be removed: {error}"))?;
             }

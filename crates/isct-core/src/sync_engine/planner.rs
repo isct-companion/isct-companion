@@ -227,7 +227,14 @@ pub(crate) fn kyomu_keys() -> Vec<Key> {
         .collect()
 }
 
-/// Department code prefixes of the official course search.
+/// Courses no department owns: liberal arts (`LAS`, `LAH`, `LAE`, `LAW`…),
+/// entrepreneurship and cross-departmental courses (`XEG`, `XCO`…). The
+/// search matches code prefixes, so one chunk covers each family.
+const SHARED_PREFIXES: [&str; 3] = ["LA", "ENT", "X"];
+
+/// Code prefixes of the official course search: every department's, plus
+/// the families no department owns. Search is local only, so a family left
+/// out here is missing from every search.
 pub(crate) fn department_prefixes() -> &'static [String] {
     static PREFIXES: OnceLock<Vec<String>> = OnceLock::new();
     PREFIXES.get_or_init(|| {
@@ -239,6 +246,7 @@ pub(crate) fn department_prefixes() -> &'static [String] {
                 .into_iter()
                 .map(|department| department.code_prefix)
                 .filter(|prefix| !prefix.is_empty())
+                .chain(SHARED_PREFIXES.iter().map(|prefix| prefix.to_string()))
                 .collect();
             prefixes.sort();
             prefixes.dedup();
@@ -400,7 +408,8 @@ fn view_keys(
                 Vec::new()
             },
             Priority::Interactive,
-            Rule::Open,
+            // Details change rarely: an open renews one only past its TTL.
+            Rule::Ttl,
         ),
         View::Grades => (
             unscoped(

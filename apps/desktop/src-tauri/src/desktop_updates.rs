@@ -38,7 +38,7 @@ impl UpdateSource {
             .and_then(|config| config.get("origin"))
             .and_then(serde_json::Value::as_str)
         {
-            let url = reqwest::Url::parse(&origin).map_err(|e| e.to_string())?;
+            let url = reqwest::Url::parse(origin).map_err(|e| e.to_string())?;
             if url.scheme() != "http"
                 || url.host_str() != Some("127.0.0.1")
                 || url.port().is_none()

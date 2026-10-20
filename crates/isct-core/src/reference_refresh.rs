@@ -233,7 +233,10 @@ impl ReferenceTransport for HttpReferenceTransport {
 /// Index hashes probed recently, so one evaluation's reference keys probe a
 /// shared Isct-Data index once.
 #[derive(Default)]
-pub(crate) struct IndexProbes(Mutex<HashMap<String, (Instant, Result<String, ReferenceError>)>>);
+pub(crate) struct IndexProbes(Mutex<HashMap<String, Probe>>);
+
+/// When an index was probed, and the hash (or error) it answered.
+type Probe = (Instant, Result<String, ReferenceError>);
 
 /// How long a probed index hash is reused.
 const PROBE_REUSE: Duration = Duration::from_secs(60);

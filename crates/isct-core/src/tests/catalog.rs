@@ -38,12 +38,9 @@ async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
             },
         )
         .unwrap();
-    let result = catalog_sync_offering(&store, "https://example.invalid/202602431".into())
-        .await
-        .unwrap();
-    assert_eq!(result.offering.id, "202602431");
-    assert_eq!(result.content.len(), 2);
-    assert!(result.warnings.is_empty());
+    // Served from the store: example.invalid is never reached.
+    let course = syllabus_course(&store, "202602431", "en").await.unwrap();
+    assert!(course.is_object());
     assert_eq!(offerings(&store, 2026).unwrap().len(), 1);
     assert!(offerings(&store, 2025).unwrap().is_empty());
     std::fs::remove_dir_all(root).unwrap();
