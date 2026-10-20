@@ -237,8 +237,8 @@ export function CourseFinder({
     if (visibleCount < rows.length)
       setVisibleCount((count) => count + RENDER_BATCH);
   };
-  // IntersectionObserver follows the scroll container in both workstation and
-  // compact layouts. A button exposes the same action to keyboard users.
+  // IntersectionObserver follows the scroll container. A button exposes the
+  // same action to keyboard users.
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!sentinel.current || typeof IntersectionObserver === "undefined")

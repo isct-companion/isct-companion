@@ -38,8 +38,8 @@
 .workspaceSeparator[data-separator="active"]::after {
   background: var(--accent);
 }
-/* Let each page's existing single-column layout own compact presentation.
-   Keeping these wrappers avoids remounting a note or native webview on resize. */
+/* With resizing off, the page's own layout owns presentation. Keeping these
+   wrappers avoids remounting a note or native webview on resize. */
 .splitWorkspace[data-resizable="false"],
 .splitWorkspace[data-resizable="false"] > [data-panel],
 .splitWorkspace[data-resizable="false"] .splitPane {

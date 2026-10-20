@@ -3,8 +3,6 @@ import { DueChip } from "../../components/DueChip";
 import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
-import { SwipeActions } from "../../components/SwipeActions";
-import { useFormFactor } from "../../app/form-factor";
 import { t } from "../../i18n";
 import { UiButton } from "../../components/mantine";
 import {
@@ -43,7 +41,6 @@ export function Today({
   openTask,
   openAssignments,
   hideAssignment,
-  pinAssignment,
   openSchedule,
   focusSection,
   compact = false,
@@ -64,14 +61,12 @@ export function Today({
   /** Lecture Desk's full list of the quarter's assignments. */
   openAssignments?: () => void;
   hideAssignment: (assignmentId: string) => void;
-  pinAssignment?: (assignmentId: string) => void;
   openSchedule: () => void;
   compact?: boolean;
   active?: boolean;
   selection?: { courseId: string; assignmentId?: string };
   focusSection?: { section: "classes" | "assignments"; request: number };
 }) {
-  const mobile = useFormFactor() === "mobile";
   const page = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (focusSection)
@@ -154,11 +149,8 @@ export function Today({
       : submitted
         ? " done"
         : "";
-    const content = (
-      <div
-        className={`dueRow${state}${mobile ? " touchRow" : ""}`}
-        key={assignment.id}
-      >
+    return (
+      <div className={`dueRow${state}`} key={assignment.id}>
         <i style={{ background: course?.color ?? "#888" }} />
         <UiButton
           className={`dueAssignment${selection?.assignmentId === assignment.id ? " selected" : ""}`}
@@ -182,33 +174,13 @@ export function Today({
             />
           )}
         </UiButton>
-        {!mobile && (
-          <UiButton
-            className="textButton"
-            onClick={() => hideAssignment(assignment.id)}
-          >
-            {t("Hide")}
-          </UiButton>
-        )}
+        <UiButton
+          className="textButton"
+          onClick={() => hideAssignment(assignment.id)}
+        >
+          {t("Hide")}
+        </UiButton>
       </div>
-    );
-    return mobile ? (
-      <SwipeActions
-        key={assignment.id}
-        leading={
-          pinAssignment
-            ? {
-                label: assignment.pinned ? "Unpin" : "Pin",
-                run: () => pinAssignment(assignment.id),
-              }
-            : undefined
-        }
-        trailing={{ label: "Hide", run: () => hideAssignment(assignment.id) }}
-      >
-        {content}
-      </SwipeActions>
-    ) : (
-      content
     );
   };
   // With no agenda today, show the next actual occurrence within a week.
