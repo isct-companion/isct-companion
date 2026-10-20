@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 57 checks must be re-run before the next release.**
+**7 of 59 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**48 checks have never been run or could not be run:**
+**50 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -77,6 +77,8 @@ an unverified area becomes an assumed-good one.
 - `IOS-ICLOUD-BACKUP` — never verified
 - `IOS-LOG-EXPORT` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
+- `ANDROID-TLS-VERIFIER` — never verified
+- `SCHOOL-KYOMU-RUST-TLS` — never verified
 
 ## Status
 
@@ -139,6 +141,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
+| `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/certs/nii-odca4g7rsa.pem<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
 
 ## Personas
 
@@ -3207,5 +3211,99 @@ reaches Kotlin, and Core's test pins the format and redaction.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+
+**Last recorded** never run
+
+### Android Core HTTPS verifies through the system trust store (`ANDROID-TLS-VERIFIER`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A release-profile SDK and app built from this source, installed fresh
+on an arm64 phone with network access.
+
+**Steps**
+
+1. Launch the app, let the session open, then open Settings →
+   Application logs.
+   - *Why:* Core verifies certificates with Android's trust manager through JNI;
+     if TlsVerifier.install did not run, or R8 stripped the verifier's
+     Kotlin classes, the first HTTPS request fails or crashes the worker.
+2. Pull to refresh reference data, then open the same log again.
+   - *Why:* The Isct-Data refresh is an HTTPS request that needs no school
+     account, so it isolates TLS from sign-in.
+
+**Where to look**
+
+The application log and the calendar/reference data on Today.
+
+**Expected**
+
+The reference refresh succeeds with no TLS or "rustls-platform-verifier"
+error, and the app stays open.
+
+**Why this is manual**
+
+The JNI call into the Android trust manager and R8 keep rules only exist
+in a signed APK on a device; host tests run the desktop verifier.
+
+**Covers**
+
+- `crates/isct-ffi/src/android_tls.rs`
+- `bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt`
+- `apps/android/app/build.gradle.kts`
+- `apps/android/app/proguard-rules.pro`
+
+**Last recorded** never run
+
+### 教務Web pages load over Rust HTTP on every platform (`SCHOOL-KYOMU-RUST-TLS`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A build where 教務Web pages are read by Core's HTTP client (sync-engine
+checkpoint 1), saved Tokyo Tech credentials, and one of macOS, Windows,
+iPhone or Android (repeat per platform).
+
+**Steps**
+
+1. Sign in to 教務Web in the app, then refresh 教務Web data from
+   Settings.
+   - *Why:* kyomu0 sends the wrong intermediate certificate. Apple and Windows
+     may repair the chain on their own, Android does not, so only a run on
+     each platform shows the vendored G7 intermediate is what makes it work.
+2. Open the 教務Web page in the app's school browser afterwards.
+   - *Why:* Cookies the server set on Core's requests are written back to the
+     WebView store; a broken write-back shows up as the browser being
+     signed out or bounced to GetAccess.
+
+**Where to look**
+
+The 教務Web status in Settings, the application log, and the school
+browser page.
+
+**Expected**
+
+All six 教務Web pages refresh with no TLS error in the log, and the
+school browser opens 教務Web still signed in.
+
+**Why this is manual**
+
+Needs a real Tokyo Tech account and the real kyomu0 certificate chain on
+each OS verifier; no test can reach the school server.
+
+**Covers**
+
+- `crates/isct-core/src/net/tls.rs`
+- `crates/isct-core/src/net/certs/nii-odca4g7rsa.pem`
+- `apps/desktop/src-tauri/src/lms_downloader.rs`
+- `apps/ios/IsctCompanion/Core/WebCookieSession.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt`
 
 **Last recorded** never run

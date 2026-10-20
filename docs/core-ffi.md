@@ -152,7 +152,9 @@ Native ports are mechanisms:
   `BrowserEvents` reports completion
   using browser generation, page sequence and action ID. Never synchronously
   wait for the main thread from a callback. Shutdown disables native admission.
-- `NativeDownloadSession`: async authenticated cookie access for Core downloads.
+- `NativeDownloadSession`: the school WebView cookie store for Core HTTP:
+  `cookieHeader` reads it (empty means signed out), `storeSetCookies` writes
+  server cookies back (iOS `WKHTTPCookieStore`, Android `CookieManager` + flush).
 - `NativeNotifications`: async system notification delivery.
 - `NativeCloud`: async provider transport; Core owns merge/queue/recovery policy.
 

@@ -243,7 +243,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
     phase(&app, "checking", None, None)?;
     let result = async {
         let source = UpdateSource::current(&app)?;
-        let response = reqwest::Client::builder()
+        let response = isct_core::net::client_builder()
             .timeout(Duration::from_secs(20))
             .user_agent(concat!("IsctCompanion/", env!("CARGO_PKG_VERSION")))
             .build()

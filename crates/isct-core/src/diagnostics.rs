@@ -1,4 +1,5 @@
 //! Bounded, read-only application diagnostics; never part of workspace backups.
+use crate::net::redact::redact_text;
 use serde::Serialize;
 use std::{
     collections::VecDeque,
@@ -47,7 +48,7 @@ impl Buffer {
             at: chrono::Utc::now().to_rfc3339(),
             level: level.into(),
             target: target.chars().take(128).collect(),
-            message: redact(message).chars().take(MESSAGE_LIMIT).collect(),
+            message: redact_text(message).chars().take(MESSAGE_LIMIT).collect(),
         });
         while self.entries.len() > CAPACITY {
             self.entries.pop_front();
@@ -89,14 +90,6 @@ impl Buffer {
     }
 }
 
-fn redact(message: &str) -> String {
-    static PATTERN: OnceLock<Result<regex::Regex, regex::Error>> = OnceLock::new();
-    match PATTERN.get_or_init(|| regex::Regex::new(r#"(?i)((?:password|passwd|secret|otp_secret|token|access_token|refresh_token|sesskey|code)["']?\s*[:=]\s*["']?)[^&\s"',}]+|(bearer\s+)[a-z0-9._~+/=-]+"#)) {
-        Ok(pattern) => pattern.replace_all(message, "${1}${2}[redacted]").into_owned(),
-        Err(_) => "[Log message unavailable]".into(),
-    }
-}
-
 fn buffer() -> &'static Mutex<Buffer> {
     static BUFFER: OnceLock<Mutex<Buffer>> = OnceLock::new();
     BUFFER.get_or_init(|| Mutex::new(Buffer::default()))
@@ -118,7 +111,7 @@ pub fn export_text(about: &str) -> Result<String, DiagnosticsError> {
 }
 
 fn write(level: &str, target: &str, message: &str) {
-    let message: String = redact(message).chars().take(MESSAGE_LIMIT).collect();
+    let message: String = redact_text(message).chars().take(MESSAGE_LIMIT).collect();
     if let Ok(mut buffer) = buffer().lock() {
         buffer.push(level, target, &message);
     }

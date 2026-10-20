@@ -112,6 +112,7 @@ const android = join(
 run("kotlinc", [
   join(generated, "app/isctcompanion/core/isct_ffi.kt"),
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/OperationValue.kt",
+  "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt",
   "-classpath",
   [jna, coroutines, android, annotations].join(":"),
   "-jvm-target",

@@ -117,7 +117,7 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
         .await
         .unwrap();
     let connection = server.connection();
-    let client = reqwest::Client::builder()
+    let client = isct_core::net::client_builder()
         .no_proxy()
         .timeout(Duration::from_secs(10))
         .build()

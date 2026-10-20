@@ -837,7 +837,7 @@ pub struct SubscriptionClient {
 
 impl SubscriptionClient {
     pub fn new() -> Result<Self, SubscriptionError> {
-        let client = Client::builder()
+        let client = crate::net::client_builder()
             .timeout(std::time::Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::limited(3))
             .build()
