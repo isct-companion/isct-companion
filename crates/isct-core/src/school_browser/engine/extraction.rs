@@ -657,6 +657,7 @@ pub(super) fn extraction_script(setup: &str, script: &str, relay: &str, run: &st
     let body = include_str!("../assets/extraction-relay.js")
         .replace("__ISCT_RELAY__", &quoted(relay))
         .replace("__ISCT_RUN__", &quoted(run))
+        .replace("__ISCT_PART__", &super::RELAY_PART.to_string())
         .replace("__ISCT_EXTRACTOR__", script);
     format!(
         "{}{setup}{body}",

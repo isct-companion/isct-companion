@@ -237,6 +237,9 @@ impl Session {
         notifications: Option<Arc<dyn NativeNotifications>>,
         downloads: Option<Arc<dyn NativeDownloadSession>>,
     ) -> Result<Arc<Self>, SdkError> {
+        // The first session installs Core's logger for the process; later
+        // sessions find it in place, which is not an error.
+        let _ = isct_core::diagnostics::initialize();
         let data = PathBuf::from(&config.data_directory);
         let files = PathBuf::from(&config.files_directory);
         if !data.is_absolute() || !files.is_absolute() {

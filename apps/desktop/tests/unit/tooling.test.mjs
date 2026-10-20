@@ -270,6 +270,7 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
             BUILD_REPO: "example/source",
             SOURCE_SHA: "abc123",
             MACOS_SIGNING_STATUS: "signed-notarized",
+            WINDOWS_SIGNING_STATUS: "unsigned",
             REPLACE_EXISTING: "false",
           },
         });
@@ -299,6 +300,10 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
         );
         expect(notes).toContain("desktop installers only");
         expect(notes).toContain("Reviewed release notes for this version.");
+        // Each platform states its own signing, so a signed Mac build never
+        // claims the same for an unsigned Windows installer.
+        expect(notes).toContain("notarized by Apple");
+        expect(notes).toContain("The Windows installer is unsigned");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

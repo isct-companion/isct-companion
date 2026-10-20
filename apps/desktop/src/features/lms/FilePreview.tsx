@@ -30,6 +30,9 @@ const isLmsResource = (url: string) => {
 };
 const megabytes = (bytes: number) => `${Math.max(0.1, bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 const revealLabel = nativeOs() === "macos" ? "Show in Finder" : "Show in folder";
+const deniedNote = nativeOs() === "windows"
+  ? "Windows blocked saving to the course folder. If Controlled folder access is on, allow IsctCompanion in Windows Security, or choose another course folder in Settings."
+  : "The system blocked saving to the course folder. Check its permissions, or choose another course folder in Settings.";
 
 type View =
   | { state: "loading" }
@@ -199,7 +202,7 @@ function FileCard({ course, title, openInApp, previewable, note: override }: { c
     : <button type="button" disabled={view.state === "loading"} onClick={course.fetchNow}><LmsIcon name="download" size={15} />{t(view.state === "loading" ? "Downloading…" : "Download")}</button>;
   const note = override ??
     (!attachment ? t("This page opens outside the app.")
-    : view.state === "failed" ? view.error
+    : view.state === "failed" ? (view.reason === "denied" ? t(deniedNote) : view.error)
     : view.state === "tooLarge" ? t("Larger than the automatic download limit ({{size}}).", { size: megabytes(limit) })
     : view.state === "ready" ? t("Saved in your course folder.")
     : t("This file type can't be previewed here."));

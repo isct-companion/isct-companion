@@ -411,6 +411,13 @@ button.calendarDay.open {
   gap: 16px;
   margin-bottom: 12px;
 }
+.diagnosticActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
 .diagnosticLogs {
   height: min(60vh, 620px);
   min-height: 280px;

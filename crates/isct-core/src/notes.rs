@@ -100,7 +100,7 @@ impl NoteStore {
         persist: impl FnOnce() -> Result<(), E>,
     ) -> Result<(), NoteError>
     where
-        E: ToString,
+        E: std::fmt::Display + 'static,
     {
         let _gate = self.0.gate.lock().map_err(|_| NoteError::Lock)?;
         persist().map_err(storage_error)?;
@@ -563,7 +563,9 @@ impl From<StorageError> for NoteError {
     fn from(error: StorageError) -> Self {
         match error {
             StorageError::Input(message) => Self::Input(message),
-            StorageError::Storage(message) => Self::Storage(message),
+            StorageError::Storage(message) | StorageError::Denied(message) => {
+                Self::Storage(message)
+            }
         }
     }
 }
@@ -651,8 +653,8 @@ fn ensure_directory(path: &Path, root: Option<&Path>) -> Result<(), NoteError> {
     Ok(())
 }
 
-fn storage_error(error: impl ToString) -> NoteError {
-    NoteError::Storage(error.to_string())
+fn storage_error(error: impl std::fmt::Display + 'static) -> NoteError {
+    NoteError::Storage(storage::failure_text(error))
 }
 
 #[cfg(test)]

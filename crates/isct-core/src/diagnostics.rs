@@ -69,6 +69,24 @@ impl Buffer {
             }),
         }
     }
+    /// Plain text a person can attach to a bug report; continuation lines of
+    /// multi-line messages are indented so each entry stays distinguishable.
+    fn export(&self, about: &str, exported_at: &str) -> String {
+        let mut text = format!(
+            "{about}\nExported {exported_at} · {} entries\n\n",
+            self.entries.len()
+        );
+        for entry in &self.entries {
+            text.push_str(&format!(
+                "{} {} [{}] {}\n",
+                entry.at,
+                entry.level,
+                entry.target,
+                entry.message.replace('\n', "\n    ")
+            ));
+        }
+        text
+    }
 }
 
 fn redact(message: &str) -> String {
@@ -88,6 +106,14 @@ pub fn snapshot(after: Option<u64>) -> Result<LogSnapshot, DiagnosticsError> {
     buffer()
         .lock()
         .map(|buffer| buffer.snapshot(after))
+        .map_err(|_| DiagnosticsError::Unavailable)
+}
+
+/// The retained, already-redacted log as text; `about` names the app build.
+pub fn export_text(about: &str) -> Result<String, DiagnosticsError> {
+    buffer()
+        .lock()
+        .map(|buffer| buffer.export(about, &chrono::Utc::now().to_rfc3339()))
         .map_err(|_| DiagnosticsError::Unavailable)
 }
 

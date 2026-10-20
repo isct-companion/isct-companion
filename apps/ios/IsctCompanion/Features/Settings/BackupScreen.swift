@@ -11,7 +11,7 @@ struct BackupScreen: View {
     @Environment(AppModel.self) private var model
     @State private var busy = false
     @State private var confirm: Confirmation?
-    @State private var exporting: BackupFile?
+    @State private var exporting: ExportFile?
     @State private var importing = false
     @State private var notice: String?
 
@@ -170,7 +170,7 @@ struct BackupScreen: View {
 
     private func export() async {
         guard let text = await model.exportBackup() else { return }
-        exporting = BackupFile(data: Data(text.utf8))
+        exporting = ExportFile(data: Data(text.utf8))
     }
 
     private func importFile(_ url: URL) async {
@@ -192,9 +192,10 @@ private struct Confirmation {
     let action: () async -> Void
 }
 
-/// The exported workspace, handed to the system's save sheet.
-struct BackupFile: FileDocument {
-    static let readableContentTypes: [UTType] = [.json]
+/// An exported file (workspace backup, application logs), handed to the
+/// system's save sheet.
+struct ExportFile: FileDocument {
+    static let readableContentTypes: [UTType] = [.json, .plainText]
     let data: Data
 
     init(data: Data) { self.data = data }

@@ -1401,30 +1401,46 @@ describe("assignment upload injection", () => {
 });
 
 describe("complete native extraction relay", () => {
+  const prefix = "isct-companion-extract://test/";
+  // A small part size makes every result cross in several parts.
   const render = (extractor: string) =>
     readScript("extraction-relay.js")
-      .replace(
-        "__ISCT_RELAY__",
-        JSON.stringify("isct-companion-extract://test/"),
-      )
+      .replace("__ISCT_RELAY__", JSON.stringify(prefix))
       .replace("__ISCT_RUN__", JSON.stringify("run-test"))
+      .replace("__ISCT_PART__", "16")
       .replace("__ISCT_EXTRACTOR__", extractor);
   const execute = async (extractor: string) => {
-    const location = { href: "https://example.invalid/" };
-    runInNewContext(render(extractor), {
+    const sent: string[] = [];
+    const location = {
+      get href() {
+        return sent.at(-1) ?? "https://example.invalid/";
+      },
+      set href(value: string) {
+        sent.push(value);
+      },
+    };
+    const scope: Record<string, unknown> = {
       location,
       btoa: (text: string) => Buffer.from(text, "binary").toString("base64"),
       unescape,
       encodeURIComponent,
-    });
-    await vi.waitFor(() =>
-      expect(location.href).toMatch(/^isct-companion-extract:/),
-    );
-    return JSON.parse(
-      Buffer.from(location.href.split("test/")[1], "base64url").toString(
-        "utf8",
-      ),
-    );
+      setTimeout,
+    };
+    runInNewContext(render(extractor), scope);
+    // Core asks for each next part once it holds the previous one.
+    const parts: string[] = [];
+    for (let index = 0; ; index += 1) {
+      await vi.waitFor(() => expect(sent).toHaveLength(index + 1));
+      const [run, count, at, data] = sent[index]!.slice(prefix.length).split("/");
+      expect([run, Number(at)]).toEqual(["run-test", index]);
+      expect(data!.length).toBeLessThanOrEqual(16);
+      parts.push(data!);
+      if (index + 1 === Number(count)) break;
+      const request = scope.__isctRelayPart as (run: string, index: number) => void;
+      request("another-run", index + 1);
+      request("run-test", index + 1);
+    }
+    return JSON.parse(Buffer.from(parts.join(""), "base64url").toString("utf8"));
   };
   it("executes real semicolon-terminated scripts and relays async failures instead of timing out", async () => {
     for (const name of ["kyomu-extract.js", "kyomu-search.js"]) {

@@ -23,7 +23,13 @@ export const folderComponent = (value: string) => {
   return !name || name === "." || name === ".." ? "course" : name;
 };
 export type LmsFileReason =
-  "login" | "unresolved" | "tooLarge" | "network" | "invalid" | "timeout";
+  | "login"
+  | "unresolved"
+  | "tooLarge"
+  | "network"
+  | "invalid"
+  | "timeout"
+  | "denied";
 
 export class LmsFileError extends Error {
   constructor(

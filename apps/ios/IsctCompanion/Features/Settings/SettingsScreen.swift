@@ -1,5 +1,6 @@
 import IsctCore
 import SwiftUI
+import UIKit
 
 /// Settings pages, pushed onto whichever page's stack opened them, as the
 /// desktop's settings sections are pages of their own. A group with more than
@@ -45,6 +46,8 @@ struct SettingsScreen: View {
     @Environment(WebRouter.self) private var web
     @AppStorage(SchoolBrowserHost.textScaleKey) private var textScale = 115
     @State private var firstSite = WebRouter.firstSite
+    @State private var logFile: ExportFile?
+    @State private var notice: String?
 
     var body: some View {
         List {
@@ -79,8 +82,12 @@ struct SettingsScreen: View {
                     ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
                 }
             }
+            Section(t("Application logs")) {
+                Button(t("Save to file")) { saveLogs() }
+                Button(t("Copy")) { copyLogs() }
+            }
             Section {
-                LabeledContent("IsctCompanion", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+                LabeledContent("IsctCompanion", value: Self.version)
             } header: {
                 Text(t("About"))
             } footer: {
@@ -90,6 +97,46 @@ struct SettingsScreen: View {
         .navigationTitle(t("Settings"))
         .onChange(of: textScale) { _, percent in web.browser.setTextScale(percent) }
         .onChange(of: firstSite) { _, site in WebRouter.firstSite = site }
+        .fileExporter(
+            isPresented: Binding(get: { logFile != nil }, set: { if !$0 { logFile = nil } }),
+            document: logFile, contentType: .plainText,
+            defaultFilename: "IsctCompanion-logs-\(Self.today).txt"
+        ) { _ in logFile = nil }
+        .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    private static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
+    private static var today: String {
+        Date().formatted(.iso8601.year().month().day())
+    }
+
+    /// Core formats and redacts the log; the shell only names its build.
+    /// `systemName` tells iOS from iPadOS, which share this binary.
+    private static func logText() throws -> String {
+        let device = UIDevice.current
+        return try exportApplicationLogs(about: "IsctCompanion \(version) · \(device.systemName) \(device.systemVersion) · \(device.model)")
+    }
+
+    private func saveLogs() {
+        do {
+            logFile = ExportFile(data: Data(try Self.logText().utf8))
+        } catch {
+            notice = t("Export failed: {{reason}}", ["reason": AppModel.describe(error)])
+        }
+    }
+
+    private func copyLogs() {
+        do {
+            UIPasteboard.general.string = try Self.logText()
+            notice = t("Copied")
+        } catch {
+            notice = t("Copy failed")
+        }
     }
 
     private func row(_ title: String, _ detail: String?, icon: String) -> some View {

@@ -18,6 +18,8 @@ fun main(args:Array<String>) = runBlocking {
     val config=SessionConfig(File(directory,"data").absolutePath,File(directory,"files").absolutePath,PullNetwork.OFFLINE,listOf(),listOf())
     val vault=MemoryVault()
     val session=Session.open(config,vault,null,null,null,null)
+    val logs=exportApplicationLogs("smoke")
+    check(logs.startsWith("smoke\n") && logs.contains("Application started")) { "Opening a session must install Core's logger" }
     check(schoolBrowserInitialization().isNotEmpty())
     val credentials=SchoolCredentials("fixture","not-a-real-password","","A".repeat(70))
     vault.failNextStore()

@@ -40,7 +40,9 @@ impl From<StorageError> for WorkspaceError {
     fn from(error: StorageError) -> Self {
         match error {
             StorageError::Input(message) => Self::Input(message),
-            StorageError::Storage(message) => Self::Storage(message),
+            StorageError::Storage(message) | StorageError::Denied(message) => {
+                Self::Storage(message)
+            }
         }
     }
 }
@@ -671,8 +673,8 @@ fn lookup_error(error: io::Error) -> WorkspaceError {
     }
 }
 
-fn storage_error(error: impl ToString) -> WorkspaceError {
-    WorkspaceError::Storage(error.to_string())
+fn storage_error(error: impl std::fmt::Display + 'static) -> WorkspaceError {
+    WorkspaceError::Storage(storage::failure_text(error))
 }
 
 fn archive_error(error: impl ToString) -> WorkspaceError {

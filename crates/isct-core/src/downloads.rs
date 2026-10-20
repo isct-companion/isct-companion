@@ -59,6 +59,18 @@ pub enum FetchError {
     Timeout,
     #[error("LMS resource request was cancelled")]
     Cancelled,
+    #[error("{}", crate::storage::WRITE_DENIED)]
+    WriteDenied,
+}
+
+/// The course folder refused the file; any other local failure stays a
+/// failed request the user can retry.
+fn write_error(error: std::io::Error) -> FetchError {
+    if crate::storage::denied(&error) {
+        FetchError::WriteDenied
+    } else {
+        FetchError::Network
+    }
 }
 
 type FetchFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, FetchError>> + Send + 'a>>;
@@ -572,7 +584,7 @@ impl Downloader {
                 }
                 tokio::fs::rename(&temp.path, &target)
                     .await
-                    .map_err(|_| FetchError::Network)?;
+                    .map_err(write_error)?;
                 temp.disarm();
                 Ok(Fetched::Saved)
             }
@@ -597,7 +609,7 @@ impl Downloader {
             {
                 Ok(file) => return Ok((file, TempPath { path, armed: true })),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(_) => return Err(FetchError::Network),
+                Err(error) => return Err(write_error(error)),
             }
         }
         Err(FetchError::Network)

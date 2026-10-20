@@ -47,7 +47,8 @@ update bundle using `TAURI_SIGNING_PRIVATE_KEY`. The complete set produces
 `latest.json`, consumed by desktop update checks from this source repository.
 
 Mac signing and notarization are controlled by `sign_macos` or
-`MACOS_SIGNING_ENABLED`. Windows signing remains unconfigured. Intel Mac currently
+`MACOS_SIGNING_ENABLED`; Windows signing by `sign_windows` or
+`WINDOWS_SIGNING_ENABLED`. Intel Mac currently
 excludes campus-card OCR because ONNX Runtime has no prebuilt Intel macOS library.
 Build success does not establish runtime compatibility on every supported OS.
 
@@ -97,7 +98,34 @@ falls back to unsigned. Tauri signs, notarizes and staples each app. The workflo
 staples each DMG, then verifies the app signature, Gatekeeper assessment
 and stapled tickets before collecting artifacts. Reusing a source run preserves that
 run's signing status and cannot add signatures to its existing installers.
-Windows signing remains unconfigured.
+
+### Windows signing (Azure Artifact Signing)
+
+An unsigned Windows installer is blocked outright by Smart App Control on
+Windows 11, and Controlled folder access refuses its writes to Documents,
+where course files live by default. Sign with an Azure Artifact Signing
+account (formerly Trusted Signing) and a Public Trust certificate profile;
+check identity-validation eligibility for the publisher's region first.
+
+Create an Entra app registration with the *Artifact Signing Certificate
+Profile Signer* role on the account, then add:
+
+| Name | Kind | Value |
+| ---- | ---- | ----- |
+| `AZURE_CLIENT_ID` | secret | App registration client ID |
+| `AZURE_CLIENT_SECRET` | secret | App registration client secret |
+| `AZURE_TENANT_ID` | secret | Entra tenant ID |
+| `AZURE_ARTIFACT_SIGNING_ENDPOINT` | variable | Account endpoint, e.g. `https://eus.codesigning.azure.net` |
+| `AZURE_ARTIFACT_SIGNING_ACCOUNT` | variable | Signing account name |
+| `AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE` | variable | Certificate profile name |
+
+Select `sign_windows` when dispatching, or set `WINDOWS_SIGNING_ENABLED` to
+`true` for tag releases. `scripts/desktop/tauri.mjs` passes
+`artifact-signing-cli` to Tauri as `bundle.windows.signCommand`, so the app
+binary and the NSIS installer are both signed. The workflow fails if a
+required value is missing and verifies both signatures before collecting
+artifacts. A new certificate builds SmartScreen reputation over time; Smart
+App Control accepts a valid trusted signature immediately.
 
 References: [Apple certificate creation](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/),
 [Tauri macOS signing](https://v2.tauri.app/distribute/sign/macos/),

@@ -5,7 +5,7 @@ use crate::{
     data::DataStore,
     downloads::{DownloadSession, Downloader, FetchError, Fetched, ResolvedResource},
     school_parser::lms::ResolvedFile,
-    storage::{component, describe, regular_file, storage_dir, LocalFile, StorageError},
+    storage::{self, component, describe, regular_file, storage_dir, LocalFile, StorageError},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -58,6 +58,7 @@ pub enum MaterialFailure {
     Timeout,
     Cancelled,
     Unresolved,
+    Denied,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -66,6 +67,9 @@ pub enum MaterialError {
     Input(String),
     #[error("{0}")]
     Storage(String),
+    /// The course folder refused the write; the message says how to allow it.
+    #[error("{0}")]
+    Denied(String),
     #[error("Course files are resolved in the desktop app")]
     UnsupportedResolution,
     #[error("Course files are downloaded in the desktop app")]
@@ -77,6 +81,7 @@ impl From<StorageError> for MaterialError {
         match error {
             StorageError::Input(message) => Self::Input(message),
             StorageError::Storage(message) => Self::Storage(message),
+            StorageError::Denied(message) => Self::Denied(message),
         }
     }
 }
@@ -327,6 +332,7 @@ fn material_for_fetch_error(error: FetchError) -> Material {
         FetchError::Network => MaterialFailure::Network,
         FetchError::Timeout => MaterialFailure::Timeout,
         FetchError::Cancelled => MaterialFailure::Cancelled,
+        FetchError::WriteDenied => MaterialFailure::Denied,
     })
 }
 
@@ -456,8 +462,12 @@ pub fn safe_external_url(raw: &str) -> bool {
     })
 }
 
-fn storage_error(error: impl ToString) -> MaterialError {
-    MaterialError::Storage(error.to_string())
+fn storage_error(error: impl std::fmt::Display + 'static) -> MaterialError {
+    if storage::denied(&error) {
+        MaterialError::Denied(storage::failure_text(error))
+    } else {
+        MaterialError::Storage(error.to_string())
+    }
 }
 
 fn clean_materials(root: &Path, days: u64) -> Result<usize, MaterialError> {

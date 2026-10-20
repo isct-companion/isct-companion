@@ -6,6 +6,11 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SegmentedButton
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +21,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -68,12 +75,17 @@ import app.isctcompanion.core.NotificationScheduler
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolSessionState
+import app.isctcompanion.core.exportApplicationLogs
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
+import java.io.IOException
+import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private sealed interface SettingsPage {
     data object Root : SettingsPage
@@ -178,6 +190,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         }
         LanguageCard()
         Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))
+        LogsCard()
         Card(Modifier.padding(top = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -186,6 +199,55 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
             }
         }
     }
+}
+
+/** Core formats and redacts the log; the shell names its build, and the
+ * system document picker and clipboard deliver it. */
+@Composable
+private fun LogsCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    fun fail(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val stream = context.contentResolver.openOutputStream(uri) ?: throw IOException("No output stream")
+                    stream.use { it.write(logText(context).toByteArray()) }
+                }
+            }.onFailure { fail(t("Export failed: {{reason}}", "reason" to AppModel.describe(it))) }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    SectionLabel(t("Application logs"))
+    Card {
+        ActionRow(t("Save to file")) { save.launch("IsctCompanion-logs-${LocalDate.now()}.txt") }
+        RowDivider(inset = 16.dp)
+        ActionRow(t("Copy")) {
+            // Android shows its own confirmation for every clipboard write.
+            runCatching {
+                context.getSystemService(ClipboardManager::class.java)
+                    .setPrimaryClip(ClipData.newPlainText(t("Application logs"), logText(context)))
+            }.onFailure { fail(t("Copy failed")) }
+        }
+    }
+}
+
+private fun logText(context: Context): String {
+    val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+    return exportApplicationLogs(
+        "IsctCompanion ${version.orEmpty()} · Android ${Build.VERSION.RELEASE} · ${Build.MANUFACTURER} ${Build.MODEL}",
+    )
+}
+
+@Composable
+private fun ActionRow(title: String, onClick: () -> Unit) {
+    Text(
+        title,
+        color = Theme.colors.accent,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+    )
 }
 
 @Composable
