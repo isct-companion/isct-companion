@@ -84,7 +84,10 @@ fn freshness_checks_every_key_of_a_profile_with_its_ttl_and_backoff() {
     assert!(!due(SchoolAuthProfile::TokyoTech, &pages, now));
     assert!(due(SchoolAuthProfile::TokyoTech, &pages, now + ttl));
     // A page backing off after a failure does not make the profile due.
-    let grades = pages.iter_mut().find(|state| state.key == "grades").unwrap();
+    let grades = pages
+        .iter_mut()
+        .find(|state| state.key == "grades")
+        .unwrap();
     grades.fetched_at = None;
     grades.next_eligible = Some(now + chrono::Duration::minutes(5));
     assert!(!due(SchoolAuthProfile::TokyoTech, &pages, now));

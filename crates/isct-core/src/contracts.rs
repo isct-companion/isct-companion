@@ -567,7 +567,6 @@ contract!(CatalogSearchItem {
 contract!(IntegerPolicy { pub default: u32, pub min: u32, pub max: u32, });
 contract!(CourseFilePolicy { pub auto_download_limit_mb: IntegerPolicy, pub retention_days: IntegerPolicy, });
 
-
 pub fn course_file_policy() -> CourseFilePolicy {
     CourseFilePolicy {
         auto_download_limit_mb: IntegerPolicy {

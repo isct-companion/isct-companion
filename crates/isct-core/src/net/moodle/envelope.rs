@@ -90,9 +90,7 @@ pub(crate) fn ajax_result(body: &[u8]) -> Result<Value, EnvelopeError> {
     Ok(first.get("data").cloned().unwrap_or(Value::Null))
 }
 
-/// Whether a success body reports `warnings`: the data may be partial, so
-/// nothing that is absent from it may be treated as deleted.
-/// Whether a response's `warnings` mean data this pull needed is missing.
+/// Whether a response's `warnings` mean data this key needed is missing.
 ///
 /// The `*_by_courses` functions warn once per course the student cannot open
 /// (`item: "course"`, e.g. a hidden or ended course). Those courses are not

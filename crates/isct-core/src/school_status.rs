@@ -520,7 +520,11 @@ impl SchoolStatusTracker {
     fn last_read(&self, datasets: &[Dataset]) -> Option<String> {
         self.freshness
             .iter()
-            .filter(|state| datasets.iter().any(|dataset| dataset.name() == state.dataset))
+            .filter(|state| {
+                datasets
+                    .iter()
+                    .any(|dataset| dataset.name() == state.dataset)
+            })
             .filter_map(|state| state.fetched_at)
             .max()
             .map(|at| at.to_rfc3339())

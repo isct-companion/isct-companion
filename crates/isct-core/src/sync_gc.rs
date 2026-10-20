@@ -205,10 +205,16 @@ fn strip_course(connection: &Connection, lms_id: i64, now: DateTime<Utc>) -> Res
     Ok(())
 }
 
-fn rows(connection: &Connection, sql: &str, lms_id: i64) -> Result<Vec<(String, Value)>, DataError> {
+fn rows(
+    connection: &Connection,
+    sql: &str,
+    lms_id: i64,
+) -> Result<Vec<(String, Value)>, DataError> {
     let mut statement = connection.prepare(sql).map_err(DataError::from)?;
     let rows = statement
-        .query_map([lms_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([lms_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(DataError::from)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(DataError::from)?;

@@ -2,6 +2,7 @@ use super::*;
 use uuid::Uuid;
 
 const ACCOUNT: &str = "tokyotech:student";
+const LMS_ACCOUNT: &str = "science:24B00001";
 
 fn page_state(store: &crate::data::DataStore, kind: &str) -> Option<sync_state::KeyState> {
     let connection = rusqlite::Connection::open(store.path()).unwrap();
@@ -124,15 +125,15 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
         "courseId":"2026-202602431","termId":"2026-3Q","state":"planned"}),
         )
         .unwrap();
-    let mut payload: crate::school_parser::lms::LmsPayload = serde_json::from_value(json!({
-        "status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","language":"en",
+    let mut payload: crate::school_parser::lms::LmsEnrolment = serde_json::from_value(json!({
+        "language":"en",
         "courses":[{"id":99,"idnumber":"202602431","shortname":"CSC.T273[2026]","fullname":"LMS course","coursecategory":3},
             {"id":100,"idnumber":"202600001","shortname":"CSC.T101[2026]","fullname":"Earlier course","coursecategory":1}],
-        "timetable":{"term":"2026-1Q","meetings":{"100":[{"day":1,"periods":[1,2]}]},"unscheduled":[]}
+        "timetables":[{"term":"2026-1Q","meetings":{"100":[{"day":1,"periods":[1,2]}]},"unscheduled":[]}]
     })).unwrap();
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_payload(tx, &payload)
+            crate::lms_ingest::apply_lms_enrolment(tx, &payload, LMS_ACCOUNT, chrono::Utc::now())
         })
         .unwrap();
     let service = crate::workspace::WorkspaceService::new(store.clone());
@@ -176,7 +177,9 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     assert_eq!(current[0]["meetings"][0]["days"], json!([5]));
     assert!(crate::schedule::scheduled_courses(&workspace, "2026-4Q").is_empty());
     store
-        .write(None, |tx| apply_kyomu_payload(tx, &registration(json!([])), ACCOUNT))
+        .write(None, |tx| {
+            apply_kyomu_payload(tx, &registration(json!([])), ACCOUNT)
+        })
         .unwrap();
     assert_eq!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-3Q").len(),
@@ -184,14 +187,14 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     );
     // A completed empty LMS quarter, unlike an empty 教務 page, removes only
     // the inferred placement; personal records remain stored.
-    payload.timetable = Some(crate::school_parser::lms::LmsTimetable {
+    payload.timetables = vec![crate::school_parser::lms::LmsTimetable {
         term: "2026-1Q".into(),
         meetings: std::collections::HashMap::new(),
         unscheduled: vec![],
-    });
+    }];
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_payload(tx, &payload)
+            crate::lms_ingest::apply_lms_enrolment(tx, &payload, LMS_ACCOUNT, chrono::Utc::now())
         })
         .unwrap();
     assert!(
@@ -262,7 +265,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
         })
         .unwrap();
     let raw = json!({
-        "status":"ok","sourceUrl":"https://lms.s.isct.ac.jp/2025/my/","language":"en",
+        "language":"en",
         "courses":[
             {"id":41,"viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=41","idnumber":"202600041","shortname":"CSC.T101[2026]","fullname":"前期 / Earlier","coursecategory":1},
             {"id":42,"viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=42","shortname":"CSC.T102[2026]","fullname":"後半 / Second","coursecategory":2},
@@ -273,22 +276,22 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
             {"year":2026,"quarter":"2","slots":[{"courseId":42,"day":2,"period":5},{"courseId":42,"day":2,"period":6},{"courseId":42,"day":2,"period":7},{"courseId":42,"day":2,"period":8}],"unscheduled":[]}
         ]
     });
-    let mut lms = crate::school_parser::lms::parse_payload(&raw.to_string())
-        .unwrap()
-        .1
-        .unwrap();
+    let mut lms = crate::school_parser::lms::validate_enrolment(raw).unwrap();
     assert_eq!(lms.timetables.len(), 2);
     store
-        .write(None, |tx| crate::lms_ingest::apply_lms_payload(tx, &lms))
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, LMS_ACCOUNT, chrono::Utc::now())
+        })
         .unwrap();
-    lms.timetables.clear();
-    lms.timetable = Some(crate::school_parser::lms::LmsTimetable {
+    lms.timetables = vec![crate::school_parser::lms::LmsTimetable {
         term: "2026-2Q".into(),
         meetings: std::collections::HashMap::from([(42, vec![json!({"day":2,"periods":[5,8]})])]),
         unscheduled: vec![],
-    });
+    }];
     store
-        .write(None, |tx| crate::lms_ingest::apply_lms_payload(tx, &lms))
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, LMS_ACCOUNT, chrono::Utc::now())
+        })
         .unwrap();
     let workspace = store.load_workspace().unwrap();
     let first = crate::schedule::scheduled_courses(&workspace, "2026-1Q");
@@ -335,7 +338,9 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
         })
         .unwrap();
     store
-        .write(None, |tx| crate::lms_ingest::apply_lms_payload(tx, &lms))
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, LMS_ACCOUNT, chrono::Utc::now())
+        })
         .unwrap();
     assert!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-2Q").is_empty()
@@ -373,7 +378,9 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     // Recorded instead, the page is current but unavailable and its rows
     // stay; the snapshot shows both under the keys the shells read.
     store
-        .write(None, |tx| record_kyomu_unavailable(tx, &unavailable, ACCOUNT))
+        .write(None, |tx| {
+            record_kyomu_unavailable(tx, &unavailable, ACCOUNT)
+        })
         .unwrap();
     let (_, records, _) = store.workspace_snapshot_parts().unwrap();
     let availability = &records["pageAvailability"]["kyomu:registrations"];

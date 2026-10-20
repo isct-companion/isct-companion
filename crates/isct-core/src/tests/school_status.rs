@@ -476,7 +476,11 @@ fn last_updated_takes_the_newest_read_of_each_source_only() {
         state(Dataset::KyomuPage, "gpa", Some("2026-10-04T03:00:00Z")),
         // A failed first read has no time yet.
         state(Dataset::KyomuPage, "profile", None),
-        state(Dataset::Reference, "calendar/2026", Some("2026-10-10T03:00:00Z")),
+        state(
+            Dataset::Reference,
+            "calendar/2026",
+            Some("2026-10-10T03:00:00Z"),
+        ),
     ]);
     let status = tracker.status();
     assert_eq!(

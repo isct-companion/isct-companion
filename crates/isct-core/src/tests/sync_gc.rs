@@ -43,9 +43,11 @@ fn course(connection: &Connection, lms_id: i64) {
 
 fn value(connection: &Connection, table: &str, id: String) -> Value {
     let raw: String = connection
-        .query_row(&format!("SELECT value FROM {table} WHERE id=?1"), [id], |row| {
-            row.get(0)
-        })
+        .query_row(
+            &format!("SELECT value FROM {table} WHERE id=?1"),
+            [id],
+            |row| row.get(0),
+        )
         .unwrap();
     serde_json::from_str(&raw).unwrap()
 }
@@ -64,7 +66,11 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
     // ten days ago.
     for lms_id in [7, 8] {
         course(&connection, lms_id);
-        commit(&connection, &Key::new(Dataset::LmsCourse, lms_id.to_string()), days(200));
+        commit(
+            &connection,
+            &Key::new(Dataset::LmsCourse, lms_id.to_string()),
+            days(200),
+        );
     }
     sync_state::touch(&connection, &[Key::new(Dataset::LmsCourse, "8")], days(10)).unwrap();
     for offering in ["202600001", "202600002"] {
@@ -75,7 +81,11 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
                 params![offering, days(400).to_rfc3339()],
             )
             .unwrap();
-        commit(&connection, &Key::new(Dataset::CatalogDetail, offering), days(400));
+        commit(
+            &connection,
+            &Key::new(Dataset::CatalogDetail, offering),
+            days(400),
+        );
     }
     sync_state::touch(
         &connection,
@@ -93,7 +103,9 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
             .unwrap();
     }
 
-    let report = store.write(None, |transaction| gc(transaction, now)).unwrap();
+    let report = store
+        .write(None, |transaction| gc(transaction, now))
+        .unwrap();
     assert_eq!(
         report,
         GcReport {
@@ -113,7 +125,11 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
     assert_eq!(section["title"], "Week 1");
     assert!(section.get("bodyHtml").is_none());
     let hash: String = connection
-        .query_row("SELECT hash FROM lms_items WHERE id='lms-item:70'", [], |row| row.get(0))
+        .query_row(
+            "SELECT hash FROM lms_items WHERE id='lms-item:70'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     assert_ne!(hash, "old");
     let state = |dataset: Dataset, key: &str| {
@@ -122,12 +138,7 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
             .unwrap()
     };
     let missing = |dataset: Dataset, key: &str| {
-        sync_state::due(
-            Some(&state(dataset, key)),
-            None,
-            "science:student",
-            now,
-        ) == Due::Missing
+        sync_state::due(Some(&state(dataset, key)), None, "science:student", now) == Due::Missing
     };
     assert!(missing(Dataset::LmsCourse, "7"));
     assert!(missing(Dataset::CatalogDetail, "202600001"));
@@ -157,7 +168,10 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
     // At most once a day.
     assert_eq!(
         store
-            .write(None, |transaction| gc(transaction, now + Duration::hours(23)))
+            .write(None, |transaction| gc(
+                transaction,
+                now + Duration::hours(23)
+            ))
             .unwrap(),
         GcReport::default()
     );

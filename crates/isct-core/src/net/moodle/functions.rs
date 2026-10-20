@@ -15,7 +15,6 @@ pub enum MoodleFunction {
     /// transport reads `CourseContents` instead.
     CourseformatState,
     ActionEventsByTimesort,
-    ActionEventsByCourse,
     CalendarUpcomingView,
     CalendarMonthlyView,
     AssignGetAssignments,
@@ -41,7 +40,6 @@ impl MoodleFunction {
             Self::CourseContents => "core_course_get_contents",
             Self::CourseformatState => "core_courseformat_get_state",
             Self::ActionEventsByTimesort => "core_calendar_get_action_events_by_timesort",
-            Self::ActionEventsByCourse => "core_calendar_get_action_events_by_course",
             Self::CalendarUpcomingView => "core_calendar_get_calendar_upcoming_view",
             Self::CalendarMonthlyView => "core_calendar_get_calendar_monthly_view",
             Self::AssignGetAssignments => "mod_assign_get_assignments",
@@ -72,7 +70,6 @@ impl MoodleFunction {
             Self::EnrolledCoursesByTimeline
                 | Self::CourseformatState
                 | Self::ActionEventsByTimesort
-                | Self::ActionEventsByCourse
                 | Self::CalendarUpcomingView
                 | Self::CalendarMonthlyView
         )

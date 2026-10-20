@@ -489,7 +489,13 @@ fn due(profile: SchoolAuthProfile, freshness: &[KeyState], now: DateTime<Utc>) -
             .iter()
             .find(|state| state.dataset == key.dataset.name() && state.key == key.key);
         let account = state.map_or("", |state| state.account.as_str());
-        sync_state::due(state, sync_state::ttl(key.dataset, Term::Current), account, now).is_due()
+        sync_state::due(
+            state,
+            sync_state::ttl(key.dataset, Term::Current),
+            account,
+            now,
+        )
+        .is_due()
     };
     match profile {
         SchoolAuthProfile::Science => [Dataset::LmsEnrolment, Dataset::LmsDeadlines]

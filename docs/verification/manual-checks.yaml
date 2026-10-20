@@ -275,7 +275,7 @@ checks:
       - crates/isct-core/src/lms_session.rs
       - crates/isct-core/src/school_parser/lms.rs
       - crates/isct-core/src/school_parser/lms/pages.rs
-      - crates/isct-core/src/net/moodle/pull.rs
+      - crates/isct-core/src/net/moodle/reader.rs
       - crates/isct-core/src/net/moodle/ajax.rs
       - crates/isct-core/src/catalog.rs
       - crates/isct-core/src/data/school_projection.rs
