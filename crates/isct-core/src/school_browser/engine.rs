@@ -1204,7 +1204,7 @@ impl Inner {
             };
             if let Some((run, bytes, encoded_bytes, count)) = completed {
                 let payload_bytes = bytes.len();
-                if let Some(raw) = String::from_utf8(bytes).ok() {
+                if let Ok(raw) = String::from_utf8(bytes) {
                     log::info!(target: "isct_core::school_browser", "capture relay complete site={:?} run={run} payload_bytes={payload_bytes} encoded_bytes={encoded_bytes} parts={count} limit_bytes={RELAY_MAX}", page.browser.site);
                     let accepted = self.state.with(|state| {
                         if state.extraction.as_ref().is_some_and(|active| {
