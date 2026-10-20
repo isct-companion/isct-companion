@@ -81,6 +81,7 @@ impl SchoolDownloads {
                     name,
                     sanitize_school_url(url.as_str()),
                     None,
+                    None,
                 );
                 true
             }
@@ -95,7 +96,22 @@ impl SchoolDownloads {
                 // Refused downloads also finish unsuccessfully, but were never announced.
                 if let Some(destination) = destination {
                     let name = file_name(&destination);
-                    self.finish(app, site, name, success.then_some(destination));
+                    if success {
+                        self.finish(app, site, name, Some(destination));
+                    } else {
+                        let size_bytes = fs::metadata(&destination)
+                            .ok()
+                            .map(|metadata| metadata.len());
+                        emit_download(
+                            app,
+                            site,
+                            SchoolDownloadState::Failed,
+                            name,
+                            None,
+                            None,
+                            size_bytes,
+                        );
+                    }
                 }
                 true
             }
@@ -119,7 +135,15 @@ impl SchoolDownloads {
 
         let name = download_file_name(&saved.suggested_name, &saved.mime_type);
         let Ok(directory) = app.path().download_dir() else {
-            emit_download(app, site, SchoolDownloadState::Failed, name, None, None);
+            emit_download(
+                app,
+                site,
+                SchoolDownloadState::Failed,
+                name,
+                None,
+                None,
+                None,
+            );
             return;
         };
         let app = app.clone();
@@ -158,6 +182,7 @@ impl SchoolDownloads {
                 site,
                 SchoolDownloadState::Failed,
                 failed_name,
+                None,
                 None,
                 None,
             );
@@ -229,6 +254,7 @@ impl SchoolDownloads {
     fn finish(&self, app: &AppHandle, site: SchoolSite, name: String, saved: Option<PathBuf>) {
         match saved {
             Some(path) => {
+                let size_bytes = fs::metadata(&path).ok().map(|metadata| metadata.len());
                 if let Ok(mut state) = self.0.state.lock() {
                     state.saved.insert(path.clone());
                 }
@@ -239,9 +265,18 @@ impl SchoolDownloads {
                     name,
                     None,
                     Some(&path),
+                    size_bytes,
                 );
             }
-            None => emit_download(app, site, SchoolDownloadState::Failed, name, None, None),
+            None => emit_download(
+                app,
+                site,
+                SchoolDownloadState::Failed,
+                name,
+                None,
+                None,
+                None,
+            ),
         }
     }
 }
@@ -253,8 +288,21 @@ fn emit_download(
     name: String,
     url: Option<String>,
     path: Option<&Path>,
+    size_bytes: Option<u64>,
 ) {
-    log::error!("[school-download] {site:?} {state:?} {name}");
+    let size = size_bytes
+        .map(|bytes| bytes.to_string())
+        .unwrap_or_else(|| "unavailable".to_string());
+    match state {
+        SchoolDownloadState::Failed => log::error!(
+            target: "isct_companion_lib::school_downloads",
+            "[school-download] {site:?} {state:?} {name:?} size_bytes={size}"
+        ),
+        SchoolDownloadState::Started | SchoolDownloadState::Done => log::info!(
+            target: "isct_companion_lib::school_downloads",
+            "[school-download] {site:?} {state:?} {name:?} size_bytes={size}"
+        ),
+    }
     let _ = crate::core_ports::DesktopEvents(app.clone()).emit(CoreEvent::SchoolDownload(
         SchoolDownloadEvent {
             site,

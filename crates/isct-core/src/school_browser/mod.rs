@@ -125,6 +125,11 @@ pub enum SchoolBrowserError {
     SiteChanged(String),
     #[error("{0}")]
     Timeout(String),
+    #[error("School extraction result exceeded the safe size limit ({observed_bytes} > {limit_bytes} bytes).")]
+    PayloadTooLarge {
+        observed_bytes: usize,
+        limit_bytes: usize,
+    },
     #[error("Pull cancelled.")]
     Cancelled,
     #[error("School job paused for visible navigation.")]

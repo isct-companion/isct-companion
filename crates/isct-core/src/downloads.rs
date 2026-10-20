@@ -63,6 +63,21 @@ pub enum FetchError {
     WriteDenied,
 }
 
+async fn log_file_size(state: &str, target: &Path) {
+    let name = target.file_name().unwrap_or_default();
+    match tokio::fs::metadata(target).await {
+        Ok(metadata) => log::info!(
+            target: "isct_core::downloads",
+            "course-file state={state} name={name:?} size_bytes={}",
+            metadata.len()
+        ),
+        Err(error) => log::warn!(
+            target: "isct_core::downloads",
+            "course-file state={state} name={name:?} size_bytes=unavailable error={error}"
+        ),
+    }
+}
+
 /// The course folder refused the file; any other local failure stays a
 /// failed request the user can retry.
 fn write_error(error: std::io::Error) -> FetchError {
@@ -461,6 +476,7 @@ impl Downloader {
             return Err(FetchError::Cancelled);
         }
         if target.is_file() {
+            log_file_size("cached", &target).await;
             return Ok(Fetched::Saved);
         }
         if !is_lms_origin(url) {
@@ -488,6 +504,7 @@ impl Downloader {
             let worker_url = url.clone();
             let worker_flight = flight.clone();
             let worker_key = key.clone();
+            let log_target = target.clone();
             if !self.0.tasks.spawn(async move {
                 let work_downloader = downloader.clone();
                 let outcome = match tokio::spawn(async move {
@@ -501,6 +518,15 @@ impl Downloader {
                     Err(error) if error.is_panic() => Err(FetchError::Network),
                     Err(_) => Err(FetchError::Cancelled),
                 };
+                match &outcome {
+                    Ok(Fetched::Saved) => log_file_size("downloaded_or_cached", &log_target).await,
+                    Ok(Fetched::TooLarge(_)) => {}
+                    Err(error) => log::warn!(
+                        target: "isct_core::downloads",
+                        "course-file state=failed name={:?} size_bytes=unavailable error={error:?}",
+                        log_target.file_name().unwrap_or_default()
+                    ),
+                }
                 downloader.0.flights.lock().await.remove(&worker_key);
                 // Remove the completed flight before publishing its result so
                 // a retry begun by a woken caller always starts fresh work.
@@ -552,6 +578,12 @@ impl Downloader {
             ) => outcome.map_err(|_| FetchError::Timeout)??,
         };
         if limit.is_some_and(|limit| size > limit) {
+            log::warn!(
+                target: "isct_core::downloads",
+                "course-file state=too_large name={:?} size_bytes={size} size_source=server_probe limit_bytes={}",
+                target.file_name().unwrap_or_default(),
+                limit.unwrap_or_default()
+            );
             return Ok(Fetched::TooLarge(size));
         }
         let (_small, _large) = if uses_small_lane(size) {
@@ -577,7 +609,14 @@ impl Downloader {
             ) => outcome.map_err(|_| FetchError::Timeout)?,
         };
         match outcome? {
-            Fetched::TooLarge(bytes) => Ok(Fetched::TooLarge(bytes)),
+            Fetched::TooLarge(bytes) => {
+                log::warn!(
+                    target: "isct_core::downloads",
+                    "course-file state=too_large name={:?} size_bytes={bytes} size_source=stream_observed limit_bytes={limit:?}",
+                    target.file_name().unwrap_or_default()
+                );
+                Ok(Fetched::TooLarge(bytes))
+            }
             Fetched::Saved => {
                 if target.is_file() {
                     return Ok(Fetched::Saved);

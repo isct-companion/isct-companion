@@ -53,10 +53,16 @@ const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
 const LAUNCH_INTERVAL: Duration = Duration::from_secs(90);
 const FOCUS_INTERVAL: Duration = Duration::from_secs(120);
 /// Chromium (WebView2, Android WebView) drops a navigation whose URL exceeds
-/// 2 MiB, so an extraction result crosses in parts well under that. The page
-/// sends each next part only after Core has taken the previous one.
+/// 2 MiB, so an extraction result crosses in parts well under that. Each wire
+/// part is decoded immediately and retained as raw UTF-8 bytes, avoiding a
+/// second full-size Base64 copy in Core. JavaScript encodes one UTF-8 chunk at
+/// a time, so its temporary byte buffer is bounded as well.
 const RELAY_PART: usize = 1024 * 1024;
-const RELAY_MAX: usize = 11 * 1024 * 1024;
+const RELAY_RAW_PART: usize = RELAY_PART / 4 * 3;
+const RELAY_MIN_RAW_PART: usize = RELAY_RAW_PART - 3;
+/// Bound one extraction's memory use. Oversized payloads fail explicitly
+/// instead of being silently dropped and waiting for the page timeout.
+const RELAY_MAX: usize = 32 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct SchoolBrowserEngine(Arc<Inner>);
@@ -145,13 +151,24 @@ struct ViewState {
 struct RelayParts {
     run: String,
     count: usize,
-    encoded: String,
+    bytes: Vec<u8>,
+    encoded_bytes: usize,
     received: usize,
 }
 
 enum RelayPart {
     Next(String, usize),
-    Complete(String),
+    Complete {
+        run: String,
+        bytes: Vec<u8>,
+        encoded_bytes: usize,
+        count: usize,
+    },
+    TooLarge {
+        run: String,
+        count: usize,
+        observed_bytes: usize,
+    },
     Rejected,
 }
 
@@ -167,6 +184,21 @@ enum Trace {
         browser: BrowserId,
         run: String,
         raw: String,
+    },
+    ExtractionTooLarge {
+        browser: BrowserId,
+        run: String,
+        observed_bytes: usize,
+        limit_bytes: usize,
+    },
+    ExtractionPart {
+        browser: BrowserId,
+        run: String,
+    },
+    ExtractionFailed {
+        browser: BrowserId,
+        run: String,
+        message: String,
     },
     Session {
         profile: SchoolAuthProfile,
@@ -474,6 +506,12 @@ pub(crate) fn map_executor(error: SchoolBrowserError) -> SchoolExecutorError {
         SchoolBrowserError::Maintenance(message) => SchoolExecutorError::Maintenance(message),
         SchoolBrowserError::SiteChanged(message) => SchoolExecutorError::SiteChanged(message),
         SchoolBrowserError::Timeout(message) => SchoolExecutorError::Timeout(message),
+        SchoolBrowserError::PayloadTooLarge {
+            observed_bytes,
+            limit_bytes,
+        } => SchoolExecutorError::Execution(format!(
+            "School extraction result exceeded the safe size limit ({observed_bytes} > {limit_bytes} bytes)."
+        )),
         SchoolBrowserError::Cancelled => SchoolExecutorError::Cancelled,
         SchoolBrowserError::Stopped => {
             SchoolExecutorError::Stopped("The school browser has stopped.".into())
@@ -978,11 +1016,44 @@ impl Inner {
         ) else {
             return RelayPart::Rejected;
         };
-        if count == 0
-            || count > RELAY_MAX.div_ceil(RELAY_PART)
-            || index >= count
-            || data.len() > RELAY_PART
-        {
+        if data.len() > RELAY_PART {
+            return RelayPart::Rejected;
+        }
+        if count == 0 && index == 0 {
+            let Some(observed_bytes) = data
+                .strip_prefix("oversized-")
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|&value| value > RELAY_MAX)
+            else {
+                return RelayPart::Rejected;
+            };
+            return self.state.with(|state| {
+                let active = state
+                    .extraction
+                    .as_ref()
+                    .is_some_and(|active| active.browser == browser && active.run == run);
+                let Some(view) = state
+                    .views
+                    .get_mut(&browser.site)
+                    .filter(|view| active && view.id == browser)
+                else {
+                    return RelayPart::Rejected;
+                };
+                view.relay_parts = None;
+                RelayPart::TooLarge {
+                    run: run.into(),
+                    count,
+                    observed_bytes,
+                }
+            });
+        }
+        if count == 0 || index >= count {
+            return RelayPart::Rejected;
+        }
+        let Ok(chunk) = URL_SAFE_NO_PAD.decode(data) else {
+            return RelayPart::Rejected;
+        };
+        if chunk.len() > RELAY_RAW_PART {
             return RelayPart::Rejected;
         }
         self.state.with(|state| {
@@ -997,29 +1068,56 @@ impl Inner {
             else {
                 return RelayPart::Rejected;
             };
+            if count > RELAY_MAX.div_ceil(RELAY_MIN_RAW_PART) {
+                view.relay_parts = None;
+                let minimum_bytes = count.saturating_sub(1).saturating_mul(RELAY_MIN_RAW_PART);
+                return RelayPart::TooLarge {
+                    run: run.into(),
+                    count,
+                    observed_bytes: minimum_bytes,
+                };
+            }
             if index == 0 {
                 view.relay_parts = Some(RelayParts {
                     run: run.into(),
                     count,
-                    encoded: String::new(),
+                    bytes: Vec::new(),
+                    encoded_bytes: 0,
                     received: 0,
                 });
             }
-            let Some(parts) = view.relay_parts.as_mut().filter(|parts| {
+            let valid_parts = view.relay_parts.as_ref().is_some_and(|parts| {
                 parts.run == run && parts.count == count && parts.received == index
-            }) else {
+            });
+            if !valid_parts {
+                return RelayPart::Rejected;
+            }
+            let Some(mut parts) = view.relay_parts.take() else {
                 return RelayPart::Rejected;
             };
-            parts.encoded.push_str(data);
+            let next_len = parts.bytes.len().saturating_add(chunk.len());
+            if next_len > RELAY_MAX {
+                view.relay_parts = None;
+                return RelayPart::TooLarge {
+                    run: run.into(),
+                    count,
+                    observed_bytes: next_len,
+                };
+            }
+            parts.bytes.extend_from_slice(&chunk);
+            parts.encoded_bytes = parts.encoded_bytes.saturating_add(data.len());
             parts.received += 1;
             if parts.received < count {
-                RelayPart::Next(run.into(), parts.received)
+                let next_index = parts.received;
+                view.relay_parts = Some(parts);
+                RelayPart::Next(run.into(), next_index)
             } else {
-                view.relay_parts
-                    .take()
-                    .map_or(RelayPart::Rejected, |parts| {
-                        RelayPart::Complete(parts.encoded)
-                    })
+                RelayPart::Complete {
+                    run: parts.run,
+                    bytes: parts.bytes,
+                    encoded_bytes: parts.encoded_bytes,
+                    count: parts.count,
+                }
             }
         })
     }
@@ -1038,69 +1136,115 @@ impl Inner {
             .as_deref()
             .and_then(|prefix| url.as_str().strip_prefix(prefix))
         {
-            let encoded = match self.relay_part(page.browser, part) {
-                RelayPart::Complete(encoded) => Some(encoded),
-                RelayPart::Next(run, index) => {
-                    if let Ok(run) = serde_json::to_string(&run) {
+            let completed = match self.relay_part(page.browser, part) {
+                RelayPart::Complete {
+                    run,
+                    bytes,
+                    encoded_bytes,
+                    count,
+                } => {
+                    if let Ok(quoted_run) = serde_json::to_string(&run) {
                         let _ = self.dispatch_eval(
                             page.browser,
-                            format!("globalThis.__isctRelayPart&&globalThis.__isctRelayPart({run},{index});"),
+                            format!("globalThis.__isctRelayPart&&globalThis.__isctRelayPart({quoted_run},Number.MAX_SAFE_INTEGER);"),
                             true,
                         );
                     }
-                    None
+                    Some((run, bytes, encoded_bytes, count))
                 }
-                RelayPart::Rejected => None,
-            };
-            if let Some(encoded) = encoded {
-                if let Some(raw) = URL_SAFE_NO_PAD
-                    .decode(encoded)
-                    .ok()
-                    .and_then(|bytes| String::from_utf8(bytes).ok())
-                {
-                    let run = serde_json::from_str::<serde_json::Value>(&raw)
-                        .ok()
-                        .and_then(|value| {
-                            value
-                                .get("_isctExtractionRun")?
-                                .as_str()
-                                .map(str::to_string)
-                        });
-                    if let Some(run) = run {
-                        let accepted = self.state.with(|state| {
-                            if state.extraction.as_ref().is_some_and(|active| {
-                                active.browser == page.browser && active.run == run
-                            }) {
-                                state.extraction.take()
-                            } else {
-                                None
-                            }
-                        });
-                        if let Some(extraction) = accepted {
-                            if extraction.visible {
-                                let store = self.store.clone();
-                                let events = self.events.clone();
-                                let site = page.browser.site;
-                                let _entered = self.runtime.enter();
-                                self.tasks.spawn(async move {
-                                    if let Ok(Ok(outcome)) =
-                                        tokio::task::spawn_blocking(move || {
-                                            apply_raw(&store, site, &raw)
-                                        })
-                                        .await
-                                    {
-                                        let _ = events.emit(CoreEvent::SchoolIngest(outcome));
-                                    }
-                                });
-                            } else {
-                                let _ = self.traces.send(Trace::Extraction {
-                                    browser: page.browser,
-                                    run,
-                                    raw,
-                                });
-                            }
+                RelayPart::Next(run, index) => {
+                    if let Ok(quoted_run) = serde_json::to_string(&run) {
+                        if let Err(error) = self.dispatch_eval(
+                            page.browser,
+                            format!("globalThis.__isctRelayPart&&globalThis.__isctRelayPart({quoted_run},{index});"),
+                            true,
+                        ) {
+                            log::warn!(target: "isct_core::school_browser", "capture relay could not request next part run={run} index={index}: {error}");
+                            let _ = self.traces.send(Trace::ExtractionFailed {
+                                browser: page.browser,
+                                run,
+                                message: "School data transfer could not continue.".into(),
+                            });
+                        } else {
+                            let _ = self.traces.send(Trace::ExtractionPart {
+                                browser: page.browser,
+                                run,
+                            });
                         }
                     }
+                    None
+                }
+                RelayPart::TooLarge {
+                    run,
+                    count,
+                    observed_bytes,
+                } => {
+                    log::warn!(target: "isct_core::school_browser", "capture relay rejected oversized payload run={run} declared_parts={count} observed_or_minimum_bytes={observed_bytes} limit_bytes={RELAY_MAX}");
+                    if let Ok(quoted_run) = serde_json::to_string(&run) {
+                        let _ = self.dispatch_eval(
+                            page.browser,
+                            format!("globalThis.__isctRelayPart&&globalThis.__isctRelayPart({quoted_run},Number.MAX_SAFE_INTEGER);"),
+                            true,
+                        );
+                    }
+                    let _ = self.traces.send(Trace::ExtractionTooLarge {
+                        browser: page.browser,
+                        run,
+                        observed_bytes,
+                        limit_bytes: RELAY_MAX,
+                    });
+                    None
+                }
+                RelayPart::Rejected => {
+                    // An unsolicited or out-of-order navigation is rejected
+                    // without poisoning the active transfer. If the expected
+                    // part never arrives, the relay idle timeout reports it.
+                    None
+                }
+            };
+            if let Some((run, bytes, encoded_bytes, count)) = completed {
+                let payload_bytes = bytes.len();
+                if let Some(raw) = String::from_utf8(bytes).ok() {
+                    log::info!(target: "isct_core::school_browser", "capture relay complete site={:?} run={run} payload_bytes={payload_bytes} encoded_bytes={encoded_bytes} parts={count} limit_bytes={RELAY_MAX}", page.browser.site);
+                    let accepted = self.state.with(|state| {
+                        if state.extraction.as_ref().is_some_and(|active| {
+                            active.browser == page.browser && active.run == run
+                        }) {
+                            state.extraction.take()
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(extraction) = accepted {
+                        if extraction.visible {
+                            let store = self.store.clone();
+                            let events = self.events.clone();
+                            let site = page.browser.site;
+                            let _entered = self.runtime.enter();
+                            self.tasks.spawn(async move {
+                                if let Ok(Ok(outcome)) = tokio::task::spawn_blocking(move || {
+                                    apply_raw(&store, site, &raw)
+                                })
+                                .await
+                                {
+                                    let _ = events.emit(CoreEvent::SchoolIngest(outcome));
+                                }
+                            });
+                        } else {
+                            let _ = self.traces.send(Trace::Extraction {
+                                browser: page.browser,
+                                run,
+                                raw,
+                            });
+                        }
+                    }
+                } else {
+                    log::error!(target: "isct_core::school_browser", "capture relay rejected invalid UTF-8 site={:?} payload_bytes={payload_bytes} encoded_bytes={encoded_bytes} parts={count}", page.browser.site);
+                    let _ = self.traces.send(Trace::ExtractionFailed {
+                        browser: page.browser,
+                        run,
+                        message: "School data transfer was incomplete. Retry the refresh.".into(),
+                    });
                 }
             }
             return NavigationDecision::Cancel;

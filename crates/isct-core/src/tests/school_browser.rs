@@ -1400,6 +1400,48 @@ async fn cancellation_before_applying_keeps_the_lms_database_unchanged() {
 }
 
 #[tokio::test]
+async fn an_oversized_lms_extraction_is_rejected_explicitly() {
+    let (engine, browser, _, _) = engine();
+    let coordinator = PullCoordinator::default();
+    let request = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::manual(),
+    );
+    let navigation = browser.navigation(0).await;
+    let page = PageId {
+        browser: navigation.browser,
+        sequence: 1,
+    };
+    browser.listener().page_loaded(PageLoaded {
+        page,
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap(),
+    });
+    let script = browser.extraction_script().await;
+    let quoted = |key: &str| {
+        script
+            .split(key)
+            .nth(1)
+            .and_then(|value| value.split(';').next())
+            .unwrap()
+    };
+    let relay: String = serde_json::from_str(quoted("const relay = ")).unwrap();
+    let run: String = serde_json::from_str(quoted("const run = ")).unwrap();
+    let observed_bytes = 32 * 1024 * 1024 + 1;
+    let oversized = Url::parse(&format!("{relay}{run}/0/0/oversized-{observed_bytes}")).unwrap();
+    assert_eq!(
+        browser.listener().decide_navigation(page, oversized, true),
+        NavigationDecision::Cancel
+    );
+    let error = request.await.unwrap().unwrap_err().to_string();
+    assert!(error.contains("safe size limit"), "{error}");
+    coordinator.shutdown().await;
+    engine.shutdown().await;
+}
+
+#[tokio::test]
 async fn an_lms_result_over_chromiums_url_cap_arrives_in_requested_parts() {
     let (engine, browser, _, store) = engine();
     let coordinator = PullCoordinator::default();
@@ -1445,7 +1487,10 @@ async fn an_lms_result_over_chromiums_url_cap_arrives_in_requested_parts() {
             .unwrap()
             .iter()
             .filter_map(|command| match &command.command {
-                BrowserAction::Eval(script) if script.contains("__isctRelayPart(") => {
+                BrowserAction::Eval(script)
+                    if script.contains("__isctRelayPart(")
+                        && !script.contains("Number.MAX_SAFE_INTEGER") =>
+                {
                     Some(script.clone())
                 }
                 _ => None,

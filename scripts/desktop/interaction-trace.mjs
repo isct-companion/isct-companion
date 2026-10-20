@@ -35,6 +35,7 @@ const line = (event) => {
 
 export function interactionTrace() {
   const recent = new Map();
+  const normalizedTracedCore = path.resolve(tracedCore).toLowerCase();
   return {
     name: "isct-interaction-trace",
     apply: "serve",
@@ -42,11 +43,14 @@ export function interactionTrace() {
     // App imports of the Tauri core module go through the traced wrapper;
     // the wrapper itself (and the Tauri package) still get the real one.
     resolveId(source, importer) {
+      const importerPath = importer?.replace(/[?#].*$/, "");
+      const normalizedImporter = importerPath &&
+        path.resolve(importerPath).toLowerCase();
       if (
         source === "@tauri-apps/api/core" &&
-        importer &&
-        importer !== tracedCore &&
-        !importer.includes("/node_modules/")
+        normalizedImporter &&
+        normalizedImporter !== normalizedTracedCore &&
+        !normalizedImporter.includes(`${path.sep}node_modules${path.sep}`)
       )
         return tracedCore;
     },

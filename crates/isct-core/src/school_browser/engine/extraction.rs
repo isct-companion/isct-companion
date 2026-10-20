@@ -65,8 +65,20 @@ pub(super) struct HiddenGuard<'a> {
 
 impl Drop for HiddenGuard<'_> {
     fn drop(&mut self) {
-        {
+        let browser = {
             let mut state = self.inner.state.guard();
+            let browser = state
+                .extraction
+                .as_ref()
+                .filter(|extraction| extraction.run == self.run)
+                .map(|extraction| extraction.browser)
+                .or_else(|| {
+                    state
+                        .hidden
+                        .as_ref()
+                        .filter(|work| work.run == self.run)
+                        .map(|work| work.browser)
+                });
             if state
                 .hidden
                 .as_ref()
@@ -80,6 +92,25 @@ impl Drop for HiddenGuard<'_> {
                 .is_some_and(|extraction| extraction.run == self.run)
             {
                 state.extraction = None;
+            }
+            for view in state.views.values_mut() {
+                if view
+                    .relay_parts
+                    .as_ref()
+                    .is_some_and(|parts| parts.run == self.run)
+                {
+                    view.relay_parts = None;
+                }
+            }
+            browser
+        };
+        if let Some(browser) = browser {
+            if let Ok(run) = serde_json::to_string(&self.run) {
+                let _ = self.inner.dispatch_eval(
+                    browser,
+                    format!("globalThis.__isctRelayPart&&globalThis.__isctRelayPart({run},Number.MAX_SAFE_INTEGER);"),
+                    true,
+                );
             }
         }
     }
@@ -452,17 +483,29 @@ impl SchoolBrowserEngine {
             run: run.clone(),
         };
         let started = Instant::now();
+        let mut last_relay_part = None;
         log::info!(target: "isct_core::school_browser", "capture start site={site:?} run={run} scope={scope:?} course={course_id:?} path={} timeout_s={}", parsed.path(), timeout.as_secs());
         self.dispatch(browser, BrowserAction::Navigate(parsed.clone()))?;
         let mut signing_in = None;
         let raw = tokio::time::timeout(timeout, async {
             loop {
+                if last_relay_part.is_some_and(|last: Instant| {
+                    last.elapsed() >= Duration::from_secs(30)
+                }) {
+                    log::warn!(target: "isct_core::school_browser", "capture relay stalled site={site:?} run={run} idle_timeout_s=30");
+                    return Err(SchoolBrowserError::Timeout(
+                        "School data transfer stopped before all parts arrived. Retry the refresh.".into(),
+                    ));
+                }
                 if context.is_cancelled() {
                     return Err(SchoolBrowserError::Cancelled);
                 }
                 let received = tokio::select! {
-                    value = traces.recv() => value,
-                    _ = tokio::time::sleep(Duration::from_millis(250)) => continue,
+                    value = traces.recv() => Some(value),
+                    _ = tokio::time::sleep(Duration::from_millis(250)) => None,
+                };
+                let Some(received) = received else {
+                    continue;
                 };
                 match received {
                     Ok(Trace::Extraction {
@@ -471,6 +514,30 @@ impl SchoolBrowserEngine {
                         raw,
                     }) if found == browser && found_run == run => {
                         return Ok(HiddenLoad::Ready(raw))
+                    }
+                    Ok(Trace::ExtractionTooLarge {
+                        browser: found,
+                        run: found_run,
+                        observed_bytes,
+                        limit_bytes,
+                    }) if found == browser && found_run == run => {
+                        return Err(SchoolBrowserError::PayloadTooLarge {
+                            observed_bytes,
+                            limit_bytes,
+                        })
+                    }
+                    Ok(Trace::ExtractionPart {
+                        browser: found,
+                        run: found_run,
+                    }) if found == browser && found_run == run => {
+                        last_relay_part = Some(Instant::now());
+                    }
+                    Ok(Trace::ExtractionFailed {
+                        browser: found,
+                        run: found_run,
+                        message,
+                    }) if found == browser && found_run == run => {
+                        return Err(SchoolBrowserError::Platform(message));
                     }
                     Ok(Trace::Loaded(event)) if event.page.browser == browser => {
                         log::info!(target: "isct_core::school_browser", "capture loaded run={run} path={} target={}", event.url.path(), event.url == parsed);
@@ -551,9 +618,7 @@ impl SchoolBrowserEngine {
             return Err(SchoolBrowserError::Cancelled);
         }
         let store = self.0.store.clone();
-        let raw_for_apply = raw.clone();
-        let applied =
-            tokio::task::spawn_blocking(move || apply_raw(&store, site, &raw_for_apply)).await;
+        let applied = tokio::task::spawn_blocking(move || apply_raw(&store, site, &raw)).await;
         // The write gate covers this page's commit only; the next 教務Web page
         // can be cancelled again.
         context.applied().await;
@@ -658,6 +723,7 @@ pub(super) fn extraction_script(setup: &str, script: &str, relay: &str, run: &st
         .replace("__ISCT_RELAY__", &quoted(relay))
         .replace("__ISCT_RUN__", &quoted(run))
         .replace("__ISCT_PART__", &super::RELAY_PART.to_string())
+        .replace("__ISCT_MAX__", &super::RELAY_MAX.to_string())
         .replace("__ISCT_EXTRACTOR__", script);
     format!(
         "{}{setup}{body}",

@@ -214,6 +214,11 @@ define_class!(
                 log::error!("[school-download] attachment could not be shown");
                 return;
             };
+            log::info!(
+                target: "isct_companion_lib::school_downloads",
+                "[school-download] WebKit attachment displayed size_bytes={}",
+                bytes.len()
+            );
             // The same response minus its headers, so WebKit displays it.
             let shown = NSURLResponse::initWithURL_MIMEType_expectedContentLength_textEncodingName(
                 NSURLResponse::alloc(),
