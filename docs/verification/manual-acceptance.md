@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 64 checks must be re-run before the next release.**
+**7 of 65 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**55 checks have never been run or could not be run:**
+**56 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -40,7 +40,8 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-ONEDRIVE-WRITE` — never verified
 - `CLOUD-RESILIENCE` — never verified
-- `DESKTOP-COMPACT-LAYOUT` — never verified
+- `DESKTOP-NARROW-WINDOW` — never verified
+- `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-LOG-EXPORT` — never verified
@@ -105,13 +106,14 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
-| `DESKTOP-COMPACT-LAYOUT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/layouts/compact/**<br>apps/desktop/src/app/routes.ts |
+| `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
+| `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
-| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/layouts/compact/MobileShell.tsx<br>apps/desktop/src/layouts/compact/mobile.css<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
+| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
@@ -245,8 +247,18 @@ Identity: undergraduate · Language: en · Device: macos-arm64
 Uses a small window on a laptop with an external monitor. Navigates by
 keyboard and never touches the mouse.
 
-Resizes the window until the layout changes. Uses the number shortcuts
-and Escape. Tabs through a form and expects focus to stay visible.
+Shrinks the window to its minimum size. Uses the number shortcuts and
+Escape. Tabs through a form and expects focus to stay visible.
+
+### Windows user snapping the desktop app (`windows-snap-user`)
+
+Identity: undergraduate · Language: zh · Device: windows-x64
+
+Uses the Windows desktop build on a laptop and keeps the app beside a
+browser or course document using Windows Snap.
+
+Expects the desktop navigation and the open course reader to stay usable
+as the app moves between full-size, half-screen and quarter-screen sizes.
 
 ## Checks
 
@@ -1127,7 +1139,7 @@ Recorded in docs/verification/core-consolidation.md.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
 
-### Keyboard-only use in a narrow window (`DESKTOP-COMPACT-LAYOUT`)
+### Keyboard-only use in a narrow window (`DESKTOP-NARROW-WINDOW`)
 
 **Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
 
@@ -1139,9 +1151,9 @@ A desktop build and a resizable window.
 
 **Steps**
 
-1. Resize the window until the layout switches to the compact shell.
-   - *Why:* The switch is the boundary where a page that fits the workstation
-     layout starts scrolling or clipping instead.
+1. Shrink the window to its minimum width, then to its minimum height.
+   - *Why:* The minimum size is where a page that fits a full window starts
+     scrolling or clipping instead; the navigation rail must stay.
 2. Navigate with the number shortcuts and Escape, then open a course.
    - *Why:* Keyboard reachability is invisible to a DOM test that fires clicks;
      only real focus and real shortcuts prove the wiring.
@@ -1156,8 +1168,9 @@ reaches.
 
 **Expected**
 
-Every screen fits without page scroll, focus stays visible, and the
-shortcuts reach the same destinations as the tabs.
+Every screen keeps the navigation rail and fits without page scroll,
+focus stays visible, and the shortcuts reach the same destinations as
+the rail.
 
 **Why this is manual**
 
@@ -1165,8 +1178,60 @@ Depends on real window sizing, real focus and real keyboard events.
 
 **Covers**
 
-- `apps/desktop/src/layouts/compact/**`
+- `apps/desktop/src/app/App.tsx`
 - `apps/desktop/src/app/routes.ts`
+- `apps/desktop/src/styles.css`
+
+**Last recorded** never run
+
+### Windows Snap keeps the desktop shell and the open LMS reader (`DESKTOP-WINDOWS-SNAP-LAYOUT`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Windows desktop build, a resizable window, and a course with an LMS
+document left open in its reader.
+
+**Steps**
+
+1. Snap the app to half the screen, then to a quarter-screen zone, on a
+   landscape and on a portrait monitor.
+   - *Why:* Snap changes the WebView's CSS viewport and aspect ratio; a tall
+     half-screen window is what used to switch the app into a phone
+     layout.
+2. Restart the app while it is snapped, open Lectures and the course.
+   - *Why:* A reader restored into a narrow pane used to show its outline and
+     hide the saved document, which looks like the course data vanished.
+3. Restore the app to full size.
+   - *Why:* Confirms the outline and reader return side by side once the pane is
+     wide again.
+
+**Where to look**
+
+The app window at each size, its navigation rail, the open LMS document,
+and the layout after restoring full size.
+
+**Expected**
+
+The navigation rail stays at every snapped size; the saved LMS document
+is visible after the restart; full size shows outline and reader side by
+side.
+
+**Why this is manual**
+
+Windows Snap and WebView2 decide the real CSS viewport and resize
+timing. tests/e2e/lms-workspace.test.tsx covers the reader restored into
+a narrow pane, but not the native window transition.
+
+**Covers**
+
+- `apps/desktop/src/app/App.tsx`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/features/lms/lms.css`
+- `apps/desktop/src-tauri/src/lib.rs`
 
 **Last recorded** never run
 
@@ -1451,12 +1516,7 @@ has already been read once.
    - *Why:* Held work must name its reason ("Waiting for a connection") instead
      of spinning, and must start by itself once the network hint reaches
      Core.
-4. Narrow the window to the compact layout during a refresh and open
-   the connection sheet from Today's dot.
-   - *Why:* The compact layout shows the same line as a pill at the top; the
-     sheet lists each source's age and any failed dataset with Retry.
-     A pill and footer that disagree mean two state owners.
-5. With 教務Web under maintenance or blocked by a firewall rule,
+4. With 教務Web under maintenance or blocked by a firewall rule,
    refresh, then press Retry beside the failed dataset.
    - *Why:* A failure must name the dataset, the reason and when Core retries,
      and Retry must start only that dataset; a generic "Refresh failed"
@@ -1464,14 +1524,14 @@ has already been read once.
 
 **Where to look**
 
-The workstation footer, the lecture header, the compact pill and sheet,
-and the app log for the sync hints sent.
+The workstation footer, the lecture header, and the app log for the
+sync hints sent.
 
 **Expected**
 
 Bars only with a total, a spinner for background work, held reasons and
-per-dataset failures in words with a retry time, a lecture that stays
-readable while it updates, and the same state in footer and pill.
+per-dataset failures in words with a retry time, and a lecture that
+stays readable while it updates.
 
 **Why this is manual**
 
@@ -1485,8 +1545,6 @@ real school failure only exist against the live services.
 
 - `apps/desktop/src/app/SchoolStatusLine.tsx`
 - `apps/desktop/src/app/sync-text.ts`
-- `apps/desktop/src/layouts/compact/MobileShell.tsx`
-- `apps/desktop/src/layouts/compact/mobile.css`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
 - `apps/desktop/src/components/PullRing.tsx`
 - `apps/desktop/src/styles.css`
@@ -1844,7 +1902,7 @@ Run the updated signed macOS desktop build with a school account available.
    - *Why:* macOS and the DOM host own separate cursor surfaces. This detects a
      lingering document-wide resize cursor competing with WKWebView.
 3. Open an official LMS page in a lecture reader, resize its left outline,
-   then shrink and widen the window across the compact breakpoint.
+   then shrink the window to its minimum width and widen it again.
    - *Why:* The native page must follow the actual reader bounds, including the
      relocated search field and tool panel, without covering either toolbar.
 4. With an official LMS page open, collapse the lecture sidebar, hover

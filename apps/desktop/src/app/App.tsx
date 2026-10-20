@@ -53,7 +53,6 @@ import { useTranslation } from "react-i18next";
 import {
   desktopBridge,
   hideNativeSchoolWeb,
-  official,
   saveExportFile,
 } from "./native";
 import { jstDate, type Page, type Section } from "./shared";
@@ -94,7 +93,6 @@ import {
 import { appTheme, cssVariablesResolver } from "./theme";
 
 import { performAction } from "../platform/actions";
-import { type SchoolSite } from "../platform/desktop-bridge";
 
 import { CourseFinder } from "../pages/courses/CourseFinder";
 import { AcademicSummary } from "../pages/courses/AcademicSummary";
@@ -103,8 +101,6 @@ import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
 import { traceRouter } from "./interaction-trace";
-import { useFormFactor } from "./form-factor";
-import { MobileShell } from "../layouts/compact/MobileShell";
 import { DAYS as FINDER_DAYS, type FinderCourse } from "../lib/course-query";
 
 import {
@@ -140,9 +136,6 @@ function sessionStatusLabel(state: SchoolSessionState | undefined) {
   return t("Checking session");
 }
 
-/** A school service named in the route, or null when it names none. */
-const schoolSite = (value?: string): SchoolSite | null =>
-  value && value in official ? (value as SchoolSite) : null;
 const pages: Page[] = ["home", "timetable", "lectures", "web"];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
@@ -181,7 +174,6 @@ const icons: Record<Page, React.ReactElement> = {
 
 export function WorkspaceApp() {
   useTranslation();
-  const formFactor = useFormFactor();
   const wideHome = useMediaQuery("(min-width: 1001px)");
   const scienceSession = useSchoolSession(desktopBridge, "science");
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
@@ -299,25 +291,6 @@ export function WorkspaceApp() {
   pageLocations.current[page] = location.pathname;
   const pagePath = (next: Page) =>
     pageLocations.current[next] ?? paths.page(next);
-  // The path of each history entry, so going up can reuse the entry below.
-  const historyPaths = useRef<string[]>([]);
-  {
-    const index = window.history.state?.idx ?? 0;
-    historyPaths.current[index] = location.pathname;
-    historyPaths.current.length = index + 1;
-  }
-  // On mobile, back means up one level (to `path`), never "wherever I came
-  // from". When the entry below is already that parent, step back to it so
-  // the system back button keeps a clean history; otherwise replace.
-  const closeTo = (path: string) => {
-    if (formFactor !== "mobile") return void navigate(path);
-    const index = window.history.state?.idx ?? 0;
-    if (index > 0 && historyPaths.current[index - 1] === path)
-      void navigate(-1);
-    else void navigate(path, { replace: true });
-  };
-  // Tapping the Web tab again while browsing asks Web for its service menu.
-  const [webSitesRequest, setWebSitesRequest] = useState(0);
   const [webContext, setWebContext] = useState<{
     page: "home" | "lectures";
     label: string;
@@ -329,8 +302,6 @@ export function WorkspaceApp() {
   const renderedRoutes = useRef({
     homeView,
     section,
-    settingsOpen: Boolean(params.section),
-    webSite: schoolSite(params.site),
     lectureEntry: null as CourseEntry | null,
     examEntry: null as { key: string; term: TermId; request: number } | null,
   });
@@ -365,12 +336,8 @@ export function WorkspaceApp() {
           : Date.now()),
     };
   }, [params.examKey, params.examTerm, location.state?.lectureRequest]);
-  if (page === "web") renderedRoutes.current.webSite = schoolSite(params.site);
   if (page === "home") renderedRoutes.current.homeView = homeView;
-  if (page === "settings") {
-    renderedRoutes.current.section = section;
-    renderedRoutes.current.settingsOpen = Boolean(params.section);
-  }
+  if (page === "settings") renderedRoutes.current.section = section;
   if (page === "lectures") {
     renderedRoutes.current.lectureEntry = lectureEntry;
     renderedRoutes.current.examEntry = examEntry;
@@ -405,7 +372,6 @@ export function WorkspaceApp() {
     if (!sourceData) return;
     const target = routeRedirect(location.pathname + location.search, {
       courses: sourceData.courses,
-      stacked: formFactor === "mobile",
     });
     if (target) void navigate(target, { replace: true });
   }, [
@@ -413,7 +379,6 @@ export function WorkspaceApp() {
     location.search,
     sourceData?.courses,
     navigate,
-    formFactor,
   ]);
   const [courseEditor, setCourseEditor] = useState<{
     course?: Course;
@@ -444,10 +409,7 @@ export function WorkspaceApp() {
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
     Boolean(
-      overview.value &&
-      formFactor !== "mobile" &&
-      page === "timetable" &&
-      finderActive,
+      overview.value && page === "timetable" && finderActive,
     ),
   );
   const finderEdits = useFinderEditQueue({
@@ -545,9 +507,7 @@ export function WorkspaceApp() {
           : { kind: "assignments" },
   );
   useOpenHint(page === "timetable" ? { kind: "timetable" } : null);
-  useOpenHint(
-    page === "timetable" && formFactor !== "mobile" ? { kind: "grades" } : null,
-  );
+  useOpenHint(page === "timetable" ? { kind: "grades" } : null);
   useOpenHint(
     page === "timetable" && finderActive
       ? { kind: "finder", year: finderYear }
@@ -770,10 +730,7 @@ export function WorkspaceApp() {
       url,
       request: Date.now(),
     });
-    // Phones browse inside a service; Web corrects the service once resolved.
-    void navigate(
-      formFactor === "mobile" ? paths.web("science-lms") : paths.web(),
-    );
+    void navigate(paths.web());
   };
   /** Opens a lecture on Lecture Desk, optionally at one assignment. */
   const openLecture = (
@@ -869,11 +826,6 @@ export function WorkspaceApp() {
       select={(courseId, assignmentId, term) =>
         openLecture(courseId, { assignmentId, term })
       }
-      clear={() =>
-        void hideNativeSchoolWeb()
-          .then(() => closeTo(paths.lectures()))
-          .catch(notify.error)
-      }
       renderWorkspace={(entry, active, sidebarToggle) => {
         const course = data.courses.find(
           (c) => c.id === entry.courseId && !c.deletedAt,
@@ -890,15 +842,10 @@ export function WorkspaceApp() {
               active={active}
               navigationProvided
               headerStart={sidebarToggle}
-              openOfficial={
-                formFactor === "mobile"
-                  ? (url) => openWeb(url, "lectures")
-                  : undefined
-              }
               schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
               close={() =>
                 void hideNativeSchoolWeb()
-                  .then(() => closeTo(paths.lectures()))
+                  .then(() => navigate(paths.lectures()))
                   .catch(notify.error)
               }
               refresh={
@@ -974,8 +921,6 @@ export function WorkspaceApp() {
       }}
     />
   );
-  // The workstation timetable is always the planner; phones only view it.
-  const planning = formFactor !== "mobile";
   const showSchoolSetup =
     !readOnly &&
     !data.importStatus.timetableReviewedAt &&
@@ -1029,15 +974,6 @@ export function WorkspaceApp() {
               if (assignment)
                 openLecture(assignment.courseId, { assignmentId });
             }}
-            pinAssignment={(assignmentId) =>
-              void academicIntent({
-                kind: "setAssignmentMark",
-                assignmentId,
-                pinned: !data.assignments.find(
-                  (item) => item.id === assignmentId,
-                )?.pinned,
-              })
-            }
             hideAssignment={(assignmentId) =>
               void academicIntent({
                 kind: "setAssignmentMark",
@@ -1055,7 +991,7 @@ export function WorkspaceApp() {
         <div className="homeWeek">
           <UiButton
             className="textButton homeBack"
-            onClick={() => closeTo(paths.home())}
+            onClick={() => navigate(paths.home())}
           >
             ‹ {t("Today")}
           </UiButton>
@@ -1097,8 +1033,6 @@ export function WorkspaceApp() {
     <div className="quarterPage">
       {" "}
       <Courses
-        compact={formFactor === "mobile"}
-        editing={planning}
         openPlan={(plan) => !readOnly && setPlanEditor(plan)}
         newPlan={() => !readOnly && setPlanEditor("new")}
         side={
@@ -1159,7 +1093,7 @@ export function WorkspaceApp() {
               key={panelCourse.id}
               course={panelCourse}
               data={data}
-              readOnly={readOnly || !planning}
+              readOnly={readOnly}
               close={() => setPanelCourseId(null)}
               remove={() => void removeFromTimetable(panelCourse)}
               editIntensive={() => setIntensiveCourseId(panelCourse.id)}
@@ -1203,10 +1137,8 @@ export function WorkspaceApp() {
           }
         }}
         open={(courseId) => {
-          if (planning) {
-            setOfferingPanel(null);
-            setPanelCourseId(courseId);
-          } else openLecture(courseId);
+          setOfferingPanel(null);
+          setPanelCourseId(courseId);
         }}
         openEvent={(event, term) =>
           !readOnly && setEventEditor({ event, term })
@@ -1252,14 +1184,6 @@ export function WorkspaceApp() {
   const webPage = (
     <Web
       key={webContext?.url ?? "web"}
-      layout={formFactor === "mobile" ? "mobile" : "workstation"}
-      mobileSite={renderedRoutes.current.webSite}
-      sitesRequest={webSitesRequest}
-      openMobileSite={(site, replace) =>
-        site
-          ? void navigate(paths.web(site), { replace })
-          : closeTo(paths.web())
-      }
       active={page === "web"}
       platform={platform}
       data={data}
@@ -1292,18 +1216,8 @@ export function WorkspaceApp() {
         platform !== "native-desktop" || nativeCapabilitiesReady
       }
       section={renderedRoutes.current.section}
-      layout={
-        formFactor !== "mobile"
-          ? "split"
-          : renderedRoutes.current.settingsOpen
-            ? "detail"
-            : "list"
-      }
-      back={() => closeTo(paths.settings())}
       setSection={(next) =>
-        void navigate(paths.settings(next), {
-          replace: formFactor !== "mobile",
-        })
+        void navigate(paths.settings(next), { replace: true })
       }
       notify={notify.info}
       runScheduledTask={
@@ -1331,7 +1245,7 @@ export function WorkspaceApp() {
         <CourseDrawer
           course={drawerCourse}
           data={data}
-          readOnly={readOnly || (page === "timetable" && !planning)}
+          readOnly={readOnly}
           onTimetable={workspaceView.onTimetableCourseIds.includes(
             drawerCourse.id,
           )}
@@ -1517,87 +1431,12 @@ export function WorkspaceApp() {
       )}
     </>
   );
-  const sessionLabel = (profile: "science" | "tokyo-tech") =>
-    profile === "science"
-      ? sessionStatusLabel(scienceSession)
-      : sessionStatusLabel(tokyoTechSession);
-
-  // The screen pushed over the current tab's root, closed by an edge swipe.
-  const mobileBack =
-    page === "settings" && params.section
-      ? () => closeTo(paths.settings())
-      : page === "home" && homeView === "week"
-        ? () => closeTo(paths.home())
-        : page === "lectures" && params.courseId
-          ? () =>
-              void hideNativeSchoolWeb()
-                .then(() => closeTo(paths.lectures()))
-                .catch(notify.error)
-          : page === "web" && params.site
-            ? () => closeTo(paths.web())
-            : undefined;
-  if (formFactor === "mobile")
-    return (
-      <MobileShell
-        webMenu={
-          params.site
-            ? () => setWebSitesRequest((count) => count + 1)
-            : undefined
-        }
-        back={mobileBack}
-        page={page}
-        density={data.settings.density}
-        labels={navigation}
-        icons={icons}
-        openPage={(next) =>
-          next === "settings"
-            ? void navigate(pagePath("settings"))
-            : navigatePage(next)
-        }
-        openRoot={(root) =>
-          root === "lectures"
-            ? void hideNativeSchoolWeb()
-                .then(() => closeTo(paths.lectures()))
-                .catch(notify.error)
-            : closeTo(paths.page(root))
-        }
-        pages={{
-          home: keep("home", homePage),
-          timetable: keep("timetable", timetablePage),
-          lectures: keep("lectures", lecturesPage),
-          web: keep("web", webPage),
-          settings: keep("settings", settingsPage),
-        }}
-        overlays={overlays}
-        status={{
-          accounts: [
-            {
-              profile: "science",
-              name: "Science Tokyo",
-              state: scienceSession,
-              label: sessionLabel("science"),
-            },
-            {
-              profile: "tokyo-tech",
-              name: "TokyoTech",
-              state: tokyoTechSession,
-              label: sessionLabel("tokyo-tech"),
-            },
-          ],
-          sync,
-          locale: data.settings.locale,
-          refresh: canSync ? () => refresh({ kind: "everything" }) : undefined,
-          openAccounts: () => void navigate(paths.settings("accounts")),
-        }}
-      />
-    );
-
   return (
     <AppShell
       className="app"
       data-density={data.settings.density}
-      navbar={{ width: 72, breakpoint: "48em", collapsed: { mobile: true } }}
-      footer={{ height: 62, offset: false }}
+      // The native window's minimum width always leaves room for the rail.
+      navbar={{ width: 72, breakpoint: 0 }}
       padding={0}
     >
       <AppShell.Navbar className="rail">
@@ -1639,29 +1478,6 @@ export function WorkspaceApp() {
           <span>{navigation.settings}</span>
         </UiButton>
       </AppShell.Navbar>
-      <AppShell.Footer className="mobileRail" hiddenFrom="sm">
-        <nav aria-label={t("Pages")}>
-          {pages.map((p) => (
-            <UiButton
-              className={page === p ? "active" : ""}
-              onClick={() => navigatePage(p)}
-              key={p}
-              title={navigation[p]}
-            >
-              {icons[p]}
-              <span>{navigation[p]}</span>
-            </UiButton>
-          ))}
-          <UiButton
-            className={page === "settings" ? "active" : ""}
-            onClick={() => void navigate(pagePath("settings"))}
-            title={navigation.settings}
-          >
-            {icons.settings}
-            <span>{navigation.settings}</span>
-          </UiButton>
-        </nav>
-      </AppShell.Footer>
       <AppShell.Main
         component="main"
         className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}

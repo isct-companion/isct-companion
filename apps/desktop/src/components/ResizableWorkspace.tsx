@@ -9,7 +9,7 @@ import {
 import { t } from "../i18n";
 import "./resizable-workspace.css";
 
-/** Layout stays mounted when a compact view takes over, preserving readers and editors. */
+/** Layout stays mounted while resizing is off, preserving readers and editors. */
 export function ResizableWorkspace({
   id,
   enabled,

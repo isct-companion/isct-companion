@@ -118,9 +118,8 @@ local "mark done": submission state comes from the LMS.
 
 ## Devices and layouts
 
-One page set, two containers. The layout follows the desktop rule in
-`apps/desktop/src/app/form-factor.ts`: stacked (single column) up to 600 pt
-wide or in portrait up to 1100 pt, otherwise split. Telling iPhone from iPad is
+One page set, two containers: stacked (single column) up to 600 pt wide or in
+portrait up to 1100 pt, otherwise split. Telling iPhone from iPad is
 the one allowed runtime platform check (AGENTS.md rule 3).
 
 | | iPhone | iPad, stacked | iPad, split |

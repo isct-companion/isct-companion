@@ -158,10 +158,22 @@ personas:
       Uses a small window on a laptop with an external monitor. Navigates by
       keyboard and never touches the mouse.
     behaviour: |
-      Resizes the window until the layout changes. Uses the number shortcuts
-      and Escape. Tabs through a form and expects focus to stay visible.
+      Shrinks the window to its minimum size. Uses the number shortcuts and
+      Escape. Tabs through a form and expects focus to stay visible.
     language: en
     device: macos-arm64
+
+  - id: windows-snap-user
+    label: Windows user snapping the desktop app
+    identity: undergraduate
+    context: |
+      Uses the Windows desktop build on a laptop and keeps the app beside a
+      browser or course document using Windows Snap.
+    behaviour: |
+      Expects the desktop navigation and the open course reader to stay usable
+      as the app moves between full-size, half-screen and quarter-screen sizes.
+    language: zh
+    device: windows-x64
 
 # ---------------------------------------------------------------------------
 # Checks
@@ -951,7 +963,7 @@ checks:
       notes: Recorded in docs/verification/core-consolidation.md.
       evidence: docs/verification/core-consolidation.md#live-macos-acceptance
 
-  - id: DESKTOP-COMPACT-LAYOUT
+  - id: DESKTOP-NARROW-WINDOW
     area: desktop
     title: Keyboard-only use in a narrow window
     persona: narrow-window-keyboard
@@ -959,10 +971,10 @@ checks:
       A desktop build and a resizable window.
     steps:
       - action: |
-          Resize the window until the layout switches to the compact shell.
+          Shrink the window to its minimum width, then to its minimum height.
         reason: |
-          The switch is the boundary where a page that fits the workstation
-          layout starts scrolling or clipping instead.
+          The minimum size is where a page that fits a full window starts
+          scrolling or clipping instead; the navigation rail must stay.
       - action: |
           Navigate with the number shortcuts and Escape, then open a course.
         reason: |
@@ -977,13 +989,58 @@ checks:
       The window at each size, the focus ring, and the page that each shortcut
       reaches.
     expected: |
-      Every screen fits without page scroll, focus stays visible, and the
-      shortcuts reach the same destinations as the tabs.
+      Every screen keeps the navigation rail and fits without page scroll,
+      focus stays visible, and the shortcuts reach the same destinations as
+      the rail.
     why_manual: |
       Depends on real window sizing, real focus and real keyboard events.
     covers:
-      - apps/desktop/src/layouts/compact/**
+      - apps/desktop/src/app/App.tsx
       - apps/desktop/src/app/routes.ts
+      - apps/desktop/src/styles.css
+    verified: null
+
+  - id: DESKTOP-WINDOWS-SNAP-LAYOUT
+    area: desktop
+    title: Windows Snap keeps the desktop shell and the open LMS reader
+    persona: windows-snap-user
+    preconditions: |
+      A Windows desktop build, a resizable window, and a course with an LMS
+      document left open in its reader.
+    steps:
+      - action: |
+          Snap the app to half the screen, then to a quarter-screen zone, on a
+          landscape and on a portrait monitor.
+        reason: |
+          Snap changes the WebView's CSS viewport and aspect ratio; a tall
+          half-screen window is what used to switch the app into a phone
+          layout.
+      - action: |
+          Restart the app while it is snapped, open Lectures and the course.
+        reason: |
+          A reader restored into a narrow pane used to show its outline and
+          hide the saved document, which looks like the course data vanished.
+      - action: |
+          Restore the app to full size.
+        reason: |
+          Confirms the outline and reader return side by side once the pane is
+          wide again.
+    observe: |
+      The app window at each size, its navigation rail, the open LMS document,
+      and the layout after restoring full size.
+    expected: |
+      The navigation rail stays at every snapped size; the saved LMS document
+      is visible after the restart; full size shows outline and reader side by
+      side.
+    why_manual: |
+      Windows Snap and WebView2 decide the real CSS viewport and resize
+      timing. tests/e2e/lms-workspace.test.tsx covers the reader restored into
+      a narrow pane, but not the native window transition.
+    covers:
+      - apps/desktop/src/app/App.tsx
+      - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/features/lms/lms.css
+      - apps/desktop/src-tauri/src/lib.rs
     verified: null
 
   - id: DESKTOP-CAMPUS-WIFI
@@ -1232,13 +1289,6 @@ checks:
           of spinning, and must start by itself once the network hint reaches
           Core.
       - action: |
-          Narrow the window to the compact layout during a refresh and open
-          the connection sheet from Today's dot.
-        reason: |
-          The compact layout shows the same line as a pill at the top; the
-          sheet lists each source's age and any failed dataset with Retry.
-          A pill and footer that disagree mean two state owners.
-      - action: |
           With 教務Web under maintenance or blocked by a firewall rule,
           refresh, then press Retry beside the failed dataset.
         reason: |
@@ -1246,12 +1296,12 @@ checks:
           and Retry must start only that dataset; a generic "Refresh failed"
           or a full refresh means the scope was lost.
     observe: |
-      The workstation footer, the lecture header, the compact pill and sheet,
-      and the app log for the sync hints sent.
+      The workstation footer, the lecture header, and the app log for the
+      sync hints sent.
     expected: |
       Bars only with a total, a spinner for background work, held reasons and
-      per-dataset failures in words with a retry time, a lecture that stays
-      readable while it updates, and the same state in footer and pill.
+      per-dataset failures in words with a retry time, and a lecture that
+      stays readable while it updates.
     why_manual: |
       Which row shows, and how it reads, is a glance-level result in the real
       window (AGENTS.md §5); the choice of row is unit-tested in
@@ -1261,8 +1311,6 @@ checks:
     covers:
       - apps/desktop/src/app/SchoolStatusLine.tsx
       - apps/desktop/src/app/sync-text.ts
-      - apps/desktop/src/layouts/compact/MobileShell.tsx
-      - apps/desktop/src/layouts/compact/mobile.css
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/components/PullRing.tsx
       - apps/desktop/src/styles.css
@@ -1587,7 +1635,7 @@ checks:
           lingering document-wide resize cursor competing with WKWebView.
       - action: |
           Open an official LMS page in a lecture reader, resize its left outline,
-          then shrink and widen the window across the compact breakpoint.
+          then shrink the window to its minimum width and widen it again.
         reason: |
           The native page must follow the actual reader bounds, including the
           relocated search field and tool panel, without covering either toolbar.

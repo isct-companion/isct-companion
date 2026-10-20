@@ -18,7 +18,6 @@ import {
   type FileAccess,
 } from "./RichContent";
 import "./lms.css";
-import { STACKED_QUERY } from "../../app/form-factor";
 import {
   lazy,
   Suspense,
@@ -94,9 +93,6 @@ const FilePreview = lazy(() =>
 const NoteEditor = lazy(() =>
   import("./NoteEditor").then((m) => ({ default: m.NoteEditor })),
 );
-
-// Outline and viewer take turns in narrow windows and every mobile layout.
-const NARROW_QUERY = `(max-width: 850px), ${STACKED_QUERY}`;
 
 export type CourseEntry = {
   term?: string;
@@ -193,7 +189,6 @@ export function LmsWorkspace({
   markLesson,
   navigationProvided = false,
   headerStart,
-  openOfficial,
 }: {
   course: Course;
   data: Workspace;
@@ -212,14 +207,7 @@ export function LmsWorkspace({
   updatedAt?: string | null;
   /** Records that the class starting at `occurrence` covers this lesson. */
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
-  /**
-   * Single-column layouts open official LMS pages on the Web page, where the
-   * route gives them a way back, instead of a school view inside this one.
-   */
-  openOfficial?: (url: string) => void;
 }) {
-  const openOfficialRef = useRef(openOfficial);
-  openOfficialRef.current = openOfficial;
   const key = `${data.deviceId}:${course.id}`;
   const [saved] = useState(() => loadReading(key));
   const [expanded, setExpanded] = useState<string[]>(saved?.expanded ?? []);
@@ -237,22 +225,13 @@ export function LmsWorkspace({
   const flip = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
   const [original, setOriginal] = useState(false);
-  const [mobileViewer, setMobileViewer] = useState(false);
+  // Outline and viewer take turns when the workspace pane is narrow. A saved
+  // reader restored into a narrow pane starts on the viewer, not hidden.
+  const [viewing, setViewing] = useState(Boolean(saved?.opened));
   const outline = useRef<HTMLDivElement>(null);
-  const [narrowWindow, setNarrowWindow] = useState(
-    () => window.matchMedia?.(NARROW_QUERY).matches ?? false,
-  );
-  useEffect(() => {
-    const media = window.matchMedia?.(NARROW_QUERY);
-    if (!media) return;
-    const changed = () => setNarrowWindow(media.matches);
-    media.addEventListener("change", changed);
-    return () => media.removeEventListener("change", changed);
-  }, []);
   const workspaceSize = useElementSize();
-  const narrow =
-    narrowWindow || (workspaceSize.width > 0 && workspaceSize.width < 640);
-  const viewerActive = active && (!narrow || mobileViewer);
+  const narrow = workspaceSize.width > 0 && workspaceSize.width < 640;
+  const viewerActive = active && (!narrow || viewing);
   const folder = useMemo(
     () => ({
       term: folderComponent(course.termId),
@@ -595,17 +574,9 @@ export function LmsWorkspace({
       .includes(query.trim().toLocaleLowerCase());
   const open = useCallback(
     (content: OpenedContent) => {
-      if (
-        content.kind === "official" &&
-        content.url &&
-        openOfficialRef.current
-      ) {
-        openOfficialRef.current(content.url);
-        return;
-      }
       if (outline.current) recordPosition(outline.current);
       setOpened(content);
-      setMobileViewer(true);
+      setViewing(true);
     },
     [query],
   );
@@ -652,7 +623,7 @@ export function LmsWorkspace({
     [open],
   );
   const openAssignment = useCallback((a: Assignment) => {
-    setMobileViewer(false);
+    setViewing(false);
     requestAnimationFrame(() =>
       outline.current
         ?.querySelector(`[data-assignment="${CSS.escape(a.id)}"]`)
@@ -811,7 +782,7 @@ export function LmsWorkspace({
   const closeContent = () => {
     if (outline.current) recordPosition(outline.current);
     setOpened(undefined);
-    setMobileViewer(false);
+    setViewing(false);
   };
   /** Assignment card: state and deadline first, the teacher's text on request. */
   const assignmentContent = (a: Assignment) => {
@@ -1261,7 +1232,7 @@ export function LmsWorkspace({
   };
   return (
     <div
-      className={`lmsWorkspace${narrow ? " narrowReader" : ""}${opened ? " hasViewer" : ""}${mobileViewer ? " viewing" : ""}`}
+      className={`lmsWorkspace${narrow ? " narrowReader" : ""}${opened ? " hasViewer" : ""}${viewing ? " viewing" : ""}`}
     >
       <header className="lmsWorkspaceHeader">
         {headerStart}
