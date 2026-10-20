@@ -1,7 +1,7 @@
 use super::DataError;
 use rusqlite::Connection;
 
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 const CREATE_SCHEMA: &str = r#"
 CREATE TABLE timetable_courses (
@@ -124,10 +124,6 @@ CREATE TABLE requirement_progress (
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
-CREATE TABLE import_runs (
-  id TEXT PRIMARY KEY, provider TEXT NOT NULL, scope TEXT NOT NULL,
-  state TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, message TEXT
-);
 CREATE TABLE intensive_schedules (
   id TEXT PRIMARY KEY, course_id TEXT UNIQUE, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
@@ -209,6 +205,25 @@ const CREATE_CLASS_SCHEDULES: &str = r#"CREATE TABLE class_schedules (
 );
 "#;
 
+/// Freshness per (dataset, key) and one row per read; see `crate::sync_state`.
+const CREATE_SYNC_STATE: &str = r#"CREATE TABLE dataset_state (
+  dataset TEXT NOT NULL, key TEXT NOT NULL, account TEXT NOT NULL DEFAULT '',
+  generation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT, validator TEXT,
+  outcome TEXT, message TEXT, state TEXT NOT NULL DEFAULT 'idle', lease_run TEXT,
+  failures INTEGER NOT NULL DEFAULT 0, next_eligible TEXT, cursor TEXT,
+  last_error TEXT, last_used TEXT,
+  PRIMARY KEY (dataset, key)
+);
+CREATE TABLE sync_runs (
+  id INTEGER PRIMARY KEY, run TEXT NOT NULL, dataset TEXT NOT NULL, key TEXT NOT NULL,
+  account TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL, finished_at TEXT NOT NULL,
+  outcome TEXT NOT NULL, changed INTEGER NOT NULL DEFAULT 0, requests INTEGER,
+  bytes INTEGER, source TEXT, error_kind TEXT
+);
+CREATE INDEX sync_runs_by_finished ON sync_runs(finished_at);
+CREATE INDEX sync_runs_by_key ON sync_runs(dataset, key, finished_at);
+"#;
+
 pub fn migrate(connection: &mut Connection) -> Result<bool, DataError> {
     connection
         .execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
@@ -224,7 +239,7 @@ pub fn migrate(connection: &mut Connection) -> Result<bool, DataError> {
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND type='table')",
         [], |row| row.get(0),
     ).map_err(DataError::from)?;
-    if version != 6 && (version != 0 || populated) {
+    if !matches!(version, 0 | 6 | 7) || (version == 0 && populated) {
         return Err(DataError::compatibility(format!(
             "Database schema {version} is not supported. Your database was left intact."
         )));
@@ -236,9 +251,20 @@ pub fn migrate(connection: &mut Connection) -> Result<bool, DataError> {
             .map_err(DataError::from)?;
     }
     // Schema 7 only adds this cache table; all user and school rows stay in place.
-    transaction
-        .execute_batch(CREATE_CLASS_SCHEDULES)
-        .map_err(DataError::from)?;
+    if version < 7 {
+        transaction
+            .execute_batch(CREATE_CLASS_SCHEDULES)
+            .map_err(DataError::from)?;
+    }
+    // Schema 8 replaces import runs with per-key freshness. Import runs were a
+    // cache: with no freshness rows every key reads as missing and is fetched
+    // again, while the school rows themselves stay visible until replaced.
+    if version < 8 {
+        transaction
+            .execute_batch(CREATE_SYNC_STATE)
+            .and_then(|()| transaction.execute_batch("DROP TABLE IF EXISTS import_runs"))
+            .map_err(DataError::from)?;
+    }
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(DataError::from)?;
