@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("Expected text must have 70 letters".into());
     }
     let max: usize = args.get(3).map(|s| s.parse()).transpose()?.unwrap_or(100);
-    let service = MatrixOcrService::default();
+    let service = MatrixOcrService;
     let mut scanner = MatrixScanner::default();
     let id = scanner.begin();
     let start = Instant::now();

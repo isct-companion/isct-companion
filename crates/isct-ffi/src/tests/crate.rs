@@ -700,16 +700,14 @@ async fn backup_import_restores_through_the_journal_without_a_cloud_store() {
         }
     };
     assert_eq!(event.payload.0["source"], "cloud-restore");
-    for restored in ["plans"] {
-        assert!(
-            event.payload.0["changes"]
-                .as_array()
-                .unwrap()
-                .contains(&json!(restored)),
-            "{}",
-            event.payload.0
-        );
-    }
+    assert!(
+        event.payload.0["changes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("plans")),
+        "{}",
+        event.payload.0
+    );
     let snapshot = f.snapshot().await;
     assert!(snapshot.workspace.0["plans"]
         .as_array()

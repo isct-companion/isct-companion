@@ -558,10 +558,10 @@ async fn closed_admission_refuses_leases_and_commits_of_the_old_generation() {
         )
     });
     assert!(matches!(refused, Err(Gated::Stale)));
-    assert!(matches!(
-        lease.ending(&KeyEnd::failed("network", "")).write(),
-        None
-    ));
+    assert!(lease
+        .ending(&KeyEnd::failed("network", ""))
+        .write()
+        .is_none());
     assert!(store.freshness(None).unwrap().is_empty());
     assert!(engine.wait_idle(std::time::Duration::from_millis(10)).await);
 

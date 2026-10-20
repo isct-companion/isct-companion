@@ -155,7 +155,6 @@ fn source_view(source: &Source, parts: &Parts<'_>) -> SourceView {
             .states
             .iter()
             .filter(|(key, _)| source.datasets.contains(&key.dataset))
-            .map(|(key, state)| (key, state))
     };
     let last_updated = states()
         .filter(|(key, _)| source.updated_by.contains(&key.dataset))

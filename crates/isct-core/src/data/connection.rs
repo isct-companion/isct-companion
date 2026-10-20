@@ -117,7 +117,7 @@ impl Deref for Reader<'_> {
 
     fn deref(&self) -> &Connection {
         match self {
-            Self::Pooled(connection) => &**connection,
+            Self::Pooled(connection) => connection,
             Self::Extra(connection) => connection,
         }
     }
@@ -126,7 +126,7 @@ impl Deref for Reader<'_> {
 impl DerefMut for Reader<'_> {
     fn deref_mut(&mut self) -> &mut Connection {
         match self {
-            Self::Pooled(connection) => &mut **connection,
+            Self::Pooled(connection) => connection,
             Self::Extra(connection) => connection,
         }
     }
@@ -160,7 +160,7 @@ fn reported_table(table: &str) -> &str {
             .strip_prefix(*fts)
             .is_some_and(|rest| rest.starts_with('_'))
         {
-            return *fts;
+            return fts;
         }
     }
     table
