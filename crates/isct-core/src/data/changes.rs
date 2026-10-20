@@ -14,6 +14,8 @@ pub enum WorkspaceChangeSource {
     Mcp,
     CloudSync,
     CloudRestore,
+    /// Settings cleared the school caches or the whole device.
+    Reset,
 }
 
 impl WorkspaceChangeSource {
@@ -26,6 +28,7 @@ impl WorkspaceChangeSource {
             Self::Scheduler => "scheduler",
             Self::Mcp => "mcp",
             Self::CloudSync | Self::CloudRestore => "sync",
+            Self::Reset => "reset",
         }
     }
 }

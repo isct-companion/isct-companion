@@ -39,6 +39,7 @@ pub mod plans;
 pub mod ports;
 pub mod pull_coordinator;
 pub mod reference_refresh;
+pub mod reset;
 pub mod runtime;
 pub mod runtime_tasks;
 pub mod schedule;

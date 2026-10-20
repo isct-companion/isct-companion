@@ -25,6 +25,7 @@ pub struct Core {
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
     school_status: Arc<SchoolStatusHub>,
+    pub(crate) reset_lease: crate::reset::ResetLease,
 }
 
 struct CoreEvents {
@@ -162,6 +163,7 @@ impl Core {
             runtime,
             events,
             school_status,
+            reset_lease: Default::default(),
         }
     }
 

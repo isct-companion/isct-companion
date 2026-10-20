@@ -1,39 +1,6 @@
 use super::*;
 
 impl DataStore {
-    /// Clears every table and settings row, then writes the defaults of a
-    /// new database in the same transaction.
-    pub fn reset_workspace(&self) -> Result<Value, DataError> {
-        self.write(Some(WorkspaceChangeSource::UserIntent), |transaction| {
-            let reset_tables = COLLECTIONS
-                .iter()
-                .map(|(_, table)| *table)
-                .chain(SCHOOL_CACHE_TABLES.iter().copied())
-                .chain(USER_BACKUP_TABLES.iter().copied())
-                .chain([
-                    "offering_content",
-                    "offerings_fts",
-                    "catalog_search_items",
-                    "manual_courses",
-                    "manual_memberships",
-                    "course_overrides",
-                    "assignment_marks",
-                    "course_identity_map",
-                ])
-                .collect::<HashSet<_>>();
-            for table in reset_tables {
-                transaction
-                    .execute(&format!("DELETE FROM {table}"), [])
-                    .map_err(DataError::from)?;
-            }
-            transaction
-                .execute("DELETE FROM settings", [])
-                .map_err(DataError::from)?;
-            ensure_defaults_in(transaction)?;
-            Self::load_workspace_from(transaction)
-        })
-    }
-
     /// Read every backup table from one SQLite snapshot.
     pub fn export_document(&self, notes: Value) -> Result<Value, DataError> {
         let mut database = self.open()?;
