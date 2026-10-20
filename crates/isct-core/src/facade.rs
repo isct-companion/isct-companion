@@ -196,6 +196,24 @@ impl Core {
         self.sync.hint(hint);
     }
 
+    /// Holds an OS background wake open: resumes, then waits until sync
+    /// has nothing left that it may read out of front, at most `limit`. The
+    /// planner keeps 教務 and the LMS reads that need the dashboard for the
+    /// foreground, and a phone's sign-in waits for it too, so only token and
+    /// public reads run. Returns whether sync went quiet in time.
+    pub async fn sync_in_background(&self, limit: std::time::Duration) -> bool {
+        self.runtime.resume().await;
+        self.sync.wait_quiet(limit).await
+    }
+
+    /// Ends a background wake: suspends again unless the app came to the
+    /// front meanwhile.
+    pub async fn end_background_wake(&self) {
+        if !self.sync.in_front() {
+            self.runtime.suspend().await;
+        }
+    }
+
     /// What sync is doing now. The same value is sent as `sync-snapshot`
     /// whenever it changes; shells read this on start and after a missed
     /// event.
