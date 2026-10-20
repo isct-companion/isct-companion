@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 63 checks must be re-run before the next release.**
+**7 of 64 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**54 checks have never been run or could not be run:**
+**55 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -65,6 +65,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
 - `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
+- `DESKTOP-STORAGE-SPLIT` — never verified
 - `IOS-TIMETABLE-WEEK-AND-MARKS` — never verified
 - `IOS-TODAY-EXAMS` — never verified
 - `IOS-ASSIGNMENT-ROWS` — never verified
@@ -132,7 +133,8 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
-| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/pull.rs |
+| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
+| `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>crates/isct-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
@@ -731,7 +733,7 @@ itself, where courses are still being edited, is not yet observed.
      申告 period", the extractor's unavailable pattern must learn that
      notice and its element. If the data is visible but the selector
      does not match, the selector is broken.
-5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
+5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/cache.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
    - *Why:* Only a complete read sets `fetched_at`, with outcome `complete` or
      `unavailable`. A page without one stays due and backs off after
      each failure, recorded in `failures` and `last_error`.
@@ -2603,7 +2605,7 @@ have a window or WebKit.
 
 **Last recorded** never run
 
-### Every school.db write reaches the window and the cloud on its own (`DESKTOP-WRITES-PUBLISH-THEMSELVES`)
+### Every database write reaches the window and the cloud on its own (`DESKTOP-WRITES-PUBLISH-THEMSELVES`)
 
 **Area** desktop · **Persona** Two devices, interrupted work · **Result** —
 
@@ -2638,18 +2640,27 @@ client connected, and a second device signed in to the same Drive.
    - *Why:* Restore and reset replace many rows in one commit and used to rely
      on the shell's capture; the window must show the result and the
      cloud must receive it without a manual sync.
+5. Clear the school cache in Settings, open Today and leave the window
+   alone while the first pull refills it; then open Courses, Grades and
+   the course finder.
+   - *Why:* A background commit now patches only the records its change names
+     feed, read against real LMS and 教務 rows. A table mapped to the
+     wrong name would leave one of these pages on the old data until the
+     app restarts, which no fixture shows.
 
 **Where to look**
 
-The Assignments list, the Calendar, the Settings cloud sync status and
-the second device's copy of the edited plan and note.
+The Assignments list, the Calendar, Today, Courses, Grades, the finder,
+the Settings cloud sync status and the second device's copy of the
+edited plan and note.
 
 **Expected**
 
 The new assignment and the MCP event appear without a refresh, the
 edited plan and the note reach the second device within a few seconds,
-and both the import and the reset show in the window and upload without
-pressing Sync.
+both the import and the reset show in the window and upload without
+pressing Sync, and after the refill every page shows the pulled data
+without navigating away and back.
 
 **Why this is manual**
 
@@ -2669,6 +2680,63 @@ shell, which no longer does either, still gets there.
 - `crates/isct-core/src/runtime.rs`
 - `crates/isct-core/src/notes.rs`
 - `crates/isct-core/src/school_browser/engine/pull.rs`
+- `crates/isct-core/src/workspace_changes.rs`
+- `apps/desktop/src/store/workspace.ts`
+- `apps/desktop/src/platform/view-query.ts`
+
+**Last recorded** never run
+
+### The first launch after the split keeps the person's data and re-syncs the caches (`DESKTOP-STORAGE-SPLIT`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop app data folder from a build before the split, with a
+real `school.db` holding plans, assignment marks, course overrides,
+subscriptions, scheduled tasks and settings, and cloud backup on. Copy
+the whole folder aside first.
+
+**Steps**
+
+1. Note the device id, a few plans, a hidden assignment and a renamed
+   course in the old build, then quit it and launch the new build.
+   - *Why:* The split copies every user table out of the real file once; a
+     column or table the fixture does not have would lose data here and
+     nowhere in the tests.
+2. Run `ls "$HOME/Library/Application Support/app.isctcompanion"`.
+   - *Why:* `school.db.pre-split` must exist next to `user.db` and `cache.db`,
+     and `school.db` must be gone; a leftover `user.db.migrating` means
+     the split stopped halfway.
+3. Watch the sync status for a few minutes, then quit and launch again.
+   - *Why:* cache.db starts empty, so every key must read as missing and be
+     fetched; the second launch must not split or re-sync again.
+
+**Where to look**
+
+The Calendar, Assignments and course pages, Settings (device and
+backup), the sync status and the data folder listing.
+
+**Expected**
+
+Plans, the hidden assignment, the renamed course, subscriptions,
+scheduled tasks and settings look as before, cloud backup still names
+the same device, school data refills from the sync, and the second
+launch is an ordinary start.
+
+**Why this is manual**
+
+Tests split a fixture built from the current schema; only the person's
+real file, written by older builds over months, shows that nothing in
+it is left behind.
+
+**Covers**
+
+- `crates/isct-core/src/data/migrations.rs`
+- `crates/isct-core/src/data/connection.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
 
 **Last recorded** never run
 

@@ -10,7 +10,8 @@ fn tables(names: &[&str]) -> BTreeSet<String> {
 /// new table fails until it says which views it feeds.
 #[test]
 fn every_table_in_both_database_files_says_what_it_feeds() {
-    let directory = std::env::temp_dir().join(format!("isct-core-changes-{}", uuid::Uuid::new_v4()));
+    let directory =
+        std::env::temp_dir().join(format!("isct-core-changes-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory).unwrap();
     let (store, _) = DataStore::initialize_dir(directory.clone()).unwrap();
     let names = store
@@ -29,7 +30,10 @@ fn every_table_in_both_database_files_says_what_it_feeds() {
         .iter()
         .filter(|name| !name.starts_with("sqlite_") && entry(name).is_none())
         .collect();
-    assert!(unlisted.is_empty(), "tables missing from TABLES: {unlisted:?}");
+    assert!(
+        unlisted.is_empty(),
+        "tables missing from TABLES: {unlisted:?}"
+    );
     // Every name a shell can receive is produced by some table.
     let produced = changes_for(&names.into_iter().collect());
     assert_eq!(produced, WorkspaceChange::ALL.into_iter().collect());
@@ -41,16 +45,27 @@ fn tables_map_to_change_names_and_cloud_capture() {
     // Rows of one commit merge; the FTS index's shadow tables count as the
     // catalog they index.
     assert_eq!(
-        changes_for(&tables(&["assignment_marks", "assignments", "offerings_fts_data"])),
+        changes_for(&tables(&[
+            "assignment_marks",
+            "assignments",
+            "offerings_fts_data"
+        ])),
         [Assignments, Finder].into_iter().collect()
     );
     // A run record alone changes nothing a shell shows, and no user data.
     assert!(changes_for(&tables(&["sync_runs"])).is_empty());
-    assert!(!touches_user_data(&tables(&["sync_runs", "dataset_state", "grades"])));
+    assert!(!touches_user_data(&tables(&[
+        "sync_runs",
+        "dataset_state",
+        "grades"
+    ])));
     assert!(touches_user_data(&tables(&["dataset_state", "plan_items"])));
     // An unknown table is over-refreshed and captured, never missed.
     let unknown = tables(&["catalog_staging"]);
-    assert_eq!(changes_for(&unknown), WorkspaceChange::ALL.into_iter().collect());
+    assert_eq!(
+        changes_for(&unknown),
+        WorkspaceChange::ALL.into_iter().collect()
+    );
     assert!(touches_user_data(&unknown));
     // Names round-trip, and the wire spelling is the serde one.
     for change in WorkspaceChange::ALL {
@@ -81,15 +96,33 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
     };
 
     let freshness = patch(snapshot.clone(), &[Freshness]);
-    assert_eq!((freshness.revision.as_str(), freshness.content_revision.as_str()), ("r1", "c1"));
+    assert_eq!(
+        (
+            freshness.revision.as_str(),
+            freshness.content_revision.as_str()
+        ),
+        ("r1", "c1")
+    );
     assert!(keys(&freshness.workspace).is_empty());
-    assert_eq!(keys(&freshness.school_records), ["freshness", "pageAvailability"]);
+    assert_eq!(
+        keys(&freshness.school_records),
+        ["freshness", "pageAvailability"]
+    );
 
     // Courses re-read everything the projection rewrites, not just courses.
     let courses = patch(snapshot.clone(), &[Courses, Exams]);
     assert_eq!(
         keys(&courses.workspace),
-        ["assignments", "courses", "currentTerm", "exams", "materials", "memberships", "planItems", "terms"]
+        [
+            "assignments",
+            "courses",
+            "currentTerm",
+            "exams",
+            "materials",
+            "memberships",
+            "planItems",
+            "terms"
+        ]
     );
     assert_eq!(keys(&courses.school_records), ["lmsCourses"]);
 

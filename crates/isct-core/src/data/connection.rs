@@ -26,7 +26,6 @@ const READERS: usize = 3;
 
 /// The two files of a store, inside one directory.
 pub(super) struct Files {
-    pub(super) directory: PathBuf,
     pub(super) user: PathBuf,
     pub(super) cache: PathBuf,
 }
@@ -36,15 +35,16 @@ impl Files {
         Self {
             user: directory.join(migrations::USER_FILE),
             cache: directory.join(migrations::CACHE_FILE),
-            directory,
         }
     }
 }
 
 pub(super) struct Connections {
     pub(super) files: Files,
-    writer: Mutex<Connection>,
+    // Fields drop in order: the read connections close first, so the write
+    // connection is the last one and checkpoints and removes the WAL files.
     readers: Vec<Mutex<Connection>>,
+    writer: Mutex<Connection>,
 }
 
 impl Connections {
@@ -135,8 +135,8 @@ impl DerefMut for Reader<'_> {
 /// SQLite skips the update hook when it empties a table with the truncate
 /// optimization (`DELETE FROM t` without `WHERE`). Answering `Ignore` to a
 /// delete turns that optimization off; every row is still deleted, one by
-/// one, and reported. The schema table is left alone: `Ignore` there would
-/// make `DROP TABLE` do nothing.
+/// one, and reported. `DROP TABLE` also asks for a delete of the dropped
+/// table, so a schema rebuild lifts the guard first ([`allow_drops`]).
 pub(super) fn forbid_truncate(connection: &Connection) {
     connection.authorizer(Some(|context: AuthContext<'_>| match context.action {
         AuthAction::Delete { table_name } if !table_name.starts_with("sqlite_") => {
@@ -144,6 +144,12 @@ pub(super) fn forbid_truncate(connection: &Connection) {
         }
         _ => Authorization::Allow,
     }));
+}
+
+/// Lifts [`forbid_truncate`] so `DROP TABLE` works; the caller installs it
+/// again when the rebuild ends, whether it succeeded or not.
+pub(super) fn allow_drops(connection: &Connection) {
+    connection.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
 }
 
 /// FTS5 keeps a virtual table's rows in shadow tables named after it; a
@@ -171,13 +177,11 @@ pub(crate) fn commit_on<T, E: From<DataError>>(
 ) -> Result<(T, BTreeSet<String>), E> {
     let touched: Arc<Mutex<BTreeSet<String>>> = Arc::default();
     let sink = touched.clone();
-    connection.update_hook(Some(
-        move |_: Action, _: &str, table: &str, _: i64| {
-            sink.lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(reported_table(table).to_string());
-        },
-    ));
+    connection.update_hook(Some(move |_: Action, _: &str, table: &str, _: i64| {
+        sink.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(reported_table(table).to_string());
+    }));
     let result: Result<T, E> = (|| {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)

@@ -4,9 +4,7 @@ use serde_json::json;
 async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
     let root = std::env::temp_dir().join(format!("isct-catalog-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = data::DataStore::initialize_dir(root.clone())
-        .unwrap()
-        .0;
+    let store = data::DataStore::initialize_dir(root.clone()).unwrap().0;
     let now = chrono::Utc::now().to_rfc3339();
     let value = json!({
         "id":"202602431", "year":2026, "quarters":["3Q"], "code":"TEST.1",

@@ -1686,10 +1686,6 @@ export type CourseBatchChanges = {
   credits?: number;
 };
 
-/**
- * A group of snapshot records that changed together. Shells re-read the
- * records and re-run the views that depend on a name; names are stable.
- */
 export type WorkspaceChange =
   | "courses"
   | "materials"
@@ -1706,10 +1702,6 @@ export type WorkspaceChange =
   | "settings"
   | "freshness";
 
-/**
- * The snapshot fields that `changes` feed, from one coherent snapshot. A
- * shell merges `workspace` and `schoolRecords` over its copy, field by field.
- */
 export type WorkspacePatch = {
   /**
    * As in `WorkspaceSnapshot`, for the whole snapshot this was read from.

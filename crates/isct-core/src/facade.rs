@@ -9,9 +9,7 @@ use crate::{
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     sync_engine::{Hint, Network, SyncEngine, SyncHints, SyncSnapshot},
     workspace::{WorkspaceError, WorkspaceService},
-    workspace_changes::{
-        self, Coalescer, WorkspaceChange, WorkspacePatch, COALESCE_WINDOW,
-    },
+    workspace_changes::{self, Coalescer, WorkspaceChange, WorkspacePatch, COALESCE_WINDOW},
 };
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -286,7 +284,10 @@ impl Core {
         &self,
         changes: &[WorkspaceChange],
     ) -> Result<WorkspacePatch, WorkspaceError> {
-        Ok(workspace_changes::patch(self.workspace.snapshot()?, changes))
+        Ok(workspace_changes::patch(
+            self.workspace.snapshot()?,
+            changes,
+        ))
     }
 
     /// Evaluate a page's related queries against one coherent database snapshot.

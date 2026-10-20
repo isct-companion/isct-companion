@@ -12,7 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .into(),
         );
     }
-    let path = args.next().ok_or("Supply a disposable copy of the data folder")?;
+    let path = args
+        .next()
+        .ok_or("Supply a disposable copy of the data folder")?;
     let store = DataStore::initialize_dir(path.into())?.0;
     let service = WorkspaceService::new(store);
     for term in ["2026-1Q", "2026-2Q", "2026-3Q", "2026-4Q"] {

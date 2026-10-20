@@ -248,7 +248,10 @@ impl EventSink for WorkspaceEvents {
             changes,
         } = event
         {
-            self.changes.lock().unwrap().push((source, revision, changes));
+            self.changes
+                .lock()
+                .unwrap()
+                .push((source, revision, changes));
         }
         if self.fail.load(Ordering::Relaxed) {
             return Err(EventError::Delivery("event channel closed".into()));
@@ -384,7 +387,10 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
     };
     assert_eq!(
         (*source, revision.as_deref()),
-        (WorkspaceChangeSource::UserIntent, Some(committed.revision.as_str()))
+        (
+            WorkspaceChangeSource::UserIntent,
+            Some(committed.revision.as_str())
+        )
     );
     assert!(names.contains(&WorkspaceChange::Settings), "{names:?}");
 
@@ -407,7 +413,8 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
         .unwrap();
     let (source, revision, names) = changes().last().cloned().unwrap();
     assert_eq!((source, revision), (WorkspaceChangeSource::Mcp, None));
-    assert!(names.contains(&WorkspaceChange::Events), "{names:?}");
+    // A plan event is a row of `plans`.
+    assert!(names.contains(&WorkspaceChange::Plans), "{names:?}");
 
     // A failed delivery neither fails nor undoes the committed write.
     events.fail.store(true, Ordering::Relaxed);
@@ -491,7 +498,12 @@ fn background_commits_reach_shells_merged_with_the_records_they_changed() {
         .unwrap();
     assert_eq!(patch.content_revision, after.content_revision);
     for (part, old, new, patched) in [
-        ("workspace", &before.workspace, &after.workspace, &patch.workspace),
+        (
+            "workspace",
+            &before.workspace,
+            &after.workspace,
+            &patch.workspace,
+        ),
         (
             "schoolRecords",
             &before.school_records,
@@ -501,14 +513,15 @@ fn background_commits_reach_shells_merged_with_the_records_they_changed() {
     ] {
         for (field, value) in new.as_object().unwrap() {
             if old.get(field) != Some(value) {
-                assert_eq!(patched.get(field), Some(value), "{part}.{field} not patched");
+                assert_eq!(
+                    patched.get(field),
+                    Some(value),
+                    "{part}.{field} not patched"
+                );
             }
         }
     }
-    assert_eq!(
-        patch.school_records["registrations"][0]["code"],
-        "CSC.T251"
-    );
+    assert_eq!(patch.school_records["registrations"][0]["code"], "CSC.T251");
     assert!(patch.workspace.get("settings").is_none());
 }
 

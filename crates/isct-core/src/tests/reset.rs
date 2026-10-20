@@ -203,7 +203,8 @@ fn seed(fixture: &Fixture) {
 }
 
 fn count(store: &DataStore, table: &str) -> i64 {
-    store.test_connection()
+    store
+        .test_connection()
         .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
             row.get(0)
         })
@@ -211,7 +212,8 @@ fn count(store: &DataStore, table: &str) -> i64 {
 }
 
 fn setting(store: &DataStore, key: &str) -> Option<String> {
-    store.test_connection()
+    store
+        .test_connection()
         .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
             row.get(0)
         })

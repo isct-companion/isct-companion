@@ -96,7 +96,7 @@ fn forget_reference_bookkeeping(transaction: &Transaction<'_>) -> Result<(), Dat
 impl DataStore {
     /// What a reset of this scope would remove from the database now.
     pub(crate) fn reset_estimate(&self, everything: bool) -> Result<Cleared, DataError> {
-        estimate(&self.open()?, everything)
+        estimate(&*self.open()?, everything)
     }
 
     /// Empties cache.db under the write lock: every table is dropped and
@@ -108,10 +108,16 @@ impl DataStore {
     pub(crate) fn rebuild_cache(&self) -> Result<u64, DataError> {
         let mut writer = self.connections.writer();
         let before = used_bytes(&writer, "cache")?;
-        let transaction =
-            writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        migrations::recreate_cache(&transaction)?;
-        transaction.commit()?;
+        connection::allow_drops(&writer);
+        let rebuilt = writer
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(DataError::from)
+            .and_then(|transaction| {
+                migrations::recreate_cache(&transaction)?;
+                transaction.commit().map_err(DataError::from)
+            });
+        connection::forbid_truncate(&writer);
+        rebuilt?;
         // Best effort: a busy reader keeps the free pages for reuse.
         if let Err(error) =
             writer.execute_batch("VACUUM cache; PRAGMA cache.wal_checkpoint(TRUNCATE);")
@@ -126,7 +132,7 @@ impl DataStore {
     /// subscriptions, tasks and settings stay. Shells hear the change
     /// through [`DataStore::announce`] once admission reopens.
     pub(crate) fn clear_school_caches(&self) -> Result<Cleared, DataError> {
-        let rows = rows_in(&self.open()?, migrations::CACHE_TABLES)?;
+        let rows = rows_in(&*self.open()?, migrations::CACHE_TABLES)?;
         let bytes = self.rebuild_cache()?;
         let settings = self.write(None, |transaction| {
             let settings = cache_setting_rows(transaction)?;
@@ -147,7 +153,7 @@ impl DataStore {
     /// in the same transaction: the first-launch state. No tombstone is
     /// written, so cloud copies and other devices keep their data.
     pub(crate) fn clear_everything(&self) -> Result<Cleared, DataError> {
-        let cache_rows = rows_in(&self.open()?, migrations::CACHE_TABLES)?;
+        let cache_rows = rows_in(&*self.open()?, migrations::CACHE_TABLES)?;
         let cache_bytes = self.rebuild_cache()?;
         let user = self.write(None, |transaction| {
             let cleared = Cleared {

@@ -52,16 +52,18 @@ fn options() -> Result<Options, String> {
     let mut extra_scopes = Vec::new();
     let mut allow_incomplete = false;
     while let Some(arg) = args.next() {
-        let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value\n{USAGE}"));
+        let mut value = || {
+            args.next()
+                .ok_or_else(|| format!("{arg} needs a value\n{USAGE}"))
+        };
         match arg.as_str() {
             "--year" => year = Some(value()?.parse::<u16>().map_err(|_| "invalid --year")?),
             "--work" => work = Some(PathBuf::from(value()?)),
             "--out" => out = Some(PathBuf::from(value()?)),
             "--source" => source = Some(value()?),
             "--spacing-ms" => {
-                spacing = Duration::from_millis(
-                    value()?.parse().map_err(|_| "invalid --spacing-ms")?,
-                )
+                spacing =
+                    Duration::from_millis(value()?.parse().map_err(|_| "invalid --spacing-ms")?)
             }
             "--scope" => extra_scopes.push(value()?),
             "--allow-incomplete" => allow_incomplete = true,
@@ -206,7 +208,10 @@ async fn run() -> Result<ExitCode, Box<dyn Error>> {
                 Ok(synced) => {
                     let mut offering = synced.offering;
                     if offering.id != item.id || offering.year != year {
-                        eprintln!("  {}: the detail page is {} of {}", item.id, offering.id, offering.year);
+                        eprintln!(
+                            "  {}: the detail page is {} of {}",
+                            item.id, offering.id, offering.year
+                        );
                         complete = false;
                         continue;
                     }
@@ -310,7 +315,10 @@ async fn run() -> Result<ExitCode, Box<dyn Error>> {
         pack.scopes.len()
     );
     if !truncated.is_empty() {
-        eprintln!("capped units (rows may be missing): {}", truncated.join(", "));
+        eprintln!(
+            "capped units (rows may be missing): {}",
+            truncated.join(", ")
+        );
         return Ok(ExitCode::from(3));
     }
     Ok(ExitCode::SUCCESS)

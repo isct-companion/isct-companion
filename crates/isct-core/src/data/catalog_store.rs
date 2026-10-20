@@ -109,7 +109,10 @@ impl DataStore {
 
     /// Live offerings of `year` a catalog pack delivered: what the next pack
     /// is compared with before it may replace them.
-    pub(crate) fn catalog_pack_rows(connection: &Connection, year: u16) -> Result<usize, DataError> {
+    pub(crate) fn catalog_pack_rows(
+        connection: &Connection,
+        year: u16,
+    ) -> Result<usize, DataError> {
         let count: i64 = connection.query_row(
             "SELECT COUNT(*) FROM offerings
              WHERE json_extract(value,'$.year')=?1 AND json_extract(value,'$.pack') IS NOT NULL
@@ -134,10 +137,8 @@ impl DataStore {
     /// The official search form's filter choices last captured for `year`,
     /// or an empty list. Device-local public metadata, never backed up.
     pub fn kyomu_search_options(&self, year: u16) -> Result<Value, DataError> {
-        Ok(
-            read_setting(&self.open()?, &search_options_setting(year))?
-                .unwrap_or_else(|| json!([])),
-        )
+        Ok(read_setting(&*self.open()?, &search_options_setting(year))?
+            .unwrap_or_else(|| json!([])))
     }
 
     /// Stores the captured filter choices of `year` and marks
@@ -530,8 +531,8 @@ fn merge_official_fields(incoming: &mut Value, stored: &Value) {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         };
-        let page_read_later = read_at(stored)
-            .is_some_and(|page| read_at(incoming).is_none_or(|pack| page > pack));
+        let page_read_later =
+            read_at(stored).is_some_and(|page| read_at(incoming).is_none_or(|pack| page > pack));
         if page_read_later {
             let mut kept = stored.clone();
             kept[PACK_FIELD] = Value::Bool(true);

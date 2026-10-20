@@ -470,8 +470,7 @@ pub(super) fn migrate_legacy(directory: &Path) -> Result<bool, DataError> {
 fn copy_user_tables(legacy: &Path, staging: &Path) -> Result<(), DataError> {
     let mut connection = Connection::open(staging)?;
     attach_as(&connection, legacy, "legacy")?;
-    let version: i64 =
-        connection.query_row("PRAGMA legacy.user_version", [], |row| row.get(0))?;
+    let version: i64 = connection.query_row("PRAGMA legacy.user_version", [], |row| row.get(0))?;
     if !LEGACY_VERSIONS.contains(&version) {
         return Err(DataError::compatibility(format!(
             "school.db has schema {version}, which this app cannot read. It was left as it was."
@@ -504,7 +503,9 @@ fn columns(connection: &Connection, schema: &str, table: &str) -> Result<Vec<Str
 fn shared_columns(connection: &Connection, table: &str) -> Result<String, DataError> {
     let legacy = columns(connection, "legacy", table)?;
     if legacy.is_empty() {
-        return Err(DataError::storage(format!("school.db has no {table} table")));
+        return Err(DataError::storage(format!(
+            "school.db has no {table} table"
+        )));
     }
     Ok(columns(connection, "main", table)?
         .into_iter()

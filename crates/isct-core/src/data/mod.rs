@@ -789,8 +789,10 @@ fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
 /// next read shows both.
 #[derive(Clone)]
 pub struct DataStore {
-    connections: Arc<connection::Connections>,
+    // Before `connections`: its read connection must close before the write
+    // connection does (see `connection::Connections`).
     snapshot_reader: Arc<Mutex<snapshot::SnapshotReader>>,
+    connections: Arc<connection::Connections>,
     observer: changes::Observer,
 }
 
@@ -917,11 +919,11 @@ impl DataStore {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
         }
-        read_rows(&self.open()?, table)
+        read_rows(&*self.open()?, table)
     }
 
     pub fn agent_access_enabled(&self) -> Result<bool, DataError> {
-        agent_access_enabled_in(&self.open()?)
+        agent_access_enabled_in(&*self.open()?)
     }
 
     /// One agent tool's writes, on the same rules and commit path as user
@@ -1028,7 +1030,7 @@ impl DataStore {
         &self,
         dataset: Option<crate::sync_state::Dataset>,
     ) -> Result<Vec<crate::sync_state::KeyState>, DataError> {
-        crate::sync_state::list(&self.open()?, dataset)
+        crate::sync_state::list(&*self.open()?, dataset)
     }
 
     /// The file backup and cloud sync read: user.db, never the caches.
@@ -1047,7 +1049,7 @@ impl DataStore {
 
     #[cfg(test)]
     pub(crate) fn directory(&self) -> &Path {
-        &self.connections.files.directory
+        self.connections.files.user.parent().unwrap()
     }
 }
 

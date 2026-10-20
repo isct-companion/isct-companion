@@ -12,9 +12,9 @@
 use crate::data::{versioned::content_hash, DataError, DataStore};
 use crate::net::{Body, Host, Http, Limits, NetError, NetRequest, Response};
 use crate::reference_refresh::{suspicious_shrink, PUBLIC_INDEX, SUSPICIOUS_SHRINK};
+use crate::syllabus::Offering;
 use crate::sync_engine::{Gated, KeyEnd, Lease};
 use crate::sync_state::{self, Commit, Dataset, Due, Key, Outcome, RunOutcome, RunRecord, Term};
-use crate::syllabus::Offering;
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use rusqlite::{Connection, Transaction};
 use serde::{Deserialize, Serialize};
@@ -149,7 +149,9 @@ impl CatalogPack {
             return Err(PackError::HashMismatch);
         }
         if value["schemaVersion"].as_u64() != Some(u64::from(SCHEMA_VERSION)) {
-            return Err(format!("unsupported catalog pack schema {}", value["schemaVersion"]).into());
+            return Err(
+                format!("unsupported catalog pack schema {}", value["schemaVersion"]).into(),
+            );
         }
         let pack: Self = serde_json::from_value(value)?;
         if pack.academic_year != year {
@@ -183,14 +185,18 @@ pub fn index_entry(index: &Value, year: u16) -> Result<Option<PackEntry>, PackEr
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
-        return Err("catalog hash must be a lowercase SHA-256 hex digest".to_string().into());
+        return Err("catalog hash must be a lowercase SHA-256 hex digest"
+            .to_string()
+            .into());
     }
     if entry.source.starts_with('/')
         || entry.source.contains("..")
         || entry.source.contains(['?', '#', '\\'])
         || !entry.source.ends_with(".json.gz")
     {
-        return Err("catalog source must be a relative .json.gz path".to_string().into());
+        return Err("catalog source must be a relative .json.gz path"
+            .to_string()
+            .into());
     }
     DateTime::parse_from_rfc3339(&entry.ts)
         .map_err(|_| "catalog ts must be RFC 3339".to_string())?;
@@ -236,7 +242,9 @@ pub(crate) fn pack_due(
     Ok(match sync_state::due(state.as_ref(), ttl, "", now) {
         Due::Fresh if sync_state::cursor(connection, key)?.is_some() => Due::Stale,
         Due::Fresh
-            if state.as_ref().is_some_and(|state| state.validator.is_some())
+            if state
+                .as_ref()
+                .is_some_and(|state| state.validator.is_some())
                 && DataStore::catalog_pack_rows(connection, key_year(key)?)? == 0 =>
         {
             Due::Missing

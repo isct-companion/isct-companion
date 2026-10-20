@@ -157,7 +157,7 @@ fn keeps_a_resolved_folder_listing_once_and_reads_it_back() {
     let store = store("folder-files");
     let url = "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9";
     {
-        let connection = store.open().unwrap();
+        let connection = store.test_connection();
         connection
             .execute(
                 "INSERT INTO lms_items (id,cmid,value,hash,updated_at,updated_by,rev,source)
@@ -259,7 +259,9 @@ fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
         .delete_user_record("scheduled_tasks", "builtin:reference-subscriptions")
         .unwrap();
     // The next launch writes defaults again; a deleted built-in stays deleted.
-    let store = DataStore::initialize_dir(store.directory().to_path_buf()).unwrap().0;
+    let store = DataStore::initialize_dir(store.directory().to_path_buf())
+        .unwrap()
+        .0;
     let workspace = store.load_workspace().unwrap();
     let tasks = workspace["scheduledTasks"].as_array().unwrap();
     assert_eq!(tasks.len(), 2);
@@ -368,7 +370,7 @@ fn unchanged_checked_put_returns_the_stored_revision() {
 }
 
 fn insert_school_assignment(store: &DataStore) {
-    let mut connection = store.open().unwrap();
+    let mut connection = store.test_connection();
     let transaction = connection.transaction().unwrap();
     upsert_row(
         &transaction,
@@ -388,7 +390,7 @@ fn insert_school_assignment(store: &DataStore) {
 #[test]
 fn course_identity_is_shared_by_every_provider() {
     let store = store("course-identity");
-    let mut connection = store.open().unwrap();
+    let mut connection = store.test_connection();
     let transaction = connection.transaction().unwrap();
     let lms = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
     let syllabus = resolve_course_id(
@@ -497,7 +499,7 @@ fn overlay_survives_school_disappearance_and_reappearance() {
         true
     );
 
-    let connection = store.open().unwrap();
+    let connection = store.test_connection();
     connection.execute(
             "UPDATE assignments SET missing_since='2026-10-07T00:00:00Z',value=json_set(value,'$.missingSince','2026-10-07T00:00:00Z') WHERE id='assignment-1'",
             [],

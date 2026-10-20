@@ -16,9 +16,7 @@ use std::time::{Duration, Instant};
 
 /// A group of snapshot records that changed together. Shells re-read the
 /// records and re-run the views that depend on a name; names are stable.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkspaceChange {
@@ -114,7 +112,11 @@ impl WorkspaceChange {
         match self {
             Courses => fields(true, &[], &["lmsCourses"]),
             Registrations => fields(true, &[], &["registrations", "registrationStates"]),
-            Finder => fields(true, &["offerings", "departments", "recommendedCourses"], &[]),
+            Finder => fields(
+                true,
+                &["offerings", "departments", "recommendedCourses"],
+                &[],
+            ),
             Calendar => fields(
                 true,
                 &[
@@ -220,14 +222,17 @@ const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
 /// FTS5 keeps an index in shadow tables (`offerings_fts_data`, `_idx`,
 /// `_content`, `_docsize`, `_config`); the update hook reports those.
 fn entry(table: &str) -> Option<&'static (&'static str, &'static [WorkspaceChange], Owner)> {
-    TABLES.iter().find(|(name, _, _)| *name == table).or_else(|| {
-        let base = ["_data", "_idx", "_content", "_docsize", "_config"]
-            .iter()
-            .find_map(|suffix| table.strip_suffix(suffix))?;
-        TABLES
-            .iter()
-            .find(|(name, _, _)| *name == base && name.ends_with("_fts"))
-    })
+    TABLES
+        .iter()
+        .find(|(name, _, _)| *name == table)
+        .or_else(|| {
+            let base = ["_data", "_idx", "_content", "_docsize", "_config"]
+                .iter()
+                .find_map(|suffix| table.strip_suffix(suffix))?;
+            TABLES
+                .iter()
+                .find(|(name, _, _)| *name == base && name.ends_with("_fts"))
+        })
 }
 
 /// The change names a commit to `tables` produces, sorted.
@@ -351,7 +356,11 @@ impl Coalescer {
             (self.deliver)(source, changes.into_iter().collect());
             return;
         }
-        match state.pending.iter_mut().find(|(pending, _)| *pending == source) {
+        match state
+            .pending
+            .iter_mut()
+            .find(|(pending, _)| *pending == source)
+        {
             Some((_, merged)) => merged.extend(changes),
             None => state.pending.push((source, changes)),
         }

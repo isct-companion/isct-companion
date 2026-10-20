@@ -50,7 +50,9 @@ fn each_table_is_created_in_the_file_that_owns_it() {
 /// A single-file database as schemas 6–8 left it: both schemas in one file.
 fn legacy_school_db(directory: &Path, version: i64) {
     let connection = Connection::open(directory.join(LEGACY_FILE)).unwrap();
-    connection.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+    connection
+        .execute_batch("PRAGMA journal_mode=WAL;")
+        .unwrap();
     connection.execute_batch(USER_SCHEMA).unwrap();
     connection
         .execute_batch(&CACHE_SCHEMA.replace("cache.", ""))
@@ -108,13 +110,13 @@ fn a_legacy_school_db_moves_every_user_row_into_user_db_once() {
         assert!(!directory.join(STAGING_FILE).exists());
         let connection = store.test_connection();
         attach_as(&connection, &backup, "legacy").unwrap();
-        let count = |sql: String| -> i64 {
-            connection
-                .query_row(&sql, [], |row| row.get(0))
-                .unwrap()
-        };
+        let count =
+            |sql: String| -> i64 { connection.query_row(&sql, [], |row| row.get(0)).unwrap() };
         for table in USER_TABLES {
-            assert!(count(format!("SELECT COUNT(*) FROM legacy.{table}")) > 0, "{table}");
+            assert!(
+                count(format!("SELECT COUNT(*) FROM legacy.{table}")) > 0,
+                "{table}"
+            );
             assert_eq!(
                 count(format!(
                     "SELECT COUNT(*) FROM (SELECT * FROM legacy.{table} EXCEPT SELECT * FROM main.{table})"

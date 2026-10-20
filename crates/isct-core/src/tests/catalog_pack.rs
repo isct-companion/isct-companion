@@ -45,7 +45,7 @@ fn pack(offerings: &[Value]) -> (CatalogPack, PackEntry) {
 fn a_pack_imports_once_renews_on_its_hash_holds_a_shrink_and_keeps_kyomu_fields() {
     let root = std::env::temp_dir().join(format!("isct-pack-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = DataStore::initialize(root.join("school.db")).unwrap().0;
+    let store = DataStore::initialize_dir(root.clone()).unwrap().0;
     // 教務 listed one course before the pack arrived.
     let mut official = offering("202602431", "CSC.T273", "");
     official["title"] = json!({"ja": "オブジェクト指向プログラミング"});
@@ -71,7 +71,9 @@ fn a_pack_imports_once_renews_on_its_hash_holds_a_shrink_and_keeps_kyomu_fields(
     let writer = lease.writer();
     let apply = |pack: &CatalogPack, entry: &PackEntry, at: DateTime<Utc>| {
         writer
-            .write(None, |transaction| import(transaction, &key, entry, pack, at))
+            .write(None, |transaction| {
+                import(transaction, &key, entry, pack, at)
+            })
             .unwrap()
     };
     let state = || {
@@ -88,7 +90,10 @@ fn a_pack_imports_once_renews_on_its_hash_holds_a_shrink_and_keeps_kyomu_fields(
     // search index finds the pack's rows.
     assert!(matches!(
         apply(&full, &full_entry, t0),
-        Applied::Imported(PackImport { changed: 10, missing: 0 })
+        Applied::Imported(PackImport {
+            changed: 10,
+            missing: 0
+        })
     ));
     assert_eq!(live().len(), 10);
     let merged = store.catalog_offering("202602431").unwrap().unwrap();
@@ -101,7 +106,10 @@ fn a_pack_imports_once_renews_on_its_hash_holds_a_shrink_and_keeps_kyomu_fields(
     // Importing the same pack again writes nothing.
     assert!(matches!(
         apply(&full, &full_entry, t0),
-        Applied::Imported(PackImport { changed: 0, missing: 0 })
+        Applied::Imported(PackImport {
+            changed: 0,
+            missing: 0
+        })
     ));
 
     // The same hash only renews the key.
@@ -111,7 +119,12 @@ fn a_pack_imports_once_renews_on_its_hash_holds_a_shrink_and_keeps_kyomu_fields(
         .unwrap();
     assert_eq!(due, Due::Stale);
     assert!(store
-        .write(None, |transaction| renew(transaction, &key, &full_entry, t1))
+        .write(None, |transaction| renew(
+            transaction,
+            &key,
+            &full_entry,
+            t1
+        ))
         .unwrap());
     assert_eq!(state().fetched_at, Some(t1));
 
@@ -130,7 +143,10 @@ fn a_pack_imports_once_renews_on_its_hash_holds_a_shrink_and_keeps_kyomu_fields(
     assert_eq!(held.validator.as_deref(), Some(full_entry.hash.as_str()));
     assert!(matches!(
         apply(&shrunk, &shrunk_entry, t1),
-        Applied::Imported(PackImport { changed: 0, missing: 4 })
+        Applied::Imported(PackImport {
+            changed: 0,
+            missing: 4
+        })
     ));
     assert_eq!(live().len(), 6);
     assert_eq!(store.catalog_search("Pack course").unwrap().len(), 6);
@@ -144,7 +160,12 @@ fn a_pack_imports_once_renews_on_its_hash_holds_a_shrink_and_keeps_kyomu_fields(
         })
         .unwrap();
     assert!(!store
-        .write(None, |transaction| renew(transaction, &key, &shrunk_entry, t1))
+        .write(None, |transaction| renew(
+            transaction,
+            &key,
+            &shrunk_entry,
+            t1
+        ))
         .unwrap());
     std::fs::remove_dir_all(root).unwrap();
 }
