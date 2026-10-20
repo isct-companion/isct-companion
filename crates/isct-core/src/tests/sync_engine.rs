@@ -108,6 +108,7 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
         allow_cellular: false,
         year: None,
         references: Vec::new(),
+        packs: Vec::new(),
     }
 }
 
@@ -408,7 +409,7 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
     let plan = engine.evaluate_now().await;
     let references: Vec<_> = plan
         .iter()
-        .filter(|candidate| candidate.lane == Lane::IsctData)
+        .filter(|candidate| candidate.key.dataset == Dataset::Reference)
         .collect();
     assert_eq!(references.len(), 4);
     let snapshot = engine.snapshot();
@@ -428,7 +429,7 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
     assert!(plan.iter().all(|candidate| candidate.key != first.key));
     let pressed = plan
         .iter()
-        .filter(|candidate| candidate.lane == Lane::IsctData)
+        .filter(|candidate| candidate.key.dataset == Dataset::Reference)
         .count();
     assert_eq!(pressed, 3);
 

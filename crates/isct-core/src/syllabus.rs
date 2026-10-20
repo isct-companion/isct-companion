@@ -48,10 +48,8 @@ impl From<reqwest::Error> for SyllabusError {
 
 pub(crate) use crate::school_parser::syllabus as parser;
 
-pub use api::{
-    department_catalog, search_bilingual, sync_offering, sync_offering_summary, SyllabusFilters,
-};
-pub use model::{CatalogSearchItem, CatalogSearchResult, DepartmentSyncResult, SyncOfferingResult};
+pub use api::{department_catalog, search_bilingual, sync_offering, year_scopes, SyllabusFilters};
+pub use model::{CatalogSearchItem, CatalogSearchResult, Offering, SyncOfferingResult};
 
 pub(crate) use api::utc_now;
 

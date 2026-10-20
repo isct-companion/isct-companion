@@ -15,6 +15,7 @@ pub mod agent;
 pub mod app_updates;
 pub mod backup;
 pub mod catalog;
+pub mod catalog_pack;
 pub mod cloud_credentials;
 pub mod facade;
 pub use facade::Core;
