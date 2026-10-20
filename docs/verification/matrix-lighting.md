@@ -19,7 +19,7 @@ Hashes and measured processing times are in
 | Very dim, 15% exposure | 0 → 70 | 0 → 0 | Never admitted → 0.8 s |
 | Dim, 640 × 440 input | 0 → 70 | 0 → 0 | Never admitted → 0.8 s |
 | Uneven shadow | 48 → 70 | 0 → 0 | 8.0 → 0.8 s |
-| Dim and rotated | 58 → 70 | 0 → 0 | 8.0 → 6.0 s |
+| Dim, 90° rotation with clipped row-label margin | 58 → 70 | 0 → 0 | 8.0 → 6.0 s |
 | Fixed glare spot | 64 → 64 | 0 → 0 | 8.0 → 8.0 s |
 | Moving glare spot | 70 → 70 | 0 → 0 | 1.6 → 1.6 s |
 | Horizontal glare band | 52 → 51 | 3 → 0 | 8.0 → 8.0 s |
@@ -89,3 +89,56 @@ white-paper versus highlight measurements, per-cell rejection/recovery, the
 unchanged deadline, and existing rotated-card behavior. Physical exposure,
 reflection movement and native first-detection feedback are covered by
 `OCR-CAMPUS-CARD` in `manual-checks.yaml`; that hardware check needs to be rerun.
+
+## TSUBAME training decision
+
+Two eight-epoch experiments ran through `iqrsh` on an H100 MIG device. Only
+generated letters were transferred. New lighting samples used Arial/Tahoma variants;
+their validation used held-out Verdana variants. Clean replay also includes the
+original serif/monospace families and its Verdana/Trebuchet validation split.
+The full-card Helvetica replay was
+not part of training or checkpoint selection.
+
+| Experiment | Lighting validation | High-confidence wrong letters | Clean validation | Decision |
+| --- | --- | --- | --- | --- |
+| Bundled model | 1970/2600 (75.77%) | 364 | 2600/2600 | Baseline |
+| Lighting only, best epoch 6 | 2568/2600 (98.77%) | 8 | Full-card clean: 66/70; blur: 20/70 | Rejected |
+| Lighting + clean replay, final epoch 8 | 2466/2600 (94.85%) | 32 | 2597/2600 | Rejected |
+
+The second experiment mixed 26,000 lighting samples with 26,000 original clean
+samples, trained only the last four convolutions and classifier, and kept batch
+normalization frozen. Its selection rule prioritizes clean validation accuracy
+before lighting accuracy, qualified errors and loss. Every epoch lost at least
+one clean sample, so it exported epoch 0: **the exact original model hash**,
+`592d61903de1f04b48079c44be5c247cd2f16bd323b23fb539b2c7392bfc5177`.
+Batch sizes 1, 7 and 10 also produced identical logits.
+
+The app therefore keeps its existing weights. The engineering replay table above
+measures illumination correction and glare admission with that model. The
+training results show why single-crop validation alone cannot approve a model:
+the lighting-only model improved its validation score while rejecting readable
+ordinary letters and blurred cards.
+
+The trainer accepts `--replay-data`, `--train-convs`, `--learning-rate` and
+`--resume-reference`. It checks finite loss, model-conversion parity and exported
+ONNX parity, and records the selected epoch. Re-exported ONNX graphs may fail
+round-trip conversion through onnx2torch; use the upstream graph plus its saved
+PyTorch checkpoint, then require that resumed outputs match the bundled ONNX:
+
+```sh
+python scripts/ocr/alphabet_synthetic.py --fonts FONT_DIRECTORY \
+  --output lighting.npz --lighting
+iqrsh -g GROUP -l h_rt=0:30:00 python scripts/ocr/alphabet_finetune.py \
+  --model upstream.onnx --resume printed-best.pt \
+  --resume-reference alphabet-printed.onnx --data lighting.npz \
+  --replay-data original-print.npz --train-convs 4 \
+  --epochs 8 --learning-rate 0.00005 --output RUN_DIRECTORY
+```
+
+Full metrics, input/output hashes and the failed promotion's whole-card results
+are retained in `matrix-lighting-results.json`.
+
+Checkpoint `5b07f96` adds 133 and removes 5 production Rust lines (net +128;
+no production-code reduction). Tests add 107 lines; replay examples/scripts add
+124 net lines. Documentation, measured JSON and the generated manual table are
+counted separately. No test was removed.

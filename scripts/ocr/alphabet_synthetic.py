@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 
-def render(rng, fonts, label):
+def render(rng, fonts, label, lighting=False):
     size = 144
     background, ink = rng.randint(165, 255), rng.randint(0, 95)
     image = Image.new("L", (size, size), background)
@@ -91,6 +91,32 @@ def render(rng, fonts, label):
     image = Image.fromarray(np.clip(array, 0, 255).astype("uint8")).filter(
         ImageFilter.GaussianBlur(rng.uniform(0, 1.2))
     )
+    if lighting and rng.random() < 0.8:
+        array = np.asarray(image, dtype=np.float32).copy()
+        y, x = np.mgrid[:96, :96].astype(np.float32) / 95
+        condition = rng.choice(("dim", "shadow", "glare", "gradient"))
+        if condition == "dim":
+            array *= rng.uniform(0.2, 0.65)
+        elif condition == "shadow":
+            axis = x * rng.uniform(-1, 1) + y * rng.uniform(-1, 1)
+            shade = rng.uniform(0.15, 0.45)
+            array *= shade + (1 - shade) / (1 + np.exp(
+                -(axis - rng.uniform(-0.5, 0.5)) * rng.uniform(8, 40)
+            ))
+        elif condition == "gradient":
+            array *= rng.uniform(0.2, 0.6) + x * rng.uniform(0.3, 0.6)
+        else:
+            spot = np.exp(-((x - rng.random()) / rng.uniform(0.18, 0.6)) ** 2
+                          - ((y - rng.random()) / rng.uniform(0.18, 0.6)) ** 2)
+            original_ink = array < (ink + background) / 2
+            array += rng.uniform(100, 420) * spot
+            # Once glare erases substantial ink, train rejection instead of
+            # teaching the classifier to invent the missing strokes.
+            erased = original_ink & (array >= 245)
+            if erased.sum() > max(1, original_ink.sum()) * 0.2:
+                label = 26
+        array += np.random.default_rng(rng.getrandbits(32)).normal(0, rng.uniform(0, 3), array.shape)
+        image = Image.fromarray(np.clip(array, 0, 255).astype(np.uint8))
     return np.asarray(image, dtype=np.uint8), label
 
 
@@ -100,9 +126,10 @@ def main():
     p.add_argument("--output", required=True)
     p.add_argument("--train", type=int, default=26000)
     p.add_argument("--validation", type=int, default=2600)
+    p.add_argument("--lighting", action="store_true")
     a = p.parse_args()
-    fonts = list(Path(a.fonts).glob("*.ttf"))
-    train = [f for f in fonts if not f.name.startswith(("Verdana", "Trebuchet"))]
+    fonts = sorted(f for f in Path(a.fonts).rglob("*") if f.suffix.lower() in (".ttf", ".ttc"))
+    train = [f for f in fonts if not f.name.lower().startswith(("verdana", "trebuchet"))]
     valid = [f for f in fonts if f not in train]
     if not train or not valid:
         raise ValueError("Need train fonts and held-out Verdana/Trebuchet fonts")
@@ -116,7 +143,7 @@ def main():
         labels = np.array(
             [26 if i % 10 == 0 else i % 26 for i in range(count)], dtype=np.int64
         )
-        rendered = [render(rng, choices, int(y)) for y in labels]
+        rendered = [render(rng, choices, int(y), a.lighting) for y in labels]
         images = np.stack([r[0] for r in rendered])
         labels = np.array([r[1] for r in rendered], dtype=np.int64)
         data[split + "_images"] = images
@@ -125,6 +152,7 @@ def main():
             "count": count,
             "fonts": [f.name for f in choices],
             "seed": seed,
+            "lighting": a.lighting,
         }
         print(split, count, flush=True)
     np.savez_compressed(a.output, **data)

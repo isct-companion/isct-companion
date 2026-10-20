@@ -50,6 +50,8 @@ def generate(root, fixture):
             if condition == "blur":
                 image = image.filter(ImageFilter.GaussianBlur(2.8 if frame < 10 else 0.4))
             if condition == "dim-rotated":
+                # Fixed canvas also clips the row-label margin. Full uncropped
+                # quarter turns are covered by the Rust recognition suite.
                 image = image.rotate(90)
             elif condition == "tilted":
                 image = image.rotate(12, resample=Image.Resampling.BILINEAR, fillcolor="white")
