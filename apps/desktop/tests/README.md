@@ -35,7 +35,7 @@ with `// @vitest-environment jsdom`; everything else runs in plain node.
 | Public fixture provenance, bundled subscription data             | `unit/school-extractors`                           |
 | Bridge contracts, capability policy, query caches, store, routes | `unit/workspace-store`                             |
 | Build/release tooling, generated artifacts                       | `unit/tooling`                                     |
-| Shell navigation, retention, shortcuts, mobile layout            | `e2e/app-shell`                                    |
+| Shell navigation, retention, shortcuts                           | `e2e/app-shell`                                    |
 | Planner add/replace/undo, plan editor                            | `e2e/planner`                                      |
 | LMS reading workspace, viewers, notes                            | `e2e/lms-workspace`                                |
 | Settings pages                                                   | `e2e/settings`                                     |

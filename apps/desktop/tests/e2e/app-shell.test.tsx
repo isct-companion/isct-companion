@@ -34,9 +34,7 @@ import {
   type QueryTable,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
-import { STACKED_QUERY } from "@app/app/form-factor";
 import { notify } from "@app/app/notify";
-import { SwipeActions } from "@app/components/SwipeActions";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
 import type { FinderAction } from "@app/generated/persistence";
@@ -45,15 +43,15 @@ import type { FinderRequest } from "@app/platform/finder-query";
 
 /**
  * The whole shell over a scripted Core: hash routing, page retention, keyboard
- * shortcuts, the native-navigation blocker, the mobile back stack, swipe rows
- * and the query caches that only exist inside React hooks. These assert what a
- * person sees, not which component rendered.
+ * shortcuts, the native-navigation blocker and the query caches that only
+ * exist inside React hooks. These assert what a person sees, not which
+ * component rendered.
  *
  * Local helpers exist where the harness has no builder: `shellOptions` (a
  * navigable workspace with the school-web commands answered), `mountShell`
  * (adopts this test's workspace before mounting, because the harness reuses one
- * module-level store), `emptyFinder`, the `Schedule*` / `Finder*` probe
- * components, and the touch/pointer gesture dispatchers.
+ * module-level store), `emptyFinder`, and the `Schedule*` / `Finder*` probe
+ * components.
  */
 
 const placed = offering("202602421", "CSC.T252", "Placed");
@@ -88,7 +86,6 @@ beforeAll(async () => {
 let app: MountedApp | undefined;
 let probe: Mounted | undefined;
 let consoleWatch: ReturnType<typeof watchConsoleErrors> | undefined;
-const desktopMatchMedia = window.matchMedia;
 
 afterEach(async () => {
   await probe?.unmount();
@@ -98,7 +95,6 @@ afterEach(async () => {
   consoleWatch?.restore();
   consoleWatch = undefined;
   await i18n.changeLanguage("en");
-  window.matchMedia = desktopMatchMedia;
   delete (window as unknown as Record<string, unknown>)
     .__ISCT_COMPANION_NATIVE_TARGET__;
 });
@@ -325,7 +321,7 @@ describe("shell navigation", () => {
     await until(() =>
       expect(window.location.hash).toBe(`#${paths.lectures()}`),
     );
-    expect(host.querySelector(".lectureDesk.open")).toBeNull();
+    expect(host.querySelector(".lectureSlot:not([hidden])")).toBeNull();
 
     consoleWatch.expectClean();
     consoleWatch.restore();
@@ -533,7 +529,7 @@ describe("shell navigation", () => {
     );
     const { host } = app;
     await until(() =>
-      expect(host.querySelector(".lectureDesk.open")).not.toBeNull(),
+      expect(host.querySelector(".lectureSlot:not([hidden])")).not.toBeNull(),
     );
 
     await app.go(paths.home());
@@ -968,372 +964,6 @@ describe("Chinese UI", () => {
         ?.getAttribute("value"),
     ).toBe("zh");
     expect(core.workspace.settings.contentLanguage).toBe("en");
-  }, 20_000);
-});
-
-/* ------------------------------------------------------------------ *
- * Mobile / compact shell.
- * ------------------------------------------------------------------ */
-
-describe("mobile shell", () => {
-  beforeEach(() => {
-    window.matchMedia = ((media: string) => ({
-      media,
-      matches: media === STACKED_QUERY,
-      addEventListener() {},
-      removeEventListener() {},
-    })) as unknown as typeof window.matchMedia;
-  });
-
-  const settingsNav = (host: HTMLElement, label: string) =>
-    required(
-      () =>
-        [
-          ...host.querySelectorAll<HTMLButtonElement>(".settingsNav button"),
-        ].find((button) => button.textContent?.trim() === label),
-      `the ${label} settings entry`,
-    );
-  const tab = (host: HTMLElement, label: string) =>
-    required(
-      () =>
-        [
-          ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
-        ].find((button) => button.textContent === label),
-      `the ${label} tab`,
-    );
-
-  it("drops the fixed status bar and shows the primary bottom tabs", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-tabs",
-      }),
-      { route: paths.home() },
-    );
-    const { host } = app;
-    await until(() =>
-      expect(host.querySelector(".mobileShell")).not.toBeNull(),
-    );
-    expect(host.querySelector(".schoolStatusBar")).toBeNull();
-    expect(
-      [...host.querySelectorAll(".mobileTabs button")].map(
-        (button) => button.textContent,
-      ),
-    ).toEqual(["Today", "Timetable", "Lectures", "Web", "Settings"]);
-    expect(host.querySelector(".mobileStatusDot")).not.toBeNull();
-  }, 20_000);
-
-  it("keeps bare /settings as the section list and pushes a section", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-settings",
-      }),
-      { route: paths.settings() },
-    );
-    const { host, router } = app;
-    await until(() =>
-      expect(host.querySelector(".settings.list")).not.toBeNull(),
-    );
-    expect(window.location.hash).toBe(`#${paths.settings()}`);
-
-    await click(await settingsNav(host, "Appearance"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings("appearance")}`),
-    );
-    expect(router.state.historyAction).toBe("PUSH");
-    expect(host.querySelector(".settings.detail .settingsBack")).not.toBeNull();
-  }, 20_000);
-
-  it("goes up one level, reusing the parent entry when it is just below", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-up",
-      }),
-      { route: paths.settings() },
-    );
-    const { host, router } = app;
-    await until(() =>
-      expect(host.querySelector(".settings.list")).not.toBeNull(),
-    );
-    await click(await settingsNav(host, "Appearance"));
-    await until(() =>
-      expect(
-        host.querySelector(".settings.detail .settingsBack"),
-      ).not.toBeNull(),
-    );
-
-    await click(host.querySelector<HTMLButtonElement>(".settingsBack"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings()}`),
-    );
-    expect(router.state.historyAction).toBe("POP");
-  }, 20_000);
-
-  it("opened deep, Back replaces with the parent instead of leaving", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-deep",
-      }),
-      { route: paths.settings("appearance") },
-    );
-    const { host, router } = app;
-    await until(() =>
-      expect(
-        host.querySelector(".settings.detail .settingsBack"),
-      ).not.toBeNull(),
-    );
-
-    await click(host.querySelector<HTMLButtonElement>(".settingsBack"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings()}`),
-    );
-    expect(router.state.historyAction).toBe("REPLACE");
-  }, 20_000);
-
-  it("tapping the current tab again returns to its root", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-root",
-      }),
-      { route: paths.settings("appearance") },
-    );
-    const { host } = app;
-    await until(() =>
-      expect(host.querySelector(".mobileShell")).not.toBeNull(),
-    );
-
-    await click(await tab(host, "Settings"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings()}`),
-    );
-
-    await app.go(paths.home("week"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.home("week")}`),
-    );
-    await click(await tab(host, "Today"));
-    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
-  }, 20_000);
-
-  it("lists school services on Web and browses one through the route", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-web",
-      }),
-      { route: paths.web() },
-    );
-    const { host } = app;
-    const rows = await until(() => {
-      const found = [
-        ...host.querySelectorAll<HTMLButtonElement>(".mobileWebRow"),
-      ];
-      if (found.length < 4) throw new Error("the service list is not ready");
-      return found;
-    });
-    expect(host.querySelector(".servicePicker")).toBeNull();
-
-    await click(rows.find((row) => row.dataset.site === "science-lms"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.web("science-lms")}`),
-    );
-    await until(() =>
-      expect(host.querySelector(".mobileBrowserBar")).not.toBeNull(),
-    );
-    expect(host.querySelector(".mobileBrowserTitle")?.textContent).toContain(
-      "LMS",
-    );
-
-    const webTab = await required(
-      () =>
-        [
-          ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
-        ].find((button) => button.querySelector(".mobileTabMenuMark")),
-      "the marked Web tab",
-    );
-    await click(webTab);
-    await until(() =>
-      expect(document.querySelector(".mobileSiteSheet")).not.toBeNull(),
-    );
-    expect(window.location.hash).toBe(`#${paths.web("science-lms")}`);
-  }, 20_000);
-
-  it("opens a lecture as a dialog", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture({ courses: [placedCourse] }),
-        revision: "rev:mobile-lecture",
-      }),
-      { route: paths.lectures(placedCourse.id) },
-    );
-    const { host } = app;
-    const content = await required(
-      () => host.querySelector(".lectureContent"),
-      "the lecture dialog",
-    );
-    expect(content.getAttribute("role")).toBe("dialog");
-  }, 20_000);
-});
-
-/* ------------------------------------------------------------------ *
- * Swipe gestures on list rows.
- * ------------------------------------------------------------------ */
-
-/** A real row driven by real state, so no mock stands in for the app. */
-function SwipeRow() {
-  const [log, setLog] = useState<string[]>([]);
-  const record = (entry: string) => setLog((current) => [...current, entry]);
-  return (
-    <div>
-      <output className="swipeLog">{log.join(",")}</output>
-      <SwipeActions
-        leading={{ label: "Pin", run: () => record("pin") }}
-        trailing={{ label: "Hide", run: () => record("hide") }}
-      >
-        <button className="assignment" onClick={() => record("open")}>
-          Assignment
-        </button>
-      </SwipeActions>
-    </div>
-  );
-}
-
-async function pointer(
-  host: HTMLElement,
-  type: string,
-  x: number,
-  y = 100,
-): Promise<void> {
-  await act(async () => {
-    const event = new Event(type, { bubbles: true, cancelable: true });
-    Object.assign(event, {
-      clientX: x,
-      clientY: y,
-      pointerId: 1,
-      pointerType: "touch",
-      isPrimary: true,
-    });
-    host.querySelector(".assignment")!.dispatchEvent(event);
-  });
-}
-
-async function touch(type: string, x: number, y = 100): Promise<void> {
-  await act(async () => {
-    const event = new Event(type, { bubbles: true, cancelable: true });
-    Object.assign(event, {
-      touches:
-        type === "touchend" || type === "touchcancel"
-          ? []
-          : [{ clientX: x, clientY: y }],
-    });
-    document.dispatchEvent(event);
-  });
-}
-
-describe("swipe actions on list rows", () => {
-  beforeEach(async () => {
-    probe = await mount(<SwipeRow />);
-  });
-
-  it("opens on one tap, without exposing an action first", async () => {
-    const host = probe!.host;
-    await pointer(host, "pointerdown", 100);
-    await pointer(host, "pointerup", 100);
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
-    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
-      "true",
-    );
-    expect(host.querySelector(".trailing")?.getAttribute("aria-hidden")).toBe(
-      "true",
-    );
-  });
-
-  it("pins on a right swipe and hides on a left swipe, suppressing the click after a swipe", async () => {
-    const host = probe!.host;
-    await pointer(host, "pointerdown", 100);
-    await pointer(host, "pointermove", 180);
-    await pointer(host, "pointerup", 180);
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("");
-    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
-      "false",
-    );
-    await click(host.querySelector(".leading"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin");
-
-    await pointer(host, "pointerdown", 200);
-    await pointer(host, "pointermove", 100);
-    await pointer(host, "pointerup", 100);
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin");
-    expect(host.querySelector(".trailing")?.getAttribute("aria-hidden")).toBe(
-      "false",
-    );
-    await click(host.querySelector(".trailing"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin,hide");
-  });
-
-  it("cancels a gesture and ignores vertical scrolling", async () => {
-    const host = probe!.host;
-    await pointer(host, "pointerdown", 200);
-    await pointer(host, "pointermove", 195, 170);
-    await pointer(host, "pointercancel", 195, 170);
-    expect(
-      host.querySelector<HTMLElement>(".swipeContent")?.style.transform,
-    ).toBe("translateX(0px)");
-
-    await pointer(host, "pointerdown", 200);
-    await pointer(host, "pointermove", 200, 260);
-    await pointer(host, "pointerup", 200, 260);
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
-  });
-
-  it("leaves a left-to-right swipe from the screen edge to back navigation", async () => {
-    const host = probe!.host;
-    await pointer(host, "pointerdown", 10);
-    await pointer(host, "pointermove", 120);
-    await pointer(host, "pointerup", 120);
-    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
-      "true",
-    );
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
-  });
-});
-
-describe("edge-swipe back on the mobile shell", () => {
-  beforeEach(() => {
-    window.matchMedia = ((media: string) => ({
-      media,
-      matches: media === STACKED_QUERY,
-      addEventListener() {},
-      removeEventListener() {},
-    })) as unknown as typeof window.matchMedia;
-  });
-
-  it("navigates back when a left-to-right swipe starts at the screen edge", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:edge",
-      }),
-      { route: paths.home("week") },
-    );
-    await until(() =>
-      expect(app!.host.querySelector(".mobileShell")).not.toBeNull(),
-    );
-
-    await touch("touchstart", 10);
-    await touch("touchmove", 500);
-    await touch("touchend", 500);
-    await advance(250);
-    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
   }, 20_000);
 });
 
@@ -2340,7 +1970,10 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
   );
   await app.go(paths.timetable());
   await until(() =>
-    expect(hints()).toContainEqual({ kind: "open", view: { kind: "timetable" } }),
+    expect(hints()).toContainEqual({
+      kind: "open",
+      view: { kind: "timetable" },
+    }),
   );
   const timetableRefresh = await required(
     () =>

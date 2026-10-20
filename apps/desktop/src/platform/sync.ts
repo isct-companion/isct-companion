@@ -136,7 +136,7 @@ const RANK: Record<SyncPriority, number> = {
   background: 0,
 };
 
-/** What the one-line progress (workstation footer, compact pill) shows. */
+/** What the one-line progress in the workstation footer shows. */
 export type ProgressLine =
   | { kind: "idle" }
   /** A visible run with a known size: a determinate bar. */

@@ -56,3 +56,8 @@ macOS のリリース版は署名・公証済みです。Windows 版は現在未
 レビュー済みのバージョンは、一致するバージョンタグの push で配布できます。[リリース手順](docs/desktop-release.md) を参照してください。
 
 IsctCompanion は独立したプロジェクトです。利用・配布には [日本語利用規約](docs/legal/EULA.ja.md) と [English EULA](docs/legal/EULA.md) が適用されます。
+
+## 謝辞
+
+Windows 版を実機で検証し、見つかった不具合を報告してくれた
+[@ticofei-isct](https://github.com/ticofei-isct) に感謝します。

@@ -1,5 +1,5 @@
-import type { Course, Meeting } from "./model";
-import { syllabusIdentity, type SyllabusContent } from "./syllabus-content";
+import type { Meeting } from "./model";
+import type { SyllabusContent } from "./syllabus-content";
 
 export type SyllabusCourse = {
   externalId: string;
@@ -16,8 +16,3 @@ export type SyllabusCourse = {
   updated?: string;
   content?: SyllabusContent | null;
 };
-
-export const isSyllabusCourse = (course: Course) =>
-  course.source.provider === "syllabus" ||
-  (course.source.provider === "school" &&
-    Boolean(course.url && syllabusIdentity(course.url)));

@@ -1,9 +1,6 @@
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
-import { useMediaQuery } from "@mantine/hooks";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Drawer } from "@mantine/core";
 import { UiButton, UiInput } from "../../components/mantine";
-import { MobileWebList } from "../../layouts/compact/MobileWeb";
 import { t } from "../../i18n";
 import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
@@ -12,7 +9,6 @@ import type { Workspace } from "../../lib/model";
 import {
   claimSchoolView,
   desktopBridge,
-  hideNativeSchoolWeb,
   schoolWebExit,
   official,
 } from "../../app/native";
@@ -43,10 +39,6 @@ export function Web({
   returnLabel,
   onReturn,
   active = true,
-  layout = "workstation",
-  mobileSite = null,
-  openMobileSite,
-  sitesRequest = 0,
 }: {
   /** False while another page is shown; the page stays mounted (keep alive). */
   active?: boolean;
@@ -59,25 +51,8 @@ export function Web({
   request?: number;
   returnLabel?: string;
   onReturn?: () => void;
-  /** Phones list the services, then browse one full screen. */
-  layout?: "workstation" | "mobile";
-  /** The service browsed on a phone (from the route); null shows the list. */
-  mobileSite?: SchoolSite | null;
-  openMobileSite?: (site: SchoolSite | null, replace?: boolean) => void;
-  /** Bumped when the Web tab is tapped again while browsing: open services. */
-  sitesRequest?: number;
 }) {
-  const mobile = layout === "mobile";
-  const browsing = !mobile || Boolean(mobileSite);
-  const [sitesOpen, setSitesOpen] = useState(false);
-  const shownRequest = useRef(sitesRequest);
-  useEffect(() => {
-    if (sitesRequest === shownRequest.current) return;
-    shownRequest.current = sitesRequest;
-    if (mobile && browsing) setSitesOpen(true);
-  }, [sitesRequest, mobile, browsing]);
   const [site, setSite] = useState<SchoolSite>(() => {
-    if (mobileSite) return mobileSite;
     if (requestedUrl) return "science-lms";
     const active = sessionStorage.getItem("isct-companion-active-school-site");
     if (active && active in official) return active as SchoolSite;
@@ -94,7 +69,6 @@ export function Web({
   notifyRef.current = notify;
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [address, setAddress] = useState(initialUrl);
-  const wide = useMediaQuery("(min-width: 761px)");
   const zoom = data.settings.schoolWebZoom ?? 1;
   const setZoom = (value: number) =>
     update((draft) => {
@@ -188,10 +162,8 @@ export function Web({
     }
   };
 
-  // A sheet over the page must hide the native view, which sits above the DOM.
-  const viewActive = active && browsing && !sitesOpen;
   useEffect(() => {
-    if (!embedded || !desktopBridge || !viewActive) return;
+    if (!embedded || !desktopBridge || !active) return;
     const target =
       requestedUrl && openedRequest.current !== requestKey
         ? requestedUrl
@@ -202,7 +174,6 @@ export function Web({
     );
     if (!target && requested && requested in official && requested !== site) {
       setSite(requested as SchoolSite);
-      if (mobile) openMobileSite?.(requested as SchoolSite, true);
       return;
     }
     let cancelled = false;
@@ -224,7 +195,6 @@ export function Web({
         ).then((resolved) => {
           if (resolved.site !== site) {
             setSite(resolved.site);
-            if (mobile) openMobileSite?.(resolved.site, true);
             return undefined;
           }
           return desktopBridge!.openSchoolSite(
@@ -268,7 +238,7 @@ export function Web({
     };
     // Site changes intentionally reuse the resident view and its shared session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site, embedded, viewActive, requestKey]);
+  }, [site, embedded, active, requestKey]);
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
@@ -327,7 +297,6 @@ export function Web({
         return draft;
       });
       setSite(destination);
-      if (mobile) openMobileSite?.(destination, true);
     }
     setCurrentUrl(target);
     setStatus("");
@@ -365,28 +334,6 @@ export function Web({
     }
   };
 
-  // Phones: the route picks the service; leaving it for the list hides the view.
-  useEffect(() => {
-    if (mobile && mobileSite && mobileSite !== site) choose(mobileSite);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileSite]);
-  useEffect(() => {
-    if (mobile && (!mobileSite || sitesOpen) && embedded && active)
-      void hideNativeSchoolWeb().catch(() => undefined);
-  }, [mobile, mobileSite, sitesOpen, embedded, active]);
-  const mobileBack = async () => {
-    const moved = await desktopBridge?.schoolWebBack?.(site).catch(() => false);
-    if (!moved) openMobileSite?.(null);
-  };
-  const openSiteOutside = (target: SchoolSite) => {
-    const url = official[target].url;
-    if (desktopBridge && platform !== "browser-preview")
-      void desktopBridge
-        .openExternal(url)
-        .catch(() => notify("Could not open the system browser."));
-    else window.open(url, "_blank", "noopener,noreferrer");
-  };
-
   const setPageZoom = (next: number) => {
     const value = Math.round(clamp(next, 0.5, 2) * 10) / 10;
     setZoom(value);
@@ -420,102 +367,12 @@ export function Web({
   };
 
   const frameable = site !== "science-lms";
-  if (mobile && !browsing)
-    return (
-      <MobileWebList
-        current={site}
-        open={(target) =>
-          embedded ? openMobileSite?.(target) : openSiteOutside(target)
-        }
-      />
-    );
-  if (mobile)
-    return (
-      <div className="page web mobileBrowser">
-        <div className="mobileBrowserBar">
-          <UiButton
-            className="iconButton"
-            aria-label={t("Back")}
-            onClick={() => void mobileBack()}
-          >
-            ‹
-          </UiButton>
-          {embedded && desktopBridge?.schoolWebForward && (
-            <UiButton
-              className="iconButton"
-              aria-label={t("Forward")}
-              onClick={() => void goForward()}
-            >
-              ›
-            </UiButton>
-          )}
-          <b className="mobileBrowserTitle">{t(official[site].name)}</b>
-          {embedded && desktopBridge?.reloadSchoolWeb && (
-            <UiButton
-              className="iconButton"
-              aria-label={t("Reload")}
-              onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
-            >
-              ↻
-            </UiButton>
-          )}
-          <UiButton
-            className="iconButton"
-            aria-label={t("Open in browser")}
-            onClick={openOutside}
-          >
-            ↗
-          </UiButton>
-        </div>
-        {status && (
-          <p className="mobileBrowserStatus" role="status">
-            {status}
-          </p>
-        )}
-        <div className="webHost" ref={host}>
-          {!embedded && (
-            <div className="webFallback">
-              <b>{t(official[site].name)}</b>
-              <UiButton className="button primary" onClick={openOutside}>
-                {t("Open in browser")} ↗
-              </UiButton>
-            </div>
-          )}
-        </div>
-        <Drawer
-          opened={sitesOpen}
-          onClose={() => setSitesOpen(false)}
-          position="bottom"
-          size="auto"
-          title={t("School services")}
-          classNames={{ content: "mobileSheet" }}
-        >
-          <ul className="mobileSiteSheet">
-            {serviceTiers
-              .flatMap((tier) => tier.sites)
-              .map((key) => (
-                <li key={key}>
-                  <UiButton
-                    className={site === key ? "active" : ""}
-                    onClick={() => {
-                      setSitesOpen(false);
-                      openMobileSite?.(key, true);
-                    }}
-                  >
-                    {t(official[key].name)}
-                  </UiButton>
-                </li>
-              ))}
-          </ul>
-        </Drawer>
-      </div>
-    );
   return (
     <div className="page web servicesPage">
       <div className="servicesBody">
         <ResizableWorkspace
           id="web"
-          enabled={wide}
+          enabled
           firstSize={168}
           firstMin={104}
           firstMax={360}

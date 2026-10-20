@@ -6,7 +6,6 @@ import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { usePanelRef } from "react-resizable-panels";
-import { useMediaQuery } from "@mantine/hooks";
 import {
   Activity,
   useEffect,
@@ -24,7 +23,6 @@ import { jstMinutes } from "../../components/timetable/timetable";
 import { jstDate } from "../../app/shared";
 import { t } from "../../i18n";
 import type { CourseEntry } from "../../features/lms/LmsWorkspace";
-import { useFormFactor } from "../../app/form-factor";
 import { useClock } from "../../platform/use-clock";
 import {
   useScheduleQueries,
@@ -69,7 +67,6 @@ export function LectureDesk({
   examEntry,
   select,
   selectExam,
-  clear,
   active,
   renderWorkspace,
   restoreAssignment,
@@ -83,7 +80,6 @@ export function LectureDesk({
   examEntry: { key: string; term: TermId; request: number } | null;
   select: (courseId: string, assignmentId?: string, term?: TermId) => void;
   selectExam: (key: string, term: string) => void;
-  clear: () => void;
   active: boolean;
   renderWorkspace: (
     entry: CourseEntry,
@@ -95,16 +91,13 @@ export function LectureDesk({
   /** Changes when Today asks for the current quarter's assignment list. */
   assignmentsRequest?: number;
 }) {
-  // Single-column layouts open the lecture as a dialog over the list.
-  const wide = useMediaQuery("(min-width: 769px)");
-  const stacked = useFormFactor() === "mobile";
   const sidebar = usePanelRef();
   const [collapsed, setCollapsed] = useState(false);
   const [floating, setFloating] = useState(false);
   const [listHovered, setListHovered] = useState(false);
   const [listFocused, setListFocused] = useState(false);
   useEffect(() => {
-    if (!wide || !active || !collapsed) {
+    if (!active || !collapsed) {
       setFloating(false);
       return;
     }
@@ -115,7 +108,7 @@ export function LectureDesk({
     // Bridge the gap between the rail and the floating list.
     const timer = window.setTimeout(() => setFloating(false), 200);
     return () => window.clearTimeout(timer);
-  }, [wide, active, collapsed, railHovered, listHovered, listFocused]);
+  }, [active, collapsed, railHovered, listHovered, listFocused]);
   const choose = (courseId: string, assignmentId?: string) => {
     setFloating(false);
     setQuery("");
@@ -323,7 +316,7 @@ export function LectureDesk({
       ].slice(-2)
     : recent;
 
-  const sidebarToggle = wide ? (
+  const sidebarToggle = (
     <button
       type="button"
       className="lectureSidebarToggle"
@@ -350,13 +343,13 @@ export function LectureDesk({
         <path d="M9 4v16" />
       </svg>
     </button>
-  ) : undefined;
+  );
 
   return (
     <div
-      className={`page lectureDesk${(mode === "exams" ? selectedExam : entry) ? " open" : ""}`}
-      data-sidebar-collapsed={wide && collapsed}
-      data-sidebar-floating={wide && collapsed && floating}
+      className="page lectureDesk"
+      data-sidebar-collapsed={collapsed}
+      data-sidebar-floating={collapsed && floating}
       onKeyDown={(event) => {
         if (event.key === "Escape" && floating) {
           setFloating(false);
@@ -366,7 +359,7 @@ export function LectureDesk({
     >
       <ResizableWorkspace
         id="lectures"
-        enabled={wide}
+        enabled
         firstSize={220}
         firstCollapsible
         firstPanelRef={sidebar}
@@ -379,7 +372,7 @@ export function LectureDesk({
           id="lecture-sidebar"
           className="lectureList"
           aria-label={t("Lectures")}
-          inert={wide && collapsed && !floating}
+          inert={collapsed && !floating}
           onPointerEnter={() => setListHovered(true)}
           onPointerLeave={() => setListHovered(false)}
           onFocusCapture={() => setListFocused(true)}
@@ -390,7 +383,7 @@ export function LectureDesk({
         >
           <header>
             <div className="lectureListTitle">
-              {wide && collapsed && floating && sidebarToggle}
+              {collapsed && floating && sidebarToggle}
               <h1>{t("Lecture Desk")}</h1>
             </div>
             <UiSelect
@@ -573,32 +566,10 @@ export function LectureDesk({
             </p>
           )}
         </nav>
-        <div
-          className="lectureContent"
-          role={
-            stacked && (mode === "exams" ? selectedExam : entry)
-              ? "dialog"
-              : undefined
-          }
-          aria-modal={
-            stacked && (mode === "exams" ? selectedExam : entry)
-              ? true
-              : undefined
-          }
-        >
+        <div className="lectureContent">
           {mode === "exams" && (
             <div className="lectureExamDetails">
               {sidebarToggle}
-              <button
-                type="button"
-                className="lectureBack"
-                onClick={() => {
-                  setExamKey(null);
-                  clear();
-                }}
-              >
-                ‹ {t("Exams")}
-              </button>
               {selectedExam ? (
                 <>
                   <header>
@@ -623,13 +594,8 @@ export function LectureDesk({
             </div>
           )}
           <div className="lectureCourseContent" hidden={mode === "exams"}>
-            {!entry && wide && (
+            {!entry && (
               <header className="lectureEmptyHeader">{sidebarToggle}</header>
-            )}
-            {entry && (
-              <button type="button" className="lectureBack" onClick={clear}>
-                ‹ {t("Lectures")}
-              </button>
             )}
             {retained.map((item) => (
               <div

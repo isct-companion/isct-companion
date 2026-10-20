@@ -79,7 +79,7 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
             let border = deviation(
                 (0..32)
                     .flat_map(|y| (0..32).map(move |x| (x, y)))
-                    .filter(|&(x, y)| x < 4 || x >= 28 || y < 4 || y >= 28)
+                    .filter(|&(x, y)| !(4..28).contains(&x) || !(4..28).contains(&y))
                     .map(|(x, y)| measured.get_pixel(x, y)[0] as f64)
                     .collect(),
             );
@@ -177,7 +177,9 @@ impl MatrixAlphabetService {
         {
             return Err(MatrixOcrError::Model("Invalid alphabet output.".into()));
         }
-        data.chunks_exact(27)
+        data.as_chunks::<27>()
+            .0
+            .iter()
             .map(|row| {
                 let (winner, &max) = row
                     .iter()

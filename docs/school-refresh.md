@@ -22,7 +22,7 @@ only tasks the person created (for example scheduled exports).
 | `power-saver` | Mobile: Low Power Mode / battery saver. |
 | `signed-in` | Core sends the equivalent itself when a school session becomes active; mobile shells also send it after saving credentials. |
 | `open { view }` | A page became visible: Today, Assignments (Lecture Desk without a course), Timetable, Course (a lecture with an LMS record), Finder (the course search for a year), Offering (a syllabus detail panel), Grades (the workstation timetable's academic summary). Desktop sends them from `App.tsx` through `useOpenHint`. Core reads that page's keys at the 15-minute open threshold, at Visible/Interactive priority. |
-| `refresh { scope }` | Refresh buttons: the footer and the compact sheet (`everything`), the timetable (`site: science-lms`), the GPA summary (`site: kyomu`), a lecture (`course`), the data-update and calendar settings (`references`), and each failed dataset's Retry. Manual refresh ignores TTL and backoff but keeps single-flight; repeats within 30 s join the first. |
+| `refresh { scope }` | Refresh buttons: the footer (`everything`), the timetable (`site: science-lms`), the GPA summary (`site: kyomu`), a lecture (`course`), the data-update and calendar settings (`references`), and each failed dataset's Retry. Manual refresh ignores TTL and backoff but keeps single-flight; repeats within 30 s join the first. |
 
 Commands: Tauri `sync_hint(hint)` and `sync_snapshot()`
 (`src-tauri/src/commands/sync.rs`); FFI `Session::sync_hint`,
@@ -39,13 +39,12 @@ once; a late read never replaces a newer event (desktop: `onSyncSnapshot` in
 How the desktop renders it (`platform/sync.ts`, `app/SchoolStatusLine.tsx`,
 `app/sync-text.ts`):
 
-- **One progress line**, in the workstation footer and as a small pill at the
-  top of the compact layout. The highest-priority working run wins. A
-  determinate bar appears only when the run's `total` is known; a run of
-  unknown size shows its label; background-only work is a small spinner and
-  "Updating in the background". Held work names its reason (offline, waiting
-  for Wi-Fi, power saver, in front only, retry time, host paused, sign-in,
-  resetting).
+- **One progress line**, in the workstation footer. The highest-priority
+  working run wins. A determinate bar appears only when the run's `total` is
+  known; a run of unknown size shows its label; background-only work is a
+  small spinner and "Updating in the background". Held work names its reason
+  (offline, waiting for Wi-Fi, power saver, in front only, retry time, host
+  paused, sign-in, resetting).
 - **Idle** shows each source's age from `SourceView.lastUpdated`.
 - **Failures** are listed per dataset with their reason and "retries at …",
   each with a Retry that sends `refresh` for that run's scope (`retryScope`).

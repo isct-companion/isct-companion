@@ -246,9 +246,6 @@ button.calendarDay.open {
 .calendarAdd {
   margin-bottom: 4px;
 }
-.settingsBack {
-  margin: 0 0 6px -4px;
-}
 .calendarDay time {
   color: var(--muted);
   font-size: calc(12px * var(--text));
@@ -326,16 +323,6 @@ button.calendarDay.open {
 .matrixRow > *,
 .settingsPane .row > * {
   min-width: 0;
-}
-.settings.detail {
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: clip;
-}
-.settings.detail .settingsPane {
-  width: 100%;
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 @container (max-width: 420px) {
   .settingsPane .matrixGrid {

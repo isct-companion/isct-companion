@@ -48,7 +48,6 @@ apps/desktop/
   src/                     React application and disposable view caches
     app/                   application composition, routes and lifecycle
     pages/                 desktop screens
-    layouts/compact/       responsive layout for narrow desktop windows
     features/              feature UI and document viewers
     platform/              Tauri client, query hooks and platform presentation
     lib/                   desktop presentation helpers and preview fixtures

@@ -3,13 +3,12 @@ import { describe, expect, it } from "vitest";
 import { submissionLabel } from "@app/lib/academic";
 import { COURSE_FILE_POLICY } from "@app/lib/course-file-policy";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "@app/lib/departments";
-import type { Assignment, Course } from "@app/lib/model";
-import { isSyllabusCourse } from "@app/lib/syllabus";
+import type { Assignment } from "@app/lib/model";
 import {
   syllabusIdentity,
   validSyllabusContent,
 } from "@app/lib/syllabus-content";
-import { courseFor, offering, readRepoFile } from "@tests/harness";
+import { readRepoFile } from "@tests/harness";
 
 /**
  * The parts of the course pipeline that decide what the finder may offer, which
@@ -521,73 +520,6 @@ describe("the committed syllabus examples", () => {
         syllabusIdentity(example.url),
       );
     }
-  });
-});
-
-describe("deciding which placed courses have a syllabus", () => {
-  const placed = (overrides: Partial<Course> = {}) =>
-    courseFor(
-      offering("202602440", "CSC.T243", "Procedural Programming"),
-      overrides,
-    );
-
-  it("accepts a course Core sourced from the syllabus, even without a URL", () => {
-    expect(isSyllabusCourse(placed({ url: undefined }))).toBe(true);
-    expect(
-      isSyllabusCourse(
-        placed({
-          source: { provider: "syllabus" },
-          url: "https://example.com/not-a-syllabus",
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("accepts a school course whose timetable entry links to the syllabus", () => {
-    expect(
-      isSyllabusCourse(
-        placed({ source: { provider: "school" }, url: CANONICAL_SYLLABUS_URL }),
-      ),
-    ).toBe(true);
-    expect(
-      isSyllabusCourse(
-        placed({ source: { provider: "school" }, url: ID_ONLY_SYLLABUS_URL }),
-      ),
-    ).toBe(true);
-  });
-
-  it("refuses a school course with no URL to follow", () => {
-    const school = placed({ source: { provider: "school" }, url: undefined });
-    expect(isSyllabusCourse(school)).toBe(false);
-  });
-
-  it("refuses a school course whose URL is not a syllabus page", () => {
-    expect(
-      isSyllabusCourse(
-        placed({
-          source: { provider: "school" },
-          url: "https://syllabus.s.isct.ac.jp/",
-        }),
-      ),
-    ).toBe(false);
-    expect(
-      isSyllabusCourse(
-        placed({
-          source: { provider: "school" },
-          url: "https://lms.example.com/course/view.php?id=1",
-        }),
-      ),
-    ).toBe(false);
-  });
-
-  it("refuses a course from another source even when it cites a syllabus URL", () => {
-    for (const provider of ["lms", "manual", "subscription"] as const)
-      expect(
-        isSyllabusCourse(
-          placed({ source: { provider }, url: CANONICAL_SYLLABUS_URL }),
-        ),
-        provider,
-      ).toBe(false);
   });
 });
 

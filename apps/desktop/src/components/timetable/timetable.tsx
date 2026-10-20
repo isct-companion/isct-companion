@@ -108,8 +108,6 @@ export function WeekTimetable({
   onSelect,
   selectedId,
   showNow = false,
-  initialDay = 1,
-  emptyLabel = "Nothing scheduled",
   onSlot,
   activeSlots,
   actionsFor,
@@ -118,8 +116,6 @@ export function WeekTimetable({
   onSelect?: (block: Block) => void;
   selectedId?: string;
   showNow?: boolean;
-  initialDay?: number;
-  emptyLabel?: string;
   /** Clicking the free area of a teaching slot (day is 1 = Monday); `append` with ⌘/Ctrl. */
   onSlot?: (day: number, from: number, to: number, append: boolean) => void;
   /** Slots to highlight, as `${day}:${from}-${to}`. */
@@ -138,9 +134,6 @@ export function WeekTimetable({
     event.preventDefault();
     setMenu({ x: event.clientX, y: event.clientY, actions });
   };
-  const [day, setDay] = useState(
-    Math.min(Math.max(initialDay, 1), Math.max(days.length, 1)),
-  );
   // Every period is one row; Core places times on that axis
   // (`timetable_axis`), widened around classes outside the teaching day.
   const span = axisSpan(days.flatMap((column) => column.blocks));
@@ -152,7 +145,6 @@ export function WeekTimetable({
   const rows = axis ? axisRows(axis) : [];
   const nowOffset =
     showNow && axis ? nowPercent(axis, jstMinutes()) : undefined;
-  const agenda = days[day - 1]?.blocks ?? [];
   return (
     <div
       className={`tt${days.some((column) => column.calendarNotice) ? " hasCalendarNotice" : ""}`}
@@ -325,71 +317,6 @@ export function WeekTimetable({
             )}
           </div>
         ))}
-      </div>
-      <div className="ttAgenda">
-        <div className="ttDayTabs">
-          {days.map((column, index) => (
-            <UiButton
-              type="button"
-              key={column.label}
-              className={day === index + 1 ? "active" : ""}
-              onClick={() => setDay(index + 1)}
-            >
-              {t(column.label.slice(0, 3))}
-              {column.date && <small>{column.date.slice(8)}</small>}
-            </UiButton>
-          ))}
-        </div>
-        <div
-          className={`ttAgendaList${days[day - 1]?.noClasses ? " noClasses" : ""}`}
-        >
-          {days[day - 1]?.calendarNotice && (
-            <div className="ttCalendarNotice">
-              {days[day - 1].calendarNotice}
-            </div>
-          )}
-          {agenda.length ? (
-            agenda.map((block) => (
-              <UiButton
-                type="button"
-                className={`ttAgendaRow ${block.kind}${block.cancelled ? " cancelled" : ""}${block.conflict ? " conflict" : ""}`}
-                style={{ "--course": block.color } as React.CSSProperties}
-                key={block.key}
-                onClick={() => onSelect?.(block)}
-                onContextMenu={(event) => openMenu(event, block)}
-              >
-                <time>
-                  {block.startTime}
-                  <small>{block.endTime}</small>
-                </time>
-                <span>
-                  <b>{block.title}</b>
-                  <small>
-                    {block.kind === "exam" && (
-                      <span className="ttExamTag">{t("Exam")}</span>
-                    )}
-                    {[
-                      block.subtitle,
-                      block.alternation && alternationLabel(block.alternation),
-                      block.room,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </small>
-                  {block.conflictWith?.length ? (
-                    <small className="ttConflict">
-                      {t("Overlaps {{courses}}", {
-                        courses: block.conflictWith.join(", "),
-                      })}
-                    </small>
-                  ) : null}
-                </span>
-              </UiButton>
-            ))
-          ) : (
-            <div className="empty">{t(emptyLabel)}</div>
-          )}
-        </div>
       </div>
       {/* A zero-size anchor at the pointer places the menu where the user
           right-clicked. */}

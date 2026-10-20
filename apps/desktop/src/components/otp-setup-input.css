@@ -14,11 +14,3 @@
 .otpSetupRow > :last-child {
   flex-shrink: 0;
 }
-@media (max-width: 600px) {
-  .otpSetupRow {
-    flex-wrap: wrap;
-  }
-  .otpSetupRow > :first-child {
-    flex-basis: 100%;
-  }
-}

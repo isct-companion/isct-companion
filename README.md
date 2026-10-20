@@ -60,3 +60,8 @@ Maintainers can publish a reviewed version by pushing a matching version tag;
 
 IsctCompanion is an independent project. Use and distribution are governed by the
 [English EULA](docs/legal/EULA.md) and [日本語利用規約](docs/legal/EULA.ja.md).
+
+## Acknowledgements
+
+Thanks to [@ticofei-isct](https://github.com/ticofei-isct) for testing the
+Windows app on real hardware and reporting the bugs found there.

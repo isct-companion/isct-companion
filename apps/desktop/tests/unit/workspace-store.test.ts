@@ -915,10 +915,6 @@ describe("shared workspace routes", () => {
     expect(routeRedirect("/settings/bad")).toBe(paths.settings("accounts"));
   });
 
-  it("accepts the bare settings route in the stacked shell", () => {
-    expect(routeRedirect(paths.settings(), { stacked: true })).toBeUndefined();
-  });
-
   it("redirects a missing or deleted course back to the lecture list", () => {
     expect(routeRedirect(paths.lectures("missing"), { courses: [] })).toBe(
       paths.lectures(),
@@ -1185,7 +1181,10 @@ describe("Tauri bridge contract", () => {
       kind: "refresh",
       scope: { kind: "course", lmsCourseId: 42 },
     });
-    await bridge.syncHint!({ kind: "open", view: { kind: "finder", year: 2026 } });
+    await bridge.syncHint!({
+      kind: "open",
+      view: { kind: "finder", year: 2026 },
+    });
 
     expect(calls).toEqual([
       {
@@ -1196,7 +1195,9 @@ describe("Tauri bridge contract", () => {
       },
       {
         command: "sync_hint",
-        payload: { hint: { kind: "open", view: { kind: "finder", year: 2026 } } },
+        payload: {
+          hint: { kind: "open", view: { kind: "finder", year: 2026 } },
+        },
       },
     ]);
   });
@@ -1534,7 +1535,12 @@ describe("sync snapshot surfaces", () => {
       run: { run: "vis" },
     });
     // The page the person opened outranks Core's visible work.
-    const opened = run({ run: "open", priority: "interactive", done: 4, total: 9 });
+    const opened = run({
+      run: "open",
+      priority: "interactive",
+      done: 4,
+      total: 9,
+    });
     expect(progressLine(syncOf(unsized, opened))).toEqual({
       kind: "bar",
       run: opened,
