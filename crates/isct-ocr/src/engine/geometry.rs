@@ -9,7 +9,7 @@ fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(f64::total_cmp);
     v[v.len() / 2]
 }
-fn fit(points: &[Point]) -> impl Fn(f64) -> f64 {
+pub(super) fn fit(points: &[Point]) -> impl Fn(f64) -> f64 {
     let mut slopes = vec![];
     for (i, a) in points.iter().enumerate() {
         for b in &points[i + 1..] {
@@ -70,7 +70,7 @@ fn joins_header(image: &RgbImage, previous: Run, next: Run, threshold: u8) -> bo
     total > 0 && hits as f64 / total as f64 > 0.5
 }
 
-fn capture_body_score(image: &RgbImage, corners: &[Point; 4]) -> Option<usize> {
+fn capture_body_score(image: &RgbImage, corners: &[Point; 4]) -> Option<(usize, usize)> {
     let (w, h) = (image.width() as f64, image.height() as f64);
     if corners.iter().any(|p| {
         !p.x.is_finite() || !p.y.is_finite() || p.x < 0. || p.y < 0. || p.x >= w || p.y >= h
@@ -93,7 +93,7 @@ fn capture_body_score(image: &RgbImage, corners: &[Point; 4]) -> Option<usize> {
         );
         pixel[0] as f64 * 0.299 + pixel[1] as f64 * 0.587 + pixel[2] as f64 * 0.114
     };
-    let mut supported = 0;
+    let (mut supported, mut coverage) = (0, 0);
     for vertical in [true, false] {
         let count = if vertical { 10 } else { 7 };
         for line in 1..count {
@@ -122,13 +122,14 @@ fn capture_body_score(image: &RgbImage, corners: &[Point; 4]) -> Option<usize> {
             if hits >= 7 {
                 supported += 1;
             }
+            coverage += hits;
         }
     }
-    Some(supported)
+    Some((supported, coverage))
 }
 
 fn capture_body_valid(image: &RgbImage, corners: &[Point; 4]) -> bool {
-    capture_body_score(image, corners).is_some_and(|supported| supported >= 10)
+    capture_body_score(image, corners).is_some_and(|(supported, _)| supported >= 10)
 }
 
 fn template_at(
@@ -245,6 +246,8 @@ fn template_at(
                     },
                 ];
                 if let Some(score) = capture_body_score(image, &corners) {
+                    // Equal line counts used to favor the shortest candidate
+                    // pitch. Break ties with coverage along the actual lines.
                     if best
                         .as_ref()
                         .is_none_or(|(best_score, _, _)| score > *best_score)
@@ -255,7 +258,7 @@ fn template_at(
                 row_height += 0.5;
             }
             if let Some((score, _, corners)) = best {
-                if score >= 13 {
+                if score.0 >= 13 {
                     return Some(corners);
                 }
             }
@@ -385,7 +388,10 @@ fn template_at(
                     y: bottom_line(left),
                 },
             ];
-            if super::contours::valid(image, &corners) || capture_body_valid(image, &body_corners) {
+            if let Some(body) = super::contours::validated_body(image, &corners) {
+                return Some(body);
+            }
+            if capture_body_valid(image, &body_corners) {
                 return Some(body_corners);
             }
             continue;

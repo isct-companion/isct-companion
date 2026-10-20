@@ -32,6 +32,10 @@ and whether texture lies inside the glyph instead of on a cropped grid edge.
 It performs no character-model inference and no input binarization. Geometry
 localization tries the existing grid/header detector first, then retries with
 locally corrected illumination while preserving its label/grid validation.
+The label bands are measured separately from the 7×10 body. Internal line
+centers calibrate the body bounds before rectification, so a taller/shorter
+header or a thick border cannot shift the letter crops. Contour and header
+fallback paths use the same validated body coordinates.
 Cell quality is measured after bounded local illumination correction so a dim
 but readable glyph can start acquisition without lowering the texture gates.
 The retained candidate remains the original grayscale image.
@@ -40,8 +44,9 @@ The retained candidate remains the original grayscale image.
 The first plausible Matrix (at least half its cells have usable texture) starts
 an eight-second deadline. Each cell independently retains up to six candidate
 gray images from observations at least 100 ms apart, preferring sharp centered
-texture. Clipped highlights combined with uneven paper brightness reject only
-the affected cells; uniform white paper is not treated as glare. These rejections
+texture. Clipped highlights combined with uneven paper brightness within a cell
+or relative to the card's upper-quartile paper level reject only the affected
+cells; uniform white paper is not treated as glare. These rejections
 do not suppress the first plausible grid or restart its deadline.
 Acquisition stops immediately once every cell has five candidates, or
 at the deadline. A periodic shell wakeup enforces the deadline even when video

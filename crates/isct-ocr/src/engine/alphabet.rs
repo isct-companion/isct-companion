@@ -53,11 +53,23 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
     let quads = normalized_quads(&cells, &small);
     let geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
     let stage = std::time::Instant::now();
-    let glyphs = quads
+    let patches = quads
         .iter()
         .map(|&quad| {
             let gray = rectified_gray(&image, quad)?;
             let light = illumination::analyze(&gray);
+            Ok((gray, light))
+        })
+        .collect::<Result<Vec<_>, MatrixOcrError>>()?;
+    let mut paper: Vec<_> = patches.iter().map(|(_, light)| light.paper).collect();
+    paper.sort_by(f64::total_cmp);
+    // The upper quartile preserves well-lit cells on a partly shadowed card,
+    // while isolated saturated rows/columns stand out against normal paper.
+    let reference = paper.get(paper.len() * 3 / 4).copied().unwrap_or(255.);
+    let glyphs = patches
+        .into_iter()
+        .zip(&quads)
+        .map(|((gray, light), &quad)| {
             let measured = image::imageops::resize(
                 light.corrected.as_ref().unwrap_or(&gray),
                 32,
@@ -109,7 +121,7 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
                 sharpness,
                 source_size,
                 centering,
-                glare: light.glare,
+                glare: light.glare_against(reference),
             })
         })
         .collect::<Result<Vec<_>, MatrixOcrError>>()?;

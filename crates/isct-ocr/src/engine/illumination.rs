@@ -8,6 +8,17 @@ use imageproc::{
 pub(super) struct Illumination {
     pub corrected: Option<GrayImage>,
     pub glare: f64,
+    pub paper: f64,
+    clipped: f64,
+}
+impl Illumination {
+    pub fn glare_against(&self, paper: f64) -> f64 {
+        // A reflection can saturate an entire cell's paper field, hiding its
+        // local gradient. Compare with the card too; uniformly white cards
+        // still have no relative brightness excess.
+        self.glare
+            .max(self.clipped * ((self.paper - paper - 20.) / 80.).clamp(0., 1.))
+    }
 }
 
 fn correct(gray: &GrayImage, background: &GrayImage, target: f64, max_gain: f64) -> GrayImage {
@@ -55,5 +66,10 @@ pub(super) fn analyze(gray: &GrayImage) -> Illumination {
     } else {
         None
     };
-    Illumination { corrected, glare }
+    Illumination {
+        corrected,
+        glare,
+        paper: high,
+        clipped,
+    }
 }

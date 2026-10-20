@@ -33,6 +33,47 @@ additional correct reading while eliminating three wrong settled readings;
 other low-quality crops remain unsettled. The algorithm does not fill erased
 strokes.
 
+## Follow-up: body calibration after physical-card feedback
+
+The table above records the first illumination checkpoint. Subsequent local
+inspection of 12 explicitly authorized anonymous glyph crops found grid borders
+and clipped letter bottoms. Those private images remain local and are excluded
+from this report and training.
+
+The contour path assumed the header was one body row tall. It now measures the
+label bands independently and fits internal line centers before dividing the
+body. Both axes must supply enough grid lines: a reflection that splits the
+outline must not let a partial card pass on vertical evidence alone. The header
+fallback breaks tied row-pitch scores with line coverage instead of selecting
+the shortest pitch. Fully saturated cells also compare their paper level with
+the rest of the card, so a reflection cannot evade rejection by erasing its
+local brightness gradient.
+
+With unchanged model weights, the same lighting replay now reads 60 rather than
+51 cells under the fixed horizontal glare band; the ten obscured cells remain
+for review. All 12 conditions have zero wrong settled cells. Clean, dim,
+very-dim, small-dim, shadow, moving-glare, blur and tilt retain 70 correct cells.
+The clipped-margin dim/rotated sequence regresses from 70 to 68 correct cells,
+both missing cells remaining unsettled; this edge case remains open.
+The fixed glare spot retains 64 correct cells and the blank sequence has no
+geometry.
+
+A separate public synthetic Times New Roman card uses a 48 × 42 px body cell,
+header heights 22/34/42/58 px and grid intensities 35/95/135. Before calibration,
+the twelve variants returned 35–67 correct cells; afterward each returns 67/70
+with zero wrong settled cells. The three repeated Q glyphs remain unsettled.
+These are controlled geometry probes, not a physical-card accuracy estimate.
+Summaries and the lighting binary hash are in the `gridCalibration` section of
+`matrix-lighting-results.json`.
+
+The OCR suite passes 21 tests, with four private-input tests ignored. It now
+protects independent header height, subpixel shifts under a glare stripe and
+uniform-white versus relative saturation. Physical verification remains
+`OCR-CAMPUS-CARD`, including the actual outline refresh frequency.
+This follow-up adds 193 and removes 38 production Rust lines (net +155; no
+production-code reduction). Test changes add 66 and remove one line; no test
+is removed. Documentation and measured JSON are counted separately.
+
 ## What changed
 
 The two admission failures already had geometry on every frame. Their raw

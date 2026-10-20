@@ -164,6 +164,40 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
 }
 
 #[test]
+fn capture_fits_body_rows_independently_of_header_height() {
+    // Real cards need not give the label header the same height as a body row.
+    // Dividing the whole contour into eight equal rows clips otherwise clear ink.
+    let fixture = image::load_from_memory(include_bytes!("fixtures/matrix-card.jpg"))
+        .unwrap()
+        .to_rgb8();
+    let header = image::imageops::crop_imm(&fixture, 250, 215, 1101, 85).to_image();
+    for height in [40, 125] {
+        let mut card = fixture.clone();
+        for y in 0..300 {
+            for x in 0..card.width() {
+                card.put_pixel(x, y, Rgb([255; 3]));
+            }
+        }
+        let header = image::imageops::resize(&header, 1101, height, FilterType::Triangle);
+        image::imageops::replace(&mut card, &header, 250, (300 - height) as i64);
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        card.write_to(&mut encoded, image::ImageFormat::Jpeg)
+            .unwrap();
+        let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
+        for (i, quad) in captured.quads.iter().enumerate() {
+            let (c, r) = ((i % 10) as f64, (i / 10) as f64);
+            for ([x, y], (dc, dr)) in quad.iter().zip([(0., 0.), (1., 0.), (1., 1.), (0., 1.)]) {
+                assert!(
+                    (x * card.width() as f64 - (250. + (c + dc) * 110.)).abs() < 8.
+                        && (y * card.height() as f64 - (300. + (r + dr) * 85.)).abs() < 8.,
+                    "header {height}, cell {i}: {quad:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper() {
     let fixture = image::load_from_memory(include_bytes!("fixtures/matrix-card.jpg"))
         .unwrap()
@@ -196,7 +230,11 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
             let cell = batch_index * 10 + offset;
             let expected = ((b'A' + (cell % 26) as u8) as char).to_string();
             assert_eq!(reading.text, expected, "dim cell {cell}");
-            assert!(reading.confidence >= 0.8, "dim cell {cell}: {reading:?}");
+            assert!(
+                reading.confidence >= 0.8,
+                "dim cell {cell}: {reading:?}, quad {:?}",
+                captured.quads[cell]
+            );
         }
     }
 
@@ -209,6 +247,8 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
     });
     let light = illumination::analyze(&white);
     assert_eq!(light.glare, 0.);
+    assert_eq!(light.glare_against(255.), 0.);
+    assert!(light.glare_against(160.) > 0.12);
     let glare = GrayImage::from_fn(96, 96, |x, y| {
         image::Luma([if x > 48 {
             255
@@ -237,5 +277,30 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
     let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
     for cell in [35, 36, 37] {
         assert!(captured.glyphs[cell].glare > 0.12, "reflection cell {cell}");
+    }
+    for (dx, dy) in [(0.4, 0.), (0.8, 0.6), (0., 1.2)] {
+        let shifted = imageproc::geometric_transformations::warp(
+            &striped,
+            Projection::translate(-dx, -dy),
+            Interpolation::Bilinear,
+            Border::Constant(Rgb([255; 3])),
+        );
+        let mut encoded = vec![];
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 90)
+            .encode_image(&shifted)
+            .unwrap();
+        let captured = capture_matrix_frame(&encoded).unwrap();
+        // Glare must not change row pitch and move intact lower rows into
+        // adjacent cells when the camera shifts by a fraction of a pixel.
+        for (actual, expected) in [
+            (captured.quads[0][0], [250. - dx as f64, 300. - dy as f64]),
+            (captured.quads[69][2], [1350. - dx as f64, 895. - dy as f64]),
+        ] {
+            assert!(
+                (actual[0] * fixture.width() as f64 - expected[0]).abs() < 8.
+                    && (actual[1] * fixture.height() as f64 - expected[1]).abs() < 8.,
+                "reflection shift ({dx}, {dy}): {actual:?} vs {expected:?}"
+            );
+        }
     }
 }
