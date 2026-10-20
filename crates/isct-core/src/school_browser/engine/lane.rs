@@ -1,144 +1,7 @@
-//! The single hidden lane: admission, priority and visibility yields.
+//! The single hidden lane: sign-in and session checks, and visibility yields.
 use super::*;
 
-pub(super) struct ManualWaiter<'a> {
-    count: &'a AtomicUsize,
-    changed: &'a Notify,
-}
-
-impl<'a> ManualWaiter<'a> {
-    pub(super) fn new(count: &'a AtomicUsize, changed: &'a Notify) -> Self {
-        count.fetch_add(1, Ordering::AcqRel);
-        Self { count, changed }
-    }
-}
-
-impl Drop for ManualWaiter<'_> {
-    fn drop(&mut self) {
-        self.count.fetch_sub(1, Ordering::AcqRel);
-        self.changed.notify_waiters();
-    }
-}
-
 impl SchoolBrowserEngine {
-    /// Runs one coordinated pull in the hidden lane. Sign-in happens under the
-    /// same lane admission, either with `credentials` supplied at the start or
-    /// with saved credentials when a join later asks for `login_first`.
-    pub async fn pull(
-        &self,
-        site: SchoolSite,
-        course_id: Option<u64>,
-        credentials: Option<(SchoolAuthProfile, SchoolCredentials)>,
-        context: PullContext,
-    ) -> Result<Vec<IngestOutcome>, SchoolBrowserError> {
-        if !matches!(site, SchoolSite::ScienceLms | SchoolSite::Kyomu) {
-            return Err(SchoolBrowserError::InvalidInput(
-                "Only LMS and 教務Web can be pulled.".into(),
-            ));
-        }
-        if course_id == Some(0) || (course_id.is_some() && site != SchoolSite::ScienceLms) {
-            return Err(SchoolBrowserError::InvalidInput(
-                "LMS course ID must be positive and use the LMS site.".into(),
-            ));
-        }
-        if context.is_cancelled() {
-            return Err(SchoolBrowserError::Cancelled);
-        }
-        // Reading is plain HTTP; only an explicit sign-in still needs the
-        // WebView, so only that step waits for the hidden lane.
-        if credentials.is_some() || context.login_first() {
-            loop {
-                self.wait_until_hidden(&context).await?;
-                let lane = self.acquire_pull_lane(&context).await?;
-                let (profile, saved) = match credentials.clone() {
-                    Some(credentials) => credentials,
-                    None => {
-                        let profile = pull_profile(site);
-                        (profile, self.saved_credentials(profile).await?)
-                    }
-                };
-                if context.is_cancelled() {
-                    return Err(SchoolBrowserError::Cancelled);
-                }
-                let result = self.login_locked(profile, saved).await;
-                drop(lane);
-                match result {
-                    Err(SchoolBrowserError::Preempted) if context.is_cancelled() => {
-                        return Err(SchoolBrowserError::Cancelled)
-                    }
-                    Err(SchoolBrowserError::Preempted) => continue,
-                    Err(error) => return Err(error),
-                    Ok(_) => break,
-                }
-            }
-        }
-        self.pull_once(site, course_id, &context).await
-    }
-
-    /// Waits for the hidden lane. The job's priority is read on every pass:
-    /// a manual join promotes a job that is already waiting here.
-    pub(super) async fn acquire_pull_lane(
-        &self,
-        context: &PullContext,
-    ) -> Result<tokio::sync::MutexGuard<'_, ()>, SchoolBrowserError> {
-        let mut manual_waiter = None;
-        let started = Instant::now();
-        let mut reported_wait = false;
-        loop {
-            if context.is_cancelled() {
-                return Err(SchoolBrowserError::Cancelled);
-            }
-            if self.0.tasks.is_closed() {
-                return Err(SchoolBrowserError::Stopped);
-            }
-            let manual = context.priority() == PullPriority::Manual;
-            if manual && manual_waiter.is_none() {
-                manual_waiter = Some(ManualWaiter::new(
-                    &self.0.manual_waiters,
-                    &self.0.priority_changed,
-                ));
-            }
-            if manual || self.0.manual_waiters.load(Ordering::Acquire) == 0 {
-                if let Ok(lane) = self.0.lane.try_lock() {
-                    if reported_wait {
-                        log::info!(target: "isct_core::school_browser", "hidden lane acquired priority={:?} waited_ms={}", context.priority(), started.elapsed().as_millis());
-                    }
-                    return Ok(lane);
-                }
-            }
-            if !reported_wait {
-                log::info!(target: "isct_core::school_browser", "hidden lane waiting priority={:?}", context.priority());
-                reported_wait = true;
-            }
-            tokio::select! {
-                _ = self.0.priority_changed.notified() => {}
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-                _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
-            }
-        }
-    }
-
-    pub(super) async fn saved_credentials(
-        &self,
-        profile: SchoolAuthProfile,
-    ) -> Result<SchoolCredentials, SchoolBrowserError> {
-        let auth = self.0.auth.clone();
-        match tokio::task::spawn_blocking(move || auth.load(profile))
-            .await
-            .map_err(|_| SchoolBrowserError::Stopped)?
-        {
-            Ok(Some(credentials)) => Ok(credentials),
-            Ok(None) => Err(SchoolBrowserError::Auth(
-                "School credentials are not configured.".into(),
-            )),
-            Err(SchoolAuthError::Storage(message)) => Err(SchoolBrowserError::Storage(message)),
-            Err(SchoolAuthError::InvalidInput(message)) => {
-                Err(SchoolBrowserError::InvalidInput(message))
-            }
-            Err(error) => Err(SchoolBrowserError::Auth(error.to_string())),
-        }
-    }
-
     /// Subscribes before checking visibility, so a page opened after this
     /// check reaches the caller's wait as `Trace::Browsing`. Hidden work must
     /// never start while the person is looking at a school page.
@@ -159,38 +22,6 @@ impl SchoolBrowserEngine {
         }
     }
 
-    pub(super) async fn wait_until_hidden(
-        &self,
-        context: &PullContext,
-    ) -> Result<(), SchoolBrowserError> {
-        let started = Instant::now();
-        let mut reported_wait = false;
-        loop {
-            if self.0.tasks.is_closed() {
-                return Err(SchoolBrowserError::Stopped);
-            }
-            if context.is_cancelled() {
-                return Err(SchoolBrowserError::Cancelled);
-            }
-            let visible = self.0.state.guard().browsing.is_some();
-            if !visible {
-                if reported_wait {
-                    log::info!(target: "isct_core::school_browser", "visible school page released waited_ms={}", started.elapsed().as_millis());
-                }
-                return Ok(());
-            }
-            if !reported_wait {
-                log::info!(target: "isct_core::school_browser", "pull waiting for visible school page priority={:?}", context.priority());
-                reported_wait = true;
-            }
-            tokio::select! {
-                _ = self.0.browsing_changed.notified() => {}
-                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
-                _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
-            }
-        }
-    }
-
     pub(super) async fn wait_until_hidden_without_context(&self) -> Result<(), SchoolBrowserError> {
         loop {
             if self.0.tasks.is_closed() {
@@ -205,13 +36,5 @@ impl SchoolBrowserEngine {
                 _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
             }
         }
-    }
-}
-
-pub(super) fn pull_profile(site: SchoolSite) -> SchoolAuthProfile {
-    if site == SchoolSite::ScienceLms {
-        SchoolAuthProfile::Science
-    } else {
-        SchoolAuthProfile::TokyoTech
     }
 }

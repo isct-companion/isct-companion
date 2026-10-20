@@ -591,10 +591,19 @@ fn remote_factor(f: &Factor) -> bool {
             && ["code", "level", "text", "teacher", "mark", "group"].contains(&f.r#type.as_str())
 }
 fn hit(course: &Value, c: &Condition, ctx: &FinderContext) -> bool {
-    // Official-only controls are matched by the server against its full catalogue.
-    // They must not reject valid rows because a local guide lacks metadata.
+    // Official form choices are read from each stored row the way the form
+    // means them. A choice the captured form no longer lists, or whose
+    // meaning the row cannot show, keeps the row.
     if c.r#type.starts_with("official-") {
-        return true;
+        return c.values.is_empty()
+            || c.values.iter().any(|value| {
+                ctx.official_options
+                    .iter()
+                    .find(|option| {
+                        value["id"] == option.id.as_str() && value["value"] == option.value.as_str()
+                    })
+                    .is_none_or(|option| crate::catalog::official_control_match(course, option))
+            });
     }
     c.values.iter().any(|v| match c.r#type.as_str() {
         "teacher" => v.as_str().is_some_and(|needle| {

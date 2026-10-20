@@ -14,6 +14,23 @@ impl DataStore {
         })
     }
 
+    /// Merges offerings inside the caller's transaction, with the same
+    /// official-field ownership as [`Self::catalog_upsert_offerings`], so a
+    /// `catalog.official` key commits its rows and its freshness together.
+    pub(crate) fn catalog_upsert_offerings_in(
+        transaction: &Transaction<'_>,
+        offerings: &[Value],
+    ) -> Result<usize, DataError> {
+        for offering in offerings {
+            string_field(offering, "id")?;
+        }
+        let mut changed = 0;
+        for offering in offerings {
+            changed += usize::from(upsert_offering_in(transaction, offering)?);
+        }
+        Ok(changed)
+    }
+
     /// One syllabus detail read: the offering, its content rows and its
     /// `catalog.detail/{id}` freshness commit together, with the read's
     /// `sync_runs` row. Returns the merged offering.

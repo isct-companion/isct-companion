@@ -104,7 +104,7 @@ fn invalid(error: impl std::fmt::Display) -> NetError {
     NetError::Invalid(error.to_string())
 }
 
-/// The search URL `catalog::kyomu_query` has always opened, with the query
+/// The official course search URL, with the query
 /// in its parameters.
 pub(crate) fn search_url(year: u16, query: &CatalogSearch) -> Result<Url, NetError> {
     if !(2020..=2200).contains(&year)

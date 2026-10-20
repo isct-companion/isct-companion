@@ -6,10 +6,9 @@ use crate::{
     cloud_sync::SyncState,
     data::WorkspaceChangeSource,
     lifecycle::SchoolSite,
-    pull_coordinator::PullSnapshot,
-    school_browser::{SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent},
+    school_browser::{SchoolLoginEvent, SchoolSessionEvent},
     school_service::IngestOutcome,
-    school_status::SchoolStatus,
+    sync_engine::SyncSnapshot,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -34,7 +33,7 @@ pub struct SchoolDownloadEvent {
 }
 
 /// Every event a shell forwards to its UI. Events are hints: the UI re-reads
-/// the matching snapshot (`workspace_snapshot`, `pull_state`, `cloud_sync_state`)
+/// the matching snapshot (`workspace_snapshot`, `sync_snapshot`, `cloud_sync_state`)
 /// on load, so a delivery that happens before a window exists is not lost state.
 #[derive(Clone, Debug)]
 pub enum CoreEvent {
@@ -50,7 +49,6 @@ pub enum CoreEvent {
         total: u64,
     },
     SchoolLogin(SchoolLoginEvent),
-    SchoolPullProgress(SchoolPullProgress),
     SchoolSession(SchoolSessionEvent),
     SchoolWebUrl {
         site: SchoolSite,
@@ -62,10 +60,9 @@ pub enum CoreEvent {
     },
     SchoolIngest(IngestOutcome),
     SchoolDownload(SchoolDownloadEvent),
-    PullStateChanged(Vec<PullSnapshot>),
-    /// Sent after any of the events above changed it; read `school_status`
-    /// for the current value.
-    SchoolStatusChanged(SchoolStatus),
+    /// Sync progress and source status; read `Core::sync_snapshot` for the
+    /// current value.
+    SyncSnapshot(SyncSnapshot),
     CloudSyncState(SyncState),
 }
 
@@ -76,14 +73,12 @@ impl CoreEvent {
             Self::WorkspaceChanged { .. } => "workspace-changed",
             Self::OcrProgress { .. } => "ocr-progress",
             Self::SchoolLogin(_) => "school-login-status",
-            Self::SchoolPullProgress(_) => "school-pull-progress",
             Self::SchoolSession(_) => "school-session",
             Self::SchoolWebUrl { .. } => "school-web-url",
             Self::SchoolWebOpen { .. } => "school-web-open",
             Self::SchoolIngest(_) => "school-ingest",
             Self::SchoolDownload(_) => "school-download",
-            Self::PullStateChanged(_) => "pull-state-changed",
-            Self::SchoolStatusChanged(_) => "school-status",
+            Self::SyncSnapshot(_) => "sync-snapshot",
             Self::CloudSyncState(_) => "cloud-sync-state",
         }
     }
@@ -108,15 +103,13 @@ impl CoreEvent {
                 "total": total,
             }),
             Self::SchoolLogin(event) => json!(event),
-            Self::SchoolPullProgress(event) => json!(event),
             Self::SchoolSession(event) => json!(event),
             Self::SchoolWebUrl { site, url } | Self::SchoolWebOpen { site, url } => {
                 json!({ "site": site, "url": url })
             }
             Self::SchoolIngest(outcome) => json!(outcome),
             Self::SchoolDownload(event) => json!(event),
-            Self::PullStateChanged(snapshots) => json!(snapshots),
-            Self::SchoolStatusChanged(status) => json!(status),
+            Self::SyncSnapshot(snapshot) => json!(snapshot),
             Self::CloudSyncState(state) => json!(state),
         }
     }

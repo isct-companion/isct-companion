@@ -168,6 +168,14 @@ impl KeyError {
         matches!(self.error, MoodleError::Net(NetError::Cancelled))
     }
 
+    /// When the host's breaker lets requests through again, if it paused.
+    pub(crate) fn paused_until(&self) -> Option<i64> {
+        match self.error {
+            MoodleError::Net(NetError::HostPaused { until_unix, .. }) => Some(until_unix),
+            _ => None,
+        }
+    }
+
     /// The short code for `sync_runs.error_kind` and outcome messages.
     pub(crate) fn kind(&self) -> String {
         match &self.error {

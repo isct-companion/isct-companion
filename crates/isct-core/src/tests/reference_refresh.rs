@@ -1,4 +1,5 @@
 use super::*;
+use crate::data::DataStore;
 use crate::subscriptions::DateRange;
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -107,10 +108,41 @@ fn store(name: &str) -> DataStore {
     DataStore::initialize(path).unwrap().0
 }
 
-fn service(store: &DataStore, transport: Arc<dyn ReferenceTransport>) -> ReferenceService {
-    ReferenceService::new(store.clone(), PullCoordinator::default())
-        .with_transport(transport)
-        .with_clock(Arc::new(|| "2026-10-13T03:15:00Z".parse().unwrap()))
+fn reader(transport: Arc<dyn ReferenceTransport>) -> ReferenceReader {
+    ReferenceReader::new(
+        transport,
+        Arc::new(|| "2026-10-13T03:15:00Z".parse().unwrap()),
+    )
+}
+
+/// Reads one leased key and records its ending as the runner does.
+async fn read(
+    store: &DataStore,
+    reader: &ReferenceReader,
+    probes: &IndexProbes,
+    kind: &str,
+    year: i32,
+) -> KeyEnd {
+    let lease = Lease::detached(store, reference_key(kind, year), "").with_locator(INDEX);
+    let end = reader.read(&lease, probes).await;
+    lease.ending(&end).write();
+    end
+}
+
+/// What the planner sees for a key under its rules.
+fn due(store: &DataStore, kind: &str, year: i32) -> Due {
+    store
+        .write(None, |transaction| {
+            reference_due(
+                transaction,
+                &reference_key(kind, year),
+                kind,
+                year,
+                INDEX,
+                "2026-10-13T03:20:00Z".parse().unwrap(),
+            )
+        })
+        .unwrap()
 }
 
 fn not_modified_fetch() -> TransportFetch {
@@ -235,64 +267,53 @@ fn put_subscription(store: &DataStore, kind: &str, enabled: bool, extra: Value) 
     store.put_user_record("subscriptions", row).unwrap()
 }
 
-fn disable(store: &DataStore, kinds: &[&str]) {
-    for kind in kinds {
-        put_subscription(store, kind, false, json!({}));
-    }
-}
-
-fn request(kind: &str, year: i32, force: bool) -> ReferenceRequest {
-    ReferenceRequest {
-        kind: kind.into(),
-        index_url: INDEX.into(),
-        year,
-        force,
-        run: "test-run".into(),
-    }
-}
-
-fn probes() -> Probes {
-    Arc::new(Mutex::new(HashMap::new()))
-}
-
 #[tokio::test]
-async fn batch_probes_a_shared_index_once_and_skips_disabled_sources() {
+async fn followed_files_share_one_index_probe_and_skip_disabled_kinds() {
     let store = store("shared-probe");
     store
-        .put_workspace_setting(
-            "academicProfile",
-            json!({"name":"Test","gradePath":[],"years":[],"admissionYear":2026}),
-        )
+        .put_workspace_setting("selectedTerm", json!("2026-3Q"))
         .unwrap();
     put_subscription(&store, "calendar", true, json!({}));
     put_subscription(&store, "departments", true, json!({}));
     put_subscription(&store, "important-dates", false, json!({}));
     put_subscription(&store, "exams", true, json!({}));
     put_subscription(&store, "class-schedules", true, json!({}));
+    let followed = followed(&store.load_workspace().unwrap());
+    assert_eq!(
+        followed
+            .iter()
+            .map(|(kind, year, url)| (kind.as_str(), *year, url.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("calendar", 2026, INDEX),
+            ("exams", 2026, INDEX),
+            ("class-schedules", 2026, INDEX)
+        ]
+    );
     let transport = Arc::new(FakeTransport::default());
-    service(&store, transport.clone())
-        .refresh_all(true)
-        .await
-        .unwrap();
-
+    let reader = reader(transport.clone());
+    let probes = IndexProbes::default();
+    for (kind, year, _) in &followed {
+        assert!(matches!(
+            read(&store, &reader, &probes, kind, *year).await,
+            KeyEnd::Done { .. }
+        ));
+    }
     assert_eq!(transport.probes.load(Ordering::Relaxed), 1);
-    let calls = transport.calls();
-    assert_eq!(calls.len(), 3);
-    assert!(!calls.iter().any(|call| call.0 == "departments"));
-    assert!(!calls.iter().any(|call| call.0 == "important-dates"));
+    assert_eq!(transport.calls().len(), 3);
 
-    // Every refresh probes again; files stored from an unchanged index are
-    // renewed, empty ones included, without fetching them.
-    service(&store, transport.clone())
-        .refresh_all(true)
-        .await
-        .unwrap();
+    // A later evaluation probes again; files stored from an unchanged index
+    // are renewed, empty ones included, without fetching them.
+    let probes = IndexProbes::default();
+    for (kind, year, _) in &followed {
+        read(&store, &reader, &probes, kind, *year).await;
+    }
     assert_eq!(transport.probes.load(Ordering::Relaxed), 2);
     assert_eq!(transport.calls().len(), 3);
 }
 
 #[tokio::test]
-async fn automatic_and_manual_runs_use_the_selected_term_year() {
+async fn references_follow_the_selected_term_year() {
     let store = store("selected-year");
     // A 2026 calendar makes currentTerm a 2026 quarter.
     seed(&store, calendar_fetch(2026));
@@ -304,25 +325,18 @@ async fn automatic_and_manual_runs_use_the_selected_term_year() {
         .as_str()
         .unwrap()
         .starts_with("2026"));
-    disable(
-        &store,
-        &["departments", "important-dates", "exams", "class-schedules"],
-    );
-    put_subscription(&store, "calendar", true, json!({}));
+    let followed = followed(&workspace);
+    assert!(followed.iter().all(|(_, year, _)| *year == 2031));
     let transport = Arc::new(FakeTransport::default());
-    for force in [false, true] {
-        service(&store, transport.clone())
-            .refresh_all(force)
-            .await
-            .unwrap();
-        transport.publish_index("index-v2");
-    }
-    let years = transport
-        .calls()
-        .into_iter()
-        .map(|(_, year, _)| year)
-        .collect::<Vec<_>>();
-    assert_eq!(years, [2031, 2031]);
+    read(
+        &store,
+        &reader(transport.clone()),
+        &IndexProbes::default(),
+        "calendar",
+        2031,
+    )
+    .await;
+    assert_eq!(transport.calls()[0].1, 2031);
     assert!(state(&store, "calendar", 2031)
         .unwrap()
         .fetched_at
@@ -340,15 +354,9 @@ async fn stored_file_is_renewed_without_a_fetch_while_its_index_is_unchanged() {
     partial.value = Some(calendar(2026, &["1Q", "2Q"]));
     let transport = Arc::new(FakeTransport::default());
     transport.respond("calendar", [FakeResponse::Ok(partial)]);
-    let service = service(&store, transport.clone());
-    service
-        .refresh_one(
-            request("calendar", 2026, false),
-            PullPriority::Manual,
-            probes(),
-        )
-        .await
-        .unwrap();
+    let reader = reader(transport.clone());
+    assert_eq!(due(&store, "calendar", 2026), Due::Missing);
+    read(&store, &reader, &IndexProbes::default(), "calendar", 2026).await;
     assert_eq!(rows(&store, "calendar", 2026), 4);
     let fresh = state(&store, "calendar", 2026).unwrap();
     assert_eq!(
@@ -356,42 +364,20 @@ async fn stored_file_is_renewed_without_a_fetch_while_its_index_is_unchanged() {
         Some("index-v1:remote-v1:4@https://example.test/index.json")
     );
 
-    // The hourly automatic check neither probes nor fetches while fresh.
-    let probes_before = transport.probes.load(Ordering::Relaxed);
-    service
-        .refresh_one(
-            request("calendar", 2026, false),
-            PullPriority::Automatic,
-            probes(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(transport.calls().len(), 1);
-    assert_eq!(transport.probes.load(Ordering::Relaxed), probes_before);
+    // The planner does not read a fresh file on its own.
+    assert_eq!(due(&store, "calendar", 2026), Due::Fresh);
 
-    // A forced check with an unchanged index only renews.
-    let result = service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(result["notModified"], true);
+    // A refresh with an unchanged index only renews.
+    assert!(matches!(
+        read(&store, &reader, &IndexProbes::default(), "calendar", 2026).await,
+        KeyEnd::Done { changed: 0 }
+    ));
     assert_eq!(transport.calls().len(), 1);
 
     // A new index sends the file hash; an unchanged file is not downloaded
     // and the new index hash becomes the validator.
     transport.publish_index("index-v2");
-    service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes(),
-        )
-        .await
-        .unwrap();
+    read(&store, &reader, &IndexProbes::default(), "calendar", 2026).await;
     assert_eq!(transport.calls()[1].2.as_deref(), Some("remote-v1"));
     assert_eq!(rows(&store, "calendar", 2026), 4);
     assert!(state(&store, "calendar", 2026)
@@ -412,7 +398,6 @@ async fn validator_without_stored_rows_reads_the_file_in_full() {
     {
         let store = store(name);
         let transport = Arc::new(FakeTransport::default());
-        let service = service(&store, transport.clone());
         if stored_year != requested_year {
             seed(&store, calendar_fetch(stored_year));
         }
@@ -431,18 +416,20 @@ async fn validator_without_stored_rows_reads_the_file_in_full() {
                 )
             })
             .unwrap();
+        // Missing content beats the validator: the planner reads it.
+        assert!(due(&store, "calendar", requested_year).is_due(), "{name}");
         transport.respond(
             "calendar",
             [FakeResponse::Ok(calendar_fetch(requested_year))],
         );
-        service
-            .refresh_one(
-                request("calendar", requested_year, false),
-                PullPriority::Automatic,
-                probes(),
-            )
-            .await
-            .unwrap();
+        read(
+            &store,
+            &reader(transport.clone()),
+            &IndexProbes::default(),
+            "calendar",
+            requested_year,
+        )
+        .await;
         assert_eq!(transport.calls()[0].2, None, "{name}");
         assert_eq!(rows(&store, "calendar", requested_year), 8, "{name}");
     }
@@ -452,16 +439,9 @@ async fn validator_without_stored_rows_reads_the_file_in_full() {
 async fn suspicious_shrink_is_held_once_and_published_when_the_same_version_returns() {
     let store = store("shrink");
     let transport = Arc::new(FakeTransport::default());
-    let service = service(&store, transport.clone());
+    let reader = reader(transport.clone());
     transport.respond("calendar", [FakeResponse::Ok(calendar_fetch(2026))]);
-    service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes(),
-        )
-        .await
-        .unwrap();
+    read(&store, &reader, &IndexProbes::default(), "calendar", 2026).await;
     assert_eq!(rows(&store, "calendar", 2026), 8);
 
     // A new version with one quarter left: 2 of 8 rows.
@@ -475,15 +455,10 @@ async fn suspicious_shrink_is_held_once_and_published_when_the_same_version_retu
         "calendar",
         [FakeResponse::Ok(shrunk()), FakeResponse::Ok(shrunk())],
     );
-    let held = service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(held["held"], true);
+    assert!(matches!(
+        read(&store, &reader, &IndexProbes::default(), "calendar", 2026).await,
+        KeyEnd::Refused { kind } if kind == SUSPICIOUS_SHRINK
+    ));
     assert_eq!(rows(&store, "calendar", 2026), 8);
     let state_after_hold = state(&store, "calendar", 2026).unwrap();
     assert_eq!(
@@ -501,14 +476,7 @@ async fn suspicious_shrink_is_held_once_and_published_when_the_same_version_retu
     );
 
     // The same version read again is accepted.
-    service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes(),
-        )
-        .await
-        .unwrap();
+    read(&store, &reader, &IndexProbes::default(), "calendar", 2026).await;
     assert_eq!(rows(&store, "calendar", 2026), 2);
     let published = state(&store, "calendar", 2026).unwrap();
     assert_eq!((published.failures, published.last_error), (0, None));
@@ -540,15 +508,11 @@ async fn failed_read_keeps_rows_and_backs_off_until_a_retry_succeeds() {
             FakeResponse::Ok(recovered),
         ],
     );
-    let service = service(&store, transport.clone());
-    assert!(service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes()
-        )
-        .await
-        .is_err());
+    let reader = reader(transport.clone());
+    assert!(matches!(
+        read(&store, &reader, &IndexProbes::default(), "calendar", 2026).await,
+        KeyEnd::Failed { kind, .. } if kind == "network"
+    ));
     let failed = subscription_row(&store.load_workspace().unwrap(), "calendar")
         .unwrap()
         .clone();
@@ -569,25 +533,9 @@ async fn failed_read_keeps_rows_and_backs_off_until_a_retry_succeeds() {
         )]
     );
 
-    // An automatic run waits out the backoff.
-    service
-        .refresh_one(
-            request("calendar", 2026, false),
-            PullPriority::Automatic,
-            probes(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(transport.calls().len(), 1);
-
-    service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes(),
-        )
-        .await
-        .unwrap();
+    // The planner waits out the backoff; a refresh press reads anyway.
+    assert!(matches!(due(&store, "calendar", 2026), Due::BackingOff(_)));
+    read(&store, &reader, &IndexProbes::default(), "calendar", 2026).await;
     let retried = subscription_row(&store.load_workspace().unwrap(), "calendar")
         .unwrap()
         .clone();
@@ -634,28 +582,26 @@ impl ReferenceTransport for EditingTransport {
 async fn user_revision_and_url_change_wins_over_inflight_metadata() {
     let store = store("user-wins");
     put_subscription(&store, "calendar", true, json!({}));
-    let service = service(
+    let transport = Arc::new(EditingTransport {
+        store: store.clone(),
+    });
+    read(
         &store,
-        Arc::new(EditingTransport {
-            store: store.clone(),
-        }),
-    );
-    service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes(),
-        )
-        .await
-        .unwrap();
+        &reader(transport),
+        &IndexProbes::default(),
+        "calendar",
+        2026,
+    )
+    .await;
     let workspace = store.load_workspace().unwrap();
     let row = subscription_row(&workspace, "calendar").unwrap();
     assert_eq!(row["url"], "https://user.example/new-index.json");
     assert!(row["fetchedAt"].is_null());
 }
 
+/// Cancels the lease while the file downloads, as a reset or shutdown does.
 struct CancellingTransport {
-    coordinator: PullCoordinator,
+    cancel: tokio_util::sync::CancellationToken,
 }
 
 impl ReferenceTransport for CancellingTransport {
@@ -672,8 +618,7 @@ impl ReferenceTransport for CancellingTransport {
         _known_hash: Option<&'a str>,
     ) -> ReferenceTransportFuture<'a, TransportFetch> {
         Box::pin(async move {
-            let id = self.coordinator.snapshots().await[0].id.clone();
-            assert!(self.coordinator.cancel(&id).await);
+            self.cancel.cancel();
             Ok(calendar_fetch(year))
         })
     }
@@ -682,55 +627,18 @@ impl ReferenceTransport for CancellingTransport {
 #[tokio::test]
 async fn cancellation_before_applying_writes_no_data_or_metadata() {
     let store = store("cancel");
-    let coordinator = PullCoordinator::default();
-    let service = ReferenceService::new(store.clone(), coordinator.clone())
-        .with_transport(Arc::new(CancellingTransport { coordinator }))
-        .with_clock(Arc::new(|| "2026-10-13T03:15:00Z".parse().unwrap()));
-    assert!(service
-        .refresh_one(
-            request("calendar", 2026, true),
-            PullPriority::Manual,
-            probes()
-        )
-        .await
-        .is_err());
+    let lease = Lease::detached(&store, reference_key("calendar", 2026), "").with_locator(INDEX);
+    let reader = reader(Arc::new(CancellingTransport {
+        cancel: lease.cancel.clone(),
+    }));
+    assert!(matches!(
+        reader.read(&lease, &IndexProbes::default()).await,
+        KeyEnd::Cancelled { .. }
+    ));
     let workspace = store.load_workspace().unwrap();
     assert!(workspace["academicCalendar"].as_array().unwrap().is_empty());
     assert!(subscription_row(&workspace, "calendar").is_none());
     assert!(state(&store, "calendar", 2026).is_none_or(|state| state.fetched_at.is_none()));
-}
-
-#[tokio::test]
-async fn batch_keeps_successful_data_when_another_source_fails() {
-    let store = store("partial");
-    disable(&store, &["departments", "exams"]);
-    put_subscription(&store, "calendar", true, json!({}));
-    put_subscription(&store, "important-dates", true, json!({}));
-    let transport = Arc::new(FakeTransport::default());
-    transport.respond("calendar", [FakeResponse::Ok(calendar_fetch(2026))]);
-    transport.respond(
-        "important-dates",
-        [FakeResponse::Err(SubscriptionError::Network(
-            "offline".into(),
-        ))],
-    );
-
-    let error = service(&store, transport)
-        .refresh_all(true)
-        .await
-        .unwrap_err();
-    assert!(matches!(error, ReferenceError::PartialFailure(1)));
-    let workspace = store.load_workspace().unwrap();
-    assert_eq!(rows(&store, "calendar", 2026), 8);
-    assert!(state(&store, "calendar", 2026)
-        .unwrap()
-        .fetched_at
-        .is_some());
-    assert!(subscription_row(&workspace, "calendar").unwrap()["lastError"].is_null());
-    assert_eq!(
-        subscription_row(&workspace, "important-dates").unwrap()["lastError"],
-        "offline"
-    );
 }
 
 #[test]
@@ -758,59 +666,7 @@ fn subscription_views_follow_the_selected_year_and_reject_bad_fetch_dates() {
 }
 
 #[test]
-fn built_in_reference_task_runs_once_per_launch() {
-    let started = "2026-10-13T03:15:00Z".parse().unwrap();
-    let mut task = json!({
-        "id":"builtin:reference-subscriptions",
-        "enabled":true,
-        "lastRunAt":"2026-10-12T03:00:00Z"
-    });
-    assert!(reference_due_at_launch(&task, started));
-    task["lastRunAt"] = json!(started.to_rfc3339());
-    assert!(!reference_due_at_launch(&task, started));
-    task["id"] = json!("another-task");
-    task["lastRunAt"] = Value::Null;
-    assert!(!reference_due_at_launch(&task, started));
-    task["id"] = json!("builtin:reference-subscriptions");
-    task["enabled"] = json!(false);
-    assert!(!reference_due_at_launch(&task, started));
-}
-
-#[test]
-fn reference_error_categories_survive_the_coordinator_boundary() {
-    for (source, expected) in [
-        (
-            ReferenceError::Network("reference host unavailable".into()),
-            PullError::Network("reference host unavailable".into()),
-        ),
-        (
-            ReferenceError::Storage("reference cache unavailable".into()),
-            PullError::Storage("reference cache unavailable".into()),
-        ),
-        (
-            ReferenceError::InvalidInput("reference URL invalid".into()),
-            PullError::InvalidInput("reference URL invalid".into()),
-        ),
-    ] {
-        let pulled = PullError::from(source);
-        assert_eq!(pulled, expected);
-        match ReferenceError::from(pulled) {
-            ReferenceError::Network(message) => {
-                assert_eq!(message, "reference host unavailable")
-            }
-            ReferenceError::Storage(message) => {
-                assert_eq!(message, "reference cache unavailable")
-            }
-            ReferenceError::InvalidInput(message) => {
-                assert_eq!(message, "reference URL invalid")
-            }
-            other => panic!("unexpected restored reference error: {other}"),
-        }
-    }
-    assert_eq!(
-        PullError::from(ReferenceError::Coordination(PullError::RuntimeUnavailable)),
-        PullError::RuntimeUnavailable
-    );
+fn data_errors_keep_their_reference_category() {
     assert!(matches!(
         ReferenceError::from(DataError::Conflict("stale".into())),
         ReferenceError::Conflict(message) if message == "stale"
@@ -822,5 +678,9 @@ fn reference_error_categories_survive_the_coordinator_boundary() {
     assert!(matches!(
         ReferenceError::from(DataError::InvalidInput("bad".into())),
         ReferenceError::InvalidInput(message) if message == "bad"
+    ));
+    assert!(matches!(
+        ReferenceError::from(DataError::Storage("disk".into())),
+        ReferenceError::Storage(message) if message == "disk"
     ));
 }
