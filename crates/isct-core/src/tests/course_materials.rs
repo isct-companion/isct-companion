@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(unix)]
 use crate::storage::stored_file;
 use serde_json::json;
 use uuid::Uuid;
