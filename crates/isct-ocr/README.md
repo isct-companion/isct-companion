@@ -73,6 +73,21 @@ missing geometry, a located grid with insufficient texture, and rejected highlig
 it contains no images or recognized letters. `trackedMs` measures first visible
 outline to camera release, not the later inference completion.
 
+Desktop debug builds also log per-frame stage timings and min/median/max
+source-pixel size, contrast, sharpness and centering, without pixels or letters.
+The development profile optimizes OCR and image dependencies so unoptimized
+pixel loops do not dominate live tracking.
+
+For an explicitly authorized local diagnosis, launch a debug app with
+`ISCT_MATRIX_GLYPH_SAMPLES` pointing to a new directory under an ignored local
+cache. Once a frame has 60 usable cells of at least 25 source pixels, it saves
+12 shuffled glyphs with random filenames, then stops exporting for that process.
+Each `.gray` file is 96×96 unsigned 8-bit grayscale in row-major order. No card
+frame, cell coordinates or predictions are saved. The directory must not exist;
+Unix permissions are 0700 for the directory and 0600 for each file. Keep these
+samples local, out of commits and training uploads. Ordinary launches leave
+this export disabled.
+
 Photo imports retain the existing Paddle service and acceptance rules. The
 older `scan_live_frame` and `MatrixScanner` API remain for its adaptive replay
 profiler. That path scans all 70 cells, refines unsettled cells and verifies the
