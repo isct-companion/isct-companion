@@ -19,7 +19,10 @@ fn material_error(e: isct_core::course_materials::MaterialError) -> SdkError {
         isct_core::course_materials::MaterialError::Input(detail) => {
             SdkError::InvalidInput { detail }
         }
-        isct_core::course_materials::MaterialError::Storage(detail) => SdkError::Storage { detail },
+        isct_core::course_materials::MaterialError::Storage(detail)
+        | isct_core::course_materials::MaterialError::Denied(detail) => {
+            SdkError::Storage { detail }
+        }
         other => SdkError::Unavailable {
             detail: other.to_string(),
         },

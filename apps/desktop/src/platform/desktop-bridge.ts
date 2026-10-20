@@ -358,6 +358,10 @@ export type ApplicationLogSnapshot = {
 
 export interface DesktopBridge {
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
+  /** The retained log as plain text for a bug report. */
+  exportApplicationLogs?(): Promise<string>;
+  /** Copies the retained log to the system clipboard from the shell. */
+  copyApplicationLogs?(): Promise<boolean>;
   recordApplicationError?(message: string): Promise<void>;
   checkAppUpdate?(
     manual: boolean,
@@ -555,6 +559,11 @@ const requireBoolean = (command: string, value: unknown) => {
     throw new Error(`${command} returned an invalid result.`);
   return value;
 };
+const requireString = (command: string, value: unknown) => {
+  if (typeof value !== "string")
+    throw new Error(`${command} returned an invalid result.`);
+  return value;
+};
 const requireObject = <T>(command: string, value: unknown): T => {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${command} returned an invalid result.`);
@@ -590,6 +599,12 @@ export function createTauriDesktopBridge(
     checkAppUpdate: (manual: boolean, download = false) =>
       result<AppUpdateStatus>("check_app_update", { manual, download }),
     applicationLogs: (after) => result("application_logs", { after }),
+    exportApplicationLogs: async () =>
+      requireString(
+        "export_application_logs",
+        await invokeCommand("export_application_logs"),
+      ),
+    copyApplicationLogs: () => booleanCommand("copy_application_logs"),
     recordApplicationError: (message) =>
       result("application_error", { message }),
     appUpdateState: () => result<AppUpdateStatus>("app_update_state"),

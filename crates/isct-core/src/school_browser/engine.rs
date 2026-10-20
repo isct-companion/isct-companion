@@ -52,6 +52,11 @@ use self::{extraction::*, history::*, login::*};
 const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
 const LAUNCH_INTERVAL: Duration = Duration::from_secs(90);
 const FOCUS_INTERVAL: Duration = Duration::from_secs(120);
+/// Chromium (WebView2, Android WebView) drops a navigation whose URL exceeds
+/// 2 MiB, so an extraction result crosses in parts well under that. The page
+/// sends each next part only after Core has taken the previous one.
+const RELAY_PART: usize = 1024 * 1024;
+const RELAY_MAX: usize = 11 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct SchoolBrowserEngine(Arc<Inner>);
@@ -131,8 +136,23 @@ struct ViewState {
     progress_relay: String,
     availability_relay: String,
     pending_availability: Option<PageLoaded>,
+    relay_parts: Option<RelayParts>,
     navigation: Option<ActionId>,
     actions: HashMap<ActionId, bool>,
+}
+
+/// The parts of one extraction result received so far.
+struct RelayParts {
+    run: String,
+    count: usize,
+    encoded: String,
+    received: usize,
+}
+
+enum RelayPart {
+    Next(String, usize),
+    Complete(String),
+    Rejected,
 }
 
 #[derive(Clone, Debug)]
@@ -385,6 +405,7 @@ impl SchoolBrowserEngine {
                     progress_relay: format!("isct-companion-progress:{nonce}:"),
                     availability_relay: format!("isct-companion-availability:{nonce}:"),
                     pending_availability: None,
+                    relay_parts: None,
                     navigation: None,
                     actions: HashMap::new(),
                 },
@@ -944,6 +965,65 @@ impl Inner {
         }
     }
 
+    /// Takes one `<run>/<count>/<index>/<data>` part of an extraction result
+    /// for the active run, in order. A part out of order or for another run
+    /// drops nothing already collected for the active run.
+    fn relay_part(&self, browser: BrowserId, part: &str) -> RelayPart {
+        let mut fields = part.splitn(4, '/');
+        let (Some(run), Some(count), Some(index), Some(data)) = (
+            fields.next(),
+            fields.next().and_then(|value| value.parse::<usize>().ok()),
+            fields.next().and_then(|value| value.parse::<usize>().ok()),
+            fields.next(),
+        ) else {
+            return RelayPart::Rejected;
+        };
+        if count == 0
+            || count > RELAY_MAX.div_ceil(RELAY_PART)
+            || index >= count
+            || data.len() > RELAY_PART
+        {
+            return RelayPart::Rejected;
+        }
+        self.state.with(|state| {
+            let active = state
+                .extraction
+                .as_ref()
+                .is_some_and(|active| active.browser == browser && active.run == run);
+            let Some(view) = state
+                .views
+                .get_mut(&browser.site)
+                .filter(|view| active && view.id == browser)
+            else {
+                return RelayPart::Rejected;
+            };
+            if index == 0 {
+                view.relay_parts = Some(RelayParts {
+                    run: run.into(),
+                    count,
+                    encoded: String::new(),
+                    received: 0,
+                });
+            }
+            let Some(parts) = view.relay_parts.as_mut().filter(|parts| {
+                parts.run == run && parts.count == count && parts.received == index
+            }) else {
+                return RelayPart::Rejected;
+            };
+            parts.encoded.push_str(data);
+            parts.received += 1;
+            if parts.received < count {
+                RelayPart::Next(run.into(), parts.received)
+            } else {
+                view.relay_parts
+                    .take()
+                    .map_or(RelayPart::Rejected, |parts| {
+                        RelayPart::Complete(parts.encoded)
+                    })
+            }
+        })
+    }
+
     fn decide_navigation(&self, page: PageId, url: Url, _main_frame: bool) -> NavigationDecision {
         if !self.current(page.browser) {
             return NavigationDecision::Cancel;
@@ -954,11 +1034,25 @@ impl Inner {
                 .get(&page.browser.site)
                 .map(|view| view.extraction_relay.clone())
         });
-        if let Some(encoded) = relay
+        if let Some(part) = relay
             .as_deref()
             .and_then(|prefix| url.as_str().strip_prefix(prefix))
         {
-            if encoded.len() <= 11 * 1024 * 1024 {
+            let encoded = match self.relay_part(page.browser, part) {
+                RelayPart::Complete(encoded) => Some(encoded),
+                RelayPart::Next(run, index) => {
+                    if let Ok(run) = serde_json::to_string(&run) {
+                        let _ = self.dispatch_eval(
+                            page.browser,
+                            format!("globalThis.__isctRelayPart&&globalThis.__isctRelayPart({run},{index});"),
+                            true,
+                        );
+                    }
+                    None
+                }
+                RelayPart::Rejected => None,
+            };
+            if let Some(encoded) = encoded {
                 if let Some(raw) = URL_SAFE_NO_PAD
                     .decode(encoded)
                     .ok()

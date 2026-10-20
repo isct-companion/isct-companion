@@ -2,15 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import { Switch } from "@mantine/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { t, intlLocale } from "../../i18n";
-import { formatTimestamp } from "../../lib/civil-date";
+import { formatTimestamp, tokyoDate } from "../../lib/civil-date";
 import type { Workspace } from "../../lib/model";
-import { desktopBridge } from "../../app/native";
+import { desktopBridge, saveExportFile } from "../../app/native";
+import { errorText } from "../../app/shared";
 import type { ApplicationLog } from "../../platform/desktop-bridge";
 import { SettingsHeader } from "../../components/forms";
+import { UiButton } from "../../components/mantine";
 
 const LOG_LIMIT = 2000;
 
-export function DiagnosticsSettings({ data }: { data: Workspace }) {
+export function DiagnosticsSettings({
+  data,
+  notify,
+}: {
+  data: Workspace;
+  notify: (message: string) => void;
+}) {
   const [logs, setLogs] = useState<ApplicationLog[]>([]);
   const [error, setError] = useState(false);
   const [follow, setFollow] = useState(true);
@@ -73,6 +81,21 @@ export function DiagnosticsSettings({ data }: { data: Workspace }) {
       automaticScroll.current = false;
     };
   }, [follow, logs, rows]);
+  const saveLogs = () =>
+    void saveExportFile(
+      `IsctCompanion-logs-${tokyoDate(new Date())}.txt`,
+      () => desktopBridge!.exportApplicationLogs!(),
+      notify,
+    );
+  const copyLogs = () =>
+    void desktopBridge!.copyApplicationLogs!()
+      .then(() => notify(t("Copied")))
+      .catch((reason: unknown) =>
+        notify(t(errorText(reason) ?? "Copy failed")),
+      );
+  const canExport = Boolean(
+    desktopBridge?.exportApplicationLogs && desktopBridge.copyApplicationLogs,
+  );
   return (
     <>
       <SettingsHeader
@@ -83,11 +106,23 @@ export function DiagnosticsSettings({ data }: { data: Workspace }) {
         <span className="muted">
           {t("{{count}} log entries", { count: logs.length })}
         </span>
-        <Switch
-          label={t("Follow latest")}
-          checked={follow}
-          onChange={(event) => setFollow(event.currentTarget.checked)}
-        />
+        <div className="diagnosticActions">
+          <Switch
+            label={t("Follow latest")}
+            checked={follow}
+            onChange={(event) => setFollow(event.currentTarget.checked)}
+          />
+          {canExport && (
+            <>
+              <UiButton className="textButton" onClick={saveLogs}>
+                {t("Save to file")}
+              </UiButton>
+              <UiButton className="textButton" onClick={copyLogs}>
+                {t("Copy")}
+              </UiButton>
+            </>
+          )}
+        </div>
       </div>
       {error && (
         <p role="status" className="danger">

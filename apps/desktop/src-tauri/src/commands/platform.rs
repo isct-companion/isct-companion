@@ -116,6 +116,41 @@ pub(crate) fn application_logs(
     isct_core::diagnostics::snapshot(after).map_err(|error| error.to_string())
 }
 
+fn application_logs_text(app: &tauri::AppHandle) -> Result<String, String> {
+    let about = format!(
+        "IsctCompanion {} · {} {}",
+        app.package_info().version,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    isct_core::diagnostics::export_text(&about).map_err(|error| error.to_string())
+}
+
+/// The retained log as text, for the Save dialog.
+#[tauri::command]
+pub(crate) fn export_application_logs(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    application_logs_text(&app)
+}
+
+/// Writes from the shell: after an awaited IPC call WebKit no longer treats
+/// `navigator.clipboard.writeText` as part of the click and may reject it.
+#[tauri::command]
+pub(crate) fn copy_application_logs(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    require_local_main(&webview)?;
+    app.clipboard()
+        .write_text(application_logs_text(&app)?)
+        .map_err(|_| "Logs could not be copied to the clipboard.".to_string())?;
+    Ok(true)
+}
+
 #[tauri::command]
 pub(crate) fn application_error(webview: tauri::Webview, message: String) -> Result<(), String> {
     require_local_main(&webview)?;

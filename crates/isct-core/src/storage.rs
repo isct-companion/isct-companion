@@ -17,6 +17,9 @@ pub enum StorageError {
     Input(String),
     #[error("{0}")]
     Storage(String),
+    /// The system refused access; the message says how to allow it.
+    #[error("{0}")]
+    Denied(String),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -190,8 +193,36 @@ pub fn regular_file(path: &Path) -> Result<bool, StorageError> {
     }
 }
 
-fn storage_error(error: impl ToString) -> StorageError {
-    StorageError::Storage(error.to_string())
+fn storage_error(error: impl std::fmt::Display + 'static) -> StorageError {
+    if denied(&error) {
+        StorageError::Denied(failure_text(error))
+    } else {
+        StorageError::Storage(error.to_string())
+    }
+}
+
+/// What to do when the system refuses a write into the course folder. On
+/// Windows that is usually Controlled folder access, which guards Documents
+/// against apps it does not trust yet.
+#[cfg(windows)]
+pub const WRITE_DENIED: &str = "Windows blocked writing to the course folder. If Controlled folder access is on (Windows Security > Virus & threat protection > Ransomware protection), allow IsctCompanion there, or choose another course folder in Settings.";
+#[cfg(not(windows))]
+pub const WRITE_DENIED: &str = "The system blocked writing to the course folder. Check its permissions, or choose another course folder in Settings.";
+
+/// Text for a failed course-folder operation, shared by notes, materials and
+/// workspaces. A refused write says how to allow it.
+pub(crate) fn failure_text(error: impl std::fmt::Display + 'static) -> String {
+    if denied(&error) {
+        format!("{WRITE_DENIED} ({error})")
+    } else {
+        error.to_string()
+    }
+}
+
+pub(crate) fn denied(error: &(impl std::any::Any + 'static)) -> bool {
+    (error as &dyn std::any::Any)
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|error| error.kind() == std::io::ErrorKind::PermissionDenied)
 }
 
 /// Write `contents` to a 0600 temporary file beside `path`, fsync it, then

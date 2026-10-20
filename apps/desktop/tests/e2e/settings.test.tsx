@@ -1208,7 +1208,7 @@ describe("Matrix scan and paste", () => {
 });
 
 it(
-  "renders bounded virtual application logs and pauses following while reading older entries",
+  "renders bounded virtual application logs, pauses following while reading older entries, and exports them",
   async () => {
     const entries = Array.from({ length: 1500 }, (_, index) => ({
       id: index + 1,
@@ -1225,6 +1225,9 @@ it(
             cursor: 1500,
             dropped: false,
           };
+        if (command === "export_application_logs") return "exported log text";
+        if (command === "save_file" || command === "copy_application_logs")
+          return true;
         return undefined;
       },
     });
@@ -1260,6 +1263,16 @@ it(
     expect(follow.checked).toBe(false);
     await click(follow);
     expect(follow.checked).toBe(true);
+
+    await clickButton(pane, "Save to file");
+    await wait(() => expect(app!.core.commands("save_file")).toHaveLength(1));
+    const saved = app.core.commands("save_file")[0].args;
+    expect(saved.name).toMatch(/^IsctCompanion-logs-\d{4}-\d{2}-\d{2}\.txt$/);
+    expect(saved.contents).toBe("exported log text");
+    await clickButton(pane, "Copy");
+    await wait(() =>
+      expect(app!.core.commands("copy_application_logs")).toHaveLength(1),
+    );
   },
   TIMEOUT,
 );

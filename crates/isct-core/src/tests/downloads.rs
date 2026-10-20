@@ -389,6 +389,43 @@ async fn rename_failure_keeps_the_existing_target_and_removes_temp() {
     assert!(part_files(&path).is_empty());
 }
 
+/// Controlled folder access on Windows refuses the write like a read-only
+/// folder does; the user must learn how to allow it, not see a network error.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_folder_that_refuses_writes_reports_denied_instead_of_a_network_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let transport = Arc::new(FakeTransport::new(
+        10,
+        [
+            DownloadStep::Complete(b"complete".to_vec()),
+            DownloadStep::Complete(b"complete".to_vec()),
+        ],
+    ));
+    let downloader = Downloader::with_transport(transport);
+    let path = target("denied");
+    let folder = path.parent().unwrap().to_path_buf();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let result = downloader
+        .fetch(session(), &url(), path.clone(), None, false)
+        .await;
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(result, Err(FetchError::WriteDenied));
+    assert!(FetchError::WriteDenied
+        .to_string()
+        .contains("choose another course folder"));
+    assert!(!path.exists());
+    // Once the user allows the app, a retry saves normally: nothing remembers
+    // the refusal.
+    assert_eq!(
+        downloader
+            .fetch(session(), &url(), path.clone(), None, false)
+            .await,
+        Ok(Fetched::Saved)
+    );
+    assert_eq!(std::fs::read(path).unwrap(), b"complete");
+}
+
 #[tokio::test]
 async fn unknown_sizes_use_one_serial_lane() {
     let transport = Arc::new(FakeTransport::new(

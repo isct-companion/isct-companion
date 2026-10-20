@@ -194,6 +194,8 @@ pub fn run() {
             commands::platform::install_app_update,
             commands::platform::runtime_capabilities,
             commands::platform::application_logs,
+            commands::platform::export_application_logs,
+            commands::platform::copy_application_logs,
             commands::platform::application_error,
             lms_files::course_storage_info,
             lms_files::choose_course_storage,
@@ -387,6 +389,12 @@ pub fn run() {
                 if !runtime.stopped() {
                     api.prevent_exit();
                     if runtime.begin_exit() {
+                        // Draining owned work can take up to EXIT_TIMEOUT. A
+                        // window left on screen meanwhile reads as a frozen
+                        // app, most visibly after "Install and quit".
+                        for window in app.webview_windows().into_values() {
+                            let _ = window.hide();
+                        }
                         let app = app.clone();
                         let code = code.unwrap_or(0);
                         tauri::async_runtime::spawn(async move {

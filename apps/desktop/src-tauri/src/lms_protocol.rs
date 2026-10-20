@@ -18,6 +18,7 @@ enum Reason {
     Network,
     Invalid,
     Timeout,
+    Denied,
 }
 
 impl Reason {
@@ -29,6 +30,7 @@ impl Reason {
             Self::Network => "network",
             Self::Invalid => "invalid",
             Self::Timeout => "timeout",
+            Self::Denied => "denied",
         }
     }
     fn status(self) -> http::StatusCode {
@@ -39,6 +41,7 @@ impl Reason {
             Self::Invalid => http::StatusCode::BAD_REQUEST,
             Self::Timeout => http::StatusCode::GATEWAY_TIMEOUT,
             Self::Network => http::StatusCode::BAD_GATEWAY,
+            Self::Denied => http::StatusCode::FORBIDDEN,
         }
     }
 }
@@ -332,9 +335,11 @@ pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Re
             MaterialFailure::Invalid => error(Reason::Invalid, None),
             MaterialFailure::Timeout => error(Reason::Timeout, None),
             MaterialFailure::Unresolved => error(Reason::Unresolved, None),
+            MaterialFailure::Denied => error(Reason::Denied, None),
             MaterialFailure::Network | MaterialFailure::Cancelled => error(Reason::Network, None),
         },
         Ok(Err(MaterialError::Input(_))) => error(Reason::Invalid, None),
+        Ok(Err(MaterialError::Denied(_))) => error(Reason::Denied, None),
         _ => error(Reason::Network, None),
     }
 }

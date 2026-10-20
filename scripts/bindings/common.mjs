@@ -53,21 +53,35 @@ export function kotlinLibrary(name) {
     throw new Error(`Missing ${name} in the Kotlin compiler distribution`);
   return library;
 }
-export async function javaDependencies() {
+const sha256 = (file) =>
+  createHash("sha256").update(readFileSync(file)).digest("hex");
+// Pinned build dependency, fetched once into the SDK output and checked by
+// hash. Mirrors drop connections now and then (ECONNRESET on CI), so a failed
+// request is retried before the build gives up.
+async function pinned(name, url, hash) {
   mkdirSync(output, { recursive: true });
-  const jar = join(output, "jna-5.17.0.jar");
-  const hash =
-    "b3a9408e7c51e08ef0e3bfcc08f443f6ec0f6191ba8cd7c18d53d2b22e5bdbc0";
-  if (!existsSync(jar)) {
-    const response = await fetch(
-      "https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.jar",
-    );
-    if (!response.ok)
-      throw new Error(`JNA download failed: ${response.status}`);
-    writeFileSync(jar, Buffer.from(await response.arrayBuffer()));
+  const file = join(output, name);
+  for (let attempt = 1; !existsSync(file) || sha256(file) !== hash; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+      if (sha256(file) !== hash) throw new Error("checksum mismatch");
+    } catch (error) {
+      if (attempt === 4)
+        throw new Error(`${name} download failed: ${error.message}`);
+      console.warn(`${name} download failed (${error.message}); retrying`);
+      await new Promise((done) => setTimeout(done, attempt * 5000));
+    }
   }
-  if (createHash("sha256").update(readFileSync(jar)).digest("hex") !== hash)
-    throw new Error("JNA checksum mismatch");
+  return file;
+}
+export async function javaDependencies() {
+  const jar = await pinned(
+    "jna-5.17.0.jar",
+    "https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.jar",
+    "b3a9408e7c51e08ef0e3bfcc08f443f6ec0f6191ba8cd7c18d53d2b22e5bdbc0",
+  );
   const coroutines =
     process.env.KOTLIN_COROUTINES_JAR ??
     kotlinLibrary("kotlinx-coroutines-core-jvm.jar");
@@ -92,41 +106,16 @@ export function generate() {
     generated,
   ]);
 }
-export async function androidJna() {
-  const file = join(output, "jna-5.17.0.aar");
-  const hash =
-    "4dbeffffa665d97ad5aa7eee297531d3c841a86716ab7f774fd6956422b3cf38";
-  mkdirSync(output, { recursive: true });
-  if (!existsSync(file)) {
-    const response = await fetch(
-      "https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.aar",
-    );
-    if (!response.ok)
-      throw new Error(`JNA AAR download failed: ${response.status}`);
-    writeFileSync(file, Buffer.from(await response.arrayBuffer()));
-  }
-  if (createHash("sha256").update(readFileSync(file)).digest("hex") !== hash)
-    throw new Error("JNA AAR checksum mismatch");
-  return file;
-}
+export const androidJna = () =>
+  pinned(
+    "jna-5.17.0.aar",
+    "https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.aar",
+    "4dbeffffa665d97ad5aa7eee297531d3c841a86716ab7f774fd6956422b3cf38",
+  );
 
-export async function androidAnnotations() {
-  const file = join(output, "annotation-jvm-1.9.1.jar");
-  mkdirSync(output, { recursive: true });
-  if (!existsSync(file)) {
-    const response = await fetch(
-      "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.9.1/annotation-jvm-1.9.1.jar",
-    );
-    if (!response.ok)
-      throw new Error(
-        `AndroidX annotations download failed: ${response.status}`,
-      );
-    writeFileSync(file, Buffer.from(await response.arrayBuffer()));
-  }
-  if (
-    createHash("sha256").update(readFileSync(file)).digest("hex") !==
-    "1e343917ebf27ba96fe4dc52b1cad7fd32b738fbc6355bb6cd5b3b305d7212d0"
-  )
-    throw new Error("AndroidX annotations checksum mismatch");
-  return file;
-}
+export const androidAnnotations = () =>
+  pinned(
+    "annotation-jvm-1.9.1.jar",
+    "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.9.1/annotation-jvm-1.9.1.jar",
+    "1e343917ebf27ba96fe4dc52b1cad7fd32b738fbc6355bb6cd5b3b305d7212d0",
+  );
