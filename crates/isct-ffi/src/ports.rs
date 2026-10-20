@@ -498,6 +498,13 @@ pub fn school_start_url(site: crate::types::SchoolSite) -> Result<String, SdkErr
     Ok(site.start_url().to_string())
 }
 
+/// Whether a cookie or website-data domain is a school one, for the shell's
+/// `NativeWebSignOut`.
+#[uniffi::export]
+pub fn is_school_cookie_domain(domain: String) -> bool {
+    isct_core::school_browser::is_school_cookie_domain(&domain)
+}
+
 #[uniffi::export]
 pub fn vault_item(account: String) -> Result<VaultItem, SdkError> {
     let item = core::vault_item(&account).map_err(|e| SdkError::InvalidInput {

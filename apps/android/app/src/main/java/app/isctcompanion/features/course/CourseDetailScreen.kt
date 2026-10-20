@@ -44,6 +44,7 @@ import app.isctcompanion.core.CourseDetail
 import app.isctcompanion.core.DeadlineItem
 import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.number
 import app.isctcompanion.core.text
@@ -76,6 +77,10 @@ fun CourseDetailScreen(courseId: String) {
     val navigator = LocalNavigator.current
     var detail by remember { mutableStateOf<CourseDetail?>(null) }
     LaunchedEffect(courseId, model.contentRevision) { detail = model.courseDetail(courseId) }
+    // Runs once the LMS id is known: Core's planner moves this course's
+    // reads ahead while it is on screen.
+    val lmsCourseId = detail?.lmsCourseId
+    LaunchedEffect(lmsCourseId) { lmsCourseId?.let { model.open(SyncView.Course(it)) } }
     val course = model.records.courses[courseId] ?: JSONObject()
     val tint = courseColor(model.colors[courseId])
     val title = course.text("title").orEmpty()

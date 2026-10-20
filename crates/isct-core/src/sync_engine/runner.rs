@@ -515,6 +515,12 @@ impl SyncHints {
             SyncEngine(shared).observe(event);
         }
     }
+
+    /// Whether the shell's app is in front; true without an engine.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    pub(crate) fn in_front(&self) -> bool {
+        self.engine().is_none_or(|engine| engine.in_front())
+    }
 }
 
 /// Admission stays closed while this lives; dropping it reopens.
@@ -796,6 +802,50 @@ impl SyncEngine {
         AdmissionGuard {
             engine: self.clone(),
         }
+    }
+
+    /// Whether the shell last reported its app in front and running.
+    pub fn in_front(&self) -> bool {
+        let state = guard(&self.0.state);
+        state.facts.foreground && !state.facts.suspended
+    }
+
+    /// Evaluates once more, then waits until no key is leased and none the
+    /// facts allow is left to lease, at most `limit`. An OS background wake
+    /// holds the process open this long.
+    pub async fn wait_quiet(&self, limit: Duration) -> bool {
+        let since = Instant::now();
+        let deadline = since + limit;
+        self.reevaluate();
+        loop {
+            if self.quiet(since) {
+                return true;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            tokio::time::sleep((deadline - now).min(Duration::from_millis(250))).await;
+        }
+    }
+
+    fn quiet(&self, since: Instant) -> bool {
+        let state = guard(&self.0.state);
+        let now = Utc::now();
+        !state.evaluate
+            && state.last_evaluated.is_some_and(|at| at >= since)
+            && state.leases.is_empty()
+            && !state.plan.iter().any(|candidate| {
+                candidate.held.is_none()
+                    && planner::hold(
+                        candidate.key.dataset,
+                        candidate.priority,
+                        &state.inputs,
+                        &state.facts,
+                        now,
+                    )
+                    .is_none()
+            })
     }
 
     /// Waits until no commit is in progress, at most `limit`.
@@ -1397,7 +1447,7 @@ fn load_inputs(
         let courses = crate::lms_ingest::stored_courses(transaction)
             .map_err(|error| DataError::Storage(error.to_string()))?;
         let mut statement = transaction.prepare(
-            "SELECT json_extract(value,'$.lmsId'), json_extract(value,'$.offeringId')
+            "SELECT lms_id, json_extract(value,'$.offeringId')
              FROM lms_courses WHERE missing_since IS NULL",
         )?;
         let offerings = statement

@@ -14,6 +14,9 @@ struct IsctCompanionApp: App {
                 .task { await model.start() }
         }
         .onChange(of: scenePhase) { _, phase in model.scenePhase(phase) }
+        .backgroundTask(.appRefresh(AppModel.backgroundRefresh)) { [model] in
+            await model.backgroundRefresh()
+        }
     }
 }
 

@@ -169,7 +169,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::CameraScanner::default())
-        .manage(isct_ocr::MatrixAlphabetService)
+        .manage(isct_ocr::MatrixAlphabetService::default())
         .manage(lms_downloader::SessionView::default())
         .manage(desktop_updates::DesktopUpdates::default())
         .plugin(tauri_plugin_updater::Builder::new().build());

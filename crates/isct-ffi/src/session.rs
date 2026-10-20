@@ -412,7 +412,6 @@ impl Session {
     /// The OS is about to suspend the process: Core stops leasing new keys.
     pub fn suspend(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, |i, _| async move {
-            i.core.sync_hint(isct_core::sync_engine::Hint::Suspend);
             i.core.runtime.suspend().await;
             Ok(OperationResult::Done)
         })
@@ -420,7 +419,6 @@ impl Session {
     pub fn resume(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, |i, _| async move {
             i.core.runtime.resume().await;
-            i.core.sync_hint(isct_core::sync_engine::Hint::Resume);
             if let Ok((sync, services)) = i.cloud() {
                 sync.resume(services.clone()).await?;
             }
@@ -432,29 +430,31 @@ impl Session {
     /// the user's scheduled tasks.
     pub fn wake(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            i.core.sync_hint(isct_core::sync_engine::Hint::Wake);
-            let report = i
-                .core
-                .wake(isct_core::facade::WakeServices {
-                    scheduler: services(&i)?,
-                    cloud: i.cloud().ok().map(|(_, services)| services.clone()),
-                    reminders: i.notifications.as_ref().map(|sink| {
-                        isct_core::facade::ReminderWake {
-                            sink: Arc::new(Notifications(sink.clone())),
-                            now: chrono::Utc::now().fixed_offset(),
-                        }
-                    }),
-                })
-                .await;
-            // All services have run even when one failed; return the first
-            // typed error and let snapshots expose any successful work.
-            report.runtime.map_err(runtime_error)?;
-            if let Some(result) = report.cloud {
-                result?;
-            }
-            if let Some(result) = report.reminders {
-                result?;
-            }
+            wake_services(&i).await?;
+            Ok(OperationResult::Done)
+        })
+    }
+    /// One wake from the OS background scheduler (iOS BGAppRefreshTask,
+    /// Android WorkManager), sent while the app is out of front. Core
+    /// resumes, runs one `wake`, reads what may be read in the background
+    /// (LMS deadlines and assignment states over the token, references and
+    /// catalog packs; nothing that needs the school WebView) and waits for
+    /// those reads at most `budget_seconds`. It then suspends again unless
+    /// the app came to the front. Cancel it when the OS ends the task early.
+    pub fn background_wake(&self, budget_seconds: u32) -> Result<Arc<Operation>, SdkError> {
+        self.start(true, move |i, cancel| async move {
+            let budget = std::time::Duration::from_secs(u64::from(budget_seconds));
+            let work = async {
+                let (woke, _) = tokio::join!(wake_services(&i), i.core.sync_in_background(budget));
+                woke
+            };
+            let woke = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => Ok(()),
+                woke = work => woke,
+            };
+            i.core.end_background_wake().await;
+            woke?;
             Ok(OperationResult::Done)
         })
     }
@@ -664,4 +664,32 @@ async fn initialize(
     });
     inner.core.start(&Handle::current())?;
     Ok(inner)
+}
+
+/// `Hint::Wake` for the sync planner, then reminders, cloud sync and the
+/// user's scheduled tasks. All services run even when one fails; the first
+/// typed error is returned and snapshots expose any successful work.
+async fn wake_services(i: &Arc<Inner>) -> Result<(), SdkError> {
+    i.core.sync_hint(isct_core::sync_engine::Hint::Wake);
+    let report = i
+        .core
+        .wake(isct_core::facade::WakeServices {
+            scheduler: services(i)?,
+            cloud: i.cloud().ok().map(|(_, services)| services.clone()),
+            reminders: i.notifications.as_ref().map(|sink| {
+                isct_core::facade::ReminderWake {
+                    sink: Arc::new(Notifications(sink.clone())),
+                    now: chrono::Utc::now().fixed_offset(),
+                }
+            }),
+        })
+        .await;
+    report.runtime.map_err(runtime_error)?;
+    if let Some(result) = report.cloud {
+        result?;
+    }
+    if let Some(result) = report.reminders {
+        result?;
+    }
+    Ok(())
 }

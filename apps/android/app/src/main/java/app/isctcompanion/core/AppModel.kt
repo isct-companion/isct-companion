@@ -13,11 +13,14 @@ import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Localizer
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -83,8 +86,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     private var refreshJob: Job? = null
     private var wakeJob: Job? = null
     private val settingsWrite = Mutex()
+    private val opening = Mutex()
     private var networkState = SyncNetwork.UNKNOWN
-    private var foreground = true
+    private var foreground = false
 
     /** First launch: no school account configured yet. */
     val needsAccount: Boolean
@@ -95,8 +99,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     // Lifecycle
 
-    suspend fun start() {
-        if (session != null) return
+    /** Opens the session once; the application and a background wake both
+     * call this, and the later caller waits for the first. */
+    suspend fun start() = opening.withLock {
+        if (session != null) return@withLock
         try {
             val data = File(context.filesDir, "core").apply { mkdirs() }
             val files = File(context.filesDir, "files").apply { mkdirs() }
@@ -116,17 +122,26 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             status = Status.Ready
             watchNetwork()
             watchPowerSaver()
+            // WorkManager can start the process with no activity in front.
+            foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             hint(if (foreground) Hint.Foreground else Hint.Background)
-            if (foreground) startWaking()
-            reportSchool(SchoolSessionLifecycleKind.LAUNCH)
+            if (foreground) {
+                startWaking()
+                // The launch check signs in through the school web views,
+                // which only run in front; out of front the first `FOCUS`
+                // does it instead.
+                reportSchool(SchoolSessionLifecycleKind.LAUNCH)
+            } else {
+                runCatching { session.suspend() }
+            }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }
     }
 
     fun foreground(active: Boolean) {
-        val session = session ?: return
         foreground = active
+        val session = session ?: return
         if (active) {
             runCatching { session.resume() }
             hint(Hint.Foreground)
@@ -140,6 +155,25 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             reportSchool(SchoolSessionLifecycleKind.FOCUS)
             runCatching { session.suspend() }
         }
+    }
+
+    /** One WorkManager wake out of front: Core reads what it may there
+     * (LMS deadlines and assignment states over the token, reference files)
+     * and runs reminders, for at most two minutes, then suspends again unless
+     * the app came to the front. A stopped worker ends it early. */
+    suspend fun backgroundWake() {
+        start()
+        val session = session ?: return
+        val operation = runCatching { session.backgroundWake(120u) }.getOrNull() ?: return
+        try {
+            operation.awaitResult()
+        } catch (error: CancellationException) {
+            runCatching { operation.cancel() }
+            throw error
+        } catch (error: Exception) {
+            Log.w("isct", "background wake", error)
+        }
+        refresh()
     }
 
     /** A lifecycle fact, opened view or refresh request for Core's sync
@@ -433,6 +467,23 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val session = session ?: return emptyList()
         ocrProgress = 0
         return (session.scanMatrix(image).value() as? OperationResult.Recognitions)?.cells.orEmpty()
+    }
+
+    /** Settings → Reset: what `request` would remove now, or null when Core
+     * cannot tell. */
+    suspend fun resetPreview(request: ResetRequest): ResetSummary? {
+        val session = session ?: return null
+        return runCatching { session.resetPreview(request) }.getOrNull()
+    }
+
+    /** Clears what `request` names. Core decides what each scope removes and
+     * announces the change, which re-reads every screen. */
+    suspend fun reset(request: ResetRequest) {
+        val session = session ?: return
+        session.reset(request, SchoolWebSignOut())
+        problem = null
+        refreshAccounts()
+        readSync()
     }
 
     suspend fun deleteCredentials(profile: SchoolAuthProfile) {

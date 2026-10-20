@@ -14,7 +14,7 @@ use std::path::Path;
 pub(super) const USER_FILE: &str = "user.db";
 pub(super) const CACHE_FILE: &str = "cache.db";
 pub const USER_SCHEMA_VERSION: i64 = 1;
-pub const CACHE_SCHEMA_VERSION: i64 = 1;
+pub const CACHE_SCHEMA_VERSION: i64 = 2;
 
 /// The single file of schemas 6–8, before the split.
 const LEGACY_FILE: &str = "school.db";
@@ -168,37 +168,40 @@ CREATE TABLE scheduled_tasks (
 
 /// Created through the connection that has cache.db attached as `cache`.
 /// Freshness per (dataset, key) and one row per read: see `crate::sync_state`.
+/// Record rows keep their content in `value` only; a field a query filters
+/// on is a VIRTUAL generated column over it, indexed, so writers never copy
+/// fields into columns and a column cannot drift from its row.
 const CACHE_SCHEMA: &str = r#"
 CREATE TABLE cache.timetable_courses (
-  id TEXT PRIMARY KEY, term TEXT, offering_id TEXT, names TEXT, title TEXT,
-  instructor TEXT, code TEXT, instruction_language TEXT, credits REAL,
-  credit_split TEXT, meetings TEXT, color TEXT, url TEXT, source_value TEXT,
-  value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
-  updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
-  last_seen_at TEXT, missing_since TEXT
-);
-CREATE TABLE cache.memberships (
-  id TEXT PRIMARY KEY, term TEXT, course_id TEXT, status TEXT, evidence TEXT,
-  value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
-  updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
-  last_seen_at TEXT, missing_since TEXT
-);
-CREATE TABLE cache.assignments (
-  id TEXT PRIMARY KEY, course_id TEXT, title TEXT, details TEXT, due_at TEXT,
-  source_url TEXT, lms_cmid INTEGER, lms_course_id INTEGER, submission TEXT,
-  value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
-  updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
-  last_seen_at TEXT, missing_since TEXT
-);
-CREATE TABLE cache.offerings (
-  id TEXT PRIMARY KEY, year INTEGER, quarters TEXT, code TEXT, class_code TEXT,
-  unit_code TEXT, title TEXT, instructors TEXT, instruction_language TEXT,
-  format TEXT, media TEXT, class_label TEXT, credits TEXT, schedule TEXT,
-  academic_unit TEXT, intensive INTEGER, syllabus_url TEXT, source_updated TEXT,
-  fetched_at TEXT, value TEXT NOT NULL, hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
+CREATE TABLE cache.memberships (
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
+);
+CREATE TABLE cache.assignments (
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT,
+  lms_cmid INTEGER GENERATED ALWAYS AS (json_extract(value,'$.lmsCmid')) VIRTUAL,
+  lms_course_id INTEGER GENERATED ALWAYS AS (json_extract(value,'$.lmsCourseId')) VIRTUAL,
+  submission TEXT GENERATED ALWAYS AS (json_extract(value,'$.submission')) VIRTUAL
+);
+CREATE INDEX cache.assignments_by_cmid ON assignments(lms_cmid);
+CREATE INDEX cache.assignments_by_lms_course ON assignments(lms_course_id);
+CREATE TABLE cache.offerings (
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT,
+  year INTEGER GENERATED ALWAYS AS (json_extract(value,'$.year')) VIRTUAL,
+  -- Whether a catalog pack delivered the row / 教務 lists it.
+  pack INTEGER GENERATED ALWAYS AS (json_extract(value,'$.pack') IS NOT NULL) VIRTUAL,
+  kyomu INTEGER GENERATED ALWAYS AS (json_extract(value,'$.kyomu') IS NOT NULL) VIRTUAL
+);
+CREATE INDEX cache.offerings_by_year ON offerings(year, pack);
 CREATE TABLE cache.offering_content (
   offering_id TEXT NOT NULL, lang TEXT NOT NULL, content TEXT NOT NULL,
   fetched_at TEXT NOT NULL, PRIMARY KEY (offering_id, lang)
@@ -210,15 +213,25 @@ CREATE VIRTUAL TABLE cache.offerings_fts USING fts5(
   offering_id UNINDEXED, code, title_ja, title_en, instructors_ja, instructors_en
 );
 CREATE TABLE cache.lms_courses (
-  id TEXT PRIMARY KEY, lms_id INTEGER UNIQUE, value TEXT NOT NULL, hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
-  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT,
+  lms_id INTEGER GENERATED ALWAYS AS (json_extract(value,'$.lmsId')) VIRTUAL
 );
+CREATE INDEX cache.lms_courses_by_lms_id ON lms_courses(lms_id);
 CREATE TABLE cache.lms_items (
-  id TEXT PRIMARY KEY, cmid INTEGER, value TEXT NOT NULL, hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
-  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT,
+  cmid INTEGER GENERATED ALWAYS AS (json_extract(value,'$.cmid')) VIRTUAL,
+  lms_course_id INTEGER GENERATED ALWAYS AS (json_extract(value,'$.lmsCourseId')) VIRTUAL,
+  url TEXT GENERATED ALWAYS AS (json_extract(value,'$.url')) VIRTUAL,
+  resource_url TEXT GENERATED ALWAYS AS (json_extract(value,'$.resourceUrl')) VIRTUAL
 );
+CREATE INDEX cache.lms_items_by_cmid ON lms_items(cmid);
+CREATE INDEX cache.lms_items_by_lms_course ON lms_items(lms_course_id);
+CREATE INDEX cache.lms_items_by_url ON lms_items(url);
+CREATE INDEX cache.lms_items_by_resource_url ON lms_items(resource_url);
 CREATE TABLE cache.registrations (
   id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
@@ -240,18 +253,17 @@ CREATE TABLE cache.requirement_progress (
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
 CREATE TABLE cache.gpa_summary (
-  id TEXT PRIMARY KEY, scope TEXT, value TEXT NOT NULL, hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
 CREATE TABLE cache.gpa_by_term (
-  id TEXT PRIMARY KEY, year INTEGER, term TEXT, value TEXT NOT NULL, hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
 CREATE TABLE cache.academic_calendar (
-  id TEXT PRIMARY KEY, date TEXT, type TEXT, replacement_day INTEGER, label TEXT,
-  source_hash TEXT, value TEXT NOT NULL, hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
@@ -261,37 +273,28 @@ CREATE TABLE cache.departments (
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
 CREATE TABLE cache.recommended_courses (
-  id TEXT PRIMARY KEY, department_id TEXT, code TEXT, course_group TEXT,
-  value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
-  updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
-  last_seen_at TEXT, missing_since TEXT
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
 CREATE TABLE cache.important_dates (
-  id TEXT PRIMARY KEY, academic_year INTEGER NOT NULL, start_date TEXT NOT NULL,
-  end_date TEXT NOT NULL, category TEXT NOT NULL, value TEXT NOT NULL, hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
-CREATE INDEX cache.important_dates_range ON important_dates(academic_year,start_date,end_date);
 CREATE TABLE cache.exams (
-  id TEXT PRIMARY KEY, academic_year INTEGER NOT NULL, level TEXT NOT NULL,
-  quarter TEXT NOT NULL, course_code TEXT NOT NULL, exam_date TEXT NOT NULL,
-  status TEXT NOT NULL, value TEXT NOT NULL, hash TEXT NOT NULL,
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
-CREATE INDEX cache.exams_by_course ON exams(academic_year,course_code);
-CREATE INDEX cache.exams_by_date ON exams(academic_year,exam_date);
 CREATE TABLE cache.class_schedules (
-  id TEXT PRIMARY KEY, academic_year INTEGER NOT NULL, course_code TEXT NOT NULL,
-  value TEXT NOT NULL, hash TEXT NOT NULL, updated_at TEXT NOT NULL,
-  updated_by TEXT NOT NULL, rev INTEGER NOT NULL, source TEXT, deleted_at TEXT,
-  last_seen_at TEXT, missing_since TEXT
+  id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
+  source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
 CREATE TABLE cache.dataset_state (
   dataset TEXT NOT NULL, key TEXT NOT NULL, account TEXT NOT NULL DEFAULT '',
-  generation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT, validator TEXT,
-  outcome TEXT, message TEXT, state TEXT NOT NULL DEFAULT 'idle', lease_run TEXT,
+  fetched_at TEXT, validator TEXT, outcome TEXT, message TEXT,
   failures INTEGER NOT NULL DEFAULT 0, next_eligible TEXT, cursor TEXT,
   last_error TEXT, last_used TEXT,
   PRIMARY KEY (dataset, key)

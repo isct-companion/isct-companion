@@ -400,7 +400,6 @@ fn planning_reads_current_courses_on_demand_and_the_rest_when_due() {
                     dataset: key.dataset.name().into(),
                     key: key.key.clone(),
                     account: ACCOUNT.into(),
-                    generation: 0,
                     fetched_at: Some(now),
                     validator: None,
                     outcome: Some(sync_state::Outcome::Complete),

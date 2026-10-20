@@ -1402,6 +1402,7 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
         view.lms_url.as_deref(),
         Some("https://lms.s.isct.ac.jp/2026/course/view.php?id=8")
     );
+    assert_eq!(view.lms_course_id, Some(8));
     assert_eq!(
         view.syllabus_url.as_deref(),
         Some("https://syllabus.s.isct.ac.jp/courses/2026/x")
@@ -1413,6 +1414,7 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
         view.lms_url.as_deref(),
         Some("https://lms.s.isct.ac.jp/2026/course/view.php?id=9")
     );
+    assert_eq!(view.lms_course_id, Some(9));
     assert_eq!(view.syllabus_url, None);
 }
 

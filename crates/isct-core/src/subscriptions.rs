@@ -1133,7 +1133,6 @@ fn apply_row(
     id: &str,
     value: &Value,
     source_hash: &str,
-    extra: &[(&str, rusqlite::types::Value)],
 ) -> Result<bool, SubscriptionError> {
     let hash = content_hash(value)?;
     let old: Option<(String, u64, Option<String>)> = tx
@@ -1154,19 +1153,6 @@ fn apply_row(
             .map_err(SubscriptionError::from)?;
         return Ok(changed);
     }
-    let mut names = vec![
-        "id",
-        "value",
-        "hash",
-        "updated_at",
-        "updated_by",
-        "rev",
-        "source",
-        "deleted_at",
-        "last_seen_at",
-        "missing_since",
-    ];
-    names.extend(extra.iter().map(|(n, _)| *n));
     let rev = old.map_or(0, |x| x.1) + 1;
     let mut stored = value.clone();
     if let Some(object) = stored.as_object_mut() {
@@ -1184,37 +1170,18 @@ fn apply_row(
         object.remove("missingSince");
         object.remove("deletedAt");
     }
-    let mut values = vec![
-        id.to_string().into(),
-        serde_json::to_string(&stored)
-            .map_err(SubscriptionError::from)?
-            .into(),
-        hash.into(),
-        timestamp.clone().into(),
-        String::from("subscription").into(),
-        (rev as i64).into(),
-        source_hash.to_string().into(),
-        rusqlite::types::Value::Null,
-        timestamp.clone().into(),
-        rusqlite::types::Value::Null,
-    ];
-    values.extend(extra.iter().map(|(_, v)| v.clone()));
-    let marks = (1..=names.len())
-        .map(|i| format!("?{i}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let updates = names
-        .iter()
-        .skip(1)
-        .map(|n| format!("{n}=excluded.{n}"))
-        .collect::<Vec<_>>()
-        .join(",");
+    let json = serde_json::to_string(&stored).map_err(SubscriptionError::from)?;
     tx.execute(
         &format!(
-            "INSERT INTO {table} ({}) VALUES ({marks}) ON CONFLICT(id) DO UPDATE SET {updates}",
-            names.join(",")
+            "INSERT INTO {table}
+             (id,value,hash,updated_at,updated_by,rev,source,deleted_at,last_seen_at,missing_since)
+             VALUES (?1,?2,?3,?4,'subscription',?5,?6,NULL,?4,NULL)
+             ON CONFLICT(id) DO UPDATE SET value=excluded.value,hash=excluded.hash,
+               updated_at=excluded.updated_at,updated_by=excluded.updated_by,rev=excluded.rev,
+               source=excluded.source,deleted_at=NULL,last_seen_at=excluded.last_seen_at,
+               missing_since=NULL"
         ),
-        rusqlite::params_from_iter(values),
+        rusqlite::params![id, json, hash, timestamp, rev as i64, source_hash],
     )
     .map_err(SubscriptionError::from)?;
     Ok(true)
@@ -1268,17 +1235,6 @@ pub fn apply_reference(
                 &id,
                 &value,
                 &calendar_hash,
-                &[
-                    ("date", date.clone().into()),
-                    ("type", kind.to_string().into()),
-                    (
-                        "label",
-                        serde_json::to_string(&label)
-                            .map_err(SubscriptionError::from)?
-                            .into(),
-                    ),
-                    ("source_hash", calendar_hash.clone().into()),
-                ],
             )?);
         }
     }
@@ -1296,32 +1252,6 @@ pub fn apply_reference(
             &id,
             &value,
             &calendar_hash,
-            &[
-                ("date", day.date.clone().into()),
-                (
-                    "type",
-                    match day.day_type {
-                        CalendarDayType::Holiday => "holiday",
-                        CalendarDayType::NoClass => "no-class",
-                        CalendarDayType::Replacement => "replacement",
-                    }
-                    .to_string()
-                    .into(),
-                ),
-                (
-                    "replacement_day",
-                    day.replacement_day
-                        .map(|v| (v as i64).into())
-                        .unwrap_or(rusqlite::types::Value::Null),
-                ),
-                (
-                    "label",
-                    serde_json::to_string(&day.label)
-                        .map_err(SubscriptionError::from)?
-                        .into(),
-                ),
-                ("source_hash", calendar_hash.clone().into()),
-            ],
         )?);
     }
     let mut department_ids = HashSet::new();
@@ -1338,7 +1268,7 @@ pub fn apply_reference(
         object.insert("admissionYear".into(), departments.admission_year.into());
         object.insert("cohortYear".into(), departments.admission_year.into());
         object.insert("provenance".into(), json!({"source":departments.source}));
-        changed += usize::from(apply_row(tx, "departments", &id, &value, &guide_hash, &[])?);
+        changed += usize::from(apply_row(tx, "departments", &id, &value, &guide_hash)?);
         for course in &department.recommended {
             let id = format!(
                 "cohort:{}:recommended:{}:{}:{}",
@@ -1369,18 +1299,6 @@ pub fn apply_reference(
                 &id,
                 &value,
                 &guide_hash,
-                &[
-                    (
-                        "department_id",
-                        format!(
-                            "cohort:{}:department:{}",
-                            departments.admission_year, department.id
-                        )
-                        .into(),
-                    ),
-                    ("code", course.code.clone().into()),
-                    ("course_group", course.group.clone().into()),
-                ],
             )?);
         }
     }
@@ -1474,19 +1392,7 @@ pub fn apply_important_dates(
             .into(),
         );
         object.insert("provenance".into(), json!({"source":feed.source}));
-        changed += usize::from(apply_row(
-            tx,
-            "important_dates",
-            &id,
-            &value,
-            &source_hash,
-            &[
-                ("academic_year", feed.academic_year.into()),
-                ("start_date", entry.start_date.clone().into()),
-                ("end_date", entry.end_date.clone().into()),
-                ("category", entry.category.clone().into()),
-            ],
-        )?);
+        changed += usize::from(apply_row(tx, "important_dates", &id, &value, &source_hash)?);
     }
     changed += mark_missing(
         tx,
@@ -1521,17 +1427,7 @@ pub fn apply_class_schedules(
             .into(),
         );
         object.insert("provenance".into(), json!({"source":feed.source}));
-        changed += usize::from(apply_row(
-            tx,
-            "class_schedules",
-            &id,
-            &value,
-            &source_hash,
-            &[
-                ("academic_year", feed.academic_year.into()),
-                ("course_code", entry.course_code.clone().into()),
-            ],
-        )?);
+        changed += usize::from(apply_row(tx, "class_schedules", &id, &value, &source_hash)?);
     }
     changed += mark_missing(
         tx,
@@ -1591,21 +1487,7 @@ pub fn apply_exam_feed(
             "provenance".into(),
             json!({"source":published.feed.source,"dataUrl":published.url}),
         );
-        changed += usize::from(apply_row(
-            tx,
-            "exams",
-            &id,
-            &value,
-            &source_hash,
-            &[
-                ("academic_year", published.feed.academic_year.into()),
-                ("level", published.level.clone().into()),
-                ("quarter", published.quarter.to_ascii_uppercase().into()),
-                ("course_code", entry.course_code.clone().into()),
-                ("exam_date", entry.date.clone().into()),
-                ("status", entry.status.clone().into()),
-            ],
-        )?);
+        changed += usize::from(apply_row(tx, "exams", &id, &value, &source_hash)?);
     }
     let prefix = format!(
         "{}:{}:{}:{}:%",

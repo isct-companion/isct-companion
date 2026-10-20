@@ -3133,3 +3133,89 @@ checks:
       - apps/desktop/src/pages/settings/ResetSettings.tsx
       - apps/desktop/src-tauri/src/commands/reset.rs
     verified: null
+
+  - id: MOBILE-SETTINGS-RESET
+    area: native
+    title: Reset from Settings on iPhone and Android
+    persona: careless-multidevice
+    preconditions: |
+      The app on a phone signed in to Science Tokyo, school data synced, at
+      least one downloaded course file, one hidden assignment, and on the
+      iPhone iCloud backup on with a recent upload.
+    steps:
+      - action: |
+          設定 › リセット › 学校のキャッシュを消去して再同期; read the lists and the
+          size, then turn on both options.
+        reason: |
+          The two options must move "school web sign-in" and "downloaded course
+          files" from 残るもの to 削除されるもの, and the size must change with the
+          downloads option. "–" means Core's preview failed.
+      - action: |
+          Press 消去して再同期, then open 今日, a course and the ウェブ tab.
+        reason: |
+          The screens empty and refill; the hidden assignment stays hidden;
+          the course file reads not downloaded; the ウェブ tab and LMS reads
+          sign in again with the saved login. A sign-out failure notice means
+          the shell's `NativeWebSignOut` failed.
+      - action: |
+          設定 › リセット › 完全リセット; check the button stays disabled until the
+          acknowledgement is on, then confirm in the system dialog (iPhone:
+          choose クラウドから復元する first).
+        reason: |
+          A full reset deletes user data, settings and saved logins; the
+          acknowledgement and the dialog are its only guard. On the iPhone
+          Core stops iCloud sync first and the restore turns it on again.
+    observe: |
+      The reset pages, the notice after each reset, 今日, a course page, the
+      ウェブ tab, 設定 › 学校アカウント and 設定 › バックアップ.
+    expected: |
+      Clearing keeps marks and logins, removes the files and the web sign-in,
+      and resyncs. Full reset returns to the account screen; on the iPhone the
+      hidden assignment comes back from iCloud, on Android nothing returns.
+    why_manual: |
+      The WebView stores (WKWebsiteDataStore, CookieManager), real sign-in and
+      iCloud need a device. What each scope deletes is covered by
+      `crates/isct-core/src/tests/reset.rs`; this check is the shell wiring.
+    covers:
+      - apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift
+      - apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt
+    verified: null
+
+  - id: MOBILE-BACKGROUND-SYNC
+    area: native
+    title: Phones read LMS deadlines in the background without the school web views
+    persona: undergraduate-senior
+    preconditions: |
+      The app on a phone signed in to Science Tokyo with an LMS token (one
+      foreground sync done), assignment reminders on, and a new LMS
+      assignment or deadline change made after the app went to the background.
+    steps:
+      - action: |
+          Leave the app in the background for an hour or more (iPhone: keep
+          Background App Refresh on; Android: no battery restriction).
+        reason: |
+          iOS runs the BGAppRefreshTask and WorkManager the periodic worker
+          when they choose; Core then reads only token and public keys.
+      - action: |
+          Before opening the app, look for the new assignment's reminder; then
+          open the app and Settings → Application logs → Copy.
+        reason: |
+          A reminder or the new row on 今日 right after opening proves the
+          background read. The log must show LMS deadline and assignment keys
+          read while out of front, and no 教務Web, LMS course or school
+          sign-in entries until the app came to the front.
+    observe: |
+      The notification shade, 今日 on opening, and the copied log.
+    expected: |
+      LMS deadlines and assignment states arrive in the background; 教務,
+      course contents and any sign-in wait for the foreground.
+    why_manual: |
+      The OS decides when background work runs, and only a device runs it.
+      What the planner holds out of front is covered by the sync engine
+      tests; this check is the shell wiring of the OS schedulers.
+    covers:
+      - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
+      - apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt
+    verified: null

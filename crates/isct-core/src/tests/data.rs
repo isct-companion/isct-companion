@@ -160,8 +160,8 @@ fn keeps_a_resolved_folder_listing_once_and_reads_it_back() {
         let connection = store.test_connection();
         connection
             .execute(
-                "INSERT INTO lms_items (id,cmid,value,hash,updated_at,updated_by,rev,source)
-                     VALUES ('m9',9,?1,'h','2026-10-01T00:00:00Z','lms',1,'lms')",
+                "INSERT INTO lms_items (id,value,hash,updated_at,updated_by,rev,source)
+                     VALUES ('m9',?1,'h','2026-10-01T00:00:00Z','lms',1,'lms')",
                 [json!({"id":"m9","cmid":9,"module":"folder","url":url}).to_string()],
             )
             .unwrap();

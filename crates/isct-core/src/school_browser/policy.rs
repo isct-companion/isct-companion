@@ -1,6 +1,19 @@
 use crate::school_auth::SchoolAuthProfile;
 use url::Url;
 
+/// The registrable domains of the school sign-ins. Every cookie under them
+/// belongs to a school session.
+const SCHOOL_DOMAINS: [&str; 3] = ["isct.ac.jp", "titech.ac.jp", "ex-tic.com"];
+
+/// Whether a cookie or website-data domain (`.lms.s.isct.ac.jp`,
+/// `isct.ac.jp`) is a school one, which a school web sign-out removes.
+pub fn is_school_cookie_domain(domain: &str) -> bool {
+    let domain = domain.trim_start_matches('.').to_ascii_lowercase();
+    SCHOOL_DOMAINS
+        .iter()
+        .any(|school| domain == *school || domain.ends_with(&format!(".{school}")))
+}
+
 /// Official origins eligible for school automation and persisted restore URLs.
 /// Interactive WebView browsing is governed separately by `browsing_url`.
 ///

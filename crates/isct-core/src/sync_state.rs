@@ -163,7 +163,6 @@ pub struct KeyState {
     pub dataset: String,
     pub key: String,
     pub account: String,
-    pub generation: i64,
     pub fetched_at: Option<DateTime<Utc>>,
     pub validator: Option<String>,
     pub outcome: Option<Outcome>,
@@ -242,12 +241,12 @@ pub fn commit(
 ) -> Result<(), DataError> {
     connection
         .execute(
-            "INSERT INTO dataset_state(dataset,key,account,fetched_at,validator,outcome,message,state,failures)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,'idle',0)
+            "INSERT INTO dataset_state(dataset,key,account,fetched_at,validator,outcome,message,failures)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,0)
              ON CONFLICT(dataset,key) DO UPDATE SET account=excluded.account,
                fetched_at=excluded.fetched_at, validator=excluded.validator,
-               outcome=excluded.outcome, message=excluded.message, state='idle',
-               lease_run=NULL, failures=0, next_eligible=NULL, last_error=NULL",
+               outcome=excluded.outcome, message=excluded.message,
+               failures=0, next_eligible=NULL, last_error=NULL",
             params![
                 key.dataset.name(),
                 key.key,
@@ -273,8 +272,7 @@ pub fn renew(
 ) -> Result<bool, DataError> {
     let renewed = connection
         .execute(
-            "UPDATE dataset_state SET fetched_at=?4, state='idle', lease_run=NULL,
-               failures=0, next_eligible=NULL, last_error=NULL
+            "UPDATE dataset_state SET fetched_at=?4, failures=0, next_eligible=NULL, last_error=NULL
              WHERE dataset=?1 AND key=?2 AND account=?3 AND fetched_at IS NOT NULL",
             params![key.dataset.name(), key.key, account, now.to_rfc3339()],
         )
@@ -305,9 +303,9 @@ pub fn fail(
     let next = now + backoff(failures);
     connection
         .execute(
-            "INSERT INTO dataset_state(dataset,key,account,state,failures,next_eligible,last_error)
-             VALUES(?1,?2,?3,'failed',?4,?5,?6)
-             ON CONFLICT(dataset,key) DO UPDATE SET state='failed', lease_run=NULL,
+            "INSERT INTO dataset_state(dataset,key,account,failures,next_eligible,last_error)
+             VALUES(?1,?2,?3,?4,?5,?6)
+             ON CONFLICT(dataset,key) DO UPDATE SET
                failures=excluded.failures, next_eligible=excluded.next_eligible,
                last_error=excluded.last_error",
             params![
@@ -351,7 +349,7 @@ pub fn touch(connection: &Connection, keys: &[Key], now: DateTime<Utc>) -> Resul
     Ok(())
 }
 
-const COLUMNS: &str = "dataset,key,account,generation,fetched_at,validator,outcome,message,
+const COLUMNS: &str = "dataset,key,account,fetched_at,validator,outcome,message,
     failures,next_eligible,last_error,last_used";
 
 fn time(value: Option<String>) -> Option<DateTime<Utc>> {
@@ -365,19 +363,18 @@ fn key_state(row: &rusqlite::Row<'_>) -> rusqlite::Result<KeyState> {
         dataset: row.get(0)?,
         key: row.get(1)?,
         account: row.get(2)?,
-        generation: row.get(3)?,
-        fetched_at: time(row.get(4)?),
-        validator: row.get(5)?,
-        outcome: match row.get::<_, Option<String>>(6)?.as_deref() {
+        fetched_at: time(row.get(3)?),
+        validator: row.get(4)?,
+        outcome: match row.get::<_, Option<String>>(5)?.as_deref() {
             Some("complete") => Some(Outcome::Complete),
             Some("unavailable") => Some(Outcome::Unavailable),
             _ => None,
         },
-        message: row.get(7)?,
-        failures: row.get(8)?,
-        next_eligible: time(row.get(9)?),
-        last_error: row.get(10)?,
-        last_used: time(row.get(11)?),
+        message: row.get(6)?,
+        failures: row.get(7)?,
+        next_eligible: time(row.get(8)?),
+        last_error: row.get(9)?,
+        last_used: time(row.get(10)?),
     })
 }
 

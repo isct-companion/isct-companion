@@ -4,8 +4,9 @@ import Observation
 /// The UI language, read from `settings.locale` like the desktop's.
 ///
 /// Strings are keyed by their English text and translated from the catalogs
-/// the desktop uses (`resources/locales/{ja,zh}.json`, i18next format with
-/// `{{name}}` placeholders); English is the key itself. These catalogs are
+/// the desktop uses (`resources/locales/{en,ja,zh}.json`, i18next format with
+/// `{{name}}` placeholders); English is the key itself, except for the few
+/// dotted keys (`settings.reset.…`) that `en.json` spells out. These catalogs are
 /// read directly rather than through a String Catalog because the language is
 /// an in-app setting, not the system's, and the placeholders must stay the
 /// desktop's named ones so both shells share one translation.
@@ -19,13 +20,15 @@ final class Localizer: @unchecked Sendable {
     /// `en`, `ja` or `zh`.
     private(set) var language = "en"
     @ObservationIgnored private var catalog: [String: String] = [:]
+    @ObservationIgnored private var loaded: String?
 
     /// Switches to a stored `settings.locale`; anything unknown reads English.
     func use(_ stored: String?) {
         let next = stored.flatMap { ["ja", "zh"].contains($0) ? $0 : nil } ?? "en"
-        guard next != language else { return }
-        catalog = next == "en" ? [:] : Self.load(next)
-        language = next
+        guard next != loaded else { return }
+        catalog = Self.load(next)
+        loaded = next
+        if next != language { language = next }
     }
 
     func string(_ key: String, _ values: [String: Any]) -> String {

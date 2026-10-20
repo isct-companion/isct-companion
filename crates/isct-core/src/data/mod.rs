@@ -814,18 +814,7 @@ impl DataStore {
             snapshot_reader: Arc::new(Mutex::new(snapshot_reader)),
             observer: changes::Observer::default(),
         };
-        store.write(None, |transaction| {
-            // Catalog offerings are never deleted by the person; earlier workspace
-            // saves tombstoned rows the window had not loaded yet. Restore them.
-            transaction
-                .execute(
-                    "UPDATE offerings SET deleted_at=NULL, value=json_remove(value,'$.deletedAt')
-                     WHERE deleted_at IS NOT NULL",
-                    [],
-                )
-                .map_err(DataError::from)?;
-            ensure_defaults_in(transaction)
-        })?;
+        store.write(None, ensure_defaults_in)?;
         Ok((store, split || created))
     }
 

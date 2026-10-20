@@ -7,7 +7,7 @@ impl DataStore {
             .query_row(
                 "SELECT value FROM lms_items
                  WHERE missing_since IS NULL AND deleted_at IS NULL
-                   AND (json_extract(value,'$.url')=?1 OR json_extract(value,'$.resourceUrl')=?1)
+                   AND (url=?1 OR resource_url=?1)
                  LIMIT 1",
                 [url],
                 |row| row.get(0),

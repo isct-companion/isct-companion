@@ -167,7 +167,7 @@ fn course_term(course: &Value, now: DateTime<Utc>) -> Term {
 fn strip_course(connection: &Connection, lms_id: i64, now: DateTime<Utc>) -> Result<(), DataError> {
     for (id, mut value) in rows(
         connection,
-        "SELECT id,value FROM lms_items WHERE json_extract(value,'$.lmsCourseId')=?1",
+        "SELECT id,value FROM lms_items WHERE lms_course_id=?1",
         lms_id,
     )? {
         let mut stripped = false;

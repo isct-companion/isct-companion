@@ -1,3 +1,4 @@
+import BackgroundTasks
 import Foundation
 import IsctCore
 import Network
@@ -49,6 +50,7 @@ final class AppModel {
     private var refreshTask: Task<Void, Never>?
     private var settingsWrite: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
+    private var opening: Task<Void, Never>?
     private let network = NWPathMonitor()
     private var networkState: SyncNetwork = .unknown
     private var foreground = true
@@ -77,8 +79,14 @@ final class AppModel {
 
     // MARK: Lifecycle
 
+    /// Opens the session once; the scene and a background refresh both call
+    /// this, and the later caller waits for the first.
     func start() async {
-        guard session == nil else { return }
+        if opening == nil { opening = Task { await open() } }
+        await opening?.value
+    }
+
+    private func open() async {
         do {
             let support = try FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -106,9 +114,18 @@ final class AppModel {
             status = .ready
             watchNetwork()
             watchPowerSaver()
-            syncHint(.foreground)
-            reportSchool(.launch)
-            startWaking()
+            // A background refresh can launch the app without a scene in front.
+            foreground = UIApplication.shared.applicationState != .background
+            syncHint(foreground ? .foreground : .background)
+            if foreground {
+                // The launch check signs in through the school web views,
+                // which only run in front; out of front the first `.focus`
+                // does it instead.
+                reportSchool(.launch)
+                startWaking()
+            } else {
+                _ = try? session.suspend()
+            }
         } catch {
             status = .failed(Self.describe(error))
         }
@@ -131,6 +148,7 @@ final class AppModel {
             syncHint(.background)
             reportSchool(.focus)
             _ = try? session.suspend()
+            Self.scheduleBackgroundRefresh()
         default:
             break
         }
@@ -148,6 +166,33 @@ final class AppModel {
                 try? await Task.sleep(for: .seconds(1))
             }
         }
+    }
+
+    /// The `BGAppRefreshTask` the scene runs (`IsctCompanionApp`).
+    static let backgroundRefresh = "app.isctcompanion.refresh"
+
+    /// Asks iOS for the next background refresh. iOS picks the time; Core
+    /// decides what is due when it comes.
+    static func scheduleBackgroundRefresh() {
+        let request = BGAppRefreshTaskRequest(identifier: backgroundRefresh)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)
+        try? BGTaskScheduler.shared.submit(request)
+    }
+
+    /// One background refresh: Core reads what it may out of front (LMS
+    /// deadlines and assignment states over the token, reference files) and
+    /// runs reminders and iCloud, within the budget iOS gives a refresh. The
+    /// school web views stay closed. Cancelling the task ends it early.
+    func backgroundRefresh() async {
+        Self.scheduleBackgroundRefresh()
+        await start()
+        guard let session, let operation = try? session.backgroundWake(budgetSeconds: 25) else { return }
+        await withTaskCancellationHandler {
+            _ = try? await operation.awaitResult()
+        } onCancel: {
+            _ = try? operation.cancel()
+        }
+        await refresh()
     }
 
     /// School sign-in hears what desktop sends (`school-session.ts`): `launch`
@@ -676,6 +721,36 @@ extension AppModel {
             problem = Self.describe(error)
             await refreshCloud()
         }
+    }
+}
+
+// MARK: - Reset
+
+/// Settings → Reset over Core's `reset`: Core decides what each scope
+/// removes, stops iCloud sync before a full reset and announces the change,
+/// which re-reads every screen.
+extension AppModel {
+    func resetPreview(_ request: ResetRequest) async -> ResetSummary? {
+        guard let session else { return nil }
+        return try? await session.resetPreview(request: request)
+    }
+
+    func reset(_ request: ResetRequest) async throws {
+        guard let session else { return }
+        _ = try await session.reset(request: request, web: SchoolWebSignOut())
+        problem = nil
+        await refreshAccounts()
+        await refreshSyncSnapshot()
+        await refreshCloud()
+    }
+
+    /// After a full reset, as the desktop's: iCloud on again, then its copy pulled.
+    func restoreFromCloud() async throws {
+        guard let session else { return }
+        _ = try await session.setCloudEnabled(provider: .icloud, enabled: true).value()
+        _ = try await session.syncCloud(direction: .pull).value()
+        await refreshCloud()
+        await refresh()
     }
 }
 
