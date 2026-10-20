@@ -41,6 +41,15 @@ impl SignIn for EngineSignIn {
                 .0
                 .upgrade()
                 .ok_or_else(|| NetError::Invalid("The school browser has stopped.".into()))?;
+            // A phone app out of front may not run the WebView: iOS and
+            // Android stop or throttle it, so a background wake reads only
+            // what the token and the stored session cookies reach. The read
+            // ends as a sign-in wait and runs again in the foreground. A
+            // desktop window out of focus still signs in.
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            if !inner.hints.in_front() {
+                return Err(NetError::SignInRequired);
+            }
             let engine = SchoolBrowserEngine(inner);
             let fail = |error: SchoolBrowserError| match error {
                 SchoolBrowserError::Cancelled => NetError::Cancelled,

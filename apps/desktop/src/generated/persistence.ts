@@ -1090,6 +1090,10 @@ export type CourseDetail = {
    * The course's T2SCHOLA page, from the course itself or its LMS record.
    */
   lmsUrl: string | null;
+  /**
+   * The course's LMS id, which the course page sends in its `Open` hint.
+   */
+  lmsCourseId: number | null;
   syllabusUrl: string | null;
   /**
    * Where the course's downloaded files live, for opening its materials.

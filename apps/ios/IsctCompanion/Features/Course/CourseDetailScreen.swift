@@ -87,12 +87,7 @@ struct CourseDetailScreen: View {
         }
     }
 
-    /// The course's LMS id, from its T2SCHOLA page (`course/view.php?id=…`).
-    /// `CourseDetail` carries only the page URL, not the id itself.
-    private var lmsCourseId: UInt64? {
-        guard let raw = detail?.lmsUrl, let url = URLComponents(string: raw) else { return nil }
-        return url.queryItems?.first { $0.name == "id" }?.value.flatMap(UInt64.init)
-    }
+    private var lmsCourseId: UInt64? { detail?.lmsCourseId }
 
     // MARK: Lessons
 

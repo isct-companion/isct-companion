@@ -99,14 +99,7 @@ fn removable(_domain: Option<&str>) -> bool {
 /// WebKitGTK views share the app's default store; only school sessions go.
 #[cfg(target_os = "linux")]
 fn removable(domain: Option<&str>) -> bool {
-    const SCHOOL: [&str; 3] = ["isct.ac.jp", "titech.ac.jp", "ex-tic.com"];
-    domain
-        .map(|domain| domain.trim_start_matches('.'))
-        .is_some_and(|domain| {
-            SCHOOL
-                .iter()
-                .any(|school| domain == *school || domain.ends_with(&format!(".{school}")))
-        })
+    domain.is_some_and(isct_core::school_browser::is_school_cookie_domain)
 }
 
 /// Clears what `scope` names and returns what went. A full reset first
