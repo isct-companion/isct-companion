@@ -4877,6 +4877,23 @@
       "Four fully readable held-out card snapshots: zero exact cards for either model; aggregation across frames provides the 70/70 camera result",
       "Native localization failures remain; assisted dataset recovery does not fix app geometry",
       "Physical shell acceptance OCR-CAMPUS-CARD still requires rerun"
-    ]
+    ],
+    "defaultPromotion": {
+      "date": "2026-10-21",
+      "authorization": "Explicit user request to make the validated candidate the default and launch the app for physical testing",
+      "modelSha256": "368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f",
+      "previousModelSha256": "592d61903de1f04b48079c44be5c247cd2f16bd323b23fb539b2c7392bfc5177",
+      "thresholdsChanged": false,
+      "physicalVerification": "OCR-CAMPUS-CARD pending user retest",
+      "validation": {
+        "defaultModelTestsPassed": 24,
+        "privateInputTestsIgnored": 4,
+        "desktopDebugBundleBuilt": true,
+        "adHocSignatureVerified": true,
+        "candidateBytesVerifiedInExecutable": true,
+        "originalModelAbsentFromExecutable": true,
+        "appLaunchedAndHomeScreenObserved": true
+      }
+    }
   }
 }

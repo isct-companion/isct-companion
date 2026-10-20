@@ -497,6 +497,16 @@ existing test gains 33 lines and no test is removed. Replay examples add 109 and
 remove three lines; Python tooling adds 453 and removes 13. Build metadata,
 documentation and measured JSON are counted separately.
 
+#### Default promotion, 2026-10-21
+
+At the user's explicit request, the validated video candidate
+`368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f`
+replaces the bundled default model. Confidence and voting thresholds stay the
+same. The original weights remain in the local backup and pre-promotion Git
+history. The earlier local-only decision above records the experiment checkpoint;
+this explicit promotion supersedes it. Physical check `OCR-CAMPUS-CARD` is pending
+the user's new App session.
+
 Checkpoint `5b07f96` adds 133 and removes 5 production Rust lines (net +128;
 no production-code reduction). Tests add 107 lines; replay examples/scripts add
 124 net lines. Documentation, measured JSON and the generated manual table are
