@@ -95,10 +95,18 @@ jobs:
           packages: platform-tools
       - name: Install build SDKs and host Kotlin compiler
         run: |
-          sdkmanager "platforms;android-34" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION"
+          # Google's mirror sometimes serves a truncated NDK archive ("Error on
+          # ZipFile unknown archive"); retry instead of failing the job.
+          for attempt in 1 2 3; do
+            sdkmanager "platforms;android-34" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" &&
+              test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" && break
+            test "$attempt" = 3 && exit 1
+            echo "SDK install failed (attempt $attempt); retrying"
+            sleep $((attempt * 15))
+          done
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           if ! command -v kotlinc >/dev/null; then
-            curl -fL https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
+            curl -fL --retry 3 --retry-all-errors https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
             unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/kotlin"
             echo "$RUNNER_TEMP/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
           fi
