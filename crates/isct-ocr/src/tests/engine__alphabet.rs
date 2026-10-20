@@ -154,6 +154,18 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
         model.recognize(&[vec![0; 10]]),
         Err(MatrixOcrError::InvalidImage(_))
     ));
+    for size in [96 * 96 - 1, 96 * 96 + 1] {
+        assert!(matches!(
+            prepare_matrix_alphabet_input(&vec![0; size]),
+            Err(MatrixOcrError::InvalidImage(_))
+        ));
+    }
+    let prepared = prepare_matrix_alphabet_input(&images[0]).unwrap().unwrap();
+    let direct = model.recognize_raw(&[prepared.original]).unwrap();
+    assert_eq!(direct[0].text, "A");
+    assert!(
+        (direct[0].confidence - model.recognize(&images[..1]).unwrap()[0].confidence).abs() < 1e-6
+    );
     let guard = model.0.lock().unwrap();
     assert!(matches!(
         model.clone().recognize(&images[..1]),

@@ -1,6 +1,8 @@
 mod alphabet;
 mod contours;
 pub use alphabet::{capture_matrix_frame, MatrixAlphabetService};
+#[cfg(feature = "training-tools")]
+pub use alphabet::{prepare_matrix_alphabet_input, MatrixAlphabetInput};
 #[cfg(debug_assertions)]
 mod debug_crops;
 mod geometry;

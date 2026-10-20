@@ -10,35 +10,26 @@ ort.disable_telemetry_events()
 from onnx2torch import convert
 import torch
 from torch import nn
+from alphabet_calibration import metrics as fused_metrics, require_prepared_data
 
 
-def evaluate(model, images, labels, device, batch=256):
+def evaluate(model, images, labels, device, batch=256, corrected=None, flags=None):
+    if flags is None or corrected is None:
+        raise ValueError("Evaluation requires production Rust preparation records")
     model.eval()
-    correct = qualified = wrong_qualified = 0
-    loss = 0.0
-    with torch.inference_mode():
-        for start in range(0, len(labels), batch):
-            x = (
-                images[start : start + batch].to(device).float().unsqueeze(1) / 127.5
-                - 1
-            )
-            y = labels[start : start + batch].to(device)
-            out = model(x)
-            prob = out.softmax(1)
-            score, pred = prob.max(1)
-            correct += (pred == y).sum().item()
-            q = (score >= 0.8) & (pred != 26)
-            qualified += q.sum().item()
-            wrong_qualified += (q & (pred != y)).sum().item()
-            loss += nn.functional.cross_entropy(out, y, reduction="sum").item()
-    return dict(
-        correct=correct,
-        total=len(labels),
-        accuracy=correct / len(labels),
-        qualified=qualified,
-        wrongQualified=wrong_qualified,
-        loss=loss / len(labels),
-    )
+    def predict(values):
+        with torch.inference_mode():
+            return np.concatenate([
+                model(values[start:start + batch].to(device).float().unsqueeze(1)
+                      / 127.5 - 1).cpu().numpy()
+                for start in range(0, len(values), batch)])
+    return fused_metrics(predict(images), predict(corrected), labels.numpy(), flags)
+
+
+def validation_views(data):
+    require_prepared_data(data)
+    return dict(corrected=torch.from_numpy(data["validation_corrected_images"].copy()),
+                flags=data["validation_flags"])
 
 
 def main():
@@ -55,6 +46,8 @@ def main():
     p.add_argument("--epochs", type=int, default=8)
     p.add_argument("--learning-rate", type=float, default=2e-4)
     a = p.parse_args()
+    data = np.load(a.data)
+    require_prepared_data(data)
     torch.manual_seed(20261017)
     np.random.seed(20261017)
     random.seed(20261017)
@@ -78,14 +71,16 @@ def main():
     )
     graph = onnx.load(a.model)
     model = convert(graph).eval()
-    data = np.load(a.data)
     images = torch.from_numpy(data["train_images"].copy())
     labels = torch.from_numpy(data["train_labels"].copy())
     val_images = torch.from_numpy(data["validation_images"].copy())
     val_labels = torch.from_numpy(data["validation_labels"].copy())
+    views = validation_views(data)
     replay_validation = None
+    replay_views = {}
     if a.replay_data:
         replay = np.load(a.replay_data)
+        replay_views = validation_views(replay)
         images = torch.cat((images, torch.from_numpy(replay["train_images"].copy())))
         labels = torch.cat((labels, torch.from_numpy(replay["train_labels"].copy())))
         replay_validation = (
@@ -131,14 +126,15 @@ def main():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=a.epochs)
     history = []
     start = time.perf_counter()
-    baseline = evaluate(model, val_images, val_labels, device, batch=a.batch_size)
+    baseline = evaluate(model, val_images, val_labels, device, batch=a.batch_size, **views)
     print(json.dumps({"baseline": baseline}), flush=True)
-    baseline_replay = evaluate(model, *replay_validation, device, batch=a.batch_size) if replay_validation else None
+    baseline_replay = evaluate(model, *replay_validation, device, batch=a.batch_size, **replay_views) if replay_validation else None
     if baseline_replay:
         print(json.dumps({"baselineReplay": baseline_replay}), flush=True)
     # Preserve the initial checkpoint if every epoch forgets ordinary print.
     best = (baseline_replay["accuracy"] if baseline_replay else 0,
-            baseline["accuracy"], -baseline["wrongQualified"], -baseline["loss"])
+            baseline["accuracy"], baseline["qualified"] - baseline["wrongQualified"],
+            -baseline["loss"])
     selected_epoch = 0
     torch.save(model.state_dict(), output / "best.pt")
     for epoch in range(a.epochs):
@@ -162,9 +158,9 @@ def main():
             optimizer.step()
             running += loss.item() * len(y)
             count += len(y)
-        metrics = evaluate(model, val_images, val_labels, device, batch=a.batch_size)
+        metrics = evaluate(model, val_images, val_labels, device, batch=a.batch_size, **views)
         if replay_validation:
-            metrics["replay"] = evaluate(model, *replay_validation, device, batch=a.batch_size)
+            metrics["replay"] = evaluate(model, *replay_validation, device, batch=a.batch_size, **replay_views)
         metrics.update(
             epoch=epoch + 1,
             trainLoss=running / count,
@@ -173,8 +169,15 @@ def main():
         history.append(metrics)
         print(json.dumps(metrics), flush=True)
         key = (metrics["replay"]["accuracy"] if replay_validation else 0,
-               metrics["accuracy"], -metrics["wrongQualified"], -metrics["loss"])
-        if key > best:
+               metrics["accuracy"], metrics["qualified"] - metrics["wrongQualified"],
+               -metrics["loss"])
+        eligible = (metrics["wrongQualified"] <= baseline["wrongQualified"]
+                    and metrics.get("wrongHigh", 0) <= baseline.get("wrongHigh", 0)
+                    and metrics["accuracy"] >= baseline["accuracy"]
+                    and metrics.get("ambiguousQualified", 0) <= baseline.get("ambiguousQualified", 0)
+                    and metrics["qualified"] - metrics["wrongQualified"]
+                    >= baseline["qualified"] - baseline["wrongQualified"])
+        if eligible and key > best:
             best = key
             selected_epoch = epoch + 1
             torch.save(model.state_dict(), output / "best.pt")
@@ -212,7 +215,10 @@ def main():
         baseline=baseline,
         baselineReplay=baseline_replay,
         selectedEpoch=selected_epoch,
-        selectionOrder=["cleanAccuracy", "lightingAccuracy", "negativeWrongQualified", "negativeLoss"],
+        selectionOrder=["wrongAcceptedMustNotIncrease", "correctQualifiedMustNotDecrease",
+                        "accuracyMustNotDecrease", "ambiguousAcceptanceMustNotIncrease",
+                        "cleanAccuracy", "accuracy",
+                        "correctQualified", "negativeLoss"],
         dataSha256=hashlib.sha256(Path(a.data).read_bytes()).hexdigest(),
         replayDataSha256=hashlib.sha256(Path(a.replay_data).read_bytes()).hexdigest() if a.replay_data else None,
         resumeSha256=hashlib.sha256(Path(a.resume).read_bytes()).hexdigest() if a.resume else None,

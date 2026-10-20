@@ -108,6 +108,8 @@ pub enum MatrixOcrError {
 
 #[cfg(matrix_ocr)]
 pub use engine::{capture_matrix_frame, MatrixAlphabetService, MatrixOcrService};
+#[cfg(all(matrix_ocr, feature = "training-tools"))]
+pub use engine::{prepare_matrix_alphabet_input, MatrixAlphabetInput};
 
 #[cfg(not(matrix_ocr))]
 pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {

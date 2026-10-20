@@ -228,8 +228,9 @@ PyTorch checkpoint, then require that resumed outputs match the bundled ONNX:
 
 ```sh
 python scripts/ocr/alphabet_synthetic.py --fonts FONT_DIRECTORY \
+  --prepare-binary target/release/examples/alphabet_prepare \
   --output lighting.npz --lighting
-iqrsh -g GROUP -l h_rt=0:30:00 python scripts/ocr/alphabet_finetune.py \
+iqrsh -l h_rt=0:30:00 python scripts/ocr/alphabet_finetune.py \
   --model upstream.onnx --resume printed-best.pt \
   --resume-reference alphabet-printed.onnx --data lighting.npz \
   --replay-data original-print.npz --train-convs 4 \
@@ -238,6 +239,120 @@ iqrsh -g GROUP -l h_rt=0:30:00 python scripts/ocr/alphabet_finetune.py \
 
 Full metrics, input/output hashes and the failed promotion's whole-card results
 are retained in `matrix-lighting-results.json`.
+
+### Production-preprocessed adaptation and confidence calibration
+
+The subsequent physical scan was reported all correct and fast, but ten cells
+remained unsettled. Its numeric diagnostics showed nine cells with fewer than
+three qualified votes and one conflict. The displayed score combines vote
+agreement and classifier confidence; it is not a calibrated probability of
+physical-card correctness.
+
+Python now generates only the source glyph image. `alphabet_prepare`, enabled by
+the `training-tools` Cargo feature, calls the same Rust
+`prepare_matrix_alphabet_input` used by `MatrixAlphabetService::recognize`.
+Ink segmentation, edge handling, aspect-preserving normalization and illumination
+correction therefore have one implementation. The binary streams fixed-size
+records containing rejection status and both grayscale views. Python performs
+only the same final `pixel / 127.5 - 1` tensor conversion as Rust. The historical
+`alphabet_eval.py` PIL rectification/9% crop remains an explicitly labelled
+ablation tool and is excluded from training and promotion.
+
+The four font-family splits are Arial/Times/Courier for training, Verdana for
+checkpoint selection, Trebuchet for temperature fitting and Georgia for final
+testing. There are 26,000 generated training sources and 3,900 sources in each
+held-out split. Half the sources enable lighting perturbations; all splits also
+include blur, grid fragments and explicit blanks. Rejected preprocessing
+sources stay in evaluation as blank predictions. Raw/corrected views contribute
+one source's weight in calibration, and evaluation reproduces the production
+confidence-conflict rule. These deliberately difficult synthetic distributions
+are not estimates of physical-card accuracy.
+
+The first adaptation exposed a label defect in the old generator: motion-kernel
+width or erased-ink area alone relabelled still-readable N/T/H/I glyphs as blank.
+That run reduced apparent errors by learning more rejection and was discarded.
+The corrected generator requires Rust preprocessing and labels these ambiguous
+sources `-1`, rather than assigning an unsupported blank truth. They remain in
+held-out artifacts with separate source/acceptance counts, but do not contribute
+to supervised training, accuracy or temperature fitting. Deterministic generation
+uses a new seed for each label-policy checkpoint; checkpoints must preserve
+correct qualified coverage, accuracy and wrong-accepted counts.
+
+Full-card replay exposed a second ambiguity: generated blank rectangles can
+normalize to the same pixels as a sans-serif I/L/T. These are also labelled
+unknown whenever Rust retains a glyph; only explicit no-glyph rejections remain
+certain blank sources. The final dataset uses seed 20261031. Unknown-source
+acceptance must not increase when selecting a checkpoint or applying temperature
+scaling. The unknown set remains a separate stress indicator, not labelled error
+ground truth.
+
+The data/parity/calibration tools require NumPy, Pillow, ONNX, ONNX Runtime and
+SciPy; fine-tuning additionally uses PyTorch and onnx2torch.
+Training and calibration reject legacy raw-only NPZs. Regenerate replay datasets
+through Rust too; their evaluation uses the same two-view fusion and rejection
+records as the primary dataset.
+
+```sh
+cargo build -p isct-ocr --release --locked --features training-tools \
+  --example alphabet_prepare
+python scripts/ocr/alphabet_synthetic.py --fonts FONT_DIRECTORY \
+  --prepare-binary target/release/examples/alphabet_prepare \
+  --lighting --train 26000 --validation 3900 --seed 20261031 --output normalized.npz
+python scripts/ocr/alphabet_synthetic.py --fonts FONT_DIRECTORY \
+  --prepare-binary target/release/examples/alphabet_prepare \
+  --check-model crates/isct-ocr/models/alphabet/alphabet-printed.onnx \
+  --output parity.json
+python scripts/ocr/alphabet_calibration.py --model CANDIDATE.onnx \
+  --data normalized.npz --output CALIBRATION_DIRECTORY
+```
+
+The parity probe's 512 public synthetic inputs produced identical Rust/Python
+predictions, including 139 rejections, 179 dual views and one confident conflict.
+Maximum confidence difference was 0.000001185. Rust tests also check malformed
+input lengths and the prepared-input/model boundary. The OCR suite passes 24
+tests with four private-input cases ignored; Clippy passes with warnings denied.
+
+The calibration tool fits one positive temperature by minimizing held-out NLL,
+following [Guo et al., *On Calibration of Modern Neural Networks*](https://arxiv.org/abs/1706.04599).
+It checks exported logits at batch sizes 1, 7 and 10. A candidate must not increase
+wrong accepted predictions at either 0.8 or 0.9, lose correct qualified coverage
+or lose total correct predictions on the untouched test split. Passing that
+synthetic gate still requires both full Rust card replays before promotion.
+
+**Decision: keep the bundled model and existing confidence/voting thresholds.**
+The final eight-epoch candidate used 19,181 prepared training views. On the
+independent Georgia split (3,188 known labels plus 712 unknown sources), correct
+qualified readings increased from 2,141 to 2,153, wrong qualified readings fell
+from five to three, and unknown qualified readings fell from 236 to 231.
+However, full production replay still lost two T readings at 15% exposure:
+70 correct/settled cells became 68. The separate Rust dark-input case also
+caught T→I. That candidate passed 23 tests and failed one, so it was rejected.
+All three L/Z/I placements stayed 70/70, the other lighting conditions preserved
+correct coverage, and small-dim settling improved from 67 to 70; these gains do
+not override the dark-input regression.
+
+Temperature fitting on this candidate yielded 0.778945. It increased acceptance
+of unknown test sources from 231 to 260 and was rejected too. The original
+model's fitted temperature was also rejected. Neither fitting nor adaptation
+changes the app in this checkpoint. The retained model passes all 24 OCR tests,
+with four private-input cases ignored. The shared-preprocessing refactor preserves
+all twelve lighting results and all three boundary results. Its Rust/Python
+parity probe passes 512 inputs; the rejected candidate passes the same parity
+probe, distinguishing input agreement from recognition quality.
+
+Full records are under `productionInputAdaptation` in
+`matrix-lighting-results.json`. Replay timing was collected during concurrent
+verification work and is not a controlled performance comparison. Production
+Rust adds 38 and removes 14 lines (net +24; no production-code reduction); tests
+add 12 lines and none are removed. Training tools, examples, documentation and
+measured JSON are counted separately.
+
+Use direct `iqrsh` for the small interactive experiments in this project, not
+runq. For eligible intramural/access-card accounts, omit `-g` to use the free
+interactive queue; specifying a group incurs charges according to the
+[TSUBAME scheduler guide](https://www.t4.cii.isct.ac.jp/docs/all/handbook.ja/jobs/).
+Only generated pixels and public model artifacts are transferred. The previously
+authorized anonymous physical glyph crops remain local and are not training data.
 
 Checkpoint `5b07f96` adds 133 and removes 5 production Rust lines (net +128;
 no production-code reduction). Tests add 107 lines; replay examples/scripts add

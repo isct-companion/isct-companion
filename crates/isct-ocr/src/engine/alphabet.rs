@@ -269,6 +269,36 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
 
 #[derive(Clone, Default)]
 pub struct MatrixAlphabetService(Arc<Mutex<Option<Session>>>);
+
+/// The exact model views for one retained cell. Training tools use this same
+/// boundary; a rejected shape must not become an invented training label.
+pub struct MatrixAlphabetInput {
+    pub original: Vec<u8>,
+    pub corrected: Option<Vec<u8>>,
+}
+
+pub fn prepare_matrix_alphabet_input(
+    pixels: &[u8],
+) -> Result<Option<MatrixAlphabetInput>, MatrixOcrError> {
+    if pixels.len() != SIZE * SIZE {
+        return Err(MatrixOcrError::InvalidImage(
+            "Invalid grayscale candidate.".into(),
+        ));
+    }
+    let gray = GrayImage::from_raw(SIZE as u32, SIZE as u32, pixels.to_vec())
+        .ok_or_else(|| MatrixOcrError::InvalidImage("Invalid grayscale candidate.".into()))?;
+    let Some(gray) = normalize_glyph(&gray) else {
+        return Ok(None);
+    };
+    let corrected = illumination::analyze(&gray)
+        .corrected
+        .map(GrayImage::into_raw);
+    Ok(Some(MatrixAlphabetInput {
+        original: gray.into_raw(),
+        corrected,
+    }))
+}
+
 impl MatrixAlphabetService {
     pub fn recognize(&self, images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
         if images.len() > 10 || images.iter().any(|image| image.len() != SIZE * SIZE) {
@@ -278,32 +308,22 @@ impl MatrixAlphabetService {
         }
         let normalized = images
             .iter()
-            .map(|pixels| {
-                let gray = GrayImage::from_raw(96, 96, pixels.clone()).ok_or_else(|| {
-                    MatrixOcrError::InvalidImage("Invalid grayscale candidate.".into())
-                })?;
-                Ok(normalize_glyph(&gray))
-            })
+            .map(|pixels| prepare_matrix_alphabet_input(pixels))
             .collect::<Result<Vec<_>, MatrixOcrError>>()?;
         let images = normalized
             .iter()
             .map(|glyph| {
                 glyph
                     .as_ref()
-                    .map_or_else(|| vec![255; SIZE * SIZE], |gray| gray.as_raw().clone())
+                    .map_or_else(|| vec![255; SIZE * SIZE], |glyph| glyph.original.clone())
             })
             .collect::<Vec<_>>();
         let images = &images;
         let mut raw = self.recognize_raw(images)?;
-        let corrections = images
+        let corrections = normalized
             .iter()
             .enumerate()
-            .filter_map(|(i, pixels)| {
-                let gray = GrayImage::from_raw(SIZE as u32, SIZE as u32, pixels.clone())?;
-                illumination::analyze(&gray)
-                    .corrected
-                    .map(|image| (i, image.into_raw()))
-            })
+            .filter_map(|(i, glyph)| glyph.as_ref()?.corrected.clone().map(|pixels| (i, pixels)))
             .collect::<Vec<_>>();
         let (positions, images): (Vec<_>, Vec<_>) = corrections.into_iter().unzip();
         for (i, corrected) in positions.into_iter().zip(self.recognize_raw(&images)?) {

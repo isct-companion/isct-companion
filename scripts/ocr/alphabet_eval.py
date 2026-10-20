@@ -1,4 +1,9 @@
-"""Evaluate a single-character ONNX classifier on local rectified card cells."""
+"""Historical raw-cell ablation (PIL geometry), NOT production pipeline parity.
+
+For model promotion use matrix_lighting/matrix_letter_boundaries with the Rust
+matrix_capture replay. For training use alphabet_synthetic --prepare-binary;
+this script's 9% crop is intentionally retained only for old ablation records.
+"""
 
 import argparse, hashlib, json, time
 from pathlib import Path

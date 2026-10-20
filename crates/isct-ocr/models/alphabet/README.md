@@ -16,6 +16,16 @@ grid edges, then centers and proportionally scales original grayscale pixels
 within an 80×76 area on the 96×96 canvas. Ambiguous boundary-connected ink is
 rejected explicitly. The mask itself is never the classifier input.
 Generation, fine-tuning and ONNX parity checks live under `scripts/ocr/`.
+New adaptation datasets use `alphabet_synthetic.py --prepare-binary` with the
+Rust `alphabet_prepare` example (`--features training-tools`); Python must not
+reimplement glyph preprocessing. `--check-model` compares 512 synthetic inputs
+through both Rust recognition and Python ONNX evaluation, including correction
+fusion and explicit rejection. `alphabet_calibration.py` fits a temperature on
+separate font families and evaluates an untouched test split before card replay.
+The 2026-10-20 adaptation and calibration candidates were rejected: synthetic
+scores improved but extreme-dim T/I behavior regressed or ambiguous acceptance
+increased. The bundled weights and thresholds remain unchanged; see
+[the validation record](../../../../docs/verification/matrix-lighting.md).
 Held-out font-family synthetic validation was 2600/2600; this is not a real-card
 accuracy claim. The upstream handwriting validation is not a printed-card metric.
 The synthetic L/Z/I boundary replay (`scripts/ocr/matrix_letter_boundaries.py`)
