@@ -196,6 +196,12 @@ fn due_keys_are_planned_missing_first_within_each_tier() {
     // states wait, since they land on the rows the outline creates.
     assert!(find(&plan, &key(Dataset::LmsCourse, "104")).is_some());
     assert!(find(&plan, &key(Dataset::LmsAssign, "104")).is_none());
+    // Search is local only, so the catalog covers the course families no
+    // department owns (liberal arts, entrepreneurship, cross-departmental).
+    let prefixes = planner::department_prefixes();
+    for family in ["LA", "ENT", "X", "MTH"] {
+        assert!(prefixes.iter().any(|prefix| prefix == family), "{family}");
+    }
     // The leased key is single-flight: never planned twice.
     let leased = HashSet::from([key(Dataset::LmsCourse, "101")]);
     let again = planner::plan(&inputs, &facts(), &[], &HashMap::new(), &leased, now());

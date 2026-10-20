@@ -382,8 +382,11 @@ pub(crate) async fn read_official(client: &KyomuClient, lease: &Lease) -> KeyEnd
     if lease.is_cancelled() {
         return KeyEnd::Cancelled { source };
     }
+    // Rows past the school's cap were not read even by quarter: the key is
+    // not complete and must not be marked fresh.
     if rows.as_ref().is_some_and(|rows| rows.truncated) {
         log::warn!(target: "isct_core::catalog", "official catalog {} reached the search cap", lease.key);
+        return KeyEnd::failed("truncated", source);
     }
     let writer = lease.writer();
     let (key, account, run, started, record_source) = (
