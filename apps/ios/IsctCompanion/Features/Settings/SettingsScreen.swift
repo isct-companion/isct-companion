@@ -13,6 +13,7 @@ enum SettingsRoute: Hashable {
     case studyProfile
     case dataUpdates
     case backup
+    case reset(ResetKind)
 }
 
 struct SettingsDestination: View {
@@ -34,12 +35,15 @@ struct SettingsDestination: View {
             DataUpdatesScreen()
         case .backup:
             BackupScreen()
+        case let .reset(kind):
+            ResetScreen(kind: kind)
         }
     }
 }
 
 /// 設定: the desktop settings sections that apply on a phone — school
-/// accounts, reminders, study profile, data updates, language and the ウェブ tab.
+/// accounts, reminders, study profile, data updates, backup, language, the
+/// ウェブ tab and reset.
 /// Planning, calendars, folders and developer settings stay on desktop.
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
@@ -80,6 +84,15 @@ struct SettingsScreen: View {
                 }
                 Picker(t("First site"), selection: $firstSite) {
                     ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
+                }
+            }
+            Section(t("settings.reset.group")) {
+                NavigationLink(value: SettingsRoute.reset(.schoolCaches)) {
+                    row(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), icon: "arrow.counterclockwise")
+                }
+                NavigationLink(value: SettingsRoute.reset(.everything)) {
+                    row(t("settings.reset.full.title"), t("settings.reset.full.hint"), icon: "exclamationmark.arrow.triangle.2.circlepath")
+                        .foregroundStyle(Theme.danger)
                 }
             }
             Section(t("Application logs")) {

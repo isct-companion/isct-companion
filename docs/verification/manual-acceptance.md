@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 65 checks must be re-run before the next release.**
+**7 of 67 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**56 checks have never been run or could not be run:**
+**58 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -85,6 +85,8 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-TLS-VERIFIER` — never verified
 - `SCHOOL-KYOMU-RUST-TLS` — never verified
 - `SETTINGS-RESET` — never verified
+- `MOBILE-SETTINGS-RESET` — never verified
+- `MOBILE-BACKGROUND-SYNC` — never verified
 
 ## Status
 
@@ -155,6 +157,8 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
 | `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/certs/nii-odca4g7rsa.pem<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
 | `SETTINGS-RESET` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/ResetSettings.tsx<br>apps/desktop/src-tauri/src/commands/reset.rs |
+| `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt |
+| `MOBILE-BACKGROUND-SYNC` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt |
 
 ## Personas
 
@@ -3731,5 +3735,109 @@ and what a person sees.
 
 - `apps/desktop/src/pages/settings/ResetSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/reset.rs`
+
+**Last recorded** never run
+
+### Reset from Settings on iPhone and Android (`MOBILE-SETTINGS-RESET`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The app on a phone signed in to Science Tokyo, school data synced, at
+least one downloaded course file, one hidden assignment, and on the
+iPhone iCloud backup on with a recent upload.
+
+**Steps**
+
+1. 設定 › リセット › 学校のキャッシュを消去して再同期; read the lists and the
+   size, then turn on both options.
+   - *Why:* The two options must move "school web sign-in" and "downloaded course
+     files" from 残るもの to 削除されるもの, and the size must change with the
+     downloads option. "–" means Core's preview failed.
+2. Press 消去して再同期, then open 今日, a course and the ウェブ tab.
+   - *Why:* The screens empty and refill; the hidden assignment stays hidden;
+     the course file reads not downloaded; the ウェブ tab and LMS reads
+     sign in again with the saved login. A sign-out failure notice means
+     the shell's `NativeWebSignOut` failed.
+3. 設定 › リセット › 完全リセット; check the button stays disabled until the
+   acknowledgement is on, then confirm in the system dialog (iPhone:
+   choose クラウドから復元する first).
+   - *Why:* A full reset deletes user data, settings and saved logins; the
+     acknowledgement and the dialog are its only guard. On the iPhone
+     Core stops iCloud sync first and the restore turns it on again.
+
+**Where to look**
+
+The reset pages, the notice after each reset, 今日, a course page, the
+ウェブ tab, 設定 › 学校アカウント and 設定 › バックアップ.
+
+**Expected**
+
+Clearing keeps marks and logins, removes the files and the web sign-in,
+and resyncs. Full reset returns to the account screen; on the iPhone the
+hidden assignment comes back from iCloud, on Android nothing returns.
+
+**Why this is manual**
+
+The WebView stores (WKWebsiteDataStore, CookieManager), real sign-in and
+iCloud need a device. What each scope deletes is covered by
+`crates/isct-core/src/tests/reset.rs`; this check is the shell wiring.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift`
+- `apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt`
+
+**Last recorded** never run
+
+### Phones read LMS deadlines in the background without the school web views (`MOBILE-BACKGROUND-SYNC`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The app on a phone signed in to Science Tokyo with an LMS token (one
+foreground sync done), assignment reminders on, and a new LMS
+assignment or deadline change made after the app went to the background.
+
+**Steps**
+
+1. Leave the app in the background for an hour or more (iPhone: keep
+   Background App Refresh on; Android: no battery restriction).
+   - *Why:* iOS runs the BGAppRefreshTask and WorkManager the periodic worker
+     when they choose; Core then reads only token and public keys.
+2. Before opening the app, look for the new assignment's reminder; then
+   open the app and Settings → Application logs → Copy.
+   - *Why:* A reminder or the new row on 今日 right after opening proves the
+     background read. The log must show LMS deadline and assignment keys
+     read while out of front, and no 教務Web, LMS course or school
+     sign-in entries until the app came to the front.
+
+**Where to look**
+
+The notification shade, 今日 on opening, and the copied log.
+
+**Expected**
+
+LMS deadlines and assignment states arrive in the background; 教務,
+course contents and any sign-in wait for the foreground.
+
+**Why this is manual**
+
+The OS decides when background work runs, and only a device runs it.
+What the planner holds out of front is covered by the sync engine
+tests; this check is the shell wiring of the OS schedulers.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt`
 
 **Last recorded** never run

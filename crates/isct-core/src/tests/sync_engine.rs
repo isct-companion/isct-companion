@@ -51,7 +51,6 @@ fn stored(
             dataset: dataset.name().into(),
             key: name.into(),
             account: account.into(),
-            generation: 0,
             fetched_at: fetched,
             validator: None,
             outcome: fetched.map(|_| sync_state::Outcome::Complete),
