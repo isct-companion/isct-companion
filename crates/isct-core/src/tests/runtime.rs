@@ -1,10 +1,8 @@
 use super::*;
 use crate::{
     data::DataStore,
-    ports::{SecretError, SecretVault},
     scheduler::{ExportError, ScheduledExporter},
-    school_auth::SchoolAuthService,
-    sync_engine::{Network, SyncEngine},
+    sync_engine::SyncHints,
 };
 use serde_json::{json, Value};
 use std::sync::{
@@ -13,23 +11,6 @@ use std::sync::{
 };
 use tokio::sync::Notify;
 use uuid::Uuid;
-
-#[derive(Default)]
-struct MemoryVault;
-
-impl SecretVault for MemoryVault {
-    fn store(&self, _account: &str, _secret: &str) -> Result<(), SecretError> {
-        Ok(())
-    }
-
-    fn load(&self, _account: &str) -> Result<Option<String>, SecretError> {
-        Ok(None)
-    }
-
-    fn delete(&self, _account: &str) -> Result<(), SecretError> {
-        Ok(())
-    }
-}
 
 #[derive(Default)]
 struct CountingExporter(AtomicUsize);
@@ -70,14 +51,10 @@ fn services(store: &DataStore, exporter: Arc<dyn ScheduledExporter>) -> Schedule
     }
 }
 
-/// A runtime over `store` whose sync engine has no school browser, so a wake
-/// reads nothing from the network.
-fn runtime(store: &DataStore) -> Arc<CoreRuntime> {
-    Arc::new(CoreRuntime::new(SyncEngine::new(
-        store.clone(),
-        Arc::new(SchoolAuthService::new(MemoryVault)),
-        Network::Offline,
-    )))
+/// A runtime with no sync engine behind its hints, so a wake reads nothing
+/// from the network.
+fn runtime() -> Arc<CoreRuntime> {
+    Arc::new(CoreRuntime::new(SyncHints::detached()))
 }
 
 fn add_launch_task(store: &DataStore, id: &str) {
@@ -111,7 +88,7 @@ async fn wait_for_count(counter: &AtomicUsize, expected: usize) {
 #[tokio::test]
 async fn suspend_defers_automatic_work_and_resume_respects_scheduler_gate() {
     let store = test_store("suspend-resume");
-    let runtime = runtime(&store);
+    let runtime = runtime();
     disable_background_work(&store);
     add_launch_task(&store, "first");
     let exporter = Arc::new(CountingExporter::default());
@@ -141,7 +118,7 @@ async fn suspend_defers_automatic_work_and_resume_respects_scheduler_gate() {
 
 #[tokio::test]
 async fn cancelling_the_caller_does_not_detach_runtime_work() {
-    let runtime = runtime(&test_store("detach"));
+    let runtime = runtime();
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let finished = Arc::new(AtomicBool::new(false));
@@ -182,7 +159,7 @@ async fn cancelling_the_caller_does_not_detach_runtime_work() {
 #[tokio::test]
 async fn shutdown_is_final_and_idempotent() {
     let store = test_store("final-shutdown");
-    let runtime = runtime(&store);
+    let runtime = runtime();
     disable_background_work(&store);
     let services = services(&store, Arc::new(CountingExporter::default()));
 

@@ -3,7 +3,7 @@
 use crate::{
     runtime_tasks::{RuntimeTaskError, RuntimeTasks},
     scheduler::{Scheduler, SchedulerError, SchedulerServices},
-    sync_engine::{Hint, SyncEngine},
+    sync_engine::{Hint, SyncHints},
 };
 use std::{
     future::Future,
@@ -40,7 +40,8 @@ mod tests;
 
 pub struct CoreRuntime {
     /// The sync engine `Core` owns; the runtime forwards lifecycle facts.
-    sync: SyncEngine,
+    /// Weak: the engine's store observer owns this runtime.
+    sync: SyncHints,
     pub notes: crate::notes::NoteStore,
     cloud: OnceLock<crate::cloud_sync::CloudSync>,
     pub downloads: crate::downloads::Downloader,
@@ -55,7 +56,7 @@ pub struct CoreRuntime {
 }
 
 impl CoreRuntime {
-    pub fn new(sync: SyncEngine) -> Self {
+    pub fn new(sync: SyncHints) -> Self {
         Self {
             sync,
             notes: crate::notes::NoteStore::default(),
@@ -116,7 +117,7 @@ impl CoreRuntime {
         if self.suspended.load(Ordering::Acquire) {
             return Ok(());
         }
-        self.sync.hint(Hint::Wake);
+        self.sync.send(Hint::Wake);
         let now = Instant::now();
         let gc_due = {
             let mut next = self.next_gc.lock().map_err(|_| RuntimeError::Clock)?;
@@ -192,7 +193,7 @@ impl CoreRuntime {
     pub async fn suspend(&self) {
         let _lifecycle = self.lifecycle.lock().await;
         self.suspended.store(true, Ordering::Release);
-        self.sync.hint(Hint::Suspend);
+        self.sync.send(Hint::Suspend);
     }
 
     pub async fn resume(&self) {
@@ -201,7 +202,7 @@ impl CoreRuntime {
             return;
         }
         self.suspended.store(false, Ordering::Release);
-        self.sync.hint(Hint::Resume);
+        self.sync.send(Hint::Resume);
         if let Ok(mut next) = self.next_scheduled.lock() {
             *next = Instant::now();
         }
@@ -217,7 +218,13 @@ impl CoreRuntime {
                 cloud.shutdown().await;
             }
         };
-        tokio::join!(self.sync.shutdown(), self.downloads.shutdown(), cloud);
+        let sync = self.sync.engine();
+        let sync = async move {
+            if let Some(sync) = sync {
+                sync.shutdown().await;
+            }
+        };
+        tokio::join!(sync, self.downloads.shutdown(), cloud);
         self.tasks.wait().await;
     }
 }

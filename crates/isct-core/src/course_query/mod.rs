@@ -585,11 +585,6 @@ fn searchable(course: &Value) -> String {
             .join(" "),
     )
 }
-fn remote_factor(f: &Factor) -> bool {
-    f.r#type.starts_with("official-")
-        || f.r#type != "exclude"
-            && ["code", "level", "text", "teacher", "mark", "group"].contains(&f.r#type.as_str())
-}
 fn hit(course: &Value, c: &Condition, ctx: &FinderContext) -> bool {
     // Official form choices are read from each stored row the way the form
     // means them. A choice the captured form no longer lists, or whose
@@ -730,182 +725,6 @@ pub fn run(
             .then_with(|| text(&a.course, "code").cmp(text(&b.course, "code")))
     });
     rows
-}
-pub fn remote_plan(factors: &[Factor], scopes: &BTreeMap<String, String>) -> Value {
-    let alts = |kind: &str| {
-        factors
-            .iter()
-            .filter(move |f| f.r#type == kind)
-            .flat_map(|f| &f.alts)
-            .collect::<Vec<_>>()
-    };
-    let words = alts("text")
-        .iter()
-        .map(|c| c.key.as_str())
-        .collect::<Vec<_>>()
-        .join(" ");
-    let scoped: Vec<_> = alts("dept")
-        .iter()
-        .filter_map(|c| {
-            c.values
-                .first()?
-                .as_str()
-                .and_then(|v| scopes.get(v))
-                .cloned()
-        })
-        .collect();
-    let codes: Vec<_> = alts("code").iter().map(|c| c.key.clone()).collect();
-    let teachers: Vec<_> = alts("teacher")
-        .iter()
-        .flat_map(|c| &c.values)
-        .filter_map(Value::as_str)
-        .collect();
-    let groups: Vec<_> = alts("level")
-        .iter()
-        .filter_map(|c| c.values.first().map(Value::to_string))
-        .collect();
-    if words.is_empty() && scoped.is_empty() && codes.is_empty() && factors.is_empty() {
-        return json!({"unsupported":"empty"});
-    }
-    if scoped.len().max(1) * codes.len().max(1) * teachers.len().max(1) > 4 {
-        return json!({"unsupported":"too-many"});
-    }
-    let official_controls: Vec<_> = factors
-        .iter()
-        .filter(|factor| {
-            factor.r#type.starts_with("official-") && factor.r#type != "official-category"
-        })
-        .flat_map(|factor| &factor.alts)
-        .flat_map(|c| c.values.clone())
-        .collect();
-    let q = if words.is_empty() { "." } else { &words };
-    let scoped = if scoped.is_empty() {
-        vec![None]
-    } else {
-        scoped.into_iter().map(Some).collect()
-    };
-    let codes = if codes.is_empty() {
-        vec![None]
-    } else {
-        codes.into_iter().map(Some).collect()
-    };
-    let mut queries = Vec::new();
-    for scope in &scoped {
-        for code in &codes {
-            let mut query = json!({"q":q});
-            if !official_controls.is_empty() {
-                query["controls"] = json!(official_controls);
-            }
-            if !alts("mark").is_empty() {
-                query["recommended"] = json!(true);
-                if alts("mark")
-                    .iter()
-                    .all(|c| c.values == vec![json!("required")])
-                {
-                    query["requirementGroups"] = json!(["R"]);
-                }
-            }
-            let quarters: Vec<_> = alts("quarter")
-                .iter()
-                .flat_map(|c| &c.values)
-                .filter_map(Value::as_u64)
-                .collect();
-            if !quarters.is_empty() {
-                query["quarters"] = json!(quarters);
-            }
-            let times = alts("time");
-            if !times.is_empty() {
-                let days: Vec<_> = times
-                    .iter()
-                    .flat_map(|c| &c.values)
-                    .filter_map(|v| v["day"].as_u64())
-                    .collect();
-                if times
-                    .iter()
-                    .flat_map(|c| &c.values)
-                    .all(|v| v["day"].is_u64())
-                {
-                    query["days"] = json!(days);
-                }
-                // Start-time filtering is a superset: an earlier, longer class
-                // can overlap a requested slot. The local matcher checks overlap.
-                if times
-                    .iter()
-                    .flat_map(|c| &c.values)
-                    .all(|v| v["to"].is_u64())
-                {
-                    if let Some(to) = times
-                        .iter()
-                        .flat_map(|c| &c.values)
-                        .filter_map(|v| v["to"].as_u64())
-                        .max()
-                    {
-                        query["periodStarts"] = json!((1..=to).collect::<Vec<_>>());
-                    }
-                }
-            }
-            let languages = alts("lang");
-            if languages.len() == 1 && languages[0].values.len() == 1 {
-                query["language"] = languages[0].values[0].clone();
-            }
-            let requirements: Vec<_> = alts("group")
-                .iter()
-                .flat_map(|c| &c.values)
-                .cloned()
-                .collect();
-            if !requirements.is_empty() {
-                let mut all = query["requirementGroups"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default();
-                all.extend(requirements);
-                query["requirementGroups"] = json!(all);
-            }
-
-            if let Some(scope) = scope {
-                query["scope"] = json!(scope);
-            }
-            if let Some(code) = code {
-                query["code"] = json!(code);
-            }
-            if !groups.is_empty() {
-                query["groups"] = json!(groups);
-            }
-            if teachers.is_empty() {
-                queries.push(query);
-            } else {
-                for teacher in &teachers {
-                    let mut query = query.clone();
-                    query["teacher"] = json!(teacher);
-                    queries.push(query);
-                }
-            }
-        }
-    }
-    // Category radios/selects are single-valued on the official form. OR
-    // alternatives need separate searches, never duplicate form values.
-    let categories: Vec<_> = alts("official-category")
-        .iter()
-        .flat_map(|c| c.values.clone())
-        .collect();
-    if !categories.is_empty() {
-        if queries.len() * categories.len() > 4 {
-            return json!({"unsupported":"too-many"});
-        }
-        queries = queries
-            .into_iter()
-            .flat_map(|query| {
-                categories.iter().map(move |category| {
-                    let mut query = query.clone();
-                    let mut controls = query["controls"].as_array().cloned().unwrap_or_default();
-                    controls.push(category.clone());
-                    query["controls"] = json!(controls);
-                    query
-                })
-            })
-            .collect();
-    }
-    json!({"queries":queries})
 }
 
 // Stable keyboard categories; the authenticated form supplies their choices.
@@ -1253,9 +1072,6 @@ pub struct FinderRequest {
     pub keys: Vec<String>,
     #[serde(default)]
     pub input: String,
-    /// None uses the stored catalog; an empty list represents a remote search in progress.
-    #[serde(default)]
-    pub remote_ids: Option<Vec<String>>,
     #[serde(default)]
     pub action: Option<FinderAction>,
 }
@@ -1281,8 +1097,6 @@ pub struct FinderView {
     pub factors: Vec<Factor>,
     pub duplicates: usize,
     pub keys: Vec<String>,
-    #[cfg_attr(feature = "ts", ts(type = "RemotePlan"))]
-    pub plan: Value,
     pub rows: Vec<FinderRow>,
     pub suggestions: Vec<Suggestion>,
     pub live: String,
@@ -1334,15 +1148,6 @@ pub fn finder_view(
     {
         return Err(FinderError::InvalidInput(
             "Course search exceeds its input limits.".into(),
-        ));
-    }
-    if request
-        .remote_ids
-        .as_ref()
-        .is_some_and(|ids| ids.len() > 10000 || ids.iter().any(|id| id.len() > 2048))
-    {
-        return Err(FinderError::InvalidInput(
-            "Too many syllabus results.".into(),
         ));
     }
     if matches!(&request.action,Some(FinderAction::Commit{key}|FinderAction::ToggleTime{key,..}) if key.len()>2048)
@@ -1486,23 +1291,7 @@ pub fn finder_view(
         .iter()
         .flat_map(|f| f.alts.iter().map(|c| c.key.clone()))
         .collect();
-    let scopes = ctx
-        .departments
-        .iter()
-        .filter_map(|d| d.scope.clone().map(|scope| (d.unit_code.clone(), scope)))
-        .collect();
-    let plan = remote_plan(&parsed.factors, &scopes);
-    let base = match &request.remote_ids {
-        Some(ids) => {
-            let ids: HashSet<&str> = ids.iter().map(String::as_str).collect();
-            courses
-                .iter()
-                .filter(|c| ids.contains(text(c, "id")))
-                .cloned()
-                .collect()
-        }
-        None => courses.clone(),
-    };
+    let base = courses.clone();
     let eligible_base = base
         .iter()
         .filter(|course| !ineligible.contains(text(course, "id")))
@@ -1514,16 +1303,7 @@ pub fn finder_view(
         &eligible_base
     };
     let live = live_text(&request.input, &keys, visible_base, &ctx);
-    let factors = if request.remote_ids.is_some() {
-        parsed
-            .factors
-            .iter()
-            .filter(|f| !remote_factor(f))
-            .cloned()
-            .collect::<Vec<_>>()
-    } else {
-        parsed.factors.clone()
-    };
+    let factors = parsed.factors.clone();
     let rows = run(visible_base, &factors, &ctx, &live);
     let suggestions = suggest(&request.input, &keys, visible_base, &ctx);
     let commit_key =
@@ -1645,7 +1425,6 @@ pub fn finder_view(
         factors: parsed.factors,
         duplicates: parsed.duplicates,
         keys,
-        plan,
         rows,
         suggestions,
         live,
@@ -1710,8 +1489,6 @@ pub fn declarations() -> Vec<String> {
         Suggestion::decl(),
         OfficialSelection::decl(),
         OfficialFilterOption::decl(),
-        RemoteQuery::decl(),
-        RemotePlan::decl(),
         FinderContext::decl(),
         Recommendation::decl(),
         FinderDepartment::decl(),

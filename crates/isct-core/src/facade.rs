@@ -87,6 +87,13 @@ impl CoreEvents {
     }
 }
 
+impl Drop for Core {
+    fn drop(&mut self) {
+        // The sync driver holds the engine; it ends once its tasks close.
+        self.sync.stop();
+    }
+}
+
 impl Core {
     /// The network starts as `Unknown`; shells send `Hint::Network`.
     pub fn new(store: DataStore, auth: Arc<SchoolAuthService>) -> Self {
@@ -116,7 +123,7 @@ impl Core {
         if let Some(events) = &events {
             sync.set_events(events.clone());
         }
-        let runtime = Arc::new(CoreRuntime::new(sync.clone()));
+        let runtime = Arc::new(CoreRuntime::new(sync.hints()));
         let sync = Arc::new(sync);
         store.observe(Arc::new(StoreChanges {
             events: events.clone(),

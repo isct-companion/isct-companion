@@ -497,6 +497,11 @@ impl SyncHints {
         }
     }
 
+    /// The engine while something else still owns it.
+    pub(crate) fn engine(&self) -> Option<SyncEngine> {
+        self.0.upgrade().map(SyncEngine)
+    }
+
     /// Folds a Core event (sign-in, maintenance) into the snapshot.
     pub fn observe(&self, event: &CoreEvent) {
         if let Some(shared) = self.0.upgrade() {
@@ -803,6 +808,13 @@ impl SyncEngine {
 
     /// Cancels every read and waits for the driver and workers to stop.
     pub async fn shutdown(&self) {
+        self.stop();
+        self.0.tasks.wait().await;
+    }
+
+    /// Stops leasing, cancels reads and ends the driver without waiting, so
+    /// a Core dropped without `shutdown` releases the engine and its ports.
+    pub(crate) fn stop(&self) {
         {
             let mut state = guard(&self.0.state);
             state.stopped = true;
@@ -811,7 +823,6 @@ impl SyncEngine {
             }
         }
         self.0.tasks.close();
-        self.0.tasks.wait().await;
     }
 
     // -- Driver ---------------------------------------------------------------

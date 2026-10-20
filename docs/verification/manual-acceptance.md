@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 60 checks must be re-run before the next release.**
+**7 of 63 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**51 checks have never been run or could not be run:**
+**54 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -45,6 +45,8 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-LOG-EXPORT` — never verified
 - `DESKTOP-PULL-STRESS` — never verified
+- `DESKTOP-SYNC-STATUS` — never verified
+- `DESKTOP-FINDER-CATALOG-DOWNLOAD` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `RELEASE-INSTALL` — never verified
@@ -80,6 +82,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-LOG-EXPORT` — never verified
 - `ANDROID-TLS-VERIFIER` — never verified
 - `SCHOOL-KYOMU-RUST-TLS` — never verified
+- `SETTINGS-RESET` — never verified
 
 ## Status
 
@@ -106,7 +109,9 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
-| `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/usePullState.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
+| `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
+| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/layouts/compact/MobileShell.tsx<br>apps/desktop/src/layouts/compact/mobile.css<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
+| `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/isct-ffi/** |
@@ -145,6 +150,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
 | `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/certs/nii-odca4g7rsa.pem<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
+| `SETTINGS-RESET` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/ResetSettings.tsx<br>apps/desktop/src-tauri/src/commands/reset.rs |
 
 ## Personas
 
@@ -312,18 +318,19 @@ The account from SCHOOL-SIGNIN-SCIENCE is Signed in.
 **Steps**
 
 1. In a fresh disposable workspace, sign in and let the initial automatic
-   full LMS pull finish. Then use Pull from LMS and verify it defaults
-   to all courses, including quarters outside the current semester.
+   full LMS pull finish. Then use Refresh now in the footer and verify
+   it reads all courses, including quarters outside the current semester.
    - *Why:* The uninterrupted path establishes the baseline the interrupted path
      is compared against.
-2. Compare courses and assignments with the authenticated LMS. Select
-   Pull current quarter only, then reopen a previously cached lecture.
-   Keep reading while the later partial background refresh finishes.
+2. Compare courses and assignments with the authenticated LMS. Then
+   reopen a previously cached lecture and press its Pull from LMS; keep
+   reading while Core refreshes that course.
    - *Why:* A pull that "succeeds" with silently dropped courses is the failure
      this step catches; matching counts alone would not.
-3. Open a visible school page in the middle of a second pull.
-   - *Why:* Hidden work must yield to the visible page and resume afterwards.
-     Without this step the preemption contract is only asserted by tests.
+3. Open a visible school page in the middle of a second refresh.
+   - *Why:* Sync reads go over HTTP and must neither stop nor wait for the
+     visible page; a run that stalls until the page closes means a
+     WebView dependency came back.
 4. After a successful fresh pull, browse each available quarter and search
    its actual course codes in Lecture Desk and Today's cross-quarter
    course finder. Select a result, switch tabs, and use Filter's clear
@@ -341,9 +348,10 @@ visible school page that interrupted the second pull.
 **Expected**
 
 The first pull matches the LMS course list and advances its timestamp;
-current-only reads the actual current quarter. Cached lecture content
+the lecture refresh reads that course only. Cached lecture content
 remains usable during refresh and changed content produces one quiet,
-short in-app update notice. Interrupted work retains old rows and resumes.
+short in-app update notice. Browsing a school page does not pause the
+refresh.
 
 **Why this is manual**
 
@@ -1407,9 +1415,127 @@ tests/e2e/today-and-lectures.test.tsx.
 
 - `apps/desktop/src/store/workspace.ts`
 - `apps/desktop/src/platform/core-query.ts`
-- `apps/desktop/src/app/usePullState.ts`
+- `apps/desktop/src/app/useSync.ts`
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/app/interaction-trace.ts`
+
+**Last recorded** never run
+
+### Sync progress, held work and failures read at a glance (`DESKTOP-SYNC-STATUS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build signed in to both school accounts, with a workspace that
+has already been read once.
+
+**Steps**
+
+1. Press Refresh now in the footer and watch the right half of the
+   footer until it is quiet again.
+   - *Why:* The footer shows a bar only while Core reports a run's total and a
+     label or spinner otherwise. A bar that jumps backwards, or a bar for
+     a run without a total, means the shell is estimating again.
+2. Open a lecture whose content is a few hours old and press Pull from
+   LMS in its header.
+   - *Why:* The page must keep its rows and say "Showing data from … ago ·
+     updating this course k / n", then switch the whole course at once.
+     A list that empties or half-updates means the page stopped reading
+     local data while Core reads.
+3. Turn Wi-Fi off, press Refresh now, then turn it back on.
+   - *Why:* Held work must name its reason ("Waiting for a connection") instead
+     of spinning, and must start by itself once the network hint reaches
+     Core.
+4. Narrow the window to the compact layout during a refresh and open
+   the connection sheet from Today's dot.
+   - *Why:* The compact layout shows the same line as a pill at the top; the
+     sheet lists each source's age and any failed dataset with Retry.
+     A pill and footer that disagree mean two state owners.
+5. With 教務Web under maintenance or blocked by a firewall rule,
+   refresh, then press Retry beside the failed dataset.
+   - *Why:* A failure must name the dataset, the reason and when Core retries,
+     and Retry must start only that dataset; a generic "Refresh failed"
+     or a full refresh means the scope was lost.
+
+**Where to look**
+
+The workstation footer, the lecture header, the compact pill and sheet,
+and the app log for the sync hints sent.
+
+**Expected**
+
+Bars only with a total, a spinner for background work, held reasons and
+per-dataset failures in words with a retry time, a lecture that stays
+readable while it updates, and the same state in footer and pill.
+
+**Why this is manual**
+
+Which row shows, and how it reads, is a glance-level result in the real
+window (AGENTS.md §5); the choice of row is unit-tested in
+tests/unit/workspace-store.test.ts and the wiring in
+tests/e2e/app-shell.test.tsx, but real runs, real network loss and a
+real school failure only exist against the live services.
+
+**Covers**
+
+- `apps/desktop/src/app/SchoolStatusLine.tsx`
+- `apps/desktop/src/app/sync-text.ts`
+- `apps/desktop/src/layouts/compact/MobileShell.tsx`
+- `apps/desktop/src/layouts/compact/mobile.css`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/components/PullRing.tsx`
+- `apps/desktop/src/styles.css`
+
+**Last recorded** never run
+
+### Course search on a year whose catalog is not stored yet (`DESKTOP-FINDER-CATALOG-DOWNLOAD`)
+
+**Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build with a fresh workspace (or after clearing the school
+cache), signed in to TokyoTech.
+
+**Steps**
+
+1. Open the timetable and click into the course search before the
+   catalog has been downloaded.
+   - *Why:* With nothing stored the finder must say "Downloading the {year}
+     course catalog" rather than "No matching courses", which would read
+     as a real empty result.
+2. Type a course code and wait without typing further.
+   - *Why:* Results must appear on their own when Core commits the catalog. A
+     search that needs another keystroke means the finder stopped
+     following the snapshot.
+3. Search several conditions in a row with the network off.
+   - *Why:* Search is local only; a spinner or error while offline means a
+     remote search path came back.
+
+**Where to look**
+
+The course finder header and empty state, and the app log for network
+requests while typing.
+
+**Expected**
+
+The download notice, then complete results without retyping, and
+instant results offline.
+
+**Why this is manual**
+
+The first-download timing needs a real empty cache and the real 教務Web
+catalog; the switch itself is covered in tests/e2e/planner.test.tsx,
+but how the notice reads during a real download is a glance check.
+
+**Covers**
+
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
 
 **Last recorded** never run
 
@@ -1538,10 +1664,11 @@ A signed build, provisioning, and physical iOS and Android devices.
      of a real device.
 5. On iOS, pull down on 今日 and watch the ring beside the settings
    button, then tap it.
-   - *Why:* The ring and the sheet render Core's school status
-     (`school_status.rs`), the same read model as the desktop footer. A
-     ring that never fills, or a sheet whose LMS and 教務Web rows disagree
-     with the desktop footer, means the shell stopped following Core.
+   - *Why:* The ring and the sheet render Core's sync snapshot
+     (`sync_engine`), the same value as the desktop footer. A ring shown
+     for a run without a total, or a sheet whose LMS and 教務Web rows
+     disagree with the desktop footer, means the shell stopped following
+     Core.
 6. On iOS, open a course from a timetable block, switch to 資料 and open
    a PDF; then tap the timetable title, pick another quarter's chip and
    a week in the list.
@@ -3393,5 +3520,80 @@ each OS verifier; no test can reach the school server.
 - `apps/desktop/src-tauri/src/lms_downloader.rs`
 - `apps/ios/IsctCompanion/Core/WebCookieSession.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt`
+
+**Last recorded** never run
+
+### Clear school caches and resync, and Full reset, from Settings → Backup (`SETTINGS-RESET`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app signed in to Science Tokyo with saved credentials, school
+data synced (Today, assignments, 教務Web grades, course search all
+populated), at least one downloaded course file and one course note, one
+plan and one hidden assignment, and iCloud or Google Drive sync on with a
+recent upload.
+
+**Steps**
+
+1. Settings → バックアップ → 「学校のキャッシュを消去して再同期」 → 消去…;
+   read the panel, tick both options, then press 消去して再同期.
+   - *Why:* The panel must list what goes and what stays, and the two options
+     must move "school web sign-in" and "downloaded course files" from
+     the kept list to the deleted list. A missing or zero size estimate
+     means the preview command or `dbstat` failed.
+2. While it runs, look at the refresh buttons and the status line;
+   press the open button again.
+   - *Why:* During a reset the refresh buttons show リセット中… from the
+     snapshot's `resetting` flag, and a second press cannot start a
+     second reset.
+3. Open Today, Assignments and the course search, then a course with
+   the downloaded file and its notes.
+   - *Why:* The views must show the empty state with cold-start progress and
+     then refill; the plan, the hidden assignment's mark and the notes
+     must still be there; the file card must read "not downloaded" and
+     download again on open; the school browser must sign in again with
+     the saved credentials before LMS data arrives.
+4. Settings → バックアップ → 「完全リセット」 → リセット…; check that この端末を
+   リセット stays disabled until the confirmation box is ticked; choose
+   クラウドから復元する and confirm.
+   - *Why:* A full reset deletes user data, settings and saved logins; the
+     extra confirmation and the cloud question are the only guard. With
+     restore chosen, the plan and the hidden assignment must come back
+     from the cloud copy, while school data resyncs only after signing in
+     again.
+5. On the second device, Pull.
+   - *Why:* A reset must not write tombstones: the second device must keep every
+     plan, mark and note.
+
+**Where to look**
+
+Settings → Backup (panel, buttons, the notice after each reset), the
+status line, Today / Assignments / course search, a course page's files
+and notes, Settings → School accounts, and the second device.
+
+**Expected**
+
+Clearing keeps plans, marks, notes and saved logins, deletes downloaded
+files and the web sign-in, and resyncs everything; the course folder's
+notes are untouched. Full reset returns to first launch, restores the
+user data from the cloud when asked, and the second device loses
+nothing.
+
+**Why this is manual**
+
+The WebView cookie store, the course folder on disk, real school sign-in
+and a cloud provider cannot be driven headless. What each scope deletes,
+the lease, the generation and the downloads purge are covered by
+`crates/isct-core/src/tests/reset.rs`; this check is the shell wiring
+and what a person sees.
+
+**Covers**
+
+- `apps/desktop/src/pages/settings/ResetSettings.tsx`
+- `apps/desktop/src-tauri/src/commands/reset.rs`
 
 **Last recorded** never run

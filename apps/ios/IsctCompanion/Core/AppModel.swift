@@ -768,7 +768,7 @@ extension AppModel {
     func departments() async -> [FinderDepartment] {
         guard let session, let term = today?.term, let year = UInt16(term.prefix(4)),
             case let .finder(view)? = try? await session.finderQuery(request: FinderRequest(
-                year: year, term: term, includeIneligible: false, keys: [], input: "", remoteIds: nil, action: nil
+                year: year, term: term, includeIneligible: false, keys: [], input: "", action: nil
             )).value()
         else { return [] }
         return view.context.departments

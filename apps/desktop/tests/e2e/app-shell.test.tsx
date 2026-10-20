@@ -209,7 +209,6 @@ const emptyFinder = (request: Record<string, unknown>) => ({
   factors: [],
   duplicates: 0,
   keys: request.keys ?? [],
-  plan: { unsupported: "empty" },
   rows: [],
   suggestions: [],
   live: String(request.input ?? ""),

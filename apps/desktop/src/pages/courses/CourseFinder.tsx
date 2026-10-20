@@ -130,6 +130,16 @@ export function CourseFinder({
   const sync = useSync();
   const catalogRuns = runsFor(sync, ["catalog.official"], String(year));
   const downloading = catalogRuns.some((run) => !run.failure);
+  // Catalog rows commit without a workspace revision, so each finished
+  // download is its own refresh key; a boolean would reuse the empty answer
+  // cached before the download began.
+  const [catalogLanded, setCatalogLanded] = useState(0);
+  const wasDownloading = useRef(downloading);
+  useEffect(() => {
+    if (wasDownloading.current && !downloading)
+      setCatalogLanded((count) => count + 1);
+    wasDownloading.current = downloading;
+  }, [downloading]);
   useEffect(() => {
     const focus = (event: KeyboardEvent) => {
       if (
@@ -164,7 +174,7 @@ export function CourseFinder({
       includeIneligible: showUnavailable,
       input,
     },
-    downloading,
+    catalogLanded,
     enabled,
   );
   const view = result.value;
