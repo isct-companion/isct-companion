@@ -11,6 +11,8 @@
     )
 )]
 uniffi::setup_scaffolding!();
+#[cfg(target_os = "android")]
+mod android_tls;
 mod diagnostics;
 mod error;
 mod json;

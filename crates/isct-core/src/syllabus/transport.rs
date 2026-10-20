@@ -24,7 +24,7 @@ fn client() -> Result<&'static reqwest::Client, SyllabusError> {
     if let Some(client) = CLIENT.get() {
         return Ok(client);
     }
-    let client = reqwest::Client::builder()
+    let client = crate::net::client_builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(12))

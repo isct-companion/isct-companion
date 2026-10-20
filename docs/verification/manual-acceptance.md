@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 57 checks must be re-run before the next release.**
+**7 of 60 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,8 +27,9 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**48 checks have never been run or could not be run:**
+**51 checks have never been run or could not be run:**
 
+- `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
 - `IDENTITY-DOCTORAL-RULES` — never verified
@@ -77,21 +78,24 @@ an unverified area becomes an assumed-good one.
 - `IOS-ICLOUD-BACKUP` — never verified
 - `IOS-LOG-EXPORT` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
+- `ANDROID-TLS-VERIFIER` — never verified
+- `SCHOOL-KYOMU-RUST-TLS` — never verified
 
 ## Status
 
 | Check | Area | Persona | Result | Covers |
 | --- | --- | --- | --- | --- |
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/school_browser/engine/**<br>crates/isct-core/src/school_service.rs |
-| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/lms_ingest.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>crates/isct-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
+| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/lms_ingest.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs<br>crates/isct-core/src/school_parser/lms/pages.rs<br>crates/isct-core/src/net/moodle/pull.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>crates/isct-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
+| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/moodle/token.rs<br>crates/isct-core/src/net/moodle/rest.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/school_auth.rs<br>docs/lms-api/README.md |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-TRANSFER-COHORT` | identity | 編入生 | —<br>not run | crates/isct-core/src/subscriptions.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/lib/departments.ts |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/isct-core/src/kyomu_ingest.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/study_profile.rs |
-| `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/kyomu_ingest.rs |
+| `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/school_parser/kyomu/pages.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/kyomu_ingest.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
-| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/lms_ingest.rs |
+| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
@@ -110,20 +114,20 @@ an unverified area becomes an assumed-good one.
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
-| `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/lms_submission_status.js<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
+| `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_parser/lms/pages.rs<br>crates/isct-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>crates/isct-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
-| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs<br>crates/isct-core/src/school_parser/kyomu/pages.rs<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/isct-core/src/app_updates.rs |
-| `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/school_browser/assets/extraction-relay.js |
+| `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/kyomu.rs |
 | `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
-| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/extraction.rs |
+| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/pull.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
@@ -139,6 +143,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
+| `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/certs/nii-odca4g7rsa.pem<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
 
 ## Personas
 
@@ -350,6 +356,9 @@ enrolment.
 - `crates/isct-core/src/lms_ingest.rs`
 - `crates/isct-core/src/lms_session.rs`
 - `crates/isct-core/src/school_parser/lms.rs`
+- `crates/isct-core/src/school_parser/lms/pages.rs`
+- `crates/isct-core/src/net/moodle/pull.rs`
+- `crates/isct-core/src/net/moodle/ajax.rs`
 - `crates/isct-core/src/catalog.rs`
 - `crates/isct-core/src/data/school_projection.rs`
 - `crates/isct-core/src/schedule/search.rs`
@@ -360,6 +369,84 @@ enrolment.
 7 matched courses, no differences.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
+
+### LMS pull over the mobile token, and its fallback to the session cookie (`SCHOOL-LMS-TOKEN-PULL`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The account from SCHOOL-SIGNIN-SCIENCE is Signed in, with at least one
+course that has an assignment, a quiz and an announcement forum. A debug
+desktop build with the app log visible.
+
+**Steps**
+
+1. With no LMS token in the vault (fresh profile, or after forgetting
+   and re-adding the school account), run a full LMS pull.
+   - *Why:* The token comes from one cookie-authenticated launch.php GET answered
+     by a 302 to moodlemobile://; only the real site proves the redirect,
+     the base64 layout and the md5(wwwroot + passport) signature agree
+     with the parser.
+2. Search the exported app log and the database file for the token's
+   first characters (read them from the OS keychain item
+   "lms-token-science" yourself; never paste the token anywhere).
+   - *Why:* The token cannot be revoked by a student. A leak into a log, a row or
+     an error message is the failure this step exists to catch.
+3. Compare courses, assignment states (submitted, graded with grade,
+   late-allowed), quiz states and announcement bodies with the LMS
+   pages and with the previous cookie-based pull.
+   - *Why:* Several REST functions (`mod_quiz_*`, `mod_forum_get_forums_by_courses`,
+     the module getters, the calendar views, the timeline course list) are
+     listed by the site but their answers were never probed. A silently
+     empty mapping looks like "nothing to do" in Today.
+4. Quit and restart the app, then pull the deadlines before opening any
+   school page.
+   - *Why:* The token survives the restart while the web session does not; the
+     pull must not wait for a WebView sign-in except for the timetable.
+5. Replace the keychain item's token with a random 32-character value and
+   pull again.
+   - *Why:* A refused token arrives as HTTP 200 with errorcode invalidtoken; the
+     client must drop it, sign in once and launch a new one rather than
+     loop or fall back silently forever.
+6. Block `webservice/rest/server.php` (for example with a local proxy
+   rule) and pull once more.
+   - *Why:* The cookie transport must take over with the same results; the app
+     log names the fallback reason without any credential.
+
+**Where to look**
+
+The LMS page lists, Today's assignment rows, the app log export and the
+keychain item.
+
+**Expected**
+
+The first pull creates exactly one vault item and matches the LMS like
+SCHOOL-LMS-PULL. No log line, database row or error contains the token,
+sesskey or passport. After the restart the deadlines refresh before any
+school page opens. The forged token is replaced after one sign-in and
+the pull completes. With REST blocked the pull completes through the
+cookie path with the same courses and states, and the log says the
+token transport was unavailable.
+
+**Why this is manual**
+
+Needs a real account's web session to launch a token, and the answers of
+account-scoped REST functions that no fixture can stand in for. The pure
+parsing and mapping are covered by the net::moodle unit tests.
+
+**Covers**
+
+- `crates/isct-core/src/net/moodle/mod.rs`
+- `crates/isct-core/src/net/moodle/token.rs`
+- `crates/isct-core/src/net/moodle/rest.rs`
+- `crates/isct-core/src/net/moodle/ajax.rs`
+- `crates/isct-core/src/school_auth.rs`
+- `docs/lms-api/README.md`
+
+**Last recorded** never run
 
 ### A first-year student is refused an upper-level course with a reason (`IDENTITY-FIRST-YEAR-GATE`)
 
@@ -654,14 +741,14 @@ and the footer no longer shows a 教務Web failure after a refresh.
 **Why this is manual**
 
 The live registration and requirement DOM is account-scoped and changes
-with the 申告 window. The extractor tests reproduce only the two shapes
-observed outside the window, with placeholder values; no committed
-fixture is a capture. Only a real session shows what the portal serves
-while registration is open.
+with the 申告 window. No automated test reads a real 教務Web page and no
+committed fixture is a capture. Only a real session shows what the
+portal serves while registration is open.
 
 **Covers**
 
-- `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
+- `crates/isct-core/src/net/kyomu.rs`
+- `crates/isct-core/src/school_parser/kyomu/pages.rs`
 - `crates/isct-core/src/school_parser/kyomu.rs`
 - `crates/isct-core/src/kyomu_ingest.rs`
 
@@ -729,8 +816,8 @@ The school has moved the LMS to a new academic-year path.
    - *Why:* The pinned year must come from the site, not from memory. This step
      is the trigger for the rest of the check.
 2. If it differs from the pinned year, update LMS_HOME in
-   crates/isct-core/src/lms_session.rs and the path literals in
-   crates/isct-core/src/lms_ingest.rs.
+   crates/isct-core/src/lms_session.rs and LMS_WWWROOT and LMS_PATH in
+   crates/isct-core/src/school_parser/lms.rs.
    - *Why:* A stale literal does not fail loudly; it silently extracts nothing.
      The edit is mechanical, which is exactly why it must be paired with
      the real pull below rather than trusted.
@@ -756,7 +843,7 @@ suite fails but only a real account can confirm the new path works.
 **Covers**
 
 - `crates/isct-core/src/lms_session.rs`
-- `crates/isct-core/src/lms_ingest.rs`
+- `crates/isct-core/src/school_parser/lms.rs`
 
 **Last recorded** pass · 2026-10-16 · agent · `b598ae6` · `1.0.0-rc.3`
 
@@ -1790,7 +1877,8 @@ covered by the workspace Core tests and the lms-workspace e2e suite.
 
 **Covers**
 
-- `crates/isct-core/src/lms_submission_status.js`
+- `crates/isct-core/src/school_parser/lms/pages.rs`
+- `crates/isct-core/src/net/moodle/mapping.rs`
 - `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
 
 **Last recorded** never run
@@ -1956,9 +2044,11 @@ Headless tests exercise the parser, shared projections and UI paging only.
 
 **Covers**
 
-- `crates/isct-core/src/school_browser/engine/extraction.rs`
-- `crates/isct-core/src/school_browser/assets/kyomu-search.js`
-- `crates/isct-core/src/school_browser/assets/kyomu-extract.js`
+- `crates/isct-core/src/school_browser/engine/pull.rs`
+- `crates/isct-core/src/school_parser/kyomu/search.rs`
+- `crates/isct-core/src/school_parser/kyomu/pages.rs`
+- `crates/isct-core/src/net/kyomu.rs`
+- `crates/isct-core/src/catalog.rs`
 - `crates/isct-core/src/data/school_projection.rs`
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
 
@@ -2061,7 +2151,7 @@ Needs a signed release on GitHub, a Windows PC, a real slow or broken network, a
 
 **Last recorded** never run
 
-### Windows school pulls finish with a large LMS result and a hidden view (`DESKTOP-WINDOWS-SCHOOL-PULL`)
+### Windows school pulls finish over Core HTTP while school pages are open (`DESKTOP-WINDOWS-SCHOOL-PULL`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -2070,17 +2160,16 @@ Needs a signed release on GitHub, a Windows PC, a real slow or broken network, a
 **Preconditions**
 
 A Windows build from this source, a Science Tokyo account enrolled in
-many LMS courses (a full pull whose result is over 2 MB), and saved
-school credentials.
+many LMS courses, and saved school credentials.
 
 **Steps**
 
 1. Open Settings > Diagnostics and clear the log, then start a full LMS refresh from the course list.
-   - *Why:* WebView2 drops a navigation whose URL is over 2 MiB. The result now crosses in parts; a large real account is the only payload that needs more than one.
-2. While a pull runs, minimise the app for at least six minutes, then restore it.
-   - *Why:* Chromium throttles timers in hidden pages, harder after five minutes. The school views pass switches that disable it; only a real WebView2 shows whether they took effect.
-3. Copy the diagnostics log.
-   - *Why:* The log shows each capture reaching its target page and whether the relay arrived, which separates a dropped relay from a slow page.
+   - *Why:* The old WebView relay failed on WebView2 for large results; Core now reads LMS over HTTP, and only a real Windows build shows the TLS, proxy and cookie handoff from WebView2 working.
+2. While the pull runs, open the LMS and 教務Web school pages and browse for a minute.
+   - *Why:* Reading no longer shares the WebView, so browsing must not pause or restart the pull.
+3. Start a 教務Web refresh, then copy the diagnostics log.
+   - *Why:* kyomu0 needs the bundled G7 intermediate on top of Windows' verifier; the log shows whether TLS or the session failed.
 
 **Where to look**
 
@@ -2088,18 +2177,20 @@ The course list, the pull status, and the copied diagnostics log.
 
 **Expected**
 
-Both pulls finish with every enrolled course listed and no timeout. The
-log shows "capture loaded" for each target and no "database is locked".
+Both pulls finish with every enrolled course listed, no timeout and no
+restart while browsing. The log shows no TLS error and no token, sesskey
+or cookie value.
 
 **Why this is manual**
 
-Needs a real school account with a large LMS result, a Windows PC running WebView2, and minutes of real hidden time; the core suite covers part assembly but cannot run WebView2.
+Needs a real school account, a Windows PC with WebView2's cookie store and the Windows certificate verifier, which no headless suite has.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/school_web.rs`
 - `apps/desktop/src-tauri/src/lms_downloader.rs`
-- `crates/isct-core/src/school_browser/assets/extraction-relay.js`
+- `crates/isct-core/src/net/tls.rs`
+- `crates/isct-core/src/net/moodle/mod.rs`
+- `crates/isct-core/src/net/kyomu.rs`
 
 **Last recorded** never run
 
@@ -2449,7 +2540,7 @@ shell, which no longer does either, still gets there.
 - `crates/isct-core/src/facade.rs`
 - `crates/isct-core/src/runtime.rs`
 - `crates/isct-core/src/notes.rs`
-- `crates/isct-core/src/school_browser/engine/extraction.rs`
+- `crates/isct-core/src/school_browser/engine/pull.rs`
 
 **Last recorded** never run
 
@@ -3207,5 +3298,99 @@ reaches Kotlin, and Core's test pins the format and redaction.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+
+**Last recorded** never run
+
+### Android Core HTTPS verifies through the system trust store (`ANDROID-TLS-VERIFIER`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A release-profile SDK and app built from this source, installed fresh
+on an arm64 phone with network access.
+
+**Steps**
+
+1. Launch the app, let the session open, then open Settings →
+   Application logs.
+   - *Why:* Core verifies certificates with Android's trust manager through JNI;
+     if TlsVerifier.install did not run, or R8 stripped the verifier's
+     Kotlin classes, the first HTTPS request fails or crashes the worker.
+2. Pull to refresh reference data, then open the same log again.
+   - *Why:* The Isct-Data refresh is an HTTPS request that needs no school
+     account, so it isolates TLS from sign-in.
+
+**Where to look**
+
+The application log and the calendar/reference data on Today.
+
+**Expected**
+
+The reference refresh succeeds with no TLS or "rustls-platform-verifier"
+error, and the app stays open.
+
+**Why this is manual**
+
+The JNI call into the Android trust manager and R8 keep rules only exist
+in a signed APK on a device; host tests run the desktop verifier.
+
+**Covers**
+
+- `crates/isct-ffi/src/android_tls.rs`
+- `bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt`
+- `apps/android/app/build.gradle.kts`
+- `apps/android/app/proguard-rules.pro`
+
+**Last recorded** never run
+
+### 教務Web pages load over Rust HTTP on every platform (`SCHOOL-KYOMU-RUST-TLS`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A build where 教務Web pages are read by Core's HTTP client (sync-engine
+checkpoint 1), saved Tokyo Tech credentials, and one of macOS, Windows,
+iPhone or Android (repeat per platform).
+
+**Steps**
+
+1. Sign in to 教務Web in the app, then refresh 教務Web data from
+   Settings.
+   - *Why:* kyomu0 sends the wrong intermediate certificate. Apple and Windows
+     may repair the chain on their own, Android does not, so only a run on
+     each platform shows the vendored G7 intermediate is what makes it work.
+2. Open the 教務Web page in the app's school browser afterwards.
+   - *Why:* Cookies the server set on Core's requests are written back to the
+     WebView store; a broken write-back shows up as the browser being
+     signed out or bounced to GetAccess.
+
+**Where to look**
+
+The 教務Web status in Settings, the application log, and the school
+browser page.
+
+**Expected**
+
+All six 教務Web pages refresh with no TLS error in the log, and the
+school browser opens 教務Web still signed in.
+
+**Why this is manual**
+
+Needs a real Tokyo Tech account and the real kyomu0 certificate chain on
+each OS verifier; no test can reach the school server.
+
+**Covers**
+
+- `crates/isct-core/src/net/tls.rs`
+- `crates/isct-core/src/net/certs/nii-odca4g7rsa.pem`
+- `apps/desktop/src-tauri/src/lms_downloader.rs`
+- `apps/ios/IsctCompanion/Core/WebCookieSession.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt`
 
 **Last recorded** never run

@@ -200,12 +200,6 @@ impl SchoolBrowserEngine {
                     }) if found == profile && state != SchoolSessionState::Pending => {
                         return Ok(state)
                     }
-                    Ok(Trace::Maintenance {
-                        browser: found,
-                        message,
-                    }) if found == browser => {
-                        return Err(SchoolBrowserError::Maintenance(message));
-                    }
                     Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
@@ -312,12 +306,6 @@ impl SchoolBrowserEngine {
                         state,
                     }) if found == profile && state != SchoolSessionState::Pending => {
                         return Ok(state == SchoolSessionState::Active)
-                    }
-                    Ok(Trace::Maintenance {
-                        browser: found,
-                        message,
-                    }) if found == browser => {
-                        return Err(SchoolBrowserError::Maintenance(message));
                     }
                     Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
@@ -607,19 +595,7 @@ fn still_on_login_page(state: &State, page: PageId, expected_url: &str) -> bool 
 /// Automatic sign-in belongs to the session check, the visible page or the
 /// hidden pull that led this view to the identity provider.
 pub(super) fn owns_sign_in(state: &State, profile: SchoolAuthProfile, browser: BrowserId) -> bool {
-    state.heartbeat == Some(profile)
-        || state.browsing == Some(browser.site)
-        || state
-            .hidden
-            .as_ref()
-            .is_some_and(|work| work.browser == browser)
-}
-
-pub(super) fn sign_in_settled_without_session(state: SchoolSessionState) -> bool {
-    matches!(
-        state,
-        SchoolSessionState::Failed | SchoolSessionState::NotConfigured
-    )
+    state.heartbeat == Some(profile) || state.browsing == Some(browser.site)
 }
 
 pub(super) fn snapshot(state: &State) -> SchoolSessionSnapshot {

@@ -326,12 +326,11 @@ impl Session {
         query: String,
         year: u16,
         filters: Option<CatalogFilters>,
-        cursor: Option<String>,
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
             let page = i
                 .core
-                .catalog_query(query, year, project_input(filters)?, cursor)
+                .catalog_query(query, year, project_input(filters)?)
                 .await?;
             Ok(OperationResult::Catalog {
                 page: project(page)?,
@@ -707,7 +706,14 @@ async fn initialize(
     let browser_shutdown_error = if let Some(native) = browser {
         let browser = Arc::new(Browser::new(native));
         let errors = browser.shutdown_error.clone();
-        core.attach_school_browser(browser)?;
+        // Without a native cookie port Core cannot read school data over
+        // HTTP; the shell must pass one together with the browser.
+        let cookies = downloads.clone().ok_or_else(|| {
+            SdkError::from(isct_core::school_browser::SchoolBrowserError::Platform(
+                "A school browser needs the native cookie session.".into(),
+            ))
+        })?;
+        core.attach_school_browser(browser, Arc::new(crate::ports::NativeCookies(cookies)))?;
         Some(errors)
     } else {
         None

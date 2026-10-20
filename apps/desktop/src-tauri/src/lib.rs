@@ -314,8 +314,8 @@ pub fn run() {
             )));
             let school_controller = tauri::async_runtime::block_on(async {
                 let native = school_browser_native::NativeBrowser::new(app.handle().clone())?;
-                let engine =
-                    core_ports::core(app.handle()).attach_school_browser(native.clone())?;
+                let engine = core_ports::core(app.handle())
+                    .attach_school_browser(native.clone(), lms_downloader::session(app.handle()))?;
                 Ok::<_, isct_core::school_browser::SchoolBrowserError>(SchoolWebController::new(
                     native, engine,
                 ))

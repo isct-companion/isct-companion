@@ -9,19 +9,13 @@ use super::{
 use crate::{
     data::{DataStore, WorkspaceChangeSource},
     events::CoreEvent,
-    kyomu_ingest::{apply_kyomu_payload, record_kyomu_unavailable, KYOMU_EXTRACT_SCRIPT},
     lifecycle::SchoolSite,
-    lms_ingest::{apply_lms_payload, LMS_EXTRACT_SCRIPT},
     ports::EventSink,
     pull_coordinator::{PullContext, PullPriority},
     runtime_tasks::RuntimeTasks,
     school_auth::{
         upcoming_otps, OtpWindow, SchoolAuthError, SchoolAuthProfile, SchoolAuthService,
         SchoolCredentials,
-    },
-    school_parser::{
-        kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
-        lms::{parse_payload as parse_lms_payload, LmsStage},
     },
     school_refresh::{RefreshEvent, SchoolRefresh},
     school_service::{
@@ -41,22 +35,17 @@ use std::{
 use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
 use url::Url;
 
-mod extraction;
 mod history;
 mod lane;
 mod login;
+mod pull;
 mod restore;
 
-use self::{extraction::*, history::*, login::*};
+use self::{history::*, login::*, pull::*};
 
 const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
 const LAUNCH_INTERVAL: Duration = Duration::from_secs(90);
 const FOCUS_INTERVAL: Duration = Duration::from_secs(120);
-/// Chromium (WebView2, Android WebView) drops a navigation whose URL exceeds
-/// 2 MiB, so an extraction result crosses in parts well under that. The page
-/// sends each next part only after Core has taken the previous one.
-const RELAY_PART: usize = 1024 * 1024;
-const RELAY_MAX: usize = 11 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct SchoolBrowserEngine(Arc<Inner>);
@@ -96,6 +85,7 @@ struct Inner {
     manual_waiters: AtomicUsize,
     listener: Mutex<Option<Arc<dyn SchoolBrowserListener>>>,
     restore_io: Mutex<()>,
+    transport: std::sync::OnceLock<Transport>,
 }
 
 #[derive(Default)]
@@ -104,8 +94,6 @@ struct State {
     browsing: Option<SchoolSite>,
     login: Option<ActiveLogin>,
     auto_blocked: HashSet<SchoolAuthProfile>,
-    extraction: Option<Extraction>,
-    hidden: Option<HiddenWork>,
     sessions: HashMap<SchoolAuthProfile, SchoolSessionState>,
     kyomu_maintenance: Option<String>,
     revision: u64,
@@ -131,43 +119,13 @@ struct ViewState {
     url: String,
     user_url: Option<String>,
     background_navigation: bool,
-    extraction_relay: String,
     auth_relay: String,
-    progress_relay: String,
-    availability_relay: String,
-    pending_availability: Option<PageLoaded>,
-    relay_parts: Option<RelayParts>,
     navigation: Option<ActionId>,
     actions: HashMap<ActionId, bool>,
 }
 
-/// The parts of one extraction result received so far.
-struct RelayParts {
-    run: String,
-    count: usize,
-    encoded: String,
-    received: usize,
-}
-
-enum RelayPart {
-    Next(String, usize),
-    Complete(String),
-    Rejected,
-}
-
 #[derive(Clone, Debug)]
 enum Trace {
-    Loaded(PageLoaded),
-    Maintenance {
-        browser: BrowserId,
-        message: String,
-    },
-    Failed(LoadFailed),
-    Extraction {
-        browser: BrowserId,
-        run: String,
-        raw: String,
-    },
     Session {
         profile: SchoolAuthProfile,
         state: SchoolSessionState,
@@ -211,6 +169,7 @@ impl SchoolBrowserEngine {
             manual_waiters: AtomicUsize::new(0),
             listener: Mutex::new(None),
             restore_io: Mutex::new(()),
+            transport: std::sync::OnceLock::new(),
         });
         let listener: Arc<dyn SchoolBrowserListener> = Arc::new(Listener(Arc::downgrade(&inner)));
         browser.attach(Arc::downgrade(&listener))?;
@@ -226,10 +185,6 @@ impl SchoolBrowserEngine {
     pub fn user_browsing(&self, site: Option<SchoolSite>) -> Result<(), SchoolBrowserError> {
         let mut state = self.0.state.guard();
         state.browsing = site;
-        if site.is_some() {
-            state.extraction = None;
-            state.hidden = None;
-        }
         drop(state);
         let _ = self.0.traces.send(Trace::Browsing(site));
         self.0.browsing_changed.notify_waiters();
@@ -359,11 +314,6 @@ impl SchoolBrowserEngine {
         panic!("simulated panic while the school state was locked");
     }
 
-    #[cfg(test)]
-    pub(super) fn manual_waiters(&self) -> usize {
-        self.0.manual_waiters.load(Ordering::Acquire)
-    }
-
     pub async fn shutdown(&self) {
         #[cfg(feature = "desktop-workspaces")]
         {
@@ -400,12 +350,7 @@ impl SchoolBrowserEngine {
                     url: initial.to_string(),
                     user_url: None,
                     background_navigation: false,
-                    extraction_relay: format!("isct-companion-extract://{nonce}/"),
                     auth_relay: format!("isct-companion-auth:{nonce}:"),
-                    progress_relay: format!("isct-companion-progress:{nonce}:"),
-                    availability_relay: format!("isct-companion-availability:{nonce}:"),
-                    pending_availability: None,
-                    relay_parts: None,
                     navigation: None,
                     actions: HashMap::new(),
                 },
@@ -544,44 +489,6 @@ impl Inner {
         if !self.current(event.page.browser) {
             return;
         }
-        if event.url.scheme() == "https"
-            && event.url.host_str() == Some("kyomu0.gakumu.titech.ac.jp")
-        {
-            let relay = self.state.with(|state| {
-                let view = state.views.get_mut(&event.page.browser.site)?;
-                if view.id != event.page.browser
-                    || event.page.sequence <= view.last_page
-                    || view
-                        .pending_availability
-                        .as_ref()
-                        .is_some_and(|pending| pending.page.sequence >= event.page.sequence)
-                    || event
-                        .cause
-                        .is_some_and(|cause| view.navigation != Some(cause))
-                {
-                    return None;
-                }
-                view.pending_availability = Some(event.clone());
-                Some(view.availability_relay.clone())
-            });
-            if let Some(relay) = relay {
-                let relay = serde_json::to_string(&relay).unwrap_or_default();
-                let sequence = event.page.sequence;
-                let script = format!("{};(()=>{{const message=globalThis.__isctKyomuMaintenance(document);document.title={relay}+btoa(unescape(encodeURIComponent(JSON.stringify({{sequence:{sequence},message,title:document.title}})))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');}})()", include_str!("assets/kyomu-maintenance.js"));
-                if self
-                    .dispatch_eval(event.page.browser, script, true)
-                    .is_err()
-                {
-                    self.load_failed(LoadFailed {
-                        page: event.page,
-                        cause: event.cause,
-                        url: Some(event.url.clone()),
-                        message: "Could not check school service availability.".into(),
-                    });
-                }
-            }
-            return;
-        }
         self.page_available(event);
     }
 
@@ -600,18 +507,7 @@ impl Inner {
         }) else {
             return;
         };
-        let (
-            login,
-            heartbeat,
-            extraction,
-            auth_relay,
-            progress_relay,
-            customization,
-            guide,
-            popup_return,
-            restore,
-            foreground,
-        ) = {
+        let (login, heartbeat, auth_relay, customization, guide, popup_return, restore, foreground) = {
             let mut state = self.state.guard();
             let foreground = state.browsing == Some(event.page.browser.site);
             let Some(view) = state.views.get_mut(&event.page.browser.site) else {
@@ -638,7 +534,7 @@ impl Inner {
                 view.user_url = Some(safe_loaded.clone());
                 view.background_navigation = false;
             }
-            let relays = (view.auth_relay.clone(), view.progress_relay.clone());
+            let auth_relay = view.auth_relay.clone();
             let suppressed = state.suppress_history.remove(&event.page.browser.site);
             if !suppressed && state.browsing == Some(event.page.browser.site) {
                 if let Some(safe) = history_entry(event.page.browser.site, event.url.as_str()) {
@@ -648,21 +544,6 @@ impl Inner {
                         .or_default()
                         .push(safe);
                 }
-            }
-            if state.extraction.is_none()
-                && state.browsing == Some(event.page.browser.site)
-                && ingestion_script(event.url.as_str()).is_some()
-            {
-                state.extraction = Some(Extraction {
-                    browser: event.page.browser,
-                    run: new_id(),
-                    course_id: None,
-                    scope: extraction::LmsScope::Summary,
-                    baseline: event.page.sequence.saturating_sub(1),
-                    target: event.url.to_string(),
-                    visible: true,
-                    catalog_page: None,
-                });
             }
             let popup_return = match state.popup_return.get(&event.page.browser.site).cloned() {
                 Some(popup) if same_page(&safe_loaded, &popup.opener) => {
@@ -689,9 +570,7 @@ impl Inner {
             (
                 state.login.clone(),
                 state.heartbeat,
-                state.extraction.clone(),
-                relays.0,
-                relays.1,
+                auth_relay,
                 state
                     .customizations
                     .get(&event.page.browser.site)
@@ -760,21 +639,6 @@ impl Inner {
                     message: "Connected".into(),
                 }));
                 self.set_session_from_inner(active.profile, SchoolSessionState::Active);
-                // A hidden pull that was sent through sign-in continues at its target.
-                let resume = self.state.with(|state| {
-                    state
-                        .hidden
-                        .as_ref()
-                        .filter(|work| {
-                            work.browser == event.page.browser
-                                && state.browsing.is_none()
-                                && !work.reached(&event.url)
-                        })
-                        .map(|work| work.target.clone())
-                });
-                if let Some(target) = resume {
-                    let _ = self.dispatch(event.page.browser, BrowserAction::Navigate(target));
-                }
             } else if let Some(script) = login_script(event.url.as_str(), &active, &auth_relay) {
                 let _ = self.dispatch_eval(event.page.browser, script, true);
             }
@@ -785,42 +649,6 @@ impl Inner {
         } else if is_identity_login(&event.url) {
             self.arm_saved_login(event.page, event.url.clone(), auth_relay);
         }
-        if let Some(extraction) = extraction.filter(|run| {
-            run.browser == event.page.browser
-                && event.page.sequence > run.baseline
-                && event.url.as_str() == run.target
-        }) {
-            if let Some(script) = ingestion_script(event.url.as_str()) {
-                let course = extraction
-                    .course_id
-                    .map(|id| format!("globalThis.__ISCT_COMPANION_LMS_COURSE_ID__={id};"))
-                    .unwrap_or_else(|| {
-                        "delete globalThis.__ISCT_COMPANION_LMS_COURSE_ID__;".into()
-                    });
-                let catalog_page = serde_json::to_string(&extraction.catalog_page)
-                    .unwrap_or_else(|_| "null".into());
-                let course =
-                    format!("{course}globalThis.__ISCT_COMPANION_KYOMU_PAGE__={catalog_page};");
-                let quoted_run =
-                    serde_json::to_string(&extraction.run).unwrap_or_else(|_| "\"\"".into());
-                let course = format!(
-                    "{course}globalThis.__ISCT_COMPANION_KYOMU_HIDDEN__={};",
-                    !extraction.visible
-                );
-                let setup = format!("{course}globalThis.__ISCT_COMPANION_LMS_FULL__={};globalThis.__ISCT_COMPANION_LMS_CURRENT__={};globalThis.__ISCT_COMPANION_LMS_PROGRESS__=v=>{{if(v&&typeof v==='object')v._isctExtractionRun={quoted_run};document.title='{progress_relay}'+btoa(unescape(encodeURIComponent(JSON.stringify(v)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}};", extraction.scope == extraction::LmsScope::Full, extraction.scope == extraction::LmsScope::CurrentQuarter);
-                let relay = self.state.with(|state| {
-                    state
-                        .views
-                        .get(&event.page.browser.site)
-                        .map(|view| view.extraction_relay.clone())
-                });
-                if let Some(relay) = relay {
-                    let script = extraction_script(&setup, script, &relay, &extraction.run);
-                    let _ = self.dispatch_eval(event.page.browser, script, true);
-                }
-            }
-        }
-        let _ = self.traces.send(Trace::Loaded(event));
     }
 
     fn report_kyomu_maintenance(&self, message: &str) {
@@ -863,7 +691,6 @@ impl Inner {
             if let Some(profile) = heartbeat {
                 self.set_session_from_inner(profile, SchoolSessionState::Failed);
             }
-            let _ = self.traces.send(Trace::Failed(event));
         }
     }
 
@@ -871,238 +698,19 @@ impl Inner {
         if !self.current(page.browser) {
             return;
         }
-        let availability = self.state.with(|state| {
+        let auth = self.state.with(|state| {
             state
                 .views
                 .get(&page.browser.site)
-                .map(|v| v.availability_relay.clone())
+                .map(|view| view.auth_relay.clone())
         });
-        if let Some(encoded) = availability
-            .as_deref()
-            .and_then(|prefix| title.strip_prefix(prefix))
-        {
-            if encoded.len() > 16 * 1024 {
-                return;
-            }
-            #[derive(Deserialize)]
-            struct Availability {
-                sequence: u64,
-                message: Option<String>,
-                #[serde(default)]
-                title: String,
-            }
-            let Some(value) = URL_SAFE_NO_PAD
-                .decode(encoded)
-                .ok()
-                .and_then(|v| serde_json::from_slice::<Availability>(&v).ok())
-            else {
-                return;
-            };
-            let event = self.state.with(|state| {
-                let view = state.views.get_mut(&page.browser.site)?;
-                if view.id != page.browser
-                    || view.pending_availability.as_ref()?.page.sequence != value.sequence
-                    || page.sequence != value.sequence
-                {
-                    return None;
-                }
-                view.pending_availability.take()
-            });
-            if let Some(event) = event {
-                if let Ok(title) =
-                    serde_json::to_string(&value.title.chars().take(512).collect::<String>())
-                {
-                    let _ =
-                        self.dispatch_eval(page.browser, format!("document.title={title};"), false);
-                }
-                if let Some(message) = value.message.filter(|v| !v.trim().is_empty()) {
-                    let message: String = message.chars().take(1800).collect();
-                    // Bookkeep navigation/history, but never treat this page as
-                    // a successful login or a complete data extraction.
-                    self.state.with(|state| {
-                        if let Some(view) = state.views.get_mut(&page.browser.site) {
-                            view.last_page = page.sequence;
-                            view.navigation = None;
-                            view.url = event.url.to_string();
-                        }
-                    });
-                    self.report_kyomu_maintenance(&message);
-                    let _ = self.traces.send(Trace::Maintenance {
-                        browser: page.browser,
-                        message,
-                    });
-                } else {
-                    let recovered = self
-                        .state
-                        .with(|state| state.kyomu_maintenance.take().is_some());
-                    if recovered {
-                        let _ = self.events.emit(CoreEvent::SchoolIngest(IngestOutcome {
-                            site: SchoolSite::Kyomu,
-                            kind: "service".into(),
-                            state: IngestState::Ok,
-                            changed: 0,
-                            message: String::new(),
-                        }));
-                    }
-                    self.page_available(event);
-                }
-            }
-            return;
+        if let Some(encoded) = auth.and_then(|auth| title.strip_prefix(&auth).map(str::to_string)) {
+            self.login_relay(&encoded);
         }
-        let prefixes = self.state.with(|state| {
-            state
-                .views
-                .get(&page.browser.site)
-                .map(|view| (view.auth_relay.clone(), view.progress_relay.clone()))
-        });
-        let Some((auth, progress)) = prefixes else {
-            return;
-        };
-        if let Some(encoded) = title.strip_prefix(&auth) {
-            self.login_relay(encoded);
-        } else if let Some(encoded) = title.strip_prefix(&progress) {
-            self.progress_relay(page.browser, encoded);
-        }
-    }
-
-    /// Takes one `<run>/<count>/<index>/<data>` part of an extraction result
-    /// for the active run, in order. A part out of order or for another run
-    /// drops nothing already collected for the active run.
-    fn relay_part(&self, browser: BrowserId, part: &str) -> RelayPart {
-        let mut fields = part.splitn(4, '/');
-        let (Some(run), Some(count), Some(index), Some(data)) = (
-            fields.next(),
-            fields.next().and_then(|value| value.parse::<usize>().ok()),
-            fields.next().and_then(|value| value.parse::<usize>().ok()),
-            fields.next(),
-        ) else {
-            return RelayPart::Rejected;
-        };
-        if count == 0
-            || count > RELAY_MAX.div_ceil(RELAY_PART)
-            || index >= count
-            || data.len() > RELAY_PART
-        {
-            return RelayPart::Rejected;
-        }
-        self.state.with(|state| {
-            let active = state
-                .extraction
-                .as_ref()
-                .is_some_and(|active| active.browser == browser && active.run == run);
-            let Some(view) = state
-                .views
-                .get_mut(&browser.site)
-                .filter(|view| active && view.id == browser)
-            else {
-                return RelayPart::Rejected;
-            };
-            if index == 0 {
-                view.relay_parts = Some(RelayParts {
-                    run: run.into(),
-                    count,
-                    encoded: String::new(),
-                    received: 0,
-                });
-            }
-            let Some(parts) = view.relay_parts.as_mut().filter(|parts| {
-                parts.run == run && parts.count == count && parts.received == index
-            }) else {
-                return RelayPart::Rejected;
-            };
-            parts.encoded.push_str(data);
-            parts.received += 1;
-            if parts.received < count {
-                RelayPart::Next(run.into(), parts.received)
-            } else {
-                view.relay_parts
-                    .take()
-                    .map_or(RelayPart::Rejected, |parts| {
-                        RelayPart::Complete(parts.encoded)
-                    })
-            }
-        })
     }
 
     fn decide_navigation(&self, page: PageId, url: Url, _main_frame: bool) -> NavigationDecision {
         if !self.current(page.browser) {
-            return NavigationDecision::Cancel;
-        }
-        let relay = self.state.with(|state| {
-            state
-                .views
-                .get(&page.browser.site)
-                .map(|view| view.extraction_relay.clone())
-        });
-        if let Some(part) = relay
-            .as_deref()
-            .and_then(|prefix| url.as_str().strip_prefix(prefix))
-        {
-            let encoded = match self.relay_part(page.browser, part) {
-                RelayPart::Complete(encoded) => Some(encoded),
-                RelayPart::Next(run, index) => {
-                    if let Ok(run) = serde_json::to_string(&run) {
-                        let _ = self.dispatch_eval(
-                            page.browser,
-                            format!("globalThis.__isctRelayPart&&globalThis.__isctRelayPart({run},{index});"),
-                            true,
-                        );
-                    }
-                    None
-                }
-                RelayPart::Rejected => None,
-            };
-            if let Some(encoded) = encoded {
-                if let Some(raw) = URL_SAFE_NO_PAD
-                    .decode(encoded)
-                    .ok()
-                    .and_then(|bytes| String::from_utf8(bytes).ok())
-                {
-                    let run = serde_json::from_str::<serde_json::Value>(&raw)
-                        .ok()
-                        .and_then(|value| {
-                            value
-                                .get("_isctExtractionRun")?
-                                .as_str()
-                                .map(str::to_string)
-                        });
-                    if let Some(run) = run {
-                        let accepted = self.state.with(|state| {
-                            if state.extraction.as_ref().is_some_and(|active| {
-                                active.browser == page.browser && active.run == run
-                            }) {
-                                state.extraction.take()
-                            } else {
-                                None
-                            }
-                        });
-                        if let Some(extraction) = accepted {
-                            if extraction.visible {
-                                let store = self.store.clone();
-                                let events = self.events.clone();
-                                let site = page.browser.site;
-                                let _entered = self.runtime.enter();
-                                self.tasks.spawn(async move {
-                                    if let Ok(Ok(outcome)) =
-                                        tokio::task::spawn_blocking(move || {
-                                            apply_raw(&store, site, &raw)
-                                        })
-                                        .await
-                                    {
-                                        let _ = events.emit(CoreEvent::SchoolIngest(outcome));
-                                    }
-                                });
-                            } else {
-                                let _ = self.traces.send(Trace::Extraction {
-                                    browser: page.browser,
-                                    run,
-                                    raw,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
             return NavigationDecision::Cancel;
         }
         // Empty editor frames inherit the embedding origin. Blocking them
@@ -1210,7 +818,6 @@ impl Inner {
             let mut state = self.state.guard();
             if let Some(view) = state.views.get_mut(&browser.site) {
                 if view.id == browser {
-                    view.pending_availability = None;
                     view.navigation = Some(action);
                     if view.actions.len() >= 64 {
                         view.actions.clear();
@@ -1222,7 +829,6 @@ impl Inner {
             let mut state = self.state.guard();
             if let Some(view) = state.views.get_mut(&browser.site) {
                 if view.id == browser {
-                    view.pending_availability = None;
                     view.navigation = Some(action);
                     view.actions.insert(action, true);
                 }
@@ -1327,7 +933,4 @@ fn interactive_url(raw: &str) -> Result<Url, SchoolBrowserError> {
 }
 fn new_id() -> String {
     uuid::Uuid::now_v7().simple().to_string()
-}
-fn truncate(value: String, max: usize) -> String {
-    value.chars().take(max).collect()
 }
