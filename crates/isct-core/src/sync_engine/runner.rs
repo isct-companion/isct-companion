@@ -1185,6 +1185,10 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
     match end {
         KeyEnd::Done { .. } => {
             state.facts.paused.remove(&host);
+            // Its assignment states wait for the outline (planner rule).
+            if key.dataset == Dataset::LmsCourse {
+                state.evaluate = true;
+            }
             if host == Host::Kyomu {
                 state.kyomu_notice = None;
             }

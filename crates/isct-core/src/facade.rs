@@ -185,12 +185,8 @@ impl Core {
             .as_ref()
             .map(|events| events.clone() as Arc<dyn EventSink>)
             .unwrap_or_else(|| Arc::new(NoopEvents));
-        let engine = SchoolBrowserEngine::new(
-            self.auth.clone(),
-            events,
-            browser,
-            self.sync.hints(),
-        )?;
+        let engine =
+            SchoolBrowserEngine::new(self.auth.clone(), events, browser, self.sync.hints())?;
         let http = crate::net::Http::new()
             .map_err(|error| SchoolBrowserError::Platform(error.to_string()))?;
         engine.attach_transport(http, cookies)?;

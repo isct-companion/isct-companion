@@ -655,6 +655,15 @@ pub(crate) fn plan(
     let mut candidates: Vec<Candidate> = watched
         .into_iter()
         .filter(|(key, _)| !leased.contains(key))
+        // A course's assignment states land on the rows its outline creates;
+        // read them once that outline is stored, not before.
+        .filter(|(key, _)| {
+            key.dataset != Dataset::LmsAssign
+                || inputs
+                    .states
+                    .get(&Key::new(Dataset::LmsCourse, key.key.clone()))
+                    .is_some_and(|state| state.fetched_at.is_some())
+        })
         .filter_map(|(key, watch)| {
             let (rank, backoff) = evaluate(&key, &watch, inputs.states.get(&key), now)?;
             let held = hold(key.dataset, watch.priority, inputs, facts, now).or(backoff);

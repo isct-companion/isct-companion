@@ -147,7 +147,10 @@ fn delete_all(transaction: &Transaction<'_>, tables: &[String]) -> Result<(), Da
 /// subscription itself (kind, URL, on/off) stays.
 fn forget_reference_bookkeeping(transaction: &Transaction<'_>) -> Result<(), DataError> {
     for mut row in read_rows(transaction, "subscriptions")? {
-        if row.get("deletedAt").is_some_and(|deleted| !deleted.is_null()) {
+        if row
+            .get("deletedAt")
+            .is_some_and(|deleted| !deleted.is_null())
+        {
             continue;
         }
         let Some(object) = row.as_object_mut() else {

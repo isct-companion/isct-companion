@@ -311,6 +311,34 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
     .unwrap();
     assert_eq!(assignment(&connection)["submission"], "submitted");
     assert_eq!(assignment(&connection)["dueAt"], due_at);
+
+    // The stored states cover the known rows, so a repeat outline keeps them
+    // current; a new assignment has none yet and makes them missing, to be
+    // read next. (States read before the row existed would have been lost.)
+    let states = Key::new(Dataset::LmsAssign, "42");
+    let fetched = |connection: &Connection| {
+        sync_state::get(connection, &states)
+            .unwrap()
+            .and_then(|state| state.fetched_at)
+    };
+    commit_on(&mut connection, |tx| {
+        apply_lms_course(tx, &course, ACCOUNT, Utc::now())
+    })
+    .unwrap();
+    assert!(fetched(&connection).is_some());
+    let grown = outline(
+        json!([
+            {"id": 7, "sectionid": 1, "module": "assign", "name": "Essay (final)", "url": ASSIGN_URL},
+            {"id": 8, "sectionid": 1, "module": "quiz", "name": "Quiz 1",
+             "url": "https://lms.s.isct.ac.jp/2025/mod/quiz/view.php?id=8"}
+        ]),
+        json!([]),
+    );
+    commit_on(&mut connection, |tx| {
+        apply_lms_course(tx, &grown, ACCOUNT, Utc::now())
+    })
+    .unwrap();
+    assert!(fetched(&connection).is_none());
 }
 
 #[test]

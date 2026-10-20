@@ -98,6 +98,7 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
             course(101, 2026, 3),
             course(102, 2026, 1),
             course(103, 2025, 1),
+            course(104, 2026, 3),
         ],
         offerings: HashMap::from([(101, "202602431".to_string())]),
         science: Some(SCIENCE.into()),
@@ -190,6 +191,10 @@ fn due_keys_are_planned_missing_first_within_each_tier() {
             "{dataset:?}/{name}"
         );
     }
+    // A course whose outline was never stored is read first; its assignment
+    // states wait, since they land on the rows the outline creates.
+    assert!(find(&plan, &key(Dataset::LmsCourse, "104")).is_some());
+    assert!(find(&plan, &key(Dataset::LmsAssign, "104")).is_none());
     // The leased key is single-flight: never planned twice.
     let leased = HashSet::from([key(Dataset::LmsCourse, "101")]);
     let again = planner::plan(&inputs, &facts(), &[], &HashMap::new(), &leased, now());
@@ -223,6 +228,7 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
             minutes(30),
             Some(now() + Duration::minutes(10)),
         ),
+        stored(Dataset::LmsCourse, "102", SCIENCE, minutes(60), None),
         stored(
             Dataset::LmsAssign,
             "102",

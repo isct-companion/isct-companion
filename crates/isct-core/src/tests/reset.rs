@@ -17,10 +17,7 @@ struct MemoryVault(Arc<Mutex<HashMap<String, String>>>);
 
 impl SecretVault for MemoryVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
-        self.0
-            .lock()
-            .unwrap()
-            .insert(account.into(), secret.into());
+        self.0.lock().unwrap().insert(account.into(), secret.into());
         Ok(())
     }
     fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
@@ -96,12 +93,32 @@ fn seed(fixture: &Fixture) {
     let connection = Connection::open(store.path()).unwrap();
     let row = "VALUES(?1,?2,'hash','2026-10-01T00:00:00+00:00','school',1)";
     for (table, id, value) in [
-        ("lms_courses", "lms-course:7", json!({"id":"lms-course:7","lmsId":7})),
-        ("assignments", "lms-assignment:42", json!({"id":"lms-assignment:42"})),
-        ("registrations", "kyomu-registration:1", json!({"id":"kyomu-registration:1"})),
+        (
+            "lms_courses",
+            "lms-course:7",
+            json!({"id":"lms-course:7","lmsId":7}),
+        ),
+        (
+            "assignments",
+            "lms-assignment:42",
+            json!({"id":"lms-assignment:42"}),
+        ),
+        (
+            "registrations",
+            "kyomu-registration:1",
+            json!({"id":"kyomu-registration:1"}),
+        ),
         ("grades", "kyomu-grade:1", json!({"id":"kyomu-grade:1"})),
-        ("offerings", "2026-202601234", json!({"id":"2026-202601234"})),
-        ("academic_calendar", "calendar:2026-10-13", json!({"id":"calendar:2026-10-13"})),
+        (
+            "offerings",
+            "2026-202601234",
+            json!({"id":"2026-202601234"}),
+        ),
+        (
+            "academic_calendar",
+            "calendar:2026-10-13",
+            json!({"id":"calendar:2026-10-13"}),
+        ),
     ] {
         connection
             .execute(
@@ -178,21 +195,28 @@ fn seed(fixture: &Fixture) {
         .unwrap();
     fixture
         .auth
-        .store_moodle_token(SchoolAuthProfile::Science, &MoodleToken::new("token".into()))
+        .store_moodle_token(
+            SchoolAuthProfile::Science,
+            &MoodleToken::new("token".into()),
+        )
         .unwrap();
 }
 
 fn count(store: &DataStore, table: &str) -> i64 {
     Connection::open(store.path())
         .unwrap()
-        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
         .unwrap()
 }
 
 fn setting(store: &DataStore, key: &str) -> Option<String> {
     Connection::open(store.path())
         .unwrap()
-        .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| row.get(0))
+        .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
+            row.get(0)
+        })
         .ok()
 }
 
@@ -256,11 +280,19 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
         );
     }
     assert_eq!(
-        fixture.auth.load_moodle_token(SchoolAuthProfile::Science).unwrap(),
+        fixture
+            .auth
+            .load_moodle_token(SchoolAuthProfile::Science)
+            .unwrap(),
         None
     );
 
-    for table in ["plans", "assignment_marks", "course_overrides", "subscriptions"] {
+    for table in [
+        "plans",
+        "assignment_marks",
+        "course_overrides",
+        "subscriptions",
+    ] {
         assert_eq!(store.user_rows(table).unwrap().len(), 1, "{table}");
     }
     let subscription: Value = store.user_rows("subscriptions").unwrap().remove(0);
@@ -270,7 +302,11 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
         assert!(subscription.get(field).is_none(), "{field}");
     }
     assert_eq!(setting(store, "userPreferences"), preferences);
-    assert!(fixture.auth.load(SchoolAuthProfile::TokyoTech).unwrap().is_some());
+    assert!(fixture
+        .auth
+        .load(SchoolAuthProfile::TokyoTech)
+        .unwrap()
+        .is_some());
 
     assert_eq!(core.sync.generation(), generation + 1);
     let key = Key::new(Dataset::LmsCourse, "7");
@@ -380,17 +416,23 @@ async fn full_reset_returns_to_first_launch() {
 
     core.reset(ResetScope::Everything).await.unwrap();
 
-    for table in SCHOOL_TABLES
-        .into_iter()
-        .chain(["plans", "assignment_marks", "course_overrides", "subscriptions"])
-    {
+    for table in SCHOOL_TABLES.into_iter().chain([
+        "plans",
+        "assignment_marks",
+        "course_overrides",
+        "subscriptions",
+    ]) {
         assert_eq!(count(&core.store, table), 0, "{table}");
     }
     assert!(setting(&core.store, "deviceId").is_some());
     assert_ne!(setting(&core.store, "deviceId"), device_id);
     assert!(setting(&core.store, "userPreferences").is_some());
     assert_eq!(setting(&core.store, "kyomuSearchOptions:2026"), None);
-    assert!(fixture.auth.load(SchoolAuthProfile::TokyoTech).unwrap().is_none());
+    assert!(fixture
+        .auth
+        .load(SchoolAuthProfile::TokyoTech)
+        .unwrap()
+        .is_none());
     assert!(!fixture
         .vault
         .0

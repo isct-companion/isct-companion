@@ -3,8 +3,8 @@ use super::{
     assets::SCHOOL_LOGIN, ActionId, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     LoadFailed, NavigationDecision, NewWindowDecision, PageId, PageLoaded, SchoolBrowser,
     SchoolBrowserError, SchoolBrowserListener, SchoolLoginEvent, SchoolPageCustomization,
-    SchoolSessionEvent, SchoolSessionLifecycle, SchoolSessionLifecycleKind,
-    SchoolSessionSnapshot, SchoolSessionState, SchoolSessionStates, SchoolWebResult,
+    SchoolSessionEvent, SchoolSessionLifecycle, SchoolSessionLifecycleKind, SchoolSessionSnapshot,
+    SchoolSessionState, SchoolSessionStates, SchoolWebResult,
 };
 use crate::{
     data::WorkspaceChangeSource,
