@@ -18,9 +18,8 @@ import {
 } from "./sync-text";
 
 /** One line of what Core's planner is doing now. A bar appears only when
- * Core knows the run's size; background-only work is a small spinner. Both
- * the workstation footer and the compact top pill render this. */
-export function SyncProgressLine({
+ * Core knows the run's size; background-only work is a small spinner. */
+function SyncProgressLine({
   snapshot,
   locale,
 }: {
@@ -82,7 +81,7 @@ export function SyncProgressLine({
 
 /** Each failed dataset by name, when Core retries, and a Retry that asks
  * for that scope now. */
-export function SyncFailures({
+function SyncFailures({
   snapshot,
   locale,
 }: {
