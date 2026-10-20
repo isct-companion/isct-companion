@@ -1,5 +1,5 @@
 //! Shared catalog acquisition and freshness policy.
-use crate::course_query::OfficialSelection;
+use crate::course_query::{OfficialFilterOption, OfficialSelection};
 use crate::{contracts, data, syllabus};
 use futures_util::{stream::FuturesOrdered, StreamExt};
 
@@ -8,9 +8,12 @@ pub enum CatalogError {
     #[error(transparent)]
     Data(#[from] data::DataError),
     #[error(transparent)]
-    Pull(#[from] crate::pull_coordinator::PullError),
-    #[error(transparent)]
-    School(#[from] crate::school_browser::SchoolBrowserError),
+    Net(#[from] crate::net::NetError),
+    #[error("Sign in to 教務Web in Settings to search courses.")]
+    SignInRequired,
+    /// 教務Web shows its maintenance page; the school's notice.
+    #[error("{0}")]
+    Maintenance(String),
     #[error(transparent)]
     Syllabus(#[from] syllabus::SyllabusError),
     #[error(transparent)]
@@ -279,8 +282,9 @@ pub fn finder_offerings(
 #[path = "tests/catalog.rs"]
 mod tests;
 
-/// One bounded page. The IDs address full official schedule rows already in
-/// the shared store, so every shell can render them through finder_query.
+/// The official search result. The IDs address full official schedule rows
+/// already in the shared store, so every shell can render them through
+/// finder_query. Every match is returned at once; there is no next page.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogPage {
@@ -310,16 +314,19 @@ pub(crate) const KYOMU_SEARCH_PATH: &str =
 
 /// Search the authenticated official catalogue, then persist its full timing
 /// rows before returning IDs. Syllabus enriches these rows on demand.
+///
+/// Name, code (or the department's code prefix) and teacher go to the
+/// school as search parameters; one search returns every row (up to the
+/// school's 1000-row cap). The other filters are applied here to those rows,
+/// and every returned row is stored, matching or not.
 pub async fn kyomu_query(
     store: data::DataStore,
-    browser: std::sync::Arc<crate::school_browser::SchoolBrowserEngine>,
-    coordinator: crate::pull_coordinator::PullCoordinator,
+    client: &crate::net::kyomu::KyomuClient,
     query: String,
     year: u16,
     filters: Option<CatalogFilters>,
-    cursor: Option<String>,
 ) -> Result<CatalogPage, CatalogError> {
-    use crate::pull_coordinator::{PullOptions, PullTarget};
+    use crate::net::{kyomu::CatalogSearch, KeyOutcome, NetError};
     let filters = filters.unwrap_or_default();
     let departments: Vec<crate::course_query::FinderDepartment> =
         serde_json::from_str(include_str!("course_query/departments.json"))?;
@@ -355,36 +362,6 @@ pub async fn kyomu_query(
     } else {
         query.trim()
     };
-    if !(2020..=2200).contains(&year)
-        || [word, code, filters.teacher.as_deref().unwrap_or("")]
-            .iter()
-            .any(|v| v.chars().count() > 200 || v.chars().any(char::is_control))
-    {
-        return Err(CatalogError::InvalidInput(
-            "Invalid official course search.".into(),
-        ));
-    }
-    let mut url = url::Url::parse(&format!(
-        "https://kyomu0.gakumu.titech.ac.jp{KYOMU_SEARCH_PATH}"
-    ))
-    .map_err(|e| CatalogError::InvalidInput(e.to_string()))?;
-    url.query_pairs_mut().extend_pairs([
-        ("back", "0"),
-        ("ZengakuSenmonAll", "True"),
-        ("TermUnit", &format!("{year}2")),
-        ("_search", "True"),
-    ]);
-    if !code.is_empty() {
-        url.query_pairs_mut().append_pair("ShinkokuNoS", code);
-    }
-    if !word.is_empty() {
-        url.query_pairs_mut().append_pair("Name", word);
-    }
-    if let Some(teacher) = &filters.teacher {
-        url.query_pairs_mut().append_pair("KyouinName", teacher);
-    }
-    // Native requests carry semantic choices; the browser resolves them to the
-    // controls actually offered by this account's current authenticated form.
     if filters
         .quarters
         .as_ref()
@@ -404,87 +381,211 @@ pub async fn kyomu_query(
     {
         return Err(CatalogError::InvalidInput("Invalid course filters.".into()));
     }
-    let url = url.to_string();
-    let identity = serde_json::to_string(&controls)?;
-    let browser_filters = filters.clone();
-    let payload = coordinator
-        .run(
-            PullTarget::Catalog {
-                year,
-                query: format!("{url}#{identity}#{}", cursor.as_deref().unwrap_or("")),
-            },
-            PullOptions::manual(),
-            move |context| {
-                let browser = browser.clone();
-                let url = url.clone();
-                let cursor = cursor.clone();
-                let browser_filters = browser_filters.clone();
-                async move {
-                    browser
-                        .catalog_search(&url, cursor, browser_filters, &context)
-                        .await
-                        .map_err(crate::pull_coordinator::PullError::from)
-                }
-            },
-        )
-        .await?;
-    if payload["searchOptions"].is_array() {
-        // Captured public form metadata is device-local and never cloud user data.
-        let options: Vec<crate::course_query::OfficialFilterOption> =
-            serde_json::from_value(payload["searchOptions"].clone())?;
-        let options = serde_json::to_value(options)?;
-        let previous = store.reference_cache_marker("kyomu-search-options", i32::from(year))?;
-        let now = chrono::Utc::now().timestamp();
-        let changed = previous.as_ref().is_none_or(|p| {
-            p["options"] != options
-                || p["capturedAt"]
-                    .as_i64()
-                    .is_none_or(|at| now - at >= 30 * 24 * 60 * 60)
-        });
-        if changed {
-            store.record_reference_cache(
-                "kyomu-search-options",
-                i32::from(year),
-                serde_json::json!({"options":options,"capturedAt":now}),
-            )?;
+    let search = CatalogSearch {
+        code: code.into(),
+        name: word.into(),
+        teacher: filters.teacher.clone().unwrap_or_default(),
+    };
+    let rows = match client.search(year, &search).await {
+        Ok(KeyOutcome::Complete(rows) | KeyOutcome::Partial { data: rows, .. }) => rows,
+        Ok(KeyOutcome::SignInRequired) => return Err(CatalogError::SignInRequired),
+        Ok(KeyOutcome::Unavailable(reason)) => {
+            return Err(CatalogError::InvalidInput(reason.into()))
         }
+        Err(error @ NetError::HostPaused { .. }) => {
+            return Err(client
+                .maintenance_notice()
+                .map_or(CatalogError::Net(error), CatalogError::Maintenance))
+        }
+        Err(NetError::Invalid(message)) => return Err(CatalogError::InvalidInput(message)),
+        Err(error) => return Err(error.into()),
+    };
+    // Captured public form metadata is device-local and never cloud user data.
+    let options = serde_json::to_value(&rows.search_options)?;
+    let previous = store.reference_cache_marker("kyomu-search-options", i32::from(year))?;
+    let now = chrono::Utc::now().timestamp();
+    let changed = previous.as_ref().is_none_or(|p| {
+        p["options"] != options
+            || p["capturedAt"]
+                .as_i64()
+                .is_none_or(|at| now - at >= 30 * 24 * 60 * 60)
+    });
+    if changed {
+        store.record_reference_cache(
+            "kyomu-search-options",
+            i32::from(year),
+            serde_json::json!({"options":options,"capturedAt":now}),
+        )?;
     }
-    let rows = payload["courses"].as_array().ok_or_else(|| {
-        CatalogError::InvalidInput("Official course search returned no collection.".into())
-    })?;
-    if rows
+    // Controls name choices of this account's current form; one the form no
+    // longer offers cannot be interpreted.
+    let controls = controls
         .iter()
-        .any(|row| row["year"].as_u64() != Some(u64::from(year)))
-    {
-        return Err(CatalogError::InvalidInput("教務Web did not return the requested academic year. The current year is available after sign-in.".into()));
-    }
-    let mut items = Vec::new();
-    for row in rows {
-        if filters.groups.as_ref().is_some_and(|groups| {
-            !groups.is_empty()
-                && !groups.iter().any(|group| {
-                    row["code"]
-                        .as_str()
-                        .and_then(|c| c.chars().nth(5))
-                        .and_then(|c| c.to_digit(10))
-                        .is_some_and(|level| group == &(level * 100).to_string())
+        .map(|control| {
+            rows.search_options
+                .iter()
+                .find(|option| option.id == control.id && option.value == control.value)
+                .ok_or_else(|| {
+                    CatalogError::InvalidInput(
+                        "This filter is not offered by the current official search form.".into(),
+                    )
                 })
-        }) {
-            continue;
-        }
-        items.push(serde_json::from_value::<syllabus::CatalogSearchItem>(
-            row.clone(),
-        )?);
-    }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     // Persistence uses the same field ownership merge as visible captures and
     // later syllabus detail refreshes.
-    store.catalog_upsert_offerings(rows)?;
+    store.catalog_upsert_offerings(&rows.courses)?;
     Ok(CatalogPage {
-        next_cursor: payload["nextCursor"].as_str().map(str::to_string),
-        ids: items
-            .into_iter()
-            .map(|item: syllabus::CatalogSearchItem| item.id)
+        ids: rows
+            .courses
+            .iter()
+            .filter(|row| official_match(row, &filters, &controls))
+            .filter_map(|row| row["id"].as_str().map(str::to_string))
             .collect(),
-        truncated: payload["truncated"].as_bool().unwrap_or(true),
+        next_cursor: None,
+        truncated: rows.truncated,
     })
+}
+
+/// Weekly slots of a course row as (day, first period).
+fn weekly_slots(row: &serde_json::Value) -> Vec<(u64, u64)> {
+    row["schedule"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|slot| slot["kind"] == "weekly")
+        .filter_map(|slot| Some((slot["day"].as_u64()?, slot["periods"][0].as_u64()?)))
+        .collect()
+}
+
+fn has_quarter(row: &serde_json::Value, quarter: u64) -> bool {
+    row["quarters"]
+        .as_array()
+        .is_some_and(|quarters| quarters.iter().any(|q| *q == format!("{quarter}Q")))
+}
+
+/// The leading number of a label such as `100番台` or `3限`.
+fn leading_number(label: &str) -> Option<u64> {
+    let digits: String = label.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+/// Whether a row meets one choice of the official form, read from its label
+/// the way the form means it. A choice whose meaning the row cannot show
+/// (an unknown family, a category the grid does not list) keeps the row.
+fn control_match(row: &serde_json::Value, option: &OfficialFilterOption) -> bool {
+    const DAYS: &str = "月火水木金土日";
+    let label = option.label.as_str();
+    let kyomu = &row["kyomu"];
+    let schedule_kind = |kind: &str| {
+        row["schedule"]
+            .as_array()
+            .is_some_and(|slots| slots.iter().any(|slot| slot["kind"] == kind))
+    };
+    match option.family.as_str() {
+        "level" => leading_number(label).is_none_or(|level| {
+            row["code"]
+                .as_str()
+                .and_then(|code| code.chars().nth(5))
+                .and_then(|digit| digit.to_digit(10))
+                .is_some_and(|digit| u64::from(digit) * 100 == level)
+        }),
+        "quarter" => {
+            let digits: Vec<u64> = label
+                .chars()
+                .filter_map(|c| c.to_digit(10))
+                .filter(|digit| (1..=4).contains(digit))
+                .map(u64::from)
+                .collect();
+            let quarters: Vec<u64> = match digits.as_slice() {
+                [from, to] if label.contains(['~', '〜', '～', '-']) => (*from..=*to).collect(),
+                _ => digits,
+            };
+            quarters
+                .into_iter()
+                .any(|quarter| has_quarter(row, quarter))
+        }
+        "delivery" => match DAYS.chars().position(|day| label == day.to_string()) {
+            Some(index) => weekly_slots(row)
+                .iter()
+                .any(|(day, _)| *day == index as u64 + 1),
+            None if label.contains("オンデマンド") => schedule_kind("on-demand"),
+            None if label.contains("集中") => schedule_kind("intensive"),
+            None if label.contains("申告専用") => schedule_kind("registration-only"),
+            None => true,
+        },
+        "start" => leading_number(label)
+            .is_none_or(|start| weekly_slots(row).iter().any(|(_, first)| *first == start)),
+        "language" => {
+            let lower = label.to_lowercase();
+            if label.contains("日本語") || lower.contains("japanese") {
+                row["instructionLanguage"] == "ja"
+            } else if label.contains("英語") || lower.contains("english") {
+                row["instructionLanguage"] == "en"
+            } else {
+                true
+            }
+        }
+        "requirement" => kyomu["group"] == label,
+        "recommended" => kyomu["mark"].as_str().is_some_and(|mark| !mark.is_empty()),
+        "category" => kyomu["category"]
+            .as_str()
+            .filter(|category| !category.is_empty())
+            .is_none_or(|category| category.contains(label) || label.contains(category)),
+        _ => true,
+    }
+}
+
+/// Whether a returned row meets the filters the school was not asked for.
+/// Within one family any choice may match; every family must match.
+pub(crate) fn official_match(
+    row: &serde_json::Value,
+    filters: &CatalogFilters,
+    controls: &[&OfficialFilterOption],
+) -> bool {
+    let kyomu = &row["kyomu"];
+    let slots = weekly_slots(row);
+    let level = row["code"]
+        .as_str()
+        .and_then(|code| code.chars().nth(5))
+        .and_then(|digit| digit.to_digit(10))
+        .map(|digit| (digit * 100).to_string());
+    let wanted = |values: &Option<Vec<u8>>, test: &dyn Fn(u64) -> bool| {
+        values
+            .as_ref()
+            .is_none_or(|values| values.is_empty() || values.iter().any(|v| test(u64::from(*v))))
+    };
+    let mut families: Vec<&str> = controls
+        .iter()
+        .map(|option| option.family.as_str())
+        .collect();
+    families.sort_unstable();
+    families.dedup();
+    filters.groups.as_ref().is_none_or(|groups| {
+        groups.is_empty() || level.as_ref().is_some_and(|level| groups.contains(level))
+    }) && wanted(&filters.quarters, &|quarter| has_quarter(row, quarter))
+        && wanted(&filters.days, &|day| {
+            slots.iter().any(|(slot, _)| *slot == day)
+        })
+        && wanted(&filters.period_starts, &|start| {
+            slots.iter().any(|(_, first)| *first == start)
+        })
+        && filters
+            .language
+            .as_ref()
+            .is_none_or(|language| row["instructionLanguage"] == language.as_str())
+        && filters.requirement_groups.as_ref().is_none_or(|groups| {
+            groups.is_empty()
+                || kyomu["group"]
+                    .as_str()
+                    .is_some_and(|group| groups.iter().any(|wanted| wanted == group))
+        })
+        && (filters.recommended != Some(true)
+            || kyomu["mark"].as_str().is_some_and(|mark| !mark.is_empty()))
+        && families.iter().all(|family| {
+            controls
+                .iter()
+                .filter(|option| option.family == *family)
+                .any(|option| control_match(row, option))
+        })
 }

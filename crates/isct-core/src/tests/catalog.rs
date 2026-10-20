@@ -84,3 +84,44 @@ fn official_delivery_facts_survive_syllabus_enrichment_in_both_arrival_orders() 
         assert_eq!(planned["meetings"][0]["room"], "M-B07");
     }
 }
+
+#[test]
+fn official_filters_are_applied_to_the_returned_department_rows() {
+    let row = json!({"id":"202602431","code":"CSC.T273","quarters":["3Q","4Q"],
+        "instructionLanguage":"en",
+        "schedule":[{"kind":"weekly","day":1,"periods":[3,4]},{"kind":"intensive"}],
+        "kyomu":{"group":"C","mark":"recommended","category":""}});
+    let pass = |filters: serde_json::Value, controls: &[&OfficialFilterOption]| {
+        official_match(&row, &serde_json::from_value(filters).unwrap(), controls)
+    };
+    assert!(pass(json!({}), &[]));
+    assert!(pass(
+        json!({"groups":["200"],"quarters":[4],"days":[1],"periodStarts":[3],
+            "language":"en","requirementGroups":["C"],"recommended":true}),
+        &[]
+    ));
+    for filters in [
+        json!({"groups":["100"]}),
+        json!({"quarters":[1]}),
+        json!({"days":[2]}),
+        json!({"periodStarts":[1]}),
+        json!({"language":"ja"}),
+        json!({"requirementGroups":["A"]}),
+    ] {
+        assert!(!pass(filters.clone(), &[]), "{filters}");
+    }
+    let option = |family: &str, label: &str| OfficialFilterOption {
+        id: "control".into(),
+        value: "on".into(),
+        label: label.into(),
+        family: family.into(),
+    };
+    let (monday, friday) = (option("delivery", "月"), option("delivery", "金"));
+    let (first_period, english) = (option("start", "1限"), option("language", "英語"));
+    // Choices of one family are alternatives; every family must match.
+    assert!(pass(json!({}), &[&friday, &monday, &english]));
+    assert!(!pass(json!({}), &[&friday]));
+    assert!(!pass(json!({}), &[&monday, &first_period]));
+    // A choice whose meaning the rows cannot show keeps them.
+    assert!(pass(json!({}), &[&option("other", "何か")]));
+}

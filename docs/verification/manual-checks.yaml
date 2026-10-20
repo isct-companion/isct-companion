@@ -618,12 +618,12 @@ checks:
       and the footer no longer shows a 教務Web failure after a refresh.
     why_manual: |
       The live registration and requirement DOM is account-scoped and changes
-      with the 申告 window. The extractor tests reproduce only the two shapes
-      observed outside the window, with placeholder values; no committed
-      fixture is a capture. Only a real session shows what the portal serves
-      while registration is open.
+      with the 申告 window. No automated test reads a real 教務Web page and no
+      committed fixture is a capture. Only a real session shows what the
+      portal serves while registration is open.
     covers:
-      - crates/isct-core/src/school_browser/assets/kyomu-extract.js
+      - crates/isct-core/src/net/kyomu.rs
+      - crates/isct-core/src/school_parser/kyomu/pages.rs
       - crates/isct-core/src/school_parser/kyomu.rs
       - crates/isct-core/src/kyomu_ingest.rs
     verified: null
@@ -1768,8 +1768,10 @@ checks:
       Headless tests exercise the parser, shared projections and UI paging only.
     covers:
       - crates/isct-core/src/school_browser/engine/extraction.rs
-      - crates/isct-core/src/school_browser/assets/kyomu-search.js
-      - crates/isct-core/src/school_browser/assets/kyomu-extract.js
+      - crates/isct-core/src/school_parser/kyomu/search.rs
+      - crates/isct-core/src/school_parser/kyomu/pages.rs
+      - crates/isct-core/src/net/kyomu.rs
+      - crates/isct-core/src/catalog.rs
       - crates/isct-core/src/data/school_projection.rs
       - apps/desktop/src/pages/courses/CourseFinder.tsx
     verified: null
