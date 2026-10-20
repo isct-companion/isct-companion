@@ -354,6 +354,149 @@ interactive queue; specifying a group incurs charges according to the
 Only generated pixels and public model artifacts are transferred. The previously
 authorized anonymous physical glyph crops remain local and are not training data.
 
+### Recorded test-card preparation
+
+`matrix_video.py` keeps recordings, human truth, source times, cell indices,
+review sheets and lineage on the local machine. A local plan supplies seven
+ten-letter `truth` rows, `truthSource: "human-checked"`, `gapSeconds` (default
+two), and `segments`. Each segment has a unique `group`, `split` (`train`,
+`validation` or `test`), absolute `video` path, `start`/`end` seconds and `fps`.
+The plan is fixed before extraction. Overlaps and cross-split gaps shorter than
+the configured interval are rejected, including copies/aliases of one video.
+
+```sh
+cargo build -p isct-ocr --release --locked --features training-tools \
+  --example matrix_dataset --example alphabet_prepare --example matrix_capture
+python scripts/ocr/matrix_video.py extract --plan LOCAL_PLAN.json \
+  --capture-binary target/release/examples/matrix_dataset --output LOCAL_EXTRACTED
+```
+
+Extraction calls the production camera geometry and complete-cell crop path.
+`noGeometry` remains a frame outcome; a detected grid does not establish correct
+cell alignment. If it fails, `assist` can track one visually checked reference
+with OpenCV SIFT/RANSAC. Its local reference JSON contains a `frame` path,
+clockwise `body` corners (letter body only, excluding A–J/1–7 labels), and
+`cardPolygon` feature mask, all in source pixels. The training-tools-only Rust
+entry point uses the same projective grid, crop measurements and rectification
+as production. It retains `nativeQuads` and marks recovered frames `assisted`;
+these frames do not count as successful native detections.
+
+```sh
+python scripts/ocr/matrix_video.py assist --directory LOCAL_EXTRACTED \
+  --reference LOCAL_REFERENCE.json --capture-binary target/release/examples/matrix_dataset \
+  --output LOCAL_ASSISTED
+python scripts/ocr/matrix_video.py build --directory LOCAL_ASSISTED \
+  --prepare-binary target/release/examples/alphabet_prepare --augment 2 --output LOCAL_DRAFT
+```
+
+`review.json` starts with no approved geometry or readable cells. Inspect the
+crop sheets, set `aligned: true` only for correctly indexed cells, and set
+`readableCells` to an explicit list of 0–69 indices or `"all"`. A correctly
+aligned but erased/ambiguous cell stays unknown (`-1`); it is never relabelled
+blank. Unreviewed grids remain in the frame manifest and whole-camera replay,
+outside the classifier benchmark. Training deduplication runs within each
+segment/cell before augmentation. All derivatives retain the original split.
+
+Augmentations change raw crops before calling `alphabet_prepare`: exposure
+gradients, shadows, localized highlights, mild blur, resampling, subpixel shifts,
+JPEG compression and sensor noise. They start unknown, including when the source
+was readable. The draft writes random-looking hash-named crop PNGs and a local
+augmentation-review template. A separate review JSON lists visually confirmed
+tokens in `readable`; pass it with `--augmentation-review` to a fresh `build`
+output directory. Stale tokens are rejected. Neither matching nor recognition
+supplies letter truth.
+
+Only `training.npz` is eligible for transfer: shuffled numeric training and
+validation arrays, no source identifiers or test arrays. Give it an opaque file
+name; keep PNGs, all JSON sidecars and `evaluation-local.npz` local. Run
+`matrix_video.py evaluate` with `--lineage` locally for preprocessing rejection,
+model blank, weak/conflicting readings, qualified errors, per-letter confusion
+and fully readable whole-card snapshots. Run `matrix_capture` over held-out
+frames separately for actual acquisition, voting, blank/weak/error counts and
+wrong settled cells. An assisted classifier benchmark does not measure native
+localization or independent-card generalization. A separately recorded test and
+the existing font-held-out replay remain necessary for broader claims.
+
+Checkpoint selection now applies the same error/coverage preservation gate to
+both real validation and synthetic replay; higher real accuracy cannot override
+lost replay coverage or increased qualified/unknown acceptance. The final real
+test remains local and is opened only after checkpoint selection.
+
+#### Recorded test-card results
+
+The 59.49-second recording was split into 0–30 s training, 32–41 s validation
+and 43–59 s final testing before extraction, with two-second gaps. At two fps,
+the native detector returned grids for 40 of 110 frames; many were misaligned.
+Reference-assisted tracking recovered 74 frames. Visual review of 25 fixed-time
+representative frames confirmed 653 training, 322 validation and 379 test glyphs.
+Review admitted 918 raw-crop perturbations and quarantined 388 others. After
+Rust preparation, 1,975 real training views were mixed with 19,181 synthetic
+views. The real card lacks D/K; synthetic replay retains those classes. A fresh
+build from the frozen raw crops and reviews reproduces both NPZ artifacts byte
+for byte. Source grouping and all review/provenance artifacts remain local.
+
+One eight-epoch direct `iqrsh` experiment selected epoch seven. Both real and
+synthetic validation had to preserve correct qualified coverage, total correct
+readings and qualified/unknown error limits. Training took 28.7 seconds after
+initialization; the ten-minute interactive allocation ended and was checked
+empty. No group option or runq was used. The session spent several minutes in
+CPU model/data initialization before the short GPU training phase.
+
+| Measurement | Original | Local candidate |
+| --- | ---: | ---: |
+| Readable validation crops correct | 208/322 | 294/322 |
+| Validation qualified errors, confidence ≥0.8 | 48 | 14 |
+| Readable final-test crops correct | 285/379 | 347/379 |
+| Final-test qualified errors, confidence ≥0.8 | 37 | 3 |
+| Final-test errors at confidence ≥0.9 | 32 | 3 |
+| Unknown final-test sources accepted | 18/41 | 18/41 |
+| Independent synthetic test correct qualified | 2,141 | 2,153 |
+| Independent synthetic test qualified errors | 5 | 3 |
+| Independent synthetic unknown accepted | 236/712 | 226/712 |
+| Native whole-camera held-out readings correct | 66/70 | 70/70 |
+| Native whole-camera stable cells | 47/70 | 63/70 |
+| Native whole-camera stable wrong cells | 0 | 0 |
+
+The native replay uses five-fps frames from the untouched 43–59 s segment,
+production detection/candidate selection and Core voting, without assisted
+geometry. Both models process the same 58 frames and 417 retained candidates,
+with 7.4 simulated seconds of capture. Qualified observations rise from 242 to
+272; empty readings stay 127, weak readings fall 48→18 and wrong qualified
+observations fall 57→49. Some wrong observations therefore remain even though
+none become settled errors. Timings came from concurrent verification and do
+not establish a speed improvement.
+
+All twelve lighting cases preserve correct readings and zero stable errors;
+small-dim stable coverage improves 67→70. All three L/Z/I placements remain
+70/70 with zero stable errors. The candidate passes 24 Rust tests (four private
+input tests remain ignored) and 512 Rust/Python parity sources. The shared Rust
+dataset boundary is covered by the existing capture/order test, including
+degenerate, crossed, nonfinite and out-of-bounds corner rejection. Clippy passes
+with warnings denied. No test was removed.
+
+Three confident readable-crop errors remain: one each for B, F and T, including
+T→I. I's correct qualified crop coverage falls 38→37 while total correct I stays
+38/40; L/Z qualified errors fall to zero. Neither model reads any of the four
+fully readable held-out single-frame cards perfectly. The 70/70 result comes
+from temporal acquisition/voting. This single-card, single-recording holdout
+does not establish cross-card accuracy. Native localization is still a separate
+failure mode; physical shell check `OCR-CAMPUS-CARD` remains due.
+
+Candidate SHA-256:
+`368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f`.
+It is retained locally with the original model, experiment metadata and local
+launch/rollback scripts. The model README requires camera-adapted weights to
+stay local, so the bundled synthetic-only model remains
+`592d61903de1f04b48079c44be5c247cd2f16bd323b23fb539b2c7392bfc5177`.
+`realVideoAdaptation` in the JSON record contains aggregates and hashes, with no
+video, answer table, crop images or cell/time provenance.
+
+This checkpoint adds 64 and removes 31 Rust `src` lines, including the
+training-tools-only boundary (net +33; no production-code reduction). The
+existing test gains 33 lines and no test is removed. Replay examples add 109 and
+remove three lines; Python tooling adds 453 and removes 13. Build metadata,
+documentation and measured JSON are counted separately.
+
 Checkpoint `5b07f96` adds 133 and removes 5 production Rust lines (net +128;
 no production-code reduction). Tests add 107 lines; replay examples/scripts add
 124 net lines. Documentation, measured JSON and the generated manual table are

@@ -91,6 +91,39 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
         && g.contrast > 0.
         && g.sharpness > 0.
         && g.source_size > 0.));
+    #[cfg(feature = "training-tools")]
+    {
+        let body = [
+            captured.quads[0][0],
+            captured.quads[9][1],
+            captured.quads[69][2],
+            captured.quads[60][3],
+        ];
+        let recovered = capture_matrix_training_frame(fixture, body).unwrap();
+        let model = MatrixAlphabetService::default();
+        for (batch_index, glyphs) in recovered.glyphs.chunks(10).enumerate() {
+            let inputs = glyphs.iter().map(|g| g.gray.clone()).collect::<Vec<_>>();
+            for (offset, reading) in model.recognize(&inputs).unwrap().iter().enumerate() {
+                let cell = batch_index * 10 + offset;
+                assert_eq!(
+                    reading.text,
+                    ((b'A' + (cell % 26) as u8) as char).to_string(),
+                    "assisted cell {cell}"
+                );
+            }
+        }
+        for invalid in [
+            [[0., 0.]; 4],
+            [body[0], body[2], body[1], body[3]],
+            [[f64::NAN, 0.], body[1], body[2], body[3]],
+            [[-0.1, 0.], body[1], body[2], body[3]],
+        ] {
+            assert!(matches!(
+                capture_matrix_training_frame(fixture, invalid),
+                Err(MatrixOcrError::InvalidImage(_))
+            ));
+        }
+    }
     assert!(captured
         .glyphs
         .iter()

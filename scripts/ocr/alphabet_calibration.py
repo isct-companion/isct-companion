@@ -26,6 +26,15 @@ def require_prepared_data(data):
         raise ValueError("Ambiguous labels must be excluded from supervised training")
 
 
+def preserves_qualified_coverage(before, after):
+    """A candidate must preserve correct coverage and both error thresholds."""
+    return (after["wrongQualified"] <= before["wrongQualified"]
+            and after["wrongHigh"] <= before["wrongHigh"]
+            and after["ambiguousQualified"] <= before["ambiguousQualified"]
+            and after["correctQualified"] >= before["correctQualified"]
+            and after["correct"] >= before["correct"])
+
+
 def fuse(raw, corrected, flags, temperature=1.0):
     probabilities = softmax(raw / temperature, axis=1)
     corrected_probabilities = softmax(corrected / temperature, axis=1)
@@ -136,12 +145,7 @@ def main():
         report[split] = {"before": metrics(*values),
                          "after": metrics(*values, temperature=temperature)}
     before, after = report["test"]["before"], report["test"]["after"]
-    report["passesSyntheticGate"] = (
-        after["wrongQualified"] <= before["wrongQualified"]
-        and after["wrongHigh"] <= before["wrongHigh"]
-        and after["ambiguousQualified"] <= before["ambiguousQualified"]
-        and after["correctQualified"] >= before["correctQualified"]
-        and after["correct"] >= before["correct"])
+    report["passesSyntheticGate"] = preserves_qualified_coverage(before, after)
     graph = onnx.load(str(args.model))
     output_name = graph.graph.output[0].name
     internal_name = output_name + "_uncalibrated"

@@ -592,6 +592,21 @@ pub fn project(corners: &[Point; 4], u: f64, v: f64) -> Point {
         y: ((b.y - a.y + g * b.y) * u + (d.y - a.y + h * d.y) * v + a.y) / z,
     }
 }
+pub(super) fn body_cells(corners: [Point; 4]) -> Vec<[Point; 4]> {
+    (0..70)
+        .map(|i| {
+            let (c, r) = ((i % 10) as f64, (i / 10) as f64);
+            [
+                (c / 10., r / 7.),
+                ((c + 1.) / 10., r / 7.),
+                ((c + 1.) / 10., (r + 1.) / 7.),
+                (c / 10., (r + 1.) / 7.),
+            ]
+            .map(|(u, v)| project(&corners, u, v))
+        })
+        .collect()
+}
+
 pub fn locate(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
     // Verify the complete projective grid before accepting the older header
     // estimate, which can look valid while shifting crops on a skewed card.
@@ -599,20 +614,7 @@ pub fn locate(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
         return Some(cells);
     }
     if let Some(corners) = template(image, false, false).or_else(|| template(image, true, false)) {
-        return Some(
-            (0..70)
-                .map(|i| {
-                    let (c, r) = ((i % 10) as f64, (i / 10) as f64);
-                    [
-                        (c / 10., r / 7.),
-                        ((c + 1.) / 10., r / 7.),
-                        ((c + 1.) / 10., (r + 1.) / 7.),
-                        (c / 10., (r + 1.) / 7.),
-                    ]
-                    .map(|(u, v)| project(&corners, u, v))
-                })
-                .collect(),
-        );
+        return Some(body_cells(corners));
     }
     let vertical = detect_lines(image, true, 11)?;
     let horizontal = detect_lines(image, false, 8)?;
@@ -665,20 +667,6 @@ fn locate_capture_original(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
             return Some(cells);
         }
     }
-    let body_cells = |corners: [Point; 4]| {
-        (0..70)
-            .map(|i| {
-                let (c, r) = ((i % 10) as f64, (i / 10) as f64);
-                [
-                    (c / 10., r / 7.),
-                    ((c + 1.) / 10., r / 7.),
-                    ((c + 1.) / 10., (r + 1.) / 7.),
-                    (c / 10., (r + 1.) / 7.),
-                ]
-                .map(|(u, v)| project(&corners, u, v))
-            })
-            .collect::<Vec<_>>()
-    };
     for turn in 0..4 {
         let rotated = match turn {
             0 => image.clone(),

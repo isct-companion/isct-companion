@@ -154,6 +154,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model = isct_ocr::MatrixAlphabetService::default();
     let stage = Instant::now();
     let mut seen = vec![0usize; 70];
+    let mut blank_reads = vec![0usize; 70];
+    let mut weak_reads = vec![0usize; 70];
+    let mut wrong_qualified_reads = vec![0usize; 70];
     while let Some(batch) = scanner.batch(&id)? {
         if let Some(directory) = std::env::var_os("MATRIX_CAPTURE_DUMP") {
             let directory = PathBuf::from(directory);
@@ -165,8 +168,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                 seen[cell] += 1;
             }
         }
-        let readings = model
-            .recognize(&batch.images)?
+        let recognized = model.recognize(&batch.images)?;
+        for (&cell, reading) in batch.cells.iter().zip(&recognized) {
+            if reading.text.is_empty() {
+                blank_reads[cell] += 1;
+            } else if reading.confidence < 0.8 {
+                weak_reads[cell] += 1;
+            } else if reading.text.as_bytes() != [expected.as_bytes()[cell]] {
+                wrong_qualified_reads[cell] += 1;
+            }
+        }
+        let readings = recognized
             .into_iter()
             .map(|r| MatrixReading {
                 text: r.text,
@@ -189,7 +201,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let median = capture_ms.get(capture_ms.len() / 2).copied().unwrap_or(0.);
     println!(
         "{}",
-        serde_json::json!({"outcome":"processed","frames":capture_ms.len(),"geometryFrames":geometry_frames,"firstGeometryIndex":first_geometry_index,"live":live,"captureMs":captured.capture_elapsed_ms,"firstMatrixIndex":first_matrix_index,"sealedIndex":sealed_index,"timedOut":captured.timed_out,"readyCells":captured.ready_cells,"retainedCandidates":captured.total_samples,"captureFrameMsMedian":median,"processingMs":processing_ms,"correct":70-wrong.len(),"wrongStableCells":wrong.iter().filter(|&&i|result.cells[i].stable).copied().collect::<Vec<_>>(),"wrongCells":wrong,"stableCells":result.cells.iter().filter(|c|c.stable).count(),"diagnostics":scanner.diagnostics(&id,now+stage.elapsed())?})
+        serde_json::json!({"outcome":"processed","frames":capture_ms.len(),"geometryFrames":geometry_frames,"firstGeometryIndex":first_geometry_index,"live":live,"captureMs":captured.capture_elapsed_ms,"firstMatrixIndex":first_matrix_index,"sealedIndex":sealed_index,"timedOut":captured.timed_out,"readyCells":captured.ready_cells,"retainedCandidates":captured.total_samples,"captureFrameMsMedian":median,"processingMs":processing_ms,"correct":70-wrong.len(),"wrongStableCells":wrong.iter().filter(|&&i|result.cells[i].stable).copied().collect::<Vec<_>>(),"wrongCells":wrong,"stableCells":result.cells.iter().filter(|c|c.stable).count(),"blankReads":blank_reads,"weakReads":weak_reads,"wrongQualifiedReads":wrong_qualified_reads,"diagnostics":scanner.diagnostics(&id,now+stage.elapsed())?})
     );
     Ok(())
 }

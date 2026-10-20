@@ -4438,5 +4438,445 @@
       "failure": "illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper: dim cell 19 T -> I"
     },
     "timingCaveat": "Replays ran with concurrent verification work; processing timings are not a controlled speed comparison."
+  },
+  "realVideoAdaptation": {
+    "date": "2026-10-20",
+    "decision": "Validated local camera-adapted candidate; bundled synthetic-only weights retained per model README",
+    "originalSha256": "592d61903de1f04b48079c44be5c247cd2f16bd323b23fb539b2c7392bfc5177",
+    "candidateSha256": "368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f",
+    "inputPolicy": {
+      "recordingSeconds": 59.49,
+      "authorizedTestCardOnly": true,
+      "previousLoginCardCropsExcluded": true,
+      "truth": "human-checked 7x10, never model predictions",
+      "localOnly": [
+        "video",
+        "full frames",
+        "truth table",
+        "cell/time lineage",
+        "manual reviews",
+        "real final-test arrays"
+      ],
+      "remote": "shuffled numeric single-glyph training/validation arrays plus generic trainer; opaque NPZ filename"
+    },
+    "split": {
+      "unit": "time segments before frame extraction; same card/recording, not independent-card generalization",
+      "train": [
+        0,
+        30
+      ],
+      "validation": [
+        32,
+        41
+      ],
+      "test": [
+        43,
+        59
+      ],
+      "gapSeconds": 2,
+      "fps": 2,
+      "wholeCameraTestFps": 5,
+      "missingRealLetters": [
+        "D",
+        "K"
+      ]
+    },
+    "preparation": {
+      "nativeFrames": 110,
+      "nativeLocatedFrames": 40,
+      "nativeNoGeometryFrames": 70,
+      "assistedTrackedFrames": 74,
+      "visuallyReviewedRepresentativeFrames": 25,
+      "knownOriginals": {
+        "train": 653,
+        "validation": 322,
+        "test": 379
+      },
+      "reviewedAugmentations": 918,
+      "quarantinedAugmentations": 388,
+      "trainModelViews": 1975,
+      "validationObservations": 350,
+      "finalTestObservations": 420,
+      "syntheticReplayViews": 19181,
+      "rustPreparedViews": true,
+      "trainingDataSha256": "5fb892004cd699520965ecfb054286c27dd475a87d5593fc2b90f27c74c65eac",
+      "syntheticDataSha256": "4b487ee994a64188cf61a8d80df756bdf2ce461fa6a5c11b573bba1d51e91900"
+    },
+    "training": {
+      "scheduler": "direct iqrsh, no -g, no runq",
+      "jobId": 110367,
+      "gpu": "H100 MIG 3g.47gb",
+      "epochs": 8,
+      "selectedEpoch": 7,
+      "trainConvs": 4,
+      "learningRate": 5e-05,
+      "trainingSeconds": 28.660655373241752,
+      "conversionAndInitializationExcluded": true,
+      "exportMaxAbsError": 8.046627044677734e-06,
+      "resourcesReleased": true
+    },
+    "classifier": {
+      "baseline": {
+        "validation": {
+          "sourceTotal": 350,
+          "total": 322,
+          "correct": 208,
+          "accuracy": 0.6459627329192547,
+          "rejected": 1,
+          "ambiguous": 28,
+          "ambiguousQualified": 10,
+          "qualified": 220,
+          "correctQualified": 172,
+          "wrongQualified": 48,
+          "high": 194,
+          "wrongHigh": 36,
+          "conflicts": 0,
+          "ece": 0.17810889651470838,
+          "loss": 1.4839958632103751,
+          "modelBlank": 7,
+          "lowConfidenceLetter": 112,
+          "preprocessingRejectedAll": 1,
+          "inferenceMs": 806.3159169978462,
+          "fullyReadableCards": 4,
+          "exactCards": 0,
+          "qualifiedExactCards": 0
+        },
+        "test": {
+          "sourceTotal": 420,
+          "total": 379,
+          "correct": 285,
+          "accuracy": 0.7519788918205804,
+          "rejected": 10,
+          "ambiguous": 41,
+          "ambiguousQualified": 18,
+          "qualified": 279,
+          "correctQualified": 242,
+          "wrongQualified": 37,
+          "high": 251,
+          "wrongHigh": 32,
+          "conflicts": 2,
+          "ece": 0.09450606149709645,
+          "loss": 0.953055606301884,
+          "modelBlank": 0,
+          "lowConfidenceLetter": 98,
+          "preprocessingRejectedAll": 25,
+          "inferenceMs": 789.9671670165844,
+          "fullyReadableCards": 4,
+          "exactCards": 0,
+          "qualifiedExactCards": 0
+        }
+      },
+      "candidate": {
+        "validation": {
+          "sourceTotal": 350,
+          "total": 322,
+          "correct": 294,
+          "accuracy": 0.9130434782608695,
+          "rejected": 1,
+          "ambiguous": 28,
+          "ambiguousQualified": 7,
+          "qualified": 277,
+          "correctQualified": 263,
+          "wrongQualified": 14,
+          "high": 261,
+          "wrongHigh": 13,
+          "conflicts": 0,
+          "ece": 0.06169640358734723,
+          "loss": 0.41015414396921795,
+          "modelBlank": 7,
+          "lowConfidenceLetter": 58,
+          "preprocessingRejectedAll": 1,
+          "inferenceMs": 826.6158330079634,
+          "fullyReadableCards": 4,
+          "exactCards": 0,
+          "qualifiedExactCards": 0
+        },
+        "test": {
+          "sourceTotal": 420,
+          "total": 379,
+          "correct": 347,
+          "accuracy": 0.9155672823218998,
+          "rejected": 10,
+          "ambiguous": 41,
+          "ambiguousQualified": 18,
+          "qualified": 328,
+          "correctQualified": 325,
+          "wrongQualified": 3,
+          "high": 310,
+          "wrongHigh": 3,
+          "conflicts": 0,
+          "ece": 0.03181192363665359,
+          "loss": 0.2503627454685325,
+          "modelBlank": 1,
+          "lowConfidenceLetter": 48,
+          "preprocessingRejectedAll": 25,
+          "inferenceMs": 811.7160410038196,
+          "fullyReadableCards": 4,
+          "exactCards": 0,
+          "qualifiedExactCards": 0
+        }
+      }
+    },
+    "syntheticIndependent": {
+      "dataSha256": "4b487ee994a64188cf61a8d80df756bdf2ce461fa6a5c11b573bba1d51e91900",
+      "results": {
+        "baseline": {
+          "validation": {
+            "sourceTotal": 3900,
+            "total": 3225,
+            "correct": 2747,
+            "accuracy": 0.8517829457364341,
+            "rejected": 781,
+            "ambiguous": 675,
+            "ambiguousQualified": 255,
+            "qualified": 2417,
+            "correctQualified": 2406,
+            "wrongQualified": 11,
+            "high": 2399,
+            "wrongHigh": 9,
+            "conflicts": 7,
+            "ece": 0.010438421110084483,
+            "loss": 0.054372808912772005
+          },
+          "test": {
+            "sourceTotal": 3900,
+            "total": 3188,
+            "correct": 2473,
+            "accuracy": 0.7757214554579673,
+            "rejected": 1025,
+            "ambiguous": 712,
+            "ambiguousQualified": 236,
+            "qualified": 2146,
+            "correctQualified": 2141,
+            "wrongQualified": 5,
+            "high": 2133,
+            "wrongHigh": 4,
+            "conflicts": 2,
+            "ece": 0.0116214737661228,
+            "loss": 0.03831129015125834
+          }
+        },
+        "candidate": {
+          "validation": {
+            "sourceTotal": 3900,
+            "total": 3225,
+            "correct": 2760,
+            "accuracy": 0.8558139534883721,
+            "rejected": 781,
+            "ambiguous": 675,
+            "ambiguousQualified": 245,
+            "qualified": 2432,
+            "correctQualified": 2427,
+            "wrongQualified": 5,
+            "high": 2421,
+            "wrongHigh": 5,
+            "conflicts": 1,
+            "ece": 0.011659743011290436,
+            "loss": 0.030402598862952376
+          },
+          "test": {
+            "sourceTotal": 3900,
+            "total": 3188,
+            "correct": 2479,
+            "accuracy": 0.777603513174404,
+            "rejected": 1025,
+            "ambiguous": 712,
+            "ambiguousQualified": 226,
+            "qualified": 2156,
+            "correctQualified": 2153,
+            "wrongQualified": 3,
+            "high": 2151,
+            "wrongHigh": 3,
+            "conflicts": 0,
+            "ece": 0.008976283624003616,
+            "loss": 0.021477817221477083
+          }
+        }
+      },
+      "preservesIndependentTest": true
+    },
+    "wholeCameraHeldOut": {
+      "baseline": {
+        "outcome": "processed",
+        "frames": 58,
+        "geometryFrames": 23,
+        "captureMs": 7400.0,
+        "processingMs": 782.8796249999999,
+        "correct": 66,
+        "stableCells": 47,
+        "wrongStableCells": [],
+        "retainedCandidates": 417,
+        "blankReads": 127,
+        "weakReads": 48,
+        "wrongQualifiedReads": 57,
+        "qualifiedObservations": 242
+      },
+      "candidate": {
+        "outcome": "processed",
+        "frames": 58,
+        "geometryFrames": 23,
+        "captureMs": 7400.0,
+        "processingMs": 824.905709,
+        "correct": 70,
+        "stableCells": 63,
+        "wrongStableCells": [],
+        "retainedCandidates": 417,
+        "blankReads": 127,
+        "weakReads": 18,
+        "wrongQualifiedReads": 49,
+        "qualifiedObservations": 272
+      },
+      "assistedGeometryUsed": false,
+      "windowSeconds": [
+        43,
+        59
+      ],
+      "performanceNote": "Concurrent local validation; timings are not a controlled speed comparison"
+    },
+    "regressions": {
+      "rust": {
+        "passed": 24,
+        "ignoredPrivateInputs": 4,
+        "failed": 0
+      },
+      "lighting": [
+        {
+          "condition": "clean",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 70,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "dim",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 70,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "very-dim",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 70,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "small-dim",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 67,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "shadow",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 70,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "dim-rotated",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 70,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "glare-static",
+          "baselineCorrect": 64,
+          "candidateCorrect": 64,
+          "baselineStable": 64,
+          "candidateStable": 64,
+          "wrongStable": 0
+        },
+        {
+          "condition": "glare-moving",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 70,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "glare-stripe",
+          "baselineCorrect": 60,
+          "candidateCorrect": 60,
+          "baselineStable": 60,
+          "candidateStable": 60,
+          "wrongStable": 0
+        },
+        {
+          "condition": "blur",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 70,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "tilted",
+          "baselineCorrect": 70,
+          "candidateCorrect": 70,
+          "baselineStable": 70,
+          "candidateStable": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "blank",
+          "baselineCorrect": 0,
+          "candidateCorrect": 0,
+          "baselineStable": 0,
+          "candidateStable": 0,
+          "wrongStable": 0
+        }
+      ],
+      "LZIBoundaries": [
+        {
+          "condition": "offset--4",
+          "correct": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "offset-0",
+          "correct": 70,
+          "wrongStable": 0
+        },
+        {
+          "condition": "offset-4",
+          "correct": 70,
+          "wrongStable": 0
+        }
+      ],
+      "parity": {
+        "sources": 512,
+        "rejected": 139,
+        "corrected": 179,
+        "conflicts": 0,
+        "confidenceMaxAbsError": 1.0797718391630795e-06,
+        "lettersIdentical": true,
+        "modelSha256": "368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f",
+        "preparationSha256": "14bbf956ac8bb72fadc9237208f6cc998042a747f102783fe033bf21e5a71b21"
+      },
+      "batchParityMaxLogitErrors": {
+        "1": 0.0,
+        "7": 2.9802322387695312e-06,
+        "10": 2.9802322387695312e-06
+      }
+    },
+    "limits": [
+      "Single card/recording only; no independent-card claim",
+      "Three high-confidence wrong readable crops remain: one each B, F, T; no stable wrong cell in bounded camera replay",
+      "I correct-qualified holdout coverage 38 to 37 despite total correct I unchanged",
+      "Four fully readable held-out card snapshots: zero exact cards for either model; aggregation across frames provides the 70/70 camera result",
+      "Native localization failures remain; assisted dataset recovery does not fix app geometry",
+      "Physical shell acceptance OCR-CAMPUS-CARD still requires rerun"
+    ]
   }
 }

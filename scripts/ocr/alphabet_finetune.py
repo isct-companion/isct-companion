@@ -10,7 +10,7 @@ ort.disable_telemetry_events()
 from onnx2torch import convert
 import torch
 from torch import nn
-from alphabet_calibration import metrics as fused_metrics, require_prepared_data
+from alphabet_calibration import metrics as fused_metrics, require_prepared_data, preserves_qualified_coverage
 
 
 def evaluate(model, images, labels, device, batch=256, corrected=None, flags=None):
@@ -171,12 +171,9 @@ def main():
         key = (metrics["replay"]["accuracy"] if replay_validation else 0,
                metrics["accuracy"], metrics["qualified"] - metrics["wrongQualified"],
                -metrics["loss"])
-        eligible = (metrics["wrongQualified"] <= baseline["wrongQualified"]
-                    and metrics.get("wrongHigh", 0) <= baseline.get("wrongHigh", 0)
-                    and metrics["accuracy"] >= baseline["accuracy"]
-                    and metrics.get("ambiguousQualified", 0) <= baseline.get("ambiguousQualified", 0)
-                    and metrics["qualified"] - metrics["wrongQualified"]
-                    >= baseline["qualified"] - baseline["wrongQualified"])
+        eligible = preserves_qualified_coverage(baseline, metrics)
+        if baseline_replay:
+            eligible = eligible and preserves_qualified_coverage(baseline_replay, metrics["replay"])
         if eligible and key > best:
             best = key
             selected_epoch = epoch + 1

@@ -14,6 +14,10 @@ training-tools = ["onnx"]
 name = "alphabet_prepare"
 required-features = ["training-tools"]
 
+[[example]]
+name = "matrix_dataset"
+required-features = ["training-tools"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"

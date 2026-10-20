@@ -182,11 +182,52 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
     let cells = geometry::locate_capture(&small).ok_or(MatrixOcrError::GridNotFound)?;
     let quads = normalized_quads(&cells, &small);
     let geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
+    capture_quads(&image, quads, decode_ms, geometry_ms, start)
+}
+
+/// Dataset-only recovery using manually verified body corners. This does not
+/// change camera detection or turn a recovered crop into a readable label.
+#[cfg(feature = "training-tools")]
+pub fn capture_matrix_training_frame(
+    bytes: &[u8],
+    body: [[f64; 2]; 4],
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    if body
+        .iter()
+        .flatten()
+        .any(|v| !v.is_finite() || !(0. ..=1.).contains(v))
+        || (0..4).any(|i| {
+            let [a, b, c] = [body[i], body[(i + 1) % 4], body[(i + 2) % 4]];
+            (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) <= 1e-8
+        })
+    {
+        return Err(MatrixOcrError::InvalidImage(
+            "Invalid clockwise body corners.".into(),
+        ));
+    }
+    let start = std::time::Instant::now();
+    let (image, _) = prepare_images(bytes)?;
+    let decode_ms = start.elapsed().as_secs_f64() * 1000.;
+    let corners = body.map(|[x, y]| geometry::Point { x, y });
+    let quads = geometry::body_cells(corners)
+        .into_iter()
+        .map(|quad| quad.map(|p| [p.x, p.y]))
+        .collect();
+    capture_quads(&image, quads, decode_ms, 0., start)
+}
+
+fn capture_quads(
+    image: &RgbImage,
+    quads: Vec<[[f64; 2]; 4]>,
+    decode_ms: f64,
+    geometry_ms: f64,
+    start: std::time::Instant,
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     let stage = std::time::Instant::now();
     let patches = quads
         .iter()
         .map(|&quad| {
-            let gray = rectified_gray(&image, quad)?;
+            let gray = rectified_gray(image, quad)?;
             let light = illumination::analyze(&gray);
             Ok((gray, light))
         })

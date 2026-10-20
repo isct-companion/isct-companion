@@ -36,3 +36,23 @@ For a local experimental build, `ISCT_MATRIX_ALPHABET_MODEL=/absolute/model.onnx
 selects other weights at compile time. Keep camera-adapted models local. The
 normal build always uses this synthetic-only model. Runtime is the existing
 pinned ONNX Runtime; its license and notices are in `../paddle/`.
+
+The later 2026-10-20 video experiment produced a validated local candidate,
+SHA-256 `368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f`.
+It used explicitly authorized test-card glyphs plus production-preprocessed
+synthetic replay. Earlier login-card crops were excluded. Video, truth, lineage,
+reviews and final-test data stayed local; only shuffled single-glyph training
+and validation arrays were transferred through the free interactive queue.
+
+On the held-out video segment, readable-crop accuracy improved from 285/379 to
+347/379 and qualified errors fell from 37 to three. Production camera replay
+improved from 66/70 readings and 47 stable cells to 70/70 and 63 stable cells,
+with no stable errors in either run. All 24 Rust tests, twelve lighting replays,
+three L/Z/I boundary replays, 512-source parity and the independent synthetic
+test passed. Three confident crop errors remain, including one T→I; the native
+localizer still misses/misaligns frames. These are same-card holdouts, not
+independent-card accuracy. Full metrics and limitations are under
+`realVideoAdaptation` in the validation record. The candidate and original-model
+backup stay in `.cache/ocr-video-20261020/`; the local `run-candidate.zsh` and
+`run-original.zsh` scripts select them for desktop development. No camera-adapted
+weights are committed or distributed by this checkpoint.
