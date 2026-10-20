@@ -50,7 +50,7 @@ impl Fixture {
             SessionConfig {
                 data_directory: root.join("data").to_string_lossy().into(),
                 files_directory: root.join("files").to_string_lossy().into(),
-                initial_network: PullNetwork::Offline,
+                initial_network: SyncNetwork::Offline,
                 cloud_providers: providers.clone(),
                 authorized_cloud_providers: providers,
             },
@@ -518,6 +518,67 @@ fn generated_contract_preserves_intents_fixed_arrays_and_unknown_payloads() {
     ));
 }
 
+/// The sync types are renamed for the shells (`SyncView`, `SyncNetwork`, …)
+/// and carry timestamps as text; the JSON both sides agree on must not change.
+#[test]
+fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
+    use isct_core::sync_engine as core;
+    let retry = chrono::DateTime::parse_from_rfc3339("2026-10-20T03:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let snapshot = core::SyncSnapshot {
+        generation: 3,
+        resetting: false,
+        runs: vec![core::RunView {
+            run: "run-1".into(),
+            dataset: "lms.course".into(),
+            label: core::Label {
+                key: "sync.dataset.lms.course".into(),
+                args: json!({"term": "2026-3Q"}),
+            },
+            priority: core::Priority::Interactive,
+            done: 4,
+            total: Some(9),
+            current: None,
+            scope: Some("123".into()),
+            held: Some(core::Held::Backoff { until: retry }),
+            failure: Some(core::SyncFailure {
+                kind: "http-503".into(),
+                keys_failed: 1,
+                retry_at: Some(retry),
+            }),
+        }],
+        sources: vec![],
+    };
+    let payload = serde_json::to_value(&snapshot).unwrap();
+    let decoded = crate::decode_sync_snapshot(crate::JsonValue(payload.clone())).unwrap();
+    assert!(matches!(decoded.runs[0].priority, SyncPriority::Interactive));
+    assert!(matches!(&decoded.runs[0].held, Some(Held::Backoff { until }) if until.starts_with("2026-10-20T03:00:00")));
+    assert_eq!(decoded.runs[0].label.args.0["term"], "2026-3Q");
+    assert_eq!(serde_json::to_value(&decoded).unwrap(), payload);
+
+    let hint = Hint::Open {
+        view: SyncView::Course { lms_course_id: 123 },
+    };
+    let core_hint: core::Hint = crate::json::project_input(hint).unwrap();
+    assert_eq!(
+        core_hint,
+        core::Hint::Open {
+            view: core::View::Course { lms_course_id: 123 }
+        }
+    );
+    let network: core::Hint = crate::json::project_input(Hint::Network {
+        network: SyncNetwork::Cellular,
+    })
+    .unwrap();
+    assert_eq!(
+        network,
+        core::Hint::Network {
+            network: core::Network::Cellular
+        }
+    );
+}
+
 #[test]
 fn school_outcomes_project_into_the_generated_ffi_types() {
     let outcome = isct_core::school_service::IngestOutcome {
@@ -635,7 +696,7 @@ async fn callback_errors_keep_their_category_and_last_session_drop_releases_port
         SessionConfig {
             data_directory: root.join("data").to_string_lossy().into(),
             files_directory: root.join("files").to_string_lossy().into(),
-            initial_network: PullNetwork::Offline,
+            initial_network: SyncNetwork::Offline,
             cloud_providers: vec![],
             authorized_cloud_providers: vec![],
         },
@@ -745,7 +806,7 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
     let config = SessionConfig {
         data_directory: f.root.join("browser-data").to_string_lossy().into(),
         files_directory: f.root.join("browser-files").to_string_lossy().into(),
-        initial_network: PullNetwork::Offline,
+        initial_network: SyncNetwork::Offline,
         cloud_providers: vec![],
         authorized_cloud_providers: vec![],
     };

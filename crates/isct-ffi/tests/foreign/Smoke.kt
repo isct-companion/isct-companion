@@ -15,7 +15,7 @@ class MemoryVault : NativeVault {
 }
 fun main(args:Array<String>) = runBlocking {
     val directory=if(args.isNotEmpty())File(args[0]) else File(System.getProperty("java.io.tmpdir"),"isct-kotlin-${System.nanoTime()}")
-    val config=SessionConfig(File(directory,"data").absolutePath,File(directory,"files").absolutePath,PullNetwork.OFFLINE,listOf(),listOf())
+    val config=SessionConfig(File(directory,"data").absolutePath,File(directory,"files").absolutePath,SyncNetwork.OFFLINE,listOf(),listOf())
     val vault=MemoryVault()
     val session=Session.open(config,vault,null,null,null,null)
     val logs=exportApplicationLogs("smoke")

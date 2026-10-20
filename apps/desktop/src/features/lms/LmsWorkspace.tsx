@@ -1,6 +1,5 @@
 import { ExamCards } from "../../components/exams/ExamCards";
 import { deadlineText } from "../../lib/deadline-text";
-import { Menu } from "@mantine/core";
 import { formatJst } from "../../lib/civil-date";
 import { useElementSize } from "@mantine/hooks";
 import { ReaderPane } from "./ReaderPane";
@@ -42,6 +41,8 @@ import { t } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import { detectPlatform } from "../../platform/capabilities";
 import { useClock } from "../../platform/use-clock";
+import type { PageProgress } from "../../platform/sync";
+import { ageText } from "../../app/sync-text";
 import { AssignmentWorkspaceFooter } from "./AssignmentWorkspaceCard";
 import { assignmentBrief } from "./assignment-workspace";
 import {
@@ -190,6 +191,7 @@ export function LmsWorkspace({
   close,
   refresh,
   progress,
+  updatedAt,
   markLesson,
   navigationProvided = false,
   headerStart,
@@ -204,8 +206,12 @@ export function LmsWorkspace({
   navigationProvided?: boolean;
   headerStart?: ReactNode;
   close: () => void;
-  refresh?: (currentOnly?: boolean) => void;
-  progress?: number | null;
+  /** Asks Core to refresh this course now (`Refresh { course }`). */
+  refresh?: () => void;
+  /** Core's runs for this course; null while nothing reads it. */
+  progress?: PageProgress;
+  /** When this course's content was last read completely. */
+  updatedAt?: string | null;
   /** Records that the class starting at `occurrence` covers this lesson. */
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
   /**
@@ -1293,38 +1299,36 @@ export function LmsWorkspace({
             <LmsIcon name="doc" size={14} /> {t("Syllabus")}
           </button>
         )}
-        {refresh && (
+        {(progress != null || refresh) && (
           <div className="lmsPullControls">
-            <button
-              type="button"
-              className="lmsRefresh"
-              disabled={progress != null || opened?.kind === "official"}
-              onClick={() => refresh(false)}
-            >
-              {progress != null
-                ? `${Math.round(progress)}%`
-                : t("Pull from LMS")}
-            </button>
-            <Menu position="bottom-end">
-              <Menu.Target>
-                <button
-                  type="button"
-                  className="lmsRefresh"
-                  aria-label={t("LMS pull options")}
-                  disabled={progress != null}
-                >
-                  ▾
-                </button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item onClick={() => refresh(false)}>
-                  {t("Pull all courses")}
-                </Menu.Item>
-                <Menu.Item onClick={() => refresh(true)}>
-                  {t("Pull current quarter only")}
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
+            {progress != null && (
+              // Local data stays on screen; the whole course switches when
+              // Core commits it.
+              <span className="syncPageStatus" role="status">
+                <i className="schoolStatusSpinner" aria-hidden="true" />
+                {updatedAt
+                  ? `${t("Showing data from {{age}}", {
+                      age: ageText(updatedAt, timelineNow, data.settings.locale),
+                    })} · `
+                  : null}
+                {progress.total !== null
+                  ? t("updating this course {{done}} / {{total}}", {
+                      done: progress.done,
+                      total: progress.total,
+                    })
+                  : t("updating this course")}
+              </span>
+            )}
+            {refresh && (
+              <button
+                type="button"
+                className="lmsRefresh"
+                disabled={progress != null || opened?.kind === "official"}
+                onClick={refresh}
+              >
+                {t("Pull from LMS")}
+              </button>
+            )}
           </div>
         )}
       </header>

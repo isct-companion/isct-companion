@@ -1,13 +1,8 @@
-//! Scheduled domain work. Shells provide wakeups; Core decides what is due.
+//! The person's own scheduled tasks (exports). Shells provide wakeups; Core
+//! decides what is due. School and reference data are not scheduled here:
+//! each dataset's TTL in `crate::sync_engine` decides when it is read.
 
-use crate::{
-    data::{DataError, DataStore, WorkspaceChangeSource},
-    lifecycle::SchoolSite,
-    pull_coordinator::PullOptions,
-    reference_refresh::{ReferenceError, ReferenceService},
-    school_refresh::SchoolRefresh,
-    school_service::{IngestOutcome, SchoolError, SchoolExecutor, SchoolService},
-};
+use crate::data::{DataError, DataStore, WorkspaceChangeSource};
 use chrono::{DateTime, Duration, Utc};
 use rrule::{RRuleSet, Tz};
 use serde_json::Value;
@@ -27,10 +22,6 @@ pub trait ScheduledExporter: Send + Sync {
 #[derive(Clone)]
 pub struct SchedulerServices {
     pub store: DataStore,
-    pub references: ReferenceService,
-    pub school: SchoolService,
-    pub refresh: SchoolRefresh,
-    pub executor: Arc<dyn SchoolExecutor>,
     pub exporter: Arc<dyn ScheduledExporter>,
 }
 
@@ -41,22 +32,17 @@ pub enum SchedulerError {
     #[error(transparent)]
     Storage(#[from] DataError),
     #[error(transparent)]
-    Reference(#[from] ReferenceError),
-    #[error(transparent)]
-    School(#[from] SchoolError),
-    #[error(transparent)]
     Export(#[from] ExportError),
 }
 
-/// Built-in scheduled task actions (`scheduled_tasks.action`). Unknown stored
-/// values fail the run with a typed message instead of being matched as text.
+/// Scheduled task actions (`scheduled_tasks.action`). Unknown stored values
+/// fail a manual run with a typed message instead of being matched as text;
+/// automatic runs skip them, so a stored task of a retired built-in action
+/// (`reference-refresh`, `lms-refresh`, `school-refresh`) never fires.
 #[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScheduledAction {
     Export,
-    ReferenceRefresh,
-    LmsRefresh,
-    SchoolRefresh,
     Hook,
 }
 
@@ -139,9 +125,6 @@ fn due_occurrence(
         .and_then(Value::as_str)
         .ok_or_else(|| SchedulerError::InvalidTask("scheduled task has no schedule".into()))?;
     let last = timestamp(task.get("lastOccurrenceAt").and_then(Value::as_str));
-    if crate::reference_refresh::reference_due_at_launch(task, started_at) {
-        return Ok(Some(started_at.to_rfc3339()));
-    }
     if schedule == "launch" {
         return Ok(last
             .is_none_or(|last| last < started_at)
@@ -176,41 +159,9 @@ fn due_occurrence(
     Ok(dates.first().map(DateTime::to_rfc3339))
 }
 
-fn task_result_problem(outcomes: &[IngestOutcome]) -> Result<(), SchedulerError> {
-    if let Some(problem) = outcomes.iter().find(|outcome| outcome.state.is_problem()) {
-        return Err(SchedulerError::School(SchoolError::Executor(
-            problem.message.clone(),
-        )));
-    }
-    Ok(())
-}
-
-async fn pull_site(
-    services: &SchedulerServices,
-    site: SchoolSite,
-    force: bool,
-) -> Result<(), SchedulerError> {
-    if !force {
-        services.refresh.enqueue_scheduled(site)?;
-        return Ok(());
-    }
-    let outcomes = services
-        .school
-        .pull(
-            services.executor.clone(),
-            site,
-            None,
-            PullOptions::manual(),
-            true,
-        )
-        .await?;
-    task_result_problem(&outcomes)
-}
-
 async fn execute(
     services: &SchedulerServices,
     action: Option<ScheduledAction>,
-    force: bool,
 ) -> Result<String, SchedulerError> {
     match action {
         Some(ScheduledAction::Export) => {
@@ -222,22 +173,6 @@ async fn execute(
                     ExportError::Failed("Scheduled export stopped unexpectedly.".into())
                 })??;
             Ok("Export completed".into())
-        }
-        Some(ScheduledAction::ReferenceRefresh) => {
-            Ok(services.references.refresh_all(force).await?)
-        }
-        Some(ScheduledAction::LmsRefresh) => {
-            if !force && !services.refresh.foreground() {
-                return Ok("Paused: app is not active".into());
-            }
-            pull_site(services, SchoolSite::ScienceLms, force).await?;
-            Ok("LMS background refresh completed".into())
-        }
-        Some(ScheduledAction::SchoolRefresh) => {
-            for site in [SchoolSite::ScienceLms, SchoolSite::Kyomu] {
-                pull_site(services, site, force).await?;
-            }
-            Ok("School refresh completed".into())
         }
         Some(ScheduledAction::Hook) => Err(SchedulerError::InvalidTask(
             "Scheduled custom hooks must select a built-in action.".into(),
@@ -252,7 +187,11 @@ impl Scheduler {
     pub async fn tick(&self, services: &SchedulerServices) -> Result<(), SchedulerError> {
         let tasks = services.store.user_rows("scheduled_tasks")?;
         let now = Utc::now();
-        for task in tasks {
+        // A task of a retired built-in action never fires on its own.
+        for task in tasks
+            .into_iter()
+            .filter(|task| ScheduledAction::of(task).is_some())
+        {
             match due_occurrence(&task, now, self.started_at) {
                 Ok(Some(occurrence)) => {
                     let id = task
@@ -375,7 +314,7 @@ impl Scheduler {
             Some(expected),
         )?;
 
-        let message = execute(services, ScheduledAction::of(&task), force)
+        let message = execute(services, ScheduledAction::of(&task))
             .await
             .unwrap_or_else(|error| format!("Failed: {error}"));
         let expected = task.get("rev").and_then(Value::as_u64).unwrap_or(0);

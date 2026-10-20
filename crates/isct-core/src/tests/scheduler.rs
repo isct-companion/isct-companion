@@ -1,55 +1,10 @@
 use super::*;
-use crate::{
-    ports::{SecretError, SecretVault},
-    pull_coordinator::{PullContext, PullCoordinator, PullNetwork},
-    school_auth::SchoolAuthService,
-    school_refresh::RefreshEvent,
-    school_service::{IngestState, SchoolExecution},
-};
 use serde_json::json;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Barrier,
 };
 use uuid::Uuid;
-
-#[derive(Default)]
-struct MemoryVault;
-
-impl SecretVault for MemoryVault {
-    fn store(&self, _account: &str, _secret: &str) -> Result<(), SecretError> {
-        Ok(())
-    }
-
-    fn load(&self, _account: &str) -> Result<Option<String>, SecretError> {
-        Ok(None)
-    }
-
-    fn delete(&self, _account: &str) -> Result<(), SecretError> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct NoopExecutor;
-
-impl SchoolExecutor for NoopExecutor {
-    fn execute(
-        &self,
-        request: SchoolExecution,
-        _context: PullContext,
-    ) -> crate::school_service::SchoolExecutorFuture<'_> {
-        Box::pin(async move {
-            Ok(vec![IngestOutcome {
-                site: request.site,
-                kind: "test".into(),
-                state: IngestState::Ok,
-                changed: 0,
-                message: String::new(),
-            }])
-        })
-    }
-}
 
 #[derive(Default)]
 struct CountingExporter(AtomicUsize);
@@ -111,18 +66,8 @@ fn store(name: &str) -> DataStore {
 }
 
 fn services(store: &DataStore, exporter: Arc<dyn ScheduledExporter>) -> SchedulerServices {
-    let coordinator = PullCoordinator::default();
-    let refresh = SchoolRefresh::new(PullNetwork::Wifi);
     SchedulerServices {
         store: store.clone(),
-        references: ReferenceService::new(store.clone(), coordinator.clone()),
-        school: SchoolService::new(
-            coordinator,
-            Arc::new(SchoolAuthService::new(MemoryVault)),
-            refresh.clone(),
-        ),
-        refresh,
-        executor: Arc::new(NoopExecutor),
         exporter,
     }
 }
@@ -214,26 +159,6 @@ fn launch_tasks_are_claimed_only_once_per_process_start() {
     task["lastOccurrenceAt"] = json!(started.to_rfc3339());
     assert!(due_occurrence(&task, now, started).unwrap().is_none());
     task["deletedAt"] = json!(now.to_rfc3339());
-    assert!(due_occurrence(&task, now, started).unwrap().is_none());
-}
-
-#[test]
-fn reference_refresh_runs_at_launch_before_its_next_hour() {
-    let started = "2026-10-13T03:15:00Z".parse().unwrap();
-    let now = "2026-10-13T03:15:01Z".parse().unwrap();
-    let mut task = json!({
-        "id":"builtin:reference-subscriptions",
-        "enabled":true,
-        "updatedAt":"2026-10-12T00:00:00Z",
-        "schedule":"RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0",
-        "lastRunAt":"2026-10-12T03:00:00Z"
-    });
-    assert_eq!(
-        due_occurrence(&task, now, started).unwrap(),
-        Some(started.to_rfc3339())
-    );
-    task["lastRunAt"] = json!(started.to_rfc3339());
-    task["lastOccurrenceAt"] = json!(started.to_rfc3339());
     assert!(due_occurrence(&task, now, started).unwrap().is_none());
 }
 
@@ -349,7 +274,7 @@ async fn exporter_failure_is_typed_and_persisted() {
     add_task(&store, "typed-export", "export", true);
     let services = services(&store, Arc::new(FailingExporter));
     assert!(matches!(
-        execute(&services, action("export"), true).await,
+        execute(&services, action("export")).await,
         Err(SchedulerError::Export(ExportError::Failed(message)))
             if message == "export destination unavailable"
     ));
@@ -367,45 +292,44 @@ async fn exporter_failure_is_typed_and_persisted() {
 }
 
 #[tokio::test]
-async fn action_dispatch_preserves_messages_and_foreground_policy() {
+async fn action_dispatch_preserves_messages_and_skips_retired_refresh_tasks() {
     let store = store("actions");
-    let services = services(&store, Arc::new(CountingExporter::default()));
-    services
-        .refresh
-        .event(RefreshEvent::lifecycle(false))
-        .unwrap();
-    assert_eq!(
-        execute(&services, action("lms-refresh"), false)
-            .await
-            .unwrap(),
-        "Paused: app is not active"
-    );
-    services
-        .refresh
-        .event(RefreshEvent::lifecycle(true))
-        .unwrap();
-    assert_eq!(
-        execute(&services, action("lms-refresh"), false)
-            .await
-            .unwrap(),
-        "LMS background refresh completed"
-    );
-    assert_eq!(
-        execute(&services, action("school-refresh"), false)
-            .await
-            .unwrap(),
-        "School refresh completed"
-    );
+    let exporter = Arc::new(CountingExporter::default());
+    let services = services(&store, exporter.clone());
     assert!(matches!(
-        execute(&services, action("hook"), false).await,
+        execute(&services, action("hook")).await,
         Err(SchedulerError::InvalidTask(message))
             if message == "Scheduled custom hooks must select a built-in action."
     ));
-    assert!(matches!(
-        execute(&services, action("unknown"), false).await,
-        Err(SchedulerError::InvalidTask(message))
-            if message == "Scheduled task action is unsupported."
-    ));
+    // School and reference reads belong to the sync planner now: a stored
+    // built-in refresh task is not an action, and no tick runs it.
+    for retired in [
+        "lms-refresh",
+        "school-refresh",
+        "reference-refresh",
+        "unknown",
+    ] {
+        assert!(matches!(
+            execute(&services, action(retired)).await,
+            Err(SchedulerError::InvalidTask(message))
+                if message == "Scheduled task action is unsupported."
+        ));
+        add_task(&store, retired, retired, true);
+    }
+    Scheduler::default().tick(&services).await.unwrap();
+    for retired in [
+        "lms-refresh",
+        "school-refresh",
+        "reference-refresh",
+        "unknown",
+    ] {
+        assert!(task(&store, retired)
+            .get("lastRunAt")
+            .is_none_or(Value::is_null));
+    }
+    add_task(&store, "export", "export", true);
+    Scheduler::default().tick(&services).await.unwrap();
+    assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

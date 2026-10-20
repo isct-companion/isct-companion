@@ -411,7 +411,7 @@ describe("the course planner", () => {
     );
   });
 
-  it("pages official search results while only mounting the visible rows", async () => {
+  it("searches only the stored catalog and renders a large result in batches of mounted rows", async () => {
     const courses = Array.from({ length: 1000 }, (_, index) =>
       offering(
         String(202600000 + index),
@@ -419,48 +419,19 @@ describe("the course planner", () => {
         `Official course ${index}`,
       ),
     );
-    const cursor = "100";
     app = await mountApp(
       {
         revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
-        handle: (command, args, core) => {
-          if (command === "finder_query") {
-            const request = args.request as Record<string, unknown>;
-            const result = finderView({ courses }, request, core);
-            const ids = request.remoteIds as string[] | undefined;
-            return {
-              ...result,
-              plan: { queries: [{ q: ".", code: "CSC" }] },
-              rows: result.rows.filter(
-                ({ course }) => !ids || ids.includes(course.id),
-              ),
-            };
-          }
-          if (command === "catalog_query") {
-            const offset = Number(args.cursor ?? 0);
-            return {
-              ids: courses.slice(offset, offset + 100).map((row) => row.id),
-              nextCursor:
-                offset + 100 < courses.length ? String(offset + 100) : null,
-              truncated: false,
-            };
-          }
-          return undefined;
-        },
+        handle: finderHandler({ courses }),
       },
       { route: paths.timetable() },
     );
     const searchInput = await enablePlanning(app, false);
     expect(app.host.querySelectorAll(".finderRow")).toHaveLength(0);
-    expect(app.host.querySelector(".finderTitle")?.textContent).not.toContain(
-      "Loading",
-    );
     expect(
-      app.core.calls.filter((call) =>
-        ["finder_query", "catalog_query"].includes(call.command),
-      ),
+      app.core.calls.filter((call) => call.command === "finder_query"),
     ).toHaveLength(0);
     await act(async () => searchInput.focus());
     await settled(() => expect(app!.host.textContent).toContain("100 courses"));
@@ -472,7 +443,6 @@ describe("the course planner", () => {
       expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
     }
     expect(app.host.textContent).toContain("Official course 0");
-    expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
     expect(app.host.textContent).not.toContain("Official course 999");
     const scroll = app.host.querySelector<HTMLElement>(".finderResults")!;
     await act(async () => {
@@ -482,15 +452,23 @@ describe("the course planner", () => {
       expect(app!.host.textContent).toContain("Official course 999"),
     );
     expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
-    expect(app.host.textContent).not.toContain("Official course 0");
     expect(app.host.textContent).not.toContain("Load more courses");
-    const requests = app.core.calls.filter(
-      (call) => call.command === "catalog_query",
-    );
-    expect(requests).toHaveLength(10);
-    expect(requests[1].args.cursor).toBe(cursor);
-    const queriesBeforeNavigation = app.core.calls.filter((call) =>
-      ["finder_query", "catalog_query"].includes(call.command),
+    // Every search is the local finder query; nothing asks 教務Web.
+    expect(
+      app.core.calls.some((call) =>
+        ["catalog_query", "cancel_pull"].includes(call.command),
+      ),
+    ).toBe(false);
+    expect(
+      app.core.calls.filter(
+        (call) =>
+          call.command === "finder_query" &&
+          (call.args.request as Record<string, unknown>).remoteIds !==
+            undefined,
+      ),
+    ).toHaveLength(0);
+    const queriesBeforeNavigation = app.core.calls.filter(
+      (call) => call.command === "finder_query",
     ).length;
     await click(buttonByText(app.host, "Today")!);
     await click(buttonByText(app.host, "Timetable")!);
@@ -500,10 +478,79 @@ describe("the course planner", () => {
     );
     expect(app.host.querySelectorAll(".finderRow")).toHaveLength(0);
     expect(
-      app.core.calls.filter((call) =>
-        ["finder_query", "catalog_query"].includes(call.command),
-      ),
+      app.core.calls.filter((call) => call.command === "finder_query"),
     ).toHaveLength(queriesBeforeNavigation);
+  });
+
+  it("says the year's catalog is downloading while nothing is stored and switches when it lands", async () => {
+    let stored: FinderCourse[] = [];
+    app = await mountApp(
+      {
+        revision: freshRevision(),
+        workspace: workspaceFixture(),
+        queries: plannerQueries(),
+        handle: (command, args, core) =>
+          command === "finder_query"
+            ? finderView(
+                { courses: stored },
+                args.request as Record<string, unknown>,
+                core,
+              )
+            : undefined,
+      },
+      { route: paths.timetable() },
+    );
+    const searchInput = await enablePlanning(app, false);
+    await act(async () => searchInput.focus());
+    const year = await settled(() => {
+      const request = app!.core.calls.find(
+        (call) => call.command === "finder_query",
+      )?.args.request as { year: number } | undefined;
+      if (!request) throw new Error("the finder's first query is not ready");
+      return request.year;
+    });
+    await settled(() =>
+      expect(app!.core.calls.map((call) => call.args.hint)).toContainEqual({
+        kind: "open",
+        view: { kind: "finder", year },
+      }),
+    );
+    const snapshot = (runs: unknown[]) =>
+      act(async () =>
+        app!.core.emit("sync-snapshot", {
+          generation: runs.length + 1,
+          resetting: false,
+          runs,
+          sources: [],
+        }),
+      );
+    await snapshot([
+      {
+        run: "catalog",
+        dataset: "catalog.official",
+        label: { key: "sync.dataset.catalog.official", args: {} },
+        priority: "visible",
+        done: 3,
+        total: 40,
+        current: null,
+        scope: String(year),
+        held: null,
+        failure: null,
+      },
+    ]);
+    await settled(() =>
+      expect(app!.host.querySelector(".courseFinder")!.textContent).toContain(
+        `Downloading the ${year} course catalog`,
+      ),
+    );
+    // Core commits the catalog; the run leaves the snapshot.
+    stored = [eligible];
+    await snapshot([]);
+    await settled(() => {
+      const finder = app!.host.querySelector(".courseFinder")!;
+      expect(finder.textContent).not.toContain("Downloading");
+      expect(finder.querySelectorAll(".finderRow")).toHaveLength(1);
+    });
   });
 
   it("shows syllabus results on the right and places an eligible course when its row Add is clicked", async () => {

@@ -10,7 +10,6 @@ use crate::{
     ports::{EventError, SecretError, SecretVault},
     schedule::{NotificationItem, NotificationSink, NotificationSinkError},
     scheduler::{ExportError, ScheduledExporter},
-    school_service::{SchoolExecution, SchoolExecutor, SchoolExecutorFuture},
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -52,17 +51,6 @@ struct NoopEvents;
 impl EventSink for NoopEvents {
     fn emit(&self, _event: crate::events::CoreEvent) -> Result<(), EventError> {
         Ok(())
-    }
-}
-
-struct NoopExecutor;
-impl SchoolExecutor for NoopExecutor {
-    fn execute(
-        &self,
-        _request: SchoolExecution,
-        _context: crate::pull_coordinator::PullContext,
-    ) -> SchoolExecutorFuture<'_> {
-        Box::pin(async { Ok(Vec::new()) })
     }
 }
 
@@ -137,7 +125,7 @@ fn store(name: &str) -> DataStore {
 async fn credential_mutations_work_without_a_school_browser() {
     let store = store("auth");
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
-    let core = Core::new(store, auth.clone(), PullNetwork::Wifi);
+    let core = Core::new(store, auth.clone());
     let profile = SchoolAuthProfile::TokyoTech;
 
     assert!(core
@@ -164,9 +152,8 @@ async fn wake_reports_every_service_after_runtime_failure() {
     let core = Core::new(
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
-        PullNetwork::Wifi,
     );
-    let scheduler = core.services(Arc::new(NoopExecutor), Arc::new(NoopExporter));
+    let scheduler = core.services(Arc::new(NoopExporter));
     let cloud = crate::cloud_sync::CloudServices {
         backup: crate::backup::BackupService::new(store, core.runtime.notes.at(files)),
         transport: Arc::new(NoopCloud),
@@ -177,7 +164,6 @@ async fn wake_reports_every_service_after_runtime_failure() {
     let report = core
         .wake(WakeServices {
             scheduler,
-            school_visible: false,
             cloud: Some(cloud),
             reminders: Some(ReminderWake {
                 sink: Arc::new(NoopNotifications),
@@ -205,9 +191,12 @@ async fn shutdown_releases_the_native_event_port() {
     let core = Core::with_events(
         store("event-release"),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
-        PullNetwork::Wifi,
         Arc::new(DropEvents(dropped.clone())),
     );
+    // Offline: the started planner holds every key instead of reading.
+    core.sync_hint(Hint::Network {
+        network: Network::Offline,
+    });
     core.start(&tokio::runtime::Handle::current()).unwrap();
     assert!(!dropped.load(Ordering::Acquire));
     core.shutdown().await;
@@ -245,10 +234,12 @@ impl EventSink for WorkspaceEvents {
 }
 
 #[tokio::test]
-async fn the_relay_sends_school_status_after_the_events_that_change_it() {
-    use crate::pull_coordinator::{PullPriority, PullSnapshot, PullState, PullTarget};
+async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
+    use crate::lifecycle::SchoolSite;
+    use crate::school_browser::{SchoolSessionEvent, SchoolSessionState};
+    use crate::school_service::{IngestOutcome, IngestState};
     use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
-    let store = store("school-status");
+    let store = store("sync-sources");
     store
         .write(None, |transaction| {
             sync_state::commit(
@@ -268,35 +259,53 @@ async fn the_relay_sends_school_status_after_the_events_that_change_it() {
     let core = Core::with_events(
         store,
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
-        PullNetwork::Wifi,
         recorded.clone(),
     );
+    core.sync_hint(Hint::Network {
+        network: Network::Offline,
+    });
+    core.start(&tokio::runtime::Handle::current()).unwrap();
     let relay = core.events.clone().unwrap();
-    let finished = CoreEvent::PullStateChanged(vec![PullSnapshot {
-        id: "pull".into(),
-        target: PullTarget::School {
-            site: crate::lifecycle::SchoolSite::ScienceLms,
-            course_id: None,
-        },
-        priority: PullPriority::Manual,
-        state: PullState::Succeeded,
-        phase: None,
-        blocked_by: None,
-        attempt: 1,
-        waiter_count: 0,
-        last_error: None,
-    }]);
-
-    relay.emit(finished.clone()).unwrap();
-    // Unchanged status and unrelated events send nothing more.
-    relay.emit(finished).unwrap();
     relay
-        .emit(CoreEvent::WorkspaceChanged {
-            source: WorkspaceChangeSource::SchoolPull,
-            revision: None,
-        })
+        .emit(CoreEvent::SchoolSession(SchoolSessionEvent {
+            profile: SchoolAuthProfile::Science,
+            state: SchoolSessionState::Active,
+            revision: 1,
+        }))
         .unwrap();
-
+    relay
+        .emit(CoreEvent::SchoolIngest(IngestOutcome {
+            site: SchoolSite::Kyomu,
+            kind: "service".into(),
+            state: IngestState::Maintenance,
+            changed: 0,
+            message: "閉局中".into(),
+        }))
+        .unwrap();
+    // The relay passes every event on; the snapshot follows as its own event,
+    // and the query answers what the last one said, for a shell that missed it.
+    let sent = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let current = serde_json::to_value(core.sync_snapshot().await).unwrap();
+            let last = recorded
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|(name, _)| *name == "sync-snapshot")
+                .map(|(_, payload)| payload.clone());
+            if last.as_ref() == Some(&current)
+                && current["sources"][1]["maintenance"].is_string()
+                && current["sources"][0]["lastUpdated"].is_string()
+            {
+                return current;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
     let names: Vec<_> = recorded
         .0
         .lock()
@@ -304,27 +313,14 @@ async fn the_relay_sends_school_status_after_the_events_that_change_it() {
         .iter()
         .map(|(name, _)| *name)
         .collect();
-    assert_eq!(
-        names,
-        [
-            "pull-state-changed",
-            "school-status",
-            "pull-state-changed",
-            "workspace-changed"
-        ]
-    );
-    let sent = recorded.0.lock().unwrap()[1].1.clone();
-    assert_eq!(sent["headline"], serde_json::json!({"kind": "idle"}));
-    assert_eq!(sent["sources"][0]["site"], "science-lms");
-    assert_eq!(
-        sent["sources"][0]["lastUpdated"],
-        "2026-10-19T02:46:13+00:00"
-    );
-    // The query answers what the event said, for a shell that missed it.
-    assert_eq!(
-        serde_json::to_value(core.school_status().await.unwrap()).unwrap(),
-        sent
-    );
+    assert_eq!(&names[..2], ["school-session", "school-ingest"]);
+    assert_eq!(sent["sources"][0]["source"], "lms");
+    assert_eq!(sent["sources"][0]["session"], "active");
+    assert_eq!(sent["sources"][0]["lastUpdated"], "2026-10-19T02:46:13Z");
+    assert_eq!(sent["sources"][1]["maintenance"], "閉局中");
+    // Offline holds the signed-in profile's due keys without failing them.
+    assert_eq!(sent["sources"][0]["held"], json!({"kind": "offline"}));
+    assert!(sent["sources"][0]["failure"].is_null());
     core.shutdown().await;
 }
 
@@ -353,7 +349,6 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
     let core = Core::with_events(
         store,
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
-        PullNetwork::Wifi,
         events.clone(),
     );
     let changes = || events.changes.lock().unwrap().clone();
@@ -404,7 +399,6 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
     let core = Core::new(
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
-        PullNetwork::Wifi,
     );
     core.runtime
         .attach_cloud(

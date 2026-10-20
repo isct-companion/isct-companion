@@ -3,31 +3,27 @@ use super::{
     assets::SCHOOL_LOGIN, ActionId, BrowserAction, BrowserCommand, BrowserError, BrowserId,
     LoadFailed, NavigationDecision, NewWindowDecision, PageId, PageLoaded, SchoolBrowser,
     SchoolBrowserError, SchoolBrowserListener, SchoolLoginEvent, SchoolPageCustomization,
-    SchoolPullProgress, SchoolSessionEvent, SchoolSessionLifecycle, SchoolSessionLifecycleKind,
+    SchoolSessionEvent, SchoolSessionLifecycle, SchoolSessionLifecycleKind,
     SchoolSessionSnapshot, SchoolSessionState, SchoolSessionStates, SchoolWebResult,
 };
 use crate::{
-    data::{DataStore, WorkspaceChangeSource},
+    data::WorkspaceChangeSource,
     events::CoreEvent,
     lifecycle::SchoolSite,
     ports::EventSink,
-    pull_coordinator::{PullContext, PullPriority},
     runtime_tasks::RuntimeTasks,
     school_auth::{
-        upcoming_otps, OtpWindow, SchoolAuthError, SchoolAuthProfile, SchoolAuthService,
-        SchoolCredentials,
+        upcoming_otps, OtpWindow, SchoolAuthProfile, SchoolAuthService, SchoolCredentials,
     },
-    school_refresh::{RefreshEvent, SchoolRefresh},
-    school_service::{
-        IngestOutcome, IngestState, SchoolExecution, SchoolExecutor, SchoolExecutorError,
-    },
+    school_service::{IngestOutcome, IngestState},
+    sync_engine::{Hint, SyncHints},
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, PoisonError, Weak,
     },
     time::{Duration, Instant},
@@ -67,22 +63,20 @@ impl<T> Guarded<T> for Mutex<T> {
 }
 
 struct Inner {
-    store: DataStore,
     auth: Arc<SchoolAuthService>,
     events: Arc<dyn EventSink>,
-    refresh: SchoolRefresh,
+    /// Sign-ins reach the sync planner here.
+    hints: SyncHints,
     browser: Arc<dyn SchoolBrowser>,
     state: Mutex<State>,
     lane: AsyncMutex<()>,
     lifecycle: AsyncMutex<()>,
     traces: broadcast::Sender<Trace>,
     browsing_changed: Notify,
-    priority_changed: Notify,
     tasks: RuntimeTasks,
     runtime: tokio::runtime::Handle,
     next_generation: AtomicU64,
     next_action: AtomicU64,
-    manual_waiters: AtomicUsize,
     listener: Mutex<Option<Arc<dyn SchoolBrowserListener>>>,
     restore_io: Mutex<()>,
     transport: std::sync::OnceLock<Transport>,
@@ -140,33 +134,29 @@ struct Listener(Weak<Inner>);
 
 impl SchoolBrowserEngine {
     pub fn new(
-        store: DataStore,
         auth: Arc<SchoolAuthService>,
         events: Arc<dyn EventSink>,
         browser: Arc<dyn SchoolBrowser>,
-        refresh: SchoolRefresh,
+        hints: SyncHints,
     ) -> Result<Arc<Self>, SchoolBrowserError> {
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| {
             SchoolBrowserError::Platform("School browser requires an async runtime.".into())
         })?;
         let (traces, _) = broadcast::channel(128);
         let inner = Arc::new(Inner {
-            store,
             auth,
             events,
-            refresh,
+            hints,
             browser: browser.clone(),
             state: Mutex::new(State::default()),
             lane: AsyncMutex::new(()),
             lifecycle: AsyncMutex::new(()),
             traces,
             browsing_changed: Notify::new(),
-            priority_changed: Notify::new(),
             tasks: RuntimeTasks::default(),
             runtime,
             next_generation: AtomicU64::new(1),
             next_action: AtomicU64::new(1),
-            manual_waiters: AtomicUsize::new(0),
             listener: Mutex::new(None),
             restore_io: Mutex::new(()),
             transport: std::sync::OnceLock::new(),
@@ -387,47 +377,6 @@ impl SchoolBrowserEngine {
 
     fn set_session(&self, profile: SchoolAuthProfile, value: SchoolSessionState) {
         self.0.set_session_from_inner(profile, value);
-    }
-}
-
-impl SchoolExecutor for SchoolBrowserEngine {
-    fn execute(
-        &self,
-        request: SchoolExecution,
-        context: PullContext,
-    ) -> crate::school_service::SchoolExecutorFuture<'_> {
-        let service = self.clone();
-        Box::pin(async move {
-            service
-                .pull(
-                    request.site,
-                    request.course_id,
-                    request.credentials,
-                    context,
-                )
-                .await
-                .map_err(map_executor)
-        })
-    }
-}
-
-pub(crate) fn map_executor(error: SchoolBrowserError) -> SchoolExecutorError {
-    match error {
-        SchoolBrowserError::InvalidInput(message) => SchoolExecutorError::InvalidInput(message),
-        SchoolBrowserError::Storage(message) => SchoolExecutorError::Storage(message),
-        SchoolBrowserError::Auth(message) => SchoolExecutorError::Authentication(message),
-        SchoolBrowserError::Maintenance(message) => SchoolExecutorError::Maintenance(message),
-        SchoolBrowserError::SiteChanged(message) => SchoolExecutorError::SiteChanged(message),
-        SchoolBrowserError::Timeout(message) => SchoolExecutorError::Timeout(message),
-        SchoolBrowserError::Cancelled => SchoolExecutorError::Cancelled,
-        SchoolBrowserError::Stopped => {
-            SchoolExecutorError::Stopped("The school browser has stopped.".into())
-        }
-        // Native adapter failures have no narrower portable category.
-        SchoolBrowserError::Platform(message) => SchoolExecutorError::Execution(message),
-        SchoolBrowserError::Preempted => {
-            SchoolExecutorError::Execution("School job paused for visible navigation.".into())
-        }
     }
 }
 

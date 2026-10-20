@@ -582,3 +582,47 @@
 .mobileWebRow[aria-current="true"] em {
   color: var(--accent);
 }
+
+/* The compact layout's sync line: a small pill at the top, the same
+   snapshot the workstation footer reads. */
+.mobileSyncPill {
+  position: sticky;
+  top: 6px;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.mobileSyncPill > div {
+  display: inline-flex;
+  max-width: min(92vw, 420px);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 18%, transparent);
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+  pointer-events: auto;
+}
+.mobileSyncPill .syncProgress[data-kind="bar"] {
+  min-width: 140px;
+}
+.mobileSyncPill progress {
+  display: block;
+  width: 100%;
+  height: 3px;
+  border: 0;
+  border-radius: 999px;
+  appearance: none;
+  background: var(--surface-3);
+}
+.mobileSyncPill progress::-webkit-progress-bar {
+  background: var(--surface-3);
+}
+.mobileSyncPill progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--accent);
+}
+.mobileSheet .syncFailures li {
+  justify-content: space-between;
+}

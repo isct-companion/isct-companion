@@ -26,7 +26,6 @@ final class WebRouter {
     private(set) var titles: [SchoolSite: String] = [:]
     private(set) var loading: SchoolSite?
     private(set) var error: String?
-    private(set) var isVisible = false
     /// Bumped when a view appears for a site so containers re-attach it.
     private(set) var attachRevision = 0
     @ObservationIgnored weak var session: Session?
@@ -91,7 +90,6 @@ final class WebRouter {
 
     /// A web page appeared or disappeared on screen.
     func setVisible(_ site: SchoolSite?) {
-        isVisible = site != nil
         _ = try? session?.schoolBrowsing(site: site)
     }
 

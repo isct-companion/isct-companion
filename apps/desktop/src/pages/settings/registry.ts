@@ -261,9 +261,16 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   },
   {
     section: "backup",
-    id: "reset",
-    title: "Erase data on this device",
-    terms: "reset clear delete 初期化",
+    id: "clear-caches",
+    title: "settings.reset.caches.title",
+    terms:
+      "cache resync refetch reimport school data clear キャッシュ 再同期 再取得 缓存 重新同步",
+  },
+  {
+    section: "backup",
+    id: "full-reset",
+    title: "settings.reset.full.title",
+    terms: "reset erase delete wipe first launch 初期化 リセット 消去 重置 清除",
   },
   {
     section: "sources",

@@ -1,7 +1,5 @@
 import { getDesktopBridge } from "../platform/desktop-bridge";
 import type {
-  SchoolIngestOutcome,
-  SchoolPullOptions,
   SchoolRecords,
   WorkspaceChangedEvent,
 } from "../platform/desktop-bridge";
@@ -34,15 +32,7 @@ type WorkspaceService = {
   mutate(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
 };
 
-export function createWorkspaceStore(
-  service: WorkspaceService,
-  school?: {
-    pull?(
-      site: "science-lms" | "kyomu",
-      options?: SchoolPullOptions,
-    ): Promise<SchoolIngestOutcome[]>;
-  },
-) {
+export function createWorkspaceStore(service: WorkspaceService) {
   const state = createStore<WorkspaceSnapshot>(() =>
     Object.freeze({
       status: "idle",
@@ -166,20 +156,6 @@ export function createWorkspaceStore(
     },
     reload,
     handleWorkspaceChanged,
-    pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
-      if (!school?.pull)
-        return Promise.reject(new Error("School pull needs the desktop app."));
-      // Native PullCoordinator owns admission and request coalescing.
-      return (async () => {
-        await writes;
-        if (state.getState().error) throw new Error(state.getState().error);
-        const outcomes = options
-          ? await school.pull!(site, options)
-          : await school.pull!(site);
-        await reload();
-        return outcomes;
-      })();
-    },
     mutate,
     export() {
       const workspace = state.getState().workspace;
@@ -236,9 +212,6 @@ const internalWorkspaceStore = createWorkspaceStore(
         mutate: (mutation) => desktopBridge.mutateWorkspace(mutation),
       }
     : browserPreviewService,
-  desktopBridge?.pullSchool
-    ? { pull: (site, options) => desktopBridge.pullSchool!(site, options) }
-    : undefined,
 );
 
 /** Read/lifecycle surface. Mutations are available only through workspaceActions. */
@@ -256,10 +229,6 @@ export const workspaceActions = {
   /** Refresh canonical workspace and parsed school records in one publication. */
   refreshSchool() {
     return internalWorkspaceStore.reload();
-  },
-  pullSchool(site: "science-lms" | "kyomu", options?: SchoolPullOptions) {
-    requireAction("import-school", detectPlatform());
-    return internalWorkspaceStore.pullSchool(site, options);
   },
   mutate(intent: WorkspaceIntent) {
     return internalWorkspaceStore.mutate(intent);
@@ -309,10 +278,6 @@ export const workspaceActions = {
   /** The timetable was compared with LMS; its cache TTL restarts now. */
   markTimetableReviewed() {
     return internalWorkspaceStore.mutate({ kind: "markTimetableReviewed" });
-  },
-  async reset() {
-    await repository.reset();
-    await internalWorkspaceStore.reload();
   },
   exportData() {
     return repository.export();

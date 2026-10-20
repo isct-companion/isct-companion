@@ -509,12 +509,7 @@ impl Inner {
             }
         });
         if value == SchoolSessionState::Active {
-            let _ = self.refresh.event(RefreshEvent {
-                kind: crate::school_refresh::RefreshKind::AccountActive,
-                profile: Some(profile),
-                course_id: None,
-                network: None,
-            });
+            self.hints.send(Hint::SignedIn { profile });
         }
         let _ = self.events.emit(CoreEvent::SchoolSession(event));
         let _ = self.traces.send(Trace::Session {

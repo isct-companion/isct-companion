@@ -1,215 +1,79 @@
-# Pull coordination
+# School sync
 
-Reference subscriptions, LMS and 教務Web share `crates/isct-core/src/pull_coordinator.rs`.
-Manual commands, launch/scheduled refreshes, account activation, foreground
-events and lecture detail requests all enter its native admission path.
-The frontend reports facts and renders snapshots; its busy flags and workspace
-Promise queue no longer decide which requests execute.
+Every automatic or requested network read of school and reference data goes
+through one Core planner (`crates/isct-core/src/sync_engine`). Shells send
+**hints** and render one **snapshot**; they never decide what is due, never
+estimate progress and never keep a pull queue of their own. The binding types
+are in `.claude/sync-engine/INTERFACES-CP3.md`; the design rationale is
+`design.html` §06 (when to update) and §09 (progress and status).
 
-## Refresh policy
+Outside this mechanism there are only course files the person opens, the app's
+own update check and cloud sync, each with its own service. The Scheduler keeps
+only tasks the person created (for example scheduled exports).
 
-`crates/isct-core/src/school_refresh.rs` owns freshness and lecture debounce
-intents; Core's `scheduler.rs` feeds the same policy. Neither owns an execution
-queue. `App.tsx` reports foreground/network and lecture
-navigation events without a clock or a session-local detail cache. Native
-session completion also reports directly, including before the UI subscribes.
+## Hints
 
-- Freshness is per key in `dataset_state` (`sync_state.rs` holds the TTLs).
-  Science is due when `lms.enrolment/all` or `lms.deadlines/all` is due;
-  Tokyo Tech when any of the six `kyomu.page/<kind>` keys is. A key backing
-  off after a failed read is not due. An automatic 教務Web pull reads only
-  the due pages, missing ones first; a manual pull reads all six.
-- Opening a lecture touches `lms.course/<id>` and `lms.assign/<id>` at the
-  next wake; `sync_gc.rs` drops long-unused content once a day.
-- Lecture details wait 2 seconds before becoming eligible, and wait until
-  the visible school view closes. Repeated opens within 60 seconds coalesce;
-  a failed fill can be requested again on reentry.
-- Full pulls have an automatic retry cooldown, separate from data TTL. It
-  starts at five minutes and triples after each pull that leaves the profile
-  due (5 min, 15 min, 45 min, ~2 h, then at most 6 h); observing the profile
-  fresh resets it. A missing or failed page stays stale; repeated login/focus
-  notifications retain one pending intent until the cooldown expires. Each actual full-pull
-  executor owns a lease, shared across manual and automatic entry points; exit,
-  errors and cancellation all release it. Manual refresh bypasses automatic
-  admission. The cooldown is session-local and does not mark failed data fresh.
-- Sequential batches recheck full-pull activity before dispatching each profile:
-  a manual refresh may have completed while an earlier profile was running.
-- Manual pulls enter ahead of queued background pulls. A running full pull
-  coalesces another full refresh; course-detail requests stay queued.
-- Automatic work is admitted as one batch at a time and submitted in order:
-  the LMS full pull, then 教務Web, then ready lecture details. Each pull is
-  submitted after the previous one settles, so the coordinator's FIFO order
-  is the policy order. Failures of automatic pulls are logged.
-- Visible navigation wakes an interrupted extractor by dropping its waiters.
-  The worker requeues its original completion channel, then resumes after
-  `hide_all`; preemption is never returned as an error to the caller.
-- Automatic work waits while offline or, on cellular, when
-  `subscriptionRefresh.allowCellular` is disabled. Mobile starts with the
-  conservative cellular state until the shell reports its connection.
+| Hint | Sent by |
+| --- | --- |
+| `wake` | Desktop: the one-second wake loop in `src-tauri/src/core_ports.rs`. Mobile: `Session::wake()` forwards it before running reminders, cloud sync and scheduled tasks. The planner evaluates at most every 30 s on a wake. |
+| `foreground` / `background` | Desktop: main-window focus (`lib.rs`) and webview visibility (`useCoreLifecycle.ts`). Mobile: scene/activity lifecycle. |
+| `suspend` / `resume` | Desktop: `RunEvent::Resumed`. Mobile: `Session::suspend()` / `resume()` send them. |
+| `network` | Desktop: `navigator.onLine` and the Network Information API (`networkHint()` in `platform/sync.ts`); an unreported link is `unknown`. Mobile: `NWPathMonitor` / `ConnectivityManager`, plus `SessionConfig.initialNetwork`. |
+| `power-saver` | Mobile: Low Power Mode / battery saver. |
+| `signed-in` | Core sends the equivalent itself when a school session becomes active; mobile shells also send it after saving credentials. |
+| `open { view }` | A page became visible: Today, Assignments (Lecture Desk without a course), Timetable, Course (a lecture with an LMS record), Finder (the course search for a year), Offering (a syllabus detail panel), Grades (the workstation timetable's academic summary). Desktop sends them from `App.tsx` through `useOpenHint`. Core reads that page's keys at the 15-minute open threshold, at Visible/Interactive priority. |
+| `refresh { scope }` | Refresh buttons: the footer and the compact sheet (`everything`), the timetable (`site: science-lms`), the GPA summary (`site: kyomu`), a lecture (`course`), the data-update and calendar settings (`references`), and each failed dataset's Retry. Manual refresh ignores TTL and backoff but keeps single-flight; repeats within 30 s join the first. |
 
-The timetable comparison/review remains an explicit action. Automatic source
-refreshes do not open its review dialog. The 30-day timetable review policy is
-not a separate automatic import timer.
+Commands: Tauri `sync_hint(hint)` and `sync_snapshot()`
+(`src-tauri/src/commands/sync.rs`); FFI `Session::sync_hint`,
+`Session::sync_snapshot` and `decode_sync_snapshot(payload)`.
 
+## Snapshot
 
-## Execution and outcomes
+`SyncSnapshot { generation, resetting, runs, sources }` arrives as the
+`sync-snapshot` event. A shell listens first, then reads `sync_snapshot()`
+once; a late read never replaces a newer event (desktop: `onSyncSnapshot` in
+`desktop-bridge.ts`; mobile: generation check). After a lagged FFI stream
+(`SnapshotRequired`) the shell reads it again.
 
-- Exact target keys coalesce and every caller receives the actual result.
-  Reference keys include kind, normalized HTTPS index URL and year; school
-  keys include site and optional positive course ID.
-- Full LMS and course detail are distinct keys. Full pulls only read assignment
-  details; lecture pulls also read files, pages, folders and announcements.
-  A full pull must therefore never consume a queued detail request.
-- One school lane protects the shared session and WebView executor. The HTTP
-  lane permits two reference jobs. Manual admission has priority; equal
-  priorities are FIFO. Authentication/navigation retain their own executor
-  lifecycle because visible browsing shares those resources.
-- Native state snapshots arrive through `pull-state-changed`; `pull_state`
-  provides a current read after the listener attaches. Each run has a unique
-  identity, so callbacks from earlier attempts cannot change a later run.
-- The reducer explicitly handles every pair of 11 finite states and 14
-  events (154 combinations). Unsupported events preserve the state and return
-  a rejection diagnostic. Queue entries, waiters, counters and run IDs are
-  runtime metadata outside the finite control state.
-- Cancellation drops queued work immediately. Running work owns its lane until
-  the underlying executor finishes; a same-key successor waits for that exit.
-  Entering Applying is atomic with cancellation and disables cancellation once
-  SQL writes begin. 教務Web may commit pages incrementally, so this gate begins
-  with its first successful page.
-- Partial school outcomes preserve their original `Ok` payload, including
-  successful pages and reconnect-required. The job snapshot ends Failed with
-  the reported problem. Retries default to zero, matching the prior adapters;
-  an explicit retry policy uses a fresh executor future for each attempt.
+How the desktop renders it (`platform/sync.ts`, `app/SchoolStatusLine.tsx`,
+`app/sync-text.ts`):
 
-Reference refreshes share Core's `ReferenceService` for probing, cache validation,
-fetching, applying and metadata writes. Startup always checks the built-in
-reference task immediately. Calendar hashes count as usable cache when all
-eight valid quarter boundaries exist for the requested year, or when the local
-materialization marker still matches the stored rows, so a partially
-published calendar is not refetched every hour. Automatic
-reference tasks, the Sources action and the Settings view all use the
-selected term's year; department recommendations use the admission year.
-All reference caches use local materialization fingerprints that are excluded
-from backups; this distinguishes a valid empty feed from a missing cache after
-restore. An error in one source does not prevent checking the remaining sources.
+- **One progress line**, in the workstation footer and as a small pill at the
+  top of the compact layout. The highest-priority working run wins. A
+  determinate bar appears only when the run's `total` is known; a run of
+  unknown size shows its label; background-only work is a small spinner and
+  "Updating in the background". Held work names its reason (offline, waiting
+  for Wi-Fi, power saver, in front only, retry time, host paused, sign-in,
+  resetting).
+- **Idle** shows each source's age from `SourceView.lastUpdated`.
+- **Failures** are listed per dataset with their reason and "retries at …",
+  each with a Retry that sends `refresh` for that run's scope (`retryScope`).
+- **In-page progress**: the lecture page shows "Showing data from N ago ·
+  updating this course k / n" from the runs whose scope is that LMS course;
+  the page keeps rendering local rows until Core commits the course. The
+  timetable, GPA summary and course panels show the same counts on their
+  refresh buttons.
+- Labels are i18n keys from Core. A key no locale knows yet falls back to the
+  dataset's name, so an identifier never reaches the screen.
 
-Automatic school admission preserves the prior foreground/network/cellular/
-visible-view conditions. Reference scheduled tasks retain their existing
-HTTP admission behavior; the Sources action retains its offline/cellular
-checks. Cloud recovery, syllabus lookup and individual file downloads keep
-their specialized services and are outside this business pull coordinator.
+## Course search
 
-## State-machine audit — 2026-10-17
-
-The control states remain separate by ownership:
-
-| Owner | State it decides | Inputs / outcomes |
-| --- | --- | --- |
-| `SchoolRefresh` | Intent, freshness and retry admission | Account/focus facts, successful import timestamps, full-pull lifetime |
-| `PullCoordinator` | Queue, lanes, joins, cancellation and terminal result | Admitted targets and correlated executor callbacks |
-| `SchoolBrowserEngine` | Authentication, navigation, extraction and visible-view preemption | Browser ports and page relays |
-| `DataStore` | Committed page data and successful import timestamps | Per-page apply gate |
-| Shell | Presentation | Coordinator snapshots plus advisory progress events |
-
-Observed defect: read-only import metadata showed repeated successful GPA,
-declared-course, profile and grade imports seconds apart, with no successful
-registration or requirements import. Because the policy correctly required all
-six pages, it stayed due. Account/focus events could requeue it immediately.
-There was no attempt-level cooldown shared with manual pulls. The lease and
-cooldown above close that feedback path without advancing failed-page TTLs.
-The exact live failure of the two missing pages still requires native execution;
-absence of successful imports alone does not identify a parser error.
-The store narrows it: 799 教務Web runs since 2026-10-16 contain no
-`registrations` or `requirements` run in any state, while the pages after them
-keep importing. So the extractor ran and rejected both pages; navigation did
-not time out. Core used to discard the extractor's reason and report the page
-as `unknown`. It now keeps both: the kind from the approved source URL, and
-the reason as `kyomu extraction was incomplete: <check>`.
-
-A live run with that reporting (2026-10-17, after registration closed) showed
-two extractor defects, not unavailable pages. On the registration page, an
-empty unit GridView rendered only its empty-data row with no header, and the
-header check rejected the whole page. The requirement table has no <thead>;
-its blank top-left <td> spans four header rows, so header inference took one
-row and treated three header rows as unlabelled requirements. The extractor
-now skips a header-less empty GridView. It takes the requirement header depth
-from the corner cell's span and rejects any unlabelled row itself. Requirement
-ids include the column index, because combined headers need not be unique.
-After the fix, all six pages imported (registrations 14 rows, requirements 93),
-so the profile becomes fresh. Manual check
-`SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` covers the open 申告 window, which
-was not observed.
-
-A separate presentation defect discarded all terminal jobs, including partial
-failures, allowing the footer to read Ready. The footer now renders the latest
-coordinator failure for each school target, with no running percentage; a newer
-successful pull for that target replaces it. Maintenance retains its independent
-service status. Partial page failures are logged with site and page kind as well
-as preserved in the coordinator outcome.
-
-Existing coordinator protections were retained: exact-target joining, manual
-promotion, run identity checks, cancellation holding the lane until executor
-exit, per-page apply gates, bounded terminal history and owned shutdown.
-The Rust suites exercise late callbacks, cancelling successors, partial-result
-payloads and shutdown during commits. Refresh tests additionally exercise the
-cooldown boundary, manual bypass and manual work interleaved with an automatic
-batch. The real-shell test covers active progress, partial failure, recovery and
-maintenance.
-
-Remaining presentation limitation: percentages are estimates from separate
-progress/ingest events, rather than a correlated progress field in the
-coordinator snapshot. They are not used for admission or terminal outcomes.
-A future exact progress contract should carry the run identity and completed /
-total units from Core; adding another frontend state machine would compound the
-problem. The cooldown is retry throttling, not proof that the missing pages have been
-repaired; manual refresh remains available during that interval.
-
-## Footer presentation
-
-The workstation footer shows a progress bar only for pulls the user started
-(the view progress or a `manual` coordinator snapshot). Automatic pulls show a
-one-line note with a small spinner, including why Core is holding them. When
-nothing runs, the footer shows how long ago LMS and 教務Web last imported
-successfully (`SchoolSourceStatus.lastUpdated`), not a generic "Ready".
-
-## Runtime lifetime
-
-`CoreRuntime` owns the coordinator, refresh intent, scheduler and admitted
-operations. Desktop supplies a one-second wakeup; Core checks the scheduler at
-most every 30 seconds and keeps its RRULE, launch and revision-claim policies.
-`SchoolService` chooses the account and loads credentials before calling the
-`SchoolExecutor` port, which Core's `SchoolBrowserEngine` implements. The engine
-owns WebView navigation, sign-in and visible-view preemption; native shells only
-implement the `SchoolBrowser` port (`apps/desktop/src-tauri/src/school_browser_native.rs`).
-
-- Losing main-window focus updates the foreground fact. Actual OS suspension
-  stops new execution in both coordinator lanes; resume reopens admission and
-  wakes due-work checking. Wake/suspend/resume transitions are serialized.
-  Wake reads its stored facts on a blocking worker before taking that lock,
-  and focus/visibility facts republish conditions from a spawned task, so the
-  UI thread never waits on a workspace read.
-- Shutdown permanently closes operation admission, cancels queued/delayed and
-  pre-commit pulls, and waits for their executors. It never aborts Applying.
-  Delayed retry timers wake on shutdown instead of retaining the runtime.
-- Owned operation tracking also waits for final subscription/task metadata and
-  events after a pull settles. A dropped UI request does not detach that work.
-  Completed job history retains snapshots, not executor closures or native
-  handles. Repeated shutdown is safe; resume cannot reopen a closed runtime.
-- Desktop owns and closes its wake/event loops, then exits after Core has
-  drained, or after 15 seconds with a logged warning if a port never settles. School/native transport waits retain their existing bounded
-  timeouts; shutdown uses cooperative cancellation, not forced task abortion.
-- Scheduler claims precede side effects. Automatic tasks recheck whether they
-  are still enabled/due, and final writes cannot overwrite a concurrent user
-  edit or deletion. Event delivery failure does not prevent final persistence.
+Search is local only: `finder_query` over the stored catalog and its FTS
+index. There is no remote search path, page cursor or result cache in the
+shell. While the selected year has no stored offerings and its
+`catalog.official` run is in the snapshot, the finder says "Downloading the
+{year} course catalog"; when the run leaves the snapshot the query is re-read
+and the results switch at once.
 
 ## Verification
 
-The coordinator tests exercise real fake executors, covering same-key joining,
-manual priority/FIFO, full/detail separation, HTTP bounds, cancellation, retry,
-panic settlement and stale callbacks. The automatic-school condition matrix
-checks all 32 combinations against the previous policy. Adapter tests compare
-serialized school outcomes before and after coordination, including partial
-failures. Frontend tests verify concurrent requests reach native admission and
-that a late initial snapshot cannot overwrite a newer state event. Existing
-extractor and SQLite fixture tests remain the data-contract regression suite.
-Live portal and physical iOS/Android verification remain separate checks.
+Core's planner, leases, budgets and TTLs are tested in `isct-core`. The
+frontend tests cover the bridge contract (`unit/workspace-store`: hint
+argument shape, listen-then-read ordering, shape validation), which row of a
+snapshot a surface shows (`unit/workspace-store`, "sync snapshot surfaces"),
+the footer wiring and hints (`e2e/app-shell`) and the local-only finder with
+its download notice (`e2e/planner`). The FFI projection of the renamed sync
+types is tested in `crates/isct-ffi/src/tests/crate.rs`; the Tauri event wire
+name in `src-tauri/src/tests/core_ports.rs`. How the line, pill and failures
+look is a manual check (`DESKTOP-SYNC-STATUS`).

@@ -2,7 +2,6 @@ use super::*;
 use isct_core::{
     data::DataStore,
     ports::{SecretError, SecretVault},
-    pull_coordinator::PullNetwork,
     school_auth::SchoolAuthService,
 };
 
@@ -33,7 +32,6 @@ impl Fixture {
                 Vault,
                 root.join("auth.json"),
             )),
-            PullNetwork::Wifi,
         ));
         Self { root, core }
     }

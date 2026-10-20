@@ -26,10 +26,11 @@ pub use json::JsonValue;
 mod events;
 mod operation;
 pub mod ports;
+mod reset;
 mod session;
 pub use events::{Event, StreamUpdate, Subscription};
 pub use operation::{Operation, OperationResult, OperationStatus, ScheduleSnapshot};
-pub use session::{Capabilities, Session, SessionConfig};
+pub use session::{decode_sync_snapshot, Capabilities, Session, SessionConfig};
 mod services;
 
 #[cfg(test)]

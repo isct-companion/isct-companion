@@ -4,9 +4,8 @@ use crate::{
     events::CoreEvent,
     lifecycle::SchoolSite,
     ports::{EventError, EventSink, SecretError, SecretVault},
-    pull_coordinator::PullNetwork,
     school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
-    school_refresh::SchoolRefresh,
+    sync_engine::SyncHints,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::{
@@ -305,11 +304,10 @@ fn engine_with_auth(
     let browser = Arc::new(FakeBrowser::default());
     let events = Arc::new(Events::default());
     let engine = SchoolBrowserEngine::new(
-        store.clone(),
         auth,
         events.clone(),
         browser.clone(),
-        SchoolRefresh::new(PullNetwork::Unknown),
+        SyncHints::detached(),
     )
     .unwrap();
     (engine, browser, events, store)
