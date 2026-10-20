@@ -389,6 +389,12 @@ pub fn run() {
                 if !runtime.stopped() {
                     api.prevent_exit();
                     if runtime.begin_exit() {
+                        // Draining owned work can take up to EXIT_TIMEOUT. A
+                        // window left on screen meanwhile reads as a frozen
+                        // app, most visibly after "Install and quit".
+                        for window in app.webview_windows().into_values() {
+                            let _ = window.hide();
+                        }
                         let app = app.clone();
                         let code = code.unwrap_or(0);
                         tauri::async_runtime::spawn(async move {

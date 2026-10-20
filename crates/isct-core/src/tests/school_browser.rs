@@ -369,6 +369,13 @@ impl SecretVault for BlockingVault {
 }
 
 fn extraction_relay(script: &str, raw: serde_json::Value) -> Url {
+    let mut parts = extraction_parts(script, raw);
+    assert_eq!(parts.len(), 1);
+    parts.remove(0)
+}
+
+/// The navigations the page-side relay sends for `raw`, part by part.
+fn extraction_parts(script: &str, raw: serde_json::Value) -> Vec<Url> {
     let quoted = |key: &str| {
         script
             .split(key)
@@ -378,15 +385,25 @@ fn extraction_relay(script: &str, raw: serde_json::Value) -> Url {
     };
     let relay: String = serde_json::from_str(quoted("const relay = ")).unwrap();
     let run: String = serde_json::from_str(quoted("const run = ")).unwrap();
+    let part: usize = quoted("const part = ").parse().unwrap();
     let mut raw = raw;
     raw.as_object_mut()
         .unwrap()
-        .insert("_isctExtractionRun".into(), run.into());
-    Url::parse(&format!(
-        "{relay}{}",
-        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&raw).unwrap())
-    ))
-    .unwrap()
+        .insert("_isctExtractionRun".into(), run.clone().into());
+    let encoded = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&raw).unwrap());
+    let chunks: Vec<_> = encoded.as_bytes().chunks(part).collect();
+    chunks
+        .iter()
+        .enumerate()
+        .map(|(index, chunk)| {
+            Url::parse(&format!(
+                "{relay}{run}/{}/{index}/{}",
+                chunks.len(),
+                std::str::from_utf8(chunk).unwrap()
+            ))
+            .unwrap()
+        })
+        .collect()
 }
 
 fn login_config(script: &str) -> serde_json::Value {
@@ -1378,6 +1395,95 @@ async fn cancellation_before_applying_keeps_the_lms_database_unchanged() {
         )
         .unwrap();
     assert_eq!(count, 0);
+    coordinator.shutdown().await;
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn an_lms_result_over_chromiums_url_cap_arrives_in_requested_parts() {
+    let (engine, browser, _, store) = engine();
+    let coordinator = PullCoordinator::default();
+    let request = spawn_pull(
+        &engine,
+        &coordinator,
+        SchoolSite::ScienceLms,
+        PullOptions::manual(),
+    );
+    let navigation = browser.navigation(0).await;
+    let page = PageId {
+        browser: navigation.browser,
+        sequence: 1,
+    };
+    browser.listener().page_loaded(PageLoaded {
+        page,
+        cause: None,
+        url: Url::parse("https://lms.s.isct.ac.jp/2025/my/").unwrap(),
+    });
+    // Over 2 MiB encoded: WebView2 would drop it as one navigation.
+    let parts = extraction_parts(
+        &browser.extraction_script().await,
+        serde_json::json!({
+            "status": "ok",
+            "sourceUrl": "https://lms.s.isct.ac.jp/2025/my/",
+            "language": "en",
+            "coursesComplete": true,
+            "courses": [{
+                "id": 444444444,
+                "fullname": "Large course",
+                "shortname": "LARGE",
+                "summary": "x".repeat(2 * 1024 * 1024),
+                "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=444444444"
+            }]
+        }),
+    );
+    assert!(parts.len() >= 3);
+    assert!(parts.iter().all(|url| url.as_str().len() < 2 * 1024 * 1024));
+    let requests = || {
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|command| match &command.command {
+                BrowserAction::Eval(script) if script.contains("__isctRelayPart(") => {
+                    Some(script.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    // A part sent before Core asked for it is refused and asks for nothing.
+    browser
+        .listener()
+        .decide_navigation(page, parts[1].clone(), true);
+    assert!(requests().is_empty());
+    for (index, part) in parts.iter().enumerate() {
+        assert_eq!(
+            browser
+                .listener()
+                .decide_navigation(page, part.clone(), true),
+            NavigationDecision::Cancel
+        );
+        let asked = requests();
+        if index + 1 < parts.len() {
+            assert_eq!(asked.len(), index + 1);
+            assert!(asked[index].ends_with(&format!(",{});", index + 1)));
+        } else {
+            assert_eq!(asked.len(), index);
+        }
+    }
+    let outcomes: Vec<IngestOutcome> =
+        serde_json::from_value(request.await.unwrap().unwrap()).unwrap();
+    assert_eq!(outcomes[0].state, IngestState::Ok);
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM lms_courses WHERE id='lms-course:444444444'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
     coordinator.shutdown().await;
     engine.shutdown().await;
 }

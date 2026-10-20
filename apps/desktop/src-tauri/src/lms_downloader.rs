@@ -106,19 +106,13 @@ impl LmsSessionPort for NativeSession {
 
 fn create(app: &AppHandle) -> Result<Webview, String> {
     let main = app.get_window("main").ok_or("Main window is unavailable")?;
-    let builder = WebviewBuilder::new(
-        LABEL,
-        WebviewUrl::External(Url::parse(HOME).map_err(|error| error.to_string())?),
-    );
-    #[cfg(target_os = "macos")]
-    let builder = builder.data_store_identifier(crate::school_web::SCHOOL_DATA_STORE);
-    #[cfg(target_os = "windows")]
-    let builder = builder.data_directory(
-        app.path()
-            .app_data_dir()
-            .map_err(|error| error.to_string())?
-            .join("shared-webview-data"),
-    );
+    let builder = crate::school_web::school_profile(
+        app,
+        WebviewBuilder::new(
+            LABEL,
+            WebviewUrl::External(Url::parse(HOME).map_err(|error| error.to_string())?),
+        ),
+    )?;
     let loaded = app.clone();
     let builder = builder.on_page_load(move |_, payload| {
         if payload.event() == PageLoadEvent::Finished {

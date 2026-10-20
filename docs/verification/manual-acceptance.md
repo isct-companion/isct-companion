@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 55 checks must be re-run before the next release.**
+**7 of 57 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**46 checks have never been run or could not be run:**
+**48 checks have never been run or could not be run:**
 
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
 - `IDENTITY-MASTERS-CREDITS` — never verified
@@ -54,6 +54,8 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-PHYSICS-PAIR` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
 - `DESKTOP-WINDOWS-UPDATES` — never verified
+- `DESKTOP-WINDOWS-SCHOOL-PULL` — never verified
+- `DESKTOP-WINDOWS-SIGNED-INSTALL` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
 - `SCHOOL-OTP-QR` — never verified
 - `SCHOOL-SIGNIN-TOKYO-VISIBLE` — never verified
@@ -113,7 +115,9 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_browser/assets/kyomu-search.js<br>crates/isct-core/src/school_browser/assets/kyomu-extract.js<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
-| `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/isct-core/src/app_updates.rs |
+| `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/isct-core/src/app_updates.rs |
+| `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/school_browser/assets/extraction-relay.js |
+| `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
@@ -2025,7 +2029,7 @@ Control can be switched between Off and On (or a second PC with it On).
 2. Disconnect the network mid-download and wait about a minute.
    - *Why:* A stalled transfer must end in an error that names the stall, not leave the panel on "Downloading" forever.
 3. With Smart App Control Off, press Install and quit, let the NSIS installer finish and reopen the app.
-   - *Why:* On Windows the process exits before the installer runs, so the success notice depends on the next launch comparing versions.
+   - *Why:* On Windows the process exits before the installer runs, so the success notice depends on the next launch comparing versions. Quitting drains background work for up to 15 seconds; a window left on screen meanwhile looks frozen.
 4. Repeat the install with Smart App Control On.
    - *Why:* Smart App Control blocks the unsigned installer after the app has exited; only a real policy shows what the next launch reports.
 
@@ -2038,7 +2042,8 @@ Settings > About status line, the notice at launch, and the version shown in Abo
 The About line shows "Downloading update… · x / y MB" with x increasing,
 and the download completes on the slow link. A disconnect ends in
 "Update check failed · The update download stopped receiving data…".
-After a successful install the app reopens on the new version with
+The window disappears as soon as Install and quit is pressed. After a
+successful install the app reopens on the new version with
 "Updated to <version>." After a blocked install the old version opens
 with a red notice saying the update did not install, and About repeats it.
 
@@ -2049,9 +2054,97 @@ Needs a signed release on GitHub, a Windows PC, a real slow or broken network, a
 **Covers**
 
 - `apps/desktop/src-tauri/src/desktop_updates.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src/app/useDesktopUpdates.ts`
 - `apps/desktop/src/pages/settings/AboutSettings.tsx`
 - `crates/isct-core/src/app_updates.rs`
+
+**Last recorded** never run
+
+### Windows school pulls finish with a large LMS result and a hidden view (`DESKTOP-WINDOWS-SCHOOL-PULL`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Windows build from this source, a Science Tokyo account enrolled in
+many LMS courses (a full pull whose result is over 2 MB), and saved
+school credentials.
+
+**Steps**
+
+1. Open Settings > Diagnostics and clear the log, then start a full LMS refresh from the course list.
+   - *Why:* WebView2 drops a navigation whose URL is over 2 MiB. The result now crosses in parts; a large real account is the only payload that needs more than one.
+2. While a pull runs, minimise the app for at least six minutes, then restore it.
+   - *Why:* Chromium throttles timers in hidden pages, harder after five minutes. The school views pass switches that disable it; only a real WebView2 shows whether they took effect.
+3. Copy the diagnostics log.
+   - *Why:* The log shows each capture reaching its target page and whether the relay arrived, which separates a dropped relay from a slow page.
+
+**Where to look**
+
+The course list, the pull status, and the copied diagnostics log.
+
+**Expected**
+
+Both pulls finish with every enrolled course listed and no timeout. The
+log shows "capture loaded" for each target and no "database is locked".
+
+**Why this is manual**
+
+Needs a real school account with a large LMS result, a Windows PC running WebView2, and minutes of real hidden time; the core suite covers part assembly but cannot run WebView2.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src-tauri/src/lms_downloader.rs`
+- `crates/isct-core/src/school_browser/assets/extraction-relay.js`
+
+**Last recorded** never run
+
+### Signed Windows installer passes Smart App Control and can save course files (`DESKTOP-WINDOWS-SIGNED-INSTALL`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Desktop release run with sign_windows enabled, an unsigned build of the
+same source, and a Windows 11 PC with Smart App Control On and
+Controlled folder access On.
+
+**Steps**
+
+1. Download the signed installer, run it, then open its Properties > Digital Signatures.
+   - *Why:* Smart App Control blocks unsigned installers with no "Run anyway"; only the real policy shows whether the signature is trusted.
+2. In the signed app, open a course file that is not downloaded yet.
+   - *Why:* Course files default to Documents, which Controlled folder access guards; a trusted signature is what lets the app write there.
+3. Install the unsigned build with Smart App Control Off, keep Controlled folder access On, and open another undownloaded course file.
+   - *Why:* A refused write must name Controlled folder access and the course folder setting instead of a generic download failure.
+
+**Where to look**
+
+The Smart App Control dialog, the signature tab, the course file card, and Windows Security > Protection history.
+
+**Expected**
+
+The signed installer runs without a block and its signature tab lists
+the Artifact Signing certificate. The signed app saves and previews the
+file. The unsigned app shows "Windows blocked saving to the course
+folder…" on the file card, and Protection history lists IsctCompanion.
+
+**Why this is manual**
+
+Needs Azure signing credentials, a real Windows 11 security policy, and a school account; none run in CI.
+
+**Covers**
+
+- `.github/workflows/desktop-release.yml`
+- `scripts/desktop/tauri.mjs`
+- `apps/desktop/src-tauri/src/lms_protocol.rs`
+- `apps/desktop/src/features/lms/FilePreview.tsx`
 
 **Last recorded** never run
 

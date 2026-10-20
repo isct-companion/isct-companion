@@ -1759,7 +1759,9 @@ checks:
       - action: With Smart App Control Off, press Install and quit, let the NSIS
           installer finish and reopen the app.
         reason: On Windows the process exits before the installer runs, so the
-          success notice depends on the next launch comparing versions.
+          success notice depends on the next launch comparing versions. Quitting
+          drains background work for up to 15 seconds; a window left on screen
+          meanwhile looks frozen.
       - action: Repeat the install with Smart App Control On.
         reason: Smart App Control blocks the unsigned installer after the app has
           exited; only a real policy shows what the next launch reports.
@@ -1769,7 +1771,8 @@ checks:
       The About line shows "Downloading update… · x / y MB" with x increasing,
       and the download completes on the slow link. A disconnect ends in
       "Update check failed · The update download stopped receiving data…".
-      After a successful install the app reopens on the new version with
+      The window disappears as soon as Install and quit is pressed. After a
+      successful install the app reopens on the new version with
       "Updated to <version>." After a blocked install the old version opens
       with a red notice saying the update did not install, and About repeats it.
     why_manual: Needs a signed release on GitHub, a Windows PC, a real slow or
@@ -1777,9 +1780,81 @@ checks:
       headless test can provide.
     covers:
       - apps/desktop/src-tauri/src/desktop_updates.rs
+      - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src/app/useDesktopUpdates.ts
       - apps/desktop/src/pages/settings/AboutSettings.tsx
       - crates/isct-core/src/app_updates.rs
+    verified: null
+
+  - id: DESKTOP-WINDOWS-SCHOOL-PULL
+    area: desktop
+    title: Windows school pulls finish with a large LMS result and a hidden view
+    persona: undergraduate-senior
+    preconditions: |
+      A Windows build from this source, a Science Tokyo account enrolled in
+      many LMS courses (a full pull whose result is over 2 MB), and saved
+      school credentials.
+    steps:
+      - action: Open Settings > Diagnostics and clear the log, then start a full
+          LMS refresh from the course list.
+        reason: WebView2 drops a navigation whose URL is over 2 MiB. The result
+          now crosses in parts; a large real account is the only payload that
+          needs more than one.
+      - action: While a pull runs, minimise the app for at least six minutes,
+          then restore it.
+        reason: Chromium throttles timers in hidden pages, harder after five
+          minutes. The school views pass switches that disable it; only a real
+          WebView2 shows whether they took effect.
+      - action: Copy the diagnostics log.
+        reason: The log shows each capture reaching its target page and whether
+          the relay arrived, which separates a dropped relay from a slow page.
+    observe: The course list, the pull status, and the copied diagnostics log.
+    expected: |
+      Both pulls finish with every enrolled course listed and no timeout. The
+      log shows "capture loaded" for each target and no "database is locked".
+    why_manual: Needs a real school account with a large LMS result, a Windows
+      PC running WebView2, and minutes of real hidden time; the core suite
+      covers part assembly but cannot run WebView2.
+    covers:
+      - apps/desktop/src-tauri/src/school_web.rs
+      - apps/desktop/src-tauri/src/lms_downloader.rs
+      - crates/isct-core/src/school_browser/assets/extraction-relay.js
+    verified: null
+
+  - id: DESKTOP-WINDOWS-SIGNED-INSTALL
+    area: desktop
+    title: Signed Windows installer passes Smart App Control and can save course files
+    persona: undergraduate-senior
+    preconditions: |
+      A Desktop release run with sign_windows enabled, an unsigned build of the
+      same source, and a Windows 11 PC with Smart App Control On and
+      Controlled folder access On.
+    steps:
+      - action: Download the signed installer, run it, then open its
+          Properties > Digital Signatures.
+        reason: Smart App Control blocks unsigned installers with no "Run
+          anyway"; only the real policy shows whether the signature is trusted.
+      - action: In the signed app, open a course file that is not downloaded yet.
+        reason: Course files default to Documents, which Controlled folder
+          access guards; a trusted signature is what lets the app write there.
+      - action: Install the unsigned build with Smart App Control Off, keep
+          Controlled folder access On, and open another undownloaded course file.
+        reason: A refused write must name Controlled folder access and the
+          course folder setting instead of a generic download failure.
+    observe: The Smart App Control dialog, the signature tab, the course file
+      card, and Windows Security > Protection history.
+    expected: |
+      The signed installer runs without a block and its signature tab lists
+      the Artifact Signing certificate. The signed app saves and previews the
+      file. The unsigned app shows "Windows blocked saving to the course
+      folder…" on the file card, and Protection history lists IsctCompanion.
+    why_manual: Needs Azure signing credentials, a real Windows 11 security
+      policy, and a school account; none run in CI.
+    covers:
+      - .github/workflows/desktop-release.yml
+      - scripts/desktop/tauri.mjs
+      - apps/desktop/src-tauri/src/lms_protocol.rs
+      - apps/desktop/src/features/lms/FilePreview.tsx
     verified: null
 
   - id: DESKTOP-WINDOWS-LAUNCH

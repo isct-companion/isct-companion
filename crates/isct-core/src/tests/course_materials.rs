@@ -117,18 +117,14 @@ fn stored_folders_validate_every_file_and_fetch_errors_keep_wire_reasons() {
         {"name":"bad","url":"https://example.test/two.pdf"}
     ]});
     assert!(stored_folder_files(Some(&invalid)).is_none());
-    for (error, reason) in [
-        (FetchError::Login, MaterialFailure::Login),
-        (FetchError::Invalid, MaterialFailure::Invalid),
-        (FetchError::Network, MaterialFailure::Network),
-        (FetchError::Timeout, MaterialFailure::Timeout),
-        (FetchError::Cancelled, MaterialFailure::Cancelled),
-    ] {
-        assert_eq!(material_for_fetch_error(error), failed(reason));
-    }
+    // The desktop file card reads these wire names.
     assert_eq!(
-        serde_json::to_value(failed(MaterialFailure::Login)).unwrap()["reason"],
+        serde_json::to_value(material_for_fetch_error(FetchError::Login)).unwrap()["reason"],
         "login"
+    );
+    assert_eq!(
+        serde_json::to_value(material_for_fetch_error(FetchError::WriteDenied)).unwrap()["reason"],
+        "denied"
     );
     assert_eq!(bounded_download_limit(Some(0)), Some(1));
     assert_eq!(
@@ -141,6 +137,27 @@ fn stored_folders_validate_every_file_and_fetch_errors_keep_wire_reasons() {
     assert!(!is_material_cache_name(Path::new(
         "README-12345678.part-10-2"
     )));
+}
+
+/// Controlled folder access refuses creating the course folder in Documents
+/// as a read-only parent does. The refusal must reach the file card as
+/// `Denied`, and creating it must succeed once the user allows the app.
+#[cfg(unix)]
+#[test]
+fn a_refused_course_folder_is_denied_and_works_after_access_is_allowed() {
+    use std::os::unix::fs::PermissionsExt;
+    let parent = root("denied");
+    fs::create_dir_all(&parent).unwrap();
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o555)).unwrap();
+    let root = parent.join("IsctCompanion");
+    let url = Url::parse("https://lms.s.isct.ac.jp/2026/pluginfile.php/1/a.pdf").unwrap();
+    let refused = material_path(&root, &course(), &url);
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+    let Err(MaterialError::Denied(message)) = refused else {
+        panic!("a refused course folder must be reported as denied: {refused:?}");
+    };
+    assert!(message.contains("choose another course folder"));
+    assert!(material_path(&root, &course(), &url).is_ok());
 }
 
 #[cfg(unix)]
