@@ -36,12 +36,19 @@ import {
   createTauriDesktopBridge,
   type InvokeNative,
   type ListenNative,
-  type PullSnapshot,
   type SchoolDownloadEvent,
   type SchoolSessionEvent,
   type WorkspaceChangedEvent,
 } from "@app/platform/desktop-bridge";
 import { finderQuery } from "@app/platform/finder-query";
+import {
+  pageProgress,
+  progressLine,
+  retryScope,
+  runsFor,
+  type RunView,
+  type SyncSnapshot,
+} from "@app/platform/sync";
 import { LocalRepository, SqliteRepository } from "@app/storage/repository";
 import {
   createBrowserPreviewService,
@@ -514,36 +521,6 @@ describe("recovering from a rejected or external write", () => {
     expect(host.reads).toEqual(["r0", "r0", "r1"]);
     expect(store.getState().revision).toBe("r1");
     expect(store.getState().workspace?.settings.appearance).toBe("dark");
-  });
-});
-
-describe("school pulls", () => {
-  it("reloads the unified snapshot after a pull", async () => {
-    const host = coreHost();
-    const pulls: string[] = [];
-    const store = createWorkspaceStore(host.service, {
-      async pull(site) {
-        pulls.push(site);
-        host.publish(settingsWith({ locale: "ja" }), "r5");
-        return [];
-      },
-    });
-    await store.initialize();
-
-    await expect(store.pullSchool("science-lms")).resolves.toEqual([]);
-
-    expect(pulls).toEqual(["science-lms"]);
-    expect(host.reads).toEqual(["r0", "r5"]);
-    expect(store.getState()).toMatchObject({ revision: "r5" });
-    expect(store.getState().workspace?.settings.locale).toBe("ja");
-  });
-
-  it("refuses a school pull without the desktop coordinator", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-
-    await expect(store.pullSchool("kyomu")).rejects.toThrow("desktop app");
-    expect(host.reads).toEqual([]);
   });
 });
 
@@ -1079,41 +1056,55 @@ function listenerSeam() {
   };
 }
 
-const pull = (
-  id: string,
-  state: PullSnapshot["state"],
-  courseId: number | null = null,
-): PullSnapshot => ({
-  id,
-  target: { type: "school", site: "science-lms", courseId },
-  priority: "automatic",
-  state,
-  phase: null,
-  blockedBy: null,
-  attempt: 1,
-  waiterCount: 0,
-  lastError: null,
+const snapshot = (generation: number, done: number): SyncSnapshot => ({
+  generation,
+  resetting: false,
+  runs: [
+    {
+      run: "run-1",
+      dataset: "lms.course",
+      label: { key: "sync.dataset.lms.course", args: {} },
+      priority: "visible",
+      done,
+      total: 9,
+      current: null,
+      scope: "42",
+      held: null,
+      failure: null,
+    },
+  ],
+  sources: [],
 });
 
 describe("Tauri bridge contract", () => {
-  it("passes an optional LMS course scope to the native pull", async () => {
-    const { invoke, calls } = invokeSeam(() => []);
+  it("sends hints under the `hint` argument the native command reads", async () => {
+    const { invoke, calls } = invokeSeam(() => null);
     const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
 
-    await bridge.pullSchool?.("science-lms", { lmsCourseId: 42 });
+    await bridge.syncHint!({
+      kind: "refresh",
+      scope: { kind: "course", lmsCourseId: 42 },
+    });
+    await bridge.syncHint!({ kind: "open", view: { kind: "finder", year: 2026 } });
 
     expect(calls).toEqual([
       {
-        command: "pull_school",
-        payload: { site: "science-lms", lmsCourseId: 42 },
+        command: "sync_hint",
+        payload: {
+          hint: { kind: "refresh", scope: { kind: "course", lmsCourseId: 42 } },
+        },
+      },
+      {
+        command: "sync_hint",
+        payload: { hint: { kind: "open", view: { kind: "finder", year: 2026 } } },
       },
     ]);
   });
 
-  it("listens for pull state before reading it and ignores a late stale read", async () => {
+  it("listens for sync snapshots before reading one and ignores a late stale read", async () => {
     let releaseRead: ((value: unknown) => void) | undefined;
     const { invoke } = invokeSeam((command) => {
-      if (command === "pull_state")
+      if (command === "sync_snapshot")
         return new Promise((resolve) => {
           releaseRead = resolve;
         });
@@ -1122,37 +1113,22 @@ describe("Tauri bridge contract", () => {
     const seam = listenerSeam();
     const bridge = createTauriDesktopBridge(invoke, seam.listen);
 
-    const received: PullSnapshot[][] = [];
-    const dispose = bridge.onPullState!((states) => received.push(states));
+    const received: SyncSnapshot[] = [];
+    const dispose = bridge.onSyncSnapshot!((value) => received.push(value));
     await settle();
-    expect(seam.names).toEqual(["pull-state-changed"]);
+    expect(seam.names).toEqual(["sync-snapshot"]);
 
-    const current = [pull("pull-1", "succeeded")];
+    const current = snapshot(3, 5);
     seam.deliver(current);
-    releaseRead?.([pull("pull-1", "running")]);
+    seam.deliver({ not: "a snapshot" });
+    releaseRead?.(snapshot(2, 1));
     await settle();
     expect(received).toEqual([current]);
 
     dispose();
-    seam.deliver([]);
+    seam.deliver(snapshot(4, 6));
     expect(received).toEqual([current]);
     expect(seam.unlistens()).toBe(1);
-  });
-
-  it("routes cancellation and reference refresh to the native facade", async () => {
-    const { invoke, calls } = invokeSeam((command) =>
-      command === "cancel_pull" ? true : "Updated",
-    );
-    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
-
-    await expect(bridge.cancelPull!("pull-1")).resolves.toBe(true);
-    await expect(bridge.refreshReferenceSubscriptions!(true)).resolves.toBe(
-      "Updated",
-    );
-    expect(calls).toEqual([
-      { command: "cancel_pull", payload: { id: "pull-1" } },
-      { command: "refresh_reference_subscriptions", payload: { force: true } },
-    ]);
   });
 
   it("maps credential, session and webview calls to narrow commands", async () => {
@@ -1310,10 +1286,8 @@ describe("Tauri bridge contract", () => {
           return "yes";
         case "request_notification_permission":
           return "maybe";
-        case "pull_school":
-          return { not: "a list" };
-        case "pull_state":
-          return "later";
+        case "sync_snapshot":
+          return { runs: "later" };
         case "school_session_snapshot":
           return { revision: -1, states: {} };
         case "school_credential_status":
@@ -1330,11 +1304,8 @@ describe("Tauri bridge contract", () => {
     await expect(bridge.requestNotificationPermission()).rejects.toThrow(
       "request_notification_permission returned an invalid result",
     );
-    await expect(bridge.pullSchool!("science-lms")).rejects.toThrow(
-      "pull_school returned an invalid result",
-    );
-    await expect(bridge.getPullState!()).rejects.toThrow(
-      "pull_state returned an invalid result",
+    await expect(bridge.syncSnapshot!()).rejects.toThrow(
+      "sync_snapshot returned an invalid result",
     );
     await expect(bridge.schoolSessionSnapshot()).rejects.toThrow(
       "school_session_snapshot returned an invalid result",
@@ -1416,5 +1387,111 @@ describe("Tauri bridge contract", () => {
     await settle();
 
     expect(unlistens).toBe(1);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Sync snapshot surfaces: which row of Core's snapshot a surface shows
+ * ------------------------------------------------------------------ */
+
+const run = (overrides: Partial<RunView>): RunView => ({
+  run: "run",
+  dataset: "lms.course",
+  label: { key: "sync.dataset.lms.course", args: {} },
+  priority: "visible",
+  done: 0,
+  total: null,
+  current: null,
+  scope: null,
+  held: null,
+  failure: null,
+  ...overrides,
+});
+const syncOf = (...runs: RunView[]): SyncSnapshot => ({
+  generation: 1,
+  resetting: false,
+  runs,
+  sources: [],
+});
+
+describe("sync snapshot surfaces", () => {
+  it("shows a bar only for a run of known size and a spinner for background-only work", () => {
+    expect(progressLine(syncOf())).toEqual({ kind: "idle" });
+    const background = run({ run: "bg", priority: "background", total: 40 });
+    expect(progressLine(syncOf(background))).toMatchObject({
+      kind: "background",
+    });
+    const unsized = run({ run: "vis" });
+    expect(progressLine(syncOf(background, unsized))).toMatchObject({
+      kind: "busy",
+      run: { run: "vis" },
+    });
+    // The page the person opened outranks Core's visible work.
+    const opened = run({ run: "open", priority: "interactive", done: 4, total: 9 });
+    expect(progressLine(syncOf(unsized, opened))).toEqual({
+      kind: "bar",
+      run: opened,
+      done: 4,
+      total: 9,
+    });
+  });
+
+  it("names a held foreground run before quiet background work, and skips failed runs", () => {
+    const held = run({ run: "held", held: { kind: "cellular" } });
+    const failed = run({
+      run: "failed",
+      total: 3,
+      failure: { kind: "http-503", keysFailed: 1, retryAt: null },
+    });
+    const background = run({ run: "bg", priority: "background" });
+    expect(progressLine(syncOf(failed, held, background))).toMatchObject({
+      kind: "held",
+      held: { kind: "cellular" },
+    });
+    expect(progressLine(syncOf(failed))).toEqual({ kind: "idle" });
+  });
+
+  it("sums a page's runs by scope, and drops the total when any run's size is unknown", () => {
+    const snapshot = syncOf(
+      run({ run: "a", scope: "42", done: 2, total: 5 }),
+      run({ run: "b", dataset: "lms.assign", scope: "42", done: 1, total: 1 }),
+      run({ run: "c", scope: "43", done: 7, total: 7 }),
+    );
+    expect(
+      pageProgress(runsFor(snapshot, ["lms.course", "lms.assign"], "42")),
+    ).toEqual({ done: 3, total: 6 });
+    expect(pageProgress(runsFor(snapshot, ["lms"]))).toEqual({
+      done: 10,
+      total: 13,
+    });
+    expect(
+      pageProgress([run({ done: 1, total: 4 }), run({ done: 2 })]),
+    ).toEqual({ done: 3, total: null });
+    expect(pageProgress(runsFor(snapshot, ["kyomu"]))).toBeNull();
+  });
+
+  it("retries a failed dataset at its own scope", () => {
+    expect(retryScope(run({ scope: "42" }))).toEqual({
+      kind: "course",
+      lmsCourseId: 42,
+    });
+    expect(retryScope(run({ dataset: "lms.deadlines" }))).toEqual({
+      kind: "site",
+      site: "science-lms",
+    });
+    expect(retryScope(run({ dataset: "kyomu.page", scope: "gpa" }))).toEqual({
+      kind: "site",
+      site: "kyomu",
+    });
+    expect(
+      retryScope(run({ dataset: "catalog.official", scope: "2026" })),
+    ).toEqual({ kind: "catalog", year: 2026 });
+    // An offering id is not a year.
+    expect(
+      retryScope(run({ dataset: "catalog.detail", scope: "202602431" })),
+    ).toEqual({ kind: "everything" });
+    expect(retryScope(run({ dataset: "reference" }))).toEqual({
+      kind: "references",
+    });
   });
 });

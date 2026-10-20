@@ -15,7 +15,8 @@ import org.json.JSONObject
 /** Which school page is on screen. Two entries share the resident views: the
  * ウェブ tab (site switcher) and pushes from a course or assignment. Opening a
  * page asks Core (`openSchool`), which ensures and navigates the view; the
- * visibility fact goes back to Core so hidden pulls yield to it. */
+ * visibility fact goes back to Core (`schoolBrowsing`) so background sync
+ * yields to it. */
 class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScope, context: Context) {
     var tabSite by mutableStateOf(SchoolSite.SCIENCE_LMS)
         private set
@@ -23,8 +24,6 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     var loading by mutableStateOf<SchoolSite?>(null)
         private set
     var error by mutableStateOf<String?>(null)
-        private set
-    var isVisible by mutableStateOf(false)
         private set
     /** Bumped when Core opened a page, so containers re-attach its view. */
     var attachRevision by mutableIntStateOf(0)
@@ -69,7 +68,6 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
 
     /** A web page appeared or disappeared on screen. */
     fun setVisible(site: SchoolSite?) {
-        isVisible = site != null
         runCatching { session?.schoolBrowsing(site) }
     }
 

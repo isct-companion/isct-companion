@@ -1,82 +1,175 @@
 import { UiButton } from "../components/mantine";
 import { formatJst } from "../lib/civil-date";
-import { relativeTimeAgo, t } from "../i18n";
+import { t } from "../i18n";
 import { useClock } from "../platform/use-clock";
-import type { SchoolStatus } from "./usePullState";
+import {
+  failedRuns,
+  progressLine,
+  retryScope,
+  type SyncSnapshot,
+} from "../platform/sync";
+import { refresh as sendRefresh } from "./useSync";
+import {
+  ageText,
+  failureText,
+  heldText,
+  runText,
+  sourceName,
+} from "./sync-text";
 
-/** The right half of the workstation footer: what the school data is doing. */
+/** One line of what Core's planner is doing now. A bar appears only when
+ * Core knows the run's size; background-only work is a small spinner. Both
+ * the workstation footer and the compact top pill render this. */
+export function SyncProgressLine({
+  snapshot,
+  locale,
+}: {
+  snapshot: SyncSnapshot;
+  locale: string;
+}) {
+  const line = progressLine(snapshot);
+  if (snapshot.resetting)
+    return (
+      <span className="syncProgress" data-kind="busy">
+        <i className="schoolStatusSpinner" aria-hidden="true" />
+        <span>{t("Resetting…")}</span>
+      </span>
+    );
+  switch (line.kind) {
+    case "idle":
+      return null;
+    case "bar":
+      return (
+        <span className="syncProgress" data-kind="bar">
+          <span title={runText(line.run)}>
+            {runText(line.run)} · {line.done} / {line.total}
+          </span>
+          <progress
+            aria-label={runText(line.run)}
+            max={Math.max(line.total, 1)}
+            value={Math.min(line.done, line.total)}
+          />
+        </span>
+      );
+    case "busy":
+      return (
+        <span className="syncProgress" data-kind="busy">
+          <i className="schoolStatusSpinner" aria-hidden="true" />
+          <span title={runText(line.run)}>{runText(line.run)}</span>
+        </span>
+      );
+    case "background":
+      return (
+        <span
+          className="syncProgress"
+          data-kind="background"
+          title={runText(line.run)}
+        >
+          <i className="schoolStatusSpinner" aria-hidden="true" />
+          <span>{t("Updating in the background")}</span>
+        </span>
+      );
+    case "held":
+      return (
+        <span className="syncProgress" data-kind="held">
+          <span title={runText(line.run)}>
+            {heldText(line.held, locale)}
+          </span>
+        </span>
+      );
+  }
+}
+
+/** Each failed dataset by name, when Core retries, and a Retry that asks
+ * for that scope now. */
+export function SyncFailures({
+  snapshot,
+  locale,
+}: {
+  snapshot: SyncSnapshot;
+  locale: string;
+}) {
+  const failures = failedRuns(snapshot);
+  if (!failures.length) return null;
+  return (
+    <ul className="syncFailures" role="status">
+      {failures.map((run) => (
+        <li key={run.run}>
+          <span>{failureText(run.dataset, run.failure!, locale)}</span>
+          <UiButton
+            type="button"
+            className="textButton"
+            disabled={snapshot.resetting}
+            onClick={() => sendRefresh(retryScope(run))}
+          >
+            {t("Retry")}
+          </UiButton>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The right half of the workstation footer: how old each source is, what
+ * is running, and what failed. */
 export function SchoolStatusLine({
-  status,
+  snapshot,
   locale,
   refresh,
 }: {
-  status: SchoolStatus;
+  snapshot: SyncSnapshot;
   locale: string;
-  refresh?: { busy: boolean; run: () => void };
+  /** Sends `Refresh { everything }`; absent outside the desktop app. */
+  refresh?: () => void;
 }) {
-  const now = useClock(status.kind === "idle");
-  const line =
-    status.kind === "idle" ? (
-      <span className="schoolUpdated">
-        {status.updated.map(({ source, at }) => (
-          <span
-            key={source}
-            title={
-              at
-                ? formatJst(at, locale, {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })
-                : undefined
-            }
-          >
-            <b>{source}</b>
-            {at
-              ? (relativeTimeAgo(at, now, locale) ?? t("just now"))
-              : t("Never updated")}
-          </span>
-        ))}
-      </span>
-    ) : (
-      <>
-        {status.kind === "background" ? (
-          <i className="schoolStatusSpinner" aria-hidden="true" />
-        ) : null}
-        <b>{status.source}</b>
-        <span
-          title={
-            status.kind === "problem" && status.detail
-              ? status.detail
-              : status.phase
-          }
-        >
-          {status.phase}
-          {status.kind === "problem" && status.detail
-            ? ` · ${status.detail}`
-            : ""}
-        </span>
-      </>
-    );
+  const line = progressLine(snapshot);
+  const now = useClock(line.kind === "idle");
+  const failed = failedRuns(snapshot).length > 0;
   return (
-    <div className="lmsStatus" data-kind={status.kind} aria-live="polite">
+    <div
+      className="lmsStatus"
+      data-kind={failed ? "problem" : line.kind}
+      aria-live="polite"
+    >
       <div className="lmsStatusLine">
-        {line}
+        {line.kind === "idle" && !snapshot.resetting ? (
+          <span className="schoolUpdated">
+            {snapshot.sources.map((source) => (
+              <span
+                key={source.source}
+                title={
+                  source.lastUpdated
+                    ? formatJst(source.lastUpdated, locale, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : undefined
+                }
+              >
+                <b>{sourceName(source.source)}</b>
+                {source.held
+                  ? heldText(source.held, locale)
+                  : ageText(source.lastUpdated, now, locale)}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <SyncProgressLine snapshot={snapshot} locale={locale} />
+        )}
         {refresh && (
           <UiButton
             type="button"
             className="textButton"
-            disabled={refresh.busy}
-            onClick={refresh.run}
+            disabled={snapshot.resetting}
+            onClick={refresh}
           >
-            {t(refresh.busy ? "Refreshing…" : "Refresh now")}
+            {t(snapshot.resetting ? "Resetting…" : "Refresh now")}
           </UiButton>
         )}
       </div>
-      {status.kind === "busy" && (
-        <progress aria-label={status.phase} max={100} value={status.progress} />
-      )}
+      <SyncFailures snapshot={snapshot} locale={locale} />
     </div>
   );
 }

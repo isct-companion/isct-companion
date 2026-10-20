@@ -220,10 +220,9 @@ a snapshot command the UI reads after subscribing.
 | Course finder               | `Core::finder_query`                                                                                                                       | Input, selection and progress                                  |
 | Reminders                   | `Core::reminder_tick`, `Core::import_legacy_reminders`                                                                                     | Wakeups, migration bytes and `NotificationSink`                |
 | School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::school_records`                                                             | Native views, presentation, callbacks and downloads            |
-| Pull state                  | `CoreRuntime::{pull_snapshots,subscribe_pulls,cancel_pull,refresh_event}`                                                                  | Forward intents and publish snapshots                          |
-| References                  | `Core::services(...).references`                                                                                                           | Supply lifecycle/network facts                                 |
+| Sync                        | `Core::{sync_hint,sync_snapshot}`, `CoreEvent::SyncSnapshot` (`sync-snapshot`)                                                             | Send lifecycle/network/open/refresh hints; render the snapshot |
 | Scheduler                   | `Core::runtime`: wake, run_scheduled, suspend, resume                                                                                      | Periodic wakeups and scheduled exporter port                   |
-| Catalog                     | `catalog::{offerings,finder_offerings,catalog_query,catalog_sync_offering,catalog_sync_offerings,catalog_sync_department,syllabus_course}` | Call through the runtime's owned operation scope               |
+| Catalog                     | `catalog::{offerings,finder_offerings,syllabus_course}`; downloads are the planner's `catalog.*` datasets                                  | Search locally through `finder_query`                          |
 | Downloads                   | `Core::runtime.downloads`, `course_materials::CourseMaterials`                                                                             | Cookie acquisition, native URL handlers and opening files      |
 | Notes / backups / cloud     | `notes::NoteStore`, `BackupService`, `CloudSync`                                                                                           | Selected root, dialogs, transport and events                   |
 | School credentials          | `Core::auth` / `SchoolAuthService`                                                                                                         | `SecretVault`, native login surface                            |
@@ -479,8 +478,9 @@ Desktop and future native shells use the same schedule and reminder rules.
 `notification::NotificationContent` owns the title/body size limits for both
 planned reminders and shell-requested notifications.
 
-Desktop and FFI call `Core::wake(WakeServices)` from their native wake opportunities.
-Core runs refresh, cloud and reminders and returns a `WakeReport` retaining each
+Desktop and FFI send `Hint::Wake` and call `Core::wake(WakeServices)` from their native
+wake opportunities. School and reference reads are the sync planner's (see
+[`school-refresh.md`](school-refresh.md)); `wake` runs scheduled tasks, cloud and reminders and returns a `WakeReport` retaining each
 result; an earlier failure never suppresses later services. Ports and clock facts
 are supplied per wake. `reminder_tick(sink, now)` remains available for direct use.
 Core owns the 30-second gate, five-minute grace window, three-day fired-log

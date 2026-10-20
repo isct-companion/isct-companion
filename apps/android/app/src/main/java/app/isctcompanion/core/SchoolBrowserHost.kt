@@ -155,7 +155,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             loadWithOverviewMode = true
             useWideViewPort = true
         }
-        // One cookie store: visible pages and hidden pulls share a session; SSO
+        // One cookie store: visible pages and hidden sync reads share a session; SSO
         // crosses sites.
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         val resident = ResidentView(id, webView)

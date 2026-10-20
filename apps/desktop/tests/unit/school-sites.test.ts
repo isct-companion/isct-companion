@@ -20,7 +20,7 @@ import type {
 import { bootstrapReminders } from "@app/platform/reminders";
 import { schoolSessions } from "@app/platform/school-session";
 import { schoolWebBounds } from "@app/platform/school-web-bounds";
-import { subscriptionNetwork } from "@app/platform/subscription-polling";
+import { networkHint } from "@app/platform/sync";
 import { readRepoFile } from "@tests/harness";
 
 /**
@@ -1225,7 +1225,7 @@ function restoreProperty(
   else Reflect.deleteProperty(navigator, name);
 }
 
-describe("reference subscription shell policy", () => {
+describe("network hint for the sync planner", () => {
   afterEach(() => {
     restoreProperty("onLine", onlineDescriptor);
     restoreProperty("connection", connectionDescriptor);
@@ -1233,7 +1233,7 @@ describe("reference subscription shell policy", () => {
 
   it("pauses offline and metered connections", () => {
     setNetwork(false);
-    expect(subscriptionNetwork()).toBe("offline");
+    expect(networkHint()).toBe("offline");
 
     for (const connection of [
       { type: "cellular" },
@@ -1241,15 +1241,15 @@ describe("reference subscription shell policy", () => {
       { type: "wifi", metered: true },
     ]) {
       setNetwork(true, connection);
-      expect(subscriptionNetwork()).toBe("cellular");
+      expect(networkHint()).toBe("cellular");
     }
   });
 
-  it("treats Wi-Fi and unknown connections as unmetered", () => {
+  it("names Wi-Fi and leaves an unreported link unknown for Core", () => {
     setNetwork(true, { type: "wifi" });
-    expect(subscriptionNetwork()).toBe("wifi");
+    expect(networkHint()).toBe("wifi");
     setNetwork(true);
-    expect(subscriptionNetwork()).toBe("wifi");
+    expect(networkHint()).toBe("unknown");
   });
 });
 

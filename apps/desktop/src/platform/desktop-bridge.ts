@@ -8,10 +8,12 @@ import type { Localized } from "../lib/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type { SyllabusCourse } from "../lib/syllabus";
-import type {
-  SchoolPageAvailability,
-  SchoolStatus,
-} from "../generated/persistence";
+import type { SchoolPageAvailability } from "../generated/persistence";
+import {
+  isSyncSnapshot,
+  type SyncHint,
+  type SyncSnapshot,
+} from "./sync";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop";
@@ -136,11 +138,6 @@ export type SchoolIngestOutcome = {
   state: "ok" | "unavailable" | "maintenance" | "reconnect-required" | "error";
   changed: number;
   message: string;
-};
-export type SchoolPullOptions = {
-  currentOnly?: boolean;
-  /** Limit the expensive LMS content pass to one Moodle course. */
-  lmsCourseId?: number;
 };
 export type LmsSection = {
   id: number;
@@ -291,40 +288,12 @@ export type CloudSyncState = {
   versions: CloudSyncVersion[];
 };
 
-/** Native business pull state; login/navigation remain executor details. */
 /** The local MCP server: no listener or token while agent access is off. */
 export type AgentConnection =
   | { state: "off" }
   | { state: "listening"; url: string; token: string }
   | { state: "failed"; error: string };
 
-export type PullSnapshot = {
-  id: string;
-  target:
-    | { type: "catalog"; year: number; query: string }
-    | { type: "school"; site: "science-lms" | "kyomu"; courseId: number | null }
-    | { type: "reference"; kind: string; indexUrl: string; year: number };
-  priority: "automatic" | "manual";
-  state:
-    | "queued"
-    | "checking"
-    | "blocked"
-    | "running"
-    | "applying"
-    | "retryWaiting"
-    | "succeeded"
-    | "failed"
-    | "cancelling"
-    | "cancelled"
-    | "yielding";
-  phase: string | null;
-  blockedBy: string | null;
-  attempt: number;
-  waiterCount: number;
-  lastError: string | null;
-};
-
-/** Prefer executing work when an older automatic request is blocked. */
 export type InvokeNative = (
   command: string,
   payload?: Record<string, unknown>,
@@ -475,26 +444,16 @@ export interface DesktopBridge {
   onSchoolSession(
     callback: (event: SchoolSessionEvent) => void,
   ): Promise<() => void> | (() => void);
-  /**
-   * Runs the LMS or 教務Web extractor in the hidden school view and waits for
-   * the result (one outcome per 教務Web page). Expired sessions are renewed
-   * with the saved credentials on the way.
-   */
-  pullSchool?(
-    site: "science-lms" | "kyomu",
-    options?: SchoolPullOptions,
-  ): Promise<SchoolIngestOutcome[]>;
-  getPullState?(): Promise<PullSnapshot[]>;
-  onPullState?(callback: (states: PullSnapshot[]) => void): () => void;
-  cancelPull?(id: string): Promise<boolean>;
-  refreshReferenceSubscriptions?(force: boolean): Promise<string>;
+  /** A shell fact or intent for Core's sync planner; never waits for a read. */
+  syncHint?(hint: SyncHint): Promise<void>;
+  /** Core's sync snapshot now. */
+  syncSnapshot?(): Promise<SyncSnapshot>;
+  /** The current snapshot, then every `sync-snapshot` event. */
+  onSyncSnapshot?(callback: (snapshot: SyncSnapshot) => void): () => void;
   /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
   setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
   /** An extractor finished while the person browsed LMS / 教務Web. */
   onSchoolIngest?(callback: (outcome: SchoolIngestOutcome) => void): () => void;
-  /** Core's school status (`school_status.rs`): the current value, then
-   * every change. */
-  onSchoolStatus?(callback: (status: SchoolStatus) => void): () => void;
   /** Saves a validated workspace export under app-owned local storage. */
   /** Asks where to save an exported file; false when the person cancels. */
   saveFile(name: string, contents: string): Promise<boolean>;
@@ -504,12 +463,6 @@ export interface DesktopBridge {
     redirectUri: string,
   ): Promise<boolean>;
   cloudAuthorizationStatus(): Promise<CloudProvider[]>;
-  schoolRefreshEvent?(event: {
-    kind: "account-active" | "foreground" | "background" | "lecture-opened";
-    profile?: SchoolAuthProfile;
-    courseId?: number;
-    network?: string;
-  }): Promise<void>;
   cloudLifecycle?(kind: "foreground" | "background"): Promise<void>;
   cloudSyncState?(): Promise<CloudSyncState>;
   /** Local MCP server state; reconciles the listener with the setting first. */
@@ -533,30 +486,8 @@ export interface DesktopBridge {
   ): Promise<boolean>;
   clearCloudCredentialSyncPassword(): Promise<boolean>;
   syllabusCourse(url: string, language: "en" | "ja"): Promise<SyllabusCourse>;
-  catalogSyncDepartment(
-    year: number,
-    scopePath: string,
-    quarter?: "1Q" | "2Q" | "3Q" | "4Q",
-  ): Promise<{
-    listed: number;
-    synced: number;
-    truncated: boolean;
-    warnings: string[];
-  }>;
   /** Every stored offering of a year, for the course finder's local search. */
   catalogOfferings?(year: number): Promise<FinderCourse[]>;
-  /** One authenticated official page of up to 100 courses; timings are stored. */
-  catalogQuery?(
-    year: number,
-    query: import("../generated/persistence").RemoteQuery & { cursor?: string },
-  ): Promise<{
-    ids: string[];
-    total: number;
-    truncated: boolean;
-    nextCursor?: string;
-  }>;
-  /** Fetches detail pages (schedule, credits) for up to 20 stored offerings. */
-  catalogSyncOfferings?(ids: string[]): Promise<string[]>;
 }
 
 /** Tauri's unlisten throws, or rejects, once the runtime is gone (window closing, tests). */
@@ -836,62 +767,43 @@ export function createTauriDesktopBridge(
     },
     revealSchoolDownload: (path) =>
       booleanCommand("reveal_school_download", { path }),
-    pullSchool: async (site, options) => {
-      const value = await invokeCommand("pull_school", {
-        site,
-        lmsCourseId: options?.lmsCourseId,
-        currentOnly: options?.currentOnly,
-      });
-      if (!Array.isArray(value))
-        throw new Error("pull_school returned an invalid result.");
-      return value as SchoolIngestOutcome[];
+    syncHint: async (hint) => {
+      await invokeCommand("sync_hint", { hint });
     },
-    getPullState: async () => {
-      const value = await invokeCommand("pull_state");
-      if (!Array.isArray(value))
-        throw new Error("pull_state returned an invalid result.");
-      return value as PullSnapshot[];
+    syncSnapshot: async () => {
+      const value = await invokeCommand("sync_snapshot");
+      if (!isSyncSnapshot(value))
+        throw new Error("sync_snapshot returned an invalid result.");
+      return value;
     },
-    onPullState: (callback) => {
+    onSyncSnapshot: (callback) => {
       let disposed = false;
       let unlisten: (() => void) | undefined;
       let version = 0;
-      void listen<PullSnapshot[]>("pull-state-changed", (payload) => {
-        if (!disposed && Array.isArray(payload)) {
+      void listen<SyncSnapshot>("sync-snapshot", (payload) => {
+        if (!disposed && isSyncSnapshot(payload)) {
           version++;
           callback(payload);
         }
       })
         .then(async (fn) => {
           if (disposed) {
-            fn();
+            quietly(fn);
             return;
           }
           unlisten = fn;
-          // Listen first, then read: fast startup jobs may finish before mount.
+          // Listen first, then read: a run may finish before the shell mounts.
+          // A late read never replaces an event that arrived meanwhile.
           const currentVersion = version;
-          const value = await invokeCommand("pull_state");
-          if (!disposed && currentVersion === version && Array.isArray(value))
-            callback(value as PullSnapshot[]);
+          const value = await invokeCommand("sync_snapshot");
+          if (!disposed && currentVersion === version && isSyncSnapshot(value))
+            callback(value);
         })
         .catch(() => undefined);
       return () => {
         disposed = true;
-        try {
-          void Promise.resolve(unlisten?.()).catch(() => undefined);
-        } catch {
-          /* Closing runtime. */
-        }
+        if (unlisten) quietly(unlisten);
       };
-    },
-    cancelPull: (id) => booleanCommand("cancel_pull", { id }),
-    refreshReferenceSubscriptions: async (force) => {
-      const value = await invokeCommand("refresh_reference_subscriptions", {
-        force,
-      });
-      if (typeof value !== "string")
-        throw new Error("Reference refresh returned an invalid result.");
-      return value;
     },
     setKyomuGuide: (items) => booleanCommand("set_kyomu_guide", { items }),
     onSchoolIngest: (callback) => {
@@ -919,38 +831,6 @@ export function createTauriDesktopBridge(
         }
       };
     },
-    onSchoolStatus: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      let version = 0;
-      void listen<SchoolStatus>("school-status", (payload) => {
-        if (!disposed && payload?.headline) {
-          version++;
-          callback(payload);
-        }
-      })
-        .then(async (fn) => {
-          if (disposed) {
-            fn();
-            return;
-          }
-          unlisten = fn;
-          // Listen first, then read, as for pull state.
-          const currentVersion = version;
-          const value = (await invokeCommand("school_status")) as SchoolStatus;
-          if (!disposed && currentVersion === version && value?.headline)
-            callback(value);
-        })
-        .catch(() => undefined);
-      return () => {
-        disposed = true;
-        try {
-          void Promise.resolve(unlisten?.()).catch(() => undefined);
-        } catch {
-          /* Closing runtime. */
-        }
-      };
-    },
     configureSchoolWebPolicy: (policy) =>
       booleanCommand("configure_school_web_policy", { policy }),
 
@@ -960,8 +840,6 @@ export function createTauriDesktopBridge(
       booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
     cloudAuthorizationStatus: () =>
       result<CloudProvider[]>("cloud_authorization_status"),
-    schoolRefreshEvent: (event) =>
-      result<void>("school_refresh_event", { event }),
     cloudLifecycle: (kind) => result<void>("cloud_lifecycle", { kind }),
     cloudSyncState: () => result<CloudSyncState>("cloud_sync_state"),
     agentConnection: () => result<AgentConnection>("agent_connection"),
@@ -1004,34 +882,6 @@ export function createTauriDesktopBridge(
       booleanCommand("clear_cloud_credential_sync_password"),
     syllabusCourse: (url, language) =>
       result("syllabus_course", { id: url, language }),
-    catalogSyncDepartment: (year, scopePath, quarter) =>
-      result("catalog_sync_department", { year, scopePath, quarter }),
-    // `cursor` is no longer a transport parameter: Core returns every result
-    // of the official search at once. It is only stripped from the filters.
-    catalogQuery: async (year, { q, scope, cursor: _cursor, ...filters }) => {
-      const response = requireObject<{
-        nextCursor?: string;
-        ids: string[];
-        truncated: boolean;
-      }>(
-        "catalog_query",
-        await invokeCommand("catalog_query", {
-          query: q,
-          year,
-          filters: { ...filters, department: scope },
-        }),
-      );
-      return {
-        nextCursor: response.nextCursor,
-        ids: response.ids,
-        total: response.ids.length,
-        truncated: response.truncated,
-      };
-    },
-    catalogSyncOfferings: async (ids) => {
-      const warnings = await invokeCommand("catalog_sync_offerings", { ids });
-      return Array.isArray(warnings) ? warnings.map(String) : [];
-    },
     catalogOfferings: async (year) => {
       const rows = await invokeCommand("catalog_offerings", { year });
       if (!Array.isArray(rows))

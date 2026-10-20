@@ -53,10 +53,10 @@ struct SettingsScreen: View {
         List {
             Section(t("School accounts")) {
                 NavigationLink(value: SettingsRoute.account(.science)) {
-                    accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.source(.scienceLms)?.lastUpdated)
+                    accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.syncSource("lms")?.lastUpdated)
                 }
                 NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
-                    accountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.source(.kyomu)?.lastUpdated)
+                    accountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.syncSource("kyomu")?.lastUpdated)
                 }
             }
             Section {

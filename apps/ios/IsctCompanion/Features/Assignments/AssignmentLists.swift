@@ -102,6 +102,7 @@ struct RecordScreen: View {
         .navigationTitle(t("All assignments"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .onAppear { model.syncHint(.open(view: .assignments)) }
     }
 
     @ViewBuilder

@@ -17,11 +17,8 @@ import {
   type FinderAction,
   type FinderView,
 } from "../../platform/finder-query";
-import {
-  getDesktopBridge,
-  type DesktopBridge,
-  type PullSnapshot,
-} from "../../platform/desktop-bridge";
+import { runsFor } from "../../platform/sync";
+import { useSync } from "../../app/useSync";
 import { t } from "../../i18n";
 
 const TAG: Partial<Record<Condition["type"], string>> = {
@@ -73,16 +70,6 @@ const RENDER_BATCH = 100;
 const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
 
-type Remote =
-  | { state: "idle" }
-  | { state: "searching" }
-  | { state: "unsupported"; why: "empty" | "too-many" }
-  | { state: "done"; ids: Set<string>; total: number; truncated: boolean };
-type NextPage = {
-  query: Parameters<NonNullable<DesktopBridge["catalogQuery"]>>[1];
-  cursor: string;
-};
-
 /**
  * Browser-address-bar style course search: type, pick a suggestion, conditions become
  * pills. Same kind = or, different kinds = and, "!" excludes. Clicking a timetable slot
@@ -104,7 +91,6 @@ export function CourseFinder({
   openCourse,
   activeId,
   readOnly = false,
-  query,
 }: {
   year: number;
   term: TermId;
@@ -124,10 +110,7 @@ export function CourseFinder({
   readOnly?: boolean;
   /** What is on this quarter's timetable, e.g. "3 on timetable · 6 credits". */
   summary?: string;
-  /** One authenticated 教務 search; absent outside the desktop app. */
-  query?: NonNullable<DesktopBridge["catalogQuery"]>;
 }) {
-  const [catalogRevision, setCatalogRevision] = useState(0);
   const [error, setError] = useState("");
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
@@ -135,35 +118,18 @@ export function CourseFinder({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [lastAdded, setLastAdded] = useState<FinderCourse[] | null>(null);
   const [mutating, setMutating] = useState(false);
-  const [remote, setRemote] = useState<Remote>({ state: "idle" });
   const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
-  const [nextPages, setNextPages] = useState<NextPage[]>([]);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [moreError, setMoreError] = useState(false);
-  const morePending = useRef(false);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const loadGeneration = useRef(0);
-  const pageCache = useRef(
-    new Map<
-      string,
-      {
-        remote: Extract<Remote, { state: "done" }>;
-        pages: NextPage[];
-        expires: number;
-        refresh: number;
-      }
-    >(),
-  );
-  const [refresh, setRefresh] = useState(0);
-  const [requestedTerm, setRequestedTerm] = useState<string | null>(null);
   const [showUnavailable, setShowUnavailable] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setShowUnavailable(false), [year, term]);
 
-  const reload = async () => {
-    setCatalogRevision((revision) => revision + 1);
-  };
+  // Search is local only. Core's planner downloads the year's catalog
+  // (`catalog.official`); while it runs, the query is re-read when it lands.
+  const sync = useSync();
+  const catalogRuns = runsFor(sync, ["catalog.official"], String(year));
+  const downloading = catalogRuns.some((run) => !run.failure);
   useEffect(() => {
     const focus = (event: KeyboardEvent) => {
       if (
@@ -190,22 +156,6 @@ export function CourseFinder({
     0,
     enabled,
   );
-  // Keep the last plan while its replacement loads; typing never restarts a search.
-  const planningKey = JSON.stringify([year, term, keys]);
-  const lastPlan = useRef({ key: planningKey, value: planning.value?.plan });
-  if (planning.value && !planning.pending && !planning.error)
-    lastPlan.current = { key: planningKey, value: planning.value.plan };
-  const plan =
-    lastPlan.current.key === planningKey ? lastPlan.current.value : undefined;
-  const planKey = JSON.stringify(plan);
-  const pendingPulls = useRef<PullSnapshot[]>([]);
-  useEffect(
-    () =>
-      getDesktopBridge()?.onPullState?.((pulls) => {
-        pendingPulls.current = pulls;
-      }),
-    [],
-  );
   const result = useFinderQuery(
     {
       year,
@@ -213,19 +163,16 @@ export function CourseFinder({
       keys,
       includeIneligible: showUnavailable,
       input,
-      remoteIds:
-        remote.state === "done"
-          ? [...remote.ids]
-          : remote.state === "idle"
-            ? undefined
-            : [],
     },
-    catalogRevision,
+    downloading,
     enabled,
   );
   const view = result.value;
   const courses = view?.courses;
   const list = view?.courses ?? [];
+  // Only an empty year waits on the download; a stored catalog stays usable
+  // while Core renews it.
+  const firstDownload = downloading && list.length === 0;
   const factors = view?.factors ?? planning.value?.factors ?? [];
   const duplicates = view?.duplicates ?? 0;
   const onTimetable = new Set(view?.onTimetable ?? []);
@@ -263,99 +210,6 @@ export function CourseFinder({
   const unavailableLabel = (id: string) =>
     eligibilityLabel(id) ?? t("Not available for this study profile");
 
-  // 教務 returns schedule and credits with the result. Syllabus details
-  // are fetched when the person opens a course.
-  useEffect(() => {
-    if (!enabled || !plan) {
-      setRemote({ state: "idle" });
-      return;
-    }
-    const generation = ++loadGeneration.current;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const cleanup = () => {
-      cancelled = true;
-      if (loadGeneration.current === generation) loadGeneration.current += 1;
-      clearTimeout(timer);
-      // The finder owns catalogue searches. Superseded pages must release the
-      // shared school lane instead of delaying the next quarter or school pull.
-      for (const pull of pendingPulls.current) {
-        if (
-          pull.target.type === "catalog" &&
-          !["succeeded", "failed", "cancelled"].includes(pull.state)
-        )
-          void getDesktopBridge()
-            ?.cancelPull?.(pull.id)
-            .catch(() => undefined);
-      }
-    };
-    setVisibleCount(RENDER_BATCH);
-    setNextPages([]);
-    setLoadingMore(false);
-    setMoreError(false);
-    morePending.current = false;
-    resultsRef.current?.scrollTo?.({ top: 0 });
-    if ("unsupported" in plan) {
-      setRemote({ state: "unsupported", why: plan.unsupported });
-      return cleanup;
-    }
-    if (!query) {
-      setRemote({ state: "idle" });
-      return cleanup;
-    }
-    if (requestedTerm !== term) {
-      setRemote({ state: "idle" });
-      return cleanup;
-    }
-    const cacheKey = JSON.stringify([year, plan]);
-    const cached = pageCache.current.get(cacheKey);
-    if (cached && cached.expires > Date.now() && cached.refresh === refresh) {
-      setRemote(cached.remote);
-      setNextPages(cached.pages);
-      setError("");
-      return cleanup;
-    }
-    setRemote({ state: "searching" });
-    setError("");
-    timer = setTimeout(async () => {
-      try {
-        const results = await Promise.all(
-          plan.queries.map((q) => query(year, q)),
-        );
-        if (cancelled) return;
-        const ids = new Set(results.flatMap((r) => r.ids));
-        const pages = results.flatMap((r, index) =>
-          r.nextCursor
-            ? [{ query: plan.queries[index], cursor: r.nextCursor }]
-            : [],
-        );
-        const remote: Extract<Remote, { state: "done" }> = {
-          state: "done",
-          ids,
-          total: ids.size,
-          truncated: results.some((r) => r.truncated),
-        };
-        pageCache.current.set(cacheKey, {
-          remote,
-          pages,
-          expires: Date.now() + 5 * 60_000,
-          refresh,
-        });
-        while (pageCache.current.size > 20)
-          pageCache.current.delete(pageCache.current.keys().next().value!);
-        setNextPages(pages);
-        setRemote(remote);
-        await reload();
-      } catch (reason) {
-        if (!cancelled) {
-          setRemote({ state: "idle" });
-          setError(message(reason));
-        }
-      }
-    }, 250);
-    return cleanup;
-  }, [enabled, planKey, year, term, requestedTerm, refresh, showUnavailable]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const live = view?.live ?? "";
   const rows = view?.rows ?? [];
   const shown = rows.slice(0, visibleCount);
@@ -368,58 +222,10 @@ export function CourseFinder({
     // React Activity may reveal the list during a lifecycle commit.
     useFlushSync: false,
   });
-  const loadMore = async (automatic = false) => {
-    if (result.pending || (automatic && moreError)) return;
-    if (visibleCount < rows.length) {
+  // Rows are local; this only widens how many are rendered at once.
+  const loadMore = () => {
+    if (visibleCount < rows.length)
       setVisibleCount((count) => count + RENDER_BATCH);
-      return;
-    }
-    if (
-      !query ||
-      remote.state !== "done" ||
-      !nextPages.length ||
-      morePending.current
-    )
-      return;
-    const generation = loadGeneration.current;
-    // Native page cursors are consumed once; do not cache a consumed cursor.
-    pageCache.current.delete(JSON.stringify([year, plan]));
-    const next = nextPages[0];
-    morePending.current = true;
-    setLoadingMore(true);
-    try {
-      const page = await query(year, { ...next.query, cursor: next.cursor });
-      if (generation !== loadGeneration.current) return;
-      setRemote((current) => {
-        if (current.state !== "done") return current;
-        const ids = new Set([...current.ids, ...page.ids]);
-        return {
-          ...current,
-          ids,
-          total: ids.size,
-          truncated: current.truncated || page.truncated,
-        };
-      });
-      setMoreError(false);
-      setNextPages((current) => [
-        ...current.slice(1),
-        ...(page.nextCursor
-          ? [{ query: next.query, cursor: page.nextCursor }]
-          : []),
-      ]);
-      setVisibleCount((count) => count + RENDER_BATCH);
-      await reload();
-    } catch (reason) {
-      if (generation === loadGeneration.current) {
-        setError(message(reason));
-        setMoreError(true);
-      }
-    } finally {
-      if (generation === loadGeneration.current) {
-        morePending.current = false;
-        setLoadingMore(false);
-      }
-    }
   };
   // IntersectionObserver follows the scroll container in both workstation and
   // compact layouts. A button exposes the same action to keyboard users.
@@ -429,21 +235,18 @@ export function CourseFinder({
       return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) void loadMore(true);
+        if (entries.some((entry) => entry.isIntersecting)) loadMore();
       },
       { root: resultsRef.current, rootMargin: "240px" },
     );
     observer.observe(sentinel.current);
     return () => observer.disconnect();
-  }, [
-    visibleCount,
-    rows.length,
-    nextPages,
-    loadingMore,
-    remote.state,
-    result.pending,
-    moreError,
-  ]);
+  }, [visibleCount, rows.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const conditionsKey = JSON.stringify([year, term, keys, showUnavailable]);
+  useEffect(() => {
+    setVisibleCount(RENDER_BATCH);
+    resultsRef.current?.scrollTo?.({ top: 0 });
+  }, [conditionsKey]);
   useEffect(() => setVisibleCount(RENDER_BATCH), [live]);
   const availableSuggestions = view?.suggestions ?? [];
   const suggestions: Suggestion[] = open ? availableSuggestions : [];
@@ -562,7 +365,6 @@ export function CourseFinder({
   };
   const onChange = (value: string, composing = false) => {
     activate();
-    setRequestedTerm(term);
     const sequence = ++editSequence.current;
     setInput(value);
     setActive(0);
@@ -641,13 +443,11 @@ export function CourseFinder({
           </b>
           {enabled && (
             <span>
-              {remote.state === "searching"
-                ? t("Searching 教務Web…")
-                : remote.state === "done"
-                  ? `${remote.total} ${t("in 教務Web")}`
-                  : courses
-                    ? `${list.length} ${t("stored")}`
-                    : t("Loading…")}
+              {firstDownload
+                ? t("Downloading the {{year}} course catalog", { year })
+                : courses
+                  ? `${list.length} ${t("stored")}`
+                  : t("Loading…")}
             </span>
           )}
         </div>
@@ -730,7 +530,6 @@ export function CourseFinder({
             onPaste={onPaste}
             onFocus={() => {
               activate();
-              setRequestedTerm(term);
               setOpen(true);
             }}
             onBlur={() => setTimeout(() => setOpen(false), 120)}
@@ -821,7 +620,7 @@ export function CourseFinder({
                         <span>
                           {s.key.startsWith("!")
                             ? `${t("Not")} “${query}”`
-                            : `${t("Search 教務Web for")} “${query}”`}
+                            : `${t("Search for")} “${query}”`}
                         </span>
                         {s.count >= 0 && (
                           <small className={s.count ? "" : "zero"}>
@@ -857,27 +656,6 @@ export function CourseFinder({
           {rows.length} {t("courses")} {filteredByText}
           {duplicates > 0 && ` · ${t("duplicates merged")}`}
         </span>
-        {query && (
-          <button
-            type="button"
-            className="textButton"
-            onClick={() => {
-              activate();
-              setRequestedTerm(term);
-              setRefresh((n) => n + 1);
-            }}
-          >
-            {t(remote.state === "idle" ? "Search 教務Web" : "Refresh")}
-          </button>
-        )}
-        {remote.state === "done" && remote.truncated && (
-          <span className="finderWarn">
-            {t(
-              "教務Web limited these results. Narrow with a department, code or instructor.",
-              { total: remote.total },
-            )}
-          </span>
-        )}
         {(error || result.error || planning.error) && (
           <span className="finderError">
             {error || result.error || planning.error}
@@ -885,33 +663,24 @@ export function CourseFinder({
         )}
       </div>
 
-      <div className="finderResults" ref={resultsRef} aria-busy={loadingMore}>
+      <div className="finderResults" ref={resultsRef} aria-busy={firstDownload}>
         {enabled && !courses && !error && (
           <div className="empty">{t("Loading…")}</div>
         )}
         {courses && rows.length === 0 && (
           <div className="empty finderEmpty">
-            {remote.state === "unsupported" ? (
-              <span>
-                {remote.why === "too-many"
-                  ? t(
-                      "Use at most 4 department × code combinations. Narrow the conditions.",
-                    )
-                  : t("Choose a condition or enter a course name.")}
-              </span>
-            ) : remote.state === "searching" ? (
-              <span>{t("Searching 教務Web…")}</span>
-            ) : remote.state === "done" && remote.total === 0 ? (
-              <span>
-                {t("教務Web found nothing. Change or remove a condition.")}
-              </span>
-            ) : (
-              <span>
-                {t(
-                  "No matching courses. Remove a condition to widen the search.",
-                )}
-              </span>
-            )}
+            <span>
+              {firstDownload
+                ? t(
+                    "Downloading the {{year}} course catalog. Results appear when it is saved.",
+                    { year },
+                  )
+                : courses.length === 0
+                  ? t("No {{year}} course catalog is saved yet.", { year })
+                  : t(
+                      "No matching courses. Remove a condition to widen the search.",
+                    )}
+            </span>
           </div>
         )}
         <div
@@ -1014,13 +783,9 @@ export function CourseFinder({
           })}
         </div>
         <div ref={sentinel} className="finderLoadMore">
-          {(shown.length < rows.length || nextPages.length > 0) && (
-            <UiButton
-              className="textButton"
-              disabled={loadingMore}
-              onClick={() => void loadMore()}
-            >
-              {loadingMore ? t("Loading…") : t("Load more courses")}
+          {shown.length < rows.length && (
+            <UiButton className="textButton" onClick={loadMore}>
+              {t("Load more courses")}
             </UiButton>
           )}
         </div>

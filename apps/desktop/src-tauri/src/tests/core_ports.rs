@@ -4,13 +4,10 @@ use isct_core::{
     data::WorkspaceChangeSource,
     events::{SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
-    pull_coordinator::{PullPriority, PullSnapshot, PullState, PullTarget},
     school_auth::SchoolAuthProfile,
-    school_browser::{
-        SchoolLoginEvent, SchoolPullProgress, SchoolSessionEvent, SchoolSessionState,
-    },
+    school_browser::{SchoolLoginEvent, SchoolSessionEvent, SchoolSessionState},
     school_service::{IngestOutcome, IngestState},
-    school_status::{PullStep, PullStepKind, SchoolHeadline, SchoolStatus},
+    sync_engine::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
 };
 use serde_json::json;
 
@@ -20,21 +17,19 @@ fn sample(event: &CoreEvent) -> &'static str {
         CoreEvent::WorkspaceChanged { .. } => "workspace",
         CoreEvent::OcrProgress { .. } => "ocr",
         CoreEvent::SchoolLogin(_) => "login",
-        CoreEvent::SchoolPullProgress(_) => "progress",
         CoreEvent::SchoolSession(_) => "session",
         CoreEvent::SchoolWebUrl { .. } => "url",
         CoreEvent::SchoolWebOpen { .. } => "open",
         CoreEvent::SchoolIngest(_) => "ingest",
         CoreEvent::SchoolDownload(_) => "download",
-        CoreEvent::PullStateChanged(_) => "pull",
-        CoreEvent::SchoolStatusChanged(_) => "status",
+        CoreEvent::SyncSnapshot(_) => "sync",
         CoreEvent::CloudSyncState(_) => "cloud",
     }
 }
 
 /// Names and payloads React listens for (desktop-bridge.ts). The shapes
 /// match the events main emitted before Core owned them; school-session
-/// gained `revision` and pull-state-changed is new with Core.
+/// gained `revision` and sync-snapshot is new with Core's planner.
 #[test]
 fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
     let url = "https://lms.s.isct.ac.jp/course/view.php?id=1".to_string();
@@ -64,20 +59,6 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             }),
             "school-login-status",
             json!({"profile":"tokyo-tech","state":"connected","message":"Connected"}),
-        ),
-        (
-            CoreEvent::SchoolPullProgress(SchoolPullProgress {
-                site: SchoolSite::ScienceLms,
-                phase: "course".into(),
-                completed: 1,
-                total: 3,
-                course_id: 42,
-                course_title: "Physics".into(),
-                term: "2026-3Q".into(),
-                item_title: "Week 1".into(),
-            }),
-            "school-pull-progress",
-            json!({"site":"science-lms","phase":"course","completed":1,"total":3,"courseId":42,"courseTitle":"Physics","term":"2026-3Q","itemTitle":"Week 1"}),
         ),
         (
             CoreEvent::SchoolSession(SchoolSessionEvent {
@@ -127,43 +108,36 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             json!({"site":"science-lms","state":"done","name":"notes.pdf","path":"/Downloads/notes.pdf"}),
         ),
         (
-            CoreEvent::PullStateChanged(vec![PullSnapshot {
-                id: "job".into(),
-                target: PullTarget::School {
-                    site: SchoolSite::ScienceLms,
-                    course_id: Some(42),
-                },
-                priority: PullPriority::Manual,
-                state: PullState::RetryWaiting,
-                phase: None,
-                blocked_by: Some("background".into()),
-                attempt: 2,
-                waiter_count: 1,
-                last_error: None,
-            }]),
-            "pull-state-changed",
-            json!([{"id":"job","target":{"type":"school","site":"science-lms","courseId":42},"priority":"manual","state":"retryWaiting","phase":null,"blockedBy":"background","attempt":2,"waiterCount":1,"lastError":null}]),
-        ),
-        (
-            CoreEvent::SchoolStatusChanged(SchoolStatus {
-                headline: SchoolHeadline::Busy {
-                    site: SchoolSite::ScienceLms,
-                    progress: 31,
-                    step: PullStep {
-                        kind: PullStepKind::Material,
-                        completed: 3,
-                        total: 9,
-                        term: "2026-3Q".into(),
-                        course_title: "Linear Algebra".into(),
-                        item_title: "Week 3".into(),
+            CoreEvent::SyncSnapshot(SyncSnapshot {
+                generation: 2,
+                resetting: false,
+                runs: vec![RunView {
+                    run: "run-7".into(),
+                    dataset: "lms.course".into(),
+                    label: Label {
+                        key: "sync.dataset.lms.course".into(),
+                        args: json!({}),
                     },
-                    waiting: None,
-                    queued: Some(SchoolSite::Kyomu),
-                },
-                sources: Vec::new(),
+                    priority: Priority::Visible,
+                    done: 3,
+                    total: Some(9),
+                    current: None,
+                    scope: Some("42".into()),
+                    held: Some(Held::Cellular),
+                    failure: None,
+                }],
+                sources: vec![SourceView {
+                    source: "lms".into(),
+                    last_updated: None,
+                    running: true,
+                    held: None,
+                    failure: None,
+                    session: Some("active".into()),
+                    maintenance: None,
+                }],
             }),
-            "school-status",
-            json!({"headline":{"kind":"busy","site":"science-lms","progress":31,"step":{"kind":"material","completed":3,"total":9,"term":"2026-3Q","courseTitle":"Linear Algebra","itemTitle":"Week 3"},"waiting":null,"queued":"kyomu"},"sources":[]}),
+            "sync-snapshot",
+            json!({"generation":2,"resetting":false,"runs":[{"run":"run-7","dataset":"lms.course","label":{"key":"sync.dataset.lms.course","args":{}},"priority":"visible","done":3,"total":9,"current":null,"scope":"42","held":{"kind":"cellular"},"failure":null}],"sources":[{"source":"lms","lastUpdated":null,"running":true,"held":null,"failure":null,"session":"active","maintenance":null}]}),
         ),
         (
             CoreEvent::CloudSyncState(SyncState::default()),
@@ -176,5 +150,5 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
         covered.insert(sample(&event));
         assert_eq!(wire(&event), (name, payload));
     }
-    assert_eq!(covered.len(), 12);
+    assert_eq!(covered.len(), 10);
 }

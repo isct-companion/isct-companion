@@ -1,10 +1,9 @@
 use crate::{
-    core_ports, kyomu_guide,
+    kyomu_guide,
     lifecycle::SchoolSite,
-    pull_coordinator, require_local_main, school_refresh,
-    school_web::{self, SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds},
+    require_local_main,
+    school_web::{SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds},
 };
-use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
 /// Explicit user browsing preserves the full web address, including search
@@ -160,87 +159,6 @@ pub(crate) fn set_school_web_zoom(
     controller.set_zoom(site, scale)
 }
 
-/// Runs the LMS or 教務Web extractor in the hidden school view and waits for
-/// its result (one per 教務Web page).
-#[tauri::command]
-pub(crate) async fn pull_school(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    site: SchoolSite,
-    lms_course_id: Option<u64>,
-    current_only: Option<bool>,
-) -> Result<Vec<school_web::IngestOutcome>, String> {
-    require_local_main(&webview)?;
-    let services = core_ports::services(&app);
-    core_ports::runtime(&app)
-        .run(async move {
-            if site == SchoolSite::ScienceLms && current_only == Some(true) {
-                return services.school.pull_current_term(services.executor).await;
-            }
-            services
-                .school
-                .pull(
-                    services.executor,
-                    site,
-                    lms_course_id,
-                    pull_coordinator::PullOptions::manual(),
-                    false,
-                )
-                .await
-        })
-        .await
-        .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(crate) async fn pull_state(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-) -> Result<Vec<pull_coordinator::PullSnapshot>, String> {
-    require_local_main(&webview)?;
-    Ok(core_ports::runtime(&app).pull_snapshots().await)
-}
-
-/// What the school connection is doing; the footer re-reads it on
-/// `school-status` and on start.
-#[tauri::command]
-pub(crate) async fn school_status(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-) -> Result<isct_core::school_status::SchoolStatus, String> {
-    require_local_main(&webview)?;
-    core_ports::core(&app)
-        .school_status()
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(crate) async fn cancel_pull(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    id: String,
-) -> Result<bool, String> {
-    require_local_main(&webview)?;
-    Ok(core_ports::runtime(&app).cancel_pull(&id).await)
-}
-
-#[tauri::command]
-pub(crate) async fn refresh_reference_subscriptions(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    force: bool,
-) -> Result<String, String> {
-    require_local_main(&webview)?;
-    let references = core_ports::services(&app).references;
-    core_ports::runtime(&app)
-        .run(async move { references.refresh_all(force).await })
-        .await
-        .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())
-}
-
 #[tauri::command]
 pub(crate) fn set_kyomu_guide(
     webview: tauri::Webview,
@@ -252,27 +170,6 @@ pub(crate) fn set_kyomu_guide(
         .engine
         .set_guide(items)
         .map_err(|e| e.to_string())
-}
-
-/// Async: conditions are republished without blocking the main thread on
-/// the storage read they need.
-#[tauri::command]
-pub(crate) async fn school_refresh_event(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    event: school_refresh::RefreshEvent,
-) -> Result<(), String> {
-    require_local_main(&webview)?;
-    let runtime = core_ports::runtime(&app);
-    runtime
-        .refresh_event(event)
-        .map_err(|error| error.to_string())?;
-    let visible = app.state::<SchoolWebController>().is_visible();
-    let store = app.state::<crate::data::DataStore>().inner().clone();
-    runtime
-        .publish_conditions(&store, visible)
-        .await
-        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
