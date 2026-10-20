@@ -217,6 +217,7 @@ export type NativeCapabilitySnapshot = {
   schoolImport: boolean;
   schoolWeb: boolean;
   notifications: boolean;
+  notificationUnavailableReason?: string | null;
   backgroundSchedule: boolean;
   cloudSync: boolean;
   syllabusSearch: boolean;
@@ -388,6 +389,8 @@ export interface DesktopBridge {
   bootstrapReminders(fired: unknown): Promise<boolean>;
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
+  getNotificationPermission(): Promise<NotificationPermission>;
+  openNotificationSettings(): Promise<void>;
   runScheduledTask(id: string): Promise<string>;
   onWorkspaceChanged(
     callback: (event: WorkspaceChangedEvent) => void,
@@ -630,6 +633,14 @@ export function createTauriDesktopBridge(
         );
       return value;
     },
+    getNotificationPermission: async () => {
+      const value = await invokeCommand("notification_permission");
+      if (!matchesNotificationPermission(value))
+        throw new Error("notification_permission returned an invalid result.");
+      return value;
+    },
+    openNotificationSettings: () =>
+      invokeCommand<void>("open_notification_settings"),
     runScheduledTask: (id) => invokeCommand("run_scheduled_task", { id }),
     onWorkspaceChanged: async (callback) => {
       const unlisten = await listen<unknown>("workspace-changed", (event) => {

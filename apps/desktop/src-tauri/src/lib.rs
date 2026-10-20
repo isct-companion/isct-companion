@@ -248,6 +248,8 @@ pub fn run() {
             commands::school_auth::school_session_snapshot,
             commands::school_auth::school_session_lifecycle,
             commands::notifications::request_notification_permission,
+            commands::notifications::notification_permission,
+            commands::notifications::open_notification_settings,
             commands::notifications::bootstrap_reminders,
             commands::notifications::notify,
             commands::school::school_refresh_event,

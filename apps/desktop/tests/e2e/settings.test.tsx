@@ -2098,14 +2098,20 @@ describe("Academic calendar profile", () => {
 });
 
 describe("Notification preferences", () => {
-  it("groups lead times under each reminder and persists both choices", async () => {
+  it("persists reminder choices and reconciles notification permission with the OS", async () => {
     const sent: unknown[] = [];
-    let notificationPermission: "granted" | "denied" = "denied";
+    const workspace = workspaceFixture();
+    workspace.settings.notifications.localPermission = "denied";
+    let notificationPermission: "granted" | "denied" = "granted";
     app = await mountSettings(paths.settings("notifications"), {
+      workspace,
       capabilities: { notifications: true },
       handle: (command, args) => {
         // The system's real answer, which the stored permission must follow.
-        if (command === "request_notification_permission")
+        if (
+          command === "request_notification_permission" ||
+          command === "notification_permission"
+        )
           return notificationPermission;
         if (command === "notify") return (sent.push(args), true);
       },
@@ -2121,6 +2127,12 @@ describe("Notification preferences", () => {
       },
     });
     const pane = settingsPane(app);
+    // A persisted refusal must not disable reminders after the OS allows them.
+    await wait(() =>
+      expect(app!.core.workspace.settings.notifications.localPermission).toBe(
+        "granted",
+      ),
+    );
     const classTime = pane.querySelector<HTMLInputElement>(
       '[data-setting="class-lead"] [role="combobox"]',
     )!;
@@ -2196,6 +2208,7 @@ describe("Notification preferences", () => {
     ).toEqual([1440, 60, 180]);
 
     // A test notification asks the system first; a refusal sends nothing.
+    notificationPermission = "denied";
     await click(
       pane.querySelector<HTMLButtonElement>(
         '[data-setting="test-notification"] button',
@@ -2207,8 +2220,19 @@ describe("Notification preferences", () => {
       ),
     );
     expect(sent).toEqual([]);
+    await wait(() =>
+      expect(app!.core.commands("open_notification_settings")).toHaveLength(1),
+    );
 
+    // Returning from System Settings restores permission without another send.
     notificationPermission = "granted";
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await wait(() =>
+      expect(app!.core.workspace.settings.notifications.localPermission).toBe(
+        "granted",
+      ),
+    );
+    expect(sent).toEqual([]);
     await click(
       pane.querySelector<HTMLButtonElement>(
         '[data-setting="test-notification"] button',
