@@ -120,14 +120,41 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
         snapshot.workspace.0["academicProfile"]["admissionYear"],
         2026
     );
-    let StreamUpdate::Event { event } = events.next().await.unwrap() else {
-        panic!("missing mutation event")
+    // Sync snapshots stream on the same channel; the mutation's own event is
+    // the workspace change.
+    let event = loop {
+        let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+            panic!("missing mutation event")
+        };
+        if event.name == "workspace-changed" {
+            break event;
+        }
     };
-    assert_eq!(event.name, "workspace-changed");
-    assert_eq!(
-        event.payload.0,
-        json!({"source":"user-intent","revision":snapshot.revision})
+    assert_eq!(event.payload.0["source"], "user-intent");
+    assert_eq!(event.payload.0["revision"], json!(snapshot.revision));
+    let changes: Vec<WorkspaceChange> =
+        serde_json::from_value(event.payload.0["changes"].clone()).unwrap();
+    assert!(
+        event.payload.0["changes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("settings")),
+        "{}",
+        event.payload.0
     );
+    // The event's names read back only what they feed, from the same state.
+    let OperationResult::WorkspaceRecords { patch } = f
+        .session
+        .workspace_records(changes)
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    assert_eq!(patch.content_revision, snapshot.content_revision);
+    assert_eq!(patch.workspace.0["academicProfile"]["admissionYear"], 2026);
     assert!(matches!(
         f.session.mutate(mutation).unwrap().await_result().await,
         Err(SdkError::Conflict { .. })
@@ -563,8 +590,13 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
     };
     let payload = serde_json::to_value(&snapshot).unwrap();
     let decoded = crate::decode_sync_snapshot(crate::JsonValue(payload.clone())).unwrap();
-    assert!(matches!(decoded.runs[0].priority, SyncPriority::Interactive));
-    assert!(matches!(&decoded.runs[0].held, Some(Held::Backoff { until }) if until.starts_with("2026-10-20T03:00:00")));
+    assert!(matches!(
+        decoded.runs[0].priority,
+        SyncPriority::Interactive
+    ));
+    assert!(
+        matches!(&decoded.runs[0].held, Some(Held::Backoff { until }) if until.starts_with("2026-10-20T03:00:00"))
+    );
     assert_eq!(decoded.runs[0].label.args.0["term"], "2026-3Q");
     assert_eq!(serde_json::to_value(&decoded).unwrap(), payload);
 
@@ -667,7 +699,17 @@ async fn backup_import_restores_through_the_journal_without_a_cloud_store() {
             break event;
         }
     };
-    assert_eq!(event.payload.0, json!({"source":"cloud-restore"}));
+    assert_eq!(event.payload.0["source"], "cloud-restore");
+    for restored in ["plans"] {
+        assert!(
+            event.payload.0["changes"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(restored)),
+            "{}",
+            event.payload.0
+        );
+    }
     let snapshot = f.snapshot().await;
     assert!(snapshot.workspace.0["plans"]
         .as_array()

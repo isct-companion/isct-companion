@@ -261,6 +261,7 @@ pub fn run() {
             commands::cloud::clear_cloud_credential_sync_password,
             commands::workspace::load_workspace,
             commands::workspace::workspace_snapshot,
+            commands::workspace::workspace_records,
             commands::read_models::schedule_query,
             commands::read_models::finder_query,
             commands::workspace::mutate_workspace,
@@ -284,7 +285,7 @@ pub fn run() {
                 notifications_macos::install(main);
             }
             let app_data_dir = app.path().app_data_dir()?;
-            let (data_store, _) = data::DataStore::initialize(app_data_dir.join("school.db"))
+            let (data_store, _) = data::DataStore::initialize_dir(app_data_dir.clone())
                 .map_err(std::io::Error::other)?;
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());

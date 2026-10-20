@@ -117,8 +117,8 @@ impl Drop for DropEvents {
 }
 
 fn store(name: &str) -> DataStore {
-    let path = std::env::temp_dir().join(format!("isct-core-{name}-{}.db", Uuid::new_v4()));
-    DataStore::initialize(path).unwrap().0
+    let path = std::env::temp_dir().join(format!("isct-core-{name}-{}", Uuid::new_v4()));
+    DataStore::initialize_dir(path).unwrap().0
 }
 
 #[tokio::test]
@@ -215,16 +215,43 @@ impl EventSink for RecordedEvents {
     }
 }
 
+type Published = (WorkspaceChangeSource, Option<String>, Vec<WorkspaceChange>);
+
 #[derive(Default)]
 struct WorkspaceEvents {
-    changes: Mutex<Vec<(WorkspaceChangeSource, Option<String>)>>,
+    changes: Mutex<Vec<Published>>,
     fail: AtomicBool,
+}
+
+impl WorkspaceEvents {
+    fn published(&self) -> Vec<Published> {
+        self.changes.lock().unwrap().clone()
+    }
+
+    /// Waits for a held background change; the window is 250 ms.
+    fn wait_for(&self, count: usize) -> Vec<Published> {
+        for _ in 0..200 {
+            if self.published().len() >= count {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        self.published()
+    }
 }
 
 impl EventSink for WorkspaceEvents {
     fn emit(&self, event: CoreEvent) -> Result<(), EventError> {
-        if let CoreEvent::WorkspaceChanged { source, revision } = event {
-            self.changes.lock().unwrap().push((source, revision));
+        if let CoreEvent::WorkspaceChanged {
+            source,
+            revision,
+            changes,
+        } = event
+        {
+            self.changes
+                .lock()
+                .unwrap()
+                .push((source, revision, changes));
         }
         if self.fail.load(Ordering::Relaxed) {
             return Err(EventError::Delivery("event channel closed".into()));
@@ -351,17 +378,21 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
         events.clone(),
     );
-    let changes = || events.changes.lock().unwrap().clone();
+    let changes = || events.published();
 
     let committed =
         admission_year(&core, core.workspace.snapshot().unwrap().revision, 2026).unwrap();
+    let [(source, revision, names)] = &changes()[..] else {
+        panic!("one event per committed intent: {:?}", changes());
+    };
     assert_eq!(
-        changes(),
-        [(
+        (*source, revision.as_deref()),
+        (
             WorkspaceChangeSource::UserIntent,
-            Some(committed.revision.clone())
-        )]
+            Some(committed.revision.as_str())
+        )
     );
+    assert!(names.contains(&WorkspaceChange::Settings), "{names:?}");
 
     // A rejected intent and one that changes no row publish nothing.
     assert!(matches!(
@@ -371,7 +402,8 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
     admission_year(&core, committed.revision.clone(), 2026).unwrap();
     assert_eq!(changes().len(), 1);
 
-    // An MCP tool writes outside WorkspaceService and is still published.
+    // An MCP tool writes outside WorkspaceService and is still published,
+    // at once: it is the first background change.
     core.agent
         .call(
             "plan_event_create",
@@ -379,13 +411,118 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
             AgentPolicy { allow_writes: true },
         )
         .unwrap();
-    assert_eq!(changes().last(), Some(&(WorkspaceChangeSource::Mcp, None)));
+    let (source, revision, names) = changes().last().cloned().unwrap();
+    assert_eq!((source, revision), (WorkspaceChangeSource::Mcp, None));
+    // A plan event is a row of `plans`.
+    assert!(names.contains(&WorkspaceChange::Plans), "{names:?}");
 
     // A failed delivery neither fails nor undoes the committed write.
     events.fail.store(true, Ordering::Relaxed);
     let after = admission_year(&core, core.workspace.snapshot().unwrap().revision, 2027).unwrap();
     assert_eq!(after.workspace["academicProfile"]["admissionYear"], 2027);
     assert_eq!(changes().len(), 3);
+}
+
+/// A sync commits key after key. The shell hears the first commit at once
+/// and the rest of its window merged, each event naming what changed; the
+/// records those names read back cover every field the commits changed,
+/// without the rest of the workspace.
+#[test]
+fn background_commits_reach_shells_merged_with_the_records_they_changed() {
+    use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
+    use WorkspaceChangeSource::SchoolPull;
+    let store = store("background-writes");
+    let events = Arc::new(WorkspaceEvents::default());
+    let core = Core::with_events(
+        store.clone(),
+        Arc::new(SchoolAuthService::new(MemoryVault::default())),
+        events.clone(),
+    );
+    let before = core.workspace.snapshot().unwrap();
+    let renew = |transaction: &rusqlite::Transaction<'_>, at: &str| {
+        sync_state::commit(
+            transaction,
+            &Key::new(Dataset::LmsDeadlines, "all"),
+            Commit {
+                account: "science:student",
+                validator: None,
+                outcome: Outcome::Complete,
+                message: None,
+            },
+            at.parse().unwrap(),
+        )
+    };
+
+    // An unchanged revalidation renews only its key's freshness.
+    store
+        .write(Some(SchoolPull), |transaction| {
+            renew(transaction, "2026-10-19T02:46:13Z")
+        })
+        .unwrap();
+    assert_eq!(
+        events.published(),
+        [(SchoolPull, None, vec![WorkspaceChange::Freshness])]
+    );
+
+    // The next key lands inside the window: held, then merged.
+    store
+        .write(Some(SchoolPull), |transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO registrations
+                       (id, value, hash, updated_at, updated_by, rev, source)
+                     VALUES ('kyomu:CSC.T251', ?1, 'h', '2026-10-19T02:47:00Z', 'school', 1, ?2)",
+                    rusqlite::params![
+                        json!({"id":"kyomu:CSC.T251","offeringId":"","code":"CSC.T251","title":"Test"})
+                            .to_string(),
+                        json!({"provider":"kyomu"}).to_string(),
+                    ],
+                )
+                .map_err(crate::data::DataError::from)?;
+            renew(transaction, "2026-10-19T02:47:00Z")
+        })
+        .unwrap();
+    assert_eq!(events.published().len(), 1, "held until the window ends");
+    assert_eq!(
+        events.wait_for(2)[1],
+        (
+            SchoolPull,
+            None,
+            vec![WorkspaceChange::Registrations, WorkspaceChange::Freshness]
+        )
+    );
+
+    let after = core.workspace.snapshot().unwrap();
+    let patch = core
+        .workspace_records(&[WorkspaceChange::Registrations, WorkspaceChange::Freshness])
+        .unwrap();
+    assert_eq!(patch.content_revision, after.content_revision);
+    for (part, old, new, patched) in [
+        (
+            "workspace",
+            &before.workspace,
+            &after.workspace,
+            &patch.workspace,
+        ),
+        (
+            "schoolRecords",
+            &before.school_records,
+            &after.school_records,
+            &patch.school_records,
+        ),
+    ] {
+        for (field, value) in new.as_object().unwrap() {
+            if old.get(field) != Some(value) {
+                assert_eq!(
+                    patched.get(field),
+                    Some(value),
+                    "{part}.{field} not patched"
+                );
+            }
+        }
+    }
+    assert_eq!(patch.school_records["registrations"][0]["code"], "CSC.T251");
+    assert!(patch.workspace.get("settings").is_none());
 }
 
 /// Cloud capture follows local changes without a shell asking for it: a

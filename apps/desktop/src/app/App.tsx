@@ -317,8 +317,6 @@ export function WorkspaceApp() {
       void navigate(-1);
     else void navigate(path, { replace: true });
   };
-  // Official-page extractors write to SQLite; reload only after an ingestion.
-  const ingestedOnWeb = useRef(false);
   // Tapping the Web tab again while browsing asks Web for its service menu.
   const [webSitesRequest, setWebSitesRequest] = useState(0);
   const [webContext, setWebContext] = useState<{
@@ -392,10 +390,6 @@ export function WorkspaceApp() {
         if (cancelled) return;
         if (page === "web") {
           void desktopBridge?.setKyomuGuide?.([]).catch(() => undefined);
-          if (ingestedOnWeb.current) {
-            ingestedOnWeb.current = false;
-            void workspaceStore.reload().catch(notify.error);
-          }
         }
         blocker.proceed();
       })
@@ -484,23 +478,12 @@ export function WorkspaceApp() {
     }).catch(() => []);
     setGroupPrompt(choices.find((choice) => choice.needsChoice) ?? null);
   };
-  const loadSchoolRecords = () => workspaceActions.refreshSchool();
+  // The ingest's commit patches the records through `workspace-changed`.
   useEffect(
     () =>
       desktopBridge?.onSchoolIngest?.((outcome) => {
-        if (
-          (outcome.state === "ok" || outcome.state === "unavailable") &&
-          pageRef.current === "web"
-        )
-          ingestedOnWeb.current = true;
-        if (outcome.state === "ok" || outcome.state === "unavailable")
-          void workspaceActions
-            .refreshSchool()
-            .then(() => {
-              if (outcome.site === "science-lms" && outcome.state === "ok")
-                notify.updated(outcome.changed);
-            })
-            .catch(() => undefined);
+        if (outcome.site === "science-lms" && outcome.state === "ok")
+          notify.updated(outcome.changed);
       }),
     [],
   );
@@ -1327,9 +1310,8 @@ export function WorkspaceApp() {
       runScheduledTask={
         desktopBridge?.runScheduledTask
           ? async (task) => {
-              const result = await desktopBridge!.runScheduledTask(task.id);
-              await workspaceStore.reload();
-              return result;
+              // The run's record arrives as a `scheduler` change.
+              return desktopBridge!.runScheduledTask(task.id);
             }
           : undefined
       }

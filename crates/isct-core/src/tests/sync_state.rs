@@ -1,10 +1,8 @@
 use super::*;
-use crate::data::migrations::migrate;
+use crate::data::migrations;
 
 fn database() -> Connection {
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrate(&mut connection).unwrap();
-    connection
+    migrations::open_in_memory().unwrap()
 }
 
 fn at(hours: i64) -> DateTime<Utc> {

@@ -233,6 +233,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }
                     "school-web-url", "school-download" -> Unit
+                    // A key re-read with nothing new renews only its freshness,
+                    // which no screen here shows.
+                    "workspace-changed" -> if (!onlyFreshness(update.event.payload)) scheduleRefresh()
                     else -> scheduleRefresh()
                 }
                 is StreamUpdate.SnapshotRequired -> {
@@ -243,6 +246,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             }
         }
     }
+
+    /** Whether a `workspace-changed` names sync freshness and nothing else.
+     * An unreadable payload counts as a real change. */
+    private fun onlyFreshness(payload: String): Boolean = runCatching {
+        val changes = JSONObject(payload).getJSONArray("changes")
+        changes.length() > 0 && (0 until changes.length()).all { changes.getString(it) == "freshness" }
+    }.getOrDefault(false)
 
     /** Coalesces bursts of change hints into one read. */
     private fun scheduleRefresh() {

@@ -1,5 +1,6 @@
 use crate::{core_ports, data, require_local_main, run_data_command};
 use isct_core::workspace::{WorkspaceError, WorkspaceMutation, WorkspaceSnapshot};
+use isct_core::workspace_changes::{WorkspaceChange, WorkspacePatch};
 
 #[tauri::command]
 pub(crate) async fn workspace_snapshot(
@@ -9,6 +10,23 @@ pub(crate) async fn workspace_snapshot(
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
     run_data_command(move || core.workspace.snapshot().map_err(|error| error.to_string())).await
+}
+
+/// The records a `workspace-changed` event's `changes` feed; the window
+/// patches its copy with them instead of reading the whole snapshot.
+#[tauri::command]
+pub(crate) async fn workspace_records(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    changes: Vec<WorkspaceChange>,
+) -> Result<WorkspacePatch, String> {
+    require_local_main(&webview)?;
+    let core = core_ports::core(&app);
+    run_data_command(move || {
+        core.workspace_records(&changes)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]

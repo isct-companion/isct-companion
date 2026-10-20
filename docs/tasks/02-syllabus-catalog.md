@@ -124,14 +124,9 @@ Normalize whitespace (including `<br>` inside `dt`) before matching; `contact` m
 5. Frontend: the course catalog and course drawer read `catalog_*` commands and render `Localized` with `pickLocalized`. Delete `src/cache/syllabus-catalog.ts`, `src/cache/syllabus-languages.ts` and the localStorage part of `src/core/syllabus-content.ts`.
 5. Content freshness 7 days; list rows refresh on search.
 
-## Department sync (for the course planner)
+## Year catalog (for the course planner)
 
-Search results have no day/period, so slot search needs every offering's detail. `sync_department(year, scopePath, quarter?)`:
-
-1. List the department scope page `GET /courses/{year}/{scope}?hl=en` (and the Japanese page) — it lists the department's offerings; if the list reports truncation, split by `group` 100–600.
-2. Also sync the liberal-arts units the planner searches without a department filter (codes `LAH`, `LAE`, `LAS`, `LAW`, `LAL`, `ENT`, `XCO`; search by `code` per series).
-3. Fetch details for offerings not yet stored or older than 7 days, both languages, concurrency 2, ~0.4 s spacing; progress is reported to the UI; the planner works on what is already stored.
-4. Unchanged pages (same hash, task 1) do not rewrite rows.
+Search results have no day/period, so slot search needs every offering's detail. The client no longer lists departments itself: Isct-Data publishes one catalog pack per academic year (`catalog/{year}.json.gz`, built by `crates/isct-core/examples/export-catalog-pack.rs` from every unit the year's syllabus page links to), and Core imports it as the `catalog.syllabus/{year}` sync key (`crates/isct-core/src/catalog_pack.rs`), merged with the 教務Web course search. `catalog.detail` still reads one offering's bilingual page when it is opened.
 
 `catalog_search` then supports `{year, quarter, day, period, departmentScope?, codePrefix?}` from stored `schedule` entries.
 

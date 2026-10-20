@@ -1246,7 +1246,7 @@ async fn failed_delivery_rolls_back_claim_and_can_retry_after_next_wake() {
 async fn legacy_fired_history_is_merged_before_delivery_starts() {
     let root = std::env::temp_dir().join(format!("isct-reminders-import-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = crate::data::DataStore::initialize(root.join("workspace.db"))
+    let store = crate::data::DataStore::initialize_dir(root.clone())
         .unwrap()
         .0;
     let service = ReminderService::new(store.clone());
@@ -1262,7 +1262,7 @@ async fn legacy_fired_history_is_merged_before_delivery_starts() {
         .await
         .unwrap());
     assert!(
-        super::reminders::read_fired(&super::reminders::fired_path(store.path()))
+        super::reminders::read_fired(&super::reminders::fired_path(store.user_path()))
             .unwrap()
             .contains_key("assignment:one")
     );
@@ -1275,10 +1275,10 @@ async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges(
     let root =
         std::env::temp_dir().join(format!("isct-reminders-no-import-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = crate::data::DataStore::initialize(root.join("workspace.db"))
+    let store = crate::data::DataStore::initialize_dir(root.clone())
         .unwrap()
         .0;
-    let path = super::reminders::fired_path(store.path());
+    let path = super::reminders::fired_path(store.user_path());
     let service = ReminderService::new(store);
     let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
 
@@ -1304,7 +1304,7 @@ async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges(
 async fn reminder_ticks_after_shutdown_are_rejected_as_stopped() {
     let root = std::env::temp_dir().join(format!("isct-reminder-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = crate::data::DataStore::initialize(root.join("workspace.db"))
+    let store = crate::data::DataStore::initialize_dir(root.clone())
         .unwrap()
         .0;
     let service = ReminderService::new(store);

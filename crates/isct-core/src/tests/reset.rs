@@ -4,7 +4,7 @@ use crate::{
     school_auth::{MoodleToken, SchoolCredentials},
     sync_state::{self, Commit, Dataset, Due, Key, Outcome},
 };
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -56,8 +56,8 @@ struct Fixture {
 }
 
 fn fixture(name: &str) -> Fixture {
-    let path = std::env::temp_dir().join(format!("isct-reset-{name}-{}.db", uuid::Uuid::new_v4()));
-    let store = DataStore::initialize(path).unwrap().0;
+    let path = std::env::temp_dir().join(format!("isct-reset-{name}-{}", uuid::Uuid::new_v4()));
+    let store = DataStore::initialize_dir(path).unwrap().0;
     let vault = MemoryVault::default();
     let auth = Arc::new(SchoolAuthService::new(vault.clone()));
     let core = Core::new(store, auth.clone());
@@ -90,7 +90,7 @@ const SCHOOL_TABLES: [&str; 11] = [
 /// assignment mark, course override, subscription and saved login.
 fn seed(fixture: &Fixture) {
     let store = &fixture.core.store;
-    let connection = Connection::open(store.path()).unwrap();
+    let connection = store.test_connection();
     let row = "VALUES(?1,?2,'hash','2026-10-01T00:00:00+00:00','school',1)";
     for (table, id, value) in [
         (
@@ -203,8 +203,8 @@ fn seed(fixture: &Fixture) {
 }
 
 fn count(store: &DataStore, table: &str) -> i64 {
-    Connection::open(store.path())
-        .unwrap()
+    store
+        .test_connection()
         .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
             row.get(0)
         })
@@ -212,8 +212,8 @@ fn count(store: &DataStore, table: &str) -> i64 {
 }
 
 fn setting(store: &DataStore, key: &str) -> Option<String> {
-    Connection::open(store.path())
-        .unwrap()
+    store
+        .test_connection()
         .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
             row.get(0)
         })
@@ -270,7 +270,7 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
     assert_eq!(setting(store, "kyomuSearchOptions:2026"), None);
     assert_eq!(setting(store, "kyomuAcademicIdentity"), None);
     for (dataset, key) in KEYS {
-        let connection = Connection::open(store.path()).unwrap();
+        let connection = store.test_connection();
         let state = sync_state::get(&connection, &Key::new(dataset, key)).unwrap();
         let ttl = sync_state::ttl(dataset, sync_state::Term::Current);
         assert_eq!(
@@ -313,7 +313,7 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
     assert!(!commit_leased_at(core, generation, &key));
     assert_eq!(count(store, "dataset_state"), 0);
     assert!(commit_leased_at(core, core.sync.generation(), &key));
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 /// The two options remove what the panel promises and nothing else: the
@@ -366,7 +366,7 @@ async fn school_cache_options_remove_downloads_and_web_session_but_never_notes()
     assert!(preview.freed_bytes >= 4096);
     assert_eq!(count(&core.store, "lms_courses"), 0);
     let _ = fs::remove_dir_all(root);
-    let _ = fs::remove_file(core.store.path());
+    let _ = fs::remove_dir_all(core.store.directory());
 }
 
 /// A second request for the same reset joins the running one: one clear,
@@ -397,7 +397,7 @@ async fn concurrent_resets_join_the_running_one() {
     // The lease is released: the next reset runs on its own.
     assert_eq!(core.reset(scope).await.unwrap().removed_rows, 0);
     assert_eq!(core.sync.generation(), generation + 2);
-    let _ = fs::remove_file(core.store.path());
+    let _ = fs::remove_dir_all(core.store.directory());
 }
 
 fn store_plans(core: &Core) -> usize {
@@ -439,5 +439,5 @@ async fn full_reset_returns_to_first_launch() {
         .lock()
         .unwrap()
         .contains_key("lms-token-science"));
-    let _ = fs::remove_file(core.store.path());
+    let _ = fs::remove_dir_all(core.store.directory());
 }

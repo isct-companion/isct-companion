@@ -9,6 +9,7 @@ use crate::{
     school_browser::{SchoolLoginEvent, SchoolSessionEvent},
     school_service::IngestOutcome,
     sync_engine::SyncSnapshot,
+    workspace_changes::WorkspaceChange,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -42,6 +43,11 @@ pub enum CoreEvent {
         /// Present for user intents so the initiating shell can correlate the
         /// event with the authoritative snapshot returned by the mutation.
         revision: Option<String>,
+        /// What the commits behind this event changed, sorted. Background
+        /// changes arrive merged, at most once per source and
+        /// `workspace_changes::COALESCE_WINDOW`; `Core::workspace_records`
+        /// reads the records they feed.
+        changes: Vec<WorkspaceChange>,
     },
     OcrProgress {
         operation_id: u64,
@@ -86,8 +92,12 @@ impl CoreEvent {
     /// The existing desktop event payload is also the portable event contract.
     pub fn payload(&self) -> Value {
         match self {
-            Self::WorkspaceChanged { source, revision } => {
-                let mut payload = json!({ "source": source });
+            Self::WorkspaceChanged {
+                source,
+                revision,
+                changes,
+            } => {
+                let mut payload = json!({ "source": source, "changes": changes });
                 if let Some(revision) = revision {
                     payload["revision"] = json!(revision);
                 }

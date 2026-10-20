@@ -41,7 +41,7 @@ impl Lane {
             | Dataset::LmsHistory => Self::Moodle,
             Dataset::KyomuPage | Dataset::CatalogOfficial => Self::Kyomu,
             Dataset::CatalogDetail => Self::Syllabus,
-            Dataset::Reference => Self::IsctData,
+            Dataset::Reference | Dataset::CatalogSyllabus => Self::IsctData,
         }
     }
 
@@ -84,6 +84,15 @@ pub(crate) struct ReferenceWatch {
     pub(crate) due: Due,
 }
 
+/// One academic year's catalog pack.
+#[derive(Clone, Debug)]
+pub(crate) struct PackWatch {
+    pub(crate) key: Key,
+    /// `catalog_pack::pack_due`: rows gone or a held pack on top of
+    /// `sync_state::due`.
+    pub(crate) due: Due,
+}
+
 /// Stored facts, read once per evaluation on a blocking worker.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Inputs {
@@ -101,6 +110,8 @@ pub(crate) struct Inputs {
     /// The academic year the person is viewing.
     pub(crate) year: Option<u16>,
     pub(crate) references: Vec<ReferenceWatch>,
+    /// The watched years' packs and the year being viewed.
+    pub(crate) packs: Vec<PackWatch>,
 }
 
 impl Inputs {
@@ -244,6 +255,14 @@ pub(crate) fn official_keys(year: u16) -> Vec<Key> {
         .collect()
 }
 
+/// A year's whole catalog: its pack and its official departments.
+fn catalog_keys(year: u16) -> Vec<(Key, Option<String>)> {
+    std::iter::once(crate::catalog_pack::pack_key(year))
+        .chain(official_keys(year))
+        .map(|key| (key, Some(year.to_string())))
+        .collect()
+}
+
 fn lms_all() -> [Key; 2] {
     [
         Key::new(Dataset::LmsEnrolment, "all"),
@@ -314,10 +333,7 @@ pub(crate) fn scope_keys(
                 .map(|watch| watch.key.clone())
                 .collect(),
         ),
-        Scope::Catalog { year } => official_keys(*year)
-            .into_iter()
-            .map(|key| (key, Some(year.to_string())))
-            .collect(),
+        Scope::Catalog { year } => catalog_keys(*year),
     }
 }
 
@@ -371,15 +387,9 @@ fn view_keys(
             Rule::Open,
         ),
         // The catalog changes little in a year: opening the finder raises
-        // its keys, but a department is still read only once its week is up.
-        View::Finder { year } => (
-            official_keys(*year)
-                .into_iter()
-                .map(|key| (key, Some(year.to_string())))
-                .collect(),
-            Priority::Visible,
-            Rule::Ttl,
-        ),
+        // its pack and departments, but each is still read only once its
+        // week is up.
+        View::Finder { year } => (catalog_keys(*year), Priority::Visible, Rule::Ttl),
         View::Offering { offering_id } => (
             if valid_offering(offering_id) {
                 vec![(
@@ -420,7 +430,7 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
         account,
         scope: match key.dataset {
             Dataset::CatalogOfficial => key.key.split('/').next().map(str::to_owned),
-            Dataset::CatalogDetail => Some(key.key.clone()),
+            Dataset::CatalogDetail | Dataset::CatalogSyllabus => Some(key.key.clone()),
             _ => None,
         },
         title: None,
@@ -448,6 +458,15 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
             let reference = inputs.references.iter().find(|watch| watch.key == *key)?;
             watch.locator = Some(reference.index_url.clone());
             watch.due = Some(reference.due);
+            watch.title = Some(key.key.clone());
+        }
+        Dataset::CatalogSyllabus => {
+            key.key.parse::<u16>().ok()?;
+            watch.due = inputs
+                .packs
+                .iter()
+                .find(|watch| watch.key == *key)
+                .map(|watch| watch.due);
             watch.title = Some(key.key.clone());
         }
         Dataset::LmsEnrolment | Dataset::LmsDeadlines | Dataset::CatalogDetail => {}
@@ -499,6 +518,12 @@ fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Ke
             .references
             .iter()
             .map(|watch| (watch.key.clone(), Priority::Background)),
+    );
+    // Public catalogs need no session: the current and the next year.
+    keys.extend(
+        crate::catalog_pack::watched_years(now)
+            .into_iter()
+            .map(|year| (crate::catalog_pack::pack_key(year), Priority::Background)),
     );
     keys
 }

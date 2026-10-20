@@ -16,10 +16,12 @@
 //! transport. A school-cache reset leaves cloud sync running: school caches
 //! never enter it, and it only writes user rows this reset keeps.
 //!
-//! User writes need no separate gate. The database part of a reset is one
-//! IMMEDIATE transaction, so an edit commits wholly before or after it, and
-//! every intent is revision-checked: an edit made against the data a full
-//! reset removed is refused as a conflict.
+//! The school caches are cache.db, emptied whole (`DataStore::rebuild_cache`);
+//! a full reset also empties user.db. User writes need no separate gate.
+//! Each database step is one transaction on the store's write connection,
+//! so an edit commits wholly before or after it, and every intent is
+//! revision-checked: an edit made against the data a full reset removed is
+//! refused as a conflict.
 
 use crate::{
     course_materials::purge_downloads,
@@ -240,8 +242,8 @@ impl ResetRun {
         }
         let result = self.clear().await;
         drop(admission);
-        // Announced even after a later step failed: the database part is one
-        // transaction and may already have committed.
+        // Announced even after a later step failed: a database step may
+        // already have committed.
         self.store.announce(WorkspaceChangeSource::Reset);
         match &result {
             Ok(report) => log::info!(
@@ -259,13 +261,11 @@ impl ResetRun {
         let everything = matches!(self.scope, ResetScope::Everything);
         let store = self.store.clone();
         let cleared = blocking(move || {
-            let cleared = if everything {
+            Ok(if everything {
                 store.clear_everything()
             } else {
                 store.clear_school_caches()
-            }?;
-            store.compact();
-            Ok(cleared)
+            }?)
         })
         .await?;
         let mut report = ResetReport {

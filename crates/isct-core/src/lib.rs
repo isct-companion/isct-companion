@@ -15,6 +15,7 @@ pub mod agent;
 pub mod app_updates;
 pub mod backup;
 pub mod catalog;
+pub mod catalog_pack;
 pub mod cloud_credentials;
 pub mod facade;
 pub use facade::Core;
@@ -55,6 +56,7 @@ pub mod sync_engine;
 pub mod sync_gc;
 pub mod sync_state;
 pub mod workspace;
+pub mod workspace_changes;
 
 #[cfg(feature = "desktop-workspaces")]
 pub mod workspaces;

@@ -23,8 +23,8 @@ impl ScheduledExporter for CountingExporter {
 }
 
 fn test_store(name: &str) -> DataStore {
-    let path = std::env::temp_dir().join(format!("isct-runtime-{name}-{}.db", Uuid::new_v4()));
-    DataStore::initialize(path).unwrap().0
+    let path = std::env::temp_dir().join(format!("isct-runtime-{name}-{}", Uuid::new_v4()));
+    DataStore::initialize_dir(path).unwrap().0
 }
 
 fn disable_background_work(store: &DataStore) {

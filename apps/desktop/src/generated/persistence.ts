@@ -1686,6 +1686,38 @@ export type CourseBatchChanges = {
   credits?: number;
 };
 
+export type WorkspaceChange =
+  | "courses"
+  | "materials"
+  | "assignments"
+  | "registrations"
+  | "grades"
+  | "finder"
+  | "calendar"
+  | "exams"
+  | "plans"
+  | "events"
+  | "subscriptions"
+  | "scheduled-tasks"
+  | "settings"
+  | "freshness";
+
+export type WorkspacePatch = {
+  /**
+   * As in `WorkspaceSnapshot`, for the whole snapshot this was read from.
+   */
+  revision: string;
+  contentRevision: string;
+  /**
+   * Only the workspace fields the requested changes feed.
+   */
+  workspace: unknown;
+  /**
+   * Only the school-record fields the requested changes feed.
+   */
+  schoolRecords: unknown;
+};
+
 export type TimeValue = { day?: number; from?: number; to?: number };
 
 export type FinderCourse = {

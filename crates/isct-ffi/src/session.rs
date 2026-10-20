@@ -304,6 +304,20 @@ impl Session {
             })
         })
     }
+    /// The records the `changes` of a `workspace-changed` event feed, for a
+    /// shell that patches its copy instead of reading the whole snapshot.
+    pub fn workspace_records(
+        &self,
+        changes: Vec<WorkspaceChange>,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let changes: Vec<isct_core::workspace_changes::WorkspaceChange> =
+                project_input(changes)?;
+            Ok(OperationResult::WorkspaceRecords {
+                patch: project(i.core.workspace_records(&changes)?)?,
+            })
+        })
+    }
     pub fn schedule_query(&self, queries: Vec<WorkspaceQuery>) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             let snapshot = i.core.schedule_query(project_input(queries)?)?;
@@ -574,7 +588,7 @@ async fn initialize(
     let initial_network: isct_core::sync_engine::Network = project_input(config.initial_network)?;
     let native_cloud = cloud.clone();
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
-        let (store, _) = DataStore::initialize(data.join("school.db"))?;
+        let (store, _) = DataStore::initialize_dir(data.clone())?;
         let auth = Arc::new(SchoolAuthService::with_status_cache(
             Vault(vault),
             data.join("school-credential-status.json"),

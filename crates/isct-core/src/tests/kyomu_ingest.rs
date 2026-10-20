@@ -5,7 +5,7 @@ const ACCOUNT: &str = "tokyotech:student";
 const LMS_ACCOUNT: &str = "science:24B00001";
 
 fn page_state(store: &crate::data::DataStore, kind: &str) -> Option<sync_state::KeyState> {
-    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    let connection = store.test_connection();
     sync_state::get(&connection, &Key::new(Dataset::KyomuPage, kind)).unwrap()
 }
 
@@ -37,8 +37,8 @@ fn graduate_grade_identity_survives_reordering_and_display_value_changes() {
 
 #[test]
 fn duplicate_graduate_grade_identity_rolls_back_the_page() {
-    let path = std::env::temp_dir().join(format!("isct-grade-id-{}.db", Uuid::new_v4()));
-    let store = crate::data::DataStore::initialize(path).unwrap().0;
+    let path = std::env::temp_dir().join(format!("isct-grade-id-{}", Uuid::new_v4()));
+    let store = crate::data::DataStore::initialize_dir(path).unwrap().0;
     let row = json!({"title":"先端システム論","completed":"2026年度 1Q","result":"A"});
     let payload = KyomuPayload {
             status: "ok".into(),
@@ -109,8 +109,8 @@ fn declared_credits_follow_each_category_total() {
 /// course overlays, content joins and personal plans keep their identities.
 #[test]
 fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
-    let path = std::env::temp_dir().join(format!("isct-lms-calendar-{}.db", Uuid::new_v4()));
-    let store = crate::data::DataStore::initialize(path).unwrap().0;
+    let path = std::env::temp_dir().join(format!("isct-lms-calendar-{}", Uuid::new_v4()));
+    let store = crate::data::DataStore::initialize_dir(path).unwrap().0;
     let original = json!({"id":"2026-202602431","kind":"course","offeringId":"202602431",
         "termId":"2026-3Q","code":"CSC.T273","title":"Personal","instructor":"",
         "credits":2,"creditSplit":{"lecture":2,"exercise":0,"lab":0},
@@ -206,8 +206,8 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
 
 #[test]
 fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_choices() {
-    let path = std::env::temp_dir().join(format!("isct-academic-id-{}.db", Uuid::new_v4()));
-    let store = crate::data::DataStore::initialize(path).unwrap().0;
+    let path = std::env::temp_dir().join(format!("isct-academic-id-{}", Uuid::new_v4()));
+    let store = crate::data::DataStore::initialize_dir(path).unwrap().0;
     let payload = KyomuPayload {
         status: "ok".into(),
         source_url: String::new(),
@@ -250,8 +250,8 @@ fn official_academic_identity_fills_a_fresh_profile_without_overwriting_saved_ch
 /// enrollment. Projection must join clocks/content and retain local overlays.
 #[test]
 fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official_refreshes() {
-    let path = std::env::temp_dir().join(format!("isct-lms-fallback-{}.db", Uuid::new_v4()));
-    let store = crate::data::DataStore::initialize(path).unwrap().0;
+    let path = std::env::temp_dir().join(format!("isct-lms-fallback-{}", Uuid::new_v4()));
+    let store = crate::data::DataStore::initialize_dir(path).unwrap().0;
     let registration = |quarters: Value, courses: Value| KyomuPayload {
         status: "ok".into(),
         source_url: String::new(),

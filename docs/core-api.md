@@ -50,11 +50,14 @@ without an additional `{data:...}` wrapper.
 | Command              | Parameters                      | Result                                       | Rust service                          |
 | -------------------- | ------------------------------- | -------------------------------------------- | ------------------------------------- |
 | `workspace_snapshot` | `{}`                            | `WorkspaceSnapshot`                          | `Core.workspace.snapshot()`           |
+| `workspace_records`  | `{changes: WorkspaceChange[]}`  | `WorkspacePatch`                             | `Core.workspace_records(changes)`     |
 | `mutate_workspace`   | `{mutation: WorkspaceMutation}` | Committed `WorkspaceSnapshot`                | `Core.workspace.mutate(mutation)`     |
 | `schedule_query`     | `{queries: WorkspaceQuery[]}`   | `{revision, values: WorkspaceQueryResult[]}` | `Core.schedule_query(queries)`        |
 | `finder_query`       | `{request: FinderRequest}`      | `FinderView`                                 | `Core.finder_query(request)`          |
 
 `WorkspaceSnapshot` fields are `revision`, `contentRevision`, `workspace` and `schoolRecords`.
+`WorkspacePatch` has the same fields, but `workspace` and `schoolRecords` hold
+only the fields the requested changes feed, read from one snapshot.
 `WorkspaceMutation` fields are `expectedRevision` and `intent`. A mutation returns
 the full committed snapshot; it never returns an optimistic local patch.
 
@@ -172,20 +175,31 @@ application owner containing `store`, `auth`, `agent`, `workspace`, `reminders` 
 Production shells use `Core::with_events(..., EventSink)` and call
 `Core::start(&Handle)` once; Core owns the pull-event forwarding task.
 
-Every commit to school.db goes through `DataStore::write(source, |tx| ...)`
-(user intents through `workspace_write`, which shares its commit). It holds the
-IMMEDIATE transaction and, when the commit changed a row, tells the observer
-`Core` installs. That observer emits `workspace-changed` with the write's
-source and brings the next cloud capture forward. Services, executors, agent
+Every commit to user.db or cache.db goes through `DataStore::write(source, |tx| ...)`
+(user intents through `workspace_write`, which shares its commit), on the
+store's one write connection. It holds the IMMEDIATE transaction and, when the
+commit changed a row, tells the observer `Core` installs which tables it
+changed. That observer maps the tables to change names through the one table
+in `workspace_changes.rs`, emits `workspace-changed` with the write's source
+and `changes`, and, when a user-owned table changed, brings the next cloud
+capture forward. Services, executors, agent
 tools and shells therefore never emit the event or ask for a capture
 themselves, and a write that changes nothing publishes nothing. Catalog cache
 rows and reference cache markers commit with no source and are not published.
 
 Successful workspace mutations emit `workspace-changed` with
-`source: "user-intent"` and the committed workspace `revision` after commit. The initiating shell uses that
+`source: "user-intent"` and the committed workspace `revision` after commit, at once. The initiating shell uses that
 revision to associate the event with the snapshot returned by its command and
-avoid a redundant reload. Other workspace-change sources omit `revision`; they
-still require snapshot recovery and must not be ignored, including MCP writes.
+avoid a redundant reload; another client's intent is reconciled by reading the
+snapshot. Other workspace-change sources omit `revision` and must not be
+ignored, including MCP writes. Core coalesces them: the first after a quiet
+250 ms window goes out at once, later ones are merged per source and sent when
+the window ends. Their `changes` (`courses`, `materials`, `assignments`,
+`registrations`, `grades`, `finder`, `calendar`, `exams`, `plans`, `events`,
+`subscriptions`, `scheduled-tasks`, `settings`, `freshness`) name what to
+re-read: the desktop calls `workspace_records(changes)`, merges the fields
+over its snapshot and re-runs only the views that read those names. A commit
+that only renews sync freshness names `freshness` alone.
 Delivery failures do not turn an accepted write into a failed transaction. Shutdown drains the forwarding
 task and releases the native event sink. `Core::new` remains useful for headless
 clients without event delivery.
@@ -194,8 +208,8 @@ entries are clones of those same services, not additional coordinators.
 
 `Core::services(events, executor, exporter)` creates operation-scoped ports for
 school, references and scheduling. `Core::{save_credentials,delete_credentials}` also notify the attached browser
-engine; shells do not repeat this orchestration. `Core::school_records()` returns the existing
-school read model. `Core::attach_school_browser` installs the single Core-owned
+engine; shells do not repeat this orchestration. `Core::workspace_records(changes)`
+returns the snapshot fields a set of change names feed. `Core::attach_school_browser` installs the single Core-owned
 login/session/extraction engine over a native `SchoolBrowser` port. Its callback
 identity and lifecycle contracts are documented in
 [Core school browser](core-school-browser.md).
@@ -219,7 +233,7 @@ a snapshot command the UI reads after subscribing.
 | Schedule / calendar         | `Core::schedule_query`, `schedule::{glance,notification_plan}`                                                                             | Supply explicit dates/times; render views and export bytes     |
 | Course finder               | `Core::finder_query`                                                                                                                       | Input, selection and progress                                  |
 | Reminders                   | `Core::reminder_tick`, `Core::import_legacy_reminders`                                                                                     | Wakeups, migration bytes and `NotificationSink`                |
-| School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::school_records`                                                             | Native views, presentation, callbacks and downloads            |
+| School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::workspace_records`                                                          | Native views, presentation, callbacks and downloads            |
 | Sync                        | `Core::{sync_hint,sync_snapshot}`, `CoreEvent::SyncSnapshot` (`sync-snapshot`)                                                             | Send lifecycle/network/open/refresh hints; render the snapshot |
 | Scheduler                   | `Core::runtime`: wake, run_scheduled, suspend, resume                                                                                      | Periodic wakeups and scheduled exporter port                   |
 | Catalog                     | `catalog::{offerings,finder_offerings,syllabus_course}`; downloads are the planner's `catalog.*` datasets                                  | Search locally through `finder_query`                          |
@@ -313,9 +327,9 @@ I/O failure returns `Storage`. No partial intent is published. The desktop
 publishes its returned snapshot and signals cloud work only after commit.
 Backup import/reset and school import keep their existing specialized services.
 
-Desktop uses `workspace_snapshot` for workspace and school rows together. The
-retired standalone `school_records` Tauri command is removed; the public
-`Core::school_records` convenience API remains available to service consumers.
+Desktop uses `workspace_snapshot` for workspace and school rows together on
+open, after its own or another client's intent and after reset or restore, and
+`workspace_records` for every background change.
 Recurrence preview uses `schedule_query` with `nextPlanOccurrences`; the old
 `preview_plan_recurrence` Tauri command is removed.
 

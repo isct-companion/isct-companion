@@ -1,7 +1,8 @@
 use serde::Serialize;
+use std::collections::BTreeSet;
 use std::sync::{Arc, PoisonError, RwLock};
 
-/// What committed a school.db write. Shells receive it as the `source` of
+/// What committed a store write. Shells receive it as the `source` of
 /// `workspace-changed`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -37,9 +38,17 @@ impl WorkspaceChangeSource {
 /// publish the change and schedule cloud capture, so no caller of the store
 /// has to remember either.
 pub trait CommitObserver: Send + Sync {
-    /// Called after the commit, outside the transaction. `revision` is the
-    /// user-intent revision when the write was a workspace intent.
-    fn committed(&self, source: WorkspaceChangeSource, revision: Option<String>);
+    /// After the commit, outside the transaction. `revision` is the
+    /// user-intent revision when the write was a workspace intent. `tables`
+    /// are the tables the transaction inserted into, updated or deleted from
+    /// (collected with SQLite's update hook on the write connection),
+    /// unqualified names, sorted, never empty.
+    fn committed(
+        &self,
+        source: WorkspaceChangeSource,
+        revision: Option<String>,
+        tables: &BTreeSet<String>,
+    );
 }
 
 /// Shared by every clone of one store, so an observer installed after the
@@ -52,14 +61,23 @@ impl Observer {
         *self.0.write().unwrap_or_else(PoisonError::into_inner) = Some(observer);
     }
 
-    pub(super) fn committed(&self, source: WorkspaceChangeSource, revision: Option<String>) {
+    /// Tells the observer; a commit that changed no table says nothing.
+    pub(super) fn committed(
+        &self,
+        source: WorkspaceChangeSource,
+        revision: Option<String>,
+        tables: &BTreeSet<String>,
+    ) {
+        if tables.is_empty() {
+            return;
+        }
         let observer = self
             .0
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         if let Some(observer) = observer {
-            observer.committed(source, revision);
+            observer.committed(source, revision, tables);
         }
     }
 }

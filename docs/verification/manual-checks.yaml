@@ -607,7 +607,7 @@ checks:
           notice and its element. If the data is visible but the selector
           does not match, the selector is broken.
       - action: |
-          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
+          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/cache.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
         reason: |
           Only a complete read sets `fetched_at`, with outcome `complete` or
           `unavailable`. A page without one stays due and backs off after
@@ -2230,7 +2230,7 @@ checks:
 
   - id: DESKTOP-WRITES-PUBLISH-THEMSELVES
     area: desktop
-    title: Every school.db write reaches the window and the cloud on its own
+    title: Every database write reaches the window and the cloud on its own
     persona: careless-multidevice
     preconditions: |
       macOS desktop app signed in to Science Tokyo, Google Drive backup
@@ -2266,14 +2266,25 @@ checks:
           Restore and reset replace many rows in one commit and used to rely
           on the shell's capture; the window must show the result and the
           cloud must receive it without a manual sync.
+      - action: |
+          Clear the school cache in Settings, open Today and leave the window
+          alone while the first pull refills it; then open Courses, Grades and
+          the course finder.
+        reason: |
+          A background commit now patches only the records its change names
+          feed, read against real LMS and 教務 rows. A table mapped to the
+          wrong name would leave one of these pages on the old data until the
+          app restarts, which no fixture shows.
     observe: |
-      The Assignments list, the Calendar, the Settings cloud sync status and
-      the second device's copy of the edited plan and note.
+      The Assignments list, the Calendar, Today, Courses, Grades, the finder,
+      the Settings cloud sync status and the second device's copy of the
+      edited plan and note.
     expected: |
       The new assignment and the MCP event appear without a refresh, the
       edited plan and the note reach the second device within a few seconds,
-      and both the import and the reset show in the window and upload without
-      pressing Sync.
+      both the import and the reset show in the window and upload without
+      pressing Sync, and after the refill every page shows the pulled data
+      without navigating away and back.
     why_manual: |
       The visible-page ingest needs a signed-in LMS page in the real WebView,
       the MCP step needs a real client, and the capture timing needs a real
@@ -2289,6 +2300,55 @@ checks:
       - crates/isct-core/src/runtime.rs
       - crates/isct-core/src/notes.rs
       - crates/isct-core/src/school_browser/engine/pull.rs
+      - crates/isct-core/src/workspace_changes.rs
+      - apps/desktop/src/store/workspace.ts
+      - apps/desktop/src/platform/view-query.ts
+    verified: null
+
+  - id: DESKTOP-STORAGE-SPLIT
+    area: desktop
+    title: The first launch after the split keeps the person's data and re-syncs the caches
+    persona: careless-multidevice
+    preconditions: |
+      macOS desktop app data folder from a build before the split, with a
+      real `school.db` holding plans, assignment marks, course overrides,
+      subscriptions, scheduled tasks and settings, and cloud backup on. Copy
+      the whole folder aside first.
+    steps:
+      - action: |
+          Note the device id, a few plans, a hidden assignment and a renamed
+          course in the old build, then quit it and launch the new build.
+        reason: |
+          The split copies every user table out of the real file once; a
+          column or table the fixture does not have would lose data here and
+          nowhere in the tests.
+      - action: |
+          Run `ls "$HOME/Library/Application Support/app.isctcompanion"`.
+        reason: |
+          `school.db.pre-split` must exist next to `user.db` and `cache.db`,
+          and `school.db` must be gone; a leftover `user.db.migrating` means
+          the split stopped halfway.
+      - action: |
+          Watch the sync status for a few minutes, then quit and launch again.
+        reason: |
+          cache.db starts empty, so every key must read as missing and be
+          fetched; the second launch must not split or re-sync again.
+    observe: |
+      The Calendar, Assignments and course pages, Settings (device and
+      backup), the sync status and the data folder listing.
+    expected: |
+      Plans, the hidden assignment, the renamed course, subscriptions,
+      scheduled tasks and settings look as before, cloud backup still names
+      the same device, school data refills from the sync, and the second
+      launch is an ordinary start.
+    why_manual: |
+      Tests split a fixture built from the current schema; only the person's
+      real file, written by older builds over months, shows that nothing in
+      it is left behind.
+    covers:
+      - crates/isct-core/src/data/migrations.rs
+      - crates/isct-core/src/data/connection.rs
+      - apps/desktop/src-tauri/src/lib.rs
     verified: null
 
   - id: IOS-TIMETABLE-WEEK-AND-MARKS

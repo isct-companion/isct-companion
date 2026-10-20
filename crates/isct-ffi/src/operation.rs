@@ -12,6 +12,7 @@ pub struct ScheduleSnapshot {
 #[allow(clippy::large_enum_variant)]
 pub enum OperationResult {
     Workspace { snapshot: WorkspaceSnapshot },
+    WorkspaceRecords { patch: WorkspacePatch },
     Schedule { snapshot: ScheduleSnapshot },
     Finder { view: FinderView },
     Credentials { status: SchoolCredentialStatus },

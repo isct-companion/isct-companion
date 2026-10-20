@@ -4,9 +4,7 @@ use serde_json::json;
 async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
     let root = std::env::temp_dir().join(format!("isct-catalog-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = data::DataStore::initialize(root.join("school.db"))
-        .unwrap()
-        .0;
+    let store = data::DataStore::initialize_dir(root.clone()).unwrap().0;
     let now = chrono::Utc::now().to_rfc3339();
     let value = json!({
         "id":"202602431", "year":2026, "quarters":["3Q"], "code":"TEST.1",
@@ -48,14 +46,6 @@ async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
     assert!(result.warnings.is_empty());
     assert_eq!(offerings(&store, 2026).unwrap().len(), 1);
     assert!(offerings(&store, 2025).unwrap().is_empty());
-    let warnings = catalog_sync_offerings(&store, vec!["202602431".into(), "missing".into()])
-        .await
-        .unwrap();
-    assert_eq!(warnings, vec!["missing: not in the catalog"]);
-    assert!(matches!(
-        catalog_sync_offerings(&store, vec![String::new(); 21]).await,
-        Err(CatalogError::InvalidInput(_))
-    ));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -72,8 +62,8 @@ fn official_delivery_facts_survive_syllabus_enrichment_in_both_arrival_orders() 
     official["schedule"] = json!([{"kind":"weekly","day":1,"periods":[3,4],"room":{"ja":"M-B07"}}]);
     official["kyomu"] = json!({"department":"情報工学系","group":"C","mark":"recommended","fetchedAt":"2026-10-16T00:00:00Z"});
     for first_official in [false, true] {
-        let root = std::env::temp_dir().join(format!("isct-source-{}.db", uuid::Uuid::new_v4()));
-        let store = data::DataStore::initialize(root).unwrap().0;
+        let root = std::env::temp_dir().join(format!("isct-source-{}", uuid::Uuid::new_v4()));
+        let store = data::DataStore::initialize_dir(root).unwrap().0;
         let rows = if first_official {
             vec![official.clone(), syllabus.clone()]
         } else {

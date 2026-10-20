@@ -185,9 +185,32 @@ pub async fn search_bilingual(
     Ok(merge_search(en, ja))
 }
 
-/// Lists a department plus the liberal-arts series searched by the planner.
-/// Persistence and freshness checks deliberately remain with the database
-/// command layer; this function only performs bounded, read-only public GETs.
+/// Every unit scope (`{n}/{a-b-c-d-e}`) the year's index page links to, in
+/// page order without repeats. The catalog pack exporter lists each one.
+pub async fn year_scopes(year: u16) -> Result<Vec<String>, SyllabusError> {
+    // Validates the year before any request is made.
+    search_url("", year, &SyllabusFilters::default())?;
+    let page = transport::get(Url::parse(&format!("{ORIGIN}/courses/{year}"))?).await?;
+    let pattern = regex::Regex::new(&format!(
+        r#"href="(?:{})?/courses/{year}/(\d{{1,3}}/\d+(?:-\d+){{4}})""#,
+        regex::escape(ORIGIN)
+    ))
+    .map_err(|_| SyllabusError::invalid_input("Syllabus scope pattern is invalid."))?;
+    let mut seen = HashSet::new();
+    let scopes = pattern
+        .captures_iter(&page.html)
+        .map(|captures| captures[1].to_string())
+        .filter(|scope| valid_scope(scope) && seen.insert(scope.clone()))
+        .collect::<Vec<_>>();
+    if scopes.is_empty() {
+        return Err("Syllabus year index could not be verified.".into());
+    }
+    Ok(scopes)
+}
+
+/// Lists one unit scope whole: the site returns at most 100 rows a search,
+/// so a capped listing is split by course level. Persistence stays with the
+/// caller; this function only performs bounded, read-only public GETs.
 const LIST_ALL: &str = ".";
 
 pub async fn department_catalog(
@@ -358,15 +381,6 @@ pub async fn sync_offering(locator: &str) -> Result<SyncOfferingResult, Syllabus
     merge_detail(ja, en)
 }
 
-/// Course Finder only needs language-neutral list metadata. Fetch one detail
-/// page now; opening the syllabus later still performs the full bilingual sync.
-pub async fn sync_offering_summary(locator: &str) -> Result<SyncOfferingResult, SyllabusError> {
-    let initial = offering_url(locator)?;
-    let page = transport::get(localized_detail_url(&initial, "en")).await?;
-    let parsed = parser::parse_detail(&page.url, &page.html, "en")?;
-    single_detail(parsed)
-}
-
 fn neutral_schedule(entry: &ParsedScheduleEntry) -> (&ScheduleKind, Option<u8>, Option<[u8; 2]>) {
     (&entry.kind, entry.day, entry.periods)
 }
@@ -415,6 +429,9 @@ fn class_code(code: &str, class_label: Option<&str>) -> Option<String> {
         })
 }
 
+/// One language of a detail page as an offering; only the fixture tests
+/// shape single-language examples this way.
+#[cfg(test)]
 pub(super) fn single_detail(page: DetailPage) -> Result<SyncOfferingResult, SyllabusError> {
     let DetailPage {
         id,

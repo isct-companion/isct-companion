@@ -69,7 +69,9 @@ export type FakeCore = {
   schoolRecords: SchoolRecords;
   /** Replaces the stored snapshot, as another client would. */
   publish(workspace: Workspace, revision?: string): void;
-  /** Delivers a native event to every registered listener. */
+  /** Delivers a native event to every registered listener. A background
+   * `workspace-changed` names its `changes`, which the shell patches by
+   * reading `workspace_records`. */
   emit(event: string, payload: unknown): void;
   listenerCount(event: string): number;
   commands(name: string): CommandCall[];
@@ -184,6 +186,10 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         core.emit(String(args.event), args.payload);
         return null;
       case "workspace_snapshot":
+        return snapshot();
+      case "workspace_records":
+        // Core answers only the fields the named changes feed; the scripted
+        // host answers all of them, which a shell merges the same way.
         return snapshot();
       case "mutate_workspace": {
         const mutation = args.mutation as {

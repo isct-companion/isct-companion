@@ -11,9 +11,7 @@ const ACCOUNT: &str = "science:student";
 const ASSIGN_URL: &str = "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=7";
 
 fn database() -> Connection {
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrations::migrate(&mut connection).unwrap();
-    connection
+    migrations::open_in_memory().unwrap()
 }
 
 fn enrol(connection: &mut Connection) {

@@ -28,7 +28,7 @@ pub const PUBLIC_INDEX: &str =
 /// Every reference dataset kind a subscription can follow.
 pub const REFERENCE_KINDS: [&str; 4] = ["calendar", "important-dates", "exams", "class-schedules"];
 /// `error_kind` of a public file held back because it shrank suspiciously.
-const SUSPICIOUS_SHRINK: &str = "suspicious-shrink";
+pub(crate) const SUSPICIOUS_SHRINK: &str = "suspicious-shrink";
 type ReferenceTransportFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, SubscriptionError>> + Send + 'a>>;
 
@@ -729,7 +729,7 @@ fn stored_rows(connection: &Connection, kind: &str, year: i32) -> Result<usize, 
 
 /// Public data only: a version that loses 30% or more of the stored rows,
 /// or all of them, is held until a later read returns the same version.
-fn suspicious_shrink(stored: usize, candidate: usize) -> bool {
+pub(crate) fn suspicious_shrink(stored: usize, candidate: usize) -> bool {
     stored > 0 && candidate.saturating_mul(10) <= stored.saturating_mul(7)
 }
 
