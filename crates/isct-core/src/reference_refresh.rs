@@ -1,7 +1,7 @@
 //! Reference subscription refresh policy, acquisition, and persistence.
 
 use crate::{
-    data::{versioned::content_hash, DataError, DataStore, WorkspaceChangeSource},
+    data::{DataError, DataStore, WorkspaceChangeSource},
     pull_coordinator::{
         PullContext, PullCoordinator, PullError, PullOptions, PullPriority, PullTarget,
     },
@@ -9,8 +9,10 @@ use crate::{
         self, AcademicCalendar, ClassSchedules, ImportantDates, PublishedExamFeed, ReferenceFetch,
         SubscriptionClient, SubscriptionError,
     },
+    sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, RunOutcome, RunRecord, Term},
 };
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
+use rusqlite::{Connection, Transaction};
 use serde_json::{json, Value};
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use tokio::sync::Mutex;
@@ -20,6 +22,8 @@ pub const PUBLIC_INDEX: &str =
     "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
 /// Every reference dataset kind a subscription can follow.
 pub const REFERENCE_KINDS: [&str; 4] = ["calendar", "important-dates", "exams", "class-schedules"];
+/// `error_kind` of a public file held back because it shrank suspiciously.
+const SUSPICIOUS_SHRINK: &str = "suspicious-shrink";
 type ReferenceTransportFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, SubscriptionError>> + Send + 'a>>;
 type Probes = Arc<Mutex<HashMap<String, Result<String, ReferenceError>>>>;
@@ -151,6 +155,53 @@ impl From<Vec<PublishedExamFeed>> for ReferencePayload {
     }
 }
 
+impl ReferencePayload {
+    /// Rows this version publishes.
+    fn rows(&self) -> usize {
+        match self {
+            Self::Calendar(calendar) => calendar.quarters.len() * 2 + calendar.days.len(),
+            Self::ImportantDates(dates) => dates.entries.len(),
+            Self::Exams(feeds) => feeds.iter().map(|feed| feed.feed.entries.len()).sum(),
+            Self::ClassSchedules(schedules) => schedules.entries.len(),
+        }
+    }
+
+    /// Writes the file's rows; every exam feed of the file shares the one
+    /// transaction.
+    fn apply(
+        &self,
+        transaction: &Transaction<'_>,
+    ) -> Result<(usize, Option<Vec<Value>>), SubscriptionError> {
+        Ok(match self {
+            Self::Calendar(value) => (
+                subscriptions::apply_reference(transaction, Some(value), None)?,
+                None,
+            ),
+            Self::ImportantDates(value) => (
+                subscriptions::apply_important_dates(transaction, value)?,
+                None,
+            ),
+            Self::ClassSchedules(value) => (
+                subscriptions::apply_class_schedules(transaction, value)?,
+                None,
+            ),
+            Self::Exams(feeds) => {
+                let mut changed = 0;
+                let mut files = Vec::new();
+                for feed in feeds {
+                    changed += subscriptions::apply_exam_feed(transaction, feed)?;
+                    files.push(json!({
+                        "level":feed.level,
+                        "quarter":feed.quarter.to_ascii_uppercase(),
+                        "dataUrl":feed.url
+                    }));
+                }
+                (changed, Some(files))
+            }
+        })
+    }
+}
+
 trait ReferenceTransport: Send + Sync {
     fn probe<'a>(&'a self, index_url: &'a str) -> ReferenceTransportFuture<'a, String>;
     fn fetch<'a>(
@@ -243,6 +294,8 @@ impl ReferenceService {
     pub async fn refresh_all(&self, force: bool) -> Result<String, ReferenceError> {
         let workspace = self.store.load_workspace()?;
         let probes: Probes = Arc::new(Mutex::new(HashMap::new()));
+        // Correlates this refresh's `sync_runs` rows.
+        let run = uuid::Uuid::new_v4().to_string();
         let mut changed = 0u64;
         let mut failures = 0usize;
         for kind in REFERENCE_KINDS {
@@ -263,6 +316,7 @@ impl ReferenceService {
                 index_url,
                 year,
                 force,
+                run: run.clone(),
             };
             match self
                 .refresh_one(
@@ -355,15 +409,14 @@ impl ReferenceService {
         {
             return Ok(not_modified());
         }
-        let same_source =
-            existing.is_some_and(|row| same_index(row["url"].as_str(), &request.index_url));
-        let has_cache = cache_present(&self.store, &workspace, request)?;
+        let key = reference_key(&request.kind, request.year);
+        let started = (self.clock)();
+        let stored = self.store.write(None, |transaction| {
+            StoredFile::read(transaction, &key, &request.kind, request.year)
+        })?;
         if !request.force
             && priority != PullPriority::Manual
-            && same_source
-            && has_cache
-            && existing
-                .is_some_and(|row| reference_is_fresh(row, request.year.into(), (self.clock)()))
+            && !stored.due(&request.index_url, started)
         {
             return Ok(not_modified());
         }
@@ -374,82 +427,62 @@ impl ReferenceService {
         });
         let revision = row["rev"].as_u64().unwrap_or(0);
         row["url"] = json!(request.index_url);
-        let result = async {
-            if !context.phase("index").await {
-                return Err(ReferenceError::Cancelled);
-            }
-            let index_hash = {
-                let mut cache = probes.lock().await;
-                if let Some(result) = cache.get(&request.index_url) {
-                    result.clone()?
-                } else {
-                    let result = self
-                        .transport
-                        .probe(&request.index_url)
-                        .await
-                        .map_err(ReferenceError::from);
-                    cache.insert(request.index_url.clone(), result.clone());
-                    result?
-                }
-            };
-            let same_year = same_source && row["year"].as_i64() == Some(request.year.into());
-            let cached = same_year && has_cache && row["indexHash"].as_str() == Some(&index_hash);
-            let value = if cached {
-                not_modified()
-            } else {
-                let known_hash = (same_year && has_cache)
-                    .then(|| row["remoteHash"].as_str())
-                    .flatten();
-                if !context.phase("fetching").await {
-                    return Err(ReferenceError::Cancelled);
-                }
-                let fetched = self
-                    .transport
-                    .fetch(
-                        &request.kind,
-                        &request.index_url,
-                        request.year,
-                        &index_hash,
-                        known_hash,
-                    )
-                    .await?;
-                if context.is_cancelled() || !context.applying().await {
-                    return Err(ReferenceError::Cancelled);
-                }
-                self.apply_fetch(fetched)?
-            };
-            if !context.applying().await {
-                return Err(ReferenceError::Cancelled);
-            }
-            if value["notModified"].as_bool() == Some(false) {
-                let materialized = self.store.load_workspace()?;
-                self.store.record_reference_cache(
-                    &request.kind,
-                    request.year,
-                    json!({
-                        "indexUrl":request.index_url,
-                        "fingerprint":cache_fingerprint(&materialized, &request.kind, request.year)?
-                    }),
-                )?;
-            }
-            row["year"] = json!(request.year);
-            row["indexHash"] = json!(index_hash);
-            for key in ["dataUrl", "remoteHash", "sourceTs"] {
-                if let Some(value) = value.get(key) {
-                    row[key] = value.clone();
-                }
-            }
-            row["fetchedAt"] = json!((self.clock)().to_rfc3339());
-            row["lastError"] = Value::Null;
-            Ok(value)
+        // Validators live in `dataset_state`.
+        if let Some(object) = row.as_object_mut() {
+            object.remove("indexHash");
+            object.remove("remoteHash");
         }
-        .await;
+        let run = Run {
+            id: &request.run,
+            key: &key,
+            started,
+        };
+        let result = self
+            .read_file(request, context, probes, &run, &stored)
+            .await;
+        if let Err(error) = &result {
+            // Nothing of the file was written; push its next attempt back.
+            let kind = error_kind(error);
+            let outcome = if matches!(error, ReferenceError::Cancelled) {
+                RunOutcome::Cancelled
+            } else {
+                RunOutcome::Failed
+            };
+            let finished = (self.clock)();
+            self.store.write(None, |transaction| {
+                sync_state::fail(transaction, &key, "", kind, finished)?;
+                run.record(
+                    transaction,
+                    finished,
+                    outcome,
+                    0,
+                    &request.index_url,
+                    Some(kind),
+                )
+            })?;
+        }
         if !context.applying().await {
             return Err(ReferenceError::Cancelled);
         }
-        if let Err(error) = &result {
-            row["lastError"] = json!(error.to_string());
-        }
+        let result = match result {
+            // A held version changes nothing the Settings view shows.
+            Ok(Read::Held) => return Ok(held()),
+            Ok(Read::Current(value)) => {
+                row["year"] = json!(request.year);
+                for key in ["dataUrl", "sourceTs"] {
+                    if let Some(value) = value.get(key) {
+                        row[key] = value.clone();
+                    }
+                }
+                row["fetchedAt"] = json!((self.clock)().to_rfc3339());
+                row["lastError"] = Value::Null;
+                Ok(value)
+            }
+            Err(error) => {
+                row["lastError"] = json!(error.to_string());
+                Err(error)
+            }
+        };
         let latest = self
             .store
             .user_rows("subscriptions")?
@@ -469,42 +502,184 @@ impl ReferenceService {
         result
     }
 
-    fn apply_fetch(&self, fetched: TransportFetch) -> Result<Value, ReferenceError> {
-        let write =
-            |apply: &dyn Fn(&rusqlite::Transaction<'_>) -> Result<usize, SubscriptionError>| {
-                self.store
-                    .write(Some(WorkspaceChangeSource::ReferencePull), apply)
-            };
-        let mut files = None;
-        let changed = match fetched.value.as_ref() {
-            None => return Ok(fetch_result(0, &fetched, None, true)),
-            Some(ReferencePayload::Calendar(value)) => write(&|transaction| {
-                subscriptions::apply_reference(transaction, Some(value), None)
-            })?,
-            Some(ReferencePayload::ImportantDates(value)) => {
-                write(&|transaction| subscriptions::apply_important_dates(transaction, value))?
-            }
-            Some(ReferencePayload::ClassSchedules(value)) => {
-                write(&|transaction| subscriptions::apply_class_schedules(transaction, value))?
-            }
-            Some(ReferencePayload::Exams(feeds)) => {
-                let mut changed = 0;
-                let mut applied = Vec::new();
-                // Each exam feed keeps its own commit.
-                for feed in feeds {
-                    changed +=
-                        write(&|transaction| subscriptions::apply_exam_feed(transaction, feed))?;
-                    applied.push(json!({
-                        "level":feed.level,
-                        "quarter":feed.quarter.to_ascii_uppercase(),
-                        "dataUrl":feed.url
-                    }));
-                }
-                files = Some(applied);
-                changed
+    /// Reads one Isct-Data file. A matching validator only renews freshness
+    /// when the file's rows are stored; a fetched file replaces its rows and
+    /// is marked fresh in one transaction, unless it shrank suspiciously.
+    async fn read_file(
+        &self,
+        request: &ReferenceRequest,
+        context: &PullContext,
+        probes: &Probes,
+        run: &Run<'_>,
+        stored: &StoredFile,
+    ) -> Result<Read, ReferenceError> {
+        let key = run.key;
+        if !context.phase("index").await {
+            return Err(ReferenceError::Cancelled);
+        }
+        let index_hash = {
+            let mut cache = probes.lock().await;
+            if let Some(result) = cache.get(&request.index_url) {
+                result.clone()?
+            } else {
+                let result = self
+                    .transport
+                    .probe(&request.index_url)
+                    .await
+                    .map_err(ReferenceError::from);
+                cache.insert(request.index_url.clone(), result.clone());
+                result?
             }
         };
-        Ok(fetch_result(changed, &fetched, files, false))
+        let mut validator = stored.validator(&request.index_url);
+        if validator
+            .as_ref()
+            .is_some_and(|validator| validator.index_hash == index_hash)
+        {
+            if !context.applying().await {
+                return Err(ReferenceError::Cancelled);
+            }
+            let now = (self.clock)();
+            let renewed = self.store.write(None, |transaction| {
+                if !sync_state::renew(transaction, key, "", now)? {
+                    return Ok::<_, DataError>(false);
+                }
+                // The published version is the stored one again.
+                sync_state::set_cursor(transaction, key, "", None)?;
+                run.record(
+                    transaction,
+                    now,
+                    RunOutcome::Unchanged,
+                    0,
+                    &request.index_url,
+                    None,
+                )?;
+                Ok(true)
+            })?;
+            if renewed {
+                return Ok(Read::Current(not_modified()));
+            }
+            // Nothing is stored after all: read the file in full.
+            if !context.applied().await {
+                return Err(ReferenceError::Cancelled);
+            }
+            validator = None;
+        }
+        let known_hash = validator
+            .as_ref()
+            .map(|validator| validator.file_hash.as_str());
+        if !context.phase("fetching").await {
+            return Err(ReferenceError::Cancelled);
+        }
+        let fetched = self
+            .transport
+            .fetch(
+                &request.kind,
+                &request.index_url,
+                request.year,
+                &index_hash,
+                known_hash,
+            )
+            .await?;
+        if context.is_cancelled() || !context.applying().await {
+            return Err(ReferenceError::Cancelled);
+        }
+        let now = (self.clock)();
+        let mut next = Validator {
+            index_url: request.index_url.clone(),
+            index_hash,
+            file_hash: fetched.remote_hash.clone(),
+            rows: validator.as_ref().map_or(0, |validator| validator.rows),
+        };
+        let Some(payload) = fetched.value.as_ref() else {
+            // Only the index changed; the stored file is still current.
+            if known_hash.is_none() {
+                return Err(ReferenceError::InvalidInput(
+                    "The reference source returned no data.".into(),
+                ));
+            }
+            let encoded = next.encode();
+            let committed = self.store.write(None, |transaction| {
+                if next.rows > 0 && stored_rows(transaction, &request.kind, request.year)? == 0 {
+                    return Ok::<_, DataError>(false);
+                }
+                sync_state::set_cursor(transaction, key, "", None)?;
+                sync_state::commit(
+                    transaction,
+                    key,
+                    Commit {
+                        account: "",
+                        validator: Some(&encoded),
+                        outcome: Outcome::Complete,
+                        message: None,
+                    },
+                    now,
+                )?;
+                run.record(
+                    transaction,
+                    now,
+                    RunOutcome::Unchanged,
+                    0,
+                    &fetched.data_url,
+                    None,
+                )?;
+                Ok(true)
+            })?;
+            if !committed {
+                return Err(ReferenceError::Storage(
+                    "Stored reference rows disappeared during the refresh.".into(),
+                ));
+            }
+            return Ok(Read::Current(fetch_result(0, &fetched, None, true)));
+        };
+        next.rows = payload.rows();
+        let encoded = next.encode();
+        self.store.write(
+            Some(WorkspaceChangeSource::ReferencePull),
+            |transaction| -> Result<Read, ReferenceError> {
+                let pending = sync_state::cursor(transaction, key)?;
+                if suspicious_shrink(
+                    stored_rows(transaction, &request.kind, request.year)?,
+                    next.rows,
+                ) && pending.as_deref() != Some(fetched.remote_hash.as_str())
+                {
+                    // Publish only when a later read returns this same version.
+                    sync_state::set_cursor(transaction, key, "", Some(&fetched.remote_hash))?;
+                    sync_state::fail(transaction, key, "", SUSPICIOUS_SHRINK, now)?;
+                    run.record(
+                        transaction,
+                        now,
+                        RunOutcome::Failed,
+                        0,
+                        &fetched.data_url,
+                        Some(SUSPICIOUS_SHRINK),
+                    )?;
+                    return Ok(Read::Held);
+                }
+                let (changed, files) = payload.apply(transaction)?;
+                sync_state::set_cursor(transaction, key, "", None)?;
+                sync_state::commit(
+                    transaction,
+                    key,
+                    Commit {
+                        account: "",
+                        validator: Some(&encoded),
+                        outcome: Outcome::Complete,
+                        message: None,
+                    },
+                    now,
+                )?;
+                run.record(
+                    transaction,
+                    now,
+                    RunOutcome::Complete,
+                    changed,
+                    &fetched.data_url,
+                    None,
+                )?;
+                Ok(Read::Current(fetch_result(changed, &fetched, files, false)))
+            },
+        )
     }
 }
 
@@ -514,6 +689,177 @@ struct ReferenceRequest {
     index_url: String,
     year: i32,
     force: bool,
+    /// Correlates the `sync_runs` rows of one refresh.
+    run: String,
+}
+
+/// How a read of one reference file ended, short of an error.
+enum Read {
+    /// The stored file is current: renewed, or replaced by the fetched one.
+    Current(Value),
+    /// The fetched version shrank suspiciously and was not published.
+    Held,
+}
+
+/// One read of a reference key, for its `sync_runs` row.
+struct Run<'a> {
+    id: &'a str,
+    key: &'a Key,
+    started: DateTime<Utc>,
+}
+
+impl Run<'_> {
+    fn record(
+        &self,
+        connection: &Connection,
+        finished: DateTime<Utc>,
+        outcome: RunOutcome,
+        changed: usize,
+        source: &str,
+        error_kind: Option<&str>,
+    ) -> Result<(), DataError> {
+        sync_state::record_run(
+            connection,
+            &RunRecord {
+                run: self.id,
+                key: self.key,
+                account: "",
+                started_at: self.started,
+                finished_at: finished,
+                outcome,
+                changed,
+                requests: None,
+                bytes: None,
+                source,
+                error_kind,
+            },
+        )
+    }
+}
+
+/// What a stored reference file was checked against, kept as its
+/// `dataset_state.validator`: the index it came from, that index's hash,
+/// the file's own hash and how many rows the file had.
+#[derive(Clone, Debug, PartialEq)]
+struct Validator {
+    index_url: String,
+    index_hash: String,
+    file_hash: String,
+    rows: usize,
+}
+
+impl Validator {
+    fn encode(&self) -> String {
+        format!(
+            "{}:{}:{}@{}",
+            self.index_hash, self.file_hash, self.rows, self.index_url
+        )
+    }
+
+    fn parse(raw: &str) -> Option<Self> {
+        let (hashes, index_url) = raw.split_once('@')?;
+        let mut parts = hashes.splitn(3, ':');
+        Some(Self {
+            index_hash: parts.next()?.into(),
+            file_hash: parts.next()?.into(),
+            rows: parts.next()?.parse().ok()?,
+            index_url: index_url.into(),
+        })
+    }
+}
+
+/// What is stored for one reference key when a read starts.
+struct StoredFile {
+    state: Option<KeyState>,
+    /// The file hash of a version held back as a suspicious shrink.
+    held: Option<String>,
+    /// Live rows the file published.
+    rows: usize,
+}
+
+impl StoredFile {
+    fn read(connection: &Connection, key: &Key, kind: &str, year: i32) -> Result<Self, DataError> {
+        Ok(Self {
+            state: sync_state::get(connection, key)?,
+            held: sync_state::cursor(connection, key)?,
+            rows: stored_rows(connection, kind, year)?,
+        })
+    }
+
+    /// The validator, when it was taken from this index and the file's rows
+    /// are still stored: missing content beats validators.
+    fn validator(&self, index_url: &str) -> Option<Validator> {
+        self.state
+            .as_ref()?
+            .validator
+            .as_deref()
+            .and_then(Validator::parse)
+            .filter(|validator| {
+                validator.index_url == index_url && (validator.rows == 0 || self.rows > 0)
+            })
+    }
+
+    /// Whether an automatic run reads the file now.
+    fn due(&self, index_url: &str, now: DateTime<Utc>) -> bool {
+        let ttl = sync_state::ttl(Dataset::Reference, Term::Current);
+        match sync_state::due(self.state.as_ref(), ttl, "", now) {
+            Due::BackingOff(_) => false,
+            // A held version is read again once its backoff has passed.
+            Due::Fresh => self.held.is_some() || self.validator(index_url).is_none(),
+            Due::Missing | Due::Stale => true,
+        }
+    }
+}
+
+fn reference_key(kind: &str, year: i32) -> Key {
+    Key::new(Dataset::Reference, format!("{kind}/{year}"))
+}
+
+/// Live rows one reference file published.
+fn stored_rows(connection: &Connection, kind: &str, year: i32) -> Result<usize, DataError> {
+    let (table, prefixes): (&str, &[&str]) = match kind {
+        "calendar" => ("academic_calendar", &["calendar"]),
+        "important-dates" => ("important_dates", &["important-date"]),
+        "exams" => ("exams", &["exam", "exam-week-class"]),
+        "class-schedules" => ("class_schedules", &["class-schedule"]),
+        _ => {
+            return Err(DataError::InvalidInput(
+                "unsupported subscription type".into(),
+            ))
+        }
+    };
+    let mut rows = 0;
+    for prefix in prefixes {
+        let count: i64 = connection
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM {table}
+                     WHERE id LIKE ?1 AND missing_since IS NULL AND deleted_at IS NULL"
+                ),
+                [format!("{prefix}:{year}:%")],
+                |row| row.get(0),
+            )
+            .map_err(DataError::from)?;
+        rows += usize::try_from(count).unwrap_or(0);
+    }
+    Ok(rows)
+}
+
+/// Public data only: a version that loses 30% or more of the stored rows,
+/// or all of them, is held until a later read returns the same version.
+fn suspicious_shrink(stored: usize, candidate: usize) -> bool {
+    stored > 0 && candidate.saturating_mul(10) <= stored.saturating_mul(7)
+}
+
+/// The short `error_kind` code of a failed read; never the message.
+fn error_kind(error: &ReferenceError) -> &'static str {
+    match error {
+        ReferenceError::Network(_) => "network",
+        ReferenceError::InvalidInput(_) | ReferenceError::Compatibility(_) => "parse",
+        ReferenceError::Storage(_) | ReferenceError::Conflict(_) => "storage",
+        ReferenceError::Cancelled => "cancelled",
+        ReferenceError::Coordination(_) | ReferenceError::PartialFailure(_) => "coordination",
+    }
 }
 
 /// References follow the term the person is viewing for every kind of run.
@@ -573,39 +919,6 @@ fn timestamp(value: Option<&str>) -> Option<DateTime<Utc>> {
         .map(|value| value.with_timezone(&Utc))
 }
 
-pub(crate) fn calendar_cache_present(workspace: &Value, year: i64) -> bool {
-    let boundaries = workspace
-        .get("academicCalendar")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|row| {
-            let kind = row.get("type").and_then(Value::as_str)?;
-            let quarter = row.get("quarter").and_then(Value::as_str)?;
-            let raw_date = row.get("date").and_then(Value::as_str)?;
-            let valid_date = NaiveDate::parse_from_str(raw_date, "%Y-%m-%d")
-                .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == raw_date);
-            (matches!(kind, "quarter-start" | "quarter-end")
-                && valid_date
-                && row.get("academicYear").and_then(Value::as_i64) == Some(year)
-                && row.get("deletedAt").is_none_or(Value::is_null)
-                && row.get("missingSince").is_none_or(Value::is_null))
-            .then(|| format!("{kind}:{quarter}"))
-        })
-        .collect::<std::collections::HashSet<_>>();
-    ["1Q", "2Q", "3Q", "4Q"].into_iter().all(|quarter| {
-        boundaries.contains(&format!("quarter-start:{quarter}"))
-            && boundaries.contains(&format!("quarter-end:{quarter}"))
-    })
-}
-
-pub(crate) fn reference_is_fresh(row: &Value, year: i64, now: DateTime<Utc>) -> bool {
-    row.get("year").and_then(Value::as_i64) == Some(year)
-        && row.get("lastError").is_none_or(Value::is_null)
-        && timestamp(row.get("fetchedAt").and_then(Value::as_str))
-            .is_some_and(|last| now - last < Duration::hours(24))
-}
-
 /// The built-in reference task checks once per process launch before its
 /// hourly recurrence becomes due.
 pub fn reference_due_at_launch(task: &Value, started_at: DateTime<Utc>) -> bool {
@@ -615,69 +928,12 @@ pub fn reference_due_at_launch(task: &Value, started_at: DateTime<Utc>) -> bool 
             .is_none_or(|last| last < started_at)
 }
 
-fn cache_fingerprint(workspace: &Value, kind: &str, year: i32) -> Result<String, ReferenceError> {
-    let fields: &[&str] = match kind {
-        "calendar" => &["academicCalendar"],
-        "important-dates" => &["importantDates"],
-        "exams" => &["exams"],
-        "class-schedules" => &["classSchedules"],
-        _ => {
-            return Err(ReferenceError::InvalidInput(
-                "unsupported reference cache kind".into(),
-            ))
-        }
-    };
-    let year_field = "academicYear";
-    let mut rows: Vec<_> = fields
-        .iter()
-        .flat_map(|field| {
-            workspace[*field]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|row| {
-                    row[year_field].as_i64() == Some(year.into())
-                        && row.get("deletedAt").is_none_or(Value::is_null)
-                        && row.get("missingSince").is_none_or(Value::is_null)
-                })
-                .map(move |row| json!({"collection":field,"record":row}))
-        })
-        .collect();
-    rows.sort_by_key(|row| format!("{}:{}", row["collection"], row["record"]["id"]));
-    content_hash(&json!(rows)).map_err(ReferenceError::from)
-}
-
-fn cache_present(
-    store: &DataStore,
-    workspace: &Value,
-    request: &ReferenceRequest,
-) -> Result<bool, ReferenceError> {
-    // A calendar applied before markers existed (or restored from a backup)
-    // still counts when it is complete; a partially published calendar
-    // counts through its local marker, so it is not refetched every hour.
-    if request.kind == "calendar" && calendar_cache_present(workspace, request.year.into()) {
-        return Ok(true);
-    }
-    let Some(marker) = store.reference_cache_marker(&request.kind, request.year)? else {
-        return Ok(false);
-    };
-    Ok(marker["indexUrl"].as_str() == Some(&request.index_url)
-        && marker["fingerprint"].as_str()
-            == Some(&cache_fingerprint(workspace, &request.kind, request.year)?))
-}
-
-fn same_index(saved: Option<&str>, requested: &str) -> bool {
-    saved
-        .and_then(|saved| {
-            let mut url = url::Url::parse(saved.trim()).ok()?;
-            url.set_fragment(None);
-            Some(url.to_string() == requested)
-        })
-        .unwrap_or(false)
-}
-
 fn not_modified() -> Value {
     json!({"changed":0,"skipped":true,"notModified":true})
+}
+
+fn held() -> Value {
+    json!({"changed":0,"skipped":true,"notModified":true,"held":true})
 }
 
 fn fetch_result(

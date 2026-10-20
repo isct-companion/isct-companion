@@ -479,3 +479,40 @@ pub fn source_of_url(url: &url::Url) -> String {
 #[cfg(test)]
 #[path = "tests/sync_state.rs"]
 mod tests;
+
+/// The candidate version a key is holding back (a public file that shrank
+/// suspiciously), stored in `dataset_state.cursor`.
+pub fn cursor(connection: &Connection, key: &Key) -> Result<Option<String>, DataError> {
+    connection
+        .query_row(
+            "SELECT cursor FROM dataset_state WHERE dataset=?1 AND key=?2",
+            params![key.dataset.name(), key.key],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(Option::flatten)
+        .map_err(DataError::from)
+}
+
+/// Sets `cursor` (creating the key's row, which reads as missing until a
+/// commit) or clears it. Freshness, failures and the validator stay.
+pub fn set_cursor(
+    connection: &Connection,
+    key: &Key,
+    account: &str,
+    cursor: Option<&str>,
+) -> Result<(), DataError> {
+    match cursor {
+        Some(cursor) => connection.execute(
+            "INSERT INTO dataset_state(dataset,key,account,cursor) VALUES(?1,?2,?3,?4)
+             ON CONFLICT(dataset,key) DO UPDATE SET cursor=excluded.cursor",
+            params![key.dataset.name(), key.key, account, cursor],
+        ),
+        None => connection.execute(
+            "UPDATE dataset_state SET cursor=NULL WHERE dataset=?1 AND key=?2",
+            params![key.dataset.name(), key.key],
+        ),
+    }
+    .map_err(DataError::from)?;
+    Ok(())
+}

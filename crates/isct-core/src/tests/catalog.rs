@@ -15,12 +15,31 @@ async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
         "schedule":[], "academicUnit":{}, "intensive":false,
         "syllabusUrl":"https://example.invalid/202602431", "fetchedAt":{"ja":now,"en":now}
     });
-    store.catalog_upsert_offerings(&[value]).unwrap();
     let content = ["ja","en"].map(|lang| json!({"offeringId":"202602431","lang":lang,"content":{
             "schemaVersion":1,"sourceUrl":"https://example.invalid/202602431","sourceLanguage":lang,
             "fetchedAt":now,"sourceUpdated":null,"metadata":[],"sections":[],"lecturePlan":[],"competencies":[]
         }}));
-    store.upsert_offering_content(&content).unwrap();
+    let key = detail_key("202602431");
+    let read_at = Utc::now();
+    store
+        .catalog_store_detail(
+            &value,
+            &content,
+            &RunRecord {
+                run: "seed",
+                key: &key,
+                account: "",
+                started_at: read_at,
+                finished_at: read_at,
+                outcome: RunOutcome::Complete,
+                changed: 3,
+                requests: None,
+                bytes: None,
+                source: "example.invalid/202602431",
+                error_kind: None,
+            },
+        )
+        .unwrap();
     let result = catalog_sync_offering(&store, "https://example.invalid/202602431".into())
         .await
         .unwrap();

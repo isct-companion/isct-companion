@@ -953,33 +953,6 @@ impl DataStore {
         })
     }
 
-    // Local reference markers are excluded from user backups and cloud exports.
-    // Empty feeds need this local evidence too: metadata may survive a restore.
-    pub fn reference_cache_marker(
-        &self,
-        kind: &str,
-        year: i32,
-    ) -> Result<Option<Value>, DataError> {
-        read_setting(&self.open()?, &format!("referenceCache:{kind}:{year}"))
-    }
-
-    pub fn record_reference_cache(
-        &self,
-        kind: &str,
-        year: i32,
-        marker: Value,
-    ) -> Result<(), DataError> {
-        self.write(None, |transaction| {
-            save_setting(
-                transaction,
-                &format!("referenceCache:{kind}:{year}"),
-                &marker,
-                "reference-pull",
-            )
-            .map(|_| ())
-        })
-    }
-
     /// Patch only the poll clock under the same SQL lock as local preferences.
     pub fn record_reference_poll(&self) -> Result<(), DataError> {
         self.write(Some(WorkspaceChangeSource::ReferencePoll), |transaction| {
