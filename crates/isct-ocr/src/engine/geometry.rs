@@ -32,15 +32,11 @@ fn round(v: f64) -> f64 {
 }
 fn dark(image: &RgbImage, x: f64, y: f64, threshold: u8) -> bool {
     let (x, y) = (round(x) as i64, round(y) as i64);
-    x >= 0
-        && y >= 0
-        && x < image.width() as i64
-        && y < image.height() as i64
-        && image
-            .get_pixel(x as u32, y as u32)
-            .0
-            .iter()
-            .all(|v| *v < threshold)
+    x >= 0 && y >= 0 && x < image.width() as i64 && y < image.height() as i64 && {
+        let p = image.get_pixel(x as u32, y as u32);
+        (19595 * p[0] as u32 + 38470 * p[1] as u32 + 7471 * p[2] as u32 + 32768) >> 16
+            < threshold as u32
+    }
 }
 #[derive(Clone, Copy)]
 struct Run {
@@ -50,7 +46,7 @@ struct Run {
 }
 /// White header letters can interrupt a wide horizontal run for several rows.
 /// Bridge only a mostly dark band, never the light body between grid lines.
-fn joins_header(image: &RgbImage, previous: Run, next: Run) -> bool {
+fn joins_header(image: &RgbImage, previous: Run, next: Run, threshold: u8) -> bool {
     let dy = next.y - previous.y;
     if dy <= 4. {
         return true;
@@ -66,7 +62,7 @@ fn joins_header(image: &RgbImage, previous: Run, next: Run) -> bool {
     for y in previous.y as u32 + 1..next.y as u32 {
         for x in left..=right {
             total += 1;
-            if dark(image, x as f64, y as f64, 125) {
+            if dark(image, x as f64, y as f64, threshold) {
                 hits += 1;
             }
         }
@@ -74,14 +70,82 @@ fn joins_header(image: &RgbImage, previous: Run, next: Run) -> bool {
     total > 0 && hits as f64 / total as f64 > 0.5
 }
 
-fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option<[Point; 4]> {
+fn capture_body_score(image: &RgbImage, corners: &[Point; 4]) -> Option<usize> {
     let (w, h) = (image.width() as f64, image.height() as f64);
-    let gap = round(w / 70.).max(3.) as i32;
+    if corners.iter().any(|p| {
+        !p.x.is_finite() || !p.y.is_finite() || p.x < 0. || p.y < 0. || p.x >= w || p.y >= h
+    }) {
+        return None;
+    }
+    for i in 0..4 {
+        let (a, b, c) = (corners[i], corners[(i + 1) % 4], corners[(i + 2) % 4]);
+        if (b.x - a.x).hypot(b.y - a.y) < if i % 2 == 0 { 40. } else { 28. }
+            || (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) <= 0.
+        {
+            return None;
+        }
+    }
+    let gray = |u, v| {
+        let p = project(corners, u, v);
+        let pixel = image.get_pixel(
+            round(p.x).clamp(0., w - 1.) as u32,
+            round(p.y).clamp(0., h - 1.) as u32,
+        );
+        pixel[0] as f64 * 0.299 + pixel[1] as f64 * 0.587 + pixel[2] as f64 * 0.114
+    };
+    let mut supported = 0;
+    for vertical in [true, false] {
+        let count = if vertical { 10 } else { 7 };
+        for line in 1..count {
+            let mut hits = 0;
+            for sample in 0..28 {
+                let cross = (sample as f64 + 0.5) / 28.;
+                let axis = line as f64 / count as f64;
+                let value = |offset| {
+                    if vertical {
+                        gray(axis + offset / count as f64, cross)
+                    } else {
+                        gray(cross, axis + offset / count as f64)
+                    }
+                };
+                let low = value(-0.24);
+                let high = value(0.24);
+                let contrast = [-0.08, -0.04, 0., 0.04, 0.08]
+                    .into_iter()
+                    .map(value)
+                    .map(|center| (center - low.max(high)).max(low.min(high) - center))
+                    .fold(0., f64::max);
+                if contrast > 7. {
+                    hits += 1;
+                }
+            }
+            if hits >= 7 {
+                supported += 1;
+            }
+        }
+    }
+    Some(supported)
+}
+
+fn capture_body_valid(image: &RgbImage, corners: &[Point; 4]) -> bool {
+    capture_body_score(image, corners).is_some_and(|supported| supported >= 10)
+}
+
+fn template_at(
+    image: &RgbImage,
+    recover_header_gaps: bool,
+    camera: bool,
+    threshold: u8,
+) -> Option<[Point; 4]> {
+    let (w, h) = (image.width() as f64, image.height() as f64);
+    // Camera JPEGs leave bright antialiasing around the white header glyphs.
+    // Bridge gaps relative to the frame, then validate the complete 10x7 grid.
+    let gap = round(w / 100.).max(3.) as i32;
     let mut runs = vec![];
     for y in 0..image.height() {
         let (mut left, mut last) = (-1, -1);
         for x in 0..=image.width() as i32 + gap {
-            if (x as f64) < w && dark(image, x as f64, y as f64, 125) {
+            if (x as f64) < w && dark(image, x as f64, y as f64, threshold) {
                 if left < 0 {
                     left = x;
                 }
@@ -106,7 +170,7 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
                     && (run.left - last.left).abs() < w * 0.06
                     && (run.right - last.right).abs() < w * 0.06
                     && (run.y - last.y <= 4.
-                        || (recover_header_gaps && joins_header(image, *last, run)))
+                        || (recover_header_gaps && joins_header(image, *last, run, threshold)))
             })
         }) {
             g.push(run);
@@ -137,10 +201,10 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
         let mut x = left + cw * 0.1;
         while x < right - cw * 0.1 {
             let (mut top, mut bottom) = (mid, mid);
-            while top > group[0].y - cw * 0.2 && dark(image, x, top, 125) {
+            while top > group[0].y - cw * 0.2 && dark(image, x, top, threshold) {
                 top -= 1.;
             }
-            while bottom < group_last.y + cw * 0.2 && dark(image, x, bottom, 125) {
+            while bottom < group_last.y + cw * 0.2 && dark(image, x, bottom, threshold) {
                 bottom += 1.;
             }
             if bottom - top > cw * 0.3 {
@@ -155,8 +219,46 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
         let top_line = fit(&tops);
         let start_line = fit(&bottoms);
         let header_height = start_line((left + right) / 2.) - top_line((left + right) / 2.);
-        if header_height < cw * 0.4 || header_height > cw * 1.1 {
+        if header_height < cw * 0.35 || header_height > cw * 1.4 {
             continue;
+        }
+        if camera {
+            let mut best = None;
+            let mut row_height = cw * 0.5;
+            while row_height <= cw * 1.15 {
+                let corners = [
+                    Point {
+                        x: left,
+                        y: start_line(left),
+                    },
+                    Point {
+                        x: right,
+                        y: start_line(right),
+                    },
+                    Point {
+                        x: right,
+                        y: start_line(right) + row_height * 7.,
+                    },
+                    Point {
+                        x: left,
+                        y: start_line(left) + row_height * 7.,
+                    },
+                ];
+                if let Some(score) = capture_body_score(image, &corners) {
+                    if best
+                        .as_ref()
+                        .is_none_or(|(best_score, _, _)| score > *best_score)
+                    {
+                        best = Some((score, row_height, corners));
+                    }
+                }
+                row_height += 0.5;
+            }
+            if let Some((score, _, corners)) = best {
+                if score >= 13 {
+                    return Some(corners);
+                }
+            }
         }
         let mut ends = vec![];
         for fraction in [0.15, 0.25, 0.75, 0.85] {
@@ -165,20 +267,20 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
             let (mut last, mut missing, mut hits) = (start, 0., 0.);
             let mut y = round(start);
             while y < h.min(start + header_height * 9.) {
-                if dark(image, x, y, 190) {
+                if dark(image, x, y, threshold.saturating_add(40)) {
                     last = y;
                     missing = 0.;
                     hits += 1.;
                 } else {
                     missing += 1.;
                 }
-                if missing > header_height * 0.45 {
+                if missing > header_height * 0.7 {
                     break;
                 }
                 y += 1.;
             }
             let extent = last - start_line(x);
-            if extent > header_height * 5. && extent < header_height * 8.5 && hits / extent > 0.65 {
+            if extent > header_height * 5. && extent < header_height * 9. && hits / extent > 0.5 {
                 ends.push(Point { x, y: last });
             }
         }
@@ -192,7 +294,7 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
         while y < bottom_left - body_height * 0.05 {
             let mut x = round(right + cw * 0.35);
             while x > right - cw * 0.25 {
-                if dark(image, x, y, 155) {
+                if dark(image, x, y, threshold.saturating_add(30)) {
                     edges.push(Point { x: y, y: x });
                     break;
                 }
@@ -209,7 +311,7 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
         while x < right - cw * 0.3 {
             let mut y = round(bottom_left + header_height * 0.3);
             while y > bottom_left - header_height * 0.3 {
-                if dark(image, x, y, 165) {
+                if dark(image, x, y, threshold.saturating_add(30)) {
                     bottom_edges.push(Point { x, y });
                     break;
                 }
@@ -232,7 +334,7 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
             while y < bottom_left - body_height * 0.05 {
                 let mut x = round(left - cw * 1.4);
                 while x < left - cw * 0.6 {
-                    if dark(image, x, y, 155) {
+                    if dark(image, x, y, threshold.saturating_add(30)) {
                         label_edges.push(Point { x: y, y: x });
                         break;
                     }
@@ -268,8 +370,23 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
             else {
                 continue;
             };
-            if super::contours::valid(image, &corners) {
-                return Some(corners);
+            let body_corners = [
+                Point {
+                    x: left,
+                    y: start_line(left),
+                },
+                Point {
+                    x: right,
+                    y: start_line(right),
+                },
+                cross(&right_edge, &bottom_line)?,
+                Point {
+                    x: left,
+                    y: bottom_line(left),
+                },
+            ];
+            if super::contours::valid(image, &corners) || capture_body_valid(image, &body_corners) {
+                return Some(body_corners);
             }
             continue;
         }
@@ -301,6 +418,15 @@ fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option
         }
     }
     None
+}
+
+fn template(image: &RgbImage, recover_header_gaps: bool, camera: bool) -> Option<[Point; 4]> {
+    // Backlit cameras can place the light cell background below the old fixed
+    // dark threshold. Trying several grayscale levels keeps the blue header
+    // separate from the body instead of merging the whole card into one band.
+    [60, 85, 110, 135]
+        .into_iter()
+        .find_map(|threshold| template_at(image, recover_header_gaps, camera, threshold))
 }
 
 #[derive(Clone, Copy)]
@@ -518,23 +644,62 @@ pub fn locate(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
 /// strip. Header fits remain useful when the outer contour is interrupted.
 pub(super) fn locate_capture(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
     if let Some(cells) = super::contours::locate(image) {
-        return Some(cells);
+        let width = (cells[9][1].x - cells[0][0].x).hypot(cells[9][1].y - cells[0][0].y);
+        let height = (cells[69][2].x - cells[9][1].x).hypot(cells[69][2].y - cells[9][1].y);
+        if width / height >= 1.25 {
+            return Some(cells);
+        }
     }
-    let corners = template(image, false, true).or_else(|| template(image, true, true))?;
-    Some(
+    let body_cells = |corners: [Point; 4]| {
         (0..70)
             .map(|i| {
-                let (c, r) = ((i % 10 + 1) as f64, (i / 10 + 1) as f64);
+                let (c, r) = ((i % 10) as f64, (i / 10) as f64);
                 [
-                    (c / 11., r / 8.),
-                    ((c + 1.) / 11., r / 8.),
-                    ((c + 1.) / 11., (r + 1.) / 8.),
-                    (c / 11., (r + 1.) / 8.),
+                    (c / 10., r / 7.),
+                    ((c + 1.) / 10., r / 7.),
+                    ((c + 1.) / 10., (r + 1.) / 7.),
+                    (c / 10., (r + 1.) / 7.),
                 ]
                 .map(|(u, v)| project(&corners, u, v))
             })
-            .collect(),
-    )
+            .collect::<Vec<_>>()
+    };
+    for turn in 0..4 {
+        let rotated = match turn {
+            0 => image.clone(),
+            1 => image::imageops::rotate90(image),
+            2 => image::imageops::rotate180(image),
+            _ => image::imageops::rotate270(image),
+        };
+        let Some(corners) =
+            template(&rotated, false, true).or_else(|| template(&rotated, true, true))
+        else {
+            continue;
+        };
+        let width = (corners[1].x - corners[0].x).hypot(corners[1].y - corners[0].y);
+        let height = (corners[3].x - corners[0].x).hypot(corners[3].y - corners[0].y);
+        let header_slope = (corners[1].y - corners[0].y) / (corners[1].x - corners[0].x);
+        if width / height >= 1.25 && header_slope.abs() < 0.12 {
+            let (w, h) = (image.width() as f64 - 1., image.height() as f64 - 1.);
+            return Some(
+                body_cells(corners)
+                    .into_iter()
+                    .map(|quad| {
+                        quad.map(|p| match turn {
+                            0 => p,
+                            1 => Point { x: p.y, y: h - p.x },
+                            2 => Point {
+                                x: w - p.x,
+                                y: h - p.y,
+                            },
+                            _ => Point { x: w - p.y, y: p.x },
+                        })
+                    })
+                    .collect(),
+            );
+        }
+    }
+    None
 }
 pub fn crop(image: &RgbImage, corners: &[Point; 4]) -> RgbImage {
     crop_at(image, corners, 64)
