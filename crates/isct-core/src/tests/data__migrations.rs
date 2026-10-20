@@ -83,8 +83,8 @@ fn legacy_school_db(directory: &Path, version: i64) {
                  VALUES('userPreferences','{"departmentId":"cs"}','hash','2026-10-01T00:00:00Z','device-legacy',2);
                INSERT INTO course_identity_map
                  VALUES('lms','42',2026,'2026-202602440','202602440','2026-10-01T00:00:00Z');
-               INSERT INTO lms_courses(id,lms_id,value,hash,updated_at,updated_by,rev)
-                 VALUES('lms-course:42',42,'{"id":"lms-course:42"}','hash','2026-10-01T00:00:00Z','school',1);
+               INSERT INTO lms_courses(id,value,hash,updated_at,updated_by,rev)
+                 VALUES('lms-course:42','{"id":"lms-course:42","lmsId":42}','hash','2026-10-01T00:00:00Z','school',1);
                INSERT INTO dataset_state(dataset,key,fetched_at)
                  VALUES('lms.course','42','2026-10-01T00:00:00Z');"#,
         )
@@ -207,8 +207,8 @@ fn a_cache_db_of_another_version_or_unreadable_is_rebuilt_and_user_data_stays() 
             store
                 .test_connection()
                 .execute_batch(
-                    "INSERT INTO lms_courses(id,lms_id,value,hash,updated_at,updated_by,rev)
-                       VALUES('lms-course:42',42,'{}','hash','2026-10-01T00:00:00Z','school',1);
+                    "INSERT INTO lms_courses(id,value,hash,updated_at,updated_by,rev)
+                       VALUES('lms-course:42','{}','hash','2026-10-01T00:00:00Z','school',1);
                      PRAGMA cache.user_version=99;",
                 )
                 .unwrap();
