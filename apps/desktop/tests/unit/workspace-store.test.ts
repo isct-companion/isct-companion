@@ -560,9 +560,6 @@ describe("browser preview", () => {
       async import(_document: string) {
         return structuredClone(stored);
       },
-      async reset() {
-        return structuredClone(stored);
-      },
     };
     const store = createWorkspaceStore(createBrowserPreviewService(repository));
     await store.initialize();
@@ -710,12 +707,11 @@ describe("local browser repository", () => {
     expect((await repository.load()).settings.locale).not.toBe("zh");
   });
 
-  it("refuses export, import and reset without the native app", async () => {
+  it("refuses export and import without the native app", async () => {
     const repository = new LocalRepository();
 
     await expect(repository.export()).rejects.toThrow("native app");
     await expect(repository.import("{}")).rejects.toThrow("native app");
-    await expect(repository.reset()).rejects.toThrow("native app");
   });
 });
 
@@ -727,11 +723,7 @@ describe("SQLite repository", () => {
       workspace,
       handle: (command) => {
         if (command === "export_data") return exported;
-        if (
-          command === "load_workspace" ||
-          command === "import_data" ||
-          command === "reset_workspace"
-        )
+        if (command === "load_workspace" || command === "import_data")
           return workspace;
         return undefined;
       },
@@ -743,7 +735,6 @@ describe("SQLite repository", () => {
     expect((await repository.import("unparsed bytes for Core")).deviceId).toBe(
       DEVICE,
     );
-    expect((await repository.reset()).deviceId).toBe(DEVICE);
     expect(core.calls).toEqual([
       { command: "load_workspace", args: {} },
       { command: "export_data", args: {} },
@@ -751,7 +742,6 @@ describe("SQLite repository", () => {
         command: "import_data",
         args: { document: "unparsed bytes for Core" },
       },
-      { command: "reset_workspace", args: {} },
     ]);
   });
 

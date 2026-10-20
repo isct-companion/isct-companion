@@ -1,6 +1,5 @@
-use crate::{cloud_sync, core_ports, data, require_local_main, run_data_command};
+use crate::{core_ports, data, require_local_main, run_data_command};
 use isct_core::workspace::{WorkspaceError, WorkspaceMutation, WorkspaceSnapshot};
-use tauri::Manager;
 
 #[tauri::command]
 pub(crate) async fn workspace_snapshot(
@@ -63,18 +62,4 @@ pub(crate) async fn run_scheduled_task(
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub(crate) async fn reset_workspace(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    store: tauri::State<'_, data::DataStore>,
-) -> Result<serde_json::Value, String> {
-    require_local_main(&webview)?;
-    app.state::<cloud_sync::CloudSync>()
-        .prepare_reset(&app)
-        .await?;
-    let store = store.inner().clone();
-    run_data_command(move || store.reset_workspace().map_err(|error| error.to_string())).await
 }

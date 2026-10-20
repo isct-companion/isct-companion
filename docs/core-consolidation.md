@@ -289,7 +289,8 @@ exports both call these.
 
 | Service | Current commands (examples) |
 |---|---|
-| `workspace` | `load_workspace`, `put_user_record`, `delete_user_record`, `put_workspace_setting`, `reset_workspace`, `export_data`, `import_data` |
+| `workspace` | `load_workspace`, `put_user_record`, `delete_user_record`, `put_workspace_setting`, `export_data`, `import_data` |
+| `reset` | `reset_caches`, `reset_caches_preview` (`Core::reset`: one lease, admission gate, generation) |
 | `catalog` | `catalog_*`, `preview_plan_recurrence` |
 | `school` | `pull_school`, `pull_state`, `cancel_pull`, `school_records`, `login_school`, `ensure_school_session`, credentials, `set_kyomu_guide`, `test_school_connection` |
 | `school_browser` | `open_school_site`, `navigate/back/forward/reload_school_web`, `set_school_web_zoom`, `resolve_school_url` (layout commands stay in the shell) |

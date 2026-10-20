@@ -26,7 +26,8 @@ export type WorkspaceChangedEvent = {
     | "scheduler"
     | "mcp"
     | "cloud-sync"
-    | "cloud-restore";
+    | "cloud-restore"
+    | "reset";
   /** The committed user-intent revision, when the source can provide it. */
   revision?: string;
 };
