@@ -117,17 +117,17 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_parser/lms/pages.rs<br>crates/isct-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>crates/isct-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
-| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/extraction.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs<br>crates/isct-core/src/school_parser/kyomu/pages.rs<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs<br>crates/isct-core/src/school_parser/kyomu/pages.rs<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/isct-core/src/app_updates.rs |
-| `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/school_browser/assets/extraction-relay.js |
+| `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/kyomu.rs |
 | `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
-| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/extraction.rs |
+| `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/pull.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
@@ -2044,7 +2044,7 @@ Headless tests exercise the parser, shared projections and UI paging only.
 
 **Covers**
 
-- `crates/isct-core/src/school_browser/engine/extraction.rs`
+- `crates/isct-core/src/school_browser/engine/pull.rs`
 - `crates/isct-core/src/school_parser/kyomu/search.rs`
 - `crates/isct-core/src/school_parser/kyomu/pages.rs`
 - `crates/isct-core/src/net/kyomu.rs`
@@ -2151,7 +2151,7 @@ Needs a signed release on GitHub, a Windows PC, a real slow or broken network, a
 
 **Last recorded** never run
 
-### Windows school pulls finish with a large LMS result and a hidden view (`DESKTOP-WINDOWS-SCHOOL-PULL`)
+### Windows school pulls finish over Core HTTP while school pages are open (`DESKTOP-WINDOWS-SCHOOL-PULL`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -2160,17 +2160,16 @@ Needs a signed release on GitHub, a Windows PC, a real slow or broken network, a
 **Preconditions**
 
 A Windows build from this source, a Science Tokyo account enrolled in
-many LMS courses (a full pull whose result is over 2 MB), and saved
-school credentials.
+many LMS courses, and saved school credentials.
 
 **Steps**
 
 1. Open Settings > Diagnostics and clear the log, then start a full LMS refresh from the course list.
-   - *Why:* WebView2 drops a navigation whose URL is over 2 MiB. The result now crosses in parts; a large real account is the only payload that needs more than one.
-2. While a pull runs, minimise the app for at least six minutes, then restore it.
-   - *Why:* Chromium throttles timers in hidden pages, harder after five minutes. The school views pass switches that disable it; only a real WebView2 shows whether they took effect.
-3. Copy the diagnostics log.
-   - *Why:* The log shows each capture reaching its target page and whether the relay arrived, which separates a dropped relay from a slow page.
+   - *Why:* The old WebView relay failed on WebView2 for large results; Core now reads LMS over HTTP, and only a real Windows build shows the TLS, proxy and cookie handoff from WebView2 working.
+2. While the pull runs, open the LMS and 教務Web school pages and browse for a minute.
+   - *Why:* Reading no longer shares the WebView, so browsing must not pause or restart the pull.
+3. Start a 教務Web refresh, then copy the diagnostics log.
+   - *Why:* kyomu0 needs the bundled G7 intermediate on top of Windows' verifier; the log shows whether TLS or the session failed.
 
 **Where to look**
 
@@ -2178,18 +2177,20 @@ The course list, the pull status, and the copied diagnostics log.
 
 **Expected**
 
-Both pulls finish with every enrolled course listed and no timeout. The
-log shows "capture loaded" for each target and no "database is locked".
+Both pulls finish with every enrolled course listed, no timeout and no
+restart while browsing. The log shows no TLS error and no token, sesskey
+or cookie value.
 
 **Why this is manual**
 
-Needs a real school account with a large LMS result, a Windows PC running WebView2, and minutes of real hidden time; the core suite covers part assembly but cannot run WebView2.
+Needs a real school account, a Windows PC with WebView2's cookie store and the Windows certificate verifier, which no headless suite has.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/school_web.rs`
 - `apps/desktop/src-tauri/src/lms_downloader.rs`
-- `crates/isct-core/src/school_browser/assets/extraction-relay.js`
+- `crates/isct-core/src/net/tls.rs`
+- `crates/isct-core/src/net/moodle/mod.rs`
+- `crates/isct-core/src/net/kyomu.rs`
 
 **Last recorded** never run
 
@@ -2539,7 +2540,7 @@ shell, which no longer does either, still gets there.
 - `crates/isct-core/src/facade.rs`
 - `crates/isct-core/src/runtime.rs`
 - `crates/isct-core/src/notes.rs`
-- `crates/isct-core/src/school_browser/engine/extraction.rs`
+- `crates/isct-core/src/school_browser/engine/pull.rs`
 
 **Last recorded** never run
 

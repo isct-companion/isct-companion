@@ -993,7 +993,9 @@ export function createTauriDesktopBridge(
       result("syllabus_course", { id: url, language }),
     catalogSyncDepartment: (year, scopePath, quarter) =>
       result("catalog_sync_department", { year, scopePath, quarter }),
-    catalogQuery: async (year, { q, scope, cursor, ...filters }) => {
+    // `cursor` is no longer a transport parameter: Core returns every result
+    // of the official search at once. It is only stripped from the filters.
+    catalogQuery: async (year, { q, scope, cursor: _cursor, ...filters }) => {
       const response = requireObject<{
         nextCursor?: string;
         ids: string[];
@@ -1002,7 +1004,6 @@ export function createTauriDesktopBridge(
         "catalog_query",
         await invokeCommand("catalog_query", {
           query: q,
-          cursor,
           year,
           filters: { ...filters, department: scope },
         }),

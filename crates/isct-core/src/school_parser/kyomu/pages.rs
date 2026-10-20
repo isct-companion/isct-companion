@@ -309,7 +309,7 @@ fn registrations(document: &Html, base: Option<&url::Url>) -> Read {
             let entries = schedule(&timetable_times(block));
             let rows = courses
                 .get_mut(index)
-                .and_then(|course| course.get_mut("schedule"))
+                .and_then(|course: &mut Value| course.get_mut("schedule"))
                 .and_then(Value::as_array_mut);
             if let Some(rows) = rows {
                 for entry in entries {

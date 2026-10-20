@@ -391,8 +391,12 @@ impl<'a> Pull<'a> {
         let done = AtomicUsize::new(0);
         let this = self;
         let done_ref = &done;
-        stream::iter(selected.iter().copied())
-            .map(move |course| async move {
+        // Owned items: a closure generic over a borrow's lifetime makes the
+        // pull future fail rustc's higher-ranked `Send` check.
+        let owned: Vec<Value> = selected.iter().map(|course| (*course).clone()).collect();
+        stream::iter(owned)
+            .map(move |course: Value| async move {
+                let course = &course;
                 let id = id_of(course.get("id")).unwrap_or(0);
                 let (title, term) = (course_title(course), course_term(course));
                 let result = match &this.transport {

@@ -387,7 +387,9 @@ pub(crate) fn public_options(document: &Html) -> Vec<OfficialFilterOption> {
         let identity = format!(
             "{id} {} {}",
             input.attr("name").unwrap_or(""),
-            container.and_then(|container| container.attr("id")).unwrap_or("")
+            container
+                .and_then(|container| container.attr("id"))
+                .unwrap_or("")
         )
         .to_lowercase();
         let family = FAMILIES

@@ -6,6 +6,8 @@
 mod breaker;
 pub mod cookies;
 mod http;
+pub mod kyomu;
+pub mod moodle;
 pub mod redact;
 pub mod sign_in;
 mod tls;

@@ -195,9 +195,12 @@ impl Core {
         }
     }
 
+    /// Attaches the shell's school WebView and the cookie port that lets
+    /// Core's HTTP clients read with the WebView's school session.
     pub fn attach_school_browser(
         &self,
         browser: Arc<dyn SchoolBrowser>,
+        cookies: Arc<dyn crate::net::SessionCookies>,
     ) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
         let mut owner = self
             .school_browser
@@ -220,28 +223,25 @@ impl Core {
             browser,
             self.runtime.refresh.clone(),
         )?;
+        let http = crate::net::Http::new()
+            .map_err(|error| SchoolBrowserError::Platform(error.to_string()))?;
+        engine.attach_transport(http, cookies)?;
         *owner = Some(engine.clone());
         Ok(engine)
     }
 
-    /// Desktop and foreign shells share the same authenticated page and cursor policy.
+    /// Official course search over Core's 教務Web client.
     pub async fn catalog_query(
         &self,
         query: String,
         year: u16,
         filters: Option<crate::catalog::CatalogFilters>,
-        cursor: Option<String>,
     ) -> Result<crate::catalog::CatalogPage, crate::catalog::CatalogError> {
-        crate::catalog::kyomu_query(
-            self.store.clone(),
-            self.school_browser()?,
-            self.runtime.coordinator.clone(),
-            query,
-            year,
-            filters,
-            cursor,
-        )
-        .await
+        let client = self
+            .school_browser()
+            .and_then(|engine| engine.kyomu_client())
+            .map_err(|error| crate::catalog::CatalogError::InvalidInput(error.to_string()))?;
+        crate::catalog::kyomu_query(self.store.clone(), &client, query, year, filters).await
     }
 
     pub fn school_browser(&self) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {

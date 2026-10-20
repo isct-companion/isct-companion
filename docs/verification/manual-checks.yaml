@@ -1767,7 +1767,7 @@ checks:
       the live university postback state and authenticated content destinations.
       Headless tests exercise the parser, shared projections and UI paging only.
     covers:
-      - crates/isct-core/src/school_browser/engine/extraction.rs
+      - crates/isct-core/src/school_browser/engine/pull.rs
       - crates/isct-core/src/school_parser/kyomu/search.rs
       - crates/isct-core/src/school_parser/kyomu/pages.rs
       - crates/isct-core/src/net/kyomu.rs
@@ -1870,37 +1870,36 @@ checks:
 
   - id: DESKTOP-WINDOWS-SCHOOL-PULL
     area: desktop
-    title: Windows school pulls finish with a large LMS result and a hidden view
+    title: Windows school pulls finish over Core HTTP while school pages are open
     persona: undergraduate-senior
     preconditions: |
       A Windows build from this source, a Science Tokyo account enrolled in
-      many LMS courses (a full pull whose result is over 2 MB), and saved
-      school credentials.
+      many LMS courses, and saved school credentials.
     steps:
       - action: Open Settings > Diagnostics and clear the log, then start a full
           LMS refresh from the course list.
-        reason: WebView2 drops a navigation whose URL is over 2 MiB. The result
-          now crosses in parts; a large real account is the only payload that
-          needs more than one.
-      - action: While a pull runs, minimise the app for at least six minutes,
-          then restore it.
-        reason: Chromium throttles timers in hidden pages, harder after five
-          minutes. The school views pass switches that disable it; only a real
-          WebView2 shows whether they took effect.
-      - action: Copy the diagnostics log.
-        reason: The log shows each capture reaching its target page and whether
-          the relay arrived, which separates a dropped relay from a slow page.
+        reason: The old WebView relay failed on WebView2 for large results; Core
+          now reads LMS over HTTP, and only a real Windows build shows the TLS,
+          proxy and cookie handoff from WebView2 working.
+      - action: While the pull runs, open the LMS and 教務Web school pages and
+          browse for a minute.
+        reason: Reading no longer shares the WebView, so browsing must not
+          pause or restart the pull.
+      - action: Start a 教務Web refresh, then copy the diagnostics log.
+        reason: kyomu0 needs the bundled G7 intermediate on top of Windows'
+          verifier; the log shows whether TLS or the session failed.
     observe: The course list, the pull status, and the copied diagnostics log.
     expected: |
-      Both pulls finish with every enrolled course listed and no timeout. The
-      log shows "capture loaded" for each target and no "database is locked".
-    why_manual: Needs a real school account with a large LMS result, a Windows
-      PC running WebView2, and minutes of real hidden time; the core suite
-      covers part assembly but cannot run WebView2.
+      Both pulls finish with every enrolled course listed, no timeout and no
+      restart while browsing. The log shows no TLS error and no token, sesskey
+      or cookie value.
+    why_manual: Needs a real school account, a Windows PC with WebView2's cookie
+      store and the Windows certificate verifier, which no headless suite has.
     covers:
-      - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src-tauri/src/lms_downloader.rs
-      - crates/isct-core/src/school_browser/assets/extraction-relay.js
+      - crates/isct-core/src/net/tls.rs
+      - crates/isct-core/src/net/moodle/mod.rs
+      - crates/isct-core/src/net/kyomu.rs
     verified: null
 
   - id: DESKTOP-WINDOWS-SIGNED-INSTALL
@@ -2179,7 +2178,7 @@ checks:
       - crates/isct-core/src/facade.rs
       - crates/isct-core/src/runtime.rs
       - crates/isct-core/src/notes.rs
-      - crates/isct-core/src/school_browser/engine/extraction.rs
+      - crates/isct-core/src/school_browser/engine/pull.rs
     verified: null
 
   - id: IOS-TIMETABLE-WEEK-AND-MARKS

@@ -146,9 +146,9 @@ pub(super) async fn read_structure(
         .await?;
     let full: Value = match &raw {
         Value::String(text) => serde_json::from_str::<Value>(text),
-        other => serde_json::from_str::<Value>(
-            other.get("data").and_then(Value::as_str).unwrap_or(""),
-        ),
+        other => {
+            serde_json::from_str::<Value>(other.get("data").and_then(Value::as_str).unwrap_or(""))
+        }
     }
     .map_err(|_| MoodleError::Malformed("course state"))?;
     let list = |key: &str, keys: &[&str]| -> Vec<Value> {

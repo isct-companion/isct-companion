@@ -63,7 +63,7 @@ fn domain_attribute(set_cookie: &str) -> Option<String> {
         .filter_map(|attribute| attribute.split_once('='))
         .filter(|(name, _)| name.trim().eq_ignore_ascii_case("domain"))
         .map(|(_, value)| value.trim().trim_start_matches('.').to_ascii_lowercase())
-        .next_back()
+        .last()
         .filter(|domain| !domain.is_empty())
 }
 

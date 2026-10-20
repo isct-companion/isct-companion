@@ -90,25 +90,6 @@ pub(crate) fn page_url(kind: &str) -> Option<String> {
         .map(|(path, _)| format!("https://{HOST}{path}"))
 }
 
-/// The page kind owned by an approved 教務 source URL, read from the URL alone
-/// so a rejected payload is still reported against the page it came from.
-pub(crate) fn source_kind(raw: &str) -> Option<&'static str> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Source {
-        source_url: String,
-    }
-    if raw.len() > MAX_PAYLOAD_BYTES {
-        return None;
-    }
-    let source: Source = serde_json::from_str(raw).ok()?;
-    let url = Url::parse(&source.source_url).ok()?;
-    if url.scheme() != "https" || url.host_str() != Some(HOST) {
-        return None;
-    }
-    expected_kind(url.path())
-}
-
 /// Validates the bounded DTO produced by [`extract_page`].
 ///
 /// The reader only reads the fetched HTML. Trust starts here: source

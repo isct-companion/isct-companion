@@ -61,13 +61,12 @@ pub(crate) async fn catalog_query(
     query: String,
     year: u16,
     filters: Option<isct_core::catalog::CatalogFilters>,
-    cursor: Option<String>,
 ) -> Result<isct_core::catalog::CatalogPage, String> {
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
     let runtime = core.runtime.clone();
     runtime
-        .run(async move { core.catalog_query(query, year, filters, cursor).await })
+        .run(async move { core.catalog_query(query, year, filters).await })
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())

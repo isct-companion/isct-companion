@@ -208,8 +208,22 @@ impl From<isct_core::catalog::CatalogError> for SdkError {
         use isct_core::catalog::CatalogError as E;
         match e {
             E::Data(e) => e.into(),
-            E::Pull(e) => e.into(),
-            E::School(e) => e.into(),
+            E::Net(e) => {
+                use isct_core::net::NetError as N;
+                let detail = e.to_string();
+                match e {
+                    N::Offline | N::Dns | N::Connect(_) | N::Tls(_) => Self::Network { detail },
+                    N::Stalled | N::Deadline => Self::Timeout { detail },
+                    N::SignInRequired => Self::Authentication { detail },
+                    N::HostPaused { .. } => Self::Maintenance { detail },
+                    N::Cancelled => Self::Cancelled,
+                    _ => Self::Unavailable { detail },
+                }
+            }
+            E::SignInRequired => Self::Authentication {
+                detail: "Sign in to 教務Web in Settings to search courses.".into(),
+            },
+            E::Maintenance(detail) => Self::Maintenance { detail },
             E::InvalidInput(detail) => Self::InvalidInput { detail },
             E::Json(e) => Self::Compatibility {
                 detail: e.to_string(),

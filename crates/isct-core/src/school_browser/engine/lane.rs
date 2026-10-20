@@ -41,16 +41,15 @@ impl SchoolBrowserEngine {
                 "LMS course ID must be positive and use the LMS site.".into(),
             ));
         }
-        let mut signed_in = false;
-        loop {
-            self.wait_until_hidden(&context).await?;
-            let lane = self.acquire_pull_lane(&context).await?;
-            // A page may have opened while this pull waited for the lane; every
-            // hidden step below re-checks visibility and yields with Preempted.
-            if context.is_cancelled() {
-                return Err(SchoolBrowserError::Cancelled);
-            }
-            let result = if !signed_in && (credentials.is_some() || context.login_first()) {
+        if context.is_cancelled() {
+            return Err(SchoolBrowserError::Cancelled);
+        }
+        // Reading is plain HTTP; only an explicit sign-in still needs the
+        // WebView, so only that step waits for the hidden lane.
+        if credentials.is_some() || context.login_first() {
+            loop {
+                self.wait_until_hidden(&context).await?;
+                let lane = self.acquire_pull_lane(&context).await?;
                 let (profile, saved) = match credentials.clone() {
                     Some(credentials) => credentials,
                     None => {
@@ -61,25 +60,19 @@ impl SchoolBrowserEngine {
                 if context.is_cancelled() {
                     return Err(SchoolBrowserError::Cancelled);
                 }
-                match self.login_locked(profile, saved).await {
-                    Ok(_) => {
-                        signed_in = true;
-                        self.pull_once(site, course_id, &context).await
+                let result = self.login_locked(profile, saved).await;
+                drop(lane);
+                match result {
+                    Err(SchoolBrowserError::Preempted) if context.is_cancelled() => {
+                        return Err(SchoolBrowserError::Cancelled)
                     }
-                    Err(error) => Err(error),
+                    Err(SchoolBrowserError::Preempted) => continue,
+                    Err(error) => return Err(error),
+                    Ok(_) => break,
                 }
-            } else {
-                self.pull_once(site, course_id, &context).await
-            };
-            drop(lane);
-            match result {
-                Err(SchoolBrowserError::Preempted) if context.is_cancelled() => {
-                    return Err(SchoolBrowserError::Cancelled)
-                }
-                Err(SchoolBrowserError::Preempted) => continue,
-                result => return result,
             }
         }
+        self.pull_once(site, course_id, &context).await
     }
 
     /// Waits for the hidden lane. The job's priority is read on every pass:
