@@ -7,7 +7,7 @@ use isct_core::school_parser::{
         LmsDeadlines,
     },
 };
-use rusqlite::Connection;
+
 use serde_json::{json, Value};
 
 const ACCOUNT: &str = "science:24B00001";
@@ -69,8 +69,7 @@ fn validated_lms_keys_project_to_workspace_course_material_and_assignment() {
     })
     .expect("validated deadlines");
 
-    let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
-    data::migrations::migrate(&mut connection).expect("schema v3");
+    let mut connection = data::migrations::open_in_memory().expect("both schemas");
     let owned_id = "2026-202602440";
     let owned = json!({
         "id": owned_id,
@@ -233,8 +232,7 @@ fn real_moodle_shapes_keep_odd_course_records_and_aggregate_everything() {
     })
     .unwrap();
 
-    let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
-    data::migrations::migrate(&mut connection).expect("schema");
+    let mut connection = data::migrations::open_in_memory().expect("both schemas");
     let transaction = connection.transaction().unwrap();
     let now = chrono::Utc::now();
     apply_lms_enrolment(&transaction, &enrolment, ACCOUNT, now).expect("enrolment");

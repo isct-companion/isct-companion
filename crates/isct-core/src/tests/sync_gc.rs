@@ -57,11 +57,11 @@ fn value(connection: &Connection, table: &str, id: String) -> Value {
 /// second pass the same day does nothing.
 #[test]
 fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys() {
-    let path = std::env::temp_dir().join(format!("isct-sync-gc-{}.db", uuid::Uuid::new_v4()));
-    let store = DataStore::initialize(path).unwrap().0;
+    let path = std::env::temp_dir().join(format!("isct-sync-gc-{}", uuid::Uuid::new_v4()));
+    let store = DataStore::initialize_dir(path).unwrap().0;
     let now: DateTime<Utc> = "2026-10-20T03:00:00Z".parse().unwrap();
     let days = |n: i64| now - Duration::days(n);
-    let connection = Connection::open(store.path()).unwrap();
+    let connection = store.test_connection();
     // Courses 7 and 8 are from the previous academic year; 8 was opened
     // ten days ago.
     for lms_id in [7, 8] {

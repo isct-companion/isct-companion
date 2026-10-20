@@ -57,9 +57,10 @@ UNUSED_EXPRESSION warnings on newer compilers; sources are not patched.
 
 Create `Session.open(config, vault, browser?, cloud?, notifications?, downloads?)`
 once per app data directory. Opening storage runs on an owned worker. Directory
-paths must be absolute and supplied by the native shell. The SDK uses `school.db`
-and the existing Core schema; it does not migrate an installed desktop app's
-container. The vault implements Core account names and must preserve the app's
+paths must be absolute and supplied by the native shell. The SDK keeps `user.db`
+and `cache.db` in that directory and splits a `school.db` found there once
+(`crates/isct-core/src/data/migrations.rs`); it does not migrate an installed
+desktop app's container. The vault implements Core account names and must preserve the app's
 Keychain/Keystore identity. Credentials do not appear in workspace snapshots.
 
 All service methods return an `Operation` immediately. Its identity is assigned

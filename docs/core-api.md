@@ -172,9 +172,9 @@ application owner containing `store`, `auth`, `agent`, `workspace`, `reminders` 
 Production shells use `Core::with_events(..., EventSink)` and call
 `Core::start(&Handle)` once; Core owns the pull-event forwarding task.
 
-Every commit to school.db goes through `DataStore::write(source, |tx| ...)`
-(user intents through `workspace_write`, which shares its commit). It holds the
-IMMEDIATE transaction and, when the commit changed a row, tells the observer
+Every commit to user.db or cache.db goes through `DataStore::write(source, |tx| ...)`
+(user intents through `workspace_write`, which shares its commit), on the
+store's one write connection. It holds the IMMEDIATE transaction and, when the commit changed a row, tells the observer
 `Core` installs. That observer emits `workspace-changed` with the write's
 source and brings the next cloud capture forward. Services, executors, agent
 tools and shells therefore never emit the event or ask for a capture

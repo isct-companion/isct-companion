@@ -4,7 +4,7 @@ use serde_json::json;
 async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
     let root = std::env::temp_dir().join(format!("isct-catalog-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = data::DataStore::initialize(root.join("school.db"))
+    let store = data::DataStore::initialize_dir(root.clone())
         .unwrap()
         .0;
     let now = chrono::Utc::now().to_rfc3339();
@@ -72,8 +72,8 @@ fn official_delivery_facts_survive_syllabus_enrichment_in_both_arrival_orders() 
     official["schedule"] = json!([{"kind":"weekly","day":1,"periods":[3,4],"room":{"ja":"M-B07"}}]);
     official["kyomu"] = json!({"department":"情報工学系","group":"C","mark":"recommended","fetchedAt":"2026-10-16T00:00:00Z"});
     for first_official in [false, true] {
-        let root = std::env::temp_dir().join(format!("isct-source-{}.db", uuid::Uuid::new_v4()));
-        let store = data::DataStore::initialize(root).unwrap().0;
+        let root = std::env::temp_dir().join(format!("isct-source-{}", uuid::Uuid::new_v4()));
+        let store = data::DataStore::initialize_dir(root).unwrap().0;
         let rows = if first_official {
             vec![official.clone(), syllabus.clone()]
         } else {

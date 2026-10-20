@@ -1,6 +1,7 @@
 mod backup_store;
 mod catalog_store;
 mod changes;
+mod connection;
 mod defaults;
 mod lms_store;
 mod records;
@@ -22,6 +23,7 @@ pub mod migrations;
 pub mod versioned;
 
 pub use changes::{CommitObserver, WorkspaceChangeSource};
+pub(crate) use connection::commit_on;
 pub use error::DataError;
 
 use crate::contracts::{SchoolPageAvailability, SchoolPageAvailabilityState};
@@ -31,7 +33,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 use versioned::{content_hash, VersionedValue};
 
@@ -58,6 +60,8 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("scheduledTasks", "scheduled_tasks"),
 ];
 
+/// School record tables, all in cache.db: rows a sync no longer finds keep
+/// `missing_since` and are hidden from reads.
 const SCHOOL_CACHE_TABLES: &[&str] = &[
     "timetable_courses",
     "memberships",
@@ -688,30 +692,6 @@ fn catalog_row_in(connection: &Connection, id: &str) -> Result<Option<Value>, Da
     .transpose()
 }
 
-fn total_changes(connection: &Connection) -> Result<i64, DataError> {
-    connection
-        .query_row("SELECT total_changes()", [], |row| row.get(0))
-        .map_err(DataError::from)
-}
-
-/// Runs `operation` in an IMMEDIATE transaction on `connection` and commits
-/// it. Also returns whether the transaction changed any row. `write` and
-/// `workspace_write` commit through this; executor tests on an in-memory
-/// database use it to commit the same way.
-pub(crate) fn commit_on<T, E: From<DataError>>(
-    connection: &mut Connection,
-    operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
-) -> Result<(T, bool), E> {
-    let transaction = connection
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(DataError::from)?;
-    let before = total_changes(&transaction)?;
-    let value = operation(&transaction)?;
-    let changed = total_changes(&transaction)? != before;
-    transaction.commit().map_err(DataError::from)?;
-    Ok((value, changed))
-}
-
 fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
     Ok(read_setting(connection, "devicePreferences")?
         .or(read_setting(connection, "settings")?)
@@ -796,24 +776,40 @@ fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
     Ok(())
 }
 
+/// One store: user.db and cache.db in one directory (`connection`).
+///
+/// A transaction that writes both files, such as a school ingest that pins
+/// a course id in `course_identity_map` (user.db) while it writes school
+/// rows and freshness (cache.db), commits atomically per file but not across
+/// them (WAL). SQLite commits `main` first. A crash in between leaves an
+/// identity-map row whose school rows and freshness rolled back together,
+/// so the key reads as missing, and the next read resolves the same course
+/// id from that row. Readers may likewise see one file's commit before the
+/// other's; the snapshot cache is keyed on both files' data versions, so the
+/// next read shows both.
 #[derive(Clone)]
 pub struct DataStore {
-    path: PathBuf,
-    snapshot_reader: Arc<std::sync::Mutex<snapshot::SnapshotReader>>,
+    connections: Arc<connection::Connections>,
+    snapshot_reader: Arc<Mutex<snapshot::SnapshotReader>>,
     observer: changes::Observer,
 }
 
 impl DataStore {
-    pub fn initialize(path: PathBuf) -> Result<(Self, bool), DataError> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(DataError::from)?;
-        }
-        let mut connection = Connection::open(&path).map_err(DataError::from)?;
-        let schema_changed = migrations::migrate(&mut connection)?;
-        drop(connection);
+    /// Opens or creates both files under `directory` and migrates them, the
+    /// only time migrations run. A legacy `school.db` found there is split
+    /// first (`migrations::migrate_legacy`): its user tables are copied into
+    /// user.db in one transaction and the file is kept as
+    /// `school.db.pre-split`; on failure nothing is renamed and the error
+    /// says so. Also returns whether a schema was created or changed.
+    pub fn initialize_dir(directory: PathBuf) -> Result<(Self, bool), DataError> {
+        std::fs::create_dir_all(&directory).map_err(DataError::from)?;
+        let split = migrations::migrate_legacy(&directory)?;
+        let (connections, created) =
+            connection::Connections::open(connection::Files::in_directory(directory))?;
+        let snapshot_reader = snapshot::SnapshotReader::new(connections.open_reader()?);
         let store = Self {
-            path,
-            snapshot_reader: Arc::default(),
+            connections: Arc::new(connections),
+            snapshot_reader: Arc::new(Mutex::new(snapshot_reader)),
             observer: changes::Observer::default(),
         };
         store.write(None, |transaction| {
@@ -828,13 +824,12 @@ impl DataStore {
                 .map_err(DataError::from)?;
             ensure_defaults_in(transaction)
         })?;
-        Ok((store, schema_changed))
+        Ok((store, split || created))
     }
 
-    fn open(&self) -> Result<Connection, DataError> {
-        let mut connection = Connection::open(&self.path).map_err(DataError::from)?;
-        migrations::migrate(&mut connection)?;
-        Ok(connection)
+    /// A pooled read-only connection to both files.
+    fn open(&self) -> Result<connection::Reader<'_>, DataError> {
+        self.connections.reader()
     }
 
     /// Core installs the one observer every clone of this store reports to.
@@ -842,20 +837,20 @@ impl DataStore {
         self.observer.set(observer);
     }
 
-    /// The one commit path for school.db. The operation runs inside an
-    /// IMMEDIATE transaction this store owns; once it commits with changed
-    /// rows, the observer hears `source`. `None` marks local caches the
-    /// workspace hint does not cover: syllabus catalog rows, which a sync
-    /// stores one offering at a time and shells query on demand, and
-    /// reference cache markers.
+    /// The one commit path of the store, on its write connection. The
+    /// operation runs inside an IMMEDIATE transaction; once it commits with
+    /// changed rows, the observer hears `source` and the changed tables.
+    /// `None` marks local caches the workspace hint does not cover: syllabus
+    /// catalog rows, which a sync stores one offering at a time and shells
+    /// query on demand, and reference cache markers.
     pub(crate) fn write<T, E: From<DataError>>(
         &self,
         source: Option<WorkspaceChangeSource>,
         operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
-        let (value, changed) = commit_on(&mut self.open()?, operation)?;
-        if let Some(source) = source.filter(|_| changed) {
-            self.observer.committed(source, None);
+        let (value, tables) = commit_on(&mut self.connections.writer(), operation)?;
+        if let Some(source) = source {
+            self.observer.committed(source, None, &tables);
         }
         Ok(value)
     }
@@ -926,8 +921,7 @@ impl DataStore {
     }
 
     pub fn agent_access_enabled(&self) -> Result<bool, DataError> {
-        let connection = self.open()?;
-        agent_access_enabled_in(&connection)
+        agent_access_enabled_in(&self.open()?)
     }
 
     /// One agent tool's writes, on the same rules and commit path as user
@@ -1037,8 +1031,23 @@ impl DataStore {
         crate::sync_state::list(&self.open()?, dataset)
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    /// The file backup and cloud sync read: user.db, never the caches.
+    pub fn user_path(&self) -> &Path {
+        &self.connections.files.user
+    }
+
+    /// A read-write connection to both files, for tests that seed or inspect
+    /// rows directly.
+    #[cfg(test)]
+    pub(crate) fn test_connection(&self) -> Connection {
+        let connection = Connection::open(&self.connections.files.user).unwrap();
+        migrations::attach(&connection, &self.connections.files.cache).unwrap();
+        connection
+    }
+
+    #[cfg(test)]
+    pub(crate) fn directory(&self) -> &Path {
+        &self.connections.files.directory
     }
 }
 

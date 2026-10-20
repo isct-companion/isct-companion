@@ -574,7 +574,7 @@ async fn initialize(
     let initial_network: isct_core::sync_engine::Network = project_input(config.initial_network)?;
     let native_cloud = cloud.clone();
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
-        let (store, _) = DataStore::initialize(data.join("school.db"))?;
+        let (store, _) = DataStore::initialize_dir(data.clone())?;
         let auth = Arc::new(SchoolAuthService::with_status_cache(
             Vault(vault),
             data.join("school-credential-status.json"),

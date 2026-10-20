@@ -380,8 +380,8 @@ fn held_reasons_follow_the_shell_facts() {
 }
 
 fn engine(name: &str) -> (SyncEngine, DataStore) {
-    let path = std::env::temp_dir().join(format!("isct-sync-{name}-{}.db", uuid::Uuid::new_v4()));
-    let store = DataStore::initialize(path).unwrap().0;
+    let path = std::env::temp_dir().join(format!("isct-sync-{name}-{}", uuid::Uuid::new_v4()));
+    let store = DataStore::initialize_dir(path).unwrap().0;
     store
         .put_workspace_setting("selectedTerm", serde_json::json!("2026-3Q"))
         .unwrap();

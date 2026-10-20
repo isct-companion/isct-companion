@@ -4,8 +4,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 fn store(name: &str) -> DataStore {
-    let path = std::env::temp_dir().join(format!("course-materials-{name}-{}.db", Uuid::new_v4()));
-    DataStore::initialize(path).unwrap().0
+    let path = std::env::temp_dir().join(format!("course-materials-{name}-{}", Uuid::new_v4()));
+    DataStore::initialize_dir(path).unwrap().0
 }
 
 fn root(name: &str) -> PathBuf {

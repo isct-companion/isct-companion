@@ -299,8 +299,8 @@ fn engine_with_auth(
     Arc<Events>,
     DataStore,
 ) {
-    let path = std::env::temp_dir().join(format!("isct-browser-{}.db", Uuid::new_v4()));
-    let store = DataStore::initialize(path).unwrap().0;
+    let path = std::env::temp_dir().join(format!("isct-browser-{}", Uuid::new_v4()));
+    let store = DataStore::initialize_dir(path).unwrap().0;
     let browser = Arc::new(FakeBrowser::default());
     let events = Arc::new(Events::default());
     let engine =

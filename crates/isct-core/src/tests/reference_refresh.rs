@@ -104,8 +104,8 @@ impl ReferenceTransport for FakeTransport {
 }
 
 fn store(name: &str) -> DataStore {
-    let path = std::env::temp_dir().join(format!("isct-reference-{name}-{}.db", Uuid::new_v4()));
-    DataStore::initialize(path).unwrap().0
+    let path = std::env::temp_dir().join(format!("isct-reference-{name}-{}", Uuid::new_v4()));
+    DataStore::initialize_dir(path).unwrap().0
 }
 
 fn reader(transport: Arc<dyn ReferenceTransport>) -> ReferenceReader {

@@ -117,8 +117,8 @@ impl Drop for DropEvents {
 }
 
 fn store(name: &str) -> DataStore {
-    let path = std::env::temp_dir().join(format!("isct-core-{name}-{}.db", Uuid::new_v4()));
-    DataStore::initialize(path).unwrap().0
+    let path = std::env::temp_dir().join(format!("isct-core-{name}-{}", Uuid::new_v4()));
+    DataStore::initialize_dir(path).unwrap().0
 }
 
 #[tokio::test]

@@ -337,7 +337,7 @@ impl Fixture {
     fn new(name: &str) -> Self {
         let root = temporary(name);
         std::fs::create_dir_all(&root).unwrap();
-        let store = DataStore::initialize(root.join("workspace.db")).unwrap().0;
+        let store = DataStore::initialize_dir(root.clone()).unwrap().0;
         let observer = Arc::new(FakeObserver::default());
         store.observe(observer.clone());
         let note_store = NoteStore::default();

@@ -21,7 +21,7 @@ rrule = "0.14"
 tokio = { version = "1", features = ["rt", "time", "sync", "macros", "fs", "io-util"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 ts-rs = { version = "11", features = ["serde-compat"], optional = true }
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.37", features = ["bundled", "hooks"] }
 uuid = { version = "1", features = ["v4", "v7"] }
 # rustls with ring, not 0.13's default aws-lc-rs: ring is what the tree
 # already builds for every target, and aws-lc-rs needs a C/CMake toolchain per

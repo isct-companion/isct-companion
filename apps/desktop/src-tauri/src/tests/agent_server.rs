@@ -25,7 +25,7 @@ impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("isct-mcp-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let store = DataStore::initialize(root.join("school.db")).unwrap().0;
+        let store = DataStore::initialize_dir(root.clone()).unwrap().0;
         let core = Arc::new(Core::new(
             store,
             Arc::new(SchoolAuthService::with_status_cache(
@@ -276,7 +276,7 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
         calls: tasks.clone(),
         work: permits.clone(),
     };
-    let mut connection = rusqlite::Connection::open(fixture.core.store.path()).unwrap();
+    let mut connection = rusqlite::Connection::open(fixture.core.store.user_path()).unwrap();
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .unwrap();
