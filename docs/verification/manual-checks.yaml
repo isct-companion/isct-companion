@@ -2958,7 +2958,7 @@ checks:
     persona: undergraduate-senior
     preconditions: |
       A build where 教務Web pages are read by Core's HTTP client (sync-engine
-      checkpoint 1), saved Tokyo Tech credentials, and one of macOS, Windows,
+      checkpoint 3 or later), saved Tokyo Tech credentials, and one of macOS, Windows,
       iPhone or Android (repeat per platform).
     steps:
       - action: |
@@ -2974,18 +2974,30 @@ checks:
           Cookies the server set on Core's requests are written back to the
           WebView store; a broken write-back shows up as the browser being
           signed out or bounced to GetAccess.
+      - action: |
+          Leave the app idle for at least an hour (the 教務Web session expires
+          while GetAccess stays signed in), then press Retry or refresh
+          教務Web once.
+        reason: |
+          A live GetAccess sign-in is not a 教務Web session; only the hidden
+          view opening the 教務 entry page starts a new one, which no test can
+          drive without the school's sign-on.
     observe: |
       The 教務Web status in Settings, the application log, and the school
       browser page.
     expected: |
       All six 教務Web pages refresh with no TLS error in the log, and the
-      school browser opens 教務Web still signed in.
+      school browser opens 教務Web still signed in. After the idle hour the
+      log shows one `kyomu entry result=Ok(true)` per refresh and the pages
+      refresh, not a run of TokyoTech session checks ending in sign-in
+      failures.
     why_manual: |
       Needs a real Tokyo Tech account and the real kyomu0 certificate chain on
       each OS verifier; no test can reach the school server.
     covers:
       - crates/isct-core/src/net/tls.rs
       - crates/isct-core/src/net/certs/nii-odca4g7rsa.pem
+      - crates/isct-core/src/school_browser/engine/login.rs
       - apps/desktop/src-tauri/src/lms_downloader.rs
       - apps/ios/IsctCompanion/Core/WebCookieSession.swift
       - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt

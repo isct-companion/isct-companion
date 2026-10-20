@@ -454,7 +454,7 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
 }
 
 #[tokio::test]
-async fn a_paused_host_holds_its_keys_without_failing_them() {
+async fn a_paused_host_holds_its_keys_without_failing_them_but_a_refused_sign_in_backs_off() {
     let (engine, store) = engine("paused");
     engine.set_signed_in(SchoolAuthProfile::TokyoTech);
     let page = key(Dataset::KyomuPage, "grades");
@@ -491,6 +491,25 @@ async fn a_paused_host_holds_its_keys_without_failing_them() {
         })
         .unwrap();
     assert_eq!((failures, error_kind.as_deref()), (0, Some("host-paused")));
+
+    // The reader already ran the saved sign-in and the school still refused:
+    // the key backs off instead of being read again on every evaluation.
+    let refused = key(Dataset::KyomuPage, "gpa");
+    engine
+        .settle_for_test(
+            Lease::detached(&store, refused.clone(), TOKYO),
+            KeyEnd::SignInRequired {
+                profile: SchoolAuthProfile::TokyoTech,
+                source: String::new(),
+            },
+        )
+        .await;
+    let state = store
+        .write(None, |transaction| sync_state::get(transaction, &refused))
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.failures, 1);
+    assert!(state.next_eligible.is_some_and(|until| until > Utc::now()));
 }
 
 #[tokio::test]

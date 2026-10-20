@@ -149,7 +149,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
-| `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/certs/nii-odca4g7rsa.pem<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
+| `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/certs/nii-odca4g7rsa.pem<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
 | `SETTINGS-RESET` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/ResetSettings.tsx<br>apps/desktop/src-tauri/src/commands/reset.rs |
 
 ## Personas
@@ -3483,7 +3483,7 @@ in a signed APK on a device; host tests run the desktop verifier.
 **Preconditions**
 
 A build where 教務Web pages are read by Core's HTTP client (sync-engine
-checkpoint 1), saved Tokyo Tech credentials, and one of macOS, Windows,
+checkpoint 3 or later), saved Tokyo Tech credentials, and one of macOS, Windows,
 iPhone or Android (repeat per platform).
 
 **Steps**
@@ -3497,6 +3497,12 @@ iPhone or Android (repeat per platform).
    - *Why:* Cookies the server set on Core's requests are written back to the
      WebView store; a broken write-back shows up as the browser being
      signed out or bounced to GetAccess.
+3. Leave the app idle for at least an hour (the 教務Web session expires
+   while GetAccess stays signed in), then press Retry or refresh
+   教務Web once.
+   - *Why:* A live GetAccess sign-in is not a 教務Web session; only the hidden
+     view opening the 教務 entry page starts a new one, which no test can
+     drive without the school's sign-on.
 
 **Where to look**
 
@@ -3506,7 +3512,10 @@ browser page.
 **Expected**
 
 All six 教務Web pages refresh with no TLS error in the log, and the
-school browser opens 教務Web still signed in.
+school browser opens 教務Web still signed in. After the idle hour the
+log shows one `kyomu entry result=Ok(true)` per refresh and the pages
+refresh, not a run of TokyoTech session checks ending in sign-in
+failures.
 
 **Why this is manual**
 
@@ -3517,6 +3526,7 @@ each OS verifier; no test can reach the school server.
 
 - `crates/isct-core/src/net/tls.rs`
 - `crates/isct-core/src/net/certs/nii-odca4g7rsa.pem`
+- `crates/isct-core/src/school_browser/engine/login.rs`
 - `apps/desktop/src-tauri/src/lms_downloader.rs`
 - `apps/ios/IsctCompanion/Core/WebCookieSession.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt`

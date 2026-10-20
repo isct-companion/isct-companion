@@ -354,8 +354,11 @@ impl Lease {
         let record = match end {
             KeyEnd::Done { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale => None,
             KeyEnd::Failed { kind, .. } => Some((RunOutcome::Failed, kind.clone(), true)),
+            // The reader already tried the saved sign-in once; backing off
+            // keeps a session the school refuses from being retried on every
+            // evaluation. A manual refresh still ignores the backoff.
             KeyEnd::SignInRequired { .. } => {
-                Some((RunOutcome::SignInRequired, "sign-in".to_string(), false))
+                Some((RunOutcome::SignInRequired, "sign-in".to_string(), true))
             }
             KeyEnd::HostPaused { .. } => {
                 Some((RunOutcome::Failed, "host-paused".to_string(), false))

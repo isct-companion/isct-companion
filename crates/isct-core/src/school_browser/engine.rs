@@ -126,6 +126,8 @@ enum Trace {
     },
     /// The visible site changed. `Some` preempts hidden work.
     Browsing(Option<SchoolSite>),
+    /// A school page finished loading in any view (hidden or visible).
+    Loaded(PageLoaded),
     Closed(BrowserId),
     Stopped,
 }
@@ -542,6 +544,7 @@ impl Inner {
         if let (Some((path, epoch)), Some(official)) = (restore, official_loaded.as_ref()) {
             self.write_restore(path, epoch, event.page.browser.site, official.clone());
         }
+        let _ = self.traces.send(Trace::Loaded(event.clone()));
         // External browsing gets history/address updates, never school scripts,
         // saved credentials, customizations or automatic ingestion.
         if official_loaded.is_none() {
