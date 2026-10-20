@@ -28,7 +28,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type WheelEvent,
   type ReactNode,
 } from "react";
 import { contentLanguage } from "../../lib/model";
@@ -77,7 +76,6 @@ const ACTIVITIES = -1;
 
 import { fileFamily, extension } from "./file-types";
 import {
-  type CourseFolder,
   folderComponent,
   downloadLimit,
   previewKind,

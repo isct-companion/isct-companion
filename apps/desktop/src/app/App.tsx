@@ -106,7 +106,6 @@ import { traceRouter } from "./interaction-trace";
 import { useFormFactor } from "./form-factor";
 import { MobileShell } from "../layouts/compact/MobileShell";
 import { DAYS as FINDER_DAYS, type FinderCourse } from "../lib/course-query";
-import { isSyllabusCourse } from "../lib/syllabus";
 
 import {
   CourseEditor,
