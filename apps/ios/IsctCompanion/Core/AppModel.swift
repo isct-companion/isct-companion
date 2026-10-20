@@ -208,6 +208,12 @@ final class AppModel {
                         await refreshCloud()
                     case "school-web-url", "school-download":
                         break
+                    case "workspace-changed":
+                        // A key re-read with nothing new renews only its
+                        // freshness, which no screen here shows.
+                        if !Self.onlyFreshness(event.payload) {
+                            scheduleRefresh()
+                        }
                     default:
                         scheduleRefresh()
                     }
@@ -220,6 +226,15 @@ final class AppModel {
                 return
             }
         }
+    }
+
+    /// Whether a `workspace-changed` names sync freshness and nothing else.
+    /// An unreadable payload counts as a real change.
+    private static func onlyFreshness(_ payload: String) -> Bool {
+        guard let row = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any],
+            let changes = row["changes"] as? [String], !changes.isEmpty
+        else { return false }
+        return changes.allSatisfy { $0 == "freshness" }
     }
 
     /// Coalesces bursts of change hints into one read.

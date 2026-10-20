@@ -544,7 +544,7 @@ describe("shell navigation", () => {
     expect(host.querySelector(".lecturesMain")).not.toBeNull();
   }, 20_000);
 
-  it("waits for native hiding and reloads ingested data in the background when leaving Web", async () => {
+  it("waits for native hiding when leaving Web", async () => {
     let holdHide = true;
     let releaseHide!: () => void;
     const hidden = new Promise<boolean>((resolve) => {
@@ -569,17 +569,6 @@ describe("shell navigation", () => {
       expect(core.commands("open_school_site").length).toBeGreaterThan(0),
     );
 
-    await act(async () => {
-      core.emit("school-ingest", {
-        site: "kyomu",
-        kind: "registrations",
-        state: "ok",
-        changed: 1,
-        message: "Updated",
-      });
-    });
-    const before = core.commands("workspace_snapshot").length;
-
     await app.go(paths.home());
     expect(window.location.hash).toBe(`#${paths.web()}`);
     expect(host.querySelector(".webMain")).not.toBeNull();
@@ -589,11 +578,6 @@ describe("shell navigation", () => {
       await hidden;
     });
     await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
-    await until(() =>
-      expect(core.commands("workspace_snapshot").length).toBeGreaterThan(
-        before,
-      ),
-    );
   }, 20_000);
 });
 
@@ -719,7 +703,7 @@ describe("native listener ordering", () => {
     await until(() => expect(readsAfterListen()).toBeGreaterThan(0));
   }, 20_000);
 
-  it("discards a late stale snapshot instead of overwriting the newer state", async () => {
+  it("patches a school change without a snapshot read, and lets a change heard during a slow read win", async () => {
     const before = workspaceFixture({ courses: [placedCourse] });
     const after = workspaceFixture({ courses: [clashingCourse] });
     let gateStale = false;
@@ -727,7 +711,7 @@ describe("native listener ordering", () => {
     const staleGate = new Promise<void>((resolve) => {
       releaseStale = resolve;
     });
-    const staleSnapshot = {
+    const stalePatch = {
       revision: "revision:stale",
       contentRevision: "revision:stale",
       workspace: before,
@@ -739,8 +723,8 @@ describe("native listener ordering", () => {
         revision: "rev:stale",
         finder: emptyFinder,
         handle: (command, args, core) => {
-          if (command === "workspace_snapshot" && gateStale)
-            return staleGate.then(() => staleSnapshot);
+          if (command === "workspace_records" && gateStale)
+            return staleGate.then(() => stalePatch);
           return baseHandle(command, args, core);
         },
       }),
@@ -749,26 +733,39 @@ describe("native listener ordering", () => {
     const { host, core } = app;
     // The planner timetable is the person-visible view of the workspace rows.
     await until(() => expect(titles(host)).toEqual(["Placed"]));
+    const snapshotReads = core.commands("workspace_snapshot").length;
 
     gateStale = true;
+    // A school pull commits: its patch read hangs.
     await act(async () => {
-      // A school pull starts: its snapshot hangs.
-      core.emit("workspace-changed", { source: "school-pull" });
-      await Promise.resolve();
-      // Meanwhile another writer publishes a newer revision and asks again.
-      core.publish(after, "revision:new");
-      core.emit("workspace-changed", { source: "school-pull" });
-      await Promise.resolve();
+      core.emit("workspace-changed", {
+        source: "school-pull",
+        changes: ["courses"],
+      });
     });
+    await until(() =>
+      expect(core.commands("workspace_records")).toHaveLength(1),
+    );
+    // Meanwhile the next key commits a newer state.
     gateStale = false;
+    await act(async () => {
+      core.publish(after, "revision:new");
+      core.emit("workspace-changed", {
+        source: "school-pull",
+        changes: ["courses", "freshness"],
+      });
+    });
     await act(async () => {
       releaseStale();
       await staleGate;
     });
 
     await until(() => expect(titles(host)).toEqual(["Clashing"]));
-    expect(titles(host)).not.toEqual(["Placed"]);
     expect(core.workspace.courses[0].title).toBe("Clashing");
+    expect(
+      core.commands("workspace_records").map((call) => call.args.changes),
+    ).toEqual([["courses"], ["courses", "freshness"]]);
+    expect(core.commands("workspace_snapshot")).toHaveLength(snapshotReads);
   }, 20_000);
 });
 

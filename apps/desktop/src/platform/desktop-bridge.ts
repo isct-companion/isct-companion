@@ -1,4 +1,5 @@
 import type {
+  CoreWorkspacePatch,
   CoreWorkspaceSnapshot,
   WorkspaceMutation,
 } from "../lib/workspace-intents";
@@ -8,7 +9,10 @@ import type { Localized } from "../lib/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type { SyllabusCourse } from "../lib/syllabus";
-import type { SchoolPageAvailability } from "../generated/persistence";
+import type {
+  SchoolPageAvailability,
+  WorkspaceChange,
+} from "../generated/persistence";
 import {
   isSyncSnapshot,
   type SyncHint,
@@ -32,6 +36,8 @@ export type WorkspaceChangedEvent = {
     | "reset";
   /** The committed user-intent revision, when the source can provide it. */
   revision?: string;
+  /** What changed; `workspaceRecords` reads the records these feed. */
+  changes: WorkspaceChange[];
 };
 export const nativeOs = (): NativeOs | undefined =>
   typeof window === "undefined"
@@ -353,6 +359,10 @@ export interface DesktopBridge {
   appUpdateState?(): Promise<AppUpdateStatus>;
   installAppUpdate?(): Promise<void>;
   workspaceSnapshot(): Promise<CoreWorkspaceSnapshot>;
+  /** Only the records the named changes feed, to patch the snapshot with. */
+  workspaceRecords(
+    changes: readonly WorkspaceChange[],
+  ): Promise<CoreWorkspacePatch>;
   mutateWorkspace(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
   finderQuery(request: FinderRequest): Promise<FinderView>;
   scheduleQuery(queries: readonly unknown[]): Promise<{
@@ -555,6 +565,7 @@ export function createTauriDesktopBridge(
     appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
     installAppUpdate: () => invokeCommand<void>("install_app_update"),
     workspaceSnapshot: () => result("workspace_snapshot"),
+    workspaceRecords: (changes) => result("workspace_records", { changes }),
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
@@ -579,16 +590,19 @@ export function createTauriDesktopBridge(
     onWorkspaceChanged: async (callback) => {
       const unlisten = await listen<unknown>("workspace-changed", (event) => {
         if (!event || typeof event !== "object") return;
-        const { source, revision } = event as Record<string, unknown>;
+        const { source, revision, changes } = event as Record<string, unknown>;
         // Unknown future sources must still trigger snapshot recovery.
         if (
           typeof source !== "string" ||
-          (revision !== undefined && typeof revision !== "string")
+          (revision !== undefined && typeof revision !== "string") ||
+          !Array.isArray(changes) ||
+          changes.some((change) => typeof change !== "string")
         )
           return;
         callback({
           source: source as WorkspaceChangedEvent["source"],
           ...(revision === undefined ? {} : { revision }),
+          changes: changes as WorkspaceChange[],
         });
       });
       return () => quietly(unlisten);

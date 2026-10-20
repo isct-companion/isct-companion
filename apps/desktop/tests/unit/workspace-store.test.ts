@@ -11,10 +11,12 @@ import {
 } from "@app/app/routes";
 import { seedWorkspace, type Workspace } from "@app/lib/model";
 import type {
+  CoreWorkspacePatch,
   CoreWorkspaceSnapshot,
   WorkspaceIntent,
   WorkspaceMutation,
 } from "@app/lib/workspace-intents";
+import type { WorkspaceChange } from "@app/generated/persistence";
 import type { SectionContext } from "@app/pages/settings/registry";
 import {
   can,
@@ -37,6 +39,7 @@ import {
   type InvokeNative,
   type ListenNative,
   type SchoolDownloadEvent,
+  type SchoolRecords,
   type SchoolSessionEvent,
   type WorkspaceChangedEvent,
 } from "@app/platform/desktop-bridge";
@@ -149,10 +152,16 @@ type MutationScript = (
 type CoreHost = {
   service: {
     snapshot(): Promise<CoreWorkspaceSnapshot>;
+    records(changes: readonly WorkspaceChange[]): Promise<CoreWorkspacePatch>;
     mutate(request: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
   };
   /** The revision each read started from, in order. */
   reads: string[];
+  /** The change names of each record read, in order. */
+  recordReads: WorkspaceChange[][];
+  answerRecords(
+    answer: CoreWorkspacePatch | (() => Promise<CoreWorkspacePatch>),
+  ): void;
   /** Every mutation the store submitted, in order. */
   mutations: WorkspaceMutation[];
   publish(workspace: Workspace, revision?: string): void;
@@ -178,6 +187,10 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
   let revision = "r0";
   let workspace = structuredClone(initial);
   const reads: string[] = [];
+  const recordReads: WorkspaceChange[][] = [];
+  const recordAnswers: (
+    CoreWorkspacePatch | (() => Promise<CoreWorkspacePatch>)
+  )[] = [];
   const mutations: WorkspaceMutation[] = [];
   const readAnswers: SnapshotAnswer[] = [];
   const mutationAnswers: (SnapshotAnswer | MutationScript | Error)[] = [];
@@ -199,6 +212,13 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
         const answer = readAnswers.shift();
         return resolveSnapshot(answer, () => snapshotAt(revision));
       },
+      async records(changes) {
+        recordReads.push([...changes]);
+        const answer = recordAnswers.shift();
+        if (typeof answer === "function") return answer();
+        // Unscripted, the host answers every field: a superset is a valid patch.
+        return answer ?? snapshotAt(revision);
+      },
       async mutate(request) {
         mutations.push(request);
         const answer = mutationAnswers.shift();
@@ -217,6 +237,10 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
       },
     },
     reads,
+    recordReads,
+    answerRecords(answer) {
+      recordAnswers.push(answer);
+    },
     mutations,
     publish(next, nextRevision) {
       workspace = structuredClone(next);
@@ -408,9 +432,12 @@ describe("recovering from a rejected or external write", () => {
     await store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "external-r1",
+      changes: ["settings"],
     });
 
+    // Another client's intent still reconciles through the whole snapshot.
     expect(host.reads).toEqual(["r0", "external-r1"]);
+    expect(host.recordReads).toEqual([]);
     expect(store.getState()).toMatchObject({ revision: "external-r1" });
     expect(store.getState().workspace?.settings.locale).toBe("ja");
   });
@@ -427,6 +454,7 @@ describe("recovering from a rejected or external write", () => {
     const event = store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "external-r1",
+      changes: ["settings"],
     });
     host.publish(settingsWith({ locale: "ja" }), "external-r1");
     failure.reject(new Error("revision conflict"));
@@ -449,9 +477,11 @@ describe("recovering from a rejected or external write", () => {
     await store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "r1",
+      changes: ["settings"],
     });
 
     expect(host.reads).toEqual(["r0"]);
+    expect(host.recordReads).toEqual([]);
     expect(store.getState().revision).toBe("r2");
   });
 
@@ -474,6 +504,7 @@ describe("recovering from a rejected or external write", () => {
     const event = store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "r1",
+      changes: ["settings"],
     });
     const newer = store.mutate(appearance("light"));
     release.resolve(
@@ -486,20 +517,99 @@ describe("recovering from a rejected or external write", () => {
     expect(store.getState().workspace?.settings.appearance).toBe("light");
   });
 
-  it("re-reads non-user events even when the user revision is unchanged", async () => {
+  it("patches only the records a background change names, without a snapshot read", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
     await store.initialize();
+    const before = store.getState();
+    const freshness = {
+      "lms.course/7": {
+        fetchedAt: "2026-10-19T02:46:13Z",
+        outcome: "complete",
+        message: null,
+        failures: 0,
+        nextEligible: null,
+        lastError: null,
+      },
+    } as unknown as SchoolRecords["freshness"];
+    host.answerRecords({
+      revision: "r0",
+      contentRevision: "c1",
+      workspace: {},
+      schoolRecords: { freshness, pageAvailability: {} },
+    });
 
-    host.publish(settingsWith({ locale: "ja" }));
-    await store.handleWorkspaceChanged({ source: "mcp" });
-    expect(store.getState().workspace?.settings.locale).toBe("ja");
+    await store.handleWorkspaceChanged({
+      source: "school-pull",
+      changes: ["freshness"],
+    });
 
-    host.publish(settingsWith({ locale: "zh" }));
-    await store.handleWorkspaceChanged({ source: "school-pull" });
-    expect(store.getState().workspace?.settings.locale).toBe("zh");
+    expect(host.reads).toEqual(["r0"]);
+    expect(host.recordReads).toEqual([["freshness"]]);
+    const after = store.getState();
+    expect(after.schoolRecords?.freshness).toEqual(freshness);
+    expect(after.contentRevision).toBe("c1");
+    // Untouched records keep their identity, so nothing derived from them
+    // recomputes; only views that read `freshness` get a new cache key.
+    expect(after.schoolRecords?.lmsCourses).toBe(
+      before.schoolRecords?.lmsCourses,
+    );
+    expect(after.workspace?.courses).toBe(before.workspace?.courses);
+    expect(after.viewRevisions).toEqual({
+      ...before.viewRevisions,
+      freshness: 1,
+    });
+  });
 
-    expect(host.reads).toEqual(["r0", "r0", "r0"]);
+  it("merges changes heard during a patch into one follow-up read", async () => {
+    const host = coreHost();
+    const store = createWorkspaceStore(host.service);
+    await store.initialize();
+    const slow = deferred<CoreWorkspacePatch>();
+    host.answerRecords(() => slow.promise);
+
+    const first = store.handleWorkspaceChanged({
+      source: "school-pull",
+      changes: ["assignments"],
+    });
+    await settle();
+    const second = store.handleWorkspaceChanged({
+      source: "reference-pull",
+      changes: ["exams"],
+    });
+    const third = store.handleWorkspaceChanged({
+      source: "school-pull",
+      changes: ["courses", "exams"],
+    });
+    slow.resolve(host.snapshotAt("r0"));
+    await Promise.all([first, second, third]);
+
+    expect(host.recordReads).toEqual([["assignments"], ["exams", "courses"]]);
+    expect(host.reads).toEqual(["r0"]);
+  });
+
+  it("reads a patch again when a mutation committed while it was in flight", async () => {
+    const host = coreHost();
+    const store = createWorkspaceStore(host.service);
+    await store.initialize();
+    const stale = deferred<CoreWorkspacePatch>();
+    host.answerRecords(() => stale.promise);
+
+    const patch = store.handleWorkspaceChanged({
+      source: "school-pull",
+      changes: ["grades"],
+    });
+    await settle();
+    await store.mutate(appearance("dark"));
+    stale.resolve(
+      host.snapshotAt("r0", settingsWith({ appearance: "system" })),
+    );
+    await patch;
+
+    // The late answer predates the committed intent and is not adopted.
+    expect(host.recordReads).toEqual([["grades"], ["grades"]]);
+    expect(store.getState().revision).toBe("r1");
+    expect(store.getState().workspace?.settings.appearance).toBe("dark");
   });
 
   it("discards a reload that finished before a mutation committed inside it", async () => {
@@ -1341,16 +1451,23 @@ describe("Tauri bridge contract", () => {
       received.push(event),
     );
 
-    seam.deliver({ source: "user-intent", revision: "r1" });
-    seam.deliver({ source: "mcp" });
-    seam.deliver({ source: "future-source" });
-    seam.deliver({ source: 1 });
-    seam.deliver({ source: "user-intent", revision: 1 });
+    seam.deliver({
+      source: "user-intent",
+      revision: "r1",
+      changes: ["settings"],
+    });
+    seam.deliver({ source: "mcp", changes: ["events"] });
+    seam.deliver({ source: "future-source", changes: ["future-change"] });
+    seam.deliver({ source: 1, changes: [] });
+    seam.deliver({ source: "user-intent", revision: 1, changes: [] });
+    // Without its change names a shell could not tell what to read.
+    seam.deliver({ source: "school-pull" });
+    seam.deliver({ source: "school-pull", changes: [1] });
     seam.deliver(null);
     expect(received).toEqual([
-      { source: "user-intent", revision: "r1" },
-      { source: "mcp" },
-      { source: "future-source" },
+      { source: "user-intent", revision: "r1", changes: ["settings"] },
+      { source: "mcp", changes: ["events"] },
+      { source: "future-source", changes: ["future-change"] },
     ]);
 
     dispose();

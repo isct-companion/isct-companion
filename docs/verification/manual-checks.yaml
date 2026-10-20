@@ -2266,14 +2266,25 @@ checks:
           Restore and reset replace many rows in one commit and used to rely
           on the shell's capture; the window must show the result and the
           cloud must receive it without a manual sync.
+      - action: |
+          Clear the school cache in Settings, open Today and leave the window
+          alone while the first pull refills it; then open Courses, Grades and
+          the course finder.
+        reason: |
+          A background commit now patches only the records its change names
+          feed, read against real LMS and 教務 rows. A table mapped to the
+          wrong name would leave one of these pages on the old data until the
+          app restarts, which no fixture shows.
     observe: |
-      The Assignments list, the Calendar, the Settings cloud sync status and
-      the second device's copy of the edited plan and note.
+      The Assignments list, the Calendar, Today, Courses, Grades, the finder,
+      the Settings cloud sync status and the second device's copy of the
+      edited plan and note.
     expected: |
       The new assignment and the MCP event appear without a refresh, the
       edited plan and the note reach the second device within a few seconds,
-      and both the import and the reset show in the window and upload without
-      pressing Sync.
+      both the import and the reset show in the window and upload without
+      pressing Sync, and after the refill every page shows the pulled data
+      without navigating away and back.
     why_manual: |
       The visible-page ingest needs a signed-in LMS page in the real WebView,
       the MCP step needs a real client, and the capture timing needs a real
@@ -2289,6 +2300,9 @@ checks:
       - crates/isct-core/src/runtime.rs
       - crates/isct-core/src/notes.rs
       - crates/isct-core/src/school_browser/engine/pull.rs
+      - crates/isct-core/src/workspace_changes.rs
+      - apps/desktop/src/store/workspace.ts
+      - apps/desktop/src/platform/view-query.ts
     verified: null
 
   - id: DESKTOP-STORAGE-SPLIT

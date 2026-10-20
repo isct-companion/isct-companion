@@ -317,7 +317,12 @@ impl EventSink for FakeObserver {
 }
 
 impl crate::data::CommitObserver for FakeObserver {
-    fn committed(&self, source: WorkspaceChangeSource, _revision: Option<String>) {
+    fn committed(
+        &self,
+        source: WorkspaceChangeSource,
+        _revision: Option<String>,
+        _tables: &std::collections::BTreeSet<String>,
+    ) {
         self.workspaces.lock().unwrap().push(source);
     }
 }

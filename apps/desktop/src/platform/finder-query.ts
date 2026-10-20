@@ -6,7 +6,10 @@ import type {
   FinderRow,
   Suggestion,
 } from "../lib/course-query";
-import type { CourseEligibility } from "../generated/persistence";
+import type {
+  CourseEligibility,
+  WorkspaceChange,
+} from "../generated/persistence";
 import { useViewQuery } from "./view-query";
 import { getDesktopBridge } from "./desktop-bridge";
 import type { QueryState } from "./core-query";
@@ -127,6 +130,19 @@ export function useFinderEditQueue({
   return { run, replace };
 }
 
+/** What the finder reads besides the catalog: placed and registered
+ * courses, earned credits, terms, plans, busy events and settings. */
+const FINDER_READS: readonly WorkspaceChange[] = [
+  "finder",
+  "courses",
+  "registrations",
+  "grades",
+  "calendar",
+  "plans",
+  "events",
+  "settings",
+];
+
 export function useFinderQuery(
   request: FinderRequest,
   refresh: unknown = 0,
@@ -134,6 +150,7 @@ export function useFinderQuery(
 ): QueryState<FinderView> {
   return useViewQuery(
     "finder",
+    FINDER_READS,
     request,
     () => finderQuery(request),
     enabled,

@@ -304,6 +304,20 @@ impl Session {
             })
         })
     }
+    /// The records the `changes` of a `workspace-changed` event feed, for a
+    /// shell that patches its copy instead of reading the whole snapshot.
+    pub fn workspace_records(
+        &self,
+        changes: Vec<WorkspaceChange>,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let changes: Vec<isct_core::workspace_changes::WorkspaceChange> =
+                project_input(changes)?;
+            Ok(OperationResult::WorkspaceRecords {
+                patch: project(i.core.workspace_records(&changes)?)?,
+            })
+        })
+    }
     pub fn schedule_query(&self, queries: Vec<WorkspaceQuery>) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             let snapshot = i.core.schedule_query(project_input(queries)?)?;
