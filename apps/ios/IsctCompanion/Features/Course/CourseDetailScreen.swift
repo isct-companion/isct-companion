@@ -51,6 +51,9 @@ struct CourseDetailScreen: View {
             .padding(.bottom, 24)
         }
         .background(Theme.bg)
+        .refreshable {
+            if let id = lmsCourseId { model.syncHint(.refresh(scope: .course(lmsCourseId: id))) }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .sensoryFeedback(.selection, trigger: lesson)
@@ -77,6 +80,18 @@ struct CourseDetailScreen: View {
         }
         // After a turn, the pages either side of the new one.
         .task(id: lesson) { warm(lessons, around: lesson) }
+        // Runs on appear and once the LMS id is known: Core's planner moves
+        // this course's reads ahead while it is on screen.
+        .task(id: lmsCourseId) {
+            if let id = lmsCourseId { model.syncHint(.open(view: .course(lmsCourseId: id))) }
+        }
+    }
+
+    /// The course's LMS id, from its T2SCHOLA page (`course/view.php?id=…`).
+    /// `CourseDetail` carries only the page URL, not the id itself.
+    private var lmsCourseId: UInt64? {
+        guard let raw = detail?.lmsUrl, let url = URLComponents(string: raw) else { return nil }
+        return url.queryItems?.first { $0.name == "id" }?.value.flatMap(UInt64.init)
     }
 
     // MARK: Lessons

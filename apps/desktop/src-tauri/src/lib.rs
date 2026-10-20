@@ -25,17 +25,14 @@ mod lms_files;
 mod lms_protocol;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
-use isct_core::pull_coordinator;
 #[cfg(matrix_ocr)]
 use isct_ocr as matrix_ocr;
 mod core_ports;
 pub(crate) use isct_core::school_auth;
-use isct_core::school_refresh;
 mod school_browser_native;
 mod school_downloads;
 mod school_web;
 mod secrets;
-pub(crate) use isct_core::syllabus;
 mod workspaces;
 
 /// The frontend's build-time identity: shell kind and operating system, both
@@ -231,12 +228,10 @@ pub fn run() {
             commands::school::school_web_forward,
             commands::school::reveal_school_download,
             commands::school::set_school_web_zoom,
-            commands::school::pull_school,
-            commands::school::pull_state,
-            commands::school::school_status,
-            commands::school::cancel_pull,
-            commands::school::refresh_reference_subscriptions,
             commands::school::set_kyomu_guide,
+            commands::sync::sync_hint,
+            commands::sync::sync_snapshot,
+            commands::reset::reset_caches,
             commands::school_auth::school_credential_status,
             commands::school_auth::save_school_credentials,
             commands::school_auth::delete_school_credentials,
@@ -250,7 +245,6 @@ pub fn run() {
             commands::notifications::request_notification_permission,
             commands::notifications::bootstrap_reminders,
             commands::notifications::notify,
-            commands::school::school_refresh_event,
             commands::cloud::cloud_lifecycle,
             commands::cloud::cloud_sync_state,
             commands::cloud::set_cloud_sync_provider,
@@ -278,9 +272,6 @@ pub fn run() {
             commands::backup::import_data,
             commands::catalog::catalog_offerings,
             commands::catalog::syllabus_course,
-            commands::catalog::catalog_sync_department,
-            commands::catalog::catalog_query,
-            commands::catalog::catalog_sync_offerings,
             commands::agent::agent_connection,
             #[cfg(target_os = "macos")]
             campus_wifi::campus_wifi_connect,
@@ -309,7 +300,6 @@ pub fn run() {
                 app.state::<std::sync::Arc<SchoolAuthService>>()
                     .inner()
                     .clone(),
-                pull_coordinator::PullNetwork::Wifi,
                 std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
             )));
             let school_controller = tauri::async_runtime::block_on(async {
@@ -424,6 +414,7 @@ pub fn run() {
             }
             if matches!(&event, tauri::RunEvent::Resumed) {
                 tauri::async_runtime::block_on(core_ports::runtime(app).resume());
+                core_ports::core(app).sync_hint(isct_core::sync_engine::Hint::Resume);
             }
 
             let foreground = match &event {
@@ -436,12 +427,7 @@ pub fn run() {
                 _ => None,
             };
             if let Some(foreground) = foreground {
-                if let Err(error) = core_ports::runtime(app)
-                    .refresh_event(school_refresh::RefreshEvent::lifecycle(foreground))
-                {
-                    log::error!("[school-refresh] {error}");
-                }
-                core_ports::publish_conditions(app);
+                core_ports::core(app).sync_hint(core_ports::lifecycle_hint(foreground));
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     cloud_sync::CloudSync::changed(&app).await;

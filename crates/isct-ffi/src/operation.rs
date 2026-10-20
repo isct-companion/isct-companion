@@ -14,13 +14,10 @@ pub enum OperationResult {
     Workspace { snapshot: WorkspaceSnapshot },
     Schedule { snapshot: ScheduleSnapshot },
     Finder { view: FinderView },
-    Catalog { page: CatalogPage },
     Credentials { status: SchoolCredentialStatus },
     SchoolSession { snapshot: SchoolSessionSnapshot },
     SchoolWeb { result: SchoolWebResult },
-    SchoolPull { outcomes: Vec<IngestOutcome> },
-    Pulls { snapshots: Vec<PullSnapshot> },
-    SchoolStatus { status: SchoolStatus },
+    Sync { snapshot: SyncSnapshot },
     Cloud { state: SyncState },
     File { file: LocalFile },
     Files { files: Vec<LocalFile> },
@@ -89,7 +86,7 @@ impl Operation {
         self.detached.cancel();
         Ok(())
     }
-    /// Cooperative cancellation is capability-specific. Shared pulls use cancel_pull.
+    /// Cooperative cancellation is capability-specific; sync reads are owned by Core.
     /// Transactions never abort because a foreign future was dropped or detached.
     pub fn cancel(&self) -> Result<bool, SdkError> {
         if !self.cancellable || self.receiver.borrow().is_some() {

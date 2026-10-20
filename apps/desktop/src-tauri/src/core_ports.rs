@@ -1,11 +1,12 @@
 //! Desktop adapters. Domain services and their task lifetime belong to Core.
-use crate::{data::DataStore, school_web::SchoolWebController};
+use crate::school_web::SchoolWebController;
 use isct_core::{
     events::CoreEvent,
     ports::{EventError, EventSink},
     runtime::CoreRuntime,
     runtime_tasks::RuntimeTasks,
     scheduler::{ExportError, ScheduledExporter, SchedulerServices},
+    sync_engine::Hint,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -59,17 +60,14 @@ pub(crate) fn services(app: &AppHandle) -> SchedulerServices {
     )
 }
 
-/// Republish pull conditions after a focus/visibility fact. Safe on the UI
-/// thread: Core reads storage on a blocking worker inside the spawned task.
-pub(crate) fn publish_conditions(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let visible = app.state::<SchoolWebController>().is_visible();
-        let store = app.state::<DataStore>().inner().clone();
-        if let Err(error) = runtime(&app).publish_conditions(&store, visible).await {
-            log::error!("[school-refresh] conditions were not published: {error}");
-        }
-    });
+/// The main window's focus as a planner fact. The desktop window counts as
+/// foreground while focused; the network is reported by the webview.
+pub(crate) fn lifecycle_hint(focused: bool) -> Hint {
+    if focused {
+        Hint::Foreground
+    } else {
+        Hint::Background
+    }
 }
 
 /// Bound on draining owned work at exit. Drains are normally bounded by
@@ -108,18 +106,14 @@ impl DesktopRuntime {
             .get_webview_window("main")
             .and_then(|window| window.is_focused().ok())
             == Some(true);
-        if let Err(error) =
-            runtime(app).refresh_event(isct_core::school_refresh::RefreshEvent::lifecycle(focused))
-        {
-            log::error!("[school-refresh] {error}");
-        }
+        core(app).sync_hint(lifecycle_hint(focused));
         let tasks = app.state::<Self>().tasks.clone();
         let app = app.clone();
         // Setup is called on the UI thread; enter Tauri's shared Tokio runtime
         // before registering either owned loop.
         tauri::async_runtime::block_on(async move {
             if let Err(error) = core(&app).start(&tokio::runtime::Handle::current()) {
-                log::error!("[events] pull state forwarding did not start: {error}");
+                log::error!("[events] sync snapshot forwarding did not start: {error}");
             }
             let wake_app = app.clone();
             let wake_tasks = tasks.clone();
@@ -136,7 +130,8 @@ impl DesktopRuntime {
                         _ = interval.tick() => {}
                     }
                     crate::agent_server::AgentAccess::tick(&wake_app);
-                    let visible = wake_app.state::<SchoolWebController>().is_visible();
+                    // The planner evaluates at most every 30 s on its own.
+                    core(&wake_app).sync_hint(Hint::Wake);
                     let cloud = match crate::cloud_sync::services(&wake_app) {
                         Ok(services) => Some(services),
                         Err(error) => {
@@ -147,7 +142,6 @@ impl DesktopRuntime {
                     let report = core(&wake_app)
                         .wake(isct_core::facade::WakeServices {
                             scheduler: services(&wake_app),
-                            school_visible: visible,
                             cloud,
                             reminders: Some(isct_core::facade::ReminderWake {
                                 sink: Arc::new(

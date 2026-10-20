@@ -2,6 +2,7 @@ import { expect } from "vitest";
 import type { WorkspaceIntent } from "@app/lib/workspace-intents";
 import type { Workspace } from "@app/lib/model";
 import type { SchoolRecords } from "@app/platform/desktop-bridge";
+import type { SyncSnapshot } from "@app/platform/sync";
 import { DEFAULT_TIMETABLE_AXIS, emptySchoolRecords } from "./fixtures";
 
 /**
@@ -39,6 +40,9 @@ export type FakeCoreOptions = {
   revisionAfterMutation?: string;
   capabilities?: Record<string, unknown>;
   credentialStatus?: unknown;
+  /** What `sync_snapshot` answers; a test pushes changes with
+   * `core.emit("sync-snapshot", snapshot)`. Hints are in `core.calls`. */
+  sync?: SyncSnapshot;
   /** Answer `schedule_query` by query kind. Unlisted kinds resolve to null. */
   queries?: QueryTable;
   /** Answer `finder_query`; the second argument is the live fake store. */
@@ -233,25 +237,12 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         return options.capabilities ?? {};
       case "school_credential_status":
         return options.credentialStatus ?? emptyCredentialStatus();
-      case "pull_state":
-        return [];
-      case "school_status":
-        // Core folds pulls into this; a test drives it with `school-status`.
-        return {
-          headline: { kind: "idle" },
-          sources: (["science-lms", "kyomu"] as const).map((site) => ({
-            site,
-            activity: { kind: "idle" },
-            signIn: null,
-            lastUpdated: null,
-          })),
-        };
+      case "sync_snapshot":
+        return options.sync ?? idleSync();
+      case "sync_hint":
+        return null;
       case "catalog_offerings":
-      case "catalog_sync_offerings":
-      case "catalog_sync_department":
         return [];
-      case "catalog_query":
-        return { items: [], total: 0, returned: 0, truncated: false };
       default:
         return null;
     }
@@ -279,6 +270,24 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
   (window as unknown as Record<string, unknown>).isTauri = true;
 
   return core;
+}
+
+/** Core's planner with nothing running and no source read yet. */
+export function idleSync(): SyncSnapshot {
+  return {
+    generation: 1,
+    resetting: false,
+    runs: [],
+    sources: ["lms", "kyomu"].map((source) => ({
+      source,
+      lastUpdated: null,
+      running: false,
+      held: null,
+      failure: null,
+      session: null,
+      maintenance: null,
+    })),
+  };
 }
 
 export function emptyCredentialStatus() {

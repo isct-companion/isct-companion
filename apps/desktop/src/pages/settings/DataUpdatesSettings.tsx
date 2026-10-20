@@ -1,6 +1,8 @@
 import { workspaceActions } from "../../store/workspace";
 import { notify as appNotify } from "../../app/notify";
 import { Fragment, useState, type ReactNode } from "react";
+import { refresh, useSync } from "../../app/useSync";
+import { runsFor } from "../../platform/sync";
 import { t } from "../../i18n";
 import type { Subscription, Workspace } from "../../lib/model";
 import { UiButton, UiInput } from "../../components/mantine";
@@ -14,7 +16,6 @@ import {
   PUBLIC_DATA_INDEX,
   REFERENCE_KINDS,
 } from "../../generated/persistence";
-import { subscriptionNetwork } from "../../platform/subscription-polling";
 import type { Platform } from "../../app/shared";
 import {
   formatDay,
@@ -43,7 +44,6 @@ export function DataUpdatesSettings({
   update,
   platform,
   refreshReferences,
-  notify,
   tasks,
 }: {
   data: Workspace;
@@ -52,26 +52,20 @@ export function DataUpdatesSettings({
   /** Device preferences. */
   update: Update;
   platform: Platform;
-  refreshReferences?: () => Promise<string>;
-  notify: (message: string) => void;
+  /** Whether this shell can ask Core to check the reference data now. */
+  refreshReferences?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
+  const sync = useSync();
   const subscriptions = useSubscriptionViews();
   const locale = data.settings.locale;
   const editable = platform === "native-desktop";
-  const network = subscriptionNetwork();
+  // Core's planner decides whether the check runs now or waits for Wi-Fi.
+  const busy = runsFor(sync, ["reference"]).some((run) => !run.held);
+  const waitingForWifi =
+    sync.sources.find((source) => source.source === "references")?.held
+      ?.kind === "cellular";
   const lastChecked = data.settings.subscriptionRefresh.lastCheckedAt;
-  const checkNow = async () => {
-    if (!refreshReferences) return;
-    setBusy(true);
-    try {
-      notify(t(await refreshReferences()));
-    } catch (error) {
-      appNotify.error(error);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const checkNow = () => refresh({ kind: "references" });
   return (
     <>
       <SettingsHeader
@@ -151,12 +145,7 @@ export function DataUpdatesSettings({
         <Row
           id="cellular"
           title="Update on cellular data"
-          hint={
-            network === "cellular" &&
-            !data.settings.subscriptionRefresh.allowCellular
-              ? t("Paused until Wi-Fi is available")
-              : undefined
-          }
+          hint={waitingForWifi ? t("Paused until Wi-Fi is available") : undefined}
         >
           <Toggle
             checked={data.settings.subscriptionRefresh.allowCellular}

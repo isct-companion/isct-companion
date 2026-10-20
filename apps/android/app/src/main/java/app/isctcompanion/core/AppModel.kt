@@ -1,10 +1,14 @@
 package app.isctcompanion.core
 
 import app.isctcompanion.design.t
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.PowerManager
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,7 +59,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         private set
     var sessions: SchoolSessionStates? by mutableStateOf(null)
         private set
-    var pulls: List<PullSnapshot> by mutableStateOf(emptyList())
+    /** Core's sync planner: its runs and sources, rendered as they are. */
+    var syncSnapshot: SyncSnapshot? by mutableStateOf(null)
         private set
     /** Undo for the last hide, built from the intent Core committed. */
     var undo: UndoAction? by mutableStateOf(null)
@@ -76,8 +81,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     private var revision = ""
     private var boundaryJob: Job? = null
     private var refreshJob: Job? = null
+    private var wakeJob: Job? = null
     private val settingsWrite = Mutex()
-    private var networkState = PullNetwork.UNKNOWN
+    private var networkState = SyncNetwork.UNKNOWN
     private var foreground = true
 
     /** First launch: no school account configured yet. */
@@ -86,11 +92,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             it.science.availability == CredentialAvailability.NOT_CONFIGURED &&
                 it.tokyoTech.availability == CredentialAvailability.NOT_CONFIGURED
         } ?: false
-
-    val isPulling: Boolean
-        get() = pulls.any {
-            it.state in setOf(PullState.RUNNING, PullState.APPLYING, PullState.YIELDING, PullState.CHECKING)
-        }
 
     // Lifecycle
 
@@ -101,7 +102,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val files = File(context.filesDir, "files").apply { mkdirs() }
             val config = SessionConfig(
                 dataDirectory = data.absolutePath, filesDirectory = files.absolutePath,
-                initialNetwork = PullNetwork.UNKNOWN, cloudProviders = emptyList(),
+                initialNetwork = SyncNetwork.UNKNOWN, cloudProviders = emptyList(),
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(config, KeystoreVault(context), browser, null, null, WebCookieSession())
@@ -111,9 +112,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             scope.launch { listen(stream) }
             refresh()
             refreshAccounts()
+            readSync()
             status = Status.Ready
             watchNetwork()
-            report(foreground = true)
+            watchPowerSaver()
+            hint(if (foreground) Hint.Foreground else Hint.Background)
+            if (foreground) startWaking()
             reportSchool(SchoolSessionLifecycleKind.LAUNCH)
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
@@ -125,19 +129,41 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         foreground = active
         if (active) {
             runCatching { session.resume() }
-            report(foreground = true)
+            hint(Hint.Foreground)
             reportSchool(SchoolSessionLifecycleKind.FOCUS)
+            startWaking()
             scope.launch { refresh() }
         } else {
-            report(foreground = false)
+            wakeJob?.cancel()
+            wakeJob = null
+            hint(Hint.Background)
             reportSchool(SchoolSessionLifecycleKind.FOCUS)
             runCatching { session.suspend() }
         }
     }
 
-    private fun report(foreground: Boolean) {
-        val session = session ?: return
-        runCatching { session.lifecycle(foreground, networkState, web.isVisible) }
+    /** A lifecycle fact, opened view or refresh request for Core's sync
+     * planner, which decides what is due. Never waits. */
+    fun hint(hint: Hint) {
+        runCatching { session?.syncHint(hint) }
+    }
+
+    /** The view now on screen, so Core reads what it shows first. */
+    fun open(view: SyncView) = hint(Hint.Open(view))
+
+    fun refresh(target: SyncScope) = hint(Hint.Refresh(target))
+
+    /** Core's periodic wake while the app is in front (the planner's `Wake`
+     * hint, then reminders and scheduled tasks), about once a second. */
+    private fun startWaking() {
+        if (wakeJob?.isActive == true) return
+        wakeJob = scope.launch {
+            while (true) {
+                val session = session ?: return@launch
+                runCatching { session.wake().value() }
+                delay(1_000)
+            }
+        }
     }
 
     /** School sign-in hears what desktop sends (`school-session.ts`): `launch`
@@ -150,11 +176,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     private fun watchNetwork() {
         val manager = context.getSystemService(ConnectivityManager::class.java) ?: return
-        val update = { state: PullNetwork ->
+        val update = { state: SyncNetwork ->
             scope.launch {
                 if (networkState != state) {
                     networkState = state
-                    report(foreground)
+                    hint(Hint.Network(state))
                 }
             }
         }
@@ -162,17 +188,33 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
                 update(
                     when {
-                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> PullNetwork.WIFI
-                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> PullNetwork.CELLULAR
-                        else -> PullNetwork.UNKNOWN
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> SyncNetwork.WIFI
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> SyncNetwork.CELLULAR
+                        else -> SyncNetwork.UNKNOWN
                     },
                 )
             }
 
             override fun onLost(network: Network) {
-                update(PullNetwork.OFFLINE)
+                update(SyncNetwork.OFFLINE)
             }
         })
+    }
+
+    /** Battery saver is a fact Core's planner weighs; the shell only reports it. */
+    private fun watchPowerSaver() {
+        val power = context.getSystemService(PowerManager::class.java) ?: return
+        hint(Hint.PowerSaver(power.isPowerSaveMode))
+        // A system broadcast still reaches a non-exported receiver.
+        context.registerReceiver(
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) {
+                    hint(Hint.PowerSaver(power.isPowerSaveMode))
+                }
+            },
+            IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
+            Context.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     private suspend fun listen(stream: Subscription) {
@@ -184,7 +226,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             }
             when (update) {
                 is StreamUpdate.Event -> when (update.event.name) {
-                    "pull-state-changed", "school-pull-progress" -> refreshPulls()
+                    "sync-snapshot" -> runCatching { decodeSyncSnapshot(update.event.payload) }
+                        .onSuccess { syncSnapshot = it }
                     "school-session", "school-login-status" -> refreshAccounts()
                     "school-web-open" -> web.handleOpenEvent(update.event.payload)
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
@@ -195,6 +238,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 is StreamUpdate.SnapshotRequired -> {
                     scheduleRefresh()
                     refreshAccounts()
+                    readSync()
                 }
             }
         }
@@ -218,7 +262,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val snapshot = (session.snapshot().value() as? OperationResult.Workspace)?.snapshot ?: return
             revision = snapshot.revision
             if (snapshot.contentRevision != contentRevision) {
-                records = WorkspaceRecords(snapshot.workspace, snapshot.schoolRecords)
+                records = WorkspaceRecords(snapshot.workspace)
             }
             val result = (
                 session.scheduleQuery(
@@ -267,14 +311,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             .getOrNull()?.let { sessions = it.states }
     }
 
-    private suspend fun refreshPulls() {
+    /** On start and after a missed stream; `sync-snapshot` events carry every
+     * later one. A read that returns after a newer event does not replace it. */
+    private suspend fun readSync() {
         val session = session ?: return
-        val snapshots = runCatching { (session.pullState().value() as? OperationResult.Pulls)?.snapshots }
+        val snapshot = runCatching { (session.syncSnapshot().value() as? OperationResult.Sync)?.snapshot }
             .getOrNull() ?: return
-        pulls = snapshots
-        snapshots.firstOrNull { it.state == PullState.FAILED || it.state == PullState.BLOCKED }?.let {
-            problem = it.lastError
-        }
+        val shown = syncSnapshot
+        if (shown == null || snapshot.generation >= shown.generation) syncSnapshot = snapshot
     }
 
     suspend fun week(monday: LocalDate): ScheduleView? {
@@ -330,46 +374,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         refresh()
     }
 
-    /** Pull to refresh, and the first read after an account is saved: the
-     * current quarter's LMS courses, their content and the deadlines in one
-     * pass (the phone shows nothing else). It runs on after the gesture ends;
-     * the header ring follows Core's pull state. */
-    fun refreshFromSchool() {
-        scope.launch { pull(listOf { it.pullCurrentTerm() }) }
-    }
-
-    /** Runs pulls in order and stops at the first that needs the person. */
-    private suspend fun pull(steps: List<(Session) -> Operation>) {
-        val session = session ?: return
-        problem = null
-        for (step in steps) {
-            try {
-                val result = step(session).value() as? OperationResult.SchoolPull
-                val failed = result?.outcomes?.firstOrNull {
-                    it.state == IngestState.RECONNECT_REQUIRED || it.state == IngestState.ERROR
-                }
-                if (failed != null) {
-                    problem = if (failed.state == IngestState.RECONNECT_REQUIRED) {
-                        describe(SdkException.Authentication(""))
-                    } else {
-                        failed.message
-                    }
-                    break
-                }
-            } catch (error: Exception) {
-                problem = describe(error)
-                break
-            }
-        }
-        refresh()
-    }
+    /** Pull to refresh: Core's planner decides what to read, and the sync
+     * snapshot shows it. */
+    fun refreshFromSchool() = refresh(SyncScope.Everything)
 
     suspend fun saveCredentials(profile: SchoolAuthProfile, credentials: SchoolCredentials) {
         val session = session ?: return
         session.saveCredentials(profile, credentials).value()
         refreshAccounts()
         runCatching { session.ensureSchoolSession(profile) }
-        if (profile == SchoolAuthProfile.SCIENCE) refreshFromSchool()
+        hint(Hint.SignedIn(profile))
     }
 
     /** Edits `settings.notifications` and replaces the settings object. */
@@ -391,7 +405,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         try {
             (session.mutate(mutation).value() as? OperationResult.Workspace)?.snapshot?.let {
                 revision = it.revision
-                records = WorkspaceRecords(it.workspace, it.schoolRecords)
+                records = WorkspaceRecords(it.workspace)
             }
         } catch (error: Exception) {
             problem = describe(error)

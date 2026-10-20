@@ -42,6 +42,7 @@ struct TimetableScreen: View {
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
+            model.syncHint(.open(view: .timetable))
             if axis == nil { axis = model.lastTimetableAxis }
             if week == nil { week = model.weeks[AppModel.civil(monday)] }
         }

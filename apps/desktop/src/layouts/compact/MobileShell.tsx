@@ -7,6 +7,10 @@ import type { SchoolSessionState } from "../../platform/school-session";
 import type { Page } from "../../app/shared";
 import { useEdgeSwipeBack } from "./edge-swipe";
 import { t } from "../../i18n";
+import { progressLine, type SyncSnapshot } from "../../platform/sync";
+import { SyncFailures, SyncProgressLine } from "../../app/SchoolStatusLine";
+import { ageText, sourceName } from "../../app/sync-text";
+import { useClock } from "../../platform/use-clock";
 
 const tabs: Page[] = ["home", "timetable", "lectures", "web", "settings"];
 
@@ -19,9 +23,9 @@ export type MobileAccountStatus = {
 
 export type MobileStatus = {
   accounts: MobileAccountStatus[];
-  lmsPhase: string;
-  /** 0–100 while a pull runs, null when idle. */
-  progress: number | null;
+  /** Core's sync snapshot, the same one the workstation footer reads. */
+  sync: SyncSnapshot;
+  locale: string;
   refresh?: () => void;
   openAccounts: () => void;
 };
@@ -30,7 +34,8 @@ export type MobileStatus = {
 function overallState(status: MobileStatus) {
   if (status.accounts.some((account) => account.state === "failed"))
     return "failed";
-  if (status.progress !== null) return "pulling";
+  const line = progressLine(status.sync).kind;
+  if (line !== "idle" && line !== "held") return "pulling";
   if (status.accounts.some((account) => account.state === "active"))
     return "active";
   return "idle";
@@ -79,6 +84,8 @@ export function MobileShell({
     };
   }, []);
   const state = overallState(status);
+  const line = progressLine(status.sync);
+  const now = useClock(sheet);
   const failed = status.accounts.filter(
     (account) => account.state === "failed",
   );
@@ -93,8 +100,13 @@ export function MobileShell({
             aria-label={t("Connection status")}
             onClick={() => setSheet(true)}
           >
-            {state === "pulling" ? (
-              <PullRing value={status.progress ?? 0} size={16} />
+            {line.kind === "bar" ? (
+              <PullRing
+                value={(100 * line.done) / Math.max(line.total, 1)}
+                size={16}
+              />
+            ) : state === "pulling" ? (
+              <i className="schoolStatusSpinner" aria-hidden="true" />
             ) : (
               <i aria-hidden="true" />
             )}
@@ -110,6 +122,13 @@ export function MobileShell({
             <UiButton className="textButton" onClick={status.openAccounts}>
               {t("Sign in")}
             </UiButton>
+          </div>
+        )}
+        {line.kind !== "idle" && (
+          <div className="mobileSyncPill" aria-live="polite">
+            <div>
+              <SyncProgressLine snapshot={status.sync} locale={status.locale} />
+            </div>
           </div>
         )}
         {tabs.map((name) => pages[name])}
@@ -163,20 +182,23 @@ export function MobileShell({
               <small>{account.label}</small>
             </li>
           ))}
-          <li data-state={status.progress === null ? "idle" : "pulling"}>
-            <i aria-hidden="true" />
-            <b>LMS</b>
-            <small>
-              {status.lmsPhase}
-              {status.progress !== null && ` · ${Math.round(status.progress)}%`}
-            </small>
-          </li>
+          {status.sync.sources.map((source) => (
+            <li
+              key={source.source}
+              data-state={source.running ? "pulling" : "idle"}
+            >
+              <i aria-hidden="true" />
+              <b>{sourceName(source.source)}</b>
+              <small>{ageText(source.lastUpdated, now, status.locale)}</small>
+            </li>
+          ))}
         </ul>
+        <SyncFailures snapshot={status.sync} locale={status.locale} />
         <div className="mobileSheetActions">
           {status.refresh && (
             <UiButton
               className="button primary"
-              disabled={status.progress !== null}
+              disabled={status.sync.resetting}
               onClick={() => {
                 status.refresh?.();
                 setSheet(false);

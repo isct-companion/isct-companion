@@ -14,8 +14,7 @@ type TraceEvent = { kind: string } & Record<string, unknown>;
 
 const BACKEND_EVENTS = [
   "workspace-changed",
-  "pull-state-changed",
-  "school-pull-progress",
+  "sync-snapshot",
   "school-ingest",
   "school-download",
   "school-login-status",
