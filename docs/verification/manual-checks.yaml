@@ -274,6 +274,9 @@ checks:
       - crates/isct-core/src/lms_ingest.rs
       - crates/isct-core/src/lms_session.rs
       - crates/isct-core/src/school_parser/lms.rs
+      - crates/isct-core/src/school_parser/lms/pages.rs
+      - crates/isct-core/src/net/moodle/pull.rs
+      - crates/isct-core/src/net/moodle/ajax.rs
       - crates/isct-core/src/catalog.rs
       - crates/isct-core/src/data/school_projection.rs
       - crates/isct-core/src/schedule/search.rs
@@ -286,6 +289,82 @@ checks:
       result: pass
       notes: 7 matched courses, no differences.
       evidence: docs/verification/core-consolidation.md#live-macos-acceptance
+
+  - id: SCHOOL-LMS-TOKEN-PULL
+    area: school
+    title: LMS pull over the mobile token, and its fallback to the session cookie
+    persona: undergraduate-senior
+    preconditions: |
+      The account from SCHOOL-SIGNIN-SCIENCE is Signed in, with at least one
+      course that has an assignment, a quiz and an announcement forum. A debug
+      desktop build with the app log visible.
+    steps:
+      - action: |
+          With no LMS token in the vault (fresh profile, or after forgetting
+          and re-adding the school account), run a full LMS pull.
+        reason: |
+          The token comes from one cookie-authenticated launch.php GET answered
+          by a 302 to moodlemobile://; only the real site proves the redirect,
+          the base64 layout and the md5(wwwroot + passport) signature agree
+          with the parser.
+      - action: |
+          Search the exported app log and the database file for the token's
+          first characters (read them from the OS keychain item
+          "lms-token-science" yourself; never paste the token anywhere).
+        reason: |
+          The token cannot be revoked by a student. A leak into a log, a row or
+          an error message is the failure this step exists to catch.
+      - action: |
+          Compare courses, assignment states (submitted, graded with grade,
+          late-allowed), quiz states and announcement bodies with the LMS
+          pages and with the previous cookie-based pull.
+        reason: |
+          Several REST functions (`mod_quiz_*`, `mod_forum_get_forums_by_courses`,
+          the module getters, the calendar views, the timeline course list) are
+          listed by the site but their answers were never probed. A silently
+          empty mapping looks like "nothing to do" in Today.
+      - action: |
+          Quit and restart the app, then pull the deadlines before opening any
+          school page.
+        reason: |
+          The token survives the restart while the web session does not; the
+          pull must not wait for a WebView sign-in except for the timetable.
+      - action: |
+          Replace the keychain item's token with a random 32-character value and
+          pull again.
+        reason: |
+          A refused token arrives as HTTP 200 with errorcode invalidtoken; the
+          client must drop it, sign in once and launch a new one rather than
+          loop or fall back silently forever.
+      - action: |
+          Block `webservice/rest/server.php` (for example with a local proxy
+          rule) and pull once more.
+        reason: |
+          The cookie transport must take over with the same results; the app
+          log names the fallback reason without any credential.
+    observe: |
+      The LMS page lists, Today's assignment rows, the app log export and the
+      keychain item.
+    expected: |
+      The first pull creates exactly one vault item and matches the LMS like
+      SCHOOL-LMS-PULL. No log line, database row or error contains the token,
+      sesskey or passport. After the restart the deadlines refresh before any
+      school page opens. The forged token is replaced after one sign-in and
+      the pull completes. With REST blocked the pull completes through the
+      cookie path with the same courses and states, and the log says the
+      token transport was unavailable.
+    why_manual: |
+      Needs a real account's web session to launch a token, and the answers of
+      account-scoped REST functions that no fixture can stand in for. The pure
+      parsing and mapping are covered by the net::moodle unit tests.
+    covers:
+      - crates/isct-core/src/net/moodle/mod.rs
+      - crates/isct-core/src/net/moodle/token.rs
+      - crates/isct-core/src/net/moodle/rest.rs
+      - crates/isct-core/src/net/moodle/ajax.rs
+      - crates/isct-core/src/school_auth.rs
+      - docs/lms-api/README.md
+    verified: null
 
   - id: IDENTITY-FIRST-YEAR-GATE
     area: identity
@@ -603,8 +682,8 @@ checks:
           is the trigger for the rest of the check.
       - action: |
           If it differs from the pinned year, update LMS_HOME in
-          crates/isct-core/src/lms_session.rs and the path literals in
-          crates/isct-core/src/lms_ingest.rs.
+          crates/isct-core/src/lms_session.rs and LMS_WWWROOT and LMS_PATH in
+          crates/isct-core/src/school_parser/lms.rs.
         reason: |
           A stale literal does not fail loudly; it silently extracts nothing.
           The edit is mechanical, which is exactly why it must be paired with
@@ -625,7 +704,7 @@ checks:
       suite fails but only a real account can confirm the new path works.
     covers:
       - crates/isct-core/src/lms_session.rs
-      - crates/isct-core/src/lms_ingest.rs
+      - crates/isct-core/src/school_parser/lms.rs
     verified:
       version: 1.0.0-rc.3
       date: 2026-10-16
@@ -1543,7 +1622,8 @@ checks:
       window is in the background. The typed missing-folder path itself is
       covered by the workspace Core tests and the lms-workspace e2e suite.
     covers:
-      - crates/isct-core/src/lms_submission_status.js
+      - crates/isct-core/src/school_parser/lms/pages.rs
+      - crates/isct-core/src/net/moodle/mapping.rs
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
     verified: null
 

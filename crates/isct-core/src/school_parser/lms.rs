@@ -5,6 +5,20 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use url::Url;
 
+mod pages;
+pub use pages::{
+    course_page_bodies, forum_discussion_links, forum_posts, module_body, module_page_matches,
+    page_assign_state, page_config, read_timetable, timetable_filters, timetable_shape,
+    CoursePageBodies, PageConfig, TimetableFilters,
+};
+
+/// The LMS site root. The school has served Moodle under this fixed
+/// academic-year path since the merger; `SCHOOL-LMS-YEAR-ROLLOVER` covers a
+/// move.
+pub const LMS_WWWROOT: &str = "https://lms.s.isct.ac.jp/2025";
+/// The path every LMS page lives under.
+pub(crate) const LMS_PATH: &str = "/2025/";
+
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const MAX_COURSES: usize = 500;
 const MAX_STRUCTURES: usize = 500;
@@ -331,15 +345,21 @@ fn valid_event(event: &Value) -> bool {
         && event.get("timesort").and_then(Value::as_i64).is_some()
 }
 
-/// Validates and normalizes the bounded result produced by the LMS capture
-/// adapter. Invalid records are counted and discarded without turning a
-/// partial result into authoritative deletion input.
+/// [`validate_payload`] over serialized JSON, with the serialized size bound.
 pub fn parse_payload(raw: &str) -> Result<(LmsStage, Option<LmsPayload>), SchoolParseError> {
     if raw.len() > MAX_PAYLOAD_BYTES {
         return Err("LMS payload exceeds the size limit".into());
     }
+    let raw: Value = serde_json::from_str(raw).map_err(|_| "LMS payload is not valid JSON")?;
+    validate_payload(raw)
+}
+
+/// Validates and normalizes the bounded result produced by the LMS
+/// transport. Invalid records are counted and discarded without turning a
+/// partial result into authoritative deletion input.
+pub fn validate_payload(raw: Value) -> Result<(LmsStage, Option<LmsPayload>), SchoolParseError> {
     let raw: RawLmsPayload =
-        serde_json::from_str(raw).map_err(|_| "LMS payload is not valid JSON")?;
+        serde_json::from_value(raw).map_err(|_| "LMS payload has an invalid shape")?;
     if !lms_url(&raw.source_url) {
         return Err("LMS payload has an invalid source URL".into());
     }
