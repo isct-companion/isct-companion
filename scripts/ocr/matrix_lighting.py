@@ -69,6 +69,26 @@ def generate(root, fixture):
     }, indent=2))
 
 
+def replay(root, binary, output):
+    """Use one production replay path for lighting and glyph-boundary probes."""
+    manifest = json.loads((root / "manifest.json").read_text())
+    reports = []
+    for condition in manifest["conditions"]:
+        result = subprocess.run([
+            str(binary.resolve()), str(root / condition),
+            str(root / "expected.txt"), str(manifest["fps"]),
+        ], capture_output=True, text=True, check=True)
+        report = {"condition": condition, **json.loads(result.stdout)}
+        reports.append(report)
+        print(json.dumps({k: v for k, v in report.items() if k != "diagnostics"}), flush=True)
+        output.write_text(json.dumps({
+            "manifest": manifest,
+            "binarySha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+            "results": reports,
+        }, indent=2))
+    return reports
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
@@ -81,21 +101,7 @@ def main():
     if args.binary:
         if not args.output:
             parser.error("--output is required with --binary")
-        manifest = json.loads((args.directory / "manifest.json").read_text())
-        reports = []
-        for condition in manifest["conditions"]:
-            result = subprocess.run([
-                str(args.binary.resolve()), str(args.directory / condition),
-                str(args.directory / "expected.txt"), str(manifest["fps"]),
-            ], capture_output=True, text=True, check=True)
-            report = {"condition": condition, **json.loads(result.stdout)}
-            reports.append(report)
-            print(json.dumps({k: v for k, v in report.items() if k != "diagnostics"}), flush=True)
-            args.output.write_text(json.dumps({
-                "manifest": manifest,
-                "binarySha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(),
-                "results": reports,
-            }, indent=2))
+        replay(args.directory, args.binary, args.output)
 
 
 if __name__ == "__main__":

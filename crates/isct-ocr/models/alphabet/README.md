@@ -10,10 +10,17 @@ images or student data were used for this bundled model. SHA-256:
 `592d61903de1f04b48079c44be5c247cd2f16bd323b23fb539b2c7392bfc5177`.
 
 MobileNetV2, 27 logits (A–Z then blank), dynamic batch, input N×1×96×96.
-Input is bilinearly rectified Rec.601 grayscale normalized to [-1, 1].
+Input is Rec.601 grayscale normalized to [-1, 1]. The camera retains the complete
+bilinearly rectified cell; `engine::alphabet` locates ink using a mask, separates
+grid edges, then centers and proportionally scales original grayscale pixels
+within an 80×76 area on the 96×96 canvas. Ambiguous boundary-connected ink is
+rejected explicitly. The mask itself is never the classifier input.
 Generation, fine-tuning and ONNX parity checks live under `scripts/ocr/`.
 Held-out font-family synthetic validation was 2600/2600; this is not a real-card
 accuracy claim. The upstream handwriting validation is not a printed-card metric.
+The synthetic L/Z/I boundary replay (`scripts/ocr/matrix_letter_boundaries.py`)
+must also pass through production acquisition and voting before promotion:
+repeated high-confidence mistakes can otherwise appear as settled cells.
 
 For a local experimental build, `ISCT_MATRIX_ALPHABET_MODEL=/absolute/model.onnx`
 selects other weights at compile time. Keep camera-adapted models local. The

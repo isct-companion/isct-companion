@@ -164,6 +164,40 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
 }
 
 #[test]
+fn complete_letters_near_cell_edges_do_not_become_confident_substitutions() {
+    // Public Times Italic L/Z/I, with complete ink inside each cell. The old
+    // fixed 9% inset turned all 24 Ls into confidently accepted Is.
+    let captured =
+        capture_matrix_frame(include_bytes!("fixtures/matrix-letter-boundaries.jpg")).unwrap();
+    let model = MatrixAlphabetService::default();
+    for (batch_index, batch) in captured.glyphs.chunks(10).enumerate() {
+        let images: Vec<_> = batch.iter().map(|g| g.gray.clone()).collect();
+        for (offset, actual) in model.recognize(&images).unwrap().iter().enumerate() {
+            let cell = batch_index * 10 + offset;
+            let expected = ["L", "Z", "I"][cell % 3];
+            assert_eq!(actual.text, expected, "cell {cell}: {actual:?}");
+            assert!(actual.confidence >= 0.8, "cell {cell}: {actual:?}");
+        }
+    }
+    // A central stroke joined to an incomplete edge is not safe to delete:
+    // deleting that connected component could leave a different letter.
+    let clipped = GrayImage::from_fn(96, 96, |x, y| {
+        image::Luma([
+            if ((45..51).contains(&x) && y < 70) || ((60..66).contains(&x) && (25..70).contains(&y))
+            {
+                20
+            } else {
+                230
+            },
+        ])
+    });
+    assert!(normalize_glyph(&clipped).is_none());
+    let rejected = model.recognize(&[clipped.into_raw()]).unwrap();
+    assert!(rejected[0].text.is_empty());
+    assert_eq!(rejected[0].confidence, 0.);
+}
+
+#[test]
 fn capture_fits_body_rows_independently_of_header_height() {
     // Real cards need not give the label header the same height as a body row.
     // Dividing the whole contour into eight equal rows clips otherwise clear ink.

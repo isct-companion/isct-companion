@@ -76,6 +76,66 @@ is removed. Documentation and measured JSON are counted separately.
 
 ## What changed
 
+### Complete-cell input after L/Z/I false acceptance
+
+The next report from a physical-card session identified substitutions in cells
+presented as normal results. A public Times Italic L/Z/I card reproduced this
+through production Rust acquisition, classification and voting: shifting the
+complete letters down four source pixels yielded 70 settled cells with 24 wrong
+accepted Ls. The letters still fit inside their grid cells. The fixed 9% inset
+removed distinguishing strokes before inference; five identical observations
+then repeated the same mistake. Synthetic-font classifier accuracy and temporal
+agreement therefore did not validate the full input pipeline.
+
+The camera now retains the complete cell. Texture scoring uses an interior
+window separately. Offline recognition locates ink using an illumination-adjusted
+mask and imageproc connected components, distinguishes boundary grid lines,
+then scales the original grayscale glyph proportionally onto a padded canvas.
+Only an actual boundary/central-ink join triggers grid-line separation; unresolved
+boundary-connected ink is explicitly unreadable. No model weights, confidence
+thresholds or voting thresholds changed.
+
+| Public L/Z/I placement | Correct before → after | Wrong settled before → after |
+| --- | ---: | ---: |
+| Four pixels up | 70 → 70 | 0 → 0 |
+| Centered | 40 → 70 | 0 → 0 |
+| Four pixels down | 46 → 70 | 24 → 0 |
+
+All 12 lighting sequences have zero wrong settled cells. Clean, dim, very dim,
+small dim, shadow, clipped-margin dim rotation, moving glare, blur and tilt each
+have 70 correct readings. Small dim has 67 settled cells (previously 69), so
+three require review. Fixed glare retains 64 correct/settled cells; the stripe
+retains 60; the blank sequence has no geometry. These public probes do not
+establish physical-card accuracy or the actual outline frame rate.
+
+The `completeCellInput` section of `matrix-lighting-results.json` records both
+replay binaries, the font/fixture hashes and results. The committed
+`matrix-letter-boundaries.jpg` fixture is the generated four-pixel-down probe,
+not a private card. A new Rust case protects the complete letter identities and
+explicit rejection of ambiguous edge-connected ink. All 22 OCR tests pass;
+four private-input tests remain ignored, and OCR Clippy passes with warnings
+denied. No test was removed. Production Rust adds 167 and removes 10 lines
+(net +157; no production-code reduction); tests add 34 lines, with scripts,
+fixtures, documentation and measured JSON counted separately.
+
+The reproducible boundary benchmark exits nonzero for wrong accepted cells or
+missing/wrong readings:
+
+```sh
+python scripts/ocr/matrix_letter_boundaries.py \
+  --directory .cache/ocr-letter-boundaries --font "/path/to/Times Italic.ttf" \
+  --binary target/release/examples/matrix_capture \
+  --output .cache/ocr-letter-boundaries/results.json
+```
+
+Use `--font` only to generate, then omit it when comparing binaries over the same
+frames. The intentionally identical frames expose repeated systematic errors;
+they do not represent independent visual evidence. Model promotion must pass
+both the original lighting replay and these boundary cases. Further font and
+camera coverage remains necessary before treating agreement as reliability.
+
+### Initial illumination checkpoint
+
 The two admission failures already had geometry on every frame. Their raw
 contrast/sharpness was insufficient for the 35-cell startup gate. Measuring
 texture after bounded local illumination correction makes these readable dark

@@ -26,10 +26,12 @@ boundary. It runs in the caller's process and does not claim to contain a native
 abort or memory fault; process isolation would require a separate worker.
 
 Desktop camera scanning has two phases. `capture_matrix_frame` decodes and
-locates a frame, rectifies 96×96 glyphs with bilinear interpolation, keeps
+locates a frame, rectifies complete 96×96 cells with bilinear interpolation, keeps
 Rec.601 grayscale, and measures contrast, Laplacian sharpness, source resolution
 and whether texture lies inside the glyph instead of on a cropped grid edge.
-It performs no character-model inference and no input binarization. Geometry
+It performs no character-model inference and no input binarization. Texture
+quality uses the central 78×78 region to exclude grid borders; this measurement
+window never trims the pixels retained for recognition. Geometry
 localization tries the existing grid/header detector first, then retries with
 locally corrected illumination while preserving its label/grid validation.
 The label bands are measured separately from the 7×10 body. Internal line
@@ -56,7 +58,13 @@ metadata; buffers remain resident only for the current session.
 
 The shell releases the camera and closes its dialog before invoking background
 processing. `MatrixAlphabetService` uses the bundled A–Z + blank classifier on
-batches of up to ten candidate glyphs. Only results at confidence >= 0.8 vote.
+batches of up to ten candidate glyphs. Before inference, an illumination-adjusted
+Otsu mask and imageproc connected components locate the ink separately from grid
+edges. A near-full-width boundary line is split only when it joins central ink.
+Unresolved ink touching the crop boundary returns an explicit blank reading.
+The classifier receives the original grayscale glyph, centered with paper-colored
+padding and scaled proportionally to fit 80×76 pixels inside its 96×96 input.
+Only results at confidence >= 0.8 vote.
 Dark/uneven candidates also get an illumination-corrected reading. Confident
 disagreement marks the observation for review; both versions together can
 contribute only one vote. The gain is bounded, and erased strokes stay unreadable.

@@ -8,6 +8,136 @@ use std::sync::{Arc, Mutex, TryLockError};
 const SIZE: usize = 96;
 const MODEL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/matrix-alphabet.onnx"));
 
+/// Locate ink without discarding a fixed fraction of a cell. Keep grayscale
+/// pixels for inference; the binary mask is only used to separate grid edges.
+fn normalize_glyph(gray: &GrayImage) -> Option<GrayImage> {
+    use image::Luma;
+    use imageproc::region_labelling::{connected_components, Connectivity};
+    let lighting = illumination::analyze(gray);
+    let visible = lighting.corrected.as_ref().unwrap_or(gray);
+    let threshold = imageproc::contrast::otsu_level(visible);
+    let mut mask = GrayImage::from_fn(96, 96, |x, y| {
+        Luma([if visible.get_pixel(x, y)[0] <= threshold {
+            255
+        } else {
+            0
+        }])
+    });
+    // Separate an actual grid/ink join only when needed. Splitting an already
+    // separate grid could release small border fragments into the glyph bounds.
+    let initial = connected_components(&mask, Connectivity::Eight, Luma([0]));
+    let mut edges = vec![false; initial.as_raw().iter().copied().max().unwrap_or(0) as usize + 1];
+    for (x, y, label) in initial.enumerate_pixels() {
+        if label[0] != 0 && (x == 0 || y == 0 || x == 95 || y == 95) {
+            edges[label[0] as usize] = true;
+        }
+    }
+    let joined = initial
+        .enumerate_pixels()
+        .filter(|(x, y, label)| {
+            (14..82).contains(x) && (14..82).contains(y) && edges[label[0] as usize]
+        })
+        .count()
+        >= 8;
+    // This changes only the mask, never the grayscale model pixels.
+    let rows: Vec<_> = (0..96)
+        .filter(|&y| {
+            joined
+                && !(6..90).contains(&y)
+                && (0..96).filter(|&x| mask.get_pixel(x, y)[0] != 0).count() >= 87
+        })
+        .collect();
+    let columns: Vec<_> = (0..96)
+        .filter(|&x| {
+            joined
+                && !(6..90).contains(&x)
+                && (0..96).filter(|&y| mask.get_pixel(x, y)[0] != 0).count() >= 87
+        })
+        .collect();
+    for y in rows {
+        for x in 0..96 {
+            mask.put_pixel(x, y, Luma([0]));
+        }
+    }
+    for x in columns {
+        for y in 0..96 {
+            mask.put_pixel(x, y, Luma([0]));
+        }
+    }
+    let labels = if joined {
+        connected_components(&mask, Connectivity::Eight, Luma([0]))
+    } else {
+        initial
+    };
+    let mut components = vec![
+        (96u32, 96u32, 0u32, 0u32, 0usize, 0usize);
+        labels.as_raw().iter().copied().max().unwrap_or(0) as usize + 1
+    ];
+    for (x, y, label) in labels.enumerate_pixels() {
+        if label[0] == 0 {
+            continue;
+        }
+        let component = &mut components[label[0] as usize];
+        component.0 = component.0.min(x);
+        component.1 = component.1.min(y);
+        component.2 = component.2.max(x);
+        component.3 = component.3.max(y);
+        component.4 += 1;
+        if (14..82).contains(&x) && (14..82).contains(&y) {
+            component.5 += 1;
+        }
+    }
+    let (mut left, mut top, mut right, mut bottom) = (96, 96, 0, 0);
+    for (x0, y0, x1, y1, area, interior) in components.into_iter().skip(1) {
+        if area < 8 {
+            continue;
+        }
+        if x0 == 0 || y0 == 0 || x1 == 95 || y1 == 95 {
+            // An edge joined to central ink may be a clipped letter. Removing
+            // that component could manufacture another letter from the rest.
+            if interior >= 8 {
+                return None;
+            }
+            continue;
+        }
+        let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
+        let grid = (w >= 67 && h <= 14 && (y0 < 14 || y1 > 81))
+            || (h >= 67 && w <= 14 && (x0 < 14 || x1 > 81));
+        if grid {
+            continue;
+        }
+        left = left.min(x0);
+        top = top.min(y0);
+        right = right.max(x1);
+        bottom = bottom.max(y1);
+    }
+    if right < left || bottom < top {
+        return None;
+    }
+    let mut levels = gray.as_raw().clone();
+    levels.sort_unstable();
+    let paper = levels[levels.len() * 3 / 4];
+    let glyph =
+        image::imageops::crop_imm(gray, left, top, right - left + 1, bottom - top + 1).to_image();
+    // Training spans roughly 59–91 px glyph heights. Keep this common view
+    // inside that range, with room for antialiasing around thin serif strokes.
+    let scale = (76. / glyph.height() as f64).min(80. / glyph.width() as f64);
+    let glyph = image::imageops::resize(
+        &glyph,
+        (glyph.width() as f64 * scale).round() as u32,
+        (glyph.height() as f64 * scale).round() as u32,
+        FilterType::Triangle,
+    );
+    let mut canvas = GrayImage::from_pixel(96, 96, Luma([paper]));
+    image::imageops::replace(
+        &mut canvas,
+        &glyph,
+        ((96 - glyph.width()) / 2) as i64,
+        ((96 - glyph.height()) / 2) as i64,
+    );
+    Some(canvas)
+}
+
 /// Pixel-center convention and grayscale coefficients match PIL/TorchVision.
 pub(super) fn rectified_gray(
     image: &RgbImage,
@@ -21,8 +151,8 @@ pub(super) fn rectified_gray(
     let source = destination.map(|(x, y)| {
         let p = geometry::project(
             &corners,
-            0.09 + (x as f64 + 0.5) / 95. * 0.82,
-            0.09 + (y as f64 + 0.5) / 95. * 0.82,
+            (x as f64 + 0.5) / SIZE as f64,
+            (y as f64 + 0.5) / SIZE as f64,
         );
         ((p.x - 0.5) as f32, (p.y - 0.5) as f32)
     });
@@ -70,12 +200,12 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
         .into_iter()
         .zip(&quads)
         .map(|((gray, light), &quad)| {
-            let measured = image::imageops::resize(
-                light.corrected.as_ref().unwrap_or(&gray),
-                32,
-                32,
-                FilterType::Triangle,
-            );
+            // Ignore grid edges when measuring texture, but retain the entire
+            // cell for recognition: a fixed inset can turn a complete L into I.
+            let interior =
+                image::imageops::crop_imm(light.corrected.as_ref().unwrap_or(&gray), 9, 9, 78, 78)
+                    .to_image();
+            let measured = image::imageops::resize(&interior, 32, 32, FilterType::Triangle);
             let mean = measured.pixels().map(|p| p[0] as f64).sum::<f64>() / 1024.;
             let contrast = (measured
                 .pixels()
@@ -113,8 +243,7 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
             };
             let source_size = (0..4)
                 .map(|i| distance(quad[i], quad[(i + 1) % 4]))
-                .fold(f64::INFINITY, f64::min)
-                * 0.82;
+                .fold(f64::INFINITY, f64::min);
             Ok(MatrixCaptureGlyph {
                 gray: gray.into_raw(),
                 contrast,
@@ -142,6 +271,29 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
 pub struct MatrixAlphabetService(Arc<Mutex<Option<Session>>>);
 impl MatrixAlphabetService {
     pub fn recognize(&self, images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
+        if images.len() > 10 || images.iter().any(|image| image.len() != SIZE * SIZE) {
+            return Err(MatrixOcrError::InvalidImage(
+                "Invalid grayscale candidate batch.".into(),
+            ));
+        }
+        let normalized = images
+            .iter()
+            .map(|pixels| {
+                let gray = GrayImage::from_raw(96, 96, pixels.clone()).ok_or_else(|| {
+                    MatrixOcrError::InvalidImage("Invalid grayscale candidate.".into())
+                })?;
+                Ok(normalize_glyph(&gray))
+            })
+            .collect::<Result<Vec<_>, MatrixOcrError>>()?;
+        let images = normalized
+            .iter()
+            .map(|glyph| {
+                glyph
+                    .as_ref()
+                    .map_or_else(|| vec![255; SIZE * SIZE], |gray| gray.as_raw().clone())
+            })
+            .collect::<Vec<_>>();
+        let images = &images;
         let mut raw = self.recognize_raw(images)?;
         let corrections = images
             .iter()
@@ -164,6 +316,11 @@ impl MatrixAlphabetService {
                 raw[i].confidence = 0.79;
             } else if corrected.confidence > raw[i].confidence {
                 raw[i] = corrected;
+            }
+        }
+        for (reading, glyph) in raw.iter_mut().zip(normalized) {
+            if glyph.is_none() {
+                *reading = Recognition::default();
             }
         }
         Ok(raw)
