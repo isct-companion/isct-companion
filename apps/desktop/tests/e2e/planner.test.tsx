@@ -117,7 +117,6 @@ function finderView(
     factors: nextKeys.map(factorFor),
     duplicates: 0,
     keys: nextKeys,
-    plan: { unsupported: "empty" },
     rows: courses.map((course) => ({ course, matched: [] })),
     suggestions: options.suggestions ?? [],
     live: String(request.input ?? ""),
@@ -434,12 +433,10 @@ describe("the course planner", () => {
       app.core.calls.filter((call) => call.command === "finder_query"),
     ).toHaveLength(0);
     await act(async () => searchInput.focus());
-    await settled(() => expect(app!.host.textContent).toContain("100 courses"));
-    for (let loaded = 200; loaded <= 1000; loaded += 100) {
+    // The whole stored result is counted at once; rows mount in batches.
+    await settled(() => expect(app!.host.textContent).toContain("1000 courses"));
+    while (buttonByText(app.host, "Load more courses")) {
       await click(buttonByText(app.host, "Load more courses")!);
-      await settled(() =>
-        expect(app!.host.textContent).toContain(`${loaded} courses`),
-      );
       expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
     }
     expect(app.host.textContent).toContain("Official course 0");
@@ -459,14 +456,6 @@ describe("the course planner", () => {
         ["catalog_query", "cancel_pull"].includes(call.command),
       ),
     ).toBe(false);
-    expect(
-      app.core.calls.filter(
-        (call) =>
-          call.command === "finder_query" &&
-          (call.args.request as Record<string, unknown>).remoteIds !==
-            undefined,
-      ),
-    ).toHaveLength(0);
     const queriesBeforeNavigation = app.core.calls.filter(
       (call) => call.command === "finder_query",
     ).length;

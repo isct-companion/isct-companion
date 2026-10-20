@@ -164,11 +164,7 @@ impl Core {
         scope: ResetScope,
         device: Option<Arc<dyn ResetDevice>>,
     ) -> Result<Flight, ResetError> {
-        let mut slot = self
-            .reset_lease
-            .0
-            .lock()
-            .map_err(|_| ResetError::Stopped)?;
+        let mut slot = self.reset_lease.0.lock().map_err(|_| ResetError::Stopped)?;
         // A finished flight whose callers all stopped waiting is stale.
         if let Some((running, flight)) = slot.as_ref().filter(|(_, flight)| flight.peek().is_none())
         {
@@ -222,7 +218,10 @@ impl ResetRun {
             if sign_out_web && !device.is_some_and(|device| device.can_sign_out_school_web()) {
                 return Err(ResetError::Unsupported("School web sign-in"));
             }
-            if delete_downloads && device.and_then(|device| device.course_files_root()).is_none()
+            if delete_downloads
+                && device
+                    .and_then(|device| device.course_files_root())
+                    .is_none()
             {
                 return Err(ResetError::Unsupported("Downloaded course files"));
             }

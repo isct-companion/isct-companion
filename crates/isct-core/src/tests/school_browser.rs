@@ -303,13 +303,9 @@ fn engine_with_auth(
     let store = DataStore::initialize(path).unwrap().0;
     let browser = Arc::new(FakeBrowser::default());
     let events = Arc::new(Events::default());
-    let engine = SchoolBrowserEngine::new(
-        auth,
-        events.clone(),
-        browser.clone(),
-        SyncHints::detached(),
-    )
-    .unwrap();
+    let engine =
+        SchoolBrowserEngine::new(auth, events.clone(), browser.clone(), SyncHints::detached())
+            .unwrap();
     (engine, browser, events, store)
 }
 

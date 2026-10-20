@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    ports::{CloudObject, NativeCloud, NativeVault},
+    ports::{CloudObject, NativeCloud, NativeDownloadSession, NativeVault},
     types::*,
 };
 use serde_json::json;
@@ -12,6 +12,17 @@ use std::{
     },
 };
 static NEXT: AtomicU64 = AtomicU64::new(1);
+/// A school cookie store with nobody signed in; a browser needs one.
+struct NoCookies;
+#[async_trait::async_trait]
+impl NativeDownloadSession for NoCookies {
+    async fn cookie_header(&self, _: String) -> Result<String, SdkError> {
+        Ok(String::new())
+    }
+    async fn store_set_cookies(&self, _: String, _: Vec<String>) -> Result<(), SdkError> {
+        Ok(())
+    }
+}
 #[derive(Default)]
 struct Vault(Mutex<HashMap<String, String>>);
 impl NativeVault for Vault {
@@ -816,7 +827,7 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
         Some(browser.clone()),
         None,
         None,
-        None,
+        Some(Arc::new(NoCookies)),
     )
     .await
     .unwrap();

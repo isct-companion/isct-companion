@@ -98,6 +98,7 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
             course(101, 2026, 3),
             course(102, 2026, 1),
             course(103, 2025, 1),
+            course(104, 2026, 3),
         ],
         offerings: HashMap::from([(101, "202602431".to_string())]),
         science: Some(SCIENCE.into()),
@@ -190,6 +191,10 @@ fn due_keys_are_planned_missing_first_within_each_tier() {
             "{dataset:?}/{name}"
         );
     }
+    // A course whose outline was never stored is read first; its assignment
+    // states wait, since they land on the rows the outline creates.
+    assert!(find(&plan, &key(Dataset::LmsCourse, "104")).is_some());
+    assert!(find(&plan, &key(Dataset::LmsAssign, "104")).is_none());
     // The leased key is single-flight: never planned twice.
     let leased = HashSet::from([key(Dataset::LmsCourse, "101")]);
     let again = planner::plan(&inputs, &facts(), &[], &HashMap::new(), &leased, now());
@@ -223,6 +228,7 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
             minutes(30),
             Some(now() + Duration::minutes(10)),
         ),
+        stored(Dataset::LmsCourse, "102", SCIENCE, minutes(60), None),
         stored(
             Dataset::LmsAssign,
             "102",
@@ -454,7 +460,7 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
 }
 
 #[tokio::test]
-async fn a_paused_host_holds_its_keys_without_failing_them() {
+async fn a_paused_host_holds_its_keys_without_failing_them_but_a_refused_sign_in_backs_off() {
     let (engine, store) = engine("paused");
     engine.set_signed_in(SchoolAuthProfile::TokyoTech);
     let page = key(Dataset::KyomuPage, "grades");
@@ -491,6 +497,25 @@ async fn a_paused_host_holds_its_keys_without_failing_them() {
         })
         .unwrap();
     assert_eq!((failures, error_kind.as_deref()), (0, Some("host-paused")));
+
+    // The reader already ran the saved sign-in and the school still refused:
+    // the key backs off instead of being read again on every evaluation.
+    let refused = key(Dataset::KyomuPage, "gpa");
+    engine
+        .settle_for_test(
+            Lease::detached(&store, refused.clone(), TOKYO),
+            KeyEnd::SignInRequired {
+                profile: SchoolAuthProfile::TokyoTech,
+                source: String::new(),
+            },
+        )
+        .await;
+    let state = store
+        .write(None, |transaction| sync_state::get(transaction, &refused))
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.failures, 1);
+    assert!(state.next_eligible.is_some_and(|until| until > Utc::now()));
 }
 
 #[tokio::test]

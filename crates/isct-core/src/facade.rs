@@ -87,6 +87,13 @@ impl CoreEvents {
     }
 }
 
+impl Drop for Core {
+    fn drop(&mut self) {
+        // The sync driver holds the engine; it ends once its tasks close.
+        self.sync.stop();
+    }
+}
+
 impl Core {
     /// The network starts as `Unknown`; shells send `Hint::Network`.
     pub fn new(store: DataStore, auth: Arc<SchoolAuthService>) -> Self {
@@ -116,7 +123,7 @@ impl Core {
         if let Some(events) = &events {
             sync.set_events(events.clone());
         }
-        let runtime = Arc::new(CoreRuntime::new(sync.clone()));
+        let runtime = Arc::new(CoreRuntime::new(sync.hints()));
         let sync = Arc::new(sync);
         store.observe(Arc::new(StoreChanges {
             events: events.clone(),
@@ -178,12 +185,8 @@ impl Core {
             .as_ref()
             .map(|events| events.clone() as Arc<dyn EventSink>)
             .unwrap_or_else(|| Arc::new(NoopEvents));
-        let engine = SchoolBrowserEngine::new(
-            self.auth.clone(),
-            events,
-            browser,
-            self.sync.hints(),
-        )?;
+        let engine =
+            SchoolBrowserEngine::new(self.auth.clone(), events, browser, self.sync.hints())?;
         let http = crate::net::Http::new()
             .map_err(|error| SchoolBrowserError::Platform(error.to_string()))?;
         engine.attach_transport(http, cookies)?;

@@ -354,8 +354,11 @@ impl Lease {
         let record = match end {
             KeyEnd::Done { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale => None,
             KeyEnd::Failed { kind, .. } => Some((RunOutcome::Failed, kind.clone(), true)),
+            // The reader already tried the saved sign-in once; backing off
+            // keeps a session the school refuses from being retried on every
+            // evaluation. A manual refresh still ignores the backoff.
             KeyEnd::SignInRequired { .. } => {
-                Some((RunOutcome::SignInRequired, "sign-in".to_string(), false))
+                Some((RunOutcome::SignInRequired, "sign-in".to_string(), true))
             }
             KeyEnd::HostPaused { .. } => {
                 Some((RunOutcome::Failed, "host-paused".to_string(), false))
@@ -495,6 +498,11 @@ impl SyncHints {
         if let Some(shared) = self.0.upgrade() {
             SyncEngine(shared).hint(hint);
         }
+    }
+
+    /// The engine while something else still owns it.
+    pub(crate) fn engine(&self) -> Option<SyncEngine> {
+        self.0.upgrade().map(SyncEngine)
     }
 
     /// Folds a Core event (sign-in, maintenance) into the snapshot.
@@ -803,6 +811,13 @@ impl SyncEngine {
 
     /// Cancels every read and waits for the driver and workers to stop.
     pub async fn shutdown(&self) {
+        self.stop();
+        self.0.tasks.wait().await;
+    }
+
+    /// Stops leasing, cancels reads and ends the driver without waiting, so
+    /// a Core dropped without `shutdown` releases the engine and its ports.
+    pub(crate) fn stop(&self) {
         {
             let mut state = guard(&self.0.state);
             state.stopped = true;
@@ -811,7 +826,6 @@ impl SyncEngine {
             }
         }
         self.0.tasks.close();
-        self.0.tasks.wait().await;
     }
 
     // -- Driver ---------------------------------------------------------------
@@ -1171,6 +1185,10 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
     match end {
         KeyEnd::Done { .. } => {
             state.facts.paused.remove(&host);
+            // Its assignment states wait for the outline (planner rule).
+            if key.dataset == Dataset::LmsCourse {
+                state.evaluate = true;
+            }
             if host == Host::Kyomu {
                 state.kyomu_notice = None;
             }

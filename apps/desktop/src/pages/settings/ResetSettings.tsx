@@ -122,7 +122,7 @@ export function ResetSettings({
     for (const provider of cloudProviders)
       await desktopBridge?.setCloudSyncProvider?.(provider, true);
     await desktopBridge?.syncCloudNow?.("pull");
-    await workspaceActions.reload();
+    await workspaceActions.refreshSchool();
   };
 
   const reset = async () => {
@@ -131,7 +131,7 @@ export function ResetSettings({
     setResetting(true);
     try {
       await invoke<ResetReport>("reset_caches", { scope: scopeOf(kind) });
-      await workspaceActions.reload();
+      await workspaceActions.refreshSchool();
       setOpen(undefined);
       if (kind === "everything" && cloudOn && after === "restore") {
         try {

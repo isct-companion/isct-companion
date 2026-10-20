@@ -41,12 +41,22 @@ impl SignIn for EngineSignIn {
                 .0
                 .upgrade()
                 .ok_or_else(|| NetError::Invalid("The school browser has stopped.".into()))?;
-            match SchoolBrowserEngine(inner).ensure_session(profile).await {
-                Ok(true) => Ok(()),
-                Ok(false) => Err(NetError::SignInRequired),
-                Err(SchoolBrowserError::Cancelled) => Err(NetError::Cancelled),
-                Err(error) => Err(NetError::Invalid(error.to_string())),
+            let engine = SchoolBrowserEngine(inner);
+            let fail = |error: SchoolBrowserError| match error {
+                SchoolBrowserError::Cancelled => NetError::Cancelled,
+                error => NetError::Invalid(error.to_string()),
+            };
+            if !engine.ensure_session(profile).await.map_err(fail)? {
+                return Err(NetError::SignInRequired);
             }
+            // A live GetAccess sign-in is not yet a 教務Web session: only
+            // its entry page starts one (see `enter_kyomu`).
+            if profile == SchoolAuthProfile::TokyoTech
+                && !engine.enter_kyomu().await.map_err(fail)?
+            {
+                return Err(NetError::SignInRequired);
+            }
+            Ok(())
         })
     }
 }

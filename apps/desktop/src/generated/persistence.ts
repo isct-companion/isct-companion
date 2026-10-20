@@ -762,99 +762,6 @@ export type SchoolPageAvailability = {
   message: string;
 };
 
-export type SchoolSource = "science-lms" | "kyomu";
-
-export type SchoolStatus = {
-  headline: SchoolHeadline;
-  sources: Array<SchoolSourceStatus>;
-};
-
-export type SchoolHeadline =
-  | { kind: "idle" }
-  | {
-      kind: "busy";
-      site: SchoolSource;
-      /**
-       * 0–100, never moving backwards within one pull.
-       */
-      progress: number;
-      step: PullStep;
-      /**
-       * Set while the shown pull is admitted but not running yet.
-       */
-      waiting: WaitReason | null;
-      /**
-       * The other source's manual pull, queued behind this one.
-       */
-      queued: SchoolSource | null;
-    }
-  | { kind: "background"; site: SchoolSource; waiting: WaitReason | null }
-  | { kind: "problem"; site: SchoolSource; problem: SchoolProblem };
-
-export type SchoolSourceStatus = {
-  site: SchoolSource;
-  activity: SourceActivity;
-  /**
-   * The latest sign-in report for the profile that reads this source.
-   */
-  signIn: SignInState | null;
-  /**
-   * When Core last finished reading this source (RFC 3339): the newest
-   * complete read of its course list and deadlines, or of any 教務 page.
-   */
-  lastUpdated: string | null;
-};
-
-export type SourceActivity =
-  | { kind: "idle" }
-  | { kind: "waiting"; reason: WaitReason; manual: boolean }
-  | { kind: "running"; manual: boolean; progress: number; step: PullStep }
-  | { kind: "problem"; problem: SchoolProblem };
-
-export type WaitReason =
-  | "queued"
-  | "offline"
-  | "cellular"
-  | "background"
-  | "schoolVisible"
-  | "suspended"
-  | "other";
-
-export type PullStep = {
-  kind: PullStepKind;
-  /**
-   * Items done and expected in this step; both 0 before the first report.
-   */
-  completed: number;
-  total: number;
-  term: string;
-  courseTitle: string;
-  itemTitle: string;
-};
-
-export type PullStepKind =
-  | "catalog"
-  | "course"
-  | "material"
-  | "assignment"
-  | "timetable"
-  | "saving"
-  | "kyomu";
-
-export type SchoolProblem =
-  | { kind: "maintenance"; detail: string }
-  | { kind: "failed"; detail: string | null }
-  | { kind: "partial"; detail: string | null };
-
-export type SignInState =
-  | { kind: "connected" }
-  | { kind: "step"; step: SignInStep }
-  | { kind: "needsUser"; message: string }
-  | { kind: "failed"; message: string };
-
-export type SignInStep =
-  "agree" | "identifier" | "password" | "method" | "otp" | "matrix" | "other";
-
 export type TeachingPeriod = {
   periods: [number, number];
   startTime: string;
@@ -1821,24 +1728,6 @@ export type OfficialFilterOption = {
   family: string;
 };
 
-export type RemoteQuery = {
-  controls?: Array<OfficialSelection>;
-  recommended?: boolean;
-  quarters?: Array<number>;
-  days?: Array<number>;
-  periodStarts?: Array<number>;
-  language?: string;
-  requirementGroups?: Array<string>;
-  q: string;
-  teacher?: string;
-  scope?: string;
-  code?: string;
-  groups?: Array<string>;
-};
-
-export type RemotePlan =
-  { queries: Array<RemoteQuery> } | { unsupported: "empty" | "too-many" };
-
 export type FinderContext = {
   currentQuarter: number;
   recommended: { [key in string]?: Recommendation };
@@ -1881,10 +1770,6 @@ export type FinderRequest = {
   includeIneligible: boolean;
   keys: Array<string>;
   input: string;
-  /**
-   * None uses the stored catalog; an empty list represents a remote search in progress.
-   */
-  remoteIds: Array<string> | null;
   action: FinderAction | null;
 };
 
@@ -1899,7 +1784,6 @@ export type FinderView = {
   factors: Array<Factor>;
   duplicates: number;
   keys: Array<string>;
-  plan: RemotePlan;
   rows: Array<FinderRow>;
   suggestions: Array<Suggestion>;
   live: string;

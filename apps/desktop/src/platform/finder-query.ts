@@ -4,7 +4,6 @@ import type {
   FinderContext,
   FinderCourse,
   FinderRow,
-  RemotePlan,
   Suggestion,
 } from "../lib/course-query";
 import type { CourseEligibility } from "../generated/persistence";
@@ -20,12 +19,12 @@ import type {
 } from "../generated/persistence";
 export type FinderRequest = Omit<
   CoreFinderRequest,
-  "includeIneligible" | "keys" | "input" | "remoteIds" | "action"
+  "includeIneligible" | "keys" | "input" | "action"
 > &
   Partial<
     Pick<
       CoreFinderRequest,
-      "includeIneligible" | "keys" | "input" | "remoteIds" | "action"
+      "includeIneligible" | "keys" | "input" | "action"
     >
   >;
 

@@ -11,7 +11,7 @@ use crate::sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, Term
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug, thiserror::Error)]
 pub enum IngestError {
@@ -540,6 +540,7 @@ pub fn apply_lms_course(
         .collect();
     let mut live = HashSet::new();
     let mut live_assignments = HashSet::new();
+    let mut new_assignment = false;
     for cm in &content.modules {
         let Some(cmid) = id_of(cm.get("id")) else {
             continue;
@@ -584,7 +585,10 @@ pub fn apply_lms_course(
                     row.url = url.to_string();
                     row
                 }
-                None => Assignment::new(cmid, course_id, linked.clone(), name, url),
+                None => {
+                    new_assignment = true;
+                    Assignment::new(cmid, course_id, linked.clone(), name, url)
+                }
             };
             changed += usize::from(row.write(tx)?);
             live_assignments.insert(format!("lms-assignment:{cmid}"));
@@ -604,6 +608,11 @@ pub fn apply_lms_course(
         [course_id],
         &live_assignments,
     )?;
+    // A new assignment has no state yet: the course's `lms.assign` key no
+    // longer covers it, so it reads as missing and is read next.
+    if new_assignment {
+        sync_state::invalidate(tx, &Key::new(Dataset::LmsAssign, course_id.to_string()))?;
+    }
     commit_key(tx, Dataset::LmsCourse, course_id.to_string(), account, now)?;
     Ok(changed)
 }
@@ -687,6 +696,8 @@ pub fn apply_lms_deadlines(
 
     let mut cmids: Vec<u64> = cmids.into_iter().collect();
     cmids.sort_unstable();
+    // Courses that got an assignment row here, before its state was read.
+    let mut stateless = BTreeSet::new();
     for cmid in cmids {
         let event = listed.get(&cmid).copied();
         let mut row = match Assignment::load(tx, cmid)? {
@@ -709,6 +720,7 @@ pub fn apply_lms_deadlines(
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 let url = event.get("url").and_then(Value::as_str).unwrap_or("");
+                stateless.insert(lms_course);
                 Assignment::new(
                     cmid,
                     lms_course,
@@ -735,6 +747,9 @@ pub fn apply_lms_deadlines(
             }
         }
         changed += usize::from(row.write(tx)?);
+    }
+    for lms_course in stateless {
+        sync_state::invalidate(tx, &Key::new(Dataset::LmsAssign, lms_course.to_string()))?;
     }
     commit_key(tx, Dataset::LmsDeadlines, "all", account, now)?;
     Ok(changed)
