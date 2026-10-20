@@ -55,6 +55,7 @@ pub mod sync_engine;
 pub mod sync_gc;
 pub mod sync_state;
 pub mod workspace;
+pub mod workspace_changes;
 
 #[cfg(feature = "desktop-workspaces")]
 pub mod workspaces;

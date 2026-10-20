@@ -1686,6 +1686,46 @@ export type CourseBatchChanges = {
   credits?: number;
 };
 
+/**
+ * A group of snapshot records that changed together. Shells re-read the
+ * records and re-run the views that depend on a name; names are stable.
+ */
+export type WorkspaceChange =
+  | "courses"
+  | "materials"
+  | "assignments"
+  | "registrations"
+  | "grades"
+  | "finder"
+  | "calendar"
+  | "exams"
+  | "plans"
+  | "events"
+  | "subscriptions"
+  | "scheduled-tasks"
+  | "settings"
+  | "freshness";
+
+/**
+ * The snapshot fields that `changes` feed, from one coherent snapshot. A
+ * shell merges `workspace` and `schoolRecords` over its copy, field by field.
+ */
+export type WorkspacePatch = {
+  /**
+   * As in `WorkspaceSnapshot`, for the whole snapshot this was read from.
+   */
+  revision: string;
+  contentRevision: string;
+  /**
+   * Only the workspace fields the requested changes feed.
+   */
+  workspace: unknown;
+  /**
+   * Only the school-record fields the requested changes feed.
+   */
+  schoolRecords: unknown;
+};
+
 export type TimeValue = { day?: number; from?: number; to?: number };
 
 export type FinderCourse = {

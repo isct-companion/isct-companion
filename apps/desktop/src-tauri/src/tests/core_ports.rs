@@ -8,6 +8,7 @@ use isct_core::{
     school_browser::{SchoolLoginEvent, SchoolSessionEvent, SchoolSessionState},
     school_service::{IngestOutcome, IngestState},
     sync_engine::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
+    workspace_changes::WorkspaceChange,
 };
 use serde_json::json;
 
@@ -38,9 +39,10 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             CoreEvent::WorkspaceChanged {
                 source: WorkspaceChangeSource::CloudRestore,
                 revision: None,
+                changes: vec![WorkspaceChange::Plans, WorkspaceChange::ScheduledTasks],
             },
             "workspace-changed",
-            json!({"source":"cloud-restore"}),
+            json!({"source":"cloud-restore","changes":["plans","scheduled-tasks"]}),
         ),
         (
             CoreEvent::OcrProgress {

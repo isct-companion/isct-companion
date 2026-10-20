@@ -124,10 +124,31 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
         panic!("missing mutation event")
     };
     assert_eq!(event.name, "workspace-changed");
-    assert_eq!(
-        event.payload.0,
-        json!({"source":"user-intent","revision":snapshot.revision})
+    assert_eq!(event.payload.0["source"], "user-intent");
+    assert_eq!(event.payload.0["revision"], json!(snapshot.revision));
+    let changes: Vec<WorkspaceChange> =
+        serde_json::from_value(event.payload.0["changes"].clone()).unwrap();
+    assert!(
+        event.payload.0["changes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("settings")),
+        "{}",
+        event.payload.0
     );
+    // The event's names read back only what they feed, from the same state.
+    let OperationResult::WorkspaceRecords { patch } = f
+        .session
+        .workspace_records(changes)
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    assert_eq!(patch.content_revision, snapshot.content_revision);
+    assert_eq!(patch.workspace.0["academicProfile"]["admissionYear"], 2026);
     assert!(matches!(
         f.session.mutate(mutation).unwrap().await_result().await,
         Err(SdkError::Conflict { .. })
@@ -667,7 +688,17 @@ async fn backup_import_restores_through_the_journal_without_a_cloud_store() {
             break event;
         }
     };
-    assert_eq!(event.payload.0, json!({"source":"cloud-restore"}));
+    assert_eq!(event.payload.0["source"], "cloud-restore");
+    for restored in ["plans", "events"] {
+        assert!(
+            event.payload.0["changes"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(restored)),
+            "{}",
+            event.payload.0
+        );
+    }
     let snapshot = f.snapshot().await;
     assert!(snapshot.workspace.0["plans"]
         .as_array()

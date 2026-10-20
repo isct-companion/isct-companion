@@ -261,6 +261,7 @@ pub fn run() {
             commands::cloud::clear_cloud_credential_sync_password,
             commands::workspace::load_workspace,
             commands::workspace::workspace_snapshot,
+            commands::workspace::workspace_records,
             commands::read_models::schedule_query,
             commands::read_models::finder_query,
             commands::workspace::mutate_workspace,

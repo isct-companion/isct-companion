@@ -9,7 +9,11 @@ use crate::{
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     sync_engine::{Hint, Network, SyncEngine, SyncHints, SyncSnapshot},
     workspace::{WorkspaceError, WorkspaceService},
+    workspace_changes::{
+        self, Coalescer, WorkspaceChange, WorkspacePatch, COALESCE_WINDOW,
+    },
 };
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 pub struct Core {
@@ -64,18 +68,36 @@ impl EventSink for CoreEvents {
 /// Every committed workspace write reaches shells and cloud sync from here,
 /// whichever service, executor or agent tool made it.
 struct StoreChanges {
-    events: Option<Arc<CoreEvents>>,
+    events: Option<(Arc<CoreEvents>, Arc<Coalescer>)>,
     runtime: Arc<CoreRuntime>,
 }
 
 impl CommitObserver for StoreChanges {
-    fn committed(&self, source: WorkspaceChangeSource, revision: Option<String>) {
-        if let Some(events) = &self.events {
-            // Events are hints with snapshot recovery; a failed delivery does
-            // not undo the committed write.
-            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged { source, revision });
+    fn committed(
+        &self,
+        source: WorkspaceChangeSource,
+        revision: Option<String>,
+        tables: &BTreeSet<String>,
+    ) {
+        if workspace_changes::touches_user_data(tables) {
+            self.runtime.request_cloud_capture();
         }
-        self.runtime.request_cloud_capture();
+        let Some((events, coalescer)) = &self.events else {
+            return;
+        };
+        let changes = workspace_changes::changes_for(tables);
+        if source == WorkspaceChangeSource::UserIntent {
+            // The shell that made the intent waits on this event; it is
+            // never held back. Events are hints with snapshot recovery; a
+            // failed delivery does not undo the committed write.
+            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged {
+                source,
+                revision,
+                changes: changes.into_iter().collect(),
+            });
+        } else if !changes.is_empty() {
+            coalescer.push(source, changes);
+        }
     }
 }
 
@@ -126,7 +148,17 @@ impl Core {
         let runtime = Arc::new(CoreRuntime::new(sync.hints()));
         let sync = Arc::new(sync);
         store.observe(Arc::new(StoreChanges {
-            events: events.clone(),
+            events: events.clone().map(|events| {
+                let sink = events.clone();
+                let coalescer = Coalescer::new(COALESCE_WINDOW, move |source, changes| {
+                    let _ = sink.emit(crate::events::CoreEvent::WorkspaceChanged {
+                        source,
+                        revision: None,
+                        changes,
+                    });
+                });
+                (events, coalescer)
+            }),
             runtime: runtime.clone(),
         }));
         Self {
@@ -248,8 +280,13 @@ impl Core {
         }
     }
 
-    pub fn school_records(&self) -> Result<serde_json::Value, WorkspaceError> {
-        Ok(self.workspace.snapshot()?.school_records)
+    /// The records `changes` feed, from one snapshot, for a shell that heard
+    /// `workspace-changed` and patches its copy instead of reading it all.
+    pub fn workspace_records(
+        &self,
+        changes: &[WorkspaceChange],
+    ) -> Result<WorkspacePatch, WorkspaceError> {
+        Ok(workspace_changes::patch(self.workspace.snapshot()?, changes))
     }
 
     /// Evaluate a page's related queries against one coherent database snapshot.

@@ -403,8 +403,13 @@ describe("Scheduled tasks", () => {
         },
         handle: (command, _args, core) => {
           if (command === "run_scheduled_task") {
-            // Core records the run durably and answers at its own revision.
+            // Core records the run durably, at its own revision, and
+            // publishes the record as a scheduler change.
             core.publish(withTask(core.workspace, durable), "revision:42");
+            core.emit("workspace-changed", {
+              source: "scheduler",
+              changes: ["scheduled-tasks"],
+            });
             return "Export completed";
           }
           return undefined;
