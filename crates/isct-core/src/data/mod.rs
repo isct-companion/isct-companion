@@ -953,33 +953,6 @@ impl DataStore {
         })
     }
 
-    // Local reference markers are excluded from user backups and cloud exports.
-    // Empty feeds need this local evidence too: metadata may survive a restore.
-    pub fn reference_cache_marker(
-        &self,
-        kind: &str,
-        year: i32,
-    ) -> Result<Option<Value>, DataError> {
-        read_setting(&self.open()?, &format!("referenceCache:{kind}:{year}"))
-    }
-
-    pub fn record_reference_cache(
-        &self,
-        kind: &str,
-        year: i32,
-        marker: Value,
-    ) -> Result<(), DataError> {
-        self.write(None, |transaction| {
-            save_setting(
-                transaction,
-                &format!("referenceCache:{kind}:{year}"),
-                &marker,
-                "reference-pull",
-            )
-            .map(|_| ())
-        })
-    }
-
     /// Patch only the poll clock under the same SQL lock as local preferences.
     pub fn record_reference_poll(&self) -> Result<(), DataError> {
         self.write(Some(WorkspaceChangeSource::ReferencePoll), |transaction| {
@@ -1054,11 +1027,13 @@ impl DataStore {
         read_visible_rows(&connection, table)
     }
 
-    /// When each importer (`lms`, `kyomu` per page kind) last finished a
-    /// complete run: the cache age the app compares with its TTLs.
-    pub fn last_import_runs(&self) -> Result<Value, DataError> {
-        let connection = self.open()?;
-        Self::last_import_runs_from(&connection)
+    /// Freshness of every key of `dataset`, or of all datasets
+    /// (`crate::sync_state::list`): the only record of when data was read.
+    pub fn freshness(
+        &self,
+        dataset: Option<crate::sync_state::Dataset>,
+    ) -> Result<Vec<crate::sync_state::KeyState>, DataError> {
+        crate::sync_state::list(&self.open()?, dataset)
     }
 
     pub fn path(&self) -> &Path {

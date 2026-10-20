@@ -275,7 +275,7 @@ checks:
       - crates/isct-core/src/lms_session.rs
       - crates/isct-core/src/school_parser/lms.rs
       - crates/isct-core/src/school_parser/lms/pages.rs
-      - crates/isct-core/src/net/moodle/pull.rs
+      - crates/isct-core/src/net/moodle/reader.rs
       - crates/isct-core/src/net/moodle/ajax.rs
       - crates/isct-core/src/catalog.rs
       - crates/isct-core/src/data/school_projection.rs
@@ -605,16 +605,17 @@ checks:
           notice and its element. If the data is visible but the selector
           does not match, the selector is broken.
       - action: |
-          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT scope,state,max(finished_at) FROM import_runs WHERE provider='kyomu' GROUP BY scope,state"`.
+          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/school.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
         reason: |
-          Freshness counts only `complete` or `unavailable` runs. A page with
-          neither keeps 教務Web due for an automatic refresh indefinitely.
+          Only a complete read sets `fetched_at`, with outcome `complete` or
+          `unavailable`. A page without one stays due and backs off after
+          each failure, recorded in `failures` and `last_error`.
     observe: |
       artifacts/kyomu-pull.log, the two 教務Web pages in the visible view, and
-      the import_runs query output.
+      the dataset_state query output.
     expected: |
-      `registrations` and `requirements` each have a `complete` or an
-      `unavailable` run, the log has no `school-pull` line for either page,
+      `registrations` and `requirements` each have a `fetched_at` with outcome
+      `complete` or `unavailable`, the log has no `school-pull` line for either page,
       and the footer no longer shows a 教務Web failure after a refresh.
     why_manual: |
       The live registration and requirement DOM is account-scoped and changes

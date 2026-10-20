@@ -1,11 +1,11 @@
 use crate::data::{resolve_course_id, versioned::content_hash};
 use crate::lms_ingest::IngestError;
 use crate::school_parser::kyomu::KyomuPayload;
+use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
 
 fn upsert(
     tx: &Transaction<'_>,
@@ -287,16 +287,16 @@ fn grade_row_id(
     Ok(format!("kyomu-grade:flat:{identity}"))
 }
 
-/// Projects one 教務Web page inside the caller's transaction.
+/// Projects one 教務Web page inside the caller's transaction and marks its
+/// `kyomu.page/{kind}` key fresh for `account` in the same transaction.
 pub fn apply_kyomu_payload(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
+    account: &str,
 ) -> Result<usize, IngestError> {
     if payload.status != "ok" {
         return Err("教務 extraction is not ready".into());
     }
-    let run = Uuid::new_v4().to_string();
-    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'kyomu',?2,'running',?3)",params![run,payload.kind,Utc::now().to_rfc3339()]).map_err(IngestError::from)?;
     let mut changed = 0;
     match payload.kind.as_str() {
         "profile" => {
@@ -543,37 +543,47 @@ pub fn apply_kyomu_payload(
         }
         _ => return Err("unsupported kyomu payload".into()),
     }
-    tx.execute(
-        "UPDATE import_runs SET state='complete',finished_at=?2,message=?3 WHERE id=?1",
-        params![
-            run,
-            Utc::now().to_rfc3339(),
-            format!("{changed} rows changed")
-        ],
-    )
-    .map_err(IngestError::from)?;
+    commit_page(tx, payload, account, Outcome::Complete, None)?;
     Ok(changed)
 }
 
 /// Persists a positive observation that an approved 教務 page is not offered
-/// to this account. Existing page-owned rows remain untouched, while refresh
-/// freshness and the UI can distinguish retained data from a current result.
+/// to this account. Existing page-owned rows remain untouched; the key reads
+/// as current with outcome `unavailable`, so the UI can tell retained data
+/// from a current result.
 pub fn record_kyomu_unavailable(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
+    account: &str,
 ) -> Result<(), IngestError> {
-    let now = Utc::now().to_rfc3339();
-    tx.execute(
-        "INSERT INTO import_runs(id,provider,scope,state,started_at,finished_at,message)
-             VALUES(?1,'kyomu',?2,'unavailable',?3,?3,?4)",
-        params![
-            Uuid::new_v4().to_string(),
-            payload.kind,
-            now,
-            payload.message
-        ],
-    )
-    .map_err(IngestError::from)?;
+    if payload.status != "unavailable" {
+        return Err("教務 page is not reported unavailable".into());
+    }
+    let message = Some(payload.message.as_str()).filter(|message| !message.is_empty());
+    commit_page(tx, payload, account, Outcome::Unavailable, message)
+}
+
+fn commit_page(
+    tx: &Transaction<'_>,
+    payload: &KyomuPayload,
+    account: &str,
+    outcome: Outcome,
+    message: Option<&str>,
+) -> Result<(), IngestError> {
+    if crate::school_parser::kyomu::page_url(&payload.kind).is_none() {
+        return Err("unsupported kyomu payload".into());
+    }
+    sync_state::commit(
+        tx,
+        &Key::new(Dataset::KyomuPage, payload.kind.as_str()),
+        Commit {
+            account,
+            validator: None,
+            outcome,
+            message,
+        },
+        Utc::now(),
+    )?;
     Ok(())
 }
 

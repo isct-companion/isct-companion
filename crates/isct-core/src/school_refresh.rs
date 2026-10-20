@@ -1,13 +1,13 @@
 //! Refresh intent and freshness policy shared by every native shell.
 
 use crate::{
-    contracts::{KYOMU_STALE_SECONDS, LMS_STALE_SECONDS},
     data::DataStore,
     lifecycle::SchoolSite,
     pull_coordinator::{PullConditions, PullCoordinator, PullNetwork, PullOptions},
     runtime_tasks::RuntimeTasks,
     school_auth::SchoolAuthProfile,
     school_service::{SchoolError, SchoolExecutor, SchoolService},
+    sync_state::{self, Dataset, Key, KeyState, Term},
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -57,10 +57,10 @@ impl RefreshEvent {
 // A missing or failed page stays stale, but must not restart the whole pull
 // on every login/focus notification. Manual refresh bypasses this admission rule.
 const FULL_PULL_COOLDOWN: Duration = Duration::from_secs(5 * 60);
-// A page that keeps failing (closed registration, a changed layout) would
-// otherwise cost a full sign-in and six page loads every cooldown. Each pull
-// that leaves the profile due triples the wait: 5 min, 15 min, 45 min, ~2 h,
-// then at most 6 h until the data is observed fresh again.
+// A failing page backs off on its own key (`sync_state::fail`). A pull that
+// fails as a whole (lost sign-in, paused host) leaves no key backing off, so
+// each pull that leaves the profile due triples the wait: 5 min, 15 min,
+// 45 min, ~2 h, then at most 6 h until the data is observed fresh again.
 const FULL_PULL_MAX_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Default)]
@@ -93,6 +93,8 @@ struct RefreshIntent {
     pending: HashSet<SchoolAuthProfile>,
     details: VecDeque<(u64, Instant)>,
     seen: HashMap<u64, Instant>,
+    /// Courses opened since the last wake; their keys are touched for gc.
+    opened: HashSet<u64>,
     network: PullNetwork,
     foreground: bool,
     /// One automatic batch at a time, so its order is the admission order.
@@ -110,6 +112,7 @@ impl SchoolRefresh {
             pending: HashSet::new(),
             details: VecDeque::new(),
             seen: HashMap::new(),
+            opened: HashSet::new(),
             network: initial_network,
             foreground: true,
             running: false,
@@ -135,6 +138,7 @@ impl SchoolRefresh {
             RefreshKind::Background => queue.foreground = false,
             RefreshKind::LectureOpened => {
                 if let Some(course_id) = event.course_id.filter(|id| *id > 0) {
+                    queue.opened.insert(course_id);
                     let now = Instant::now();
                     if queue
                         .seen
@@ -179,21 +183,41 @@ impl SchoolRefresh {
     }
 
     /// Read the stored facts the refresh policy needs on a blocking worker,
-    /// so neither the UI thread nor an executor thread waits on SQLite.
-    pub async fn load_inputs(store: &DataStore) -> Result<RefreshInputs, SchoolError> {
+    /// so neither the UI thread nor an executor thread waits on SQLite. The
+    /// courses opened since the last read are touched there too, for gc.
+    pub async fn load_inputs(&self, store: &DataStore) -> Result<RefreshInputs, SchoolError> {
+        let opened: Vec<u64> = {
+            let mut queue = self.0.lock().map_err(|_| SchoolError::RefreshUnavailable)?;
+            queue.opened.drain().collect()
+        };
         let store = store.clone();
         tokio::task::spawn_blocking(move || {
             let storage = |error: crate::data::DataError| SchoolError::Storage(error.to_string());
+            if !opened.is_empty() {
+                let keys: Vec<Key> = opened
+                    .iter()
+                    .flat_map(|id| {
+                        [Dataset::LmsCourse, Dataset::LmsAssign]
+                            .map(|dataset| Key::new(dataset, id.to_string()))
+                    })
+                    .collect();
+                // Only gc reads `last_used`; a lost touch costs nothing now.
+                if let Err(error) = store.write(None, |transaction| {
+                    sync_state::touch(transaction, &keys, Utc::now())
+                }) {
+                    crate::diagnostics::report("school-refresh", &error);
+                }
+            }
             let allow_cellular = store
                 .load_workspace()
                 .map_err(storage)?
                 .pointer("/settings/subscriptionRefresh/allowCellular")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            let runs = store.last_import_runs().map_err(storage)?;
+            let freshness = store.freshness(None).map_err(storage)?;
             Ok(RefreshInputs {
                 allow_cellular,
-                runs,
+                freshness,
             })
         })
         .await
@@ -207,7 +231,7 @@ impl SchoolRefresh {
         coordinator: &PullCoordinator,
         school_visible: bool,
     ) -> Result<(), SchoolError> {
-        let inputs = Self::load_inputs(store).await;
+        let inputs = self.load_inputs(store).await;
         self.apply_conditions(inputs.as_ref(), coordinator, school_visible)
             .await
     }
@@ -246,7 +270,7 @@ impl SchoolRefresh {
         tasks: &RuntimeTasks,
     ) -> Result<(), SchoolError> {
         let Some((profiles, details)) =
-            self.take_ready(&inputs.runs, Utc::now(), Instant::now())?
+            self.take_ready(&inputs.freshness, Utc::now(), Instant::now())?
         else {
             return Ok(());
         };
@@ -329,7 +353,7 @@ impl SchoolRefresh {
     #[allow(clippy::type_complexity)]
     fn take_ready(
         &self,
-        runs: &Value,
+        freshness: &[KeyState],
         now: DateTime<Utc>,
         instant: Instant,
     ) -> Result<Option<(Vec<SchoolAuthProfile>, Vec<u64>)>, SchoolError> {
@@ -340,7 +364,7 @@ impl SchoolRefresh {
         let pending = std::mem::take(&mut queue.pending);
         let mut profiles = Vec::new();
         for profile in pending {
-            if !due(profile, runs, now) {
+            if !due(profile, freshness, now) {
                 if let Some(activity) = queue.full_pulls.get_mut(&profile) {
                     activity.misses = 0;
                 }
@@ -428,7 +452,7 @@ impl Drop for FullPull {
 /// Stored facts read once per wake.
 pub struct RefreshInputs {
     allow_cellular: bool,
-    runs: Value,
+    freshness: Vec<KeyState>,
 }
 
 /// Clears the running flag when a batch finishes, is refused or is dropped.
@@ -454,33 +478,32 @@ async fn publish_fail_closed(coordinator: &PullCoordinator) {
         .await;
 }
 
-fn stale(last: Option<&str>, ttl: u64, now: DateTime<Utc>) -> bool {
-    last.and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-        .is_none_or(|last| now.signed_duration_since(last).num_seconds() >= ttl as i64)
-}
-
-fn due(profile: SchoolAuthProfile, runs: &Value, now: DateTime<Utc>) -> bool {
+/// Whether a profile has a key worth a pull: Science when its course list or
+/// deadlines are due, Tokyo Tech when any 教務 page is. A key backing off
+/// after a failure is not due. Credentials are not read here, so each key is
+/// checked against the account it was stored for; the pull itself compares
+/// with the signed-in account.
+fn due(profile: SchoolAuthProfile, freshness: &[KeyState], now: DateTime<Utc>) -> bool {
+    let key_due = |key: Key| {
+        let state = freshness
+            .iter()
+            .find(|state| state.dataset == key.dataset.name() && state.key == key.key);
+        let account = state.map_or("", |state| state.account.as_str());
+        sync_state::due(
+            state,
+            sync_state::ttl(key.dataset, Term::Current),
+            account,
+            now,
+        )
+        .is_due()
+    };
     match profile {
-        SchoolAuthProfile::Science => {
-            runs["lms:all"].is_null()
-                || stale(
-                    [runs["lms:summary"].as_str(), runs["lms:all"].as_str()]
-                        .into_iter()
-                        .flatten()
-                        .max(),
-                    LMS_STALE_SECONDS,
-                    now,
-                )
-        }
-        SchoolAuthProfile::TokyoTech => {
-            crate::school_parser::kyomu::PAGES.iter().any(|(_, page)| {
-                stale(
-                    runs[format!("kyomu:{page}")].as_str(),
-                    KYOMU_STALE_SECONDS,
-                    now,
-                )
-            })
-        }
+        SchoolAuthProfile::Science => [Dataset::LmsEnrolment, Dataset::LmsDeadlines]
+            .into_iter()
+            .any(|dataset| key_due(Key::new(dataset, "all"))),
+        SchoolAuthProfile::TokyoTech => crate::school_parser::kyomu::PAGES
+            .iter()
+            .any(|(_, page)| key_due(Key::new(Dataset::KyomuPage, *page))),
     }
 }
 

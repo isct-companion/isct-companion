@@ -611,6 +611,14 @@ impl SchoolAuthService {
             .unwrap_or_default())
     }
 
+    /// The account synced school data belongs to (`crate::sync_state::account`).
+    pub fn sync_account(&self, profile: SchoolAuthProfile) -> Result<String, SchoolAuthError> {
+        Ok(crate::sync_state::account(
+            profile,
+            &self.moodle_token_owner(profile)?,
+        ))
+    }
+
     /// The stored token of this profile's current account. A record for
     /// another account, or one this version cannot read, is deleted.
     pub fn load_moodle_token(

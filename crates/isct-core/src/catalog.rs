@@ -1,6 +1,8 @@
 //! Shared catalog acquisition and freshness policy.
 use crate::course_query::{OfficialFilterOption, OfficialSelection};
-use crate::{contracts, data, syllabus};
+use crate::sync_state::{self, Dataset, Key, KeyState, RunOutcome, RunRecord, Term};
+use crate::{data, syllabus};
+use chrono::{DateTime, Utc};
 use futures_util::{stream::FuturesOrdered, StreamExt};
 
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +36,10 @@ pub async fn syllabus_course(
         ));
     }
     let synced = catalog_sync_offering(store, id).await?;
+    // The interface reads this detail now, so gc keeps it.
+    store.write(None, |transaction| {
+        sync_state::touch(transaction, &[detail_key(&synced.offering.id)], Utc::now())
+    })?;
     let preferred = synced
         .content
         .iter()
@@ -67,84 +73,172 @@ pub async fn catalog_sync_offering(
             })
             .filter(|value| value.len() == 9 && value.chars().all(|c| c.is_ascii_digit()))
     };
-    if let Some(offering_id) = offering_id {
-        if let Some(stored) = store.catalog_offering(&offering_id)? {
-            let cutoff = chrono::Utc::now()
-                - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
-            let fresh = ["ja", "en"].iter().all(|language| {
-                stored
-                    .pointer(&format!("/fetchedAt/{language}"))
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                    .is_some_and(|value| value.with_timezone(&chrono::Utc) >= cutoff)
-            });
-            if fresh {
-                let offering = serde_json::from_value(stored)?;
-                let content = store
-                    .table_rows("offering_content")?
-                    .into_iter()
-                    .filter(|row| {
-                        row.get("offeringId").and_then(serde_json::Value::as_str)
-                            == Some(offering_id.as_str())
-                    })
-                    .map(serde_json::from_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                if content.len() == 2 {
-                    return Ok(syllabus::SyncOfferingResult {
-                        offering,
-                        content,
-                        warnings: Vec::new(),
-                    });
-                }
-            }
+    if let Some(offering_id) = offering_id.as_deref() {
+        if let Some(stored) = stored_detail(store, offering_id)? {
+            return Ok(stored);
         }
     }
-    let mut result = syllabus::sync_offering(&id).await?;
-    let offering = serde_json::to_value(&result.offering)?;
-    let content = result
+    let run = uuid::Uuid::new_v4().to_string();
+    let started = Utc::now();
+    match syllabus::sync_offering(&id).await {
+        Ok(synced) => store_detail(store, &run, started, synced),
+        Err(error) => {
+            if let Some(offering_id) = offering_id.as_deref() {
+                record_detail_failure(store, &run, offering_id, &id, started, &error)?;
+            }
+            Err(error.into())
+        }
+    }
+}
+
+fn detail_key(offering_id: &str) -> Key {
+    Key::new(Dataset::CatalogDetail, offering_id)
+}
+
+/// Whether an offering's syllabus detail should be read now: missing or
+/// older than its TTL, and not backing off after a failure.
+fn detail_due(state: Option<&KeyState>, now: DateTime<Utc>) -> bool {
+    let ttl = sync_state::ttl(Dataset::CatalogDetail, Term::Current);
+    sync_state::due(state, ttl, "", now).is_due()
+}
+
+/// The stored bilingual detail, when its key needs no read now.
+fn stored_detail(
+    store: &data::DataStore,
+    offering_id: &str,
+) -> Result<Option<syllabus::SyncOfferingResult>, CatalogError> {
+    let state = store
+        .catalog_key_states(&[detail_key(offering_id)])?
+        .pop()
+        .flatten();
+    if detail_due(state.as_ref(), Utc::now()) {
+        return Ok(None);
+    }
+    let Some(stored) = store.catalog_offering(offering_id)? else {
+        return Ok(None);
+    };
+    let content = store
+        .table_rows("offering_content")?
+        .into_iter()
+        .filter(|row| {
+            row.get("offeringId").and_then(serde_json::Value::as_str) == Some(offering_id)
+        })
+        .map(serde_json::from_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    if content.len() != 2 {
+        return Ok(None);
+    }
+    Ok(Some(syllabus::SyncOfferingResult {
+        offering: serde_json::from_value(stored)?,
+        content,
+        warnings: Vec::new(),
+    }))
+}
+
+/// `host/path` of a syllabus locator, or `syllabus` for a bare offering id.
+fn detail_source(locator: &str) -> String {
+    url::Url::parse(locator)
+        .map(|url| sync_state::source_of_url(&url))
+        .unwrap_or_else(|_| "syllabus".into())
+}
+
+/// Stores one detail read and marks its `catalog.detail` key fresh in one
+/// transaction.
+fn store_detail(
+    store: &data::DataStore,
+    run: &str,
+    started: DateTime<Utc>,
+    mut synced: syllabus::SyncOfferingResult,
+) -> Result<syllabus::SyncOfferingResult, CatalogError> {
+    let offering = serde_json::to_value(&synced.offering)?;
+    let content = synced
         .content
         .iter()
         .map(serde_json::to_value)
         .collect::<Result<Vec<_>, _>>()?;
-    store.catalog_upsert_offerings(&[offering])?;
-    store.upsert_offering_content(&content)?;
-    if let Some(merged) = store.catalog_offering(&result.offering.id)? {
-        result.offering = serde_json::from_value(merged)?;
+    let key = detail_key(&synced.offering.id);
+    let source = detail_source(&synced.offering.syllabus_url);
+    let merged = store.catalog_store_detail(
+        &offering,
+        &content,
+        &RunRecord {
+            run,
+            key: &key,
+            account: "",
+            started_at: started,
+            finished_at: Utc::now(),
+            outcome: RunOutcome::Complete,
+            changed: 1 + content.len(),
+            requests: None,
+            bytes: None,
+            source: &source,
+            error_kind: None,
+        },
+    )?;
+    if let Some(merged) = merged {
+        synced.offering = serde_json::from_value(merged)?;
     }
-    Ok(result)
+    Ok(synced)
 }
 
-/// Fetches detail pages for offerings that have none or a stale one (older
-/// than a week), storing each bounded batch as it arrives.
+/// A failed detail read: stored rows stay, the key backs off.
+fn record_detail_failure(
+    store: &data::DataStore,
+    run: &str,
+    offering_id: &str,
+    locator: &str,
+    started: DateTime<Utc>,
+    error: &syllabus::SyllabusError,
+) -> Result<(), CatalogError> {
+    let key = detail_key(offering_id);
+    let kind = match error {
+        syllabus::SyllabusError::Network(_) => "network",
+        syllabus::SyllabusError::SiteChanged(_) => "parse",
+        syllabus::SyllabusError::InvalidInput(_) => "invalid-input",
+    };
+    let source = detail_source(locator);
+    let finished = Utc::now();
+    store.write(None, |transaction| {
+        sync_state::fail(transaction, &key, "", kind, finished)?;
+        sync_state::record_run(
+            transaction,
+            &RunRecord {
+                run,
+                key: &key,
+                account: "",
+                started_at: started,
+                finished_at: finished,
+                outcome: RunOutcome::Failed,
+                changed: 0,
+                requests: None,
+                bytes: None,
+                source: &source,
+                error_kind: Some(kind),
+            },
+        )
+    })?;
+    Ok(())
+}
+
+/// Fetches detail pages for offerings whose `catalog.detail` key is due,
+/// storing each one as it arrives.
 async fn sync_stale_details(
     store: &data::DataStore,
     targets: Vec<(String, String)>,
     summary_only: bool,
 ) -> Result<(Vec<syllabus::SyncOfferingResult>, Vec<String>), CatalogError> {
-    let cutoff =
-        chrono::Utc::now() - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
+    let started = Utc::now();
+    let keys = targets
+        .iter()
+        .map(|(id, _)| detail_key(id))
+        .collect::<Vec<_>>();
     let stale = targets
         .into_iter()
-        .filter(|(id, _)| {
-            let Ok(Some(stored)) = store.catalog_offering(id) else {
-                return true;
-            };
-            stored.get("schedule").is_none()
-                || (if summary_only {
-                    &["en"][..]
-                } else {
-                    &["ja", "en"][..]
-                })
-                .iter()
-                .any(|language| {
-                    stored
-                        .pointer(&format!("/fetchedAt/{language}"))
-                        .and_then(serde_json::Value::as_str)
-                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                        .is_none_or(|value| value.with_timezone(&chrono::Utc) < cutoff)
-                })
-        })
+        .zip(store.catalog_key_states(&keys)?)
+        .filter(|(_, state)| detail_due(state.as_ref(), started))
+        .map(|(target, _)| target)
         .collect::<Vec<_>>();
+    let run = uuid::Uuid::new_v4().to_string();
     let mut offerings = Vec::with_capacity(stale.len());
     let mut warnings = Vec::new();
     // All at once: the syllabus transport's limiter paces the requests.
@@ -162,26 +256,16 @@ async fn sync_stale_details(
         })
         .collect::<FuturesOrdered<_>>();
     // Each result is stored as soon as it (and those before it) arrive.
-    for (id, _) in &stale {
+    for (id, url) in &stale {
         let Some(result) = handles.next().await else {
             break;
         };
         match result {
-            Ok(mut synced) => {
-                let offering = serde_json::to_value(&synced.offering)?;
-                let content = synced
-                    .content
-                    .iter()
-                    .map(serde_json::to_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                store.catalog_upsert_offerings(&[offering])?;
-                store.upsert_offering_content(&content)?;
-                if let Some(merged) = store.catalog_offering(&synced.offering.id)? {
-                    synced.offering = serde_json::from_value(merged)?;
-                }
-                offerings.push(synced);
+            Ok(synced) => offerings.push(store_detail(store, &run, started, synced)?),
+            Err(error) => {
+                record_detail_failure(store, &run, id, url, started, &error)?;
+                warnings.push(format!("{id}: {error}"));
             }
-            Err(error) => warnings.push(format!("{id}: {error}")),
         }
     }
     Ok((offerings, warnings))
@@ -401,22 +485,11 @@ pub async fn kyomu_query(
         Err(error) => return Err(error.into()),
     };
     // Captured public form metadata is device-local and never cloud user data.
-    let options = serde_json::to_value(&rows.search_options)?;
-    let previous = store.reference_cache_marker("kyomu-search-options", i32::from(year))?;
-    let now = chrono::Utc::now().timestamp();
-    let changed = previous.as_ref().is_none_or(|p| {
-        p["options"] != options
-            || p["capturedAt"]
-                .as_i64()
-                .is_none_or(|at| now - at >= 30 * 24 * 60 * 60)
-    });
-    if changed {
-        store.record_reference_cache(
-            "kyomu-search-options",
-            i32::from(year),
-            serde_json::json!({"options":options,"capturedAt":now}),
-        )?;
-    }
+    store.record_kyomu_search_options(
+        year,
+        &serde_json::to_value(&rows.search_options)?,
+        Utc::now(),
+    )?;
     // Controls name choices of this account's current form; one the form no
     // longer offers cannot be interpreted.
     let controls = controls

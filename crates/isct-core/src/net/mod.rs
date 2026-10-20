@@ -113,6 +113,27 @@ pub enum NetError {
     Invalid(String),
 }
 
+impl NetError {
+    /// Short code for `sync_runs.error_kind` and backoff records; never
+    /// response text.
+    pub fn kind(&self) -> String {
+        match self {
+            Self::Offline => "offline".into(),
+            Self::Dns => "dns".into(),
+            Self::Tls(_) => "tls".into(),
+            Self::Connect(_) => "connect".into(),
+            Self::Stalled => "stalled".into(),
+            Self::Deadline => "timeout".into(),
+            Self::TooLarge => "too-large".into(),
+            Self::Http(status) => format!("http-{status}"),
+            Self::HostPaused { .. } => "host-paused".into(),
+            Self::SignInRequired => "sign-in".into(),
+            Self::Cancelled => "cancelled".into(),
+            Self::Invalid(_) => "parse".into(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Limits {
     pub max_bytes: usize,

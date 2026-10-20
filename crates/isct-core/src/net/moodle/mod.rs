@@ -15,51 +15,32 @@ mod ajax;
 mod envelope;
 mod functions;
 mod mapping;
-mod pull;
+mod reader;
 mod rest;
 mod token;
 
 pub use functions::MoodleFunction;
+pub(crate) use mapping::months_to_read;
+pub(crate) use reader::LmsReader;
 
 use crate::{
-    net::{
-        Body, Host, Http, KeyOutcome, Limits, NetError, NetRequest, Response, SessionCookies,
-        SignInGate,
-    },
+    net::{Body, Host, Http, Limits, NetError, NetRequest, Response, SessionCookies, SignInGate},
     school_auth::{MoodleToken, SchoolAuthProfile, SchoolAuthService},
-    school_browser::SchoolPullProgress,
-    school_parser::lms::{
-        is_lms_origin, page_config, read_timetable, timetable_filters, timetable_shape,
-        validate_payload, LmsPayload, LmsStage, PageConfig, LMS_WWWROOT,
+    school_parser::{
+        lms::{
+            is_lms_origin, page_config, read_timetable, timetable_filters, timetable_shape,
+            PageConfig, LMS_WWWROOT,
+        },
+        SchoolParseError,
     },
+    sync_state::Dataset,
 };
 use envelope::EnvelopeError;
 use reqwest::{header, Method};
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use url::Url;
-
-/// How much a pull reads when no single course is named.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LmsScope {
-    /// The current quarter's timetable and the deadlines.
-    Summary,
-    /// The summary plus the content of the current quarter's courses.
-    CurrentQuarter,
-    /// Every quarter's timetable, every course's content and past deadlines.
-    Full,
-}
-
-/// Parts a pull reports in [`KeyOutcome::Partial`] when it could not read
-/// them; their stored values stay.
-pub mod part {
-    pub const TIMETABLE: &str = "timetable";
-    pub const UPCOMING_EVENTS: &str = "upcoming_events";
-    pub const COURSE_STRUCTURE: &str = "course_structure";
-    pub const MONTH_CALENDAR: &str = "month_calendar";
-    pub const MATERIAL_DETAIL: &str = "material_detail";
-    pub const ASSIGN_STATUS: &str = "assign_status";
-}
 
 /// Why one Moodle read failed. Carries error codes only, never response
 /// text, URLs or credentials.
@@ -75,6 +56,9 @@ pub(crate) enum MoodleError {
     InvalidSesskey,
     Api(String),
     Malformed(&'static str),
+    /// The answer reported warnings about something other than an
+    /// inaccessible course, so it may be incomplete.
+    Partial,
 }
 
 impl From<NetError> for MoodleError {
@@ -96,6 +80,7 @@ impl std::fmt::Display for MoodleError {
             Self::InvalidSesskey => formatter.write_str("sesskey refused"),
             Self::Api(code) => write!(formatter, "moodle error: {code}"),
             Self::Malformed(what) => write!(formatter, "unexpected response: {what}"),
+            Self::Partial => formatter.write_str("answer reported warnings"),
         }
     }
 }
@@ -113,13 +98,112 @@ impl MoodleError {
                 | Self::Net(NetError::Http(400..=499))
         )
     }
+}
 
-    fn into_net(self) -> NetError {
-        match self {
-            Self::Net(error) => error,
-            Self::SignInRequired => NetError::SignInRequired,
-            other => NetError::Invalid(format!("LMS {other}")),
+/// Why one LMS key could not be read in full: the part that failed (a REST
+/// function name, a page path or `validate`) and a short code. Never
+/// response text, URLs or credentials.
+#[derive(Clone, Debug)]
+pub(crate) struct KeyError {
+    pub(crate) part: &'static str,
+    error: MoodleError,
+    /// Every later key would fail the same way, so the pull stops here.
+    pub(crate) stops_pull: bool,
+    /// Failed on the session cookie (dashboard, timetable): reading it again
+    /// over the cookie transport cannot help.
+    cookie_side: bool,
+}
+
+impl KeyError {
+    pub(crate) fn new(part: &'static str, error: MoodleError) -> Self {
+        let stops_pull = matches!(
+            error,
+            MoodleError::SignInRequired
+                | MoodleError::Net(NetError::Cancelled | NetError::HostPaused { .. })
+        );
+        Self {
+            part,
+            error,
+            stops_pull,
+            cookie_side: false,
         }
+    }
+
+    /// For `map_err`: the error of the request `part`.
+    pub(crate) fn at(part: &'static str) -> impl Fn(MoodleError) -> Self {
+        move |error| Self::new(part, error)
+    }
+
+    /// A rejected read: the parser's reason is logged, not carried.
+    fn parse(error: SchoolParseError) -> Self {
+        log::warn!(target: "isct_core::net::moodle", "LMS key rejected: {error}");
+        Self::new("validate", MoodleError::Malformed("rejected by validation"))
+    }
+
+    /// The pull goes on with its other keys after this one.
+    fn continuing(mut self) -> Self {
+        self.stops_pull = false;
+        self
+    }
+
+    /// Marks an error of a cookie request, which the cookie fallback cannot
+    /// cure.
+    fn on_cookie(mut self) -> Self {
+        self.cookie_side = true;
+        self
+    }
+
+    fn wants_cookie_fallback(&self) -> bool {
+        !self.cookie_side && self.error.wants_cookie_fallback()
+    }
+
+    pub(crate) fn is_sign_in(&self) -> bool {
+        matches!(
+            self.error,
+            MoodleError::SignInRequired | MoodleError::Net(NetError::SignInRequired)
+        )
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        matches!(self.error, MoodleError::Net(NetError::Cancelled))
+    }
+
+    /// The short code for `sync_runs.error_kind` and outcome messages.
+    pub(crate) fn kind(&self) -> String {
+        match &self.error {
+            MoodleError::Net(error) => error.kind(),
+            MoodleError::SignInRequired | MoodleError::InvalidSesskey => "sign-in".into(),
+            MoodleError::InvalidToken => "token".into(),
+            MoodleError::ServiceUnavailable(_) => "unavailable".into(),
+            MoodleError::Api(code) => {
+                let code: String = code
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .take(40)
+                    .collect();
+                format!("moodle-{code}")
+            }
+            MoodleError::Malformed(_) => "parse".into(),
+            MoodleError::Partial => "partial".into(),
+        }
+    }
+}
+
+impl std::fmt::Display for KeyError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.part, self.error)
+    }
+}
+
+/// The canonical `sync_runs.source` of an LMS key: the function that reads
+/// its inventory.
+pub(crate) fn source(dataset: Dataset) -> &'static str {
+    match dataset {
+        Dataset::LmsEnrolment => MoodleFunction::EnrolledCoursesByTimeline.name(),
+        Dataset::LmsDeadlines => MoodleFunction::ActionEventsByTimesort.name(),
+        Dataset::LmsAssign => MoodleFunction::AssignGetSubmissionStatus.name(),
+        Dataset::LmsHistory => MoodleFunction::CalendarMonthlyView.name(),
+        _ => MoodleFunction::CourseContents.name(),
     }
 }
 
@@ -173,80 +257,40 @@ impl MoodleClient {
         }
     }
 
-    /// Reads one LMS pull in the extractor's scopes and maps it into the
-    /// existing ingest payload. Token transport first; the cookie transport
-    /// when the token path is not available.
-    pub async fn pull(
-        &self,
-        scope: LmsScope,
-        course: Option<u64>,
-        progress: &(dyn Fn(SchoolPullProgress) + Send + Sync),
-    ) -> Result<KeyOutcome<LmsPayload>, NetError> {
-        let result = match rest::TokenTransport::open(self).await {
-            Ok((transport, language)) => {
-                let run = pull::Pull::new(
-                    self,
-                    pull::Transport::Token(transport),
-                    scope,
-                    course,
-                    progress,
-                    language,
-                    None,
-                )
-                .run()
-                .await;
-                match run {
-                    Err(error) if error.wants_cookie_fallback() => {
-                        log::warn!(target: "isct_core::net::moodle", "LMS token transport failed ({error}); reading with the session cookie");
-                        self.pull_with_cookie(scope, course, progress).await
-                    }
-                    other => other,
-                }
-            }
+    /// Opens the transport one pull reads its keys with: the token path,
+    /// proven once with `site_info`, or the session cookie when the token
+    /// path is not offered.
+    pub(crate) async fn open(&self) -> Result<LmsReader<'_>, KeyError> {
+        match rest::TokenTransport::open(self).await {
+            Ok((transport, language)) => Ok(LmsReader::new(
+                self,
+                reader::Transport::Token(transport),
+                language,
+                None,
+            )),
             Err(error) if error.wants_cookie_fallback() => {
                 log::warn!(target: "isct_core::net::moodle", "LMS token transport unavailable ({error}); reading with the session cookie");
-                self.pull_with_cookie(scope, course, progress).await
+                let (transport, dashboard) =
+                    self.cookie_transport().await.map_err(KeyError::at("my/"))?;
+                let language = dashboard.config.language.clone();
+                Ok(LmsReader::new(
+                    self,
+                    reader::Transport::Cookie(transport),
+                    language,
+                    Some(dashboard),
+                ))
             }
-            Err(error) => Err(error),
-        };
-        match result {
-            Ok(output) => match validate_payload(output.payload) {
-                Ok((LmsStage::Ready, Some(payload))) if output.missing.is_empty() => {
-                    Ok(KeyOutcome::Complete(payload))
-                }
-                Ok((LmsStage::Ready, Some(payload))) => Ok(KeyOutcome::Partial {
-                    data: payload,
-                    missing: output.missing,
-                }),
-                Ok(_) => Ok(KeyOutcome::SignInRequired),
-                Err(error) => Err(NetError::Invalid(format!("LMS payload rejected: {error}"))),
-            },
-            Err(MoodleError::SignInRequired) => Ok(KeyOutcome::SignInRequired),
-            Err(MoodleError::ServiceUnavailable(_)) => Ok(KeyOutcome::Unavailable("lms")),
-            Err(error) => Err(error.into_net()),
+            Err(error) => Err(KeyError::new(MoodleFunction::SiteInfo.name(), error)),
         }
     }
 
-    async fn pull_with_cookie(
+    /// The cookie transport over a freshly read dashboard.
+    async fn cookie_transport(
         &self,
-        scope: LmsScope,
-        course: Option<u64>,
-        progress: &(dyn Fn(SchoolPullProgress) + Send + Sync),
-    ) -> Result<pull::Output, MoodleError> {
+    ) -> Result<(ajax::CookieTransport<'_>, Dashboard), MoodleError> {
         let dashboard = self.dashboard().await?;
         let transport = ajax::CookieTransport::new(self, &dashboard)?;
-        let language = dashboard.config.language.clone();
-        pull::Pull::new(
-            self,
-            pull::Transport::Cookie(transport),
-            scope,
-            course,
-            progress,
-            language,
-            Some(dashboard),
-        )
-        .run()
-        .await
+        Ok((transport, dashboard))
     }
 
     async fn ensure_signed_in(&self) -> Result<(), MoodleError> {
@@ -341,32 +385,33 @@ impl MoodleClient {
         }
     }
 
-    /// The timetable grids: the dashboard's current one, and for a full pull
-    /// every other offered year and quarter through the block's own filter
-    /// POST. A grid that fails is named in the errors; the others stay.
+    /// The timetable grids: the dashboard's current one first, then every
+    /// other quarter the block offers for `years` (the enrolled academic
+    /// years) through the block's own filter POST. Any grid that cannot be
+    /// read fails the whole list.
     async fn timetables(
         &self,
         dashboard: &Dashboard,
-        every_quarter: bool,
-    ) -> (Vec<Value>, Vec<String>) {
-        let current = read_timetable(&dashboard.html, &dashboard.url);
-        let current_term = current.as_ref().map(grid_term);
-        let mut grids: Vec<Value> = current.into_iter().collect();
-        let mut errors = Vec::new();
-        if !every_quarter {
-            return (grids, errors);
-        }
-        let filters = timetable_filters(&dashboard.html).unwrap_or_default();
-        if filters.years.is_empty() || filters.quarters.len() != 4 {
-            errors.push("timetable-filters-unavailable".to_string());
-        }
-        let Ok(post_url) = lms_url("my/index.php") else {
-            return (grids, errors);
-        };
+        years: &BTreeSet<i32>,
+    ) -> Result<Vec<Value>, KeyError> {
+        let page = "my/index.php";
+        let current = read_timetable(&dashboard.html, &dashboard.url).ok_or_else(|| {
+            log::warn!(target: "isct_core::net::moodle", "LMS timetable unreadable: {}", timetable_shape(&dashboard.html));
+            KeyError::new("my/", MoodleError::Malformed("timetable"))
+        })?;
+        let current_term = grid_term(&current);
+        let mut grids = vec![current];
+        let filters = timetable_filters(&dashboard.html)
+            .filter(|filters| !filters.years.is_empty() && filters.quarters.len() == 4)
+            .ok_or_else(|| KeyError::new("my/", MoodleError::Malformed("timetable filters")))?;
+        let post_url = lms_url(page).map_err(KeyError::at(page))?;
         for (year_value, year) in &filters.years {
+            if !year.parse::<i32>().is_ok_and(|year| years.contains(&year)) {
+                continue;
+            }
             for (quarter_value, quarter) in &filters.quarters {
                 let expected = format!("{year}-{quarter}Q");
-                if current_term.as_deref() == Some(expected.as_str()) {
+                if current_term == expected {
                     continue;
                 }
                 // The read-only year/quarter query: exactly these three
@@ -377,7 +422,7 @@ impl MoodleClient {
                     ("quota".to_string(), quarter_value.clone()),
                     ("search".to_string(), filters.search.clone()),
                 ];
-                let result = match self
+                let response = self
                     .cookie_send(
                         Method::POST,
                         post_url.clone(),
@@ -385,33 +430,33 @@ impl MoodleClient {
                         Limits::page,
                     )
                     .await
-                {
-                    Ok(response) if response.status == 200 => match response.text() {
-                        Ok(html) => match read_timetable(&html, &post_url) {
-                            Some(grid) if grid_term(&grid) == expected => Ok(grid),
-                            Some(grid) => Err(format!(
-                                "timetable-quarter-mismatch: got {}",
-                                grid_term(&grid)
-                            )),
-                            None => {
-                                Err(format!("timetable-unreadable: {}", timetable_shape(&html)))
-                            }
-                        },
-                        Err(error) => Err(format!("timetable-request-failed: {error}")),
-                    },
-                    Ok(response) => Err(format!(
-                        "timetable-request-failed: HTTP {}",
-                        response.status
-                    )),
-                    Err(error) => Err(format!("timetable-request-failed: {error}")),
-                };
-                match result {
-                    Ok(grid) => grids.push(grid),
-                    Err(message) => errors.push(format!("{expected}: {message}")),
+                    .map_err(KeyError::at(page))?;
+                if response.status != 200 {
+                    return Err(KeyError::new(
+                        page,
+                        MoodleError::Net(NetError::Http(response.status)),
+                    ));
+                }
+                let html = response
+                    .text()
+                    .map_err(|error| KeyError::new(page, MoodleError::from(error)))?;
+                match read_timetable(&html, &post_url) {
+                    Some(grid) if grid_term(&grid) == expected => grids.push(grid),
+                    Some(grid) => {
+                        log::warn!(target: "isct_core::net::moodle", "LMS timetable for {expected} answered {}", grid_term(&grid));
+                        return Err(KeyError::new(
+                            page,
+                            MoodleError::Malformed("timetable quarter"),
+                        ));
+                    }
+                    None => {
+                        log::warn!(target: "isct_core::net::moodle", "LMS timetable for {expected} unreadable: {}", timetable_shape(&html));
+                        return Err(KeyError::new(page, MoodleError::Malformed("timetable")));
+                    }
                 }
             }
         }
-        (grids, errors)
+        Ok(grids)
     }
 
     // -- Token lifecycle -----------------------------------------------------

@@ -254,8 +254,8 @@ key on it.
 that explicitly reports the capability is not offered. It is a completed
 capability observation, not an authentication or parser failure: `changed` is
 zero, `message` carries the page's reason, the coordinator and scheduler count
-the pull as completed, and Core records `import_runs.state = "unavailable"` so
-freshness advances. Core does not apply rows or mark previously stored rows
+the pull as completed, and Core commits the page's `kyomu.page/<kind>` key with
+outcome `unavailable` so freshness advances. Core does not apply rows or mark previously stored rows
 missing for that page. `schoolRecords.pageAvailability` exposes the latest
 observation as
 `Record<provider:scope, {state: "available" | "unavailable", checkedAt, message}>`;

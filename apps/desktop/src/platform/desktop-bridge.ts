@@ -165,11 +165,24 @@ export type LmsCourseRecord = {
   /** Weekly meetings per term, read from the LMS dashboard timetable grid. */
   timetables?: Record<string, { day: number; periods: [number, number] }[]>;
 };
+/** Freshness of one synced key (`dataset_state`). Times are ISO strings. */
+export type KeyFreshness = {
+  /** Last complete read; null before the first one or after gc. */
+  fetchedAt: string | null;
+  outcome: "complete" | "unavailable" | null;
+  message: string | null;
+  /** Consecutive failed reads since the last complete one. */
+  failures: number;
+  /** No automatic read before this time. */
+  nextEligible: string | null;
+  /** Short error code of the last failed read. */
+  lastError: string | null;
+};
 /** School-owned rows the workspace does not carry. */
 export type SchoolRecords = {
-  /** Last complete import per `provider:scope` (ISO time). */
-  lastRuns: Record<string, string>;
-  /** Latest authoritative capability observation per `provider:scope`. */
+  /** Freshness per `dataset/key`, e.g. `kyomu.page/gpa`. */
+  freshness: Record<string, KeyFreshness>;
+  /** Latest complete read of each 教務Web page, keyed `kyomu:<kind>`. */
   pageAvailability: Record<string, SchoolPageAvailability>;
   lmsCourses: LmsCourseRecord[];
   registrations: {

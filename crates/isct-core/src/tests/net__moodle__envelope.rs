@@ -43,6 +43,14 @@ fn rest_errors_arrive_as_http_200_bodies_and_are_classified_before_parsing() {
         rest_result(br#"{"courses":[],"warnings":[{"warningcode":"1","message":"m"}]}"#).unwrap();
     assert!(has_warnings(&partial));
     assert!(!has_warnings(&json!({"courses": [], "warnings": []})));
+    // A course or module the student cannot open is expected, not missing data.
+    assert!(!has_warnings(&json!({"warnings": [
+        {"item": "course", "itemid": 7, "warningcode": "1", "message": "No access rights"},
+        {"item": "module", "itemid": 9, "warningcode": "1", "message": "No access rights in module context"}
+    ]})));
+    assert!(has_warnings(
+        &json!({"warnings": [{"item": "assign", "itemid": 3, "warningcode": "x"}]})
+    ));
 }
 
 #[test]

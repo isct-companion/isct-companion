@@ -567,10 +567,6 @@ contract!(CatalogSearchItem {
 contract!(IntegerPolicy { pub default: u32, pub min: u32, pub max: u32, });
 contract!(CourseFilePolicy { pub auto_download_limit_mb: IntegerPolicy, pub retention_days: IntegerPolicy, });
 
-pub const LMS_STALE_SECONDS: u64 = 12 * 60 * 60;
-pub const KYOMU_STALE_SECONDS: u64 = 7 * 24 * 60 * 60;
-pub const SYLLABUS_STALE_SECONDS: u64 = 7 * 24 * 60 * 60;
-
 pub fn course_file_policy() -> CourseFilePolicy {
     CourseFilePolicy {
         auto_download_limit_mb: IntegerPolicy {
@@ -595,7 +591,7 @@ pub enum SchoolPageAvailabilityState {
 }
 
 /// Latest authoritative capability observation for one school page, as the
-/// store reads it from import runs.
+/// store reads it from the page's `kyomu.page` freshness key.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]

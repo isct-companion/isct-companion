@@ -4,31 +4,28 @@
 use super::{
     envelope::ajax_result,
     lms_url,
-    mapping::{detail_modules, pick, ModuleInfo},
-    part,
-    pull::{set_detail, CourseRead, Pull, WORKERS},
-    sign_in_redirect, Dashboard, MoodleClient, MoodleError, MoodleFunction,
+    mapping::{pick, BodyBudget, DETAIL_MODULES},
+    reader::{set_detail, MAX_STATES, WORKERS},
+    sign_in_redirect, Dashboard, KeyError, MoodleClient, MoodleError, MoodleFunction,
 };
 use crate::net::{Body, Limits, NetError};
 use crate::school_parser::lms::{
     course_page_bodies, forum_discussion_links, forum_posts, id_of, is_lms_origin, module_body,
-    module_page_matches, page_assign_state, parse_resource_page, ResolvedResource, LMS_PATH,
+    module_page_matches, page_assign_state, parse_resource_page, ResolvedResource, StoredModule,
+    LMS_PATH,
 };
 use futures_util::stream::{self, StreamExt};
 use reqwest::Method;
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, Ordering},
     Mutex,
 };
 use url::Url;
 
-/// Activity pages read per course and per pull, newest first.
+/// Activity pages read per course read, newest first.
 const DETAILS_PER_COURSE: usize = 40;
-const MAX_DETAILS: usize = 320;
-/// Submission pages read per pull beyond those the detail reads covered.
-const MAX_STATUS_PAGES: usize = 60;
 const FORUM_POSTS_PER_COURSE: usize = 16;
 const FORUM_POSTS_PER_FORUM: usize = 8;
 /// Larger activity pages are not read.
@@ -131,26 +128,20 @@ impl<'a> CookieTransport<'a> {
     }
 }
 
-/// The course-format state, with teacher text from the course page when that
-/// page can be read; the outline alone stands otherwise.
-pub(super) async fn read_structure(
-    pull: &Pull<'_>,
-    transport: &CookieTransport<'_>,
-    course: u64,
-) -> Result<(Value, HashMap<u64, ModuleInfo>), MoodleError> {
+/// The course-format outline `{section, cm}` of one course.
+async fn course_state(transport: &CookieTransport<'_>, course: u64) -> Result<Value, KeyError> {
+    let function = MoodleFunction::CourseformatState;
     let raw = transport
-        .call(
-            MoodleFunction::CourseformatState,
-            &json!({"courseid": course}),
-        )
-        .await?;
+        .call(function, &json!({"courseid": course}))
+        .await
+        .map_err(KeyError::at(function.name()))?;
     let full: Value = match &raw {
         Value::String(text) => serde_json::from_str::<Value>(text),
         other => {
             serde_json::from_str::<Value>(other.get("data").and_then(Value::as_str).unwrap_or(""))
         }
     }
-    .map_err(|_| MoodleError::Malformed("course state"))?;
+    .map_err(|_| KeyError::new(function.name(), MoodleError::Malformed("course state")))?;
     let list = |key: &str, keys: &[&str]| -> Vec<Value> {
         full.get(key)
             .and_then(Value::as_array)
@@ -159,28 +150,19 @@ pub(super) async fn read_structure(
             .map(|item| pick(item, keys))
             .collect()
     };
-    let mut state = json!({
+    Ok(json!({
         "section": list("section", &["id", "number", "title", "visible", "anchor"]),
         "cm": list("cm", &["id", "name", "module", "url", "sectionid", "visible", "uservisible", "anchor"]),
-    });
-    let mut page_url = lms_url("course/view.php")?;
-    page_url
-        .query_pairs_mut()
-        .append_pair("id", &course.to_string());
-    if let Ok(html) = transport.client.cookie_page(page_url.clone()).await {
-        let bodies = course_page_bodies(&html, &page_url, &state);
-        for (cmid, body) in bodies.modules {
-            if let Some(body) = pull.budget.take(&body) {
-                set_detail(&mut state, "cm", cmid, "bodyHtml", body.into());
-            }
-        }
-        for (id, body) in bodies.sections {
-            if let Some(body) = pull.budget.take(&body) {
-                set_detail(&mut state, "section", id, "bodyHtml", body.into());
-            }
-        }
-    }
-    Ok((state, HashMap::new()))
+    }))
+}
+
+/// The `cm` entries of an outline.
+fn cms(state: &Value) -> Vec<Value> {
+    state
+        .get("cm")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// What one activity page gave.
@@ -188,7 +170,6 @@ pub(super) async fn read_structure(
 struct PageDetail {
     body: Option<String>,
     resource: Option<String>,
-    status: Option<Value>,
 }
 
 fn view_path(module: &str) -> String {
@@ -197,11 +178,10 @@ fn view_path(module: &str) -> String {
 
 /// One activity page, as the former reader did: same-origin pages of the
 /// six kinds only, a direct redirect to a file is the file, and a page that
-/// is not this activity is ignored.
+/// is not this activity is ignored. A failed request fails the key.
 async fn read_page(
     transport: &CookieTransport<'_>,
-    shares: &Mutex<HashMap<u64, usize>>,
-    course: u64,
+    shares: &Mutex<usize>,
     cmid: u64,
     module: &str,
     url: &str,
@@ -243,27 +223,21 @@ async fn read_page(
     if html.len() > MAX_PAGE_CHARS || !module_page_matches(&html, cmid) {
         return Ok(detail);
     }
-    if module == "assign" {
-        detail.status = page_assign_state(&html, cmid, "assign");
-    }
     if module == "forum" {
         let links = forum_discussion_links(&html, &target);
         let take = {
-            let mut shares = shares
+            let mut left = shares
                 .lock()
                 .map_err(|_| MoodleError::Malformed("forum share"))?;
-            let left = shares.entry(course).or_insert(FORUM_POSTS_PER_COURSE);
             let take = links.len().min(FORUM_POSTS_PER_FORUM).min(*left);
             *left -= take;
             take
         };
         let mut bodies = Vec::new();
         for link in links.into_iter().take(take) {
-            // One failed discussion keeps the other announcements.
-            if let Ok(page) = transport.client.cookie_page(link.clone()).await {
-                if page.len() <= MAX_PAGE_CHARS {
-                    bodies.push(forum_posts(&page, &link));
-                }
+            let page = transport.client.cookie_page(link.clone()).await?;
+            if page.len() <= MAX_PAGE_CHARS {
+                bodies.push(forum_posts(&page, &link));
             }
         }
         detail.body = Some(format!(
@@ -285,154 +259,121 @@ async fn read_page(
     Ok(detail)
 }
 
-/// Module details from their pages, then the submission state of the
-/// assignments and quizzes no detail read covered.
-pub(super) async fn read_details(
-    pull: &Pull<'_>,
+/// `lms.course/{id}` over the cookie: the course-format outline, teacher
+/// text from the course page, then the pages of the newest activities.
+///
+/// The cookie path has no modification times, so `stored` does not narrow
+/// it: as before, each read re-reads the newest activities' pages and the
+/// others keep their stored details. Any failed request fails the key.
+pub(super) async fn read_course(
     transport: &CookieTransport<'_>,
-    reads: &mut [CourseRead],
-    statuses: &mut Vec<Value>,
-) {
-    let kinds = detail_modules(pull.scope, pull.course);
-    // Each course gets its own share, newest modules first, so one large
-    // course cannot starve the rest; cached details fill the gaps.
-    let targets: Vec<(u64, u64, String, String, String)> = reads
-        .iter()
-        .flat_map(|read| {
-            read.cms()
-                .into_iter()
-                .filter(|cm| {
-                    cm.get("uservisible").and_then(Value::as_bool) != Some(false)
-                        && cm
-                            .get("module")
-                            .and_then(Value::as_str)
-                            .is_some_and(|module| kinds.contains(&module))
-                })
-                .rev()
-                .take(DETAILS_PER_COURSE)
-                .filter_map(|cm| {
-                    Some((
-                        read.id,
-                        id_of(cm.get("id"))?,
-                        cm.get("module")?.as_str()?.to_string(),
-                        cm.get("url")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string(),
-                        cm.get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string(),
-                    ))
-                })
-                .collect::<Vec<_>>()
-        })
-        .take(MAX_DETAILS)
-        .collect();
-    let titles: HashMap<u64, (String, String)> = reads
-        .iter()
-        .map(|read| (read.id, (read.title.clone(), read.term.clone())))
-        .collect();
-    let titles = &titles;
-    let shares = Mutex::new(HashMap::new());
-    let shares = &shares;
-    let total = targets.len();
-    let done = AtomicUsize::new(0);
-    let done = &done;
-    let details: Vec<(u64, u64, PageDetail)> = stream::iter(targets)
-        .map(move |(course, cmid, module, url, name)| async move {
-            let detail = match read_page(transport, shares, course, cmid, &module, &url).await {
-                Ok(detail) => detail,
-                Err(error) => {
-                    log::warn!(target: "isct_core::net::moodle", "LMS page read failed: {error}");
-                    pull.miss(part::MATERIAL_DETAIL);
-                    PageDetail::default()
-                }
-            };
-            let completed = done.fetch_add(1, Ordering::SeqCst) + 1;
-            let (title, term) = titles.get(&course).cloned().unwrap_or_default();
-            pull.report(
-                "material",
-                completed,
-                total,
-                Some((course, title.as_str(), term.as_str())),
-                &name,
-            );
-            (course, cmid, detail)
-        })
-        .buffer_unordered(WORKERS)
-        .collect()
-        .await;
-    let mut read_status = HashSet::new();
-    for (course, cmid, detail) in details {
-        if let Some(status) = detail.status {
-            read_status.insert(cmid);
-            statuses.push(status);
+    course: u64,
+    _stored: &HashMap<u64, StoredModule>,
+    budget: &BodyBudget,
+) -> Result<Value, KeyError> {
+    let mut state = course_state(transport, course).await?;
+    let mut page_url = lms_url("course/view.php").map_err(KeyError::at("course/view.php"))?;
+    page_url
+        .query_pairs_mut()
+        .append_pair("id", &course.to_string());
+    let html = transport
+        .client
+        .cookie_page(page_url.clone())
+        .await
+        .map_err(KeyError::at("course/view.php"))?;
+    let bodies = course_page_bodies(&html, &page_url, &state);
+    for (cmid, body) in bodies.modules {
+        if let Some(body) = budget.take(&body) {
+            set_detail(&mut state, "cm", cmid, "bodyHtml", body.into());
         }
-        let Some(read) = reads.iter_mut().find(|read| read.id == course) else {
-            continue;
-        };
-        if let Some(body) = detail
-            .body
-            .as_deref()
-            .and_then(|body| pull.budget.take(body))
-        {
-            read.set_cm(cmid, "bodyHtml", body.into());
-        }
-        if let Some(resource) = detail.resource {
-            read.set_cm(cmid, "resourceUrl", resource.into());
+    }
+    for (id, body) in bodies.sections {
+        if let Some(body) = budget.take(&body) {
+            set_detail(&mut state, "section", id, "bodyHtml", body.into());
         }
     }
 
-    // Submission state as the assignment or quiz page shows it.
-    let work: Vec<(u64, u64, String, String)> = reads
-        .iter()
-        .flat_map(|read| {
-            read.cms()
-                .into_iter()
-                .filter_map(|cm| {
-                    let module = cm.get("module")?.as_str()?.to_string();
-                    let cmid = id_of(cm.get("id"))?;
-                    (matches!(module.as_str(), "assign" | "quiz") && !read_status.contains(&cmid))
-                        .then(|| {
-                            let name = cm.get("name").and_then(Value::as_str).unwrap_or("");
-                            (read.id, cmid, module, name.to_string())
-                        })
-                })
-                .collect::<Vec<_>>()
+    let targets: Vec<(u64, String, String)> = cms(&state)
+        .into_iter()
+        .filter(|cm| {
+            cm.get("uservisible").and_then(Value::as_bool) != Some(false)
+                && cm
+                    .get("module")
+                    .and_then(Value::as_str)
+                    .is_some_and(|module| DETAIL_MODULES.contains(&module))
         })
-        .take(MAX_STATUS_PAGES)
+        .rev()
+        .take(DETAILS_PER_COURSE)
+        .filter_map(|cm| {
+            Some((
+                id_of(cm.get("id"))?,
+                cm.get("module")?.as_str()?.to_string(),
+                cm.get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            ))
+        })
         .collect();
-    let total = work.len();
-    let done = AtomicUsize::new(0);
-    let done = &done;
-    let rows: Vec<Option<Value>> = stream::iter(work)
-        .map(move |(course, cmid, module, name)| async move {
-            let row = async {
-                let mut url = lms_url(&format!("mod/{module}/view.php"))?;
-                url.query_pairs_mut().append_pair("id", &cmid.to_string());
-                let html = transport.client.cookie_page(url).await?;
-                Ok::<_, MoodleError>(page_assign_state(&html, cmid, &module))
-            }
-            .await
-            .unwrap_or_else(|error| {
-                log::warn!(target: "isct_core::net::moodle", "LMS submission page failed: {error}");
-                pull.miss(part::ASSIGN_STATUS);
-                None
-            });
-            let completed = done.fetch_add(1, Ordering::SeqCst) + 1;
-            let (title, term) = titles.get(&course).cloned().unwrap_or_default();
-            pull.report(
-                "assignment",
-                completed,
-                total,
-                Some((course, title.as_str(), term.as_str())),
-                &name,
-            );
-            row
+    let shares = Mutex::new(FORUM_POSTS_PER_COURSE);
+    let shares = &shares;
+    let details: Vec<Result<(u64, PageDetail), KeyError>> = stream::iter(targets)
+        .map(move |(cmid, module, url)| async move {
+            read_page(transport, shares, cmid, &module, &url)
+                .await
+                .map(|detail| (cmid, detail))
+                .map_err(KeyError::at("mod/view.php"))
         })
         .buffer_unordered(WORKERS)
         .collect()
         .await;
-    statuses.extend(rows.into_iter().flatten());
+    for detail in details {
+        let (cmid, detail) = detail?;
+        if let Some(body) = detail.body.as_deref().and_then(|body| budget.take(body)) {
+            set_detail(&mut state, "cm", cmid, "bodyHtml", body.into());
+        }
+        if let Some(resource) = detail.resource {
+            set_detail(&mut state, "cm", cmid, "resourceUrl", resource.into());
+        }
+    }
+    Ok(state)
+}
+
+/// `lms.assign/{id}` over the cookie: the state each assignment and quiz page
+/// of the course shows. Any failed request fails the key.
+pub(super) async fn read_assign(
+    transport: &CookieTransport<'_>,
+    course: u64,
+) -> Result<Vec<Value>, KeyError> {
+    let state = course_state(transport, course).await?;
+    let work: Vec<(u64, String)> = cms(&state)
+        .into_iter()
+        .filter_map(|cm| {
+            let module = cm.get("module")?.as_str()?.to_string();
+            let cmid = id_of(cm.get("id"))?;
+            matches!(module.as_str(), "assign" | "quiz").then_some((cmid, module))
+        })
+        .collect();
+    if work.len() > MAX_STATES {
+        return Err(KeyError::new(
+            "mod/view.php",
+            MoodleError::Malformed("assignment limit"),
+        ));
+    }
+    let rows: Vec<Result<Option<Value>, KeyError>> = stream::iter(work)
+        .map(move |(cmid, module)| async move {
+            let mut url =
+                lms_url(&format!("mod/{module}/view.php")).map_err(KeyError::at("mod/view.php"))?;
+            url.query_pairs_mut().append_pair("id", &cmid.to_string());
+            let html = transport
+                .client
+                .cookie_page(url)
+                .await
+                .map_err(KeyError::at("mod/view.php"))?;
+            Ok::<_, KeyError>(page_assign_state(&html, cmid, &module))
+        })
+        .buffer_unordered(WORKERS)
+        .collect()
+        .await;
+    rows.into_iter().filter_map(Result::transpose).collect()
 }

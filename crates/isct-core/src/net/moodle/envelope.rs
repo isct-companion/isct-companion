@@ -90,13 +90,35 @@ pub(crate) fn ajax_result(body: &[u8]) -> Result<Value, EnvelopeError> {
     Ok(first.get("data").cloned().unwrap_or(Value::Null))
 }
 
-/// Whether a success body reports `warnings`: the data may be partial, so
-/// nothing that is absent from it may be treated as deleted.
+/// Whether a response's `warnings` mean data this key needed is missing.
+///
+/// The `*_by_courses` functions warn once per course the student cannot open
+/// (`item: "course"`, e.g. a hidden or ended course). Those courses are not
+/// readable by any transport, so they are expected rather than missing. Every
+/// warning is logged by item, id and code; messages and values are not.
 pub(crate) fn has_warnings(value: &Value) -> bool {
-    value
-        .get("warnings")
-        .and_then(Value::as_array)
-        .is_some_and(|warnings| !warnings.is_empty())
+    let Some(warnings) = value.get("warnings").and_then(Value::as_array) else {
+        return false;
+    };
+    let mut missing = false;
+    for warning in warnings {
+        let item = warning.get("item").and_then(Value::as_str).unwrap_or("");
+        let code = warning
+            .get("warningcode")
+            .map(|code| code.to_string())
+            .unwrap_or_default();
+        let id = warning
+            .get("itemid")
+            .map(|id| id.to_string())
+            .unwrap_or_default();
+        log::info!(target: "isct_core::net::moodle", "LMS warning item={item} itemid={id} code={code}");
+        // A course or module the student cannot open (hidden, restricted,
+        // not yet available) cannot be read by any transport.
+        if !matches!(item, "course" | "module") {
+            missing = true;
+        }
+    }
+    missing
 }
 
 /// Moodle's form encoding of external-function arguments: arrays as

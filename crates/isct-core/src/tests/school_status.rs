@@ -1,5 +1,4 @@
 use super::*;
-use serde_json::json;
 
 fn pull(id: &str, site: SchoolSite, priority: PullPriority, state: PullState) -> PullSnapshot {
     PullSnapshot {
@@ -343,7 +342,7 @@ fn a_failure_shows_once_nothing_runs_and_a_later_success_clears_it() {
 #[test]
 fn kyomu_maintenance_and_page_reads_drive_the_kyomu_source() {
     let mut tracker = SchoolStatusTracker::default();
-    // An extractor result may have written an import run.
+    // A page result may have committed its freshness key.
     assert!(tracker.observe(&kyomu("service", IngestState::Maintenance)));
     let maintenance = SchoolProblem::Maintenance {
         detail: "教務Webはメンテナンス中です".into(),
@@ -451,17 +450,38 @@ fn sign_in_reports_become_typed_states_on_their_source() {
 }
 
 #[test]
-fn last_updated_takes_the_newest_run_of_each_source_only() {
+fn last_updated_takes_the_newest_read_of_each_source_only() {
     let mut tracker = SchoolStatusTracker::default();
     assert_eq!(tracker.status().sources[0].last_updated, None);
-    tracker.set_runs(json!({
-        "lms:all": "2026-10-01T03:00:00+00:00",
-        "lms:summary": "2026-10-02T03:00:00+00:00",
-        "lms:page": "2026-10-09T03:00:00+00:00",
-        "kyomu:grades": "2026-10-03T03:00:00+00:00",
-        "kyomu:gpa": "2026-10-04T03:00:00+00:00",
-        "reference:calendar": "2026-10-10T03:00:00+00:00",
-    }));
+    let state = |dataset: Dataset, key: &str, fetched_at: Option<&str>| KeyState {
+        dataset: dataset.name().into(),
+        key: key.into(),
+        account: String::new(),
+        generation: 0,
+        fetched_at: fetched_at.map(|at| at.parse().unwrap()),
+        validator: None,
+        outcome: None,
+        message: None,
+        failures: 0,
+        next_eligible: None,
+        last_error: None,
+        last_used: None,
+    };
+    tracker.set_freshness(vec![
+        state(Dataset::LmsEnrolment, "all", Some("2026-10-01T03:00:00Z")),
+        state(Dataset::LmsDeadlines, "all", Some("2026-10-02T03:00:00Z")),
+        // A narrow read of one course does not make LMS as a whole current.
+        state(Dataset::LmsCourse, "42", Some("2026-10-09T03:00:00Z")),
+        state(Dataset::KyomuPage, "grades", Some("2026-10-03T03:00:00Z")),
+        state(Dataset::KyomuPage, "gpa", Some("2026-10-04T03:00:00Z")),
+        // A failed first read has no time yet.
+        state(Dataset::KyomuPage, "profile", None),
+        state(
+            Dataset::Reference,
+            "calendar/2026",
+            Some("2026-10-10T03:00:00Z"),
+        ),
+    ]);
     let status = tracker.status();
     assert_eq!(
         status.sources[0].last_updated.as_deref(),
