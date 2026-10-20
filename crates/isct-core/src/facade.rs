@@ -177,7 +177,6 @@ impl Core {
             .map(|events| events.clone() as Arc<dyn EventSink>)
             .unwrap_or_else(|| Arc::new(NoopEvents));
         let engine = SchoolBrowserEngine::new(
-            self.store.clone(),
             self.auth.clone(),
             events,
             browser,

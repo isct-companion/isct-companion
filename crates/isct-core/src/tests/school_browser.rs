@@ -304,7 +304,6 @@ fn engine_with_auth(
     let browser = Arc::new(FakeBrowser::default());
     let events = Arc::new(Events::default());
     let engine = SchoolBrowserEngine::new(
-        store.clone(),
         auth,
         events.clone(),
         browser.clone(),

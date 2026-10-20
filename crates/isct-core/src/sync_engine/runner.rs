@@ -1233,7 +1233,8 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
     {
         batch.running.remove(key);
         match end {
-            KeyEnd::Done { .. } => {
+            KeyEnd::Done { changed } => {
+                log::debug!(target: "isct_core::sync", "{key} committed, {changed} rows changed");
                 batch.done.insert(key.clone());
             }
             KeyEnd::Failed { kind, .. } | KeyEnd::Refused { kind } => {

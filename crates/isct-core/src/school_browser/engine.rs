@@ -7,7 +7,7 @@ use super::{
     SchoolSessionSnapshot, SchoolSessionState, SchoolSessionStates, SchoolWebResult,
 };
 use crate::{
-    data::{DataStore, WorkspaceChangeSource},
+    data::WorkspaceChangeSource,
     events::CoreEvent,
     lifecycle::SchoolSite,
     ports::EventSink,
@@ -63,7 +63,6 @@ impl<T> Guarded<T> for Mutex<T> {
 }
 
 struct Inner {
-    store: DataStore,
     auth: Arc<SchoolAuthService>,
     events: Arc<dyn EventSink>,
     /// Sign-ins reach the sync planner here.
@@ -135,7 +134,6 @@ struct Listener(Weak<Inner>);
 
 impl SchoolBrowserEngine {
     pub fn new(
-        store: DataStore,
         auth: Arc<SchoolAuthService>,
         events: Arc<dyn EventSink>,
         browser: Arc<dyn SchoolBrowser>,
@@ -146,7 +144,6 @@ impl SchoolBrowserEngine {
         })?;
         let (traces, _) = broadcast::channel(128);
         let inner = Arc::new(Inner {
-            store,
             auth,
             events,
             hints,
