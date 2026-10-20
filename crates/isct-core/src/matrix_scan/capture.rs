@@ -10,6 +10,14 @@ const CAPTURE_LIMIT: Duration = Duration::from_secs(8);
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
 // Three qualified votes are needed; retain room for weak model observations.
 const CAPTURE_TARGET: usize = 5;
+const MIN_CONTRAST: f64 = 12.;
+// A 720p camera can leave a Matrix cell only 12–13 source pixels tall. The
+// 96px rectification lowers its Laplacian score even when the glyph remains
+// readable, so these gates reject blur without requiring a higher-resolution
+// camera than the native shell provides.
+const MIN_SHARPNESS: f64 = 10.;
+const MIN_SOURCE_SIZE: f64 = 10.;
+const MIN_CENTERING: f64 = 0.5;
 
 /// Image capabilities report measurements; core decides admission and retention.
 pub struct MatrixCaptureGlyph {
@@ -180,10 +188,10 @@ impl MatrixCameraScanner {
         }
         if let Some(frame) = frame {
             let usable = |g: &MatrixCaptureGlyph| {
-                g.contrast >= 12.
-                    && g.sharpness >= 60.
-                    && g.source_size >= 14.
-                    && g.centering >= 0.5
+                g.contrast >= MIN_CONTRAST
+                    && g.sharpness >= MIN_SHARPNESS
+                    && g.source_size >= MIN_SOURCE_SIZE
+                    && g.centering >= MIN_CENTERING
             };
             // Empty backgrounds can resemble a grid. Confirm character texture
             // before starting the clock; later admission is independent per cell.
