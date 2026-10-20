@@ -1,6 +1,5 @@
-//! Pure mapping from Moodle results to the raw `LmsPayload` JSON shape that
-//! `school_parser::lms::validate_payload` accepts. No I/O.
-use super::LmsScope;
+//! Pure mapping from Moodle results to the raw per-key shapes that
+//! `school_parser::lms` validates. No I/O.
 use crate::school_parser::lms::{id_of, is_lms_origin, LMS_PATH, LMS_WWWROOT};
 use chrono::{Datelike, FixedOffset, NaiveDate};
 use serde_json::{json, Map, Value};
@@ -40,19 +39,6 @@ pub(crate) fn course_row(course: &Value) -> Value {
     )
 }
 
-pub(crate) fn course_title(course: &Value) -> String {
-    ["fullname", "shortname"]
-        .iter()
-        .find_map(|key| {
-            course
-                .get(*key)
-                .and_then(Value::as_str)
-                .filter(|text| !text.is_empty())
-        })
-        .map(str::to_string)
-        .unwrap_or_else(|| id_of(course.get("id")).unwrap_or(0).to_string())
-}
-
 /// The academic year in a shortname's `[2026]` suffix.
 pub(crate) fn course_year(course: &Value) -> Option<i32> {
     let shortname = course.get("shortname").and_then(Value::as_str)?.trim_end();
@@ -64,47 +50,8 @@ pub(crate) fn course_year(course: &Value) -> Option<i32> {
         .flatten()
 }
 
-/// `2026-3Q`: the year from the shortname, the quarter from the category name.
-pub(crate) fn course_term(course: &Value) -> String {
-    let quarter = id_of(course.get("coursecategory")).filter(|q| (1..=4).contains(q));
-    match (course_year(course), quarter) {
-        (Some(year), Some(quarter)) => format!("{year}-{quarter}Q"),
-        _ => String::new(),
-    }
-}
-
-/// Which courses get their structure and details read.
-pub(crate) fn select_courses<'a>(
-    scope: LmsScope,
-    course: Option<u64>,
-    courses: &'a [Value],
-    current: &HashSet<u64>,
-) -> Vec<&'a Value> {
-    courses
-        .iter()
-        .filter(|row| {
-            let id = id_of(row.get("id")).unwrap_or(0);
-            match (course, scope) {
-                (Some(requested), _) => id == requested,
-                (None, LmsScope::Full) => true,
-                (None, LmsScope::CurrentQuarter) => current.contains(&id),
-                (None, LmsScope::Summary) => false,
-            }
-        })
-        .collect()
-}
-
-/// Activity kinds whose details this pull reads.
-pub(crate) fn detail_modules(scope: LmsScope, course: Option<u64>) -> &'static [&'static str] {
-    if course.is_some() || scope != LmsScope::Summary {
-        &DETAIL_MODULES
-    } else {
-        &["assign"]
-    }
-}
-
-/// Months whose calendars a full pull reads: April to March of every
-/// enrolled academic year, up to today, at most 48.
+/// The `lms.history` months: April to March of every enrolled academic
+/// year, up to today, at most 48.
 pub(crate) fn months_to_read(years: &[i32], today: NaiveDate) -> Vec<(i32, u32)> {
     let mut seen = HashSet::new();
     let mut months = Vec::new();
@@ -274,6 +221,9 @@ pub(crate) struct ModuleInfo {
     pub(crate) name: String,
     pub(crate) uservisible: bool,
     pub(crate) files: Vec<ContentFile>,
+    /// The newest `timemodified` of its contents; 0 when it lists none
+    /// (assignments, forums), so its details cannot be known unchanged.
+    pub(crate) modified: i64,
 }
 
 fn flag(value: Option<&Value>, default: bool) -> bool {
@@ -342,6 +292,11 @@ pub(crate) fn structure_from_contents(contents: &Value) -> Option<(Value, Vec<(u
                     })
                 })
                 .collect();
+            let modified = entries
+                .iter()
+                .filter_map(|entry| entry.get("timemodified").and_then(Value::as_i64))
+                .max()
+                .unwrap_or(0);
             let mut cm = json!({
                 "id": cmid,
                 "name": name,
@@ -353,6 +308,9 @@ pub(crate) fn structure_from_contents(contents: &Value) -> Option<(Value, Vec<(u
             });
             if let Some(url) = module.get("url").and_then(Value::as_str) {
                 cm["url"] = url.into();
+            }
+            if modified > 0 {
+                cm["modified"] = modified.into();
             }
             if let Some(body) = non_empty_html(module.get("description").and_then(Value::as_str)) {
                 cm["bodyHtml"] = body.into();
@@ -379,6 +337,7 @@ pub(crate) fn structure_from_contents(contents: &Value) -> Option<(Value, Vec<(u
                     name: name.to_string(),
                     uservisible,
                     files,
+                    modified,
                 },
             ));
         }
@@ -560,7 +519,7 @@ pub(crate) fn forum_article(discussion: &Value) -> Option<String> {
     Some(out)
 }
 
-/// Teacher text kept per pull: 100,000 characters per body and 3,000,000 in
+/// Teacher text kept per course read: 100,000 characters per body and 3,000,000 in
 /// all, as before. Once spent, bodies are not replaced, so cached ones stay.
 pub(crate) struct BodyBudget(Mutex<usize>);
 

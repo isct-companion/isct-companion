@@ -4,29 +4,24 @@ use super::{
     envelope::{form_fields, has_warnings, rest_result},
     lms_url,
     mapping::{
-        assign_state, attachment_links, detail_modules, folder_tree, forum_article, plain_html,
-        quiz_state, structure_from_contents, ModuleInfo,
+        assign_state, attachment_links, folder_tree, forum_article, plain_html, quiz_state,
+        structure_from_contents, BodyBudget, ModuleInfo, DETAIL_MODULES,
     },
-    part,
-    pull::{CourseRead, Pull, WORKERS},
-    MoodleClient, MoodleError, MoodleFunction,
+    reader::{remove_detail, set_detail, MAX_STATES, WORKERS},
+    KeyError, MoodleClient, MoodleError, MoodleFunction,
 };
 use crate::net::{Body, Host, Limits, NetError, NetRequest};
 use crate::school_auth::MoodleToken;
-use crate::school_parser::lms::id_of;
+use crate::school_parser::lms::{id_of, StoredModule};
 use futures_util::stream::{self, StreamExt};
 use reqwest::Method;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Courses per `*_by_courses` call; keeps each answer well under the cap.
-const COURSE_BATCH: usize = 10;
 /// Forum posts read per course and per forum, as before.
 const FORUM_POSTS_PER_COURSE: usize = 16;
 const FORUM_POSTS_PER_FORUM: usize = 8;
-/// Submission states read per pull.
-const MAX_STATUSES: usize = 320;
 
 pub(super) struct TokenTransport<'a> {
     client: &'a MoodleClient,
@@ -124,31 +119,189 @@ impl<'a> TokenTransport<'a> {
     }
 }
 
-/// `core_course_get_contents`: the full outline with section and module
-/// text, file links and instance ids. Re-read in full on every course read:
-/// only a full read sees new, hidden and removed modules.
-pub(super) async fn read_structure(
-    _pull: &Pull<'_>,
+/// `lms.course/{id}` over REST: `core_course_get_contents` in full on every
+/// read (only a full read sees new, hidden and removed modules), then module
+/// details from the per-kind `*_by_courses` getters and forum discussions.
+///
+/// A getter is called only when one of its kind's visible modules changed:
+/// a module whose content stamp equals the stored one and whose body is
+/// stored keeps that body. Assignments and forums list no contents, so their
+/// details are always read. Any failed request fails the key.
+pub(super) async fn read_course(
     transport: &TokenTransport<'_>,
     course: u64,
-) -> Result<(Value, HashMap<u64, ModuleInfo>), MoodleError> {
+    stored: &HashMap<u64, StoredModule>,
+    budget: &BodyBudget,
+) -> Result<Value, KeyError> {
+    let function = MoodleFunction::CourseContents;
     let contents = transport
-        .call_bulk(MoodleFunction::CourseContents, &json!({"courseid": course}))
-        .await?;
-    let (state, modules) =
-        structure_from_contents(&contents).ok_or(MoodleError::Malformed("course contents"))?;
-    Ok((state, modules.into_iter().collect()))
+        .call_bulk(function, &json!({"courseid": course}))
+        .await
+        .map_err(KeyError::at(function.name()))?;
+    let (mut state, modules) = structure_from_contents(&contents)
+        .ok_or_else(|| KeyError::new(function.name(), MoodleError::Malformed("course contents")))?;
+    let modules: HashMap<u64, ModuleInfo> = modules.into_iter().collect();
+    let unchanged = |cmid: &u64, module: &ModuleInfo| {
+        module.modified > 0
+            && stored
+                .get(cmid)
+                .is_some_and(|known| known.has_body && known.modified == Some(module.modified))
+    };
+    let wanted = |kind: &str| {
+        modules
+            .iter()
+            .any(|(cmid, module)| module.uservisible && module.module == kind && !unchanged(cmid, module))
+    };
+    let ids = json!({"courseids": [course]});
+    let mut bodies: HashMap<u64, String> = HashMap::new();
+    let mut resources: HashMap<u64, String> = HashMap::new();
+    let mut forums: Vec<(u64, u64)> = Vec::new();
+    if wanted("page") {
+        let value = bulk(transport, MoodleFunction::PageGetPagesByCourses, &ids).await?;
+        for page in records(&value, "pages") {
+            if let Some(cmid) = id_of(page.get("coursemodule")) {
+                let content = plain_html(page.get("content").and_then(Value::as_str).unwrap_or(""));
+                bodies.insert(cmid, format!("{}\n{content}", intro(page)));
+            }
+        }
+    }
+    if wanted("resource") {
+        let value = bulk(transport, MoodleFunction::ResourceGetResourcesByCourses, &ids).await?;
+        for resource in records(&value, "resources") {
+            if let Some(cmid) = id_of(resource.get("coursemodule")) {
+                bodies.insert(cmid, intro(resource));
+            }
+        }
+    }
+    if wanted("folder") {
+        let value = bulk(transport, MoodleFunction::FolderGetFoldersByCourses, &ids).await?;
+        for folder in records(&value, "folders") {
+            let Some(cmid) = id_of(folder.get("coursemodule")) else {
+                continue;
+            };
+            let files = modules
+                .get(&cmid)
+                .map(|module| folder_tree(&module.files))
+                .unwrap_or_default();
+            bodies.insert(cmid, format!("{}\n{files}", intro(folder)));
+        }
+    }
+    if wanted("url") {
+        let value = bulk(transport, MoodleFunction::UrlGetUrlsByCourses, &ids).await?;
+        for link in records(&value, "urls") {
+            let Some(cmid) = id_of(link.get("coursemodule")) else {
+                continue;
+            };
+            bodies.insert(cmid, intro(link));
+            if let Some(external) = link
+                .get("externalurl")
+                .and_then(Value::as_str)
+                .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+            {
+                resources.insert(cmid, external.to_string());
+            }
+        }
+    }
+    if wanted("assign") {
+        let value = bulk(transport, MoodleFunction::AssignGetAssignments, &ids).await?;
+        for listed in records(&value, "courses") {
+            for assignment in records(listed, "assignments") {
+                let Some(cmid) = id_of(assignment.get("cmid")) else {
+                    continue;
+                };
+                let attachments = attachment_links(
+                    assignment
+                        .get("introattachments")
+                        .or_else(|| assignment.get("introfiles")),
+                );
+                bodies.insert(cmid, format!("{}{attachments}", intro(assignment)));
+            }
+        }
+    }
+    if wanted("forum") {
+        let function = MoodleFunction::ForumGetForumsByCourses;
+        let value = transport
+            .call_bulk(function, &ids)
+            .await
+            .map_err(KeyError::at(function.name()))?;
+        for forum in value.as_array().into_iter().flatten() {
+            if let (Some(id), Some(cmid)) = (id_of(forum.get("id")), id_of(forum.get("cmid"))) {
+                bodies.insert(cmid, intro(forum));
+                forums.push((id, cmid));
+            }
+        }
+    }
+
+    // Announcements: the newest discussions of each forum, within the
+    // course's share.
+    let mut left = FORUM_POSTS_PER_COURSE;
+    let mut forum_reads = Vec::new();
+    for (forum, cmid) in forums {
+        let count = left.min(FORUM_POSTS_PER_FORUM);
+        left -= count;
+        if count > 0 {
+            forum_reads.push((forum, cmid, count));
+        }
+    }
+    let posts: Vec<Result<(u64, String), KeyError>> = stream::iter(forum_reads)
+        .map(move |(forum, cmid, count)| async move {
+            let function = MoodleFunction::ForumGetForumDiscussions;
+            let args = json!({"forumid": forum, "sortorder": -1, "page": 0, "perpage": count});
+            let value = transport
+                .call(function, &args)
+                .await
+                .map_err(KeyError::at(function.name()))?;
+            if has_warnings(&value) {
+                return Err(KeyError::new(function.name(), MoodleError::Partial));
+            }
+            let articles: Vec<String> = records(&value, "discussions")
+                .take(count)
+                .filter_map(forum_article)
+                .collect();
+            Ok::<_, KeyError>((cmid, articles.join("\n")))
+        })
+        .buffer_unordered(WORKERS)
+        .collect()
+        .await;
+    for post in posts {
+        let (cmid, articles) = post?;
+        bodies.entry(cmid).or_default().push_str(&articles);
+    }
+
+    // Bodies and links onto the outline. An unchanged module whose getter
+    // was not called keeps its stored body: the outline's description must
+    // not replace it.
+    for (cmid, module) in &modules {
+        if !(module.uservisible && DETAIL_MODULES.contains(&module.module.as_str())) {
+            continue;
+        }
+        match bodies.get(cmid).and_then(|body| budget.take(body)) {
+            Some(body) => set_detail(&mut state, "cm", *cmid, "bodyHtml", body.into()),
+            None if unchanged(cmid, module) => remove_detail(&mut state, "cm", *cmid, "bodyHtml"),
+            None => {}
+        }
+        if let Some(resource) = resources.get(cmid) {
+            set_detail(&mut state, "cm", *cmid, "resourceUrl", resource.clone().into());
+        }
+    }
+    Ok(state)
 }
 
-/// What one batch getter contributes, keyed by cmid.
-#[derive(Default)]
-struct Details {
-    bodies: HashMap<u64, String>,
-    resources: HashMap<u64, String>,
-    /// cmid → quiz record (grade, decimal points) for the quiz state.
-    quizzes: HashMap<u64, Value>,
-    /// forum id → (cmid, course id)
-    forums: Vec<(u64, u64, u64)>,
+/// One `*_by_courses` getter for a single course. Warnings other than an
+/// inaccessible course mean its answer may be partial, which fails the key.
+async fn bulk(
+    transport: &TokenTransport<'_>,
+    function: MoodleFunction,
+    ids: &Value,
+) -> Result<Value, KeyError> {
+    let value = transport
+        .call_bulk(function, ids)
+        .await
+        .map_err(KeyError::at(function.name()))?;
+    if has_warnings(&value) {
+        return Err(KeyError::new(function.name(), MoodleError::Partial));
+    }
+    Ok(value)
 }
 
 fn records<'v>(value: &'v Value, key: &str) -> impl Iterator<Item = &'v Value> {
@@ -163,357 +316,78 @@ fn intro(record: &Value) -> String {
     plain_html(record.get("intro").and_then(Value::as_str).unwrap_or(""))
 }
 
-/// Module details from the per-kind `*_by_courses` getters, forum posts from
-/// `mod_forum_get_forum_discussions`, and own work from the submission and
-/// attempt functions.
-pub(super) async fn read_details(
-    pull: &Pull<'_>,
+/// One assignment or quiz whose own state `lms.assign` reads.
+enum Work {
+    Assign { cmid: u64, id: u64 },
+    Quiz { cmid: u64, id: u64, quiz: Value },
+}
+
+/// `lms.assign/{id}` over REST: every assignment and quiz of the course, from
+/// their `*_by_courses` getters, then each one's submission status or
+/// attempts and best grade. Any failed request fails the key.
+pub(super) async fn read_assign(
     transport: &TokenTransport<'_>,
-    reads: &mut [CourseRead],
-    statuses: &mut Vec<Value>,
-) {
-    let kinds = detail_modules(pull.scope, pull.course);
-    let course_ids: Vec<u64> = reads
-        .iter()
-        .filter(|read| read.state.is_some())
-        .map(|read| read.id)
-        .collect();
-    let has = |kind: &str| {
-        reads.iter().any(|read| {
-            read.modules
-                .values()
-                .any(|module| module.module == kind && module.uservisible)
-        })
-    };
-    let module_of: HashMap<u64, (u64, ModuleInfo)> = reads
-        .iter()
-        .flat_map(|read| {
-            read.modules
-                .iter()
-                .map(move |(cmid, module)| (*cmid, (read.id, module.clone())))
-        })
-        .collect();
-    let detail_total = module_of
-        .values()
-        .filter(|(_, module)| module.uservisible && kinds.contains(&module.module.as_str()))
-        .count();
-    let mut detail_done = 0;
-    let mut details = Details::default();
-    let wanted = |kind: &str| kinds.contains(&kind) && has(kind);
-    let fail = |error: MoodleError| {
-        log::warn!(target: "isct_core::net::moodle", "LMS detail read failed: {error}");
-        pull.miss(part::MATERIAL_DETAIL);
-    };
-    for chunk in course_ids.chunks(COURSE_BATCH) {
-        let ids = json!({"courseids": chunk});
-        let mut covered = 0;
-        if wanted("page") {
-            match transport
-                .call_bulk(MoodleFunction::PageGetPagesByCourses, &ids)
-                .await
-            {
-                Ok(value) => {
-                    if has_warnings(&value) {
-                        pull.miss(part::MATERIAL_DETAIL);
-                    }
-                    for page in records(&value, "pages") {
-                        let Some(cmid) = id_of(page.get("coursemodule")) else {
-                            continue;
-                        };
-                        let content =
-                            plain_html(page.get("content").and_then(Value::as_str).unwrap_or(""));
-                        details
-                            .bodies
-                            .insert(cmid, format!("{}\n{content}", intro(page)));
-                        covered += 1;
-                    }
-                }
-                Err(error) => fail(error),
+    course: u64,
+) -> Result<Vec<Value>, KeyError> {
+    let ids = json!({"courseids": [course]});
+    let assignments = bulk(transport, MoodleFunction::AssignGetAssignments, &ids).await?;
+    let quizzes = bulk(transport, MoodleFunction::QuizGetQuizzesByCourses, &ids).await?;
+    let mut work = Vec::new();
+    for listed in records(&assignments, "courses") {
+        for assignment in records(listed, "assignments") {
+            if let (Some(cmid), Some(id)) = (id_of(assignment.get("cmid")), id_of(assignment.get("id"))) {
+                work.push(Work::Assign { cmid, id });
             }
-        }
-        if wanted("resource") {
-            match transport
-                .call_bulk(MoodleFunction::ResourceGetResourcesByCourses, &ids)
-                .await
-            {
-                Ok(value) => {
-                    if has_warnings(&value) {
-                        pull.miss(part::MATERIAL_DETAIL);
-                    }
-                    for resource in records(&value, "resources") {
-                        if let Some(cmid) = id_of(resource.get("coursemodule")) {
-                            details.bodies.insert(cmid, intro(resource));
-                            covered += 1;
-                        }
-                    }
-                }
-                Err(error) => fail(error),
-            }
-        }
-        if wanted("folder") {
-            match transport
-                .call_bulk(MoodleFunction::FolderGetFoldersByCourses, &ids)
-                .await
-            {
-                Ok(value) => {
-                    if has_warnings(&value) {
-                        pull.miss(part::MATERIAL_DETAIL);
-                    }
-                    for folder in records(&value, "folders") {
-                        let Some(cmid) = id_of(folder.get("coursemodule")) else {
-                            continue;
-                        };
-                        let files = module_of
-                            .get(&cmid)
-                            .map(|(_, module)| folder_tree(&module.files))
-                            .unwrap_or_default();
-                        details
-                            .bodies
-                            .insert(cmid, format!("{}\n{files}", intro(folder)));
-                        covered += 1;
-                    }
-                }
-                Err(error) => fail(error),
-            }
-        }
-        if wanted("url") {
-            match transport
-                .call_bulk(MoodleFunction::UrlGetUrlsByCourses, &ids)
-                .await
-            {
-                Ok(value) => {
-                    if has_warnings(&value) {
-                        pull.miss(part::MATERIAL_DETAIL);
-                    }
-                    for link in records(&value, "urls") {
-                        let Some(cmid) = id_of(link.get("coursemodule")) else {
-                            continue;
-                        };
-                        details.bodies.insert(cmid, intro(link));
-                        if let Some(external) = link
-                            .get("externalurl")
-                            .and_then(Value::as_str)
-                            .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
-                        {
-                            details.resources.insert(cmid, external.to_string());
-                        }
-                        covered += 1;
-                    }
-                }
-                Err(error) => fail(error),
-            }
-        }
-        if wanted("assign") {
-            match transport
-                .call_bulk(MoodleFunction::AssignGetAssignments, &ids)
-                .await
-            {
-                Ok(value) => {
-                    if has_warnings(&value) {
-                        pull.miss(part::MATERIAL_DETAIL);
-                    }
-                    for course in records(&value, "courses") {
-                        for assignment in records(course, "assignments") {
-                            let Some(cmid) = id_of(assignment.get("cmid")) else {
-                                continue;
-                            };
-                            let attachments = attachment_links(
-                                assignment
-                                    .get("introattachments")
-                                    .or_else(|| assignment.get("introfiles")),
-                            );
-                            details
-                                .bodies
-                                .insert(cmid, format!("{}{attachments}", intro(assignment)));
-                            covered += 1;
-                        }
-                    }
-                }
-                Err(error) => fail(error),
-            }
-        }
-        if has("quiz") {
-            match transport
-                .call_bulk(MoodleFunction::QuizGetQuizzesByCourses, &ids)
-                .await
-            {
-                Ok(value) => {
-                    for quiz in records(&value, "quizzes") {
-                        if let Some(cmid) = id_of(quiz.get("coursemodule")) {
-                            details.quizzes.insert(cmid, quiz.clone());
-                        }
-                    }
-                }
-                Err(error) => fail(error),
-            }
-        }
-        if wanted("forum") {
-            match transport
-                .call_bulk(MoodleFunction::ForumGetForumsByCourses, &ids)
-                .await
-            {
-                Ok(value) => {
-                    for forum in value.as_array().into_iter().flatten() {
-                        let (Some(id), Some(cmid), Some(course)) = (
-                            id_of(forum.get("id")),
-                            id_of(forum.get("cmid")),
-                            id_of(forum.get("course")),
-                        ) else {
-                            continue;
-                        };
-                        details.bodies.insert(cmid, intro(forum));
-                        details.forums.push((id, cmid, course));
-                    }
-                }
-                Err(error) => fail(error),
-            }
-        }
-        detail_done = (detail_done + covered).min(detail_total);
-        let course = reads.iter().find(|read| chunk.contains(&read.id));
-        pull.report(
-            "material",
-            detail_done,
-            detail_total,
-            course.map(|read| (read.id, read.title.as_str(), read.term.as_str())),
-            "",
-        );
-    }
-
-    // Announcements: the newest discussions of each forum, within a
-    // per-course share.
-    let mut share: HashMap<u64, usize> = HashMap::new();
-    let mut forum_reads = Vec::new();
-    for (forum, cmid, course) in details.forums.drain(..) {
-        let left = share.entry(course).or_insert(FORUM_POSTS_PER_COURSE);
-        let count = (*left).min(FORUM_POSTS_PER_FORUM);
-        *left -= count;
-        if count > 0 {
-            forum_reads.push((forum, cmid, count));
         }
     }
-    let posts: Vec<(u64, Option<String>)> = stream::iter(forum_reads)
-        .map(move |(forum, cmid, count)| async move {
-            let args = json!({"forumid": forum, "sortorder": -1, "page": 0, "perpage": count});
-            match transport
-                .call(MoodleFunction::ForumGetForumDiscussions, &args)
-                .await
-            {
-                Ok(value) => {
-                    if has_warnings(&value) {
-                        pull.miss(part::MATERIAL_DETAIL);
-                    }
-                    let articles: Vec<String> = records(&value, "discussions")
-                        .take(count)
-                        .filter_map(forum_article)
-                        .collect();
-                    (cmid, Some(articles.join("\n")))
-                }
-                Err(error) => {
-                    log::warn!(target: "isct_core::net::moodle", "LMS forum read failed: {error}");
-                    pull.miss(part::MATERIAL_DETAIL);
-                    (cmid, None)
-                }
-            }
-        })
-        .buffer_unordered(WORKERS)
-        .collect()
-        .await;
-    for (cmid, articles) in posts {
-        if let Some(articles) = articles {
-            let body = details.bodies.entry(cmid).or_default();
-            body.push_str(&articles);
-        }
-    }
-
-    // Write bodies and links onto the state, cached ones stay where none came.
-    for read in reads.iter_mut() {
-        for cmid in read.modules.keys().copied().collect::<Vec<_>>() {
-            let visible = read.modules.get(&cmid).is_some_and(|module| {
-                module.uservisible && kinds.contains(&module.module.as_str())
+    for quiz in records(&quizzes, "quizzes") {
+        if let (Some(cmid), Some(id)) = (id_of(quiz.get("coursemodule")), id_of(quiz.get("id"))) {
+            work.push(Work::Quiz {
+                cmid,
+                id,
+                quiz: quiz.clone(),
             });
-            if !visible {
-                continue;
-            }
-            if let Some(body) = details
-                .bodies
-                .get(&cmid)
-                .and_then(|body| pull.budget.take(body))
-            {
-                read.set_cm(cmid, "bodyHtml", body.into());
-            }
-            if let Some(resource) = details.resources.get(&cmid) {
-                read.set_cm(cmid, "resourceUrl", resource.clone().into());
-            }
         }
     }
-
-    // Own work: every assignment and quiz of the read courses.
-    let work: Vec<(u64, u64, ModuleInfo)> = reads
-        .iter()
-        .flat_map(|read| {
-            read.modules
-                .iter()
-                .filter(|(_, module)| matches!(module.module.as_str(), "assign" | "quiz"))
-                .map(move |(cmid, module)| (read.id, *cmid, module.clone()))
-        })
-        .filter(|(_, _, module)| module.instance > 0)
-        .take(MAX_STATUSES)
-        .collect();
-    let total = work.len();
-    let done = AtomicUsize::new(0);
-    let done_ref = &done;
-    let quizzes = &details.quizzes;
-    let titles: HashMap<u64, (String, String)> = reads
-        .iter()
-        .map(|read| (read.id, (read.title.clone(), read.term.clone())))
-        .collect();
-    let titles = &titles;
-    let rows: Vec<Option<Value>> = stream::iter(work)
-        .map(move |(course, cmid, module)| async move {
-            let row = match module.module.as_str() {
-                "assign" => transport
-                    .call(
-                        MoodleFunction::AssignGetSubmissionStatus,
-                        &json!({"assignid": module.instance}),
-                    )
-                    .await
-                    .map(|status| assign_state(cmid, &status)),
-                _ => {
+    if work.len() > MAX_STATES {
+        return Err(KeyError::new(
+            MoodleFunction::AssignGetSubmissionStatus.name(),
+            MoodleError::Malformed("assignment limit"),
+        ));
+    }
+    let rows: Vec<Result<Option<Value>, KeyError>> = stream::iter(work)
+        .map(move |work| async move {
+            match work {
+                Work::Assign { cmid, id } => {
+                    let function = MoodleFunction::AssignGetSubmissionStatus;
+                    let status = transport
+                        .call(function, &json!({"assignid": id}))
+                        .await
+                        .map_err(KeyError::at(function.name()))?;
+                    Ok::<_, KeyError>(assign_state(cmid, &status))
+                }
+                Work::Quiz { cmid, id, quiz } => {
+                    let function = MoodleFunction::QuizGetUserAttempts;
                     let attempts = transport
                         .call(
-                            MoodleFunction::QuizGetUserAttempts,
-                            &json!({"quizid": module.instance, "status": "all", "includepreviews": false}),
+                            function,
+                            &json!({"quizid": id, "status": "all", "includepreviews": false}),
                         )
-                        .await;
+                        .await
+                        .map_err(KeyError::at(function.name()))?;
+                    let function = MoodleFunction::QuizGetUserBestGrade;
                     let best = transport
-                        .call(
-                            MoodleFunction::QuizGetUserBestGrade,
-                            &json!({"quizid": module.instance}),
-                        )
-                        .await;
-                    attempts.and_then(|attempts| {
-                        best.map(|best| Some(quiz_state(cmid, &attempts, &best, quizzes.get(&cmid))))
-                    })
+                        .call(function, &json!({"quizid": id}))
+                        .await
+                        .map_err(KeyError::at(function.name()))?;
+                    Ok(Some(quiz_state(cmid, &attempts, &best, Some(&quiz))))
                 }
-            };
-            let row = row.unwrap_or_else(|error| {
-                log::warn!(target: "isct_core::net::moodle", "LMS submission read failed: {error}");
-                pull.miss(part::ASSIGN_STATUS);
-                None
-            });
-            let completed = done_ref.fetch_add(1, Ordering::SeqCst) + 1;
-            let (title, term) = titles.get(&course).cloned().unwrap_or_default();
-            pull.report(
-                "assignment",
-                completed,
-                total,
-                Some((course, title.as_str(), term.as_str())),
-                &module.name,
-            );
-            row
+            }
         })
         .buffer_unordered(WORKERS)
         .collect()
         .await;
-    statuses.extend(rows.into_iter().flatten());
+    rows.into_iter()
+        .filter_map(Result::transpose)
+        .collect()
 }

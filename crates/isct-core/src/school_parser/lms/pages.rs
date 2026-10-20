@@ -168,7 +168,7 @@ fn course_link_id(link: ElementRef<'_>, page_url: &Url) -> Option<u64> {
 }
 
 /// The grid of the selected year and quarter, in the raw shape
-/// `validate_payload` accepts: `{year, quarter, slots:[{courseId, day,
+/// `validate_enrolment` accepts: `{year, quarter, slots:[{courseId, day,
 /// period}], unscheduled}`. `None` when the block is missing or is not the
 /// shape this reader knows; one unknown row rejects the whole grid.
 pub fn read_timetable(html: &str, page_url: &Url) -> Option<Value> {

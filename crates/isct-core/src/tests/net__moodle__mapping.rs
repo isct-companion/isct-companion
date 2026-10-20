@@ -37,7 +37,9 @@ fn course_contents_become_the_stored_outline() {
              "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=101",
              "visible": 1, "uservisible": true,
              "contents": [{"type": "file", "filename": "notes.pdf", "filepath": "/",
-                           "fileurl": format!("{WS_FILE}?forcedownload=1")}]},
+                           "fileurl": format!("{WS_FILE}?forcedownload=1"), "timemodified": 1_700_000_000},
+                          {"type": "file", "filename": "old.pdf", "filepath": "/",
+                           "fileurl": format!("{WS_FILE}?forcedownload=1"), "timemodified": 1_600_000_000}]},
             {"id": 102, "instance": 8, "modname": "url", "name": "Reading",
              "url": "https://lms.s.isct.ac.jp/2025/mod/url/view.php?id=102",
              "visible": 1, "uservisible": true,
@@ -70,8 +72,14 @@ fn course_contents_become_the_stored_outline() {
     assert_eq!(cms[2]["visible"], false);
     assert_eq!(cms[2]["uservisible"], false);
 
+    // The newest file time is the module's content stamp; a module without
+    // contents has none, so its details are never taken as unchanged.
+    assert_eq!(cms[0]["modified"], 1_700_000_000);
+    assert!(cms[2].get("modified").is_none());
+
     let (_, resource) = modules.iter().find(|(cmid, _)| *cmid == 101).unwrap();
     assert_eq!(resource.instance, 7);
+    assert_eq!(resource.modified, 1_700_000_000);
     assert_eq!(resource.files[0].name, "notes.pdf");
     assert_eq!(resource.files[0].url, format!("{FILE}?forcedownload=1"));
     assert!(structure_from_contents(&json!({"exception": "x"})).is_none());
@@ -176,27 +184,7 @@ fn quiz_state_needs_a_finished_attempt_and_a_shown_grade() {
 }
 
 #[test]
-fn scopes_pick_the_courses_whose_content_is_read() {
-    let courses = [json!({"id": 1}), json!({"id": 2}), json!({"id": "3"})];
-    let current: HashSet<u64> = [2, 3].into_iter().collect();
-    let ids = |scope, course| {
-        select_courses(scope, course, &courses, &current)
-            .iter()
-            .map(|row| id_of(row.get("id")).unwrap())
-            .collect::<Vec<_>>()
-    };
-    // A named course wins over the scope, including a full one.
-    assert_eq!(ids(LmsScope::Full, Some(2)), [2]);
-    assert_eq!(ids(LmsScope::Summary, Some(1)), [1]);
-    assert_eq!(ids(LmsScope::Full, None), [1, 2, 3]);
-    assert_eq!(ids(LmsScope::CurrentQuarter, None), [2, 3]);
-    assert!(ids(LmsScope::Summary, None).is_empty());
-    assert_eq!(detail_modules(LmsScope::Summary, None), ["assign"]);
-    assert_eq!(detail_modules(LmsScope::Summary, Some(1)).len(), 6);
-}
-
-#[test]
-fn a_full_pull_reads_the_academic_years_months_up_to_today() {
+fn history_months_cover_the_enrolled_academic_years_up_to_today() {
     let today = NaiveDate::from_ymd_opt(2026, 6, 15).unwrap();
     assert_eq!(
         months_to_read(&[2026, 2025, 2026], today),
@@ -242,7 +230,7 @@ fn announcements_carry_subject_date_body_and_attachments() {
 }
 
 #[test]
-fn body_budget_bounds_each_body_and_the_whole_pull() {
+fn body_budget_bounds_each_body_and_the_whole_course_read() {
     let budget = BodyBudget::new();
     let long = "あ".repeat(150_000);
     let first = budget.take(&long).unwrap();
