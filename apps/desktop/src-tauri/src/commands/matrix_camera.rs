@@ -117,6 +117,7 @@ pub(crate) async fn capture_matrix_camera_frame(
                             sharpness: g.sharpness,
                             source_size: g.source_size,
                             centering: g.centering,
+                            glare: g.glare,
                         })
                         .collect(),
                 }),

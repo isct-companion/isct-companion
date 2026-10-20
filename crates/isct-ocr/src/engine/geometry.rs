@@ -643,6 +643,15 @@ pub fn locate(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
 /// Camera admission requires a verified projective grid, including the label
 /// strip. Header fits remain useful when the outer contour is interrupted.
 pub(super) fn locate_capture(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
+    locate_capture_original(image).or_else(|| {
+        // Keep the established detector first. Very dark JPEG quantization can
+        // miss its absolute thresholds; the fallback changes illumination only
+        // and still has to pass the same header/grid validation.
+        locate_capture_original(&super::illumination::geometry_image(image))
+    })
+}
+
+fn locate_capture_original(image: &RgbImage) -> Option<Vec<[Point; 4]>> {
     if let Some(cells) = super::contours::locate(image) {
         let width = (cells[9][1].x - cells[0][0].x).hypot(cells[9][1].y - cells[0][0].y);
         let height = (cells[69][2].x - cells[9][1].x).hypot(cells[69][2].y - cells[9][1].y);

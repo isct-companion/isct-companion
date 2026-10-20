@@ -51,6 +51,7 @@ pub struct MatrixCaptureGlyph {
     pub sharpness: f64,
     pub source_size: f64,
     pub centering: f64,
+    pub glare: f64,
 }
 pub struct MatrixCaptureFrame {
     pub quads: Vec<[[f64; 2]; 4]>,

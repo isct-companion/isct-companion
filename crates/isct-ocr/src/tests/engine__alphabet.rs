@@ -162,3 +162,61 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
     drop(guard);
     assert!(capture_matrix_frame(b"invalid image").is_err());
 }
+
+#[test]
+fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper() {
+    let fixture = image::load_from_memory(include_bytes!("fixtures/matrix-card.jpg"))
+        .unwrap()
+        .to_rgb8();
+    let mut dark = fixture.clone();
+    for pixel in dark.pixels_mut() {
+        for value in &mut pixel.0 {
+            *value = (*value as f64 * 0.15).round() as u8;
+        }
+    }
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    dark.write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
+    assert!(
+        captured
+            .glyphs
+            .iter()
+            .filter(|g| g.contrast >= 12.
+                && g.sharpness >= 10.
+                && g.source_size >= 10.
+                && g.centering >= 0.5)
+            .count()
+            >= 35
+    );
+    let model = MatrixAlphabetService::default();
+    for (batch_index, glyphs) in captured.glyphs.chunks(10).enumerate() {
+        let inputs = glyphs.iter().map(|g| g.gray.clone()).collect::<Vec<_>>();
+        for (offset, reading) in model.recognize(&inputs).unwrap().iter().enumerate() {
+            let cell = batch_index * 10 + offset;
+            let expected = ((b'A' + (cell % 26) as u8) as char).to_string();
+            assert_eq!(reading.text, expected, "dim cell {cell}");
+            assert!(reading.confidence >= 0.8, "dim cell {cell}: {reading:?}");
+        }
+    }
+
+    let white = GrayImage::from_fn(96, 96, |x, y| {
+        image::Luma([if (43..53).contains(&x) && (20..76).contains(&y) {
+            20
+        } else {
+            255
+        }])
+    });
+    let light = illumination::analyze(&white);
+    assert_eq!(light.glare, 0.);
+    let glare = GrayImage::from_fn(96, 96, |x, y| {
+        image::Luma([if x > 48 {
+            255
+        } else if (38..48).contains(&x) && (20..76).contains(&y) {
+            20
+        } else {
+            160
+        }])
+    });
+    assert!(illumination::analyze(&glare).glare > 0.12);
+}

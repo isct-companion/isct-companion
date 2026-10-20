@@ -774,6 +774,21 @@ checks:
           and the alignment of recognition boxes over a physical card require
           real hardware. Scripted frames cannot validate these surfaces.
       - action: |
+          Start fresh camera sessions with a readable card under backlighting,
+          uneven shadow and a moving reflection. Confirm the first red outline
+          appears and acquisition starts. Move the card slightly so the reflection
+          leaves each cell; unobscured cells must retain their progress. Hold a
+          bright reflection over the same letters until the deadline and check
+          that erased strokes remain marked for review rather than accepted.
+          Include a white card background and modest hand movement.
+          After closing each session, inspect core.geometryFrames,
+          core.admissionRejections and core.glareRejections in
+          matrix-scan/latest.json, then compare all accepted letters with the card.
+        reason: |
+          Real camera exposure, sensor noise and specular reflections can differ
+          from synthetic lighting. Hardware is needed to check initial admission,
+          false glare on white paper and recovery as a reflection moves.
+      - action: |
           Cancel and reopen the camera, then background the app during capture.
           Repeat and background it during processing: acquisition stops in the
           former case, but the latter may finish without reopening the camera.

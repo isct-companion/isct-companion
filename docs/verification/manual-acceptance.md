@@ -929,7 +929,20 @@ camera or a photo of the card.
    - *Why:* OS camera permissions, native WebView video capture, optical focus,
      and the alignment of recognition boxes over a physical card require
      real hardware. Scripted frames cannot validate these surfaces.
-3. Cancel and reopen the camera, then background the app during capture.
+3. Start fresh camera sessions with a readable card under backlighting,
+   uneven shadow and a moving reflection. Confirm the first red outline
+   appears and acquisition starts. Move the card slightly so the reflection
+   leaves each cell; unobscured cells must retain their progress. Hold a
+   bright reflection over the same letters until the deadline and check
+   that erased strokes remain marked for review rather than accepted.
+   Include a white card background and modest hand movement.
+   After closing each session, inspect core.geometryFrames,
+   core.admissionRejections and core.glareRejections in
+   matrix-scan/latest.json, then compare all accepted letters with the card.
+   - *Why:* Real camera exposure, sensor noise and specular reflections can differ
+     from synthetic lighting. Hardware is needed to check initial admission,
+     false glare on white paper and recovery as a reflection moves.
+4. Cancel and reopen the camera, then background the app during capture.
    Repeat and background it during processing: acquisition stops in the
    former case, but the latter may finish without reopening the camera.
    Cancel processing and confirm late results do not overwrite the editor.
@@ -937,11 +950,11 @@ camera or a photo of the card.
    - *Why:* Verify the camera indicator switches off and permissions can recover
      in the signed native app; headless tests cannot observe OS resource
      release or the native privacy prompt.
-4. Review the recognised cells and compare them with the card.
+5. Review the recognised cells and compare them with the card.
    - *Why:* The contract is "no wrong accepted cell", not "most cells right". A
      misread cell that is accepted is worse than a rejected one, so the
      comparison has to be cell by cell.
-5. Correct a cell and save.
+6. Correct a cell and save.
    - *Why:* Confirms the manual correction path, which the fixtures never take.
 
 **Where to look**

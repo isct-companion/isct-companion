@@ -4,6 +4,7 @@ pub use alphabet::{capture_matrix_frame, MatrixAlphabetService};
 #[cfg(debug_assertions)]
 mod debug_crops;
 mod geometry;
+mod illumination;
 mod preprocess;
 
 #[cfg(test)]

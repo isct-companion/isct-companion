@@ -1,4 +1,4 @@
-use super::{geometry, model_error, normalized_quads, prepare_images};
+use super::{geometry, illumination, model_error, normalized_quads, prepare_images};
 use crate::{MatrixCaptureFrame, MatrixCaptureGlyph, MatrixOcrError, Recognition};
 use image::{imageops::FilterType, GrayImage, Rgb, RgbImage};
 use imageproc::geometric_transformations::{warp_into, Border, Interpolation, Projection};
@@ -57,7 +57,13 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
         .iter()
         .map(|&quad| {
             let gray = rectified_gray(&image, quad)?;
-            let measured = image::imageops::resize(&gray, 32, 32, FilterType::Triangle);
+            let light = illumination::analyze(&gray);
+            let measured = image::imageops::resize(
+                light.corrected.as_ref().unwrap_or(&gray),
+                32,
+                32,
+                FilterType::Triangle,
+            );
             let mean = measured.pixels().map(|p| p[0] as f64).sum::<f64>() / 1024.;
             let contrast = (measured
                 .pixels()
@@ -79,7 +85,7 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
             let border = deviation(
                 (0..32)
                     .flat_map(|y| (0..32).map(move |x| (x, y)))
-                    .filter(|&(x, y)| x < 4 || x >= 28 || y < 4 || y >= 28)
+                    .filter(|&(x, y)| !(4..28).contains(&x) || !(4..28).contains(&y))
                     .map(|(x, y)| measured.get_pixel(x, y)[0] as f64)
                     .collect(),
             );
@@ -103,6 +109,7 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
                 sharpness,
                 source_size,
                 centering,
+                glare: light.glare,
             })
         })
         .collect::<Result<Vec<_>, MatrixOcrError>>()?;
@@ -123,6 +130,33 @@ pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOc
 pub struct MatrixAlphabetService(Arc<Mutex<Option<Session>>>);
 impl MatrixAlphabetService {
     pub fn recognize(&self, images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
+        let mut raw = self.recognize_raw(images)?;
+        let corrections = images
+            .iter()
+            .enumerate()
+            .filter_map(|(i, pixels)| {
+                let gray = GrayImage::from_raw(SIZE as u32, SIZE as u32, pixels.clone())?;
+                illumination::analyze(&gray)
+                    .corrected
+                    .map(|image| (i, image.into_raw()))
+            })
+            .collect::<Vec<_>>();
+        let (positions, images): (Vec<_>, Vec<_>) = corrections.into_iter().unzip();
+        for (i, corrected) in positions.into_iter().zip(self.recognize_raw(&images)?) {
+            // Two renderings of one observation remain ONE vote. A confident
+            // disagreement is review evidence, never a second independent vote.
+            if raw[i].confidence >= 0.8
+                && corrected.confidence >= 0.8
+                && raw[i].text != corrected.text
+            {
+                raw[i].confidence = 0.79;
+            } else if corrected.confidence > raw[i].confidence {
+                raw[i] = corrected;
+            }
+        }
+        Ok(raw)
+    }
+    fn recognize_raw(&self, images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
         if images.is_empty() {
             return Ok(vec![]);
         }
@@ -177,7 +211,9 @@ impl MatrixAlphabetService {
         {
             return Err(MatrixOcrError::Model("Invalid alphabet output.".into()));
         }
-        data.chunks_exact(27)
+        data.as_chunks::<27>()
+            .0
+            .iter()
             .map(|row| {
                 let (winner, &max) = row
                     .iter()

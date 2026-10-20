@@ -1,0 +1,332 @@
+{
+  "manifest": {
+    "version": 3,
+    "fixtureSha256": "75bb8d9f9ff24bd0ab52f180d54264f35981161e7656f47f1aec380a26e01894",
+    "fps": 5,
+    "framesPerCondition": 45,
+    "conditions": [
+      "clean",
+      "dim",
+      "very-dim",
+      "small-dim",
+      "shadow",
+      "dim-rotated",
+      "glare-static",
+      "glare-moving",
+      "glare-stripe",
+      "blur",
+      "tilted",
+      "blank"
+    ]
+  },
+  "baselineCommit": "07bc59244f6bf1b050d4dcb9dd3952ce41074037",
+  "modelSha256": "592d61903de1f04b48079c44be5c247cd2f16bd323b23fb539b2c7392bfc5177",
+  "baselineBinarySha256": "fcf95c32de78b905692420e0472b8ef08fd35609a394415010bf071d44e61c75",
+  "correctedBinarySha256": "5269ea7e443b9f9ae8aa872236be412b296df804f1ab65e3e2c9dc7fa9ffdfa4",
+  "results": [
+    {
+      "condition": "clean",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 800.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 37.0585,
+        "processingMs": 521.2485409999999
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 800.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 39.851917,
+        "processingMs": 454.17929200000003
+      }
+    },
+    {
+      "condition": "dim",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 8000.0,
+        "correct": 52,
+        "stableCells": 52,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 53.684875,
+        "processingMs": 393.539208
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 800.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 60.481708000000005,
+        "processingMs": 866.6221670000001
+      }
+    },
+    {
+      "condition": "very-dim",
+      "baseline": {
+        "outcome": "notAdmitted",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": null,
+        "captureMs": null,
+        "correct": 0,
+        "stableCells": 0,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": null,
+        "processingMs": null
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 800.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 64.894084,
+        "processingMs": 870.498458
+      }
+    },
+    {
+      "condition": "small-dim",
+      "baseline": {
+        "outcome": "notAdmitted",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": null,
+        "captureMs": null,
+        "correct": 0,
+        "stableCells": 0,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": null,
+        "processingMs": null
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 800.0,
+        "correct": 70,
+        "stableCells": 69,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 47.437792,
+        "processingMs": 877.045125
+      }
+    },
+    {
+      "condition": "shadow",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 8000.0,
+        "correct": 48,
+        "stableCells": 48,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 55.249333,
+        "processingMs": 363.890208
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 800.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 60.3825,
+        "processingMs": 658.778375
+      }
+    },
+    {
+      "condition": "dim-rotated",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 8000.0,
+        "correct": 58,
+        "stableCells": 58,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 63.891124999999995,
+        "processingMs": 417.63270800000004
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 6000.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 71.056292,
+        "processingMs": 1043.712792
+      }
+    },
+    {
+      "condition": "glare-static",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 8000.0,
+        "correct": 64,
+        "stableCells": 64,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 39.222708000000004,
+        "processingMs": 481.723083
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 8000.0,
+        "correct": 64,
+        "stableCells": 64,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 41.58175,
+        "processingMs": 529.453833
+      }
+    },
+    {
+      "condition": "glare-moving",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 1600.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 40.428625000000004,
+        "processingMs": 524.38225
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 1600.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 42.808375000000005,
+        "processingMs": 603.442208
+      }
+    },
+    {
+      "condition": "glare-stripe",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 8000.0,
+        "correct": 52,
+        "stableCells": 55,
+        "wrongStableCells": [
+          35,
+          36,
+          37
+        ],
+        "captureFrameMsMedian": 57.655917,
+        "processingMs": 492.242916
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 8000.0,
+        "correct": 51,
+        "stableCells": 51,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 59.370125,
+        "processingMs": 390.72483400000004
+      }
+    },
+    {
+      "condition": "blur",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 800.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 38.534082999999995,
+        "processingMs": 439.349959
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 800.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 39.739167,
+        "processingMs": 441.711417
+      }
+    },
+    {
+      "condition": "tilted",
+      "baseline": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 2400.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 37.301125,
+        "processingMs": 524.991875
+      },
+      "corrected": {
+        "outcome": "processed",
+        "firstGeometryIndex": 0,
+        "firstMatrixIndex": 0,
+        "captureMs": 2400.0,
+        "correct": 70,
+        "stableCells": 70,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": 44.332542000000004,
+        "processingMs": 527.306875
+      }
+    },
+    {
+      "condition": "blank",
+      "baseline": {
+        "outcome": "noGeometry",
+        "firstGeometryIndex": null,
+        "firstMatrixIndex": null,
+        "captureMs": null,
+        "correct": 0,
+        "stableCells": 0,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": null,
+        "processingMs": null
+      },
+      "corrected": {
+        "outcome": "noGeometry",
+        "firstGeometryIndex": null,
+        "firstMatrixIndex": null,
+        "captureMs": null,
+        "correct": 0,
+        "stableCells": 0,
+        "wrongStableCells": [],
+        "captureFrameMsMedian": null,
+        "processingMs": null
+      }
+    }
+  ]
+}
