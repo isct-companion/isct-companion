@@ -1,6 +1,7 @@
 //! Shell contracts for finder projections; catalog rows keep their stored shape.
-use super::{Condition, Value};
+use super::{Condition, Recommendation, Value};
 use crate::contracts::{ClassFormat, CreditSplit, Localized, Quarter};
+use crate::study_profile::CourseEligibility;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 #[cfg(feature = "ts")]
@@ -53,13 +54,31 @@ pub struct FinderSchedule {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub room: Option<Localized>,
 }
+/// One search result with what its row shows: whether it is on the
+/// timetable or clashes with it, what it would replace, its credits, its
+/// eligibility when that is not plainly allowed, and its 教務 recommendation.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
-pub struct FinderRow {
-    /// Shared with the cached catalog; serializes as the row itself.
+#[serde(rename_all = "camelCase")]
+pub struct FinderRowView {
+    // Shared with the cached catalog; serializes as the row itself.
     #[cfg_attr(feature = "ts", ts(type = "FinderCourse"))]
     pub course: Arc<Value>,
+    /// The labels of the either-or conditions this row met.
     pub matched: Vec<String>,
+    /// Its code is on the term's timetable.
+    pub placed: bool,
+    /// One of its weekly slots overlaps the timetable.
+    pub clash: bool,
+    /// The placed plan courses adding it would replace.
+    pub replaces: Vec<String>,
+    pub credits: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub eligibility: Option<CourseEligibility>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub recommended: Option<Recommendation>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -76,8 +95,7 @@ pub enum Suggestion {
         count: i64,
     },
     Course {
-        #[cfg_attr(feature = "ts", ts(type = "FinderCourse"))]
-        course: Value,
+        row: FinderRowView,
     },
     Text {
         key: String,

@@ -337,7 +337,7 @@ impl Core {
     pub fn finder_query(
         &self,
         request: crate::course_query::FinderRequest,
-    ) -> Result<crate::course_query::FinderView, ReadModelError> {
+    ) -> Result<crate::course_query::FinderPage, ReadModelError> {
         // Borrowed, not copied: each keystroke reads the cached snapshot.
         let (parts, content_revision) = self
             .store
@@ -349,7 +349,7 @@ impl Core {
             .map_err(crate::catalog::CatalogError::from)?;
         Ok(self
             .finder
-            .view(&self.store, &parts.0, &content_revision, &options, request)?)
+            .page(&self.store, &parts.0, &content_revision, &options, request)?)
     }
 
     pub async fn reminder_tick(

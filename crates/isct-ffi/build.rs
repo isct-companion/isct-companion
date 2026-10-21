@@ -183,7 +183,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }) =>
                 {
                     if name == "course_query/contracts.rs"
-                        && item.ident != "FinderRow"
+                        && item.ident != "FinderRowView"
                         && item.ident != "OfficialSelection"
                     {
                         continue;

@@ -39,26 +39,17 @@ fn first_year_eligibility_uses_the_planned_year_and_keeps_all_course_search_visi
         keys: keys.into_iter().map(str::to_string).collect(),
         input: String::new(),
         action,
+        offset: 0,
+        limit: 100,
     };
 
-    let default = finder_view(
+    let default = finder_page(
         &workspace,
         offerings.clone(),
         request("2026-3Q", vec!["3Q"], false, None),
     )
     .unwrap();
-    assert_eq!(
-        default.ineligible_ids,
-        vec!["200", "300", "humanities", "law"]
-    );
-    assert_eq!(
-        default.eligibility["100"].status,
-        CourseEligibilityStatus::Allowed
-    );
-    assert_eq!(
-        default.eligibility["humanities"].reason,
-        crate::study_profile::CourseEligibilityReason::UndergraduateFirstYearUpperLevel
-    );
+    assert_eq!((default.stored, default.ineligible), (5, 4));
     assert_eq!(
         default
             .rows
@@ -67,22 +58,57 @@ fn first_year_eligibility_uses_the_planned_year_and_keeps_all_course_search_visi
             .collect::<Vec<_>>(),
         vec!["100"]
     );
+    // A plainly allowed row carries no eligibility, and its guide group.
+    assert!(default.rows[0].eligibility.is_none());
+    assert_eq!(
+        default.rows[0]
+            .recommended
+            .as_ref()
+            .map(|r| r.group.as_str()),
+        Some("A")
+    );
     assert!(default.context.recommended.contains_key("CSC.T101"));
     assert!(!default.context.recommended.contains_key("CSC.T201"));
 
-    let all = finder_view(
+    let all = finder_page(
         &workspace,
         offerings.clone(),
         request("2026-3Q", vec!["3Q"], true, None),
     )
     .unwrap();
+    assert_eq!(all.total, 5, "explicit all-course search stays visible");
+    let humanities = all
+        .rows
+        .iter()
+        .find(|row| text(&row.course, "id") == "humanities")
+        .and_then(|row| row.eligibility.clone())
+        .unwrap();
     assert_eq!(
-        all.rows.len(),
-        5,
-        "explicit all-course search stays visible"
+        humanities.reason,
+        crate::study_profile::CourseEligibilityReason::UndergraduateFirstYearUpperLevel
+    );
+    // Rows come a page at a time; the count is of every match.
+    let second = finder_page(
+        &workspace,
+        offerings.clone(),
+        FinderRequest {
+            offset: 3,
+            limit: 1,
+            ..request("2026-3Q", vec!["3Q"], true, None)
+        },
+    )
+    .unwrap();
+    assert_eq!((second.total, second.offset), (5, 3));
+    assert_eq!(
+        second
+            .rows
+            .iter()
+            .map(|row| text(&row.course, "id"))
+            .collect::<Vec<_>>(),
+        [text(&all.rows[3].course, "id")]
     );
 
-    let pasted = finder_view(
+    let pasted = finder_page(
         &workspace,
         offerings.clone(),
         request(
@@ -95,29 +121,36 @@ fn first_year_eligibility_uses_the_planned_year_and_keeps_all_course_search_visi
         ),
     )
     .unwrap();
-    assert_eq!(pasted.pasted_ids, vec!["100"]);
+    assert_eq!(
+        pasted
+            .pasted
+            .iter()
+            .map(|row| text(&row.course, "id"))
+            .collect::<Vec<_>>(),
+        vec!["100"]
+    );
     assert_eq!(
         pasted.ineligible_codes,
         vec!["CSC.T201", "LAH.T209-01", "LAW.W221-12", "CSC.T301"]
     );
 
-    let second_year = finder_view(
+    let second_year = finder_page(
         &workspace,
         offerings.clone(),
         request("2027-3Q", vec![], false, None),
     )
     .unwrap();
-    assert!(second_year.ineligible_ids.is_empty());
+    assert_eq!(second_year.ineligible, 0);
 
     let mut unknown = workspace;
     unknown["academicProfile"] = json!({});
     let unknown =
-        finder_view(&unknown, offerings, request("2026-3Q", vec![], false, None)).unwrap();
-    assert!(unknown.ineligible_ids.is_empty());
-    assert!(unknown
+        finder_page(&unknown, offerings, request("2026-3Q", vec![], false, None)).unwrap();
+    assert_eq!(unknown.ineligible, 0);
+    assert!(unknown.rows.iter().all(|row| row
         .eligibility
-        .values()
-        .all(|result| result.status == CourseEligibilityStatus::Unknown));
+        .as_ref()
+        .is_some_and(|result| result.status == CourseEligibilityStatus::Unknown)));
 }
 
 #[test]
@@ -182,7 +215,7 @@ fn a_three_q_four_q_course_keeps_its_periods_busy_in_four_q() {
             {"id":"plan-4q","termId":"2026-4Q","courseId":"multi"}
         ]
     });
-    let view = finder_view(
+    let view = finder_page(
         &workspace,
         vec![],
         serde_json::from_value(json!({"year":2026,"term":"2026-4Q"})).unwrap(),
@@ -221,6 +254,26 @@ fn matches_original_typescript_finder_traces() {
         .map(IndexedCourse::new)
         .collect();
     let courses: Vec<_> = indexed.iter().collect();
+    // The traces predate row views: a course suggestion was the course itself.
+    let row = |c: &IndexedCourse| FinderRowView {
+        course: c.course.clone(),
+        matched: Vec::new(),
+        placed: false,
+        clash: false,
+        replaces: Vec::new(),
+        credits: 0.,
+        eligibility: None,
+        recommended: None,
+    };
+    let traced = |suggestions: Vec<Suggestion>| {
+        suggestions
+            .into_iter()
+            .map(|suggestion| match suggestion {
+                Suggestion::Course { row } => json!({"kind":"course","course":row.course}),
+                other => json!(other),
+            })
+            .collect::<Vec<_>>()
+    };
     for (index, case) in fixture["cases"].as_array().unwrap().iter().enumerate() {
         let mut ctx = ctx.clone();
         let input = &case["input"];
@@ -233,9 +286,18 @@ fn matches_original_typescript_finder_traces() {
         let actual = match text(case, "kind") {
             "condition" => serde_json::to_value(condition(text(input, "word"), &ctx)).unwrap(),
             "factors" => serde_json::to_value(factors).unwrap(),
-            "run" => json!(run(&courses, &factors.factors, &ctx, "")),
-            "suggest" => json!(suggest(text(input, "input"), &keys, &courses, &ctx)),
-            "live" => json!(live_text(text(input, "input"), &keys, &courses, &ctx)),
+            "run" => json!(run(&courses, &factors.factors, &ctx, "")
+                .into_iter()
+                .map(|m| json!({"course":m.course.course,"matched":m.matched}))
+                .collect::<Vec<_>>()),
+            "suggest" => json!(traced(suggest(
+                text(input, "input"),
+                &keys,
+                &courses,
+                &ctx,
+                &row
+            ))),
+            "live" => json!(live_text(text(input, "input"), &keys, &courses, &ctx, &row)),
             other => panic!("unknown trace {other}"),
         };
         assert_eq!(actual, case["expected"], "case {index}: {}", case["input"]);
@@ -262,10 +324,9 @@ fn teacher_room_and_overlap_filters_run_on_the_stored_catalog() {
     ];
     let courses = courses.map(IndexedCourse::new);
     let rows = run(&courses.iter().collect::<Vec<_>>(), &factors, &context, "");
+    let rows: Vec<_> = rows.iter().map(|m| &m.course.course).collect();
     assert_eq!(
-        rows.iter()
-            .map(|row| text(&row.course, "id"))
-            .collect::<Vec<_>>(),
+        rows.iter().map(|row| text(row, "id")).collect::<Vec<_>>(),
         vec!["match"]
     );
 }
@@ -285,7 +346,7 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
         .unwrap()
     };
     let courses = vec![eligibility_offering("fresh", "CSC.T401")];
-    let view = finder_view(
+    let view = finder_page(
         &workspace,
         courses.clone(),
         request(json!(["400", "研究関連科目"]), "400"),
@@ -300,18 +361,18 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
         json!({"id":"graduate_language","value":"live-en","label":"英語","family":"language"}),
         json!({"id":"future_filter","value":"live-new","label":"新しい授業形式","family":"other"}),
     ]);
-    let categories = finder_view(&workspace, courses.clone(), request(json!([]), "")).unwrap();
+    let categories = finder_page(&workspace, courses.clone(), request(json!([]), "")).unwrap();
     assert!(categories.suggestions.iter().any(
         |suggestion| matches!(suggestion, Suggestion::Category { key, .. } if key == "level:")
     ));
-    let levels = finder_view(&workspace, courses.clone(), request(json!([]), "level:6")).unwrap();
+    let levels = finder_page(&workspace, courses.clone(), request(json!([]), "level:6")).unwrap();
     assert!(levels.live.is_empty());
     assert_eq!(levels.suggestions.len(), 1);
     assert!(
         matches!(&levels.suggestions[0], Suggestion::Condition {condition, ..} if condition.label == "600")
     );
     assert!(
-        finder_view(&workspace, courses.clone(), request(json!([]), "level:500"))
+        finder_page(&workspace, courses.clone(), request(json!([]), "level:500"))
             .unwrap()
             .suggestions
             .is_empty()
@@ -319,10 +380,10 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
     // Switching form metadata removes unsupported graduate suggestions, without
     // hardcoding an undergraduate/graduate range in the product vocabulary.
     workspace["kyomuSearchOptions"][0]["label"] = json!("100");
-    let view = finder_view(&workspace, courses, request(json!([]), "400")).unwrap();
+    let view = finder_page(&workspace, courses, request(json!([]), "400")).unwrap();
     assert!(!view.suggestions.iter().any(
         |s| matches!(s, Suggestion::Condition{condition,..} if condition.r#type == "official-level")
     ));
     assert!(view.context.recommended.is_empty());
-    assert!(finder_view(&workspace, vec![], request(json!(["!100"]), "")).is_err());
+    assert!(finder_page(&workspace, vec![], request(json!(["!100"]), "")).is_err());
 }

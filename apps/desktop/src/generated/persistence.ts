@@ -1732,12 +1732,33 @@ export type FinderSchedule = {
   room?: Localized;
 };
 
-export type FinderRow = { course: FinderCourse; matched: Array<string> };
+export type FinderRowView = {
+  course: FinderCourse;
+  /**
+   * The labels of the either-or conditions this row met.
+   */
+  matched: Array<string>;
+  /**
+   * Its code is on the term's timetable.
+   */
+  placed: boolean;
+  /**
+   * One of its weekly slots overlaps the timetable.
+   */
+  clash: boolean;
+  /**
+   * The placed plan courses adding it would replace.
+   */
+  replaces: Array<string>;
+  credits: number;
+  eligibility?: CourseEligibility;
+  recommended?: Recommendation;
+};
 
 export type Suggestion =
   | { kind: "category"; key: string; label: string }
   | { kind: "condition"; key: string; condition: Condition; count: number }
-  | { kind: "course"; course: FinderCourse }
+  | { kind: "course"; row: FinderRowView }
   | { kind: "text"; key: string; count: number };
 
 export type OfficialSelection = { id: string; value: string };
@@ -1792,6 +1813,14 @@ export type FinderRequest = {
   keys: Array<string>;
   input: string;
   action: FinderAction | null;
+  /**
+   * The first matching row to return.
+   */
+  offset: number;
+  /**
+   * How many matching rows to return from `offset`.
+   */
+  limit: number;
 };
 
 export type FinderAction =
@@ -1799,27 +1828,39 @@ export type FinderAction =
   | { kind: "toggleTime"; key: string; append: boolean }
   | { kind: "paste"; text: string };
 
-export type FinderView = {
+export type FinderPage = {
   context: FinderContext;
-  courses: FinderCourse[];
   factors: Array<Factor>;
   duplicates: number;
   keys: Array<string>;
-  rows: Array<FinderRow>;
-  suggestions: Array<Suggestion>;
   live: string;
-  clashes: Array<string>;
-  ineligibleIds: Array<string>;
-  eligibility: { [key in string]?: CourseEligibility };
-  replacements: { [key in string]?: Array<string> };
-  credits: { [key in string]?: number };
-  onTimetable: Array<string>;
+  suggestions: Array<Suggestion>;
+  /**
+   * Matching rows in all.
+   */
+  total: number;
+  offset: number;
+  rows: Array<FinderRowView>;
+  /**
+   * Stored rows of the year's catalog.
+   */
+  stored: number;
+  /**
+   * Stored rows this study profile cannot newly plan.
+   */
+  ineligible: number;
   activeSlots: Array<string>;
+  /**
+   * Codes on the term's timetable.
+   */
+  placedCodes: Array<string>;
   commitKey: string | null;
   pasteHandled: boolean;
-  pastedIds: Array<string>;
+  pasted: Array<FinderRowView>;
   missingCodes: Array<string>;
   ineligibleCodes: Array<string>;
+  catalogVersion: number;
+  contentRevision: string;
 };
 
 export type MatrixPoint = { x: number; y: number };

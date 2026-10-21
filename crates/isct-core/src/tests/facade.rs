@@ -445,23 +445,26 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
         core.finder_query(serde_json::from_value(json!({"year":2026,"term":"2026-3Q"})).unwrap())
             .unwrap()
     };
-    let ids = |view: &crate::course_query::FinderView| {
-        view.courses
+    let ids = |page: &crate::course_query::FinderPage| {
+        page.rows
             .iter()
-            .map(|course| course["id"].as_str().unwrap_or_default().to_string())
+            .map(|row| row.course["id"].as_str().unwrap_or_default().to_string())
             .collect::<Vec<_>>()
     };
 
     store
         .catalog_upsert_offerings(&[offering("202600001", "CSC.T101")])
         .unwrap();
-    assert_eq!(ids(&query()), ["202600001"]);
+    let first = query();
+    assert_eq!(ids(&first), ["202600001"]);
     store
         .catalog_upsert_offerings(&[offering("202600002", "CSC.T201")])
         .unwrap();
-    let view = query();
-    assert_eq!(ids(&view), ["202600001", "202600002"]);
-    assert!(view.ineligible_ids.is_empty());
+    let page = query();
+    assert_eq!(ids(&page), ["202600001", "202600002"]);
+    assert_eq!(page.ineligible, 0);
+    // The page names the data it was read from, so a shell can tell it is newer.
+    assert!(page.catalog_version > first.catalog_version);
 
     store
         .put_workspace_setting(
@@ -471,10 +474,13 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
                 "entryGrade":1,"admittedTerm":"2026-1Q"}]}),
         )
         .unwrap();
-    assert_eq!(query().ineligible_ids, ["202600002"]);
+    let before = page.content_revision;
+    let page = query();
+    assert_eq!(page.ineligible, 1);
+    assert_ne!(page.content_revision, before);
 
     store.rebuild_cache().unwrap();
-    assert!(query().courses.is_empty());
+    assert_eq!(query().stored, 0);
 }
 
 /// A sync commits key after key. The shell hears the first commit at once
