@@ -397,7 +397,9 @@ fn cancellation_releases_the_service_for_a_later_scan() {
         Err(MatrixOcrError::InvalidImage(_))
     ));
     let mut png = Cursor::new(Vec::new());
-    card().write_to(&mut png, image::ImageFormat::Png).unwrap();
+    alternating_matrix()
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
     assert!(matches!(
         service.scan_frame_with_geometry(png.get_ref(), |_| false, |_| true),
         Err(MatrixOcrError::Cancelled)
@@ -488,7 +490,11 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
         .unwrap();
     for (i, cell) in full.cells.iter().enumerate() {
         let expected = ((b'A' + (i % 26) as u8) as char).to_string();
-        assert_eq!(cell.text, expected, "live cell {i}: {cell:?}");
+        assert_eq!(
+            cell.text, expected,
+            "live cell {i}: {cell:?}, quad {:?}",
+            full.quads[i]
+        );
         assert!(
             cell.confidence >= 0.8,
             "live cell {i} did not qualify: {cell:?}"
