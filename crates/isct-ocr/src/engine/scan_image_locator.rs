@@ -527,7 +527,7 @@ fn header_grid_threshold(image: &GrayImage, band: Band) -> Option<u8> {
     }
     let header = median(values.iter().map(|pair| pair.0).collect());
     let paper = median(values.iter().map(|pair| pair.1).collect());
-    (paper - header >= 25.).then_some(((header + paper) * 0.5).clamp(60., 180.) as u8)
+    (paper - header >= 12.).then_some(((header + paper) * 0.5).clamp(8., 220.) as u8)
 }
 
 fn horizontal_grid_lines(image: &GrayImage, band: Band, threshold: u8) -> Vec<f64> {
