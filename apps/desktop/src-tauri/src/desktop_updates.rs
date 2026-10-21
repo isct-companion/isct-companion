@@ -82,6 +82,11 @@ impl UpdateSource {
     }
 }
 fn public_key(app: &AppHandle) -> Option<String> {
+    // `tauri dev` runs a bare binary from target/, not an installed bundle: the
+    // macOS installer would replace that binary's folder. Link to releases.
+    if cfg!(dev) {
+        return None;
+    }
     app.config()
         .plugins
         .0
@@ -266,9 +271,6 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
             .as_str()
             .ok_or("Release version is missing.")?
             .to_string();
-        if release["draft"] == true || release["prerelease"] == true {
-            return Err("The release channel is not stable.".into());
-        }
         let newer = isct_core::app_updates::newer_release(
             &app.package_info().version.to_string(),
             &version,

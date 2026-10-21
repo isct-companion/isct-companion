@@ -9,8 +9,15 @@ pub enum AppUpdateError {
 }
 
 pub fn newer_release(current: &str, available: &str) -> Result<bool, AppUpdateError> {
-    Ok(semver::Version::parse(available.trim_start_matches('v'))?
-        > semver::Version::parse(current.trim_start_matches('v'))?)
+    let mut current = semver::Version::parse(current.trim_start_matches('v'))?;
+    // A development build (`1.1.3-dev.<stamp>`) is built after the release it
+    // names, so it compares as that release rather than sorting below it.
+    let pre = current.pre.as_str();
+    if let Some(dev) = pre.split('.').position(|id| id == "dev") {
+        let base = pre.split('.').take(dev).collect::<Vec<_>>().join(".");
+        current.pre = semver::Prerelease::new(&base)?;
+    }
+    Ok(semver::Version::parse(available.trim_start_matches('v'))? > current)
 }
 
 pub fn automatic_updates(workspace: &Value) -> bool {

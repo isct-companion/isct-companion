@@ -86,9 +86,12 @@ fn shows_empty_notice(document: &Html, text: &str) -> bool {
 /// Whether the grid shows less than the school holds, by its rows, its
 /// pager and its page-size control.
 fn grid_truncated(grid: ElementRef<'_>, page_size: Option<ElementRef<'_>>, rows: usize) -> bool {
-    let next_link = select(grid, "a")
-        .into_iter()
-        .any(|link| matches!(clean_text(link).as_str(), ">>" | "次へ" | "次のページ" | "Next"));
+    let next_link = select(grid, "a").into_iter().any(|link| {
+        matches!(
+            clean_text(link).as_str(),
+            ">>" | "次へ" | "次のページ" | "Next"
+        )
+    });
     // A drop-down still short of its largest size means rows are on other
     // pages (the postback did not take effect).
     let shrunk = page_size.is_some_and(|size| {

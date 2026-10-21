@@ -58,18 +58,22 @@ define_class!(
     }
 );
 
-const UNBUNDLED: &str = "Notifications need the app bundle; this build runs unbundled.";
+pub(crate) const UNBUNDLED: &str =
+    "Open the installed IsctCompanion.app to enable notifications. This development process cannot request macOS notification permission.";
+
+pub(crate) fn available() -> bool {
+    NSBundle::mainBundle()
+        .bundlePath()
+        .to_string()
+        .ends_with(".app")
+}
 
 /// The notification center, or None when the process was not launched from an
 /// app bundle (the bare `tauri dev` binary). There `currentNotificationCenter`
 /// raises an Objective-C exception, which unwinds into Rust and kills the
 /// process, so every call goes through here.
 fn center() -> Option<Retained<UNUserNotificationCenter>> {
-    let bundled = NSBundle::mainBundle()
-        .bundlePath()
-        .to_string()
-        .ends_with(".app");
-    bundled.then(UNUserNotificationCenter::currentNotificationCenter)
+    available().then(UNUserNotificationCenter::currentNotificationCenter)
 }
 
 /// Install the foreground presenter once, on the main thread at startup. The
@@ -103,41 +107,48 @@ unsafe fn error_text(error: *mut NSError) -> Option<String> {
 // object is held across an await: they are not Send.
 
 /// The real authorization status: `granted`, `denied` or `default` (never asked).
-pub(crate) async fn permission() -> &'static str {
-    permission_request().await.unwrap_or("default")
+pub(crate) async fn permission() -> Result<&'static str, String> {
+    permission_request()
+        .await
+        .map_err(|_| "notification permission could not be read".to_string())?
 }
 
-fn permission_request() -> oneshot::Receiver<&'static str> {
-    let (send, rx) = once::<&'static str>();
+fn permission_request() -> oneshot::Receiver<Result<&'static str, String>> {
+    let (send, rx) = once::<Result<&'static str, String>>();
     let Some(center) = center() else {
-        send("denied");
+        send(Err(UNBUNDLED.into()));
         return rx;
     };
     let callback = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
         let status = unsafe { settings.as_ref() }.authorizationStatus();
-        send(match status {
+        send(Ok(match status {
             UNAuthorizationStatus::Authorized
             | UNAuthorizationStatus::Provisional
             | UNAuthorizationStatus::Ephemeral => "granted",
             UNAuthorizationStatus::Denied => "denied",
             _ => "default",
-        });
+        }));
     });
     center.getNotificationSettingsWithCompletionHandler(&callback);
     rx
 }
 
 /// Shows the system prompt the first time; afterwards macOS answers from the
-/// user's choice in System Settings without asking again. When notifications
-/// are switched off there, macOS returns an error instead of asking; that is
-/// the "denied" state the settings page explains, not a failure.
+/// user's choice in System Settings without asking again. Only a real Denied
+/// status is a refusal; an unbundled process or an API error is not permission.
 pub(crate) async fn request_permission() -> Result<&'static str, String> {
+    match permission().await? {
+        "granted" => return Ok("granted"),
+        "denied" => return Ok("denied"),
+        _ => {}
+    }
     match authorization_request().await {
-        Ok(Ok(true)) => Ok("granted"),
-        Ok(Ok(false)) | Ok(Err(_)) => Ok(match permission().await {
-            "granted" => "granted",
-            _ => "denied",
-        }),
+        Ok(Ok(_)) => permission().await,
+        Ok(Err(error)) => match permission().await? {
+            "denied" => Ok("denied"),
+            "granted" => Ok("granted"),
+            _ => Err(error),
+        },
         Err(_) => Err("notification permission could not be requested".into()),
     }
 }

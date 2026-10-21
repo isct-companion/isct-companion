@@ -63,11 +63,14 @@ export function MatrixCamera({
       (failure) => setError(failure.message),
     );
   }, [attempt, video]);
+  // Activity hiding detaches video refs and restarts the capture effect.
+  // Keep the preview mounted while native recognition finishes.
   return (
     <>
       <Modal
         opened={!processing}
         keepMounted
+        keepMountedMode="display-none"
         onClose={onClose}
         title={t("Scan Matrix with camera")}
         size="xl"

@@ -78,7 +78,7 @@ impl LmsSession {
     ) -> Result<String, NetError> {
         match Host::of(url) {
             Some(Host::Moodle) => self.lms_cookie_header(port, url).await,
-            Some(host @ (Host::Kyomu | Host::GetAccess)) => {
+            Some(host @ (Host::Kyomu | Host::GetAccess | Host::ScienceAccount)) => {
                 session_header(host, &port.cookies(url)?)
             }
             _ => Err(NetError::Invalid("not a school sign-in origin".into())),

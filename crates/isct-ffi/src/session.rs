@@ -676,12 +676,13 @@ async fn wake_services(i: &Arc<Inner>) -> Result<(), SdkError> {
         .wake(isct_core::facade::WakeServices {
             scheduler: services(i)?,
             cloud: i.cloud().ok().map(|(_, services)| services.clone()),
-            reminders: i.notifications.as_ref().map(|sink| {
-                isct_core::facade::ReminderWake {
+            reminders: i
+                .notifications
+                .as_ref()
+                .map(|sink| isct_core::facade::ReminderWake {
                     sink: Arc::new(Notifications(sink.clone())),
                     now: chrono::Utc::now().fixed_offset(),
-                }
-            }),
+                }),
         })
         .await;
     report.runtime.map_err(runtime_error)?;

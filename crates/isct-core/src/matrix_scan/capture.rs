@@ -18,6 +18,7 @@ const MIN_CONTRAST: f64 = 12.;
 const MIN_SHARPNESS: f64 = 10.;
 const MIN_SOURCE_SIZE: f64 = 10.;
 const MIN_CENTERING: f64 = 0.5;
+const MAX_GLARE: f64 = 0.12;
 
 /// Image capabilities report measurements; core decides admission and retention.
 pub struct MatrixCaptureGlyph {
@@ -26,6 +27,7 @@ pub struct MatrixCaptureGlyph {
     pub sharpness: f64,
     pub source_size: f64,
     pub centering: f64,
+    pub glare: f64,
 }
 pub struct MatrixCaptureFrame {
     pub quads: Vec<[MatrixPoint; 4]>,
@@ -64,6 +66,9 @@ pub struct MatrixCameraDiagnostics {
     pub stable_cells: usize,
     pub completed_samples: usize,
     pub total_samples: usize,
+    pub geometry_frames: usize,
+    pub admission_rejections: usize,
+    pub glare_rejections: Vec<usize>,
 }
 pub struct MatrixCameraBatch {
     revision: usize,
@@ -89,6 +94,9 @@ struct Acquisition {
     total: usize,
     revision: usize,
     evidence: Vec<CellEvidence>,
+    geometry_frames: usize,
+    admission_rejections: usize,
+    glare_rejections: Vec<usize>,
 }
 impl Default for Acquisition {
     fn default() -> Self {
@@ -107,6 +115,9 @@ impl Default for Acquisition {
             total: 0,
             revision: 0,
             evidence: vec![CellEvidence::default(); CELLS],
+            geometry_frames: 0,
+            admission_rejections: 0,
+            glare_rejections: vec![0; CELLS],
         }
     }
 }
@@ -167,6 +178,7 @@ impl MatrixCameraScanner {
                 || frame.glyphs.iter().any(|g| {
                     g.gray.len() != GRAY_PIXELS
                         || !(0. ..=1.).contains(&g.centering)
+                        || !(0. ..=1.).contains(&g.glare)
                         || [g.contrast, g.sharpness, g.source_size, g.centering]
                             .iter()
                             .any(|v| !v.is_finite() || *v < 0.)
@@ -187,6 +199,7 @@ impl MatrixCameraScanner {
             return Ok(session.snapshot(now));
         }
         if let Some(frame) = frame {
+            session.geometry_frames += 1;
             let usable = |g: &MatrixCaptureGlyph| {
                 g.contrast >= MIN_CONTRAST
                     && g.sharpness >= MIN_SHARPNESS
@@ -198,11 +211,16 @@ impl MatrixCameraScanner {
             if session.first_matrix.is_none()
                 && frame.glyphs.iter().filter(|g| usable(g)).count() < CELLS / 2
             {
+                session.admission_rejections += 1;
                 return Ok(session.snapshot(now));
             }
             session.first_matrix.get_or_insert(now);
             session.bounds = Some(outline(&frame.quads)?.bounds);
             for (i, glyph) in frame.glyphs.into_iter().enumerate() {
+                if glyph.glare > MAX_GLARE {
+                    session.glare_rejections[i] += 1;
+                    continue;
+                }
                 if !usable(&glyph)
                     || session.last_samples[i]
                         .is_some_and(|last| now.duration_since(last) < SAMPLE_INTERVAL)
@@ -214,7 +232,7 @@ impl MatrixCameraScanner {
                 pool.push(Candidate {
                     // A cropped grid edge is sharp but belongs outside the
                     // glyph's center. Prefer centered texture over such edges.
-                    quality: glyph.sharpness.sqrt() * glyph.centering.powi(4),
+                    quality: glyph.sharpness.sqrt() * glyph.centering.powi(4) * (1. - glyph.glare),
                     gray: glyph.gray,
                 });
                 pool.sort_by(|a, b| b.quality.total_cmp(&a.quality));
@@ -310,6 +328,9 @@ impl MatrixCameraScanner {
             stable_cells: snapshot.cells.iter().filter(|c| c.stable).count(),
             completed_samples: snapshot.completed_samples,
             total_samples: session.total,
+            geometry_frames: session.geometry_frames,
+            admission_rejections: session.admission_rejections,
+            glare_rejections: session.glare_rejections.clone(),
         })
     }
 }

@@ -159,10 +159,19 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
         f.session.mutate(mutation).unwrap().await_result().await,
         Err(SdkError::Conflict { .. })
     ));
+    // Independent sync progress may arrive after the mutation's event; a
+    // rejected write must emit no additional workspace change.
     assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(20), events.next())
-            .await
-            .is_err()
+        tokio::time::timeout(std::time::Duration::from_millis(20), async {
+            loop {
+                let StreamUpdate::Event { event } = events.next().await.unwrap() else {
+                    panic!("event stream ended")
+                };
+                assert_ne!(event.name, "workspace-changed");
+            }
+        })
+        .await
+        .is_err()
     );
     let result = f
         .session

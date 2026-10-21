@@ -179,8 +179,7 @@ pub(crate) fn resolve_course_id(
     academic_year: i32,
     offering_id: Option<&str>,
 ) -> Result<String, DataError> {
-    if !matches!(provider, "lms" | "kyomu" | "manual") || external_id.trim().is_empty()
-    {
+    if !matches!(provider, "lms" | "kyomu" | "manual") || external_id.trim().is_empty() {
         return Err("invalid course identity source".into());
     }
     let stored: Option<String> = transaction

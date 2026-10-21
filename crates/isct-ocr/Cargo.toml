@@ -8,6 +8,15 @@ description = "Optional matrix-card OCR for IsctCompanion"
 [features]
 default = ["onnx"]
 onnx = ["dep:base64", "dep:image", "dep:imageproc", "dep:ort", "dep:serde_json"]
+training-tools = ["onnx"]
+
+[[example]]
+name = "alphabet_prepare"
+required-features = ["training-tools"]
+
+[[example]]
+name = "matrix_dataset"
+required-features = ["training-tools"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -241,6 +241,8 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         };
       case "runtime_capabilities":
         return options.capabilities ?? {};
+      case "notification_permission":
+        return core.workspace.settings.notifications.localPermission;
       case "school_credential_status":
         return options.credentialStatus ?? emptyCredentialStatus();
       case "sync_snapshot":

@@ -167,8 +167,11 @@ impl Core {
         device: Option<Arc<dyn ResetDevice>>,
     ) -> Result<Flight, ResetError> {
         let mut slot = self.reset_lease.0.lock().map_err(|_| ResetError::Stopped)?;
-        // A finished flight whose callers all stopped waiting is stale.
-        if let Some((running, flight)) = slot.as_ref().filter(|(_, flight)| flight.peek().is_none())
+        // Poll once: if every caller left, the owned task can be finished
+        // while the shared future has never observed its result.
+        if let Some((running, flight)) = slot
+            .as_ref()
+            .filter(|(_, flight)| flight.clone().now_or_never().is_none())
         {
             return if *running == scope {
                 Ok(flight.clone())

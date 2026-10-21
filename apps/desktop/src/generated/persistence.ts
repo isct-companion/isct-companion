@@ -1886,6 +1886,14 @@ export type OtpImportAccount = {
   setup: string;
 };
 
+export type SchoolOtpSetup = {
+  registered: boolean;
+  /**
+   * Registered accounts go to settings only after reset confirmation.
+   */
+  url: string;
+};
+
 export const COURSE_FILE_POLICY: CourseFilePolicy = {
   autoDownloadLimitMb: {
     default: 20,

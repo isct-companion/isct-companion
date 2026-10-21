@@ -9,13 +9,10 @@ import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type {
   SchoolPageAvailability,
+  SchoolOtpSetup,
   WorkspaceChange,
 } from "../generated/persistence";
-import {
-  isSyncSnapshot,
-  type SyncHint,
-  type SyncSnapshot,
-} from "./sync";
+import { isSyncSnapshot, type SyncHint, type SyncSnapshot } from "./sync";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop";
@@ -232,6 +229,7 @@ export type NativeCapabilitySnapshot = {
   schoolImport: boolean;
   schoolWeb: boolean;
   notifications: boolean;
+  notificationUnavailableReason?: string | null;
   backgroundSchedule: boolean;
   cloudSync: boolean;
   matrixOcr: boolean;
@@ -378,11 +376,17 @@ export interface DesktopBridge {
   bootstrapReminders(fired: unknown): Promise<boolean>;
   notify(title: string, body: string): Promise<boolean>;
   requestNotificationPermission(): Promise<NotificationPermission>;
+  getNotificationPermission(): Promise<NotificationPermission>;
+  openNotificationSettings(): Promise<void>;
   runScheduledTask(id: string): Promise<string>;
   onWorkspaceChanged(
     callback: (event: WorkspaceChangedEvent) => void,
   ): Promise<() => void>;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
+  beginSchoolOtpSetup(): Promise<number>;
+  cancelSchoolOtpSetup(operationId: number): Promise<void>;
+  schoolOtpSetup(operationId: number): Promise<SchoolOtpSetup>;
+  completeSchoolOtpSetup(operationId: number, reset: boolean): Promise<void>;
   saveSchoolCredentials(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -580,6 +584,14 @@ export function createTauriDesktopBridge(
         );
       return value;
     },
+    getNotificationPermission: async () => {
+      const value = await invokeCommand("notification_permission");
+      if (!matchesNotificationPermission(value))
+        throw new Error("notification_permission returned an invalid result.");
+      return value;
+    },
+    openNotificationSettings: () =>
+      invokeCommand<void>("open_notification_settings"),
     runScheduledTask: (id) => invokeCommand("run_scheduled_task", { id }),
     onWorkspaceChanged: async (callback) => {
       const unlisten = await listen<unknown>("workspace-changed", (event) => {
@@ -602,6 +614,22 @@ export function createTauriDesktopBridge(
       return () => quietly(unlisten);
     },
     schoolCredentialStatus: () => result("school_credential_status"),
+    beginSchoolOtpSetup: async () => {
+      const id = await invoke("begin_school_otp_setup");
+      if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0)
+        throw new Error("begin_school_otp_setup returned an invalid result.");
+      return id;
+    },
+    cancelSchoolOtpSetup: (operationId) =>
+      invoke("cancel_school_otp_setup", { operationId }).then(() => {}),
+    schoolOtpSetup: (operationId) =>
+      invoke("school_otp_setup", { operationId }).then((value) =>
+        requireObject<SchoolOtpSetup>("school_otp_setup", value),
+      ),
+    completeSchoolOtpSetup: (operationId, reset) =>
+      invoke("complete_school_otp_setup", { operationId, reset }).then(
+        () => {},
+      ),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();

@@ -52,7 +52,7 @@ export function NotificationSettings({
     body = t("Notifications are on."),
     confirmDelivery = false,
   ) => {
-    if (!desktopBridge || !canAsk) return notify(capability.reason);
+    if (!desktopBridge || !canAsk) return notify(t(capability.reason));
     try {
       const permission = await desktopBridge.requestNotificationPermission();
       update((draft) => {
@@ -64,12 +64,19 @@ export function NotificationSettings({
         if (confirmDelivery)
           notify(
             t(
-              "The system accepted the test notification. If it is only in Notification Center, enable banners for IsctCompanion in system settings.",
+              "The system accepted the test notification. If no banner appears, check notification settings, Focus, and screen sharing.",
             ),
           );
-      } else notify(t("Notifications are blocked in system settings."));
+      } else if (permission === "denied") {
+        await desktopBridge.openNotificationSettings();
+        notify(
+          t(
+            "Allow IsctCompanion notifications in system settings, then return to the app.",
+          ),
+        );
+      } else notify(t("Notifications are off."));
     } catch (error) {
-      notify(String(error));
+      notify(t(error instanceof Error ? error.message : String(error)));
     }
   };
 
@@ -84,26 +91,33 @@ export function NotificationSettings({
   return (
     <>
       <SettingsHeader title="Notifications" />
-      {settings.localPermission === "denied" ? (
-        <Status id="permission" tone="error">
-          {t("Notifications are blocked in system settings.")}
+      {!canAsk ? (
+        <Status id="permission" tone="warn">
+          {t(capability.reason)}
         </Status>
       ) : (
-        !allowed &&
-        canAsk && (
+        !allowed && (
           <Status
             id="permission"
-            tone="warn"
+            tone={settings.localPermission === "denied" ? "error" : "warn"}
             action={
               <UiButton
                 className="button small primary"
                 onClick={() => void requestPermission()}
               >
-                {t("Allow notifications")}
+                {t(
+                  settings.localPermission === "denied"
+                    ? "Open notification settings"
+                    : "Allow notifications",
+                )}
               </UiButton>
             }
           >
-            {t("Notifications are off.")}
+            {t(
+              settings.localPermission === "denied"
+                ? "Notifications are blocked in system settings."
+                : "Notifications are off.",
+            )}
           </Status>
         )
       )}

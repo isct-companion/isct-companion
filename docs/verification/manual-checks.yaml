@@ -862,11 +862,30 @@ checks:
           camera or returning to a 70/70 capture loop.
           Inspect matrix-scan/latest.json under the app cache for separate
           acquisition/processing times, per-cell candidate and qualified-vote
-          counts. Compare all 70 letters with the real card.
+          counts. Use an optimized build and move the framed card continuously:
+          the red outline must update at least 10 times per second (30 preferred).
+          Check frameMs and frames/elapsedMs alongside the visible tracking;
+          a smoothly interpolated stale outline does not count as a new detection.
+          Compare all 70 letters with the real card.
         reason: |
           OS camera permissions, native WebView video capture, optical focus,
           and the alignment of recognition boxes over a physical card require
           real hardware. Scripted frames cannot validate these surfaces.
+      - action: |
+          Start fresh camera sessions with a readable card under backlighting,
+          uneven shadow and a moving reflection. Confirm the first red outline
+          appears and acquisition starts. Move the card slightly so the reflection
+          leaves each cell; unobscured cells must retain their progress. Hold a
+          bright reflection over the same letters until the deadline and check
+          that erased strokes remain marked for review rather than accepted.
+          Include a white card background and modest hand movement.
+          After closing each session, inspect core.geometryFrames,
+          core.admissionRejections and core.glareRejections in
+          matrix-scan/latest.json, then compare all accepted letters with the card.
+        reason: |
+          Real camera exposure, sensor noise and specular reflections can differ
+          from synthetic lighting. Hardware is needed to check initial admission,
+          false glare on white paper and recovery as a reflection moves.
       - action: |
           Cancel and reopen the camera, then background the app during capture.
           Repeat and background it during processing: acquisition stops in the
@@ -1853,8 +1872,25 @@ checks:
     title: Deliver class, exam and assignment reminders at the selected times
     persona: narrow-window-keyboard
     preconditions: |
-      An updated native desktop build and OS notification permission available.
+      An updated native desktop build (on macOS, launch the packaged .app) and
+      OS notification permission available. Disable Focus for the banner check.
+      Stop screen sharing/mirroring, or allow notifications while sharing.
     steps:
+      - action: |
+          On macOS, launch with yarn desktop:dev and open Notifications. Then
+          build with yarn desktop:build --debug --bundles app, launch that
+          packaged .app and click Allow notifications or Send. For
+          first-time permission, accept the system prompt; for a previously
+          denied permission, use Open notification settings to allow the app,
+          then return. Toggle permission in System Settings and return again.
+        reason: |
+          The bare development executable cannot use UserNotifications. It must
+          report that limitation without persisting a refusal or claiming that
+          System Settings blocked the app. The packaged app must ask when
+          undetermined, link to settings when denied, and refresh the real OS
+          permission on return instead of trusting a stale saved value. Its
+          local bundle signature must use app.isctcompanion so macOS can match
+          it to the notification authorization.
       - action: |
           On both macOS and Windows, open Settings > Notifications, click Test
           notification, then click the native banner while the app is behind
@@ -1879,7 +1915,10 @@ checks:
       The operating system notification centre and the selected reminder times
       in Settings > Notifications after reopening the page.
     expected: |
-      The test notification appears and clicking it focuses the app. Each
+      The development executable explains that notification permission needs
+      the packaged app. In the .app, the permission status follows System
+      Settings without restarting. The test notification shows a banner both
+      in foreground and background, and clicking it focuses the app. Each
       scheduled native notification arrives while the app process remains
       running, with the correct exam or assignment title; the disabled class
       reminder stays silent, and selected times remain saved.
@@ -1890,6 +1929,9 @@ checks:
       - apps/desktop/src/pages/settings/NotificationSettings.tsx
       - apps/desktop/src-tauri/src/commands/notifications.rs
       - apps/desktop/src-tauri/src/notifications_macos.rs
+      - apps/desktop/src-tauri/src/commands/platform.rs
+      - apps/desktop/src/app/useWorkspaceRuntime.ts
+      - scripts/desktop/tauri.mjs
       - crates/isct-core/src/schedule/reminders.rs
     verified: null
 
@@ -2089,6 +2131,28 @@ checks:
       - crates/isct-core/src/app_updates.rs
     verified: null
 
+  - id: DESKTOP-DEV-BUILD-UPDATES
+    area: desktop
+    title: A dev build does not offer to roll back to the release it was built on
+    persona: undergraduate-senior
+    preconditions: |
+      `yarn desktop:dev` from a checkout whose package version equals the latest
+      published release, with Automatic updates previously turned on.
+    steps:
+      - action: Open Settings > About and press Check for updates.
+        reason: The dev version `x.y.z-dev.<stamp>` sorted below release `x.y.z`,
+          so the dev app offered the older release as an update.
+    observe: Settings > About, the App updates and Automatic updates rows.
+    expected: |
+      "You're up to date · v<release>", no download button, and the Automatic
+      updates toggle disabled with "Automatic installation requires an
+      update-enabled build." (a `tauri dev` binary is never replaced).
+    why_manual: Needs the real dev shell talking to the published GitHub
+      release; the version ordering itself is covered in Core.
+    covers:
+      - apps/desktop/src-tauri/src/desktop_updates.rs
+    verified: null
+
   - id: DESKTOP-WINDOWS-SCHOOL-PULL
     area: desktop
     title: Windows school pulls finish over Core HTTP while school pages are open
@@ -2181,10 +2245,14 @@ checks:
 
   - id: SCHOOL-OTP-QR
     area: school
-    title: Authenticator QR import with native camera permissions
+    title: Visible automatic OTP enrollment and authenticator QR import
     persona: undergraduate-first-term
-    preconditions: A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display.
+    preconditions: A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display. School-side registration or rotation additionally requires a test school account whose owner explicitly authorizes the automatic credential change.
     steps:
+      - action: Start signed out with no OTP saved locally and press Help me set up. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
+        reason: Confirms the live server markup and school WebView cookies work together; missing local OTP must not be treated as an unset school registration. The native browser must retain the settings draft and provide a way back. Scripted-host tests cover cancellation but cannot establish these real session and navigation facts.
+      - action: On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Copy the new setup into the other authenticator and verify its code works. Cancel or reject school verification once and confirm no success is reported. Open the question-mark help and confirm instructions appear there without a long inline block. For an existing exported setup, import only the school account and press Connect without changing school registration.
+        reason: Only the live school and native vault can establish successful registration and cross-authenticator agreement. The visible form and question-mark layout need human inspection; offline tests protect promotion and rejection logic.
       - action: Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
         reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
       - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -2192,10 +2260,14 @@ checks:
       - action: Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
         reason: Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
     observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
-    expected: Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
-    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault.
+    expected: Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators. Help stays in the question-mark popover. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault. Registration and rotation also depend on the live school account and the owner's authenticator.
     covers:
       - apps/desktop/src/components/OtpSetupInput.tsx
+      - crates/isct-core/src/school_auth/otp_setup.rs
+      - crates/isct-core/src/school_auth/otp_enrollment.rs
+      - crates/isct-core/src/school_browser/assets/*.js
+      - crates/isct-core/src/school_browser/engine/*.rs
       - apps/desktop/src-tauri/src/commands/school_auth.rs
       - apps/desktop/src/components/QrCamera.tsx
       - apps/desktop/src/components/CameraPreview.tsx

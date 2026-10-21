@@ -25,7 +25,12 @@ pub trait SessionCookies: Send + Sync {
 /// the browser itself would refuse.
 pub fn storable(url: &Url, set_cookie: &[String]) -> Vec<String> {
     let Some(host) = Host::of(url)
-        .filter(|host| matches!(host, Host::Moodle | Host::Kyomu | Host::GetAccess))
+        .filter(|host| {
+            matches!(
+                host,
+                Host::Moodle | Host::Kyomu | Host::GetAccess | Host::ScienceAccount
+            )
+        })
         .map(Host::name)
     else {
         return Vec::new();

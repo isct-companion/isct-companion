@@ -440,7 +440,11 @@ function Account({
   setDraft: (draft: Draft) => void;
   refresh: () => Promise<void>;
   notify: (message: string) => void;
-  showLoginPage: (profile: SchoolAuthProfile) => void;
+  showLoginPage: (
+    profile: SchoolAuthProfile,
+    targetUrl?: string,
+    setupOtp?: boolean,
+  ) => void;
   matrixOcrAvailable: boolean;
 }) {
   const [busy, setBusy] = useState(false);
@@ -681,6 +685,9 @@ function Account({
         {profile === "science" && (
           <OtpSetupInput
             value={draft.otpSecret}
+            openSchoolSettings={(url, setupOtp) =>
+              showLoginPage("science", url, setupOtp)
+            }
             saved={summary.hasOtp}
             disabled={busy}
             onScanState={setScanning}
@@ -709,7 +716,7 @@ function Account({
         >
           {t("Connect")}
         </Button>
-        {summary.saved && (
+        {(summary.saved || summary.hasOtp) && (
           <Button
             variant="subtle"
             color="red"
@@ -728,12 +735,18 @@ function Account({
 const SAVED_SECRET = "••••••••";
 
 export function SchoolAccounts({
+  otpSetupRevision = 0,
   notify,
   showLoginPage,
   matrixOcrAvailable,
 }: {
+  otpSetupRevision?: number;
   notify: (message: string) => void;
-  showLoginPage: (profile: SchoolAuthProfile) => void;
+  showLoginPage: (
+    profile: SchoolAuthProfile,
+    targetUrl?: string,
+    setupOtp?: boolean,
+  ) => void;
   matrixOcrAvailable: boolean;
 }) {
   const [status, setStatus] = useState(emptyStatus);
@@ -756,6 +769,13 @@ export function SchoolAccounts({
     void refresh().catch((error) => appNotify.error(error));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const observedOtpSetup = useRef(otpSetupRevision);
+  useEffect(() => {
+    if (observedOtpSetup.current === otpSetupRevision) return;
+    observedOtpSetup.current = otpSetupRevision;
+    setScience((current) => ({ ...current, otpSecret: "" }));
+    void refresh().catch((error) => appNotify.error(error));
+  }, [otpSetupRevision]);
   if (!desktopBridge)
     return (
       <p className="settingsNote">

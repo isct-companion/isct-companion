@@ -1,9 +1,11 @@
 use super::*;
 #[test]
 fn stable_update_admission_and_wakeups_respect_version_and_cadence() {
-    assert!(newer_release("1.0.0-rc.1", "v1.0.0").unwrap());
     assert!(!newer_release("1.1.0", "v1.0.9").unwrap());
-    assert!(!newer_release("1.0.0", "v1.0.0").unwrap());
+    // A dev build is not offered the release it was built on top of, but a dev
+    // build of a release candidate still is offered the final release.
+    assert!(!newer_release("1.1.3-dev.20261021120000+g0041bff", "v1.1.3").unwrap());
+    assert!(newer_release("1.0.0-rc.3.dev.20261021120000", "v1.0.0").unwrap());
     assert!(matches!(
         newer_release("1.0.0", "broken"),
         Err(AppUpdateError::Version(_))

@@ -12,7 +12,8 @@ fn english_names_from_the_english_page_survive_japanese_rereads() {
         "kyomu":{"department":"情報工学系","group":"C","mark":"recommended","fetchedAt":"2026-10-16T00:00:00Z"}});
     let english = json!({"id":"202602431","year":2026,"title":{"en":"Object-Oriented Programming"},
         "instructors":[{"en":"Yamada Taro"},{"en":"Suzuki Hanako"}]});
-    let unknown = json!({"id":"202699999","year":2026,"title":{"en":"Not stored"},"instructors":[]});
+    let unknown =
+        json!({"id":"202699999","year":2026,"title":{"en":"Not stored"},"instructors":[]});
     let root = std::env::temp_dir().join(format!("isct-source-{}", uuid::Uuid::new_v4()));
     let store = data::DataStore::initialize_dir(root.clone()).unwrap().0;
     let merge_english = |rows: &[serde_json::Value]| {
@@ -24,7 +25,9 @@ fn english_names_from_the_english_page_survive_japanese_rereads() {
     };
     // English before the Japanese row exists adds nothing.
     assert_eq!(merge_english(std::slice::from_ref(&english)), 0);
-    store.catalog_upsert_offerings(std::slice::from_ref(&japanese)).unwrap();
+    store
+        .catalog_upsert_offerings(std::slice::from_ref(&japanese))
+        .unwrap();
     assert_eq!(merge_english(&[english.clone(), unknown]), 1);
     // The Japanese page read again keeps the English names, and a changed
     // instructor list drops the name it no longer matches.

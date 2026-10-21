@@ -5,6 +5,63 @@ use tauri::Manager;
 
 pub(crate) struct DesktopNotifications(pub(crate) tauri::AppHandle);
 
+pub(crate) fn unavailable_reason() -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        (!crate::notifications_macos::available()).then_some(crate::notifications_macos::UNBUNDLED)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        None
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Some("Native desktop notifications are available on macOS and Windows.")
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn notification_permission(
+    webview: tauri::Webview,
+) -> Result<&'static str, String> {
+    require_local_main(&webview)?;
+    #[cfg(target_os = "macos")]
+    {
+        crate::notifications_macos::permission().await
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Ok("granted")
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("Native desktop notifications are available on macOS and Windows.".into())
+    }
+}
+
+#[tauri::command]
+pub(crate) fn open_notification_settings(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    require_local_main(&webview)?;
+    use tauri_plugin_opener::OpenerExt;
+    #[cfg(target_os = "macos")]
+    let url = format!(
+        "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id={}",
+        app.config().identifier
+    );
+    #[cfg(target_os = "windows")]
+    let url = "ms-settings:notifications";
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    return app
+        .opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string());
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    Err("Notification settings are unavailable on this platform.".into())
+}
+
 impl isct_core::schedule::NotificationSink for DesktopNotifications {
     fn deliver<'a>(
         &'a self,

@@ -25,8 +25,8 @@ pub(crate) use reader::LmsReader;
 
 use crate::{
     net::{
-        sign_in::Session, Body, Host, Http, Limits, NetError, NetRequest, Response,
-        SessionCookies, SignInGate,
+        sign_in::Session, Body, Host, Http, Limits, NetError, NetRequest, Response, SessionCookies,
+        SignInGate,
     },
     school_auth::{MoodleToken, SchoolAuthProfile, SchoolAuthService},
     school_parser::{

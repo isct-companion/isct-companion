@@ -660,6 +660,9 @@ fn still_on_login_page(state: &State, page: PageId, expected_url: &str) -> bool 
 /// Automatic sign-in belongs to the session check, the visible page or the
 /// hidden pull that led this view to the identity provider.
 pub(super) fn owns_sign_in(state: &State, profile: SchoolAuthProfile, browser: BrowserId) -> bool {
+    if profile == SchoolAuthProfile::Science && state.otp_setup.is_some() {
+        return false;
+    }
     state.heartbeat == Some(profile) || state.browsing == Some(browser.site)
 }
 

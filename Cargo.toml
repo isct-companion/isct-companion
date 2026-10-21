@@ -15,6 +15,20 @@ strip = true
 debug = 1
 incremental = false
 
+# Camera feedback must remain interactive in development too. Keep the shell
+# debuggable while optimizing the pixel loops and JPEG decoder used by OCR.
+[profile.dev.package.isct-ocr]
+opt-level = 3
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.imageproc]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+
 [profile.test]
 debug = 1
 incremental = false

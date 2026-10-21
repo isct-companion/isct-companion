@@ -298,7 +298,6 @@ impl DataStore {
         let connection = self.open()?;
         catalog_offering_in(&connection, id)
     }
-
 }
 
 /// The 教務 Japanese page owns every field of an offering; the English
@@ -311,7 +310,10 @@ fn merge_official_fields(incoming: &mut Value, stored: &Value) {
     {
         incoming["title"]["en"] = en.clone();
     }
-    let stored_names = stored["instructors"].as_array().cloned().unwrap_or_default();
+    let stored_names = stored["instructors"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     for (index, name) in incoming["instructors"]
         .as_array_mut()
         .into_iter()

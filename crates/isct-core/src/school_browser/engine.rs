@@ -34,6 +34,8 @@ use url::Url;
 mod history;
 mod lane;
 mod login;
+mod otp_enroll;
+mod otp_setup;
 mod pull;
 mod restore;
 
@@ -84,6 +86,8 @@ struct Inner {
 
 #[derive(Default)]
 struct State {
+    otp_setup: Option<u64>,
+    otp_enrollment: Option<otp_enroll::Enrollment>,
     views: HashMap<SchoolSite, ViewState>,
     browsing: Option<SchoolSite>,
     login: Option<ActiveLogin>,
@@ -120,6 +124,7 @@ struct ViewState {
 
 #[derive(Clone, Debug)]
 enum Trace {
+    Enrollment,
     Session {
         profile: SchoolAuthProfile,
         state: SchoolSessionState,
@@ -176,6 +181,12 @@ impl SchoolBrowserEngine {
 
     pub fn user_browsing(&self, site: Option<SchoolSite>) -> Result<(), SchoolBrowserError> {
         let mut state = self.0.state.guard();
+        if state.browsing == Some(SchoolSite::SciencePortal)
+            && site != Some(SchoolSite::SciencePortal)
+        {
+            state.otp_setup = None;
+            state.otp_enrollment = None;
+        }
         state.browsing = site;
         drop(state);
         let _ = self.0.traces.send(Trace::Browsing(site));
@@ -572,6 +583,19 @@ impl Inner {
                 );
             }
         }
+        // Enrollment starts with a visible manual sign-in. In particular it
+        // must never select App OTP using a missing or obsolete saved secret.
+        if self.state.guard().otp_setup.is_some()
+            && event.page.browser.site == SchoolSite::SciencePortal
+        {
+            if foreground && login_succeeded(event.url.as_str(), SchoolAuthProfile::Science) {
+                if let Ok(url) = Url::parse(crate::school_auth::otp_setup::SETTINGS_URL) {
+                    let _ = self.dispatch(event.page.browser, BrowserAction::Navigate(url));
+                }
+            }
+            self.otp_enrollment_page(&event);
+            return;
+        }
         if let Some(active) = login {
             if login_succeeded(event.url.as_str(), active.profile) {
                 {
@@ -657,6 +681,10 @@ impl Inner {
                 .map(|view| view.auth_relay.clone())
         });
         if let Some(encoded) = auth.and_then(|auth| title.strip_prefix(&auth).map(str::to_string)) {
+            if let Some(encoded) = encoded.strip_prefix("otp:") {
+                self.otp_enrollment_relay(page, encoded);
+                return;
+            }
             self.login_relay(&encoded);
         }
     }
