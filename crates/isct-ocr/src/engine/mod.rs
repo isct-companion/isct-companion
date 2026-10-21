@@ -181,6 +181,7 @@ fn model_error(error: impl std::fmt::Display) -> MatrixOcrError {
 pub struct MatrixOcrService(
     Arc<Mutex<Option<Paddle>>>,
     #[cfg(debug_assertions)] Option<std::path::PathBuf>,
+    alphabet::MatrixAlphabetService,
 );
 impl MatrixOcrService {
     /// Prepare and validate the optional runtime before accepting a camera scan.
@@ -195,8 +196,22 @@ impl MatrixOcrService {
             ));
         };
         paddle.recognize(vec![0.; 3 * 48 * 320])?;
+        drop(model);
+        self.alphabet_service().warm_up()?;
         Ok(())
     }
+
+    fn alphabet_service(&self) -> &alphabet::MatrixAlphabetService {
+        #[cfg(debug_assertions)]
+        {
+            &self.2
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            &self.1
+        }
+    }
+
     fn lock_model(&self) -> Result<std::sync::MutexGuard<'_, Option<Paddle>>, MatrixOcrError> {
         let model = match self.0.try_lock() {
             Ok(model) => model,
@@ -354,14 +369,15 @@ impl MatrixOcrService {
         progress: impl Fn(OcrProgress) -> bool,
     ) -> Result<crate::MatrixFrame, MatrixOcrError> {
         // Reject overlapping scans instead of accumulating photos and blocking jobs.
-        let mut model = self.lock_model()?;
+        let _scan_lock = self.lock_model()?;
         if !progress(OcrProgress {
             completed: 0,
             total: MATRIX_CELLS,
         }) {
             return Err(MatrixOcrError::Cancelled);
         }
-        let (image, small) = prepare_images(image)?;
+        let source = decode_image(image)?;
+        let small = resize_longest(source.clone(), 600);
         let cells = geometry::locate(&small).ok_or(MatrixOcrError::GridNotFound)?;
         let quads = normalized_quads(&cells, &small);
         if !geometry(&quads) {
@@ -370,53 +386,40 @@ impl MatrixOcrService {
         let mut results = Vec::with_capacity(MATRIX_CELLS);
         #[cfg(debug_assertions)]
         let mut red = vec![];
-        for (i, corners) in cells.iter().enumerate() {
-            let corners = corners.map(|p| geometry::Point {
-                x: p.x * image.width() as f64 / small.width() as f64,
-                y: p.y * image.height() as f64 / small.height() as f64,
-            });
-            let binary = preprocess::binarize(&geometry::crop(&image, &corners));
-            let prepared = preprocess::prepare(&binary.cleaned);
-            let result = if !binary.has_glyph() {
-                Recognition::default()
-            } else {
-                if model.is_none() {
-                    *model = Some(Paddle::new()?);
+        for (batch_index, batch_quads) in quads.chunks(10).enumerate() {
+            let crops = batch_quads
+                .iter()
+                .map(|&quad| alphabet::rectified_gray(&source, quad))
+                .collect::<Result<Vec<_>, _>>()?;
+            let inputs = crops
+                .iter()
+                .map(|crop| crop.as_raw().clone())
+                .collect::<Vec<_>>();
+            let recognized = self.alphabet_service().recognize(&inputs)?;
+            for (offset, raw) in recognized.into_iter().enumerate() {
+                let i = batch_index * 10 + offset;
+                let result = recognition::accept(&raw.text, raw.confidence);
+                #[cfg(debug_assertions)]
+                if self.1.is_some() && recognition::is_red(&result) {
+                    let crop = &crops[offset];
+                    let mut bytes = Cursor::new(Vec::new());
+                    match DynamicImage::ImageLuma8(crop.clone())
+                        .write_to(&mut bytes, image::ImageFormat::Png)
+                    {
+                        Ok(()) => red.push(debug_crops::Crop::from_png(
+                            format!("{}{}.png", (b'A' + (i % 10) as u8) as char, i / 10 + 1),
+                            bytes.into_inner(),
+                        )),
+                        Err(error) => eprintln!("Matrix debug crop encoding failed: {error}"),
+                    }
                 }
-                let Some(paddle) = model.as_mut() else {
-                    return Err(MatrixOcrError::Model(
-                        "Matrix OCR model did not initialize".into(),
-                    ));
-                };
-                let raw = paddle.recognize(prepared.tensor)?;
-                let mut accepted = recognition::accept(&raw.text, raw.confidence);
-                if !accepted.text.is_empty() && binary.cleaned != binary.original {
-                    let reference =
-                        paddle.recognize(preprocess::prepare(&binary.original).tensor)?;
-                    accepted = recognition::review(accepted, &reference.text);
+                results.push(result);
+                if !progress(OcrProgress {
+                    completed: i + 1,
+                    total: MATRIX_CELLS,
+                }) {
+                    return Err(MatrixOcrError::Cancelled);
                 }
-                accepted
-            };
-            #[cfg(debug_assertions)]
-            if self.1.is_some() && recognition::is_red(&result) {
-                let mut bytes = Cursor::new(Vec::new());
-                match prepared
-                    .preview
-                    .write_to(&mut bytes, image::ImageFormat::Png)
-                {
-                    Ok(()) => red.push(debug_crops::Crop::from_png(
-                        format!("{}{}.png", (b'A' + (i % 10) as u8) as char, i / 10 + 1),
-                        bytes.into_inner(),
-                    )),
-                    Err(error) => eprintln!("Matrix debug crop encoding failed: {error}"),
-                }
-            }
-            results.push(result);
-            if !progress(OcrProgress {
-                completed: i + 1,
-                total: MATRIX_CELLS,
-            }) {
-                return Err(MatrixOcrError::Cancelled);
             }
         }
         #[cfg(debug_assertions)]

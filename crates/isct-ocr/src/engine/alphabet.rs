@@ -341,6 +341,11 @@ pub fn prepare_matrix_alphabet_input(
 }
 
 impl MatrixAlphabetService {
+    pub(super) fn warm_up(&self) -> Result<(), MatrixOcrError> {
+        self.recognize(&[vec![255; SIZE * SIZE]])?;
+        Ok(())
+    }
+
     pub fn recognize(&self, images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
         if images.len() > 10 || images.iter().any(|image| image.len() != SIZE * SIZE) {
             return Err(MatrixOcrError::InvalidImage(
