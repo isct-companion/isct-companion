@@ -2131,6 +2131,28 @@ checks:
       - crates/isct-core/src/app_updates.rs
     verified: null
 
+  - id: DESKTOP-DEV-BUILD-UPDATES
+    area: desktop
+    title: A dev build does not offer to roll back to the release it was built on
+    persona: undergraduate-senior
+    preconditions: |
+      `yarn desktop:dev` from a checkout whose package version equals the latest
+      published release, with Automatic updates previously turned on.
+    steps:
+      - action: Open Settings > About and press Check for updates.
+        reason: The dev version `x.y.z-dev.<stamp>` sorted below release `x.y.z`,
+          so the dev app offered the older release as an update.
+    observe: Settings > About, the App updates and Automatic updates rows.
+    expected: |
+      "You're up to date · v<release>", no download button, and the Automatic
+      updates toggle disabled with "Automatic installation requires an
+      update-enabled build." (a `tauri dev` binary is never replaced).
+    why_manual: Needs the real dev shell talking to the published GitHub
+      release; the version ordering itself is covered in Core.
+    covers:
+      - apps/desktop/src-tauri/src/desktop_updates.rs
+    verified: null
+
   - id: DESKTOP-WINDOWS-SCHOOL-PULL
     area: desktop
     title: Windows school pulls finish over Core HTTP while school pages are open

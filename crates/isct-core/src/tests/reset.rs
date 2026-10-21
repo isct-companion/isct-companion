@@ -393,6 +393,20 @@ async fn concurrent_resets_join_the_running_one() {
     // The lease is released: the next reset runs on its own.
     assert_eq!(core.reset(scope).await.unwrap().removed_rows, 0);
     assert_eq!(core.sync.generation(), generation + 2);
+
+    // A caller may leave before polling the shared result. The owned task
+    // still finishes, and a different reset must then be admitted.
+    drop(core.reset_flight(scope, None).unwrap());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while core.sync.generation() == generation + 2 || core.sync.snapshot().resetting {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    core.reset(ResetScope::Everything).await.unwrap();
+    assert_eq!(core.sync.generation(), generation + 4);
+    assert_eq!(store_plans(core), 0);
     let _ = fs::remove_dir_all(core.store.directory());
 }
 
