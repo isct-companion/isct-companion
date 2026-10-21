@@ -1,4 +1,6 @@
-use super::{geometry, illumination, model_error, normalized_quads, prepare_images};
+use super::{
+    decode_image, geometry, illumination, model_error, normalized_quads, scan_image_locator,
+};
 use crate::{MatrixCaptureFrame, MatrixCaptureGlyph, MatrixOcrError, Recognition};
 use image::{imageops::FilterType, GrayImage, Rgb, RgbImage};
 use imageproc::geometric_transformations::{warp_into, Border, Interpolation, Projection};
@@ -176,11 +178,11 @@ pub(super) fn rectified_gray(
 }
 pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     let start = std::time::Instant::now();
-    let (image, small) = prepare_images(bytes)?;
+    let image = decode_image(bytes)?;
     let decode_ms = start.elapsed().as_secs_f64() * 1000.;
     let stage = std::time::Instant::now();
-    let cells = geometry::locate_capture(&small).ok_or(MatrixOcrError::GridNotFound)?;
-    let quads = normalized_quads(&cells, &small);
+    let cells = scan_image_locator::locate(&image).ok_or(MatrixOcrError::GridNotFound)?;
+    let quads = normalized_quads(&cells, &image);
     let geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
     capture_quads(&image, quads, decode_ms, geometry_ms, start)
 }
@@ -206,7 +208,7 @@ pub fn capture_matrix_training_frame(
         ));
     }
     let start = std::time::Instant::now();
-    let (image, _) = prepare_images(bytes)?;
+    let image = decode_image(bytes)?;
     let decode_ms = start.elapsed().as_secs_f64() * 1000.;
     let corners = body.map(|[x, y]| geometry::Point { x, y });
     let quads = geometry::body_cells(corners)

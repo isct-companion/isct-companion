@@ -1,5 +1,5 @@
 //! Card-specific illumination measurements; morphology/filtering use imageproc.
-use image::{imageops::FilterType, GrayImage, Luma, RgbImage};
+use image::{imageops::FilterType, GrayImage, Luma};
 use imageproc::{
     filter::gaussian_blur_f32,
     morphology::{grayscale_dilate, Mask},
@@ -32,18 +32,6 @@ fn correct(gray: &GrayImage, background: &GrayImage, target: f64, max_gain: f64)
         let gain = (target / field.get_pixel(x, y)[0].max(1) as f64).clamp(0.75, max_gain);
         Luma([(gray.get_pixel(x, y)[0] as f64 * gain).round().min(255.) as u8])
     })
-}
-
-pub(super) fn geometry_image(image: &RgbImage) -> RgbImage {
-    let gray = GrayImage::from_fn(image.width(), image.height(), |x, y| {
-        let p = image.get_pixel(x, y);
-        Luma([(0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64).round() as u8])
-    });
-    let small = image::DynamicImage::ImageLuma8(gray.clone())
-        .thumbnail(160, 160)
-        .to_luma8();
-    let background = gaussian_blur_f32(&grayscale_dilate(&small, &Mask::square(7)), 3.);
-    image::DynamicImage::ImageLuma8(correct(&gray, &background, 220., 6.)).to_rgb8()
 }
 
 pub(super) fn analyze(gray: &GrayImage) -> Illumination {
