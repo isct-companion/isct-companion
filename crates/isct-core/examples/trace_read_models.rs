@@ -1,4 +1,4 @@
-//! Local profiling against a disposable database copy; never prints workspace contents.
+//! Local profiling against a disposable copy of the data folder; never prints workspace contents.
 use isct_core::{
     data::DataStore,
     workspace::{WorkspaceIntent, WorkspaceMutation, WorkspaceService},
@@ -8,12 +8,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     if args.next().as_deref() != Some("--disposable-db") {
         return Err(
-            "Use --disposable-db <consistent SQLite backup>; this probe changes quarter selection"
+            "Use --disposable-db <copy of the data folder>; this probe changes quarter selection"
                 .into(),
         );
     }
-    let path = args.next().ok_or("Supply a disposable database copy")?;
-    let store = DataStore::initialize(path.into())?.0;
+    let path = args
+        .next()
+        .ok_or("Supply a disposable copy of the data folder")?;
+    let store = DataStore::initialize_dir(path.into())?.0;
     let service = WorkspaceService::new(store);
     for term in ["2026-1Q", "2026-2Q", "2026-3Q", "2026-4Q"] {
         let start = Instant::now();

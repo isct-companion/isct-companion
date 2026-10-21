@@ -165,17 +165,6 @@ pub struct SyncOfferingResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DepartmentSyncResult {
-    pub offerings: Vec<SyncOfferingResult>,
-    pub listed: usize,
-    pub synced: usize,
-    pub truncated: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SyllabusContent {
     pub schema_version: u8,
     pub source_url: String,

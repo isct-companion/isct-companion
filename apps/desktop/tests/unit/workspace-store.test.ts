@@ -11,10 +11,12 @@ import {
 } from "@app/app/routes";
 import { seedWorkspace, type Workspace } from "@app/lib/model";
 import type {
+  CoreWorkspacePatch,
   CoreWorkspaceSnapshot,
   WorkspaceIntent,
   WorkspaceMutation,
 } from "@app/lib/workspace-intents";
+import type { WorkspaceChange } from "@app/generated/persistence";
 import type { SectionContext } from "@app/pages/settings/registry";
 import {
   can,
@@ -36,12 +38,20 @@ import {
   createTauriDesktopBridge,
   type InvokeNative,
   type ListenNative,
-  type PullSnapshot,
   type SchoolDownloadEvent,
+  type SchoolRecords,
   type SchoolSessionEvent,
   type WorkspaceChangedEvent,
 } from "@app/platform/desktop-bridge";
 import { finderQuery } from "@app/platform/finder-query";
+import {
+  pageProgress,
+  progressLine,
+  retryScope,
+  runsFor,
+  type RunView,
+  type SyncSnapshot,
+} from "@app/platform/sync";
 import { LocalRepository, SqliteRepository } from "@app/storage/repository";
 import {
   createBrowserPreviewService,
@@ -142,10 +152,16 @@ type MutationScript = (
 type CoreHost = {
   service: {
     snapshot(): Promise<CoreWorkspaceSnapshot>;
+    records(changes: readonly WorkspaceChange[]): Promise<CoreWorkspacePatch>;
     mutate(request: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
   };
   /** The revision each read started from, in order. */
   reads: string[];
+  /** The change names of each record read, in order. */
+  recordReads: WorkspaceChange[][];
+  answerRecords(
+    answer: CoreWorkspacePatch | (() => Promise<CoreWorkspacePatch>),
+  ): void;
   /** Every mutation the store submitted, in order. */
   mutations: WorkspaceMutation[];
   publish(workspace: Workspace, revision?: string): void;
@@ -171,6 +187,10 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
   let revision = "r0";
   let workspace = structuredClone(initial);
   const reads: string[] = [];
+  const recordReads: WorkspaceChange[][] = [];
+  const recordAnswers: (
+    CoreWorkspacePatch | (() => Promise<CoreWorkspacePatch>)
+  )[] = [];
   const mutations: WorkspaceMutation[] = [];
   const readAnswers: SnapshotAnswer[] = [];
   const mutationAnswers: (SnapshotAnswer | MutationScript | Error)[] = [];
@@ -192,6 +212,13 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
         const answer = readAnswers.shift();
         return resolveSnapshot(answer, () => snapshotAt(revision));
       },
+      async records(changes) {
+        recordReads.push([...changes]);
+        const answer = recordAnswers.shift();
+        if (typeof answer === "function") return answer();
+        // Unscripted, the host answers every field: a superset is a valid patch.
+        return answer ?? snapshotAt(revision);
+      },
       async mutate(request) {
         mutations.push(request);
         const answer = mutationAnswers.shift();
@@ -210,6 +237,10 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
       },
     },
     reads,
+    recordReads,
+    answerRecords(answer) {
+      recordAnswers.push(answer);
+    },
     mutations,
     publish(next, nextRevision) {
       workspace = structuredClone(next);
@@ -401,9 +432,12 @@ describe("recovering from a rejected or external write", () => {
     await store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "external-r1",
+      changes: ["settings"],
     });
 
+    // Another client's intent still reconciles through the whole snapshot.
     expect(host.reads).toEqual(["r0", "external-r1"]);
+    expect(host.recordReads).toEqual([]);
     expect(store.getState()).toMatchObject({ revision: "external-r1" });
     expect(store.getState().workspace?.settings.locale).toBe("ja");
   });
@@ -420,6 +454,7 @@ describe("recovering from a rejected or external write", () => {
     const event = store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "external-r1",
+      changes: ["settings"],
     });
     host.publish(settingsWith({ locale: "ja" }), "external-r1");
     failure.reject(new Error("revision conflict"));
@@ -442,9 +477,11 @@ describe("recovering from a rejected or external write", () => {
     await store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "r1",
+      changes: ["settings"],
     });
 
     expect(host.reads).toEqual(["r0"]);
+    expect(host.recordReads).toEqual([]);
     expect(store.getState().revision).toBe("r2");
   });
 
@@ -467,6 +504,7 @@ describe("recovering from a rejected or external write", () => {
     const event = store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "r1",
+      changes: ["settings"],
     });
     const newer = store.mutate(appearance("light"));
     release.resolve(
@@ -479,20 +517,99 @@ describe("recovering from a rejected or external write", () => {
     expect(store.getState().workspace?.settings.appearance).toBe("light");
   });
 
-  it("re-reads non-user events even when the user revision is unchanged", async () => {
+  it("patches only the records a background change names, without a snapshot read", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
     await store.initialize();
+    const before = store.getState();
+    const freshness = {
+      "lms.course/7": {
+        fetchedAt: "2026-10-19T02:46:13Z",
+        outcome: "complete",
+        message: null,
+        failures: 0,
+        nextEligible: null,
+        lastError: null,
+      },
+    } as unknown as SchoolRecords["freshness"];
+    host.answerRecords({
+      revision: "r0",
+      contentRevision: "c1",
+      workspace: {},
+      schoolRecords: { freshness, pageAvailability: {} },
+    });
 
-    host.publish(settingsWith({ locale: "ja" }));
-    await store.handleWorkspaceChanged({ source: "mcp" });
-    expect(store.getState().workspace?.settings.locale).toBe("ja");
+    await store.handleWorkspaceChanged({
+      source: "school-pull",
+      changes: ["freshness"],
+    });
 
-    host.publish(settingsWith({ locale: "zh" }));
-    await store.handleWorkspaceChanged({ source: "school-pull" });
-    expect(store.getState().workspace?.settings.locale).toBe("zh");
+    expect(host.reads).toEqual(["r0"]);
+    expect(host.recordReads).toEqual([["freshness"]]);
+    const after = store.getState();
+    expect(after.schoolRecords?.freshness).toEqual(freshness);
+    expect(after.contentRevision).toBe("c1");
+    // Untouched records keep their identity, so nothing derived from them
+    // recomputes; only views that read `freshness` get a new cache key.
+    expect(after.schoolRecords?.lmsCourses).toBe(
+      before.schoolRecords?.lmsCourses,
+    );
+    expect(after.workspace?.courses).toBe(before.workspace?.courses);
+    expect(after.viewRevisions).toEqual({
+      ...before.viewRevisions,
+      freshness: 1,
+    });
+  });
 
-    expect(host.reads).toEqual(["r0", "r0", "r0"]);
+  it("merges changes heard during a patch into one follow-up read", async () => {
+    const host = coreHost();
+    const store = createWorkspaceStore(host.service);
+    await store.initialize();
+    const slow = deferred<CoreWorkspacePatch>();
+    host.answerRecords(() => slow.promise);
+
+    const first = store.handleWorkspaceChanged({
+      source: "school-pull",
+      changes: ["assignments"],
+    });
+    await settle();
+    const second = store.handleWorkspaceChanged({
+      source: "reference-pull",
+      changes: ["exams"],
+    });
+    const third = store.handleWorkspaceChanged({
+      source: "school-pull",
+      changes: ["courses", "exams"],
+    });
+    slow.resolve(host.snapshotAt("r0"));
+    await Promise.all([first, second, third]);
+
+    expect(host.recordReads).toEqual([["assignments"], ["exams", "courses"]]);
+    expect(host.reads).toEqual(["r0"]);
+  });
+
+  it("reads a patch again when a mutation committed while it was in flight", async () => {
+    const host = coreHost();
+    const store = createWorkspaceStore(host.service);
+    await store.initialize();
+    const stale = deferred<CoreWorkspacePatch>();
+    host.answerRecords(() => stale.promise);
+
+    const patch = store.handleWorkspaceChanged({
+      source: "school-pull",
+      changes: ["grades"],
+    });
+    await settle();
+    await store.mutate(appearance("dark"));
+    stale.resolve(
+      host.snapshotAt("r0", settingsWith({ appearance: "system" })),
+    );
+    await patch;
+
+    // The late answer predates the committed intent and is not adopted.
+    expect(host.recordReads).toEqual([["grades"], ["grades"]]);
+    expect(store.getState().revision).toBe("r1");
+    expect(store.getState().workspace?.settings.appearance).toBe("dark");
   });
 
   it("discards a reload that finished before a mutation committed inside it", async () => {
@@ -517,36 +634,6 @@ describe("recovering from a rejected or external write", () => {
   });
 });
 
-describe("school pulls", () => {
-  it("reloads the unified snapshot after a pull", async () => {
-    const host = coreHost();
-    const pulls: string[] = [];
-    const store = createWorkspaceStore(host.service, {
-      async pull(site) {
-        pulls.push(site);
-        host.publish(settingsWith({ locale: "ja" }), "r5");
-        return [];
-      },
-    });
-    await store.initialize();
-
-    await expect(store.pullSchool("science-lms")).resolves.toEqual([]);
-
-    expect(pulls).toEqual(["science-lms"]);
-    expect(host.reads).toEqual(["r0", "r5"]);
-    expect(store.getState()).toMatchObject({ revision: "r5" });
-    expect(store.getState().workspace?.settings.locale).toBe("ja");
-  });
-
-  it("refuses a school pull without the desktop coordinator", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-
-    await expect(store.pullSchool("kyomu")).rejects.toThrow("desktop app");
-    expect(host.reads).toEqual([]);
-  });
-});
-
 describe("browser preview", () => {
   it("opens a detached read-only sample and refuses every mutation", async () => {
     const stored = workspaceFixture();
@@ -558,9 +645,6 @@ describe("browser preview", () => {
         return "";
       },
       async import(_document: string) {
-        return structuredClone(stored);
-      },
-      async reset() {
         return structuredClone(stored);
       },
     };
@@ -710,12 +794,11 @@ describe("local browser repository", () => {
     expect((await repository.load()).settings.locale).not.toBe("zh");
   });
 
-  it("refuses export, import and reset without the native app", async () => {
+  it("refuses export and import without the native app", async () => {
     const repository = new LocalRepository();
 
     await expect(repository.export()).rejects.toThrow("native app");
     await expect(repository.import("{}")).rejects.toThrow("native app");
-    await expect(repository.reset()).rejects.toThrow("native app");
   });
 });
 
@@ -727,11 +810,7 @@ describe("SQLite repository", () => {
       workspace,
       handle: (command) => {
         if (command === "export_data") return exported;
-        if (
-          command === "load_workspace" ||
-          command === "import_data" ||
-          command === "reset_workspace"
-        )
+        if (command === "load_workspace" || command === "import_data")
           return workspace;
         return undefined;
       },
@@ -743,7 +822,6 @@ describe("SQLite repository", () => {
     expect((await repository.import("unparsed bytes for Core")).deviceId).toBe(
       DEVICE,
     );
-    expect((await repository.reset()).deviceId).toBe(DEVICE);
     expect(core.calls).toEqual([
       { command: "load_workspace", args: {} },
       { command: "export_data", args: {} },
@@ -751,7 +829,6 @@ describe("SQLite repository", () => {
         command: "import_data",
         args: { document: "unparsed bytes for Core" },
       },
-      { command: "reset_workspace", args: {} },
     ]);
   });
 
@@ -836,10 +913,6 @@ describe("shared workspace routes", () => {
   it("redirects a bare or unknown settings path to the first section", () => {
     expect(routeRedirect(paths.settings())).toBe(paths.settings("accounts"));
     expect(routeRedirect("/settings/bad")).toBe(paths.settings("accounts"));
-  });
-
-  it("accepts the bare settings route in the stacked shell", () => {
-    expect(routeRedirect(paths.settings(), { stacked: true })).toBeUndefined();
   });
 
   it("redirects a missing or deleted course back to the lecture list", () => {
@@ -1096,41 +1169,60 @@ function listenerSeam() {
   };
 }
 
-const pull = (
-  id: string,
-  state: PullSnapshot["state"],
-  courseId: number | null = null,
-): PullSnapshot => ({
-  id,
-  target: { type: "school", site: "science-lms", courseId },
-  priority: "automatic",
-  state,
-  phase: null,
-  blockedBy: null,
-  attempt: 1,
-  waiterCount: 0,
-  lastError: null,
+const snapshot = (generation: number, done: number): SyncSnapshot => ({
+  generation,
+  resetting: false,
+  runs: [
+    {
+      run: "run-1",
+      dataset: "lms.course",
+      label: { key: "sync.dataset.lms.course", args: {} },
+      priority: "visible",
+      done,
+      total: 9,
+      current: null,
+      scope: "42",
+      held: null,
+      failure: null,
+    },
+  ],
+  sources: [],
 });
 
 describe("Tauri bridge contract", () => {
-  it("passes an optional LMS course scope to the native pull", async () => {
-    const { invoke, calls } = invokeSeam(() => []);
+  it("sends hints under the `hint` argument the native command reads", async () => {
+    const { invoke, calls } = invokeSeam(() => null);
     const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
 
-    await bridge.pullSchool?.("science-lms", { lmsCourseId: 42 });
+    await bridge.syncHint!({
+      kind: "refresh",
+      scope: { kind: "course", lmsCourseId: 42 },
+    });
+    await bridge.syncHint!({
+      kind: "open",
+      view: { kind: "finder", year: 2026 },
+    });
 
     expect(calls).toEqual([
       {
-        command: "pull_school",
-        payload: { site: "science-lms", lmsCourseId: 42 },
+        command: "sync_hint",
+        payload: {
+          hint: { kind: "refresh", scope: { kind: "course", lmsCourseId: 42 } },
+        },
+      },
+      {
+        command: "sync_hint",
+        payload: {
+          hint: { kind: "open", view: { kind: "finder", year: 2026 } },
+        },
       },
     ]);
   });
 
-  it("listens for pull state before reading it and ignores a late stale read", async () => {
+  it("listens for sync snapshots before reading one and ignores a late stale read", async () => {
     let releaseRead: ((value: unknown) => void) | undefined;
     const { invoke } = invokeSeam((command) => {
-      if (command === "pull_state")
+      if (command === "sync_snapshot")
         return new Promise((resolve) => {
           releaseRead = resolve;
         });
@@ -1139,37 +1231,22 @@ describe("Tauri bridge contract", () => {
     const seam = listenerSeam();
     const bridge = createTauriDesktopBridge(invoke, seam.listen);
 
-    const received: PullSnapshot[][] = [];
-    const dispose = bridge.onPullState!((states) => received.push(states));
+    const received: SyncSnapshot[] = [];
+    const dispose = bridge.onSyncSnapshot!((value) => received.push(value));
     await settle();
-    expect(seam.names).toEqual(["pull-state-changed"]);
+    expect(seam.names).toEqual(["sync-snapshot"]);
 
-    const current = [pull("pull-1", "succeeded")];
+    const current = snapshot(3, 5);
     seam.deliver(current);
-    releaseRead?.([pull("pull-1", "running")]);
+    seam.deliver({ not: "a snapshot" });
+    releaseRead?.(snapshot(2, 1));
     await settle();
     expect(received).toEqual([current]);
 
     dispose();
-    seam.deliver([]);
+    seam.deliver(snapshot(4, 6));
     expect(received).toEqual([current]);
     expect(seam.unlistens()).toBe(1);
-  });
-
-  it("routes cancellation and reference refresh to the native facade", async () => {
-    const { invoke, calls } = invokeSeam((command) =>
-      command === "cancel_pull" ? true : "Updated",
-    );
-    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
-
-    await expect(bridge.cancelPull!("pull-1")).resolves.toBe(true);
-    await expect(bridge.refreshReferenceSubscriptions!(true)).resolves.toBe(
-      "Updated",
-    );
-    expect(calls).toEqual([
-      { command: "cancel_pull", payload: { id: "pull-1" } },
-      { command: "refresh_reference_subscriptions", payload: { force: true } },
-    ]);
   });
 
   it("maps credential, session and webview calls to narrow commands", async () => {
@@ -1328,10 +1405,8 @@ describe("Tauri bridge contract", () => {
         case "request_notification_permission":
         case "notification_permission":
           return "maybe";
-        case "pull_school":
-          return { not: "a list" };
-        case "pull_state":
-          return "later";
+        case "sync_snapshot":
+          return { runs: "later" };
         case "school_session_snapshot":
           return { revision: -1, states: {} };
         case "school_credential_status":
@@ -1351,11 +1426,8 @@ describe("Tauri bridge contract", () => {
     await expect(bridge.getNotificationPermission()).rejects.toThrow(
       "notification_permission returned an invalid result",
     );
-    await expect(bridge.pullSchool!("science-lms")).rejects.toThrow(
-      "pull_school returned an invalid result",
-    );
-    await expect(bridge.getPullState!()).rejects.toThrow(
-      "pull_state returned an invalid result",
+    await expect(bridge.syncSnapshot!()).rejects.toThrow(
+      "sync_snapshot returned an invalid result",
     );
     await expect(bridge.schoolSessionSnapshot()).rejects.toThrow(
       "school_session_snapshot returned an invalid result",
@@ -1401,16 +1473,23 @@ describe("Tauri bridge contract", () => {
       received.push(event),
     );
 
-    seam.deliver({ source: "user-intent", revision: "r1" });
-    seam.deliver({ source: "mcp" });
-    seam.deliver({ source: "future-source" });
-    seam.deliver({ source: 1 });
-    seam.deliver({ source: "user-intent", revision: 1 });
+    seam.deliver({
+      source: "user-intent",
+      revision: "r1",
+      changes: ["settings"],
+    });
+    seam.deliver({ source: "mcp", changes: ["events"] });
+    seam.deliver({ source: "future-source", changes: ["future-change"] });
+    seam.deliver({ source: 1, changes: [] });
+    seam.deliver({ source: "user-intent", revision: 1, changes: [] });
+    // Without its change names a shell could not tell what to read.
+    seam.deliver({ source: "school-pull" });
+    seam.deliver({ source: "school-pull", changes: [1] });
     seam.deliver(null);
     expect(received).toEqual([
-      { source: "user-intent", revision: "r1" },
-      { source: "mcp" },
-      { source: "future-source" },
+      { source: "user-intent", revision: "r1", changes: ["settings"] },
+      { source: "mcp", changes: ["events"] },
+      { source: "future-source", changes: ["future-change"] },
     ]);
 
     dispose();
@@ -1437,5 +1516,116 @@ describe("Tauri bridge contract", () => {
     await settle();
 
     expect(unlistens).toBe(1);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Sync snapshot surfaces: which row of Core's snapshot a surface shows
+ * ------------------------------------------------------------------ */
+
+const run = (overrides: Partial<RunView>): RunView => ({
+  run: "run",
+  dataset: "lms.course",
+  label: { key: "sync.dataset.lms.course", args: {} },
+  priority: "visible",
+  done: 0,
+  total: null,
+  current: null,
+  scope: null,
+  held: null,
+  failure: null,
+  ...overrides,
+});
+const syncOf = (...runs: RunView[]): SyncSnapshot => ({
+  generation: 1,
+  resetting: false,
+  runs,
+  sources: [],
+});
+
+describe("sync snapshot surfaces", () => {
+  it("shows a bar only for a run of known size and a spinner for background-only work", () => {
+    expect(progressLine(syncOf())).toEqual({ kind: "idle" });
+    const background = run({ run: "bg", priority: "background", total: 40 });
+    expect(progressLine(syncOf(background))).toMatchObject({
+      kind: "background",
+    });
+    const unsized = run({ run: "vis" });
+    expect(progressLine(syncOf(background, unsized))).toMatchObject({
+      kind: "busy",
+      run: { run: "vis" },
+    });
+    // The page the person opened outranks Core's visible work.
+    const opened = run({
+      run: "open",
+      priority: "interactive",
+      done: 4,
+      total: 9,
+    });
+    expect(progressLine(syncOf(unsized, opened))).toEqual({
+      kind: "bar",
+      run: opened,
+      done: 4,
+      total: 9,
+    });
+  });
+
+  it("names a held foreground run before quiet background work, and skips failed runs", () => {
+    const held = run({ run: "held", held: { kind: "cellular" } });
+    const failed = run({
+      run: "failed",
+      total: 3,
+      failure: { kind: "http-503", keysFailed: 1, retryAt: null },
+    });
+    const background = run({ run: "bg", priority: "background" });
+    expect(progressLine(syncOf(failed, held, background))).toMatchObject({
+      kind: "held",
+      held: { kind: "cellular" },
+    });
+    expect(progressLine(syncOf(failed))).toEqual({ kind: "idle" });
+  });
+
+  it("sums a page's runs by scope, and drops the total when any run's size is unknown", () => {
+    const snapshot = syncOf(
+      run({ run: "a", scope: "42", done: 2, total: 5 }),
+      run({ run: "b", dataset: "lms.assign", scope: "42", done: 1, total: 1 }),
+      run({ run: "c", scope: "43", done: 7, total: 7 }),
+    );
+    expect(
+      pageProgress(runsFor(snapshot, ["lms.course", "lms.assign"], "42")),
+    ).toEqual({ done: 3, total: 6 });
+    expect(pageProgress(runsFor(snapshot, ["lms"]))).toEqual({
+      done: 10,
+      total: 13,
+    });
+    expect(
+      pageProgress([run({ done: 1, total: 4 }), run({ done: 2 })]),
+    ).toEqual({ done: 3, total: null });
+    expect(pageProgress(runsFor(snapshot, ["kyomu"]))).toBeNull();
+  });
+
+  it("retries a failed dataset at its own scope", () => {
+    expect(retryScope(run({ scope: "42" }))).toEqual({
+      kind: "course",
+      lmsCourseId: 42,
+    });
+    expect(retryScope(run({ dataset: "lms.deadlines" }))).toEqual({
+      kind: "site",
+      site: "science-lms",
+    });
+    expect(retryScope(run({ dataset: "kyomu.page", scope: "gpa" }))).toEqual({
+      kind: "site",
+      site: "kyomu",
+    });
+    expect(
+      retryScope(run({ dataset: "catalog.official", scope: "2026" })),
+    ).toEqual({ kind: "catalog", year: 2026 });
+    // An offering id is not a year.
+    expect(
+      retryScope(run({ dataset: "catalog.detail", scope: "202602431" })),
+    ).toEqual({ kind: "everything" });
+    expect(retryScope(run({ dataset: "reference" }))).toEqual({
+      kind: "references",
+    });
   });
 });

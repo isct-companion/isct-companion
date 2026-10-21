@@ -38,37 +38,24 @@
 .lectureContent { flex: 1; min-width: 0; min-height: 0; overflow: hidden; contain: layout paint; }
 .lectureSlot { height: 100%; }
 .lectureSlot[hidden] { display: none; }
-.lectureBack { display: none; }
 
-@media (max-width: 48em) {
-  .workspaceMain.lecturesMain { height: auto; min-height: 100dvh; overflow: visible; }
-  .page.lectureDesk { display: block; }
-  .lectureList { overflow: visible; padding-right: 0; border-right: 0; }
-  .lectureRow { padding-block: 12px; }
-  .lectureDesk.open .lectureList, .lectureDesk:not(.open) .lectureContent { display: none; }
-  .lectureDesk.open .lectureContent { height: calc(100dvh - 166px); }
-  .lectureBack { display: inline-flex; margin: 0 0 8px; padding: 6px 2px; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 560; }
+.lectureSidebarToggle {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 28px; height: 28px; padding: 0; border: 0;
+  border-radius: var(--radius-control); background: none;
+  color: var(--muted); cursor: pointer;
 }
-
-@media (min-width: 769px) {
-  .lectureSidebarToggle {
-    flex: 0 0 auto; display: grid; place-items: center;
-    width: 28px; height: 28px; padding: 0; border: 0;
-    border-radius: var(--radius-control); background: none;
-    color: var(--muted); cursor: pointer;
-  }
-  .lectureSidebarToggle:hover { color: var(--ink); background: var(--surface-3); }
-  .lectureEmptyHeader { display: flex; padding: 4px; }
-  .lectureDesk[data-sidebar-collapsed="true"] > .splitWorkspace > .workspaceSeparator {
-    width: 0; visibility: hidden;
-  }
-  /* Keep the same list mounted while the panel takes zero layout space. */
-  .lectureDesk[data-sidebar-collapsed="true"] .lectureList {
-    position: fixed; top: 8px; bottom: 60px; left: 76px; z-index: 7;
-    width: min(280px, calc(100vw - 84px)); padding: 12px;
-    border: 1px solid var(--line); border-radius: var(--radius-panel);
-    background: var(--surface-2); box-shadow: 0 12px 40px #0003;
-    visibility: hidden; pointer-events: none;
-  }
-  .lectureDesk[data-sidebar-floating="true"] .lectureList { visibility: visible; pointer-events: auto; }
+.lectureSidebarToggle:hover { color: var(--ink); background: var(--surface-3); }
+.lectureEmptyHeader { display: flex; padding: 4px; }
+.lectureDesk[data-sidebar-collapsed="true"] > .splitWorkspace > .workspaceSeparator {
+  width: 0; visibility: hidden;
 }
+/* Keep the same list mounted while the panel takes zero layout space. */
+.lectureDesk[data-sidebar-collapsed="true"] .lectureList {
+  position: fixed; top: 8px; bottom: 60px; left: 76px; z-index: 7;
+  width: min(280px, calc(100vw - 84px)); padding: 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-panel);
+  background: var(--surface-2); box-shadow: 0 12px 40px #0003;
+  visibility: hidden; pointer-events: none;
+}
+.lectureDesk[data-sidebar-floating="true"] .lectureList { visibility: visible; pointer-events: auto; }

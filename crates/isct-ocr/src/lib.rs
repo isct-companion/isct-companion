@@ -117,9 +117,12 @@ pub use engine::{
 pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
+// The stubs keep a private field like the ONNX types, so callers build both
+// with `default()`; a unit struct would invite `Type` literals that only
+// compile where `matrix_ocr` is off.
 #[cfg(not(matrix_ocr))]
 #[derive(Clone, Default)]
-pub struct MatrixAlphabetService;
+pub struct MatrixAlphabetService(());
 #[cfg(not(matrix_ocr))]
 impl MatrixAlphabetService {
     pub fn recognize(&self, _images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
@@ -129,7 +132,7 @@ impl MatrixAlphabetService {
 
 #[cfg(not(matrix_ocr))]
 #[derive(Clone, Default)]
-pub struct MatrixOcrService;
+pub struct MatrixOcrService(());
 
 #[cfg(not(matrix_ocr))]
 impl MatrixOcrService {

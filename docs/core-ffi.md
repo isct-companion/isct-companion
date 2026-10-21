@@ -57,9 +57,10 @@ UNUSED_EXPRESSION warnings on newer compilers; sources are not patched.
 
 Create `Session.open(config, vault, browser?, cloud?, notifications?, downloads?)`
 once per app data directory. Opening storage runs on an owned worker. Directory
-paths must be absolute and supplied by the native shell. The SDK uses `school.db`
-and the existing Core schema; it does not migrate an installed desktop app's
-container. The vault implements Core account names and must preserve the app's
+paths must be absolute and supplied by the native shell. The SDK keeps `user.db`
+and `cache.db` in that directory and splits a `school.db` found there once
+(`crates/isct-core/src/data/migrations.rs`); it does not migrate an installed
+desktop app's container. The vault implements Core account names and must preserve the app's
 Keychain/Keystore identity. Credentials do not appear in workspace snapshots.
 
 All service methods return an `Operation` immediately. Its identity is assigned
@@ -86,7 +87,7 @@ before work is admitted. `awaitResult()` returns a typed `OperationResult`;
 
 | Surface               | Main methods                                                                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace/read models | `snapshot`, `mutate`, `scheduleQuery`, `finderQuery`                                                                 |
+| Workspace/read models | `snapshot`, `mutate`, `scheduleQuery`, `finderQuery`                                                                                    |
 | Accounts              | `credentialStatus`, `saveCredentials`, `deleteCredentials`                                                                              |
 | School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `ensureSchoolSession`, `schoolBrowsing`, navigation/back/forward/reload, `pullSchool` |
 | References/pulls      | `refreshReferences`, `pullState`, `cancelPull`                                                                                          |
@@ -131,9 +132,13 @@ compatibility, task and native-delivery categories.
 
 Call `subscribe()` before reading initial snapshots, then consume queued
 `next()` updates. Events retain Core's existing event names and full payloads,
-with a per-session sequence. Every school.db commit that changes a row emits
-`workspace-changed` with its source (`user-intent` for mutations), published by
-Core's commit path after the commit in every shell. Delivery failure does not turn that committed mutation into an operation
+with a per-session sequence. Every commit that changes a row emits
+`workspace-changed` with its source (`user-intent` for mutations) and the
+`changes` it made, published by Core's commit path after the commit in every
+shell; background changes are coalesced to at most one event per source per
+250 ms. `Session.workspaceRecords(changes)` returns only the snapshot fields
+those names feed. The mobile shells skip an event whose `changes` are only
+`freshness` and otherwise refresh as before. Delivery failure does not turn that committed mutation into an operation
 failure. `applyBackup` imports through the cloud journal like the desktop
 (recovery point, new restore generation, replayable apply), so it and cloud
 recovery both emit `cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
@@ -152,7 +157,9 @@ Native ports are mechanisms:
   `BrowserEvents` reports completion
   using browser generation, page sequence and action ID. Never synchronously
   wait for the main thread from a callback. Shutdown disables native admission.
-- `NativeDownloadSession`: async authenticated cookie access for Core downloads.
+- `NativeDownloadSession`: the school WebView cookie store for Core HTTP:
+  `cookieHeader` reads it (empty means signed out), `storeSetCookies` writes
+  server cookies back (iOS `WKHTTPCookieStore`, Android `CookieManager` + flush).
 - `NativeNotifications`: async system notification delivery.
 - `NativeCloud`: async provider transport; Core owns merge/queue/recovery policy.
 

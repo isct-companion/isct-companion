@@ -1,8 +1,8 @@
 use super::*;
 
 fn service(name: &str) -> WorkspaceService {
-    let path = std::env::temp_dir().join(format!("isct-workspace-{name}-{}.db", Uuid::new_v4()));
-    WorkspaceService::new(DataStore::initialize(path).unwrap().0)
+    let path = std::env::temp_dir().join(format!("isct-workspace-{name}-{}", Uuid::new_v4()));
+    WorkspaceService::new(DataStore::initialize_dir(path).unwrap().0)
 }
 
 fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) -> Value {
@@ -69,7 +69,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
     // PRAGMA data_version must invalidate the cached projection, even though
     // this background update deliberately keeps the user-intent revision.
     let warm = service.snapshot().unwrap();
-    let external = DataStore::initialize(service.store.path().to_path_buf())
+    let external = DataStore::initialize_dir(service.store.directory().to_path_buf())
         .unwrap()
         .0;
     external.record_reference_poll().unwrap();

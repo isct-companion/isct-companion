@@ -1,18 +1,25 @@
-//! Reference subscription refresh policy, acquisition, and persistence.
+//! Reference files: what the person follows, when a file is due, and the
+//! executor that reads one leased `reference/{kind}/{year}` key.
 
 use crate::{
-    data::{versioned::content_hash, DataError, DataStore, WorkspaceChangeSource},
-    pull_coordinator::{
-        PullContext, PullCoordinator, PullError, PullOptions, PullPriority, PullTarget,
-    },
+    data::{DataError, WorkspaceChangeSource},
     subscriptions::{
         self, AcademicCalendar, ClassSchedules, ImportantDates, PublishedExamFeed, ReferenceFetch,
         SubscriptionClient, SubscriptionError,
     },
+    sync_engine::{Gated, KeyEnd, Lease},
+    sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, RunOutcome, Term},
 };
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
+use rusqlite::{Connection, Transaction};
 use serde_json::{json, Value};
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::Mutex;
 
 /// The public Isct-Data index every reference subscription starts from.
@@ -20,9 +27,10 @@ pub const PUBLIC_INDEX: &str =
     "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
 /// Every reference dataset kind a subscription can follow.
 pub const REFERENCE_KINDS: [&str; 4] = ["calendar", "important-dates", "exams", "class-schedules"];
+/// `error_kind` of a public file held back because it shrank suspiciously.
+pub(crate) const SUSPICIOUS_SHRINK: &str = "suspicious-shrink";
 type ReferenceTransportFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, SubscriptionError>> + Send + 'a>>;
-type Probes = Arc<Mutex<HashMap<String, Result<String, ReferenceError>>>>;
 
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ReferenceError {
@@ -40,10 +48,9 @@ pub enum ReferenceError {
     Compatibility(String),
     #[error("Pull cancelled.")]
     Cancelled,
-    #[error("{0}")]
-    Coordination(#[source] PullError),
-    #[error("{0} reference source(s) failed")]
-    PartialFailure(usize),
+    /// A reset moved the sync generation; the read may not write.
+    #[error("The sync was reset.")]
+    Superseded,
 }
 
 impl From<DataError> for ReferenceError {
@@ -63,39 +70,6 @@ impl From<SubscriptionError> for ReferenceError {
             SubscriptionError::Validation(message) => Self::InvalidInput(message),
             SubscriptionError::Network(message) => Self::Network(message),
             SubscriptionError::Storage(message) => Self::Storage(message),
-        }
-    }
-}
-
-impl From<PullError> for ReferenceError {
-    fn from(error: PullError) -> Self {
-        match error {
-            PullError::Cancelled => Self::Cancelled,
-            PullError::InvalidTarget(message) | PullError::InvalidInput(message) => {
-                Self::InvalidInput(message)
-            }
-            PullError::Network(message) => Self::Network(message),
-            PullError::Storage(message) => Self::Storage(message),
-            other => Self::Coordination(other),
-        }
-    }
-}
-
-impl From<ReferenceError> for PullError {
-    fn from(error: ReferenceError) -> Self {
-        match error {
-            ReferenceError::InvalidInput(message) => Self::InvalidInput(message),
-            ReferenceError::Network(message) => Self::Network(message),
-            // The coordinator has no conflict/compatibility category; both
-            // are local storage outcomes of the pull.
-            ReferenceError::Storage(message)
-            | ReferenceError::Conflict(message)
-            | ReferenceError::Compatibility(message) => Self::Storage(message),
-            ReferenceError::Cancelled => Self::Cancelled,
-            ReferenceError::Coordination(error) => error,
-            ReferenceError::PartialFailure(count) => {
-                Self::Execution(format!("{count} reference source(s) failed"))
-            }
         }
     }
 }
@@ -148,6 +122,53 @@ impl From<ClassSchedules> for ReferencePayload {
 impl From<Vec<PublishedExamFeed>> for ReferencePayload {
     fn from(value: Vec<PublishedExamFeed>) -> Self {
         Self::Exams(value)
+    }
+}
+
+impl ReferencePayload {
+    /// Rows this version publishes.
+    fn rows(&self) -> usize {
+        match self {
+            Self::Calendar(calendar) => calendar.quarters.len() * 2 + calendar.days.len(),
+            Self::ImportantDates(dates) => dates.entries.len(),
+            Self::Exams(feeds) => feeds.iter().map(|feed| feed.feed.entries.len()).sum(),
+            Self::ClassSchedules(schedules) => schedules.entries.len(),
+        }
+    }
+
+    /// Writes the file's rows; every exam feed of the file shares the one
+    /// transaction.
+    fn apply(
+        &self,
+        transaction: &Transaction<'_>,
+    ) -> Result<(usize, Option<Vec<Value>>), SubscriptionError> {
+        Ok(match self {
+            Self::Calendar(value) => (
+                subscriptions::apply_reference(transaction, Some(value), None)?,
+                None,
+            ),
+            Self::ImportantDates(value) => (
+                subscriptions::apply_important_dates(transaction, value)?,
+                None,
+            ),
+            Self::ClassSchedules(value) => (
+                subscriptions::apply_class_schedules(transaction, value)?,
+                None,
+            ),
+            Self::Exams(feeds) => {
+                let mut changed = 0;
+                let mut files = Vec::new();
+                for feed in feeds {
+                    changed += subscriptions::apply_exam_feed(transaction, feed)?;
+                    files.push(json!({
+                        "level":feed.level,
+                        "quarter":feed.quarter.to_ascii_uppercase(),
+                        "dataUrl":feed.url
+                    }));
+                }
+                (changed, Some(files))
+            }
+        })
     }
 }
 
@@ -209,249 +230,212 @@ impl ReferenceTransport for HttpReferenceTransport {
     }
 }
 
+/// Index hashes probed recently, so one evaluation's reference keys probe a
+/// shared Isct-Data index once.
+#[derive(Default)]
+pub(crate) struct IndexProbes(Mutex<HashMap<String, Probe>>);
+
+/// When an index was probed, and the hash (or error) it answered.
+type Probe = (Instant, Result<String, ReferenceError>);
+
+/// How long a probed index hash is reused.
+const PROBE_REUSE: Duration = Duration::from_secs(60);
+
+impl IndexProbes {
+    async fn hash(
+        &self,
+        transport: &dyn ReferenceTransport,
+        index_url: &str,
+    ) -> Result<String, ReferenceError> {
+        let mut cache = self.0.lock().await;
+        if let Some((at, result)) = cache.get(index_url) {
+            if at.elapsed() < PROBE_REUSE {
+                return result.clone();
+            }
+        }
+        let result = transport
+            .probe(index_url)
+            .await
+            .map_err(ReferenceError::from);
+        cache.insert(index_url.into(), (Instant::now(), result.clone()));
+        result
+    }
+}
+
+/// The reference files the person follows: every enabled kind for the
+/// academic year being viewed, from its subscription's index.
+pub(crate) fn followed(workspace: &Value) -> Vec<(String, i32, String)> {
+    let Some(year) = subscription_year(workspace) else {
+        return Vec::new();
+    };
+    REFERENCE_KINDS
+        .iter()
+        .filter_map(|kind| {
+            let row = subscription_row(workspace, kind);
+            if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
+                return None;
+            }
+            let index_url = row
+                .and_then(|row| row["url"].as_str())
+                .and_then(normalized_index)
+                .unwrap_or_else(|| PUBLIC_INDEX.to_string());
+            Some(((*kind).to_string(), year, index_url))
+        })
+        .collect()
+}
+
+/// An HTTPS index URL without credentials or fragment.
+fn normalized_index(raw: &str) -> Option<String> {
+    let mut url = url::Url::parse(raw.trim()).ok()?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
+/// Whether a reference key is read now: `sync_state::due`, and a fresh key
+/// whose validator came from another index, whose rows are gone, or that
+/// holds back a shrunk version is read again.
+pub(crate) fn reference_due(
+    connection: &Connection,
+    key: &Key,
+    kind: &str,
+    year: i32,
+    index_url: &str,
+    now: DateTime<Utc>,
+) -> Result<Due, DataError> {
+    let stored = StoredFile::read(connection, key, kind, year)?;
+    let ttl = sync_state::ttl(Dataset::Reference, Term::Current);
+    Ok(match sync_state::due(stored.state.as_ref(), ttl, "", now) {
+        Due::Fresh if stored.held.is_some() || stored.validator(index_url).is_none() => Due::Stale,
+        due => due,
+    })
+}
+
+/// Reads one leased reference key over Isct-Data.
+pub(crate) async fn read_reference(lease: &Lease, probes: &IndexProbes) -> KeyEnd {
+    ReferenceReader::default().read(lease, probes).await
+}
+
+/// The reference executor: its transport and clock, replaceable in tests.
 #[derive(Clone)]
-pub struct ReferenceService {
-    store: DataStore,
-    coordinator: PullCoordinator,
+pub(crate) struct ReferenceReader {
     transport: Arc<dyn ReferenceTransport>,
     clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
 }
 
-impl ReferenceService {
-    pub fn new(store: DataStore, coordinator: PullCoordinator) -> Self {
+impl Default for ReferenceReader {
+    fn default() -> Self {
         Self {
-            store,
-            coordinator,
             transport: Arc::new(HttpReferenceTransport),
             clock: Arc::new(Utc::now),
         }
     }
+}
 
+impl ReferenceReader {
     #[cfg(test)]
-    fn with_transport(mut self, transport: Arc<dyn ReferenceTransport>) -> Self {
-        self.transport = transport;
-        self
+    fn new(
+        transport: Arc<dyn ReferenceTransport>,
+        clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
+    ) -> Self {
+        Self { transport, clock }
     }
 
-    #[cfg(test)]
-    fn with_clock(mut self, clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>) -> Self {
-        self.clock = clock;
-        self
-    }
-
-    /// Automatic and manual runs use the same year rule as the Settings view.
-    pub async fn refresh_all(&self, force: bool) -> Result<String, ReferenceError> {
-        let workspace = self.store.load_workspace()?;
-        let probes: Probes = Arc::new(Mutex::new(HashMap::new()));
-        let mut changed = 0u64;
-        let mut failures = 0usize;
-        for kind in REFERENCE_KINDS {
-            let row = subscription_row(&workspace, kind);
-            if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
-                continue;
-            }
-            let Some(year) = subscription_year(&workspace) else {
-                continue;
-            };
-            let index_url = row
-                .and_then(|row| row["url"].as_str())
-                .filter(|url| url.starts_with("https://"))
-                .unwrap_or(PUBLIC_INDEX)
-                .to_string();
-            let request = ReferenceRequest {
-                kind: kind.into(),
-                index_url,
-                year,
-                force,
-            };
-            match self
-                .refresh_one(
-                    request,
-                    if force {
-                        PullPriority::Manual
-                    } else {
-                        PullPriority::Automatic
-                    },
-                    probes.clone(),
-                )
-                .await
-            {
-                Ok(result) => changed += result["changed"].as_u64().unwrap_or(0),
-                Err(_) => failures += 1,
-            }
-        }
-        self.store.record_reference_poll()?;
-        if failures > 0 {
-            Err(ReferenceError::PartialFailure(failures))
-        } else if changed > 0 {
-            Ok(format!("Updated {changed} reference dataset(s)"))
-        } else {
-            Ok("Reference data is up to date".into())
-        }
-    }
-
-    async fn refresh_one(
-        &self,
-        mut request: ReferenceRequest,
-        priority: PullPriority,
-        probes: Probes,
-    ) -> Result<Value, ReferenceError> {
-        if let PullTarget::Reference {
-            kind, index_url, ..
-        } = (PullTarget::Reference {
-            kind: request.kind.clone(),
-            index_url: request.index_url.clone(),
-            year: request.year,
-        })
-        .normalized()?
-        {
-            request.kind = kind;
-            request.index_url = index_url;
-        }
-        let service = self.clone();
-        let target = PullTarget::Reference {
-            kind: request.kind.clone(),
-            index_url: request.index_url.clone(),
-            year: request.year,
+    pub(crate) async fn read(&self, lease: &Lease, probes: &IndexProbes) -> KeyEnd {
+        let index_url = lease
+            .locator
+            .clone()
+            .unwrap_or_else(|| PUBLIC_INDEX.to_string());
+        let Some((kind, year)) = lease
+            .key
+            .key
+            .rsplit_once('/')
+            .and_then(|(kind, year)| Some((kind.to_string(), year.parse::<i32>().ok()?)))
+            .filter(|(kind, _)| REFERENCE_KINDS.contains(&kind.as_str()))
+        else {
+            return KeyEnd::failed("unsupported", index_url);
         };
-        let mut options = if priority == PullPriority::Manual {
-            PullOptions::manual()
-        } else {
-            PullOptions::automatic()
-        };
-        options.priority = priority;
-        self.coordinator
-            .run(target, options, move |context| {
-                let service = service.clone();
-                let request = request.clone();
-                let probes = probes.clone();
-                async move {
-                    service
-                        .run_reference(&request, &context, &probes)
-                        .await
-                        .map_err(PullError::from)
-                }
-            })
-            .await
-            .map_err(ReferenceError::from)
+        match self.read_kind(lease, &kind, year, &index_url, probes).await {
+            Ok(Read::Current(value)) => KeyEnd::Done {
+                changed: value["changed"]
+                    .as_u64()
+                    .and_then(|changed| usize::try_from(changed).ok())
+                    .unwrap_or(0),
+            },
+            Ok(Read::Held) => KeyEnd::Refused {
+                kind: SUSPICIOUS_SHRINK.into(),
+            },
+            Err(ReferenceError::Cancelled) => KeyEnd::Cancelled { source: index_url },
+            Err(ReferenceError::Superseded) => KeyEnd::Stale,
+            Err(error) => KeyEnd::failed(error_kind(&error), index_url),
+        }
     }
 
-    async fn run_reference(
+    /// Reads the file, then records its metadata on the subscription row the
+    /// Settings view shows. A concurrent user edit of that row wins.
+    async fn read_kind(
         &self,
-        request: &ReferenceRequest,
-        context: &PullContext,
-        probes: &Probes,
-    ) -> Result<Value, ReferenceError> {
-        if !REFERENCE_KINDS.contains(&request.kind.as_str()) {
-            return Err(ReferenceError::InvalidInput(
-                "unsupported subscription type".into(),
-            ));
-        }
-        let workspace = self.store.load_workspace()?;
-        let existing = subscription_row(&workspace, &request.kind);
-        let priority = context.priority();
-        if priority == PullPriority::Automatic
-            && existing.is_some_and(|row| row["enabled"].as_bool() == Some(false))
-        {
-            return Ok(not_modified());
-        }
-        let same_source =
-            existing.is_some_and(|row| same_index(row["url"].as_str(), &request.index_url));
-        let has_cache = cache_present(&self.store, &workspace, request)?;
-        if !request.force
-            && priority != PullPriority::Manual
-            && same_source
-            && has_cache
-            && existing
-                .is_some_and(|row| reference_is_fresh(row, request.year.into(), (self.clock)()))
-        {
-            return Ok(not_modified());
-        }
+        lease: &Lease,
+        kind: &str,
+        year: i32,
+        index_url: &str,
+        probes: &IndexProbes,
+    ) -> Result<Read, ReferenceError> {
+        let writer = lease.writer();
+        let store = writer.store().clone();
+        let workspace = store.load_workspace()?;
+        let existing = subscription_row(&workspace, kind);
+        let stored = store.write(None, |transaction| {
+            StoredFile::read(transaction, &lease.key, kind, year)
+        })?;
         let mut row = existing.cloned().unwrap_or_else(|| {
             json!({
-                "id":format!("subscription:public:{}",request.kind),"kind":request.kind,"enabled":true
+                "id":format!("subscription:public:{kind}"),"kind":kind,"enabled":true
             })
         });
         let revision = row["rev"].as_u64().unwrap_or(0);
-        row["url"] = json!(request.index_url);
-        let result = async {
-            if !context.phase("index").await {
-                return Err(ReferenceError::Cancelled);
-            }
-            let index_hash = {
-                let mut cache = probes.lock().await;
-                if let Some(result) = cache.get(&request.index_url) {
-                    result.clone()?
-                } else {
-                    let result = self
-                        .transport
-                        .probe(&request.index_url)
-                        .await
-                        .map_err(ReferenceError::from);
-                    cache.insert(request.index_url.clone(), result.clone());
-                    result?
-                }
-            };
-            let same_year = same_source && row["year"].as_i64() == Some(request.year.into());
-            let cached = same_year && has_cache && row["indexHash"].as_str() == Some(&index_hash);
-            let value = if cached {
-                not_modified()
-            } else {
-                let known_hash = (same_year && has_cache)
-                    .then(|| row["remoteHash"].as_str())
-                    .flatten();
-                if !context.phase("fetching").await {
-                    return Err(ReferenceError::Cancelled);
-                }
-                let fetched = self
-                    .transport
-                    .fetch(
-                        &request.kind,
-                        &request.index_url,
-                        request.year,
-                        &index_hash,
-                        known_hash,
-                    )
-                    .await?;
-                if context.is_cancelled() || !context.applying().await {
-                    return Err(ReferenceError::Cancelled);
-                }
-                self.apply_fetch(fetched)?
-            };
-            if !context.applying().await {
-                return Err(ReferenceError::Cancelled);
-            }
-            if value["notModified"].as_bool() == Some(false) {
-                let materialized = self.store.load_workspace()?;
-                self.store.record_reference_cache(
-                    &request.kind,
-                    request.year,
-                    json!({
-                        "indexUrl":request.index_url,
-                        "fingerprint":cache_fingerprint(&materialized, &request.kind, request.year)?
-                    }),
-                )?;
-            }
-            row["year"] = json!(request.year);
-            row["indexHash"] = json!(index_hash);
-            for key in ["dataUrl", "remoteHash", "sourceTs"] {
-                if let Some(value) = value.get(key) {
-                    row[key] = value.clone();
-                }
-            }
-            row["fetchedAt"] = json!((self.clock)().to_rfc3339());
-            row["lastError"] = Value::Null;
-            Ok(value)
+        row["url"] = json!(index_url);
+        // Validators live in `dataset_state`.
+        if let Some(object) = row.as_object_mut() {
+            object.remove("indexHash");
+            object.remove("remoteHash");
         }
-        .await;
-        if !context.applying().await {
+        let result = self
+            .read_file(lease, kind, year, index_url, probes, &stored)
+            .await;
+        if lease.is_cancelled() {
             return Err(ReferenceError::Cancelled);
         }
-        if let Err(error) = &result {
-            row["lastError"] = json!(error.to_string());
-        }
-        let latest = self
-            .store
+        let result = match result {
+            // A held version changes nothing the Settings view shows.
+            Ok(Read::Held) => return Ok(Read::Held),
+            Err(ReferenceError::Superseded) => return Err(ReferenceError::Superseded),
+            Ok(Read::Current(value)) => {
+                row["year"] = json!(year);
+                for key in ["dataUrl", "sourceTs"] {
+                    if let Some(value) = value.get(key) {
+                        row[key] = value.clone();
+                    }
+                }
+                row["fetchedAt"] = json!((self.clock)().to_rfc3339());
+                row["lastError"] = Value::Null;
+                Ok(Read::Current(value))
+            }
+            Err(error) => {
+                row["lastError"] = json!(error.to_string());
+                Err(error)
+            }
+        };
+        let Some(_gate) = writer.enter() else {
+            return Err(ReferenceError::Superseded);
+        };
+        let latest = store
             .user_rows("subscriptions")?
             .into_iter()
             .find(|current| current["id"] == row["id"]);
@@ -459,65 +443,312 @@ impl ReferenceService {
             .as_ref()
             .is_none_or(|current| current["rev"].as_u64().unwrap_or(0) == revision)
         {
-            self.store.put_user_record_checked(
+            store.put_user_record_checked(
                 "subscriptions",
                 row,
                 WorkspaceChangeSource::ReferencePull,
                 Some(revision),
             )?;
         }
+        if result.is_ok() {
+            store.record_reference_poll()?;
+        }
         result
     }
 
-    fn apply_fetch(&self, fetched: TransportFetch) -> Result<Value, ReferenceError> {
+    /// Reads one Isct-Data file. A matching validator only renews freshness
+    /// when the file's rows are stored; a fetched file replaces its rows and
+    /// is marked fresh in one transaction, unless it shrank suspiciously.
+    async fn read_file(
+        &self,
+        lease: &Lease,
+        kind: &str,
+        year: i32,
+        index_url: &str,
+        probes: &IndexProbes,
+        stored: &StoredFile,
+    ) -> Result<Read, ReferenceError> {
+        let key = &lease.key;
+        let writer = lease.writer();
         let write =
-            |apply: &dyn Fn(&rusqlite::Transaction<'_>) -> Result<usize, SubscriptionError>| {
-                self.store
-                    .write(Some(WorkspaceChangeSource::ReferencePull), apply)
+            |source: Option<WorkspaceChangeSource>,
+             work: &mut dyn FnMut(&Transaction<'_>) -> Result<Read, ReferenceError>| {
+                writer
+                    .write(source, |transaction| work(transaction))
+                    .map_err(|gated| match gated {
+                        Gated::Stale => ReferenceError::Superseded,
+                        Gated::Failed(error) => error,
+                    })
             };
-        let mut files = None;
-        let changed = match fetched.value.as_ref() {
-            None => return Ok(fetch_result(0, &fetched, None, true)),
-            Some(ReferencePayload::Calendar(value)) => write(&|transaction| {
-                subscriptions::apply_reference(transaction, Some(value), None)
-            })?,
-            Some(ReferencePayload::ImportantDates(value)) => {
-                write(&|transaction| subscriptions::apply_important_dates(transaction, value))?
-            }
-            Some(ReferencePayload::ClassSchedules(value)) => {
-                write(&|transaction| subscriptions::apply_class_schedules(transaction, value))?
-            }
-            Some(ReferencePayload::Exams(feeds)) => {
-                let mut changed = 0;
-                let mut applied = Vec::new();
-                // Each exam feed keeps its own commit.
-                for feed in feeds {
-                    changed +=
-                        write(&|transaction| subscriptions::apply_exam_feed(transaction, feed))?;
-                    applied.push(json!({
-                        "level":feed.level,
-                        "quarter":feed.quarter.to_ascii_uppercase(),
-                        "dataUrl":feed.url
-                    }));
-                }
-                files = Some(applied);
-                changed
-            }
+        let record = |connection: &Transaction<'_>,
+                      outcome: RunOutcome,
+                      changed: usize,
+                      source: &str,
+                      error_kind: Option<&str>| {
+            sync_state::record_run(
+                connection,
+                &lease.run_record(outcome, changed, source, error_kind, (self.clock)()),
+            )
         };
-        Ok(fetch_result(changed, &fetched, files, false))
+        let index_hash = probes.hash(self.transport.as_ref(), index_url).await?;
+        if lease.is_cancelled() {
+            return Err(ReferenceError::Cancelled);
+        }
+        let mut validator = stored.validator(index_url);
+        if validator
+            .as_ref()
+            .is_some_and(|validator| validator.index_hash == index_hash)
+        {
+            let now = (self.clock)();
+            let renewed = write(
+                None,
+                &mut |transaction: &Transaction<'_>| -> Result<Read, ReferenceError> {
+                    if !sync_state::renew(transaction, key, "", now)? {
+                        return Ok(Read::Held);
+                    }
+                    // The published version is the stored one again.
+                    sync_state::set_cursor(transaction, key, "", None)?;
+                    record(transaction, RunOutcome::Unchanged, 0, index_url, None)?;
+                    Ok(Read::Current(not_modified()))
+                },
+            )?;
+            if let Read::Current(value) = renewed {
+                return Ok(Read::Current(value));
+            }
+            // Nothing is stored after all: read the file in full.
+            validator = None;
+        }
+        let known_hash = validator
+            .as_ref()
+            .map(|validator| validator.file_hash.as_str());
+        let fetched = self
+            .transport
+            .fetch(kind, index_url, year, &index_hash, known_hash)
+            .await?;
+        if lease.is_cancelled() {
+            return Err(ReferenceError::Cancelled);
+        }
+        let now = (self.clock)();
+        let mut next = Validator {
+            index_url: index_url.to_string(),
+            index_hash,
+            file_hash: fetched.remote_hash.clone(),
+            rows: validator.as_ref().map_or(0, |validator| validator.rows),
+        };
+        let Some(payload) = fetched.value.as_ref() else {
+            // Only the index changed; the stored file is still current.
+            if known_hash.is_none() {
+                return Err(ReferenceError::InvalidInput(
+                    "The reference source returned no data.".into(),
+                ));
+            }
+            let encoded = next.encode();
+            let committed = write(
+                None,
+                &mut |transaction: &Transaction<'_>| -> Result<Read, ReferenceError> {
+                    if next.rows > 0 && stored_rows(transaction, kind, year)? == 0 {
+                        return Ok(Read::Held);
+                    }
+                    sync_state::set_cursor(transaction, key, "", None)?;
+                    sync_state::commit(
+                        transaction,
+                        key,
+                        Commit {
+                            account: "",
+                            validator: Some(&encoded),
+                            outcome: Outcome::Complete,
+                            message: None,
+                        },
+                        now,
+                    )?;
+                    record(
+                        transaction,
+                        RunOutcome::Unchanged,
+                        0,
+                        &fetched.data_url,
+                        None,
+                    )?;
+                    Ok(Read::Current(Value::Null))
+                },
+            )?;
+            if matches!(committed, Read::Held) {
+                return Err(ReferenceError::Storage(
+                    "Stored reference rows disappeared during the refresh.".into(),
+                ));
+            }
+            return Ok(Read::Current(fetch_result(0, &fetched, None, true)));
+        };
+        next.rows = payload.rows();
+        let encoded = next.encode();
+        write(
+            Some(WorkspaceChangeSource::ReferencePull),
+            &mut |transaction: &Transaction<'_>| -> Result<Read, ReferenceError> {
+                let pending = sync_state::cursor(transaction, key)?;
+                if suspicious_shrink(stored_rows(transaction, kind, year)?, next.rows)
+                    && pending.as_deref() != Some(fetched.remote_hash.as_str())
+                {
+                    // Publish only when a later read returns this same version.
+                    sync_state::set_cursor(transaction, key, "", Some(&fetched.remote_hash))?;
+                    sync_state::fail(transaction, key, "", SUSPICIOUS_SHRINK, now)?;
+                    record(
+                        transaction,
+                        RunOutcome::Failed,
+                        0,
+                        &fetched.data_url,
+                        Some(SUSPICIOUS_SHRINK),
+                    )?;
+                    return Ok(Read::Held);
+                }
+                let (changed, files) = payload.apply(transaction)?;
+                sync_state::set_cursor(transaction, key, "", None)?;
+                sync_state::commit(
+                    transaction,
+                    key,
+                    Commit {
+                        account: "",
+                        validator: Some(&encoded),
+                        outcome: Outcome::Complete,
+                        message: None,
+                    },
+                    now,
+                )?;
+                record(
+                    transaction,
+                    RunOutcome::Complete,
+                    changed,
+                    &fetched.data_url,
+                    None,
+                )?;
+                Ok(Read::Current(fetch_result(changed, &fetched, files, false)))
+            },
+        )
     }
 }
 
-#[derive(Clone)]
-struct ReferenceRequest {
-    kind: String,
+/// How a read of one reference file ended, short of an error.
+enum Read {
+    /// The stored file is current: renewed, or replaced by the fetched one.
+    Current(Value),
+    /// The fetched version shrank suspiciously and was not published.
+    Held,
+}
+
+/// What a stored reference file was checked against, kept as its
+/// `dataset_state.validator`: the index it came from, that index's hash,
+/// the file's own hash and how many rows the file had.
+#[derive(Clone, Debug, PartialEq)]
+struct Validator {
     index_url: String,
-    year: i32,
-    force: bool,
+    index_hash: String,
+    file_hash: String,
+    rows: usize,
+}
+
+impl Validator {
+    fn encode(&self) -> String {
+        format!(
+            "{}:{}:{}@{}",
+            self.index_hash, self.file_hash, self.rows, self.index_url
+        )
+    }
+
+    fn parse(raw: &str) -> Option<Self> {
+        let (hashes, index_url) = raw.split_once('@')?;
+        let mut parts = hashes.splitn(3, ':');
+        Some(Self {
+            index_hash: parts.next()?.into(),
+            file_hash: parts.next()?.into(),
+            rows: parts.next()?.parse().ok()?,
+            index_url: index_url.into(),
+        })
+    }
+}
+
+/// What is stored for one reference key when a read starts.
+struct StoredFile {
+    state: Option<KeyState>,
+    /// The file hash of a version held back as a suspicious shrink.
+    held: Option<String>,
+    /// Live rows the file published.
+    rows: usize,
+}
+
+impl StoredFile {
+    fn read(connection: &Connection, key: &Key, kind: &str, year: i32) -> Result<Self, DataError> {
+        Ok(Self {
+            state: sync_state::get(connection, key)?,
+            held: sync_state::cursor(connection, key)?,
+            rows: stored_rows(connection, kind, year)?,
+        })
+    }
+
+    /// The validator, when it was taken from this index and the file's rows
+    /// are still stored: missing content beats validators.
+    fn validator(&self, index_url: &str) -> Option<Validator> {
+        self.state
+            .as_ref()?
+            .validator
+            .as_deref()
+            .and_then(Validator::parse)
+            .filter(|validator| {
+                validator.index_url == index_url && (validator.rows == 0 || self.rows > 0)
+            })
+    }
+}
+
+pub(crate) fn reference_key(kind: &str, year: i32) -> Key {
+    Key::new(Dataset::Reference, format!("{kind}/{year}"))
+}
+
+/// Live rows one reference file published.
+fn stored_rows(connection: &Connection, kind: &str, year: i32) -> Result<usize, DataError> {
+    let (table, prefixes): (&str, &[&str]) = match kind {
+        "calendar" => ("academic_calendar", &["calendar"]),
+        "important-dates" => ("important_dates", &["important-date"]),
+        "exams" => ("exams", &["exam", "exam-week-class"]),
+        "class-schedules" => ("class_schedules", &["class-schedule"]),
+        _ => {
+            return Err(DataError::InvalidInput(
+                "unsupported subscription type".into(),
+            ))
+        }
+    };
+    let mut rows = 0;
+    for prefix in prefixes {
+        let count: i64 = connection
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM {table}
+                     WHERE id LIKE ?1 AND missing_since IS NULL AND deleted_at IS NULL"
+                ),
+                [format!("{prefix}:{year}:%")],
+                |row| row.get(0),
+            )
+            .map_err(DataError::from)?;
+        rows += usize::try_from(count).unwrap_or(0);
+    }
+    Ok(rows)
+}
+
+/// Public data only: a version that loses 30% or more of the stored rows,
+/// or all of them, is held until a later read returns the same version.
+pub(crate) fn suspicious_shrink(stored: usize, candidate: usize) -> bool {
+    stored > 0 && candidate.saturating_mul(10) <= stored.saturating_mul(7)
+}
+
+/// The short `error_kind` code of a failed read; never the message.
+fn error_kind(error: &ReferenceError) -> &'static str {
+    match error {
+        ReferenceError::Network(_) => "network",
+        ReferenceError::InvalidInput(_) | ReferenceError::Compatibility(_) => "parse",
+        ReferenceError::Storage(_) | ReferenceError::Conflict(_) => "storage",
+        ReferenceError::Cancelled => "cancelled",
+        ReferenceError::Superseded => "superseded",
+    }
 }
 
 /// References follow the term the person is viewing for every kind of run.
-fn subscription_year(workspace: &Value) -> Option<i32> {
+pub(crate) fn subscription_year(workspace: &Value) -> Option<i32> {
     workspace["selectedTerm"]
         .as_str()
         .and_then(|term| term.get(..4))
@@ -571,109 +802,6 @@ fn timestamp(value: Option<&str>) -> Option<DateTime<Utc>> {
     value
         .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
         .map(|value| value.with_timezone(&Utc))
-}
-
-pub(crate) fn calendar_cache_present(workspace: &Value, year: i64) -> bool {
-    let boundaries = workspace
-        .get("academicCalendar")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|row| {
-            let kind = row.get("type").and_then(Value::as_str)?;
-            let quarter = row.get("quarter").and_then(Value::as_str)?;
-            let raw_date = row.get("date").and_then(Value::as_str)?;
-            let valid_date = NaiveDate::parse_from_str(raw_date, "%Y-%m-%d")
-                .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == raw_date);
-            (matches!(kind, "quarter-start" | "quarter-end")
-                && valid_date
-                && row.get("academicYear").and_then(Value::as_i64) == Some(year)
-                && row.get("deletedAt").is_none_or(Value::is_null)
-                && row.get("missingSince").is_none_or(Value::is_null))
-            .then(|| format!("{kind}:{quarter}"))
-        })
-        .collect::<std::collections::HashSet<_>>();
-    ["1Q", "2Q", "3Q", "4Q"].into_iter().all(|quarter| {
-        boundaries.contains(&format!("quarter-start:{quarter}"))
-            && boundaries.contains(&format!("quarter-end:{quarter}"))
-    })
-}
-
-pub(crate) fn reference_is_fresh(row: &Value, year: i64, now: DateTime<Utc>) -> bool {
-    row.get("year").and_then(Value::as_i64) == Some(year)
-        && row.get("lastError").is_none_or(Value::is_null)
-        && timestamp(row.get("fetchedAt").and_then(Value::as_str))
-            .is_some_and(|last| now - last < Duration::hours(24))
-}
-
-/// The built-in reference task checks once per process launch before its
-/// hourly recurrence becomes due.
-pub fn reference_due_at_launch(task: &Value, started_at: DateTime<Utc>) -> bool {
-    task.get("enabled").and_then(Value::as_bool) == Some(true)
-        && task.get("id").and_then(Value::as_str) == Some("builtin:reference-subscriptions")
-        && timestamp(task.get("lastRunAt").and_then(Value::as_str))
-            .is_none_or(|last| last < started_at)
-}
-
-fn cache_fingerprint(workspace: &Value, kind: &str, year: i32) -> Result<String, ReferenceError> {
-    let fields: &[&str] = match kind {
-        "calendar" => &["academicCalendar"],
-        "important-dates" => &["importantDates"],
-        "exams" => &["exams"],
-        "class-schedules" => &["classSchedules"],
-        _ => {
-            return Err(ReferenceError::InvalidInput(
-                "unsupported reference cache kind".into(),
-            ))
-        }
-    };
-    let year_field = "academicYear";
-    let mut rows: Vec<_> = fields
-        .iter()
-        .flat_map(|field| {
-            workspace[*field]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|row| {
-                    row[year_field].as_i64() == Some(year.into())
-                        && row.get("deletedAt").is_none_or(Value::is_null)
-                        && row.get("missingSince").is_none_or(Value::is_null)
-                })
-                .map(move |row| json!({"collection":field,"record":row}))
-        })
-        .collect();
-    rows.sort_by_key(|row| format!("{}:{}", row["collection"], row["record"]["id"]));
-    content_hash(&json!(rows)).map_err(ReferenceError::from)
-}
-
-fn cache_present(
-    store: &DataStore,
-    workspace: &Value,
-    request: &ReferenceRequest,
-) -> Result<bool, ReferenceError> {
-    // A calendar applied before markers existed (or restored from a backup)
-    // still counts when it is complete; a partially published calendar
-    // counts through its local marker, so it is not refetched every hour.
-    if request.kind == "calendar" && calendar_cache_present(workspace, request.year.into()) {
-        return Ok(true);
-    }
-    let Some(marker) = store.reference_cache_marker(&request.kind, request.year)? else {
-        return Ok(false);
-    };
-    Ok(marker["indexUrl"].as_str() == Some(&request.index_url)
-        && marker["fingerprint"].as_str()
-            == Some(&cache_fingerprint(workspace, &request.kind, request.year)?))
-}
-
-fn same_index(saved: Option<&str>, requested: &str) -> bool {
-    saved
-        .and_then(|saved| {
-            let mut url = url::Url::parse(saved.trim()).ok()?;
-            url.set_fragment(None);
-            Some(url.to_string() == requested)
-        })
-        .unwrap_or(false)
 }
 
 fn not_modified() -> Value {

@@ -77,9 +77,9 @@ import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolSessionState
 import app.isctcompanion.core.exportApplicationLogs
 import app.isctcompanion.design.Card
-import app.isctcompanion.design.Format
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
+import app.isctcompanion.design.SyncSources
 import app.isctcompanion.design.Theme
 import java.io.IOException
 import java.time.LocalDate
@@ -91,6 +91,7 @@ private sealed interface SettingsPage {
     data object Root : SettingsPage
     data class Account(val profile: SchoolAuthProfile, val name: String) : SettingsPage
     data object Notifications : SettingsPage
+    data class Reset(val kind: ResetKind) : SettingsPage
 
     companion object {
         /** Keeps the open page across a tab switch, which drops the composition. */
@@ -99,6 +100,7 @@ private sealed interface SettingsPage {
                 when (it) {
                     Root -> "root"
                     Notifications -> "notifications"
+                    is Reset -> "reset:${it.kind.name}"
                     is Account -> "account:${it.profile.name}:${it.name}"
                 }
             },
@@ -106,6 +108,7 @@ private sealed interface SettingsPage {
                 val parts = raw.split(":", limit = 3)
                 when (parts[0]) {
                     "notifications" -> Notifications
+                    "reset" -> runCatching { Reset(ResetKind.valueOf(parts[1])) }.getOrNull() ?: Root
                     "account" -> runCatching { Account(SchoolAuthProfile.valueOf(parts[1]), parts[2]) }.getOrNull() ?: Root
                     else -> Root
                 }
@@ -114,7 +117,7 @@ private sealed interface SettingsPage {
     }
 }
 
-/** 設定, the last tab: school accounts, reminders and language. Planning,
+/** 設定, the last tab: school accounts, reminders, language and reset. Planning,
  * calendars, folders and developer settings stay on desktop. */
 @Composable
 fun SettingsScreen() {
@@ -134,6 +137,11 @@ fun SettingsScreen() {
                 Bar(t("Notifications"), back = { page = SettingsPage.Root })
                 NotificationsPage()
             }
+            is SettingsPage.Reset -> {
+                val title = if (current.kind == ResetKind.Everything) "settings.reset.full.title" else "settings.reset.caches.title"
+                Bar(t(title), back = { page = SettingsPage.Root })
+                ResetPage(current.kind) { page = SettingsPage.Root }
+            }
         }
     }
 }
@@ -151,7 +159,7 @@ private fun Bar(title: String, back: (() -> Unit)? = null) {
 }
 
 @Composable
-private fun Page(content: @Composable ColumnScope.() -> Unit) {
+internal fun Page(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -166,13 +174,19 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
     Page {
         SectionLabel(t("School accounts"))
         Card {
-            AccountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.records.lastRun(SchoolAuthProfile.SCIENCE)) {
+            AccountRow("Science Tokyo", model.credentials?.science, model.sessions?.science) {
                 open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, "Science Tokyo"))
             }
             RowDivider(inset = 36.dp)
-            AccountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.records.lastRun(SchoolAuthProfile.TOKYO_TECH)) {
+            AccountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech) {
                 open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, t("Tokyo Tech (former)")))
             }
+        }
+        val sources = model.syncSnapshot?.sources.orEmpty()
+        if (sources.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            SectionLabel(t("Sync"))
+            SyncSources(sources, onRetry = { model.refresh(it) })
         }
         Card(Modifier.padding(top = 16.dp)) {
             Row(
@@ -191,6 +205,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         LanguageCard()
         Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))
         LogsCard()
+        ResetCard(open)
         Card(Modifier.padding(top = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -198,6 +213,36 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 Text(version.orEmpty(), color = Theme.colors.muted)
             }
         }
+    }
+}
+
+/** The desktop's Reset group: each row opens its confirmation page. */
+@Composable
+private fun ResetCard(open: (SettingsPage) -> Unit) {
+    Spacer(Modifier.height(8.dp))
+    SectionLabel(t("settings.reset.group"))
+    Card {
+        ResetRow(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), Theme.colors.ink) {
+            open(SettingsPage.Reset(ResetKind.SchoolCaches))
+        }
+        RowDivider(inset = 16.dp)
+        ResetRow(t("settings.reset.full.title"), t("settings.reset.full.hint"), Theme.colors.danger) {
+            open(SettingsPage.Reset(ResetKind.Everything))
+        }
+    }
+}
+
+@Composable
+private fun ResetRow(title: String, hint: String, color: Color, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = color)
+            Text(hint, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
+        }
+        Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted)
     }
 }
 
@@ -251,7 +296,7 @@ private fun ActionRow(title: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Footer(text: String, color: Color = Theme.colors.muted) {
+internal fun Footer(text: String, color: Color = Theme.colors.muted) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.padding(horizontal = 16.dp))
 }
 
@@ -269,14 +314,13 @@ private fun AccountRow(
     name: String,
     credential: CredentialSummary?,
     session: SchoolSessionState?,
-    lastRun: String?,
     onClick: () -> Unit,
 ) {
     val connected = credential?.availability == CredentialAvailability.AVAILABLE ||
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
         !connected -> t("Not connected") to Theme.colors.muted
-        session == SchoolSessionState.ACTIVE -> (lastRun?.let { t("Connected · updated {{time}}", "time" to Format.due(it)) } ?: t("Connected")) to Theme.colors.ok
+        session == SchoolSessionState.ACTIVE -> t("Connected") to Theme.colors.ok
         session == SchoolSessionState.FAILED -> t("Sign-in failed") to Theme.colors.danger
         session == SchoolSessionState.MAINTENANCE -> t("Under maintenance") to Theme.colors.warn
         else -> t("Checking") to Theme.colors.muted

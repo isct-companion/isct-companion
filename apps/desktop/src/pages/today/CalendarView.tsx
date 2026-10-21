@@ -121,7 +121,6 @@ export function CalendarView({
           onSelect={open}
           actionsFor={actionsFor}
           showNow
-          emptyLabel="Nothing scheduled this day"
         />
       </Paper>
     </section>

@@ -34,9 +34,7 @@ import {
   type QueryTable,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
-import { STACKED_QUERY } from "@app/app/form-factor";
 import { notify } from "@app/app/notify";
-import { SwipeActions } from "@app/components/SwipeActions";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
 import type { FinderAction } from "@app/generated/persistence";
@@ -45,15 +43,15 @@ import type { FinderRequest } from "@app/platform/finder-query";
 
 /**
  * The whole shell over a scripted Core: hash routing, page retention, keyboard
- * shortcuts, the native-navigation blocker, the mobile back stack, swipe rows
- * and the query caches that only exist inside React hooks. These assert what a
- * person sees, not which component rendered.
+ * shortcuts, the native-navigation blocker and the query caches that only
+ * exist inside React hooks. These assert what a person sees, not which
+ * component rendered.
  *
  * Local helpers exist where the harness has no builder: `shellOptions` (a
  * navigable workspace with the school-web commands answered), `mountShell`
  * (adopts this test's workspace before mounting, because the harness reuses one
- * module-level store), `emptyFinder`, the `Schedule*` / `Finder*` probe
- * components, and the touch/pointer gesture dispatchers.
+ * module-level store), `emptyFinder`, and the `Schedule*` / `Finder*` probe
+ * components.
  */
 
 const placed = offering("202602421", "CSC.T252", "Placed");
@@ -88,7 +86,6 @@ beforeAll(async () => {
 let app: MountedApp | undefined;
 let probe: Mounted | undefined;
 let consoleWatch: ReturnType<typeof watchConsoleErrors> | undefined;
-const desktopMatchMedia = window.matchMedia;
 
 afterEach(async () => {
   await probe?.unmount();
@@ -98,7 +95,6 @@ afterEach(async () => {
   consoleWatch?.restore();
   consoleWatch = undefined;
   await i18n.changeLanguage("en");
-  window.matchMedia = desktopMatchMedia;
   delete (window as unknown as Record<string, unknown>)
     .__ISCT_COMPANION_NATIVE_TARGET__;
 });
@@ -209,7 +205,6 @@ const emptyFinder = (request: Record<string, unknown>) => ({
   factors: [],
   duplicates: 0,
   keys: request.keys ?? [],
-  plan: { unsupported: "empty" },
   rows: [],
   suggestions: [],
   live: String(request.input ?? ""),
@@ -326,7 +321,7 @@ describe("shell navigation", () => {
     await until(() =>
       expect(window.location.hash).toBe(`#${paths.lectures()}`),
     );
-    expect(host.querySelector(".lectureDesk.open")).toBeNull();
+    expect(host.querySelector(".lectureSlot:not([hidden])")).toBeNull();
 
     consoleWatch.expectClean();
     consoleWatch.restore();
@@ -534,7 +529,7 @@ describe("shell navigation", () => {
     );
     const { host } = app;
     await until(() =>
-      expect(host.querySelector(".lectureDesk.open")).not.toBeNull(),
+      expect(host.querySelector(".lectureSlot:not([hidden])")).not.toBeNull(),
     );
 
     await app.go(paths.home());
@@ -545,7 +540,7 @@ describe("shell navigation", () => {
     expect(host.querySelector(".lecturesMain")).not.toBeNull();
   }, 20_000);
 
-  it("waits for native hiding and reloads ingested data in the background when leaving Web", async () => {
+  it("waits for native hiding when leaving Web", async () => {
     let holdHide = true;
     let releaseHide!: () => void;
     const hidden = new Promise<boolean>((resolve) => {
@@ -570,17 +565,6 @@ describe("shell navigation", () => {
       expect(core.commands("open_school_site").length).toBeGreaterThan(0),
     );
 
-    await act(async () => {
-      core.emit("school-ingest", {
-        site: "kyomu",
-        kind: "registrations",
-        state: "ok",
-        changed: 1,
-        message: "Updated",
-      });
-    });
-    const before = core.commands("workspace_snapshot").length;
-
     await app.go(paths.home());
     expect(window.location.hash).toBe(`#${paths.web()}`);
     expect(host.querySelector(".webMain")).not.toBeNull();
@@ -590,11 +574,6 @@ describe("shell navigation", () => {
       await hidden;
     });
     await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
-    await until(() =>
-      expect(core.commands("workspace_snapshot").length).toBeGreaterThan(
-        before,
-      ),
-    );
   }, 20_000);
 });
 
@@ -720,7 +699,7 @@ describe("native listener ordering", () => {
     await until(() => expect(readsAfterListen()).toBeGreaterThan(0));
   }, 20_000);
 
-  it("discards a late stale snapshot instead of overwriting the newer state", async () => {
+  it("patches a school change without a snapshot read, and lets a change heard during a slow read win", async () => {
     const before = workspaceFixture({ courses: [placedCourse] });
     const after = workspaceFixture({ courses: [clashingCourse] });
     let gateStale = false;
@@ -728,7 +707,7 @@ describe("native listener ordering", () => {
     const staleGate = new Promise<void>((resolve) => {
       releaseStale = resolve;
     });
-    const staleSnapshot = {
+    const stalePatch = {
       revision: "revision:stale",
       contentRevision: "revision:stale",
       workspace: before,
@@ -740,8 +719,8 @@ describe("native listener ordering", () => {
         revision: "rev:stale",
         finder: emptyFinder,
         handle: (command, args, core) => {
-          if (command === "workspace_snapshot" && gateStale)
-            return staleGate.then(() => staleSnapshot);
+          if (command === "workspace_records" && gateStale)
+            return staleGate.then(() => stalePatch);
           return baseHandle(command, args, core);
         },
       }),
@@ -750,26 +729,39 @@ describe("native listener ordering", () => {
     const { host, core } = app;
     // The planner timetable is the person-visible view of the workspace rows.
     await until(() => expect(titles(host)).toEqual(["Placed"]));
+    const snapshotReads = core.commands("workspace_snapshot").length;
 
     gateStale = true;
+    // A school pull commits: its patch read hangs.
     await act(async () => {
-      // A school pull starts: its snapshot hangs.
-      core.emit("workspace-changed", { source: "school-pull" });
-      await Promise.resolve();
-      // Meanwhile another writer publishes a newer revision and asks again.
-      core.publish(after, "revision:new");
-      core.emit("workspace-changed", { source: "school-pull" });
-      await Promise.resolve();
+      core.emit("workspace-changed", {
+        source: "school-pull",
+        changes: ["courses"],
+      });
     });
+    await until(() =>
+      expect(core.commands("workspace_records")).toHaveLength(1),
+    );
+    // Meanwhile the next key commits a newer state.
     gateStale = false;
+    await act(async () => {
+      core.publish(after, "revision:new");
+      core.emit("workspace-changed", {
+        source: "school-pull",
+        changes: ["courses", "freshness"],
+      });
+    });
     await act(async () => {
       releaseStale();
       await staleGate;
     });
 
     await until(() => expect(titles(host)).toEqual(["Clashing"]));
-    expect(titles(host)).not.toEqual(["Placed"]);
     expect(core.workspace.courses[0].title).toBe("Clashing");
+    expect(
+      core.commands("workspace_records").map((call) => call.args.changes),
+    ).toEqual([["courses"], ["courses", "freshness"]]);
+    expect(core.commands("workspace_snapshot")).toHaveLength(snapshotReads);
   }, 20_000);
 });
 
@@ -972,372 +964,6 @@ describe("Chinese UI", () => {
         ?.getAttribute("value"),
     ).toBe("zh");
     expect(core.workspace.settings.contentLanguage).toBe("en");
-  }, 20_000);
-});
-
-/* ------------------------------------------------------------------ *
- * Mobile / compact shell.
- * ------------------------------------------------------------------ */
-
-describe("mobile shell", () => {
-  beforeEach(() => {
-    window.matchMedia = ((media: string) => ({
-      media,
-      matches: media === STACKED_QUERY,
-      addEventListener() {},
-      removeEventListener() {},
-    })) as unknown as typeof window.matchMedia;
-  });
-
-  const settingsNav = (host: HTMLElement, label: string) =>
-    required(
-      () =>
-        [
-          ...host.querySelectorAll<HTMLButtonElement>(".settingsNav button"),
-        ].find((button) => button.textContent?.trim() === label),
-      `the ${label} settings entry`,
-    );
-  const tab = (host: HTMLElement, label: string) =>
-    required(
-      () =>
-        [
-          ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
-        ].find((button) => button.textContent === label),
-      `the ${label} tab`,
-    );
-
-  it("drops the fixed status bar and shows the primary bottom tabs", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-tabs",
-      }),
-      { route: paths.home() },
-    );
-    const { host } = app;
-    await until(() =>
-      expect(host.querySelector(".mobileShell")).not.toBeNull(),
-    );
-    expect(host.querySelector(".schoolStatusBar")).toBeNull();
-    expect(
-      [...host.querySelectorAll(".mobileTabs button")].map(
-        (button) => button.textContent,
-      ),
-    ).toEqual(["Today", "Timetable", "Lectures", "Web", "Settings"]);
-    expect(host.querySelector(".mobileStatusDot")).not.toBeNull();
-  }, 20_000);
-
-  it("keeps bare /settings as the section list and pushes a section", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-settings",
-      }),
-      { route: paths.settings() },
-    );
-    const { host, router } = app;
-    await until(() =>
-      expect(host.querySelector(".settings.list")).not.toBeNull(),
-    );
-    expect(window.location.hash).toBe(`#${paths.settings()}`);
-
-    await click(await settingsNav(host, "Appearance"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings("appearance")}`),
-    );
-    expect(router.state.historyAction).toBe("PUSH");
-    expect(host.querySelector(".settings.detail .settingsBack")).not.toBeNull();
-  }, 20_000);
-
-  it("goes up one level, reusing the parent entry when it is just below", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-up",
-      }),
-      { route: paths.settings() },
-    );
-    const { host, router } = app;
-    await until(() =>
-      expect(host.querySelector(".settings.list")).not.toBeNull(),
-    );
-    await click(await settingsNav(host, "Appearance"));
-    await until(() =>
-      expect(
-        host.querySelector(".settings.detail .settingsBack"),
-      ).not.toBeNull(),
-    );
-
-    await click(host.querySelector<HTMLButtonElement>(".settingsBack"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings()}`),
-    );
-    expect(router.state.historyAction).toBe("POP");
-  }, 20_000);
-
-  it("opened deep, Back replaces with the parent instead of leaving", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-deep",
-      }),
-      { route: paths.settings("appearance") },
-    );
-    const { host, router } = app;
-    await until(() =>
-      expect(
-        host.querySelector(".settings.detail .settingsBack"),
-      ).not.toBeNull(),
-    );
-
-    await click(host.querySelector<HTMLButtonElement>(".settingsBack"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings()}`),
-    );
-    expect(router.state.historyAction).toBe("REPLACE");
-  }, 20_000);
-
-  it("tapping the current tab again returns to its root", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-root",
-      }),
-      { route: paths.settings("appearance") },
-    );
-    const { host } = app;
-    await until(() =>
-      expect(host.querySelector(".mobileShell")).not.toBeNull(),
-    );
-
-    await click(await tab(host, "Settings"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings()}`),
-    );
-
-    await app.go(paths.home("week"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.home("week")}`),
-    );
-    await click(await tab(host, "Today"));
-    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
-  }, 20_000);
-
-  it("lists school services on Web and browses one through the route", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:mobile-web",
-      }),
-      { route: paths.web() },
-    );
-    const { host } = app;
-    const rows = await until(() => {
-      const found = [
-        ...host.querySelectorAll<HTMLButtonElement>(".mobileWebRow"),
-      ];
-      if (found.length < 4) throw new Error("the service list is not ready");
-      return found;
-    });
-    expect(host.querySelector(".servicePicker")).toBeNull();
-
-    await click(rows.find((row) => row.dataset.site === "science-lms"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.web("science-lms")}`),
-    );
-    await until(() =>
-      expect(host.querySelector(".mobileBrowserBar")).not.toBeNull(),
-    );
-    expect(host.querySelector(".mobileBrowserTitle")?.textContent).toContain(
-      "LMS",
-    );
-
-    const webTab = await required(
-      () =>
-        [
-          ...host.querySelectorAll<HTMLButtonElement>(".mobileTabs button"),
-        ].find((button) => button.querySelector(".mobileTabMenuMark")),
-      "the marked Web tab",
-    );
-    await click(webTab);
-    await until(() =>
-      expect(document.querySelector(".mobileSiteSheet")).not.toBeNull(),
-    );
-    expect(window.location.hash).toBe(`#${paths.web("science-lms")}`);
-  }, 20_000);
-
-  it("opens a lecture as a dialog", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture({ courses: [placedCourse] }),
-        revision: "rev:mobile-lecture",
-      }),
-      { route: paths.lectures(placedCourse.id) },
-    );
-    const { host } = app;
-    const content = await required(
-      () => host.querySelector(".lectureContent"),
-      "the lecture dialog",
-    );
-    expect(content.getAttribute("role")).toBe("dialog");
-  }, 20_000);
-});
-
-/* ------------------------------------------------------------------ *
- * Swipe gestures on list rows.
- * ------------------------------------------------------------------ */
-
-/** A real row driven by real state, so no mock stands in for the app. */
-function SwipeRow() {
-  const [log, setLog] = useState<string[]>([]);
-  const record = (entry: string) => setLog((current) => [...current, entry]);
-  return (
-    <div>
-      <output className="swipeLog">{log.join(",")}</output>
-      <SwipeActions
-        leading={{ label: "Pin", run: () => record("pin") }}
-        trailing={{ label: "Hide", run: () => record("hide") }}
-      >
-        <button className="assignment" onClick={() => record("open")}>
-          Assignment
-        </button>
-      </SwipeActions>
-    </div>
-  );
-}
-
-async function pointer(
-  host: HTMLElement,
-  type: string,
-  x: number,
-  y = 100,
-): Promise<void> {
-  await act(async () => {
-    const event = new Event(type, { bubbles: true, cancelable: true });
-    Object.assign(event, {
-      clientX: x,
-      clientY: y,
-      pointerId: 1,
-      pointerType: "touch",
-      isPrimary: true,
-    });
-    host.querySelector(".assignment")!.dispatchEvent(event);
-  });
-}
-
-async function touch(type: string, x: number, y = 100): Promise<void> {
-  await act(async () => {
-    const event = new Event(type, { bubbles: true, cancelable: true });
-    Object.assign(event, {
-      touches:
-        type === "touchend" || type === "touchcancel"
-          ? []
-          : [{ clientX: x, clientY: y }],
-    });
-    document.dispatchEvent(event);
-  });
-}
-
-describe("swipe actions on list rows", () => {
-  beforeEach(async () => {
-    probe = await mount(<SwipeRow />);
-  });
-
-  it("opens on one tap, without exposing an action first", async () => {
-    const host = probe!.host;
-    await pointer(host, "pointerdown", 100);
-    await pointer(host, "pointerup", 100);
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
-    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
-      "true",
-    );
-    expect(host.querySelector(".trailing")?.getAttribute("aria-hidden")).toBe(
-      "true",
-    );
-  });
-
-  it("pins on a right swipe and hides on a left swipe, suppressing the click after a swipe", async () => {
-    const host = probe!.host;
-    await pointer(host, "pointerdown", 100);
-    await pointer(host, "pointermove", 180);
-    await pointer(host, "pointerup", 180);
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("");
-    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
-      "false",
-    );
-    await click(host.querySelector(".leading"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin");
-
-    await pointer(host, "pointerdown", 200);
-    await pointer(host, "pointermove", 100);
-    await pointer(host, "pointerup", 100);
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin");
-    expect(host.querySelector(".trailing")?.getAttribute("aria-hidden")).toBe(
-      "false",
-    );
-    await click(host.querySelector(".trailing"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("pin,hide");
-  });
-
-  it("cancels a gesture and ignores vertical scrolling", async () => {
-    const host = probe!.host;
-    await pointer(host, "pointerdown", 200);
-    await pointer(host, "pointermove", 195, 170);
-    await pointer(host, "pointercancel", 195, 170);
-    expect(
-      host.querySelector<HTMLElement>(".swipeContent")?.style.transform,
-    ).toBe("translateX(0px)");
-
-    await pointer(host, "pointerdown", 200);
-    await pointer(host, "pointermove", 200, 260);
-    await pointer(host, "pointerup", 200, 260);
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
-  });
-
-  it("leaves a left-to-right swipe from the screen edge to back navigation", async () => {
-    const host = probe!.host;
-    await pointer(host, "pointerdown", 10);
-    await pointer(host, "pointermove", 120);
-    await pointer(host, "pointerup", 120);
-    expect(host.querySelector(".leading")?.getAttribute("aria-hidden")).toBe(
-      "true",
-    );
-    await click(host.querySelector(".assignment"));
-    expect(host.querySelector(".swipeLog")?.textContent).toBe("open");
-  });
-});
-
-describe("edge-swipe back on the mobile shell", () => {
-  beforeEach(() => {
-    window.matchMedia = ((media: string) => ({
-      media,
-      matches: media === STACKED_QUERY,
-      addEventListener() {},
-      removeEventListener() {},
-    })) as unknown as typeof window.matchMedia;
-  });
-
-  it("navigates back when a left-to-right swipe starts at the screen edge", async () => {
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:edge",
-      }),
-      { route: paths.home("week") },
-    );
-    await until(() =>
-      expect(app!.host.querySelector(".mobileShell")).not.toBeNull(),
-    );
-
-    await touch("touchstart", 10);
-    await touch("touchmove", 500);
-    await touch("touchend", 500);
-    await advance(250);
-    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
   }, 20_000);
 });
 
@@ -2238,145 +1864,117 @@ describe("workspace column sizing", () => {
   });
 });
 
-it("names each school status Core reports and keeps the data age when idle", async () => {
-  app = await mountShell(
-    shellOptions({
-      workspace: workspaceFixture(),
-      handle: (command, args, core) =>
-        command === "pull_school" ? [] : baseHandle(command, args, core),
-    }),
-  );
-  // Core decides what the footer shows (`school_status.rs` and its tests);
-  // the shell only names it.
-  const idle = (lastUpdated: string | null) => ({
-    headline: { kind: "idle" },
-    sources: ["science-lms", "kyomu"].map((site) => ({
-      site,
-      activity: { kind: "idle" },
-      signIn: null,
-      lastUpdated,
-    })),
+it("renders Core's sync snapshot in the footer and sends hints for refresh and opened pages", async () => {
+  app = await mountShell(shellOptions({ workspace: workspaceFixture() }));
+  // Core decides what is due and how far a run is (`sync_engine` and its
+  // tests); the shell only picks the row to show and names it.
+  const run = (overrides: Record<string, unknown>) => ({
+    run: "run",
+    dataset: "lms.course",
+    label: { key: "sync.dataset.lms.course", args: {} },
+    priority: "visible",
+    done: 0,
+    total: null,
+    current: null,
+    scope: null,
+    held: null,
+    failure: null,
+    ...overrides,
   });
-  const emitStatus = (headline: unknown) =>
+  const source = (name: string, lastUpdated: string | null) => ({
+    source: name,
+    lastUpdated,
+    running: false,
+    held: null,
+    failure: null,
+    session: null,
+    maintenance: null,
+  });
+  let generation = 1;
+  const emit = (runs: unknown[], sources = [source("lms", null)]) =>
     act(async () =>
-      app!.core.emit(
-        "school-status",
-        headline && typeof headline === "object" && "sources" in headline
-          ? headline
-          : { headline, sources: [] },
-      ),
+      app!.core.emit("sync-snapshot", {
+        generation: ++generation,
+        resetting: false,
+        runs,
+        sources,
+      }),
     );
-  const step = (kind: string) => ({
-    kind,
-    completed: 0,
-    total: 0,
-    term: "",
-    courseTitle: "",
-    itemTitle: "",
-  });
-  await emitStatus({
-    kind: "busy",
-    site: "kyomu",
-    progress: 5,
-    step: step("kyomu"),
-    waiting: "queued",
-    queued: null,
-  });
+  const status = () => app!.host.querySelector(".lmsStatus")!;
+  const hints = () =>
+    app!.core.calls
+      .filter((call) => call.command === "sync_hint")
+      .map((call) => call.args.hint);
+
+  await emit([run({ done: 7, total: 62 })]);
   await until(() => {
-    const status = app!.host.querySelector(".lmsStatus")!;
-    expect(status.getAttribute("data-kind")).toBe("busy");
-    expect(status.textContent).toContain("教務Web");
-    expect(status.textContent).toContain("Waiting for school refresh");
-    expect(status.querySelector("progress")!.value).toBe(5);
-    // The percentage is an estimate; the bar carries it without a number.
-    expect(status.textContent).not.toContain("%");
+    expect(status().getAttribute("data-kind")).toBe("bar");
+    expect(status().textContent).toContain("Course content · 7 / 62");
+    expect(status().querySelector("progress")!.value).toBe(7);
   });
-  await emitStatus({
-    kind: "busy",
-    site: "science-lms",
-    progress: 17,
-    step: {
-      ...step("course"),
-      completed: 7,
-      total: 62,
-      term: "2026-3Q",
-      courseTitle: "First &amp; course",
-    },
-    waiting: null,
-    queued: "kyomu",
-  });
+  // A run of unknown size never gets a bar or a guessed percentage.
+  await emit([run({ done: 3 })]);
   await until(() => {
-    const status = app!.host.querySelector(".lmsStatus")!;
-    expect(status.textContent).toContain("LMS");
-    expect(status.textContent).toContain("2026-3Q · First & course · 7/62");
-    expect(status.textContent).toContain("教務Web refresh queued");
-    expect(status.querySelector("progress")!.value).toBe(17);
+    expect(status().getAttribute("data-kind")).toBe("busy");
+    expect(status().querySelector("progress")).toBeNull();
+    expect(status().textContent).not.toContain("%");
   });
-  // A pull Core admitted on its own stays a quiet note without a bar.
-  await emitStatus({
-    kind: "background",
-    site: "science-lms",
-    waiting: "schoolVisible",
-  });
+  // Background-only work is a spinner and a quiet note.
+  await emit([run({ priority: "background", done: 1, total: 40 })]);
   await until(() => {
-    const status = app!.host.querySelector(".lmsStatus")!;
-    expect(status.getAttribute("data-kind")).toBe("background");
-    expect(status.textContent).toContain("LMS");
-    expect(status.textContent).toContain(
-      "Resumes after you leave the school page",
-    );
-    expect(status.querySelector("progress")).toBeNull();
+    expect(status().getAttribute("data-kind")).toBe("background");
+    expect(status().querySelector(".schoolStatusSpinner")).not.toBeNull();
+    expect(status().querySelector("progress")).toBeNull();
   });
-  await emitStatus(idle(null));
-  await until(() => {
-    const status = app!.host.querySelector(".lmsStatus")!;
-    expect(status.getAttribute("data-kind")).toBe("idle");
-    expect(status.textContent).toContain("Never updated");
-  });
-  await emitStatus({
-    kind: "problem",
-    site: "kyomu",
-    problem: {
-      kind: "maintenance",
-      detail: "Official maintenance · 2031/01/02 10:00–12:30",
-    },
-  });
-  await until(() => {
-    const status = app!.host.querySelector(".lmsStatus")!;
-    expect(status.textContent).toContain("Under maintenance");
-    expect(status.textContent).toContain("2031/01/02");
-    expect(status.querySelector("progress")).toBeNull();
-    expect(status.getAttribute("data-kind")).toBe("problem");
-  });
-  await emitStatus({
-    kind: "problem",
-    site: "kyomu",
-    problem: { kind: "partial", detail: "registrations unavailable" },
-  });
-  await until(() => {
-    const status = app!.host.querySelector(".lmsStatus")!;
-    expect(status.textContent).toContain("Refresh incomplete");
-    expect(status.textContent).toContain("registrations unavailable");
-    expect(status.querySelector("progress")).toBeNull();
-  });
-  await emitStatus(idle(null));
+  await emit([run({ held: { kind: "cellular" } })]);
   await until(() =>
-    expect(app!.host.querySelector(".lmsStatus")!.textContent).not.toContain(
-      "Refresh incomplete",
-    ),
+    expect(status().textContent).toContain("Waiting for Wi-Fi"),
   );
-  const force = app.host.querySelector<HTMLButtonElement>(".lmsStatus button")!;
-  expect(force.textContent).toBe("Refresh now");
+  await emit([], [source("lms", null)]);
+  await until(() => {
+    expect(status().getAttribute("data-kind")).toBe("idle");
+    expect(status().textContent).toContain("Never updated");
+  });
+  await emit([
+    run({
+      run: "grades",
+      dataset: "kyomu.page",
+      scope: "grades",
+      failure: { kind: "timeout", keysFailed: 1, retryAt: null },
+    }),
+  ]);
+  const retry = await required(
+    () =>
+      [...status().querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "Retry",
+      ),
+    "the failed dataset's Retry",
+  );
+  expect(status().textContent).toContain("教務Web pages failed · timed out");
+  await click(retry);
+  const force = await required(
+    () =>
+      [...status().querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "Refresh now",
+      ),
+    "Refresh now",
+  );
   await click(force);
   await until(() =>
-    expect(
-      app!.core.calls
-        .filter((call) => call.command === "pull_school")
-        .map((call) => call.args.site),
-    ).toEqual(["kyomu", "science-lms"]),
+    expect(hints()).toEqual(
+      expect.arrayContaining([
+        { kind: "refresh", scope: { kind: "site", site: "kyomu" } },
+        { kind: "refresh", scope: { kind: "everything" } },
+      ]),
+    ),
   );
-  await until(() => expect(force.disabled).toBe(false));
   await app.go(paths.timetable());
+  await until(() =>
+    expect(hints()).toContainEqual({
+      kind: "open",
+      view: { kind: "timetable" },
+    }),
+  );
   const timetableRefresh = await required(
     () =>
       [...app!.host.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -2384,18 +1982,18 @@ it("names each school status Core reports and keeps the data age when idle", asy
       ),
     "the timetable refresh action",
   );
-  // Changing pages consumes cache; timetable refresh reads LMS only.
-  expect(
-    app.core.calls.filter((call) => call.command === "pull_school"),
-  ).toHaveLength(2);
   await click(timetableRefresh);
   await until(() =>
-    expect(
-      app!.core.calls
-        .filter((call) => call.command === "pull_school")
-        .map((call) => call.args.site),
-    ).toEqual(["kyomu", "science-lms", "science-lms"]),
+    expect(hints()).toContainEqual({
+      kind: "refresh",
+      scope: { kind: "site", site: "science-lms" },
+    }),
   );
+  expect(
+    app.core.calls.some((call) =>
+      ["pull_school", "school_refresh_event"].includes(call.command),
+    ),
+  ).toBe(false);
 });
 
 /**

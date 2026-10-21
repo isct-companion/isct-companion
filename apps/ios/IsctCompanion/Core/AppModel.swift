@@ -1,3 +1,4 @@
+import BackgroundTasks
 import Foundation
 import IsctCore
 import Network
@@ -27,8 +28,9 @@ final class AppModel {
     }
     private(set) var credentials: SchoolCredentialStatus?
     private(set) var sessions: SchoolSessionStates?
-    /// What the school connection is doing, decided by Core (`school_status.rs`).
-    private(set) var schoolStatus: SchoolStatus?
+    /// Core's sync planner: what runs, waits or failed, and when each source
+    /// was last read. Rendered as is; Core decides what is due and when.
+    private(set) var syncSnapshot: SyncSnapshot?
     /// Undo for the last hide, built from the intent Core committed.
     private(set) var undo: UndoAction?
     /// One "needs you" banner (sync feedback level 3).
@@ -48,9 +50,11 @@ final class AppModel {
     private var refreshTask: Task<Void, Never>?
     private var settingsWrite: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
+    private var opening: Task<Void, Never>?
     private let network = NWPathMonitor()
-    private var networkState: PullNetwork = .unknown
+    private var networkState: SyncNetwork = .unknown
     private var foreground = true
+    private var powerObserver: NSObjectProtocol?
 
     init() {
         web = WebRouter(browser: browser)
@@ -63,14 +67,26 @@ final class AppModel {
             && credentials.tokyoTech.availability == .notConfigured
     }
 
-    func source(_ site: SchoolSite) -> SchoolSourceStatus? {
-        schoolStatus?.sources.first { $0.site == site }
+    /// One of Core's sync sources (`lms`, `kyomu`, `references`, `catalog`).
+    func syncSource(_ source: String) -> SourceView? {
+        syncSnapshot?.sources.first { $0.source == source }
+    }
+
+    /// Tells Core's planner a fact or an intent; it never waits for a read.
+    func syncHint(_ hint: Hint) {
+        _ = try? session?.syncHint(hint: hint)
     }
 
     // MARK: Lifecycle
 
+    /// Opens the session once; the scene and a background refresh both call
+    /// this, and the later caller waits for the first.
     func start() async {
-        guard session == nil else { return }
+        if opening == nil { opening = Task { await open() } }
+        await opening?.value
+    }
+
+    private func open() async {
         do {
             let support = try FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -93,13 +109,23 @@ final class AppModel {
             Task { await self.listen(stream) }
             await refresh()
             await refreshAccounts()
-            await refreshSchoolStatus()
+            await refreshSyncSnapshot()
             await refreshCloud()
             status = .ready
             watchNetwork()
-            report(foreground: true)
-            reportSchool(.launch)
-            startWaking()
+            watchPowerSaver()
+            // A background refresh can launch the app without a scene in front.
+            foreground = UIApplication.shared.applicationState != .background
+            syncHint(foreground ? .foreground : .background)
+            if foreground {
+                // The launch check signs in through the school web views,
+                // which only run in front; out of front the first `.focus`
+                // does it instead.
+                reportSchool(.launch)
+                startWaking()
+            } else {
+                _ = try? session.suspend()
+            }
         } catch {
             status = .failed(Self.describe(error))
         }
@@ -111,7 +137,7 @@ final class AppModel {
         case .active:
             foreground = true
             _ = try? session.resume()
-            report(foreground: true)
+            syncHint(.foreground)
             reportSchool(.focus)
             startWaking()
             Task { await refresh() }
@@ -119,32 +145,54 @@ final class AppModel {
             foreground = false
             wakeTask?.cancel()
             wakeTask = nil
-            report(foreground: false)
+            syncHint(.background)
             reportSchool(.focus)
             _ = try? session.suspend()
+            Self.scheduleBackgroundRefresh()
         default:
             break
         }
     }
 
-    private func report(foreground: Bool) {
-        guard let session else { return }
-        _ = try? session.lifecycle(
-            foreground: foreground, network: networkState, schoolVisible: web.isVisible)
-    }
-
     /// The periodic wakeup desktop gives Core every second (`core_ports.rs`):
-    /// Core decides what is due — automatic school pulls, reference data such
-    /// as the academic calendar, scheduled tasks. Only while in front.
+    /// Core's planner decides which school reads are due, then reminders,
+    /// cloud sync and scheduled tasks run. Only while in front.
     private func startWaking() {
         guard wakeTask == nil else { return }
         wakeTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, let session = self.session else { return }
-                _ = try? await session.wake(schoolVisible: self.web.isVisible).value()
-                try? await Task.sleep(for: .seconds(2))
+                _ = try? await session.wake().value()
+                try? await Task.sleep(for: .seconds(1))
             }
         }
+    }
+
+    /// The `BGAppRefreshTask` the scene runs (`IsctCompanionApp`).
+    static let backgroundRefresh = "app.isctcompanion.refresh"
+
+    /// Asks iOS for the next background refresh. iOS picks the time; Core
+    /// decides what is due when it comes.
+    static func scheduleBackgroundRefresh() {
+        let request = BGAppRefreshTaskRequest(identifier: backgroundRefresh)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)
+        try? BGTaskScheduler.shared.submit(request)
+    }
+
+    /// One background refresh: Core reads what it may out of front (LMS
+    /// deadlines and assignment states over the token, reference files) and
+    /// runs reminders and iCloud, within the budget iOS gives a refresh. The
+    /// school web views stay closed. Cancelling the task ends it early.
+    func backgroundRefresh() async {
+        Self.scheduleBackgroundRefresh()
+        await start()
+        guard let session, let operation = try? session.backgroundWake(budgetSeconds: 25) else { return }
+        await withTaskCancellationHandler {
+            _ = try? await operation.awaitResult()
+        } onCancel: {
+            _ = try? operation.cancel()
+        }
+        await refresh()
     }
 
     /// School sign-in hears what desktop sends (`school-session.ts`): `launch`
@@ -156,17 +204,29 @@ final class AppModel {
 
     private func watchNetwork() {
         network.pathUpdateHandler = { [weak self] path in
-            let state: PullNetwork =
+            let state: SyncNetwork =
                 path.status != .satisfied ? .offline
                 : path.usesInterfaceType(.wifi) ? .wifi
                 : path.usesInterfaceType(.cellular) ? .cellular : .unknown
             Task { @MainActor in
                 guard let self, self.networkState != state else { return }
                 self.networkState = state
-                self.report(foreground: self.foreground)
+                self.syncHint(.network(network: state))
             }
         }
         network.start(queue: .global(qos: .utility))
+    }
+
+    /// Low Power Mode, which Core's planner reads as a reason to hold
+    /// background reads.
+    private func watchPowerSaver() {
+        syncHint(.powerSaver(on: ProcessInfo.processInfo.isLowPowerModeEnabled))
+        powerObserver = NotificationCenter.default.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            let on = ProcessInfo.processInfo.isLowPowerModeEnabled
+            Task { @MainActor in self?.syncHint(.powerSaver(on: on)) }
+        }
     }
 
     private func listen(_ stream: Subscription) async {
@@ -175,11 +235,10 @@ final class AppModel {
                 switch try await stream.next() {
                 case let .event(event):
                     switch event.name {
-                    case "school-status":
-                        await refreshSchoolStatus()
-                    case "pull-state-changed", "school-pull-progress":
-                        // Folded into `school-status` by Core.
-                        break
+                    case "sync-snapshot":
+                        if let snapshot = try? decodeSyncSnapshot(payload: event.payload) {
+                            apply(snapshot)
+                        }
                     case "school-session", "school-login-status":
                         await refreshAccounts()
                     case "school-web-open":
@@ -194,18 +253,33 @@ final class AppModel {
                         await refreshCloud()
                     case "school-web-url", "school-download":
                         break
+                    case "workspace-changed":
+                        // A key re-read with nothing new renews only its
+                        // freshness, which no screen here shows.
+                        if !Self.onlyFreshness(event.payload) {
+                            scheduleRefresh()
+                        }
                     default:
                         scheduleRefresh()
                     }
                 case .snapshotRequired:
                     scheduleRefresh()
                     await refreshAccounts()
-                    await refreshSchoolStatus()
+                    await refreshSyncSnapshot()
                 }
             } catch {
                 return
             }
         }
+    }
+
+    /// Whether a `workspace-changed` names sync freshness and nothing else.
+    /// An unreadable payload counts as a real change.
+    private static func onlyFreshness(_ payload: String) -> Bool {
+        guard let row = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any],
+            let changes = row["changes"] as? [String], !changes.isEmpty
+        else { return false }
+        return changes.allSatisfy { $0 == "freshness" }
     }
 
     /// Coalesces bursts of change hints into one read.
@@ -284,11 +358,17 @@ final class AppModel {
         }
     }
 
-    private func refreshSchoolStatus() async {
+    private func refreshSyncSnapshot() async {
         guard let session else { return }
-        if case let .schoolStatus(status)? = try? await session.schoolStatus().value() {
-            schoolStatus = status
+        if case let .sync(snapshot)? = try? await session.syncSnapshot().value() {
+            apply(snapshot)
         }
+    }
+
+    /// A read that started before a newer event must not replace it.
+    private func apply(_ snapshot: SyncSnapshot) {
+        guard snapshot.generation >= (syncSnapshot?.generation ?? 0) else { return }
+        syncSnapshot = snapshot
     }
 
     func week(starting monday: Date) async -> ScheduleView? {
@@ -444,41 +524,11 @@ final class AppModel {
         await refresh()
     }
 
-    /// Pull to refresh, and the first read after an account is saved: 教務Web
-    /// first (registrations are what puts courses on the timetable), then the
-    /// current quarter's LMS courses, content and deadlines — the order of the
-    /// desktop's "Refresh now". It runs on after the gesture ends; the header
-    /// ring follows Core's school status.
+    /// Pull to refresh and "Refresh now": asks Core's planner for everything;
+    /// it orders the sources and reports progress in the sync snapshot.
     func refreshFromSchool() {
-        var steps: [(Session) throws -> IsctCore.Operation] = []
-        if [.available, .savedLocked].contains(credentials?.tokyoTech.availability) {
-            steps.append { try $0.pullSchool(site: .kyomu, courseId: nil, loginFirst: false) }
-        }
-        steps.append { try $0.pullCurrentTerm() }
-        Task { await pull(steps) }
-    }
-
-    /// Runs every pull in order. The accounts are separate, so one that needs
-    /// the person does not hold back the other; the first problem is shown.
-    private func pull(_ steps: [(Session) throws -> IsctCore.Operation]) async {
-        guard let session else { return }
         problem = nil
-        var first: String?
-        for step in steps {
-            do {
-                if case let .schoolPull(outcomes) = try await step(session).value(),
-                    let failed = outcomes.first(where: { $0.state == .reconnectRequired || $0.state == .error })
-                {
-                    first = first ?? (failed.state == .reconnectRequired
-                        ? Self.describe(SdkError.Authentication(detail: ""))
-                        : failed.message)
-                }
-            } catch {
-                first = first ?? Self.describe(error)
-            }
-        }
-        problem = first
-        await refresh()
+        syncHint(.refresh(scope: .everything))
     }
 
     func saveCredentials(_ profile: SchoolAuthProfile, _ credentials: SchoolCredentials) async throws {
@@ -486,7 +536,7 @@ final class AppModel {
         _ = try await session.saveCredentials(profile: profile, credentials: credentials).value()
         await refreshAccounts()
         _ = try? session.ensureSchoolSession(profile: profile)
-        if profile == .science { refreshFromSchool() }
+        syncHint(.signedIn(profile: profile))
     }
 
     /// Edits `settings.notifications` and replaces the settings object.
@@ -674,6 +724,36 @@ extension AppModel {
     }
 }
 
+// MARK: - Reset
+
+/// Settings → Reset over Core's `reset`: Core decides what each scope
+/// removes, stops iCloud sync before a full reset and announces the change,
+/// which re-reads every screen.
+extension AppModel {
+    func resetPreview(_ request: ResetRequest) async -> ResetSummary? {
+        guard let session else { return nil }
+        return try? await session.resetPreview(request: request)
+    }
+
+    func reset(_ request: ResetRequest) async throws {
+        guard let session else { return }
+        _ = try await session.reset(request: request, web: SchoolWebSignOut())
+        problem = nil
+        await refreshAccounts()
+        await refreshSyncSnapshot()
+        await refreshCloud()
+    }
+
+    /// After a full reset, as the desktop's: iCloud on again, then its copy pulled.
+    func restoreFromCloud() async throws {
+        guard let session else { return }
+        _ = try await session.setCloudEnabled(provider: .icloud, enabled: true).value()
+        _ = try await session.syncCloud(direction: .pull).value()
+        await refreshCloud()
+        await refresh()
+    }
+}
+
 // MARK: - Timetable session marks and upcoming exams
 
 extension AppModel {
@@ -778,7 +858,7 @@ extension AppModel {
     func departments() async -> [FinderDepartment] {
         guard let session, let term = today?.term, let year = UInt16(term.prefix(4)),
             case let .finder(view)? = try? await session.finderQuery(request: FinderRequest(
-                year: year, term: term, includeIneligible: false, keys: [], input: "", remoteIds: nil, action: nil
+                year: year, term: term, includeIneligible: false, keys: [], input: "", action: nil
             )).value()
         else { return [] }
         return view.context.departments

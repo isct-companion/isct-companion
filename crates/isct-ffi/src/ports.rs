@@ -281,21 +281,28 @@ impl isct_core::schedule::NotificationSink for Notifications {
         })
     }
 }
+/// The school WebView's cookie store: course files, LMS and 教務Web requests
+/// read the sign-in from it and write server cookies back to it.
 #[uniffi::export(rust, foreign)]
 #[async_trait::async_trait]
 pub trait NativeDownloadSession: Send + Sync {
+    /// The Cookie header the school store sends to `url`; empty when none.
     async fn cookie_header(&self, url: String) -> Result<String, SdkError>;
+    /// Stores Set-Cookie values from a Core response to `url` (already vetted
+    /// by Core: host-only or for the response's own site).
+    async fn store_set_cookies(&self, url: String, set_cookie: Vec<String>)
+        -> Result<(), SdkError>;
 }
-pub(crate) struct DownloadSession(pub Arc<dyn NativeDownloadSession>);
-fn download_session_error(error: SdkError) -> isct_core::downloads::FetchError {
-    use isct_core::downloads::FetchError as E;
+pub(crate) struct NativeCookies(pub Arc<dyn NativeDownloadSession>);
+fn cookie_error(error: SdkError) -> isct_core::net::NetError {
+    use isct_core::net::NetError as E;
     match error {
-        SdkError::Authentication { .. } => E::Login,
-        SdkError::InvalidInput { .. } => E::Invalid,
-        SdkError::Timeout { .. } => E::Timeout,
+        SdkError::Authentication { .. } => E::SignInRequired,
+        SdkError::InvalidInput { detail } => E::Invalid(detail),
+        SdkError::Timeout { .. } => E::Deadline,
         SdkError::Cancelled | SdkError::Closed => E::Cancelled,
         // Cookie access failures must not ask the user to sign in again.
-        _ => E::Network,
+        other => E::Connect(format!("cookie store: {other}")),
     }
 }
 
@@ -303,22 +310,39 @@ fn download_session_error(error: SdkError) -> isct_core::downloads::FetchError {
 #[path = "tests/ports__download_tests.rs"]
 mod download_tests;
 
-impl isct_core::downloads::DownloadSession for DownloadSession {
+impl isct_core::net::SessionCookies for NativeCookies {
     fn cookie_header<'a>(
         &'a self,
         url: &'a Url,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<String, isct_core::downloads::FetchError>>
-                + Send
-                + 'a,
-        >,
-    > {
+    ) -> isct_core::net::BoxFuture<'a, Result<String, isct_core::net::NetError>> {
         Box::pin(async move {
-            self.0
+            let header = self
+                .0
                 .cookie_header(url.to_string())
                 .await
-                .map_err(download_session_error)
+                .map_err(cookie_error)?;
+            if header.trim().is_empty() {
+                Err(isct_core::net::NetError::SignInRequired)
+            } else {
+                Ok(header)
+            }
+        })
+    }
+
+    fn store_set_cookies<'a>(
+        &'a self,
+        url: &'a Url,
+        set_cookie: &'a [String],
+    ) -> isct_core::net::BoxFuture<'a, Result<(), isct_core::net::NetError>> {
+        Box::pin(async move {
+            let storable = isct_core::net::cookies::storable(url, set_cookie);
+            if storable.is_empty() {
+                return Ok(());
+            }
+            self.0
+                .store_set_cookies(url.to_string(), storable)
+                .await
+                .map_err(cookie_error)
         })
     }
 }
@@ -472,6 +496,13 @@ pub fn cloudkit_record() -> CloudKitRecord {
 pub fn school_start_url(site: crate::types::SchoolSite) -> Result<String, SdkError> {
     let site: isct_core::lifecycle::SchoolSite = project_input(site)?;
     Ok(site.start_url().to_string())
+}
+
+/// Whether a cookie or website-data domain is a school one, for the shell's
+/// `NativeWebSignOut`.
+#[uniffi::export]
+pub fn is_school_cookie_domain(domain: String) -> bool {
+    isct_core::school_browser::is_school_cookie_domain(&domain)
 }
 
 #[uniffi::export]

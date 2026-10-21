@@ -340,6 +340,58 @@ const lectureRoute = (courseId: string) =>
   `/lectures/${encodeURIComponent(courseId)}`;
 
 describe("the LMS reading workspace", () => {
+  it("restores a saved reader when the workspace pane starts narrow", async () => {
+    const fixture = lectureFixture();
+    sessionStorage.setItem(
+      `lms-reading:${fixture.workspace.deviceId}:${fixture.course.id}`,
+      JSON.stringify({
+        version: 3,
+        expanded: [],
+        scroll: 0,
+        opened: { id: "m1", title: "Lecture file", kind: "material" },
+      }),
+    );
+    // jsdom has no layout; report the narrow width the outline and viewer
+    // switch at, as a Windows snap or a side panel leaves the pane.
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class implements ResizeObserver {
+        constructor(private callback: ResizeObserverCallback) {}
+        observe(target: Element) {
+          if (!target.matches(".lmsWorkspaceBody")) return;
+          queueMicrotask(() =>
+            this.callback(
+              [
+                {
+                  target,
+                  contentRect: new DOMRect(0, 0, 600, 700),
+                  borderBoxSize: [{ inlineSize: 600, blockSize: 700 }],
+                } as unknown as ResizeObserverEntry,
+              ],
+              this,
+            ),
+          );
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+
+    const { host } = await openWorkspace(fixture);
+    const workspace = () => host.querySelector(".lmsWorkspace");
+    await waitFor(() =>
+      expect(workspace()?.classList.contains("narrowReader")).toBe(true),
+    );
+    expect(workspace()?.classList.contains("viewing")).toBe(true);
+    expect(host.querySelector(".lmsViewerBody")?.textContent).toContain(
+      "Readable file body",
+    );
+  }, 30_000);
+
   it("lays out every lesson as a page and opens the outline where the course is", async () => {
     const f = lectureFixture();
     f.record.sections = [

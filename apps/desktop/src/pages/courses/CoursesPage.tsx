@@ -1,13 +1,8 @@
-import { ExamEditor } from "../../components/exams/ExamEditor";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
-import { useRef, useState, type ReactNode } from "react";
-import { ActionIcon, Badge, Button, Menu, Paper, Modal } from "@mantine/core";
-import {
-  useMediaQuery,
-  useLocalStorage,
-  useDebouncedCallback,
-} from "@mantine/hooks";
+import { useRef, type ReactNode } from "react";
+import { Badge, Button, Menu, Paper } from "@mantine/core";
+import { useLocalStorage, useDebouncedCallback } from "@mantine/hooks";
 
 import {
   WeekTimetable,
@@ -21,12 +16,11 @@ import { tokyoDate } from "../../lib/civil-date";
 import type { CalendarExportScope } from "../../generated/persistence";
 import { UiButton } from "../../components/mantine";
 import { YearQuarterPicker } from "./YearQuarterPicker";
-import { PullRing } from "../../components/PullRing";
+import { SyncRing, progressLabel } from "../../components/PullRing";
+import type { PageProgress } from "../../platform/sync";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import {
   useScheduleQueries,
-  useScheduleQuery,
-  type CourseDetail,
   type PlanningWeek,
   type WorkspaceOverview,
 } from "../../platform/core-query";
@@ -60,14 +54,9 @@ export function Courses({
   pullProgress = null,
   register,
   academic,
-  editing = false,
-  onEditingChange,
   openPlan,
   newPlan,
-  compact = false,
 }: {
-  editing?: boolean;
-  onEditingChange?: (value: boolean) => void;
   openPlan?: (plan: Plan) => void;
   newPlan?: () => void;
   data: Workspace;
@@ -98,13 +87,11 @@ export function Courses({
   /** Refreshes official enrollment and times from 教務Web. */
   refreshSchedule?: () => void;
   /** 0–100 while an official pull runs, else null. */
-  pullProgress?: number | null;
+  pullProgress?: PageProgress;
   /** Opens 教務Web registration with this quarter's planned courses queued. */
   register?: (term: TermId) => void;
   /** GPA / credits summary opened from the top toolbar. */
   academic?: ReactNode;
-  /** Mobile: one header row, viewing only; extras move into a menu. */
-  compact?: boolean;
 }) {
   const lastQuarterClick = useRef(-Infinity);
   const commitTerm = useDebouncedCallback(
@@ -123,8 +110,7 @@ export function Courses({
     // click and let its normal debounce retain the final click in a burst.
     if (first) commitTerm.flush();
   };
-  const canEdit = editing && !readOnly;
-  const wide = useMediaQuery("(min-width: 761px)");
+  const canEdit = !readOnly;
   const terms = overview?.allTerms ?? [currentTerm];
   const planningQuery = useScheduleQueries<[PlanningWeek]>(
     [{ kind: "planningWeek", term }],
@@ -139,7 +125,7 @@ export function Courses({
   const scheduled = planning?.courses ?? [];
   // Intensive or unpublished times have no grid cell; they get their own lane.
   const unscheduled = scheduled.filter((course) => !course.meetings.length);
-  const conflictCount = editing ? (planning?.conflictCount ?? 0) : 0;
+  const conflictCount = planning?.conflictCount ?? 0;
   const [weekLength, setWeekLength] = useLocalStorage<"5" | "7">({
     key: "isct-companion-courses-week-length",
     defaultValue: "5",
@@ -162,20 +148,7 @@ export function Courses({
         );
   const removable =
     !courseCount && !events.length && (data.terms ?? []).includes(term);
-  const [preview, setPreview] = useState<Block | null>(null);
-  const examDetail = useScheduleQuery<CourseDetail>(
-    { kind: "courseDetail", courseId: preview?.id ?? "" },
-    preview?.kind === "exam",
-  );
-  const previewExam = examDetail.value?.exams?.find(
-    (exam) => exam.key === preview?.key,
-  );
-
   const select = (block: Block) => {
-    if (!editing && block.kind !== "course") {
-      setPreview(block);
-      return;
-    }
     if (block.kind === "course") open(block.id);
     else if (block.kind === "plan") {
       const plan = data.plans.find(
@@ -187,52 +160,15 @@ export function Courses({
       if (event) openEvent(event, event.termId);
     }
   };
-  const exportMenu = (target: ReactNode) => (
-    <Menu position="bottom-end" withinPortal>
-      <Menu.Target>{target}</Menu.Target>
-      <Menu.Dropdown>
-        <Menu.Item onClick={() => exportIcs(term, "courses")}>
-          {t("Courses only")}
-        </Menu.Item>
-        <Menu.Item onClick={() => exportIcs(term, "courses-and-plans")}>
-          {t("Courses + personal plans")}
-        </Menu.Item>
-      </Menu.Dropdown>
-    </Menu>
-  );
-  const header = compact ? (
-    <header className="scheduleCompactBar">
-      <h1>{t("Timetable")}</h1>
-      <YearQuarterPicker
-        terms={terms}
-        selected={term}
-        current={currentTerm}
-        onSelect={selectTerm}
-      />
-      {exportMenu(
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size={36}
-          aria-label={t("Calendar export options")}
-        >
-          ⋯
-        </ActionIcon>,
-      )}
-    </header>
-  ) : null;
   return (
-    <div
-      className={`page unifiedSchedule${editing ? " editing" : ""}${compact ? " compact" : ""}`}
-    >
-      {header}
-      <div className="scheduleTitleRow" hidden={compact}>
+    <div className="page unifiedSchedule">
+      <div className="scheduleTitleRow">
         <div>
           <h1>{t("Timetable")}</h1>
           <span>{t("Plan courses for this quarter")}</span>
         </div>
       </div>
-      <header className="pageBar" hidden={compact}>
+      <header className="pageBar">
         <YearQuarterPicker
           terms={terms}
           selected={term}
@@ -249,14 +185,14 @@ export function Courses({
               disabled={pullProgress !== null}
               leftSection={
                 pullProgress !== null ? (
-                  <PullRing value={pullProgress} />
+                  <SyncRing progress={pullProgress} />
                 ) : undefined
               }
               onClick={refreshSchedule}
               title={t("Refresh timetable")}
             >
               {pullProgress !== null
-                ? `${Math.round(pullProgress)}%`
+                ? progressLabel(pullProgress)
                 : t("Refresh timetable")}
             </Button>
           )}
@@ -353,10 +289,10 @@ export function Courses({
           )}
         </div>
       </header>
-      <div className={`coursesBody${editing ? "" : " viewing"}`}>
+      <div className="coursesBody">
         <ResizableWorkspace
           id="planner"
-          enabled={wide && editing}
+          enabled
           secondSize={320}
           firstMin="40%"
           secondMin={240}
@@ -421,85 +357,21 @@ export function Courses({
               <WeekTimetable
                 days={columns}
                 onSelect={select}
-                emptyLabel={t("Nothing scheduled this day")}
                 showNow
                 onSlot={canEdit ? onSlot : undefined}
-                activeSlots={editing ? activeSlots : undefined}
+                activeSlots={activeSlots}
               />
             </Paper>
-            {editing && leftPanel && (
-              <div className="coursesSidePanel">{leftPanel}</div>
-            )}
+            {leftPanel && <div className="coursesSidePanel">{leftPanel}</div>}
           </div>
-          {editing && (
-            <div className="coursesSide">
-              <div className="coursesInspector">
-                {editing && side}
-                {editing && panel && (
-                  <div className="coursesSidePanel">{panel}</div>
-                )}
-              </div>
+          <div className="coursesSide">
+            <div className="coursesInspector">
+              {side}
+              {panel && <div className="coursesSidePanel">{panel}</div>}
             </div>
-          )}
+          </div>
         </ResizableWorkspace>
       </div>
-      <Modal
-        opened={Boolean(preview)}
-        onClose={() => setPreview(null)}
-        title={preview?.title}
-      >
-        {preview && (
-          <div className="scheduleItemPreview">
-            {preview.kind === "exam" && (
-              <Badge color="red" variant="light">
-                {t("Exam")} · {preview.timeLabel}
-              </Badge>
-            )}
-            <p>
-              {preview.startTime}–{preview.endTime}
-            </p>
-            {preview.room && <p>{preview.room}</p>}
-            {preview.conflictWith?.length ? (
-              <p className="scheduleConflict">
-                {t("Overlaps {{courses}}", {
-                  courses: preview.conflictWith.join(", "),
-                })}
-              </p>
-            ) : null}
-            {!readOnly && preview.kind === "exam" && previewExam && (
-              <ExamEditor
-                key={previewExam.key}
-                exam={previewExam}
-                courses={overview.courses}
-                onSaved={() => setPreview(null)}
-              />
-            )}
-            {!readOnly && (
-              <Button
-                variant="default"
-                onClick={() => {
-                  const block = preview;
-                  setPreview(null);
-                  if (block.kind === "exam") {
-                    open(block.id);
-                    return;
-                  }
-                  onEditingChange?.(true);
-                  if (block.kind === "plan") {
-                    const plan = data.plans.find((row) => row.id === block.id);
-                    if (plan) openPlan?.(plan);
-                  } else {
-                    const event = events.find((row) => row.id === block.id);
-                    if (event) openEvent(event, term);
-                  }
-                }}
-              >
-                {t("Edit")}
-              </Button>
-            )}
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

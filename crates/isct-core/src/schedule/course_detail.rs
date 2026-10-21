@@ -18,6 +18,9 @@ pub struct CourseDetail {
     pub offering_id: Option<String>,
     /// The course's T2SCHOLA page, from the course itself or its LMS record.
     pub lms_url: Option<String>,
+    /// The course's LMS id, which the course page sends in its `Open` hint.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub lms_course_id: Option<u64>,
     pub syllabus_url: Option<String>,
     /// Where the course's downloaded files live, for opening its materials.
     pub files: Option<CourseKey>,
@@ -36,6 +39,19 @@ fn lms_url(workspace: &Value, course: &Value) -> Option<String> {
     lms_record(workspace, course)
         .and_then(|row| text(row, "url"))
         .map(str::to_owned)
+}
+
+/// The course's LMS id: its LMS record's, or an LMS-sourced course's own.
+fn lms_course_id(workspace: &Value, course: &Value) -> Option<u64> {
+    lms_record(workspace, course)
+        .and_then(|row| row.get("lmsId").and_then(Value::as_u64))
+        .or_else(|| {
+            let provider = course.pointer("/source/provider").and_then(Value::as_str);
+            let external = course.pointer("/source/externalId").and_then(Value::as_str);
+            external
+                .filter(|_| provider == Some("lms"))
+                .and_then(|id| id.parse().ok())
+        })
 }
 
 /// The course's LMS record (school records' `lmsCourses`), by offering or by
@@ -135,6 +151,7 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
             .and_then(|row| text(row, "id"))
             .map(str::to_owned),
         lms_url,
+        lms_course_id: lms_course_id(workspace, course),
         syllabus_url,
         files: files_of(course),
     }

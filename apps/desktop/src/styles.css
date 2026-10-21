@@ -189,39 +189,6 @@ p {
   padding: 0 0 52px;
   padding-inline-start: var(--app-shell-navbar-offset, 0rem);
 }
-.mobileRail {
-  background: color-mix(in srgb, var(--surface) 90%, var(--bg));
-  border-top: 1px solid var(--line);
-}
-.mobileRail nav {
-  height: 100%;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
-}
-.mobileRail button {
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 2px;
-  color: var(--muted);
-  font-size: calc(9.5px * var(--text));
-  font-weight: 600;
-  border-radius: 8px;
-}
-.mobileRail button.active {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-.mobileRail svg {
-  width: 19px;
-  height: 19px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .page {
   flex: 1;
   min-width: 0;
@@ -456,6 +423,62 @@ p {
   }
 }
 
+/* Core's sync snapshot: a bar only for runs of known size, a spinner for
+   background work, and each failed dataset with its own Retry. */
+.syncProgress {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.syncProgress > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.syncProgress[data-kind="bar"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 160px;
+}
+.syncProgress[data-kind="bar"] progress {
+  margin-top: 0;
+}
+.syncFailures {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--danger);
+  font-size: calc(11px * var(--text));
+}
+.syncFailures li {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.syncFailures li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* In-page progress over local data that stays visible. */
+.syncPageStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: calc(11px * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- timetable ---------- */
 .tt {
   flex: 1;
@@ -645,11 +668,7 @@ p {
   vertical-align: 1px;
   white-space: nowrap;
 }
-.ttAgendaRow .ttExamTag {
-  margin: 0 5px 0 0;
-}
-.ttBlock .ttConflict,
-.ttAgendaRow .ttConflict {
+.ttBlock .ttConflict {
   color: var(--danger);
   font-weight: 700;
 }
@@ -680,67 +699,6 @@ p {
   border-radius: 50%;
   background: var(--danger);
 }
-.ttAgenda {
-  display: none;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-}
-.ttDayTabs {
-  display: grid;
-  grid-template-columns: repeat(var(--days, 7), 1fr);
-  border-bottom: 1px solid var(--line);
-}
-.ttDayTabs button {
-  border: 0;
-  background: none;
-  padding: 10px 4px;
-  color: var(--muted);
-  font-weight: 600;
-  display: grid;
-  gap: 2px;
-  justify-items: center;
-  font-size: calc(12px * var(--text));
-}
-.ttDayTabs button small {
-  font-weight: 400;
-  font-size: calc(10px * var(--text));
-}
-.ttDayTabs button.active {
-  color: var(--accent);
-  box-shadow: inset 0 -2px var(--accent);
-}
-.ttAgendaList {
-  overflow: auto;
-  flex: 1;
-}
-.ttAgendaRow {
-  --course: #999;
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-left: 3px solid var(--course);
-  background: none;
-  display: grid;
-  grid-template-columns: 62px 1fr;
-  text-align: left;
-  padding: 12px;
-  gap: 12px;
-  color: var(--ink);
-}
-.ttAgendaRow time,
-.ttAgendaRow span {
-  display: grid;
-  gap: 3px;
-}
-.ttAgendaRow small {
-  color: var(--muted);
-  font-size: calc(11px * var(--text));
-}
-.ttAgendaRow b {
-  font-size: calc(13px * var(--text));
-}
-
 /* ---------- today ---------- */
 .coursesBody {
   flex: 1;
@@ -781,11 +739,6 @@ p {
 .listCard > header span {
   font-size: calc(11.5px * var(--text));
   color: var(--muted);
-}
-.courseList > header > div:first-child {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
 }
 .courseListTools {
   display: flex;
@@ -1441,105 +1394,6 @@ p {
     width: 170px;
   }
 }
-@media (max-width: 760px) {
-  .workspaceMain {
-    padding: 12px 12px 154px;
-    padding-inline-start: calc(var(--app-shell-navbar-offset, 0rem) + 12px);
-  }
-  .workspaceMain.webMain {
-    padding: 0 0 134px;
-    padding-inline-start: var(--app-shell-navbar-offset, 0rem);
-  }
-  .schoolStatusBar {
-    left: 0;
-    bottom: 62px;
-    min-height: 78px;
-    padding: 7px 12px;
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
-  .schoolStatusAccounts {
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .schoolStatusAccount {
-    flex: 1 1 0;
-  }
-  .schoolStatusAccount small {
-    max-width: min(34vw, 150px);
-  }
-  .appNotifications[data-position="bottom-center"] {
-    bottom: 150px;
-  }
-  .coursesBody {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
-  }
-  .pageBar {
-    flex-wrap: wrap;
-  }
-  .pageBarRight {
-    flex-wrap: wrap;
-  }
-  .search {
-    width: 100%;
-  }
-  .settings {
-    flex-direction: column;
-    gap: 8px;
-  }
-  .credentialFields {
-    grid-template-columns: 1fr;
-  }
-  .credentialFields label.wide {
-    grid-column: auto;
-  }
-  .matrixGrid {
-    grid-template-columns: 18px repeat(10, 30px);
-    overflow-x: auto;
-  }
-  .settingsNav {
-    width: auto;
-    grid-auto-flow: column;
-    overflow-x: auto;
-  }
-  .settingsNav button {
-    white-space: nowrap;
-  }
-  .row {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-  .row > .settingSwitch,
-  .row > .actions {
-    justify-self: start;
-  }
-  .sheetBody {
-    grid-template-columns: 1fr;
-    overflow: auto;
-  }
-  .sheetCol {
-    overflow: visible;
-  }
-  .sheetBody.single {
-    grid-template-columns: 1fr;
-  }
-  .meetingRow {
-    grid-template-columns: 1fr auto;
-  }
-  .meetingRow select {
-    grid-column: 1 / -1;
-  }
-}
-@media (max-width: 640px) {
-  .ttGrid {
-    display: none;
-  }
-  .ttAgenda {
-    display: flex;
-  }
-}
-
 /* Course editor: editable fields first, public reference content below. */
 .courseEditBody {
   overflow: auto;
@@ -1615,17 +1469,6 @@ p {
 .syllabusObjective {
   color: var(--muted);
 }
-@media (max-width: 650px) {
-  .syllabusMetadata > div {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-  .syllabusLessonPlan > div {
-    grid-template-columns: 65px minmax(0, 1fr);
-    gap: 10px;
-  }
-}
-
 /* ---------- task workspace ---------- */
 .todayPage {
   max-width: 1120px;
@@ -2033,37 +1876,6 @@ p {
   background: var(--surface);
 }
 
-@media (max-width: 760px) {
-  .servicesBody {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
-    gap: 8px;
-  }
-  .servicePicker {
-    display: flex;
-    overflow-x: auto;
-    padding-bottom: 2px;
-  }
-  .serviceTier {
-    display: flex;
-    flex: 0 0 auto;
-  }
-  .serviceDivider {
-    width: 1px;
-    height: auto;
-    margin: 5px 7px;
-  }
-  .servicePicker button {
-    min-width: max-content;
-  }
-  .servicesPage {
-    padding: 20px 20px 82px;
-  }
-  .webStatus {
-    display: none;
-  }
-}
-
 .ttBlock {
   min-width: 0;
   overflow: hidden;
@@ -2126,10 +1938,6 @@ p {
 }
 .finderStatus .textButton {
   margin-left: auto;
-}
-.finderWarn {
-  color: var(--warn);
-  flex-basis: 100%;
 }
 .courseFinder .finderResults {
   flex: 1;
@@ -2889,13 +2697,6 @@ p {
     opacity: 1;
   }
 }
-.dueRow.touchRow {
-  grid-template-columns: 3px minmax(0, 1fr);
-}
-.dueRow.touchRow .dueAssignment {
-  min-height: 48px;
-  touch-action: pan-y;
-}
 .moreToggle {
   justify-self: start;
   margin-top: 4px;
@@ -3098,12 +2899,6 @@ p {
 .tt .ttBlock.exam {
   z-index: 4;
 }
-.ttAgendaRow.exam {
-  box-shadow: inset 3px 0 0 var(--course);
-}
-.ttAgendaRow.conflict {
-  outline: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
-}
 .weekLength {
   margin-left: auto;
   flex: none;
@@ -3123,17 +2918,6 @@ p {
   display: inline-flex;
   align-items: center;
   gap: 0;
-}
-.scheduleOverrideForm {
-  display: grid;
-  gap: 12px;
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-.scheduleConflict {
-  color: var(--danger);
-  font-weight: 650;
 }
 .courseExamList {
   display: grid;
@@ -3177,9 +2961,6 @@ p {
 .timetableViewBar > b {
   font-size: calc(12px * var(--text));
 }
-.coursesBody.viewing {
-  grid-template-columns: minmax(0, 1fr);
-}
 .coursesSide {
   gap: 12px;
 }
@@ -3192,9 +2973,6 @@ p {
 }
 .coursesInspector > .courseFinder {
   flex: 1;
-}
-.viewing .coursesInspector {
-  display: none;
 }
 .academicPanel {
   flex-shrink: 0;
@@ -3275,10 +3053,6 @@ p {
   gap: 8px;
   margin-top: 12px;
 }
-.scheduleItemPreview {
-  display: grid;
-  gap: 12px;
-}
 .srOnly {
   position: absolute;
   width: 1px;
@@ -3287,29 +3061,6 @@ p {
   overflow: hidden;
   clip-path: inset(50%);
 }
-@media (max-width: 760px) {
-  .workspaceMain.homeMain,
-  .workspaceMain.timetableMain {
-    height: auto;
-    min-height: 100dvh;
-    overflow: visible;
-  }
-  .unifiedSchedule .coursesBody,
-  .unifiedSchedule .coursesBody.viewing {
-    display: flex;
-    flex-direction: column;
-  }
-  .unifiedSchedule .coursesLeft {
-    min-height: 400px;
-  }
-  .unifiedSchedule.editing .coursesInspector {
-    min-height: 380px;
-  }
-  .scheduleTitleRow {
-    align-items: flex-start;
-  }
-}
-
 .academicSummaryTrigger {
   display: inline-flex;
   align-items: center;
@@ -3531,24 +3282,18 @@ p {
 
 /* Preserve timetable context on holidays without implying a class takes place. */
 .ttHead.noClasses,
-.ttCol.noClasses,
-.ttAgendaList.noClasses {
+.ttCol.noClasses {
   background: color-mix(in srgb, var(--muted) 8%, var(--surface));
 }
 .ttHead.noClasses {
   color: var(--muted);
 }
-.ttBlock.course.cancelled,
-.ttAgendaRow.cancelled {
+.ttBlock.course.cancelled {
   --course: var(--muted) !important;
   background: color-mix(in srgb, var(--muted) 14%, var(--surface));
   color: var(--muted);
   box-shadow: none;
 }
-.ttAgendaRow.cancelled {
-  border-left-color: color-mix(in srgb, var(--muted) 55%, var(--surface));
-}
-
 /* ---------- settings: lists, configs ---------- */
 /* One-time notice on data accuracy. */
 .dataNotice {
@@ -3680,14 +3425,6 @@ textarea.codeArea {
   font-size: calc(11.5px * var(--text));
   color: var(--muted);
 }
-@media (max-width: 760px) {
-  .settingsNavGroup {
-    display: none;
-  }
-  .profileLine.quarters {
-    grid-template-columns: 1fr 1fr 28px;
-  }
-}
 .row > button {
   justify-self: end;
   width: auto;
@@ -3803,23 +3540,6 @@ textarea.codeArea {
   background: #fff;
   opacity: 0.85;
 }
-@media (max-width: 640px) {
-  .todayHeader {
-    flex-wrap: wrap;
-  }
-  .todayWeek {
-    justify-items: stretch;
-    width: 100%;
-  }
-  .weekStrip {
-    justify-content: space-between;
-  }
-  .weekDay {
-    flex: 1;
-    width: auto;
-  }
-}
-
 /* ---------- workstation: course finder ---------- */
 .courseFinder {
   position: relative;
@@ -3950,31 +3670,29 @@ textarea.codeArea {
 .weekDay b {
   animation: daySwap 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-/* Sliding highlight behind the picked day (fixed-width cells only). */
-@media (min-width: 641px) {
-  .weekStrip {
-    position: relative;
-  }
-  .weekStrip::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: calc(24px + var(--day, 0) * 36px);
-    width: 34px;
-    border-radius: 8px;
-    background: var(--accent);
-    transition: left 280ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  .weekDay.active {
-    background: none;
-  }
-  .weekDay {
-    z-index: 1;
-  }
-  .weekDay.active:hover {
-    background: none;
-  }
+/* Sliding highlight behind the picked day. */
+.weekStrip {
+  position: relative;
+}
+.weekStrip::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(24px + var(--day, 0) * 36px);
+  width: 34px;
+  border-radius: 8px;
+  background: var(--accent);
+  transition: left 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.weekDay.active {
+  background: none;
+}
+.weekDay {
+  z-index: 1;
+}
+.weekDay.active:hover {
+  background: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .todayPage > *,
@@ -4021,12 +3739,6 @@ textarea.codeArea {
 }
 .homeSetup > button {
   flex-shrink: 0;
-}
-@media (max-width: 600px) {
-  .homeSetup {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 .homeDay {
   display: flex;

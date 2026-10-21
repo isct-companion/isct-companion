@@ -36,6 +36,23 @@ impl VisitMut for ForeignTypes {
             Type::Reference(_) => *ty = syn::parse_quote!(String),
             Type::Tuple(_) => *ty = syn::parse_quote!(JsonValue),
             Type::Path(path) if path.path.is_ident("Value") => *ty = syn::parse_quote!(JsonValue),
+            Type::Path(path)
+                if path.path.segments.len() == 2
+                    && path.path.segments[0].ident == "serde_json"
+                    && path.path.segments[1].ident == "Value" =>
+            {
+                *ty = syn::parse_quote!(JsonValue)
+            }
+            // Timestamps cross as their RFC 3339 serde text; UniFFI has no chrono type.
+            Type::Path(path)
+                if path
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|part| part.ident == "DateTime") =>
+            {
+                *ty = syn::parse_quote!(String)
+            }
             // Persisted document inputs keep their existing SDK JSON representation.
             // Core validates them against its typed serde contracts on entry.
             Type::Path(path)
@@ -66,10 +83,40 @@ impl VisitMut for ForeignTypes {
         }
     }
 }
+/// Sync names that would shadow platform types in the foreign shells
+/// (SwiftUI `View`/`Label`, Apple's `Network` module, `android.net.Network`).
+/// Only the Rust identifier changes; serde field and variant names, and so the
+/// JSON projection, stay the same.
+const SYNC_RENAMES: [(&str, &str); 5] = [
+    ("View", "SyncView"),
+    ("Label", "SyncLabel"),
+    ("Network", "SyncNetwork"),
+    ("Scope", "SyncScope"),
+    ("Priority", "SyncPriority"),
+];
+fn sync_name(ident: &syn::Ident) -> Option<syn::Ident> {
+    SYNC_RENAMES
+        .iter()
+        .find(|(from, _)| ident == from)
+        .map(|(_, to)| syn::Ident::new(to, ident.span()))
+}
+struct SyncRenames;
+impl VisitMut for SyncRenames {
+    fn visit_attribute_mut(&mut self, _: &mut Attribute) {}
+    fn visit_type_path_mut(&mut self, path: &mut syn::TypePath) {
+        for segment in &mut path.path.segments {
+            if let Some(name) = sync_name(&segment.ident) {
+                segment.ident = name;
+            }
+        }
+        syn::visit_mut::visit_type_path_mut(self, path);
+    }
+}
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let core = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("../isct-core/src");
     let files = [
         "workspace.rs",
+        "workspace_changes.rs",
         "study_profile.rs",
         "schedule/mod.rs",
         "schedule/timing.rs",
@@ -90,12 +137,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "course_query/contracts.rs",
         "school_auth.rs",
         "school_service.rs",
-        "school_status.rs",
         "school_browser/mod.rs",
         "school_browser/port.rs",
         "lifecycle.rs",
         "cloud_sync/mod.rs",
-        "pull_coordinator.rs",
+        "sync_engine/mod.rs",
         "course_materials.rs",
         "storage.rs",
         "notes.rs",
@@ -141,6 +187,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if item.ident == "Task" {
                         item.ident = syn::parse_quote!(CloudTask);
                     }
+                    if name == "sync_engine/mod.rs" {
+                        if let Some(renamed) = sync_name(&item.ident) {
+                            item.ident = renamed;
+                        }
+                        SyncRenames.visit_item_struct_mut(&mut item);
+                    }
                     for field in &mut item.fields {
                         attrs(&mut field.attrs);
                         ForeignTypes.visit_type_mut(&mut field.ty);
@@ -165,6 +217,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     if name == "school_parser/lms.rs" {
                         continue;
+                    }
+                    if name == "sync_engine/mod.rs" {
+                        if let Some(renamed) = sync_name(&item.ident) {
+                            item.ident = renamed;
+                        }
+                        SyncRenames.visit_item_enum_mut(&mut item);
                     }
                     attrs(&mut item.attrs);
                     item.attrs.insert(0, syn::parse_quote!(#[derive(Clone, Debug, Serialize, Deserialize, uniffi::Enum)]));

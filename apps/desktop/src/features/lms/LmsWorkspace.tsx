@@ -1,6 +1,5 @@
 import { ExamCards } from "../../components/exams/ExamCards";
 import { deadlineText } from "../../lib/deadline-text";
-import { Menu } from "@mantine/core";
 import { formatJst } from "../../lib/civil-date";
 import { useElementSize } from "@mantine/hooks";
 import { ReaderPane } from "./ReaderPane";
@@ -19,7 +18,6 @@ import {
   type FileAccess,
 } from "./RichContent";
 import "./lms.css";
-import { STACKED_QUERY } from "../../app/form-factor";
 import {
   lazy,
   Suspense,
@@ -29,7 +27,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type WheelEvent,
   type ReactNode,
 } from "react";
 import { contentLanguage } from "../../lib/model";
@@ -42,6 +39,8 @@ import { t } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import { detectPlatform } from "../../platform/capabilities";
 import { useClock } from "../../platform/use-clock";
+import type { PageProgress } from "../../platform/sync";
+import { ageText } from "../../app/sync-text";
 import { AssignmentWorkspaceFooter } from "./AssignmentWorkspaceCard";
 import { assignmentBrief } from "./assignment-workspace";
 import {
@@ -76,7 +75,6 @@ const ACTIVITIES = -1;
 
 import { fileFamily, extension } from "./file-types";
 import {
-  type CourseFolder,
   folderComponent,
   downloadLimit,
   previewKind,
@@ -95,9 +93,6 @@ const FilePreview = lazy(() =>
 const NoteEditor = lazy(() =>
   import("./NoteEditor").then((m) => ({ default: m.NoteEditor })),
 );
-
-// Outline and viewer take turns in narrow windows and every mobile layout.
-const NARROW_QUERY = `(max-width: 850px), ${STACKED_QUERY}`;
 
 export type CourseEntry = {
   term?: string;
@@ -190,10 +185,10 @@ export function LmsWorkspace({
   close,
   refresh,
   progress,
+  updatedAt,
   markLesson,
   navigationProvided = false,
   headerStart,
-  openOfficial,
 }: {
   course: Course;
   data: Workspace;
@@ -204,18 +199,15 @@ export function LmsWorkspace({
   navigationProvided?: boolean;
   headerStart?: ReactNode;
   close: () => void;
-  refresh?: (currentOnly?: boolean) => void;
-  progress?: number | null;
+  /** Asks Core to refresh this course now (`Refresh { course }`). */
+  refresh?: () => void;
+  /** Core's runs for this course; null while nothing reads it. */
+  progress?: PageProgress;
+  /** When this course's content was last read completely. */
+  updatedAt?: string | null;
   /** Records that the class starting at `occurrence` covers this lesson. */
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
-  /**
-   * Single-column layouts open official LMS pages on the Web page, where the
-   * route gives them a way back, instead of a school view inside this one.
-   */
-  openOfficial?: (url: string) => void;
 }) {
-  const openOfficialRef = useRef(openOfficial);
-  openOfficialRef.current = openOfficial;
   const key = `${data.deviceId}:${course.id}`;
   const [saved] = useState(() => loadReading(key));
   const [expanded, setExpanded] = useState<string[]>(saved?.expanded ?? []);
@@ -233,22 +225,13 @@ export function LmsWorkspace({
   const flip = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
   const [original, setOriginal] = useState(false);
-  const [mobileViewer, setMobileViewer] = useState(false);
+  // Outline and viewer take turns when the workspace pane is narrow. A saved
+  // reader restored into a narrow pane starts on the viewer, not hidden.
+  const [viewing, setViewing] = useState(Boolean(saved?.opened));
   const outline = useRef<HTMLDivElement>(null);
-  const [narrowWindow, setNarrowWindow] = useState(
-    () => window.matchMedia?.(NARROW_QUERY).matches ?? false,
-  );
-  useEffect(() => {
-    const media = window.matchMedia?.(NARROW_QUERY);
-    if (!media) return;
-    const changed = () => setNarrowWindow(media.matches);
-    media.addEventListener("change", changed);
-    return () => media.removeEventListener("change", changed);
-  }, []);
   const workspaceSize = useElementSize();
-  const narrow =
-    narrowWindow || (workspaceSize.width > 0 && workspaceSize.width < 640);
-  const viewerActive = active && (!narrow || mobileViewer);
+  const narrow = workspaceSize.width > 0 && workspaceSize.width < 640;
+  const viewerActive = active && (!narrow || viewing);
   const folder = useMemo(
     () => ({
       term: folderComponent(course.termId),
@@ -591,17 +574,9 @@ export function LmsWorkspace({
       .includes(query.trim().toLocaleLowerCase());
   const open = useCallback(
     (content: OpenedContent) => {
-      if (
-        content.kind === "official" &&
-        content.url &&
-        openOfficialRef.current
-      ) {
-        openOfficialRef.current(content.url);
-        return;
-      }
       if (outline.current) recordPosition(outline.current);
       setOpened(content);
-      setMobileViewer(true);
+      setViewing(true);
     },
     [query],
   );
@@ -648,7 +623,7 @@ export function LmsWorkspace({
     [open],
   );
   const openAssignment = useCallback((a: Assignment) => {
-    setMobileViewer(false);
+    setViewing(false);
     requestAnimationFrame(() =>
       outline.current
         ?.querySelector(`[data-assignment="${CSS.escape(a.id)}"]`)
@@ -807,7 +782,7 @@ export function LmsWorkspace({
   const closeContent = () => {
     if (outline.current) recordPosition(outline.current);
     setOpened(undefined);
-    setMobileViewer(false);
+    setViewing(false);
   };
   /** Assignment card: state and deadline first, the teacher's text on request. */
   const assignmentContent = (a: Assignment) => {
@@ -1257,7 +1232,7 @@ export function LmsWorkspace({
   };
   return (
     <div
-      className={`lmsWorkspace${narrow ? " narrowReader" : ""}${opened ? " hasViewer" : ""}${mobileViewer ? " viewing" : ""}`}
+      className={`lmsWorkspace${narrow ? " narrowReader" : ""}${opened ? " hasViewer" : ""}${viewing ? " viewing" : ""}`}
     >
       <header className="lmsWorkspaceHeader">
         {headerStart}
@@ -1293,38 +1268,36 @@ export function LmsWorkspace({
             <LmsIcon name="doc" size={14} /> {t("Syllabus")}
           </button>
         )}
-        {refresh && (
+        {(progress != null || refresh) && (
           <div className="lmsPullControls">
-            <button
-              type="button"
-              className="lmsRefresh"
-              disabled={progress != null || opened?.kind === "official"}
-              onClick={() => refresh(false)}
-            >
-              {progress != null
-                ? `${Math.round(progress)}%`
-                : t("Pull from LMS")}
-            </button>
-            <Menu position="bottom-end">
-              <Menu.Target>
-                <button
-                  type="button"
-                  className="lmsRefresh"
-                  aria-label={t("LMS pull options")}
-                  disabled={progress != null}
-                >
-                  ▾
-                </button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item onClick={() => refresh(false)}>
-                  {t("Pull all courses")}
-                </Menu.Item>
-                <Menu.Item onClick={() => refresh(true)}>
-                  {t("Pull current quarter only")}
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
+            {progress != null && (
+              // Local data stays on screen; the whole course switches when
+              // Core commits it.
+              <span className="syncPageStatus" role="status">
+                <i className="schoolStatusSpinner" aria-hidden="true" />
+                {updatedAt
+                  ? `${t("Showing data from {{age}}", {
+                      age: ageText(updatedAt, timelineNow, data.settings.locale),
+                    })} · `
+                  : null}
+                {progress.total !== null
+                  ? t("updating this course {{done}} / {{total}}", {
+                      done: progress.done,
+                      total: progress.total,
+                    })
+                  : t("updating this course")}
+              </span>
+            )}
+            {refresh && (
+              <button
+                type="button"
+                className="lmsRefresh"
+                disabled={progress != null || opened?.kind === "official"}
+                onClick={refresh}
+              >
+                {t("Pull from LMS")}
+              </button>
+            )}
           </div>
         )}
       </header>

@@ -163,53 +163,11 @@ impl From<isct_core::school_browser::SchoolBrowserError> for SdkError {
         }
     }
 }
-impl From<isct_core::pull_coordinator::PullError> for SdkError {
-    fn from(e: isct_core::pull_coordinator::PullError) -> Self {
-        use isct_core::pull_coordinator::PullError as E;
-        match e {
-            E::InvalidInput(detail) | E::InvalidTarget(detail) => Self::InvalidInput { detail },
-            E::Authentication(detail) => Self::Authentication { detail },
-            E::Maintenance(detail) => Self::Maintenance { detail },
-            E::Network(detail) => Self::Network { detail },
-            E::Storage(detail) => Self::Storage { detail },
-            E::Timeout(detail) => Self::Timeout { detail },
-            E::Cancelled => Self::Cancelled,
-            E::ServiceStopped(_) => Self::Closed,
-            other => Self::Internal {
-                detail: other.to_string(),
-            },
-        }
-    }
-}
-impl From<isct_core::school_service::SchoolError> for SdkError {
-    fn from(e: isct_core::school_service::SchoolError) -> Self {
-        use isct_core::school_service::SchoolError as E;
-        match e {
-            E::Coordination(e) => e.into(),
-            E::Auth(e) => e.into(),
-            E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Storage(detail) => Self::Storage { detail },
-            E::Authentication(detail) => Self::Authentication { detail },
-            E::Maintenance(detail) => Self::Maintenance { detail },
-            E::Timeout(detail) => Self::Timeout { detail },
-            E::Stopped(_) => Self::Closed,
-            E::Cancelled => Self::Cancelled,
-            E::Compatibility => Self::Compatibility {
-                detail: e.to_string(),
-            },
-            other => Self::Unavailable {
-                detail: other.to_string(),
-            },
-        }
-    }
-}
 impl From<isct_core::catalog::CatalogError> for SdkError {
     fn from(e: isct_core::catalog::CatalogError) -> Self {
         use isct_core::catalog::CatalogError as E;
         match e {
             E::Data(e) => e.into(),
-            E::Pull(e) => e.into(),
-            E::School(e) => e.into(),
             E::InvalidInput(detail) => Self::InvalidInput { detail },
             E::Json(e) => Self::Compatibility {
                 detail: e.to_string(),
@@ -235,10 +193,7 @@ impl From<isct_core::reference_refresh::ReferenceError> for SdkError {
             E::Conflict(detail) => Self::Conflict { detail },
             E::Compatibility(detail) => Self::Compatibility { detail },
             E::Cancelled => Self::Cancelled,
-            E::Coordination(e) => e.into(),
-            E::PartialFailure(n) => Self::Network {
-                detail: format!("{n} reference sources failed"),
-            },
+            E::Superseded => Self::Cancelled,
         }
     }
 }

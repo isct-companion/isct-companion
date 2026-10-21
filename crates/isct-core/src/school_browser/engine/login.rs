@@ -1,6 +1,10 @@
 //! Sign-in attempts, saved-credential renewal and session checks.
 use super::*;
 
+/// The page that starts a 教務Web session, and where it lands once started.
+const KYOMU_ENTRY: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+const KYOMU_STUDENT: &str = "/Titech/Student/";
+
 #[derive(Clone)]
 pub(super) struct ActiveLogin {
     pub(super) profile: SchoolAuthProfile,
@@ -200,12 +204,6 @@ impl SchoolBrowserEngine {
                     }) if found == profile && state != SchoolSessionState::Pending => {
                         return Ok(state)
                     }
-                    Ok(Trace::Maintenance {
-                        browser: found,
-                        message,
-                    }) if found == browser => {
-                        return Err(SchoolBrowserError::Maintenance(message));
-                    }
                     Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
                     Ok(Trace::Stopped) => return Err(SchoolBrowserError::Stopped),
@@ -284,6 +282,72 @@ impl SchoolBrowserEngine {
         );
     }
 
+    /// 教務Web starts its ASP.NET session only from its entry page, through
+    /// the GetAccess sign-on; Rust cannot follow that hop itself. The hidden
+    /// 教務 view opens the entry page, so the shared cookie store holds a
+    /// fresh session for `net::kyomu`. `false`: it landed on a sign-in page.
+    pub(crate) async fn enter_kyomu(&self) -> Result<bool, SchoolBrowserError> {
+        loop {
+            self.wait_until_hidden_without_context().await?;
+            let lane = self.acquire_lane().await?;
+            let result = self.enter_kyomu_once().await;
+            drop(lane);
+            log::info!(target: "isct_core::school_browser", "kyomu entry result={result:?}");
+            match result {
+                Err(SchoolBrowserError::Preempted) => continue,
+                result => return result,
+            }
+        }
+    }
+
+    async fn enter_kyomu_once(&self) -> Result<bool, SchoolBrowserError> {
+        let site = SchoolSite::Kyomu;
+        let url = safe_url(KYOMU_ENTRY)?;
+        let mut traces = self.hidden_traces()?;
+        let browser = self.ensure_browser(site, url.clone())?;
+        let baseline = {
+            let mut state = self.0.state.guard();
+            if state.browsing.is_some() {
+                return Err(SchoolBrowserError::Preempted);
+            }
+            let view = state.views.get_mut(&site);
+            view.map(|view| {
+                view.background_navigation = true;
+                view.last_page
+            })
+            .unwrap_or_default()
+        };
+        self.dispatch(browser, BrowserAction::Navigate(url))?;
+        tokio::time::timeout(SESSION_TIMEOUT, async {
+            loop {
+                match traces.recv().await {
+                    Ok(Trace::Loaded(event))
+                        if event.page.browser == browser && event.page.sequence > baseline =>
+                    {
+                        if event.url.host_str() == Some(crate::school_parser::kyomu::HOST)
+                            && event.url.path().starts_with(KYOMU_STUDENT)
+                        {
+                            return Ok(true);
+                        }
+                        // Sign-on hops in between (GetAccess, form posts)
+                        // also load pages; only a sign-in form ends the wait.
+                        if is_identity_login(&event.url) {
+                            return Ok(false);
+                        }
+                    }
+                    Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
+                    Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
+                    Ok(Trace::Stopped) | Err(broadcast::error::RecvError::Closed) => {
+                        return Err(SchoolBrowserError::Stopped)
+                    }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                }
+            }
+        })
+        .await
+        .map_err(|_| SchoolBrowserError::Timeout("教務Web did not open in time.".into()))?
+    }
+
     pub(super) async fn ensure_session_once(
         &self,
         profile: SchoolAuthProfile,
@@ -312,12 +376,6 @@ impl SchoolBrowserEngine {
                         state,
                     }) if found == profile && state != SchoolSessionState::Pending => {
                         return Ok(state == SchoolSessionState::Active)
-                    }
-                    Ok(Trace::Maintenance {
-                        browser: found,
-                        message,
-                    }) if found == browser => {
-                        return Err(SchoolBrowserError::Maintenance(message));
                     }
                     Ok(Trace::Closed(id)) if id == browser => return Err(view_closed()),
                     Ok(Trace::Browsing(Some(_))) => return Err(SchoolBrowserError::Preempted),
@@ -521,12 +579,7 @@ impl Inner {
             }
         });
         if value == SchoolSessionState::Active {
-            let _ = self.refresh.event(RefreshEvent {
-                kind: crate::school_refresh::RefreshKind::AccountActive,
-                profile: Some(profile),
-                course_id: None,
-                network: None,
-            });
+            self.hints.send(Hint::SignedIn { profile });
         }
         let _ = self.events.emit(CoreEvent::SchoolSession(event));
         let _ = self.traces.send(Trace::Session {
@@ -607,19 +660,7 @@ fn still_on_login_page(state: &State, page: PageId, expected_url: &str) -> bool 
 /// Automatic sign-in belongs to the session check, the visible page or the
 /// hidden pull that led this view to the identity provider.
 pub(super) fn owns_sign_in(state: &State, profile: SchoolAuthProfile, browser: BrowserId) -> bool {
-    state.heartbeat == Some(profile)
-        || state.browsing == Some(browser.site)
-        || state
-            .hidden
-            .as_ref()
-            .is_some_and(|work| work.browser == browser)
-}
-
-pub(super) fn sign_in_settled_without_session(state: SchoolSessionState) -> bool {
-    matches!(
-        state,
-        SchoolSessionState::Failed | SchoolSessionState::NotConfigured
-    )
+    state.heartbeat == Some(profile) || state.browsing == Some(browser.site)
 }
 
 pub(super) fn snapshot(state: &State) -> SchoolSessionSnapshot {

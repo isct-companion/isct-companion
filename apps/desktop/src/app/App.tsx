@@ -4,7 +4,13 @@ import { CalendarView } from "../pages/today/CalendarView";
 import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
-import { usePullState } from "./usePullState";
+import {
+  refresh,
+  syncAvailable,
+  useOpenHint,
+  useSync,
+} from "./useSync";
+import { pageProgress, runsFor } from "../platform/sync";
 import { useAnimatedNavigate } from "./navigation";
 import { SchoolStatusLine } from "./SchoolStatusLine";
 import { useCoreLifecycle } from "./useCoreLifecycle";
@@ -47,7 +53,6 @@ import { useTranslation } from "react-i18next";
 import {
   desktopBridge,
   hideNativeSchoolWeb,
-  official,
   saveExportFile,
 } from "./native";
 import { jstDate, type Page, type Section } from "./shared";
@@ -88,12 +93,6 @@ import {
 import { appTheme, cssVariablesResolver } from "./theme";
 
 import { performAction } from "../platform/actions";
-import {
-  type SchoolPullOptions,
-  type SchoolSite,
-} from "../platform/desktop-bridge";
-
-import { subscriptionNetwork } from "../platform/subscription-polling";
 
 import { CourseFinder } from "../pages/courses/CourseFinder";
 import { AcademicSummary } from "../pages/courses/AcademicSummary";
@@ -102,10 +101,7 @@ import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
 import { traceRouter } from "./interaction-trace";
-import { useFormFactor } from "./form-factor";
-import { MobileShell } from "../layouts/compact/MobileShell";
 import { DAYS as FINDER_DAYS, type FinderCourse } from "../lib/course-query";
-import { isSyllabusCourse } from "../lib/syllabus";
 
 import {
   CourseEditor,
@@ -132,60 +128,14 @@ const KYOMU_GPA =
   "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx";
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
-/** A pull result as one short line; undefined when everything succeeded. */
-function pullProblem(outcomes: { state: string; message: string }[]) {
-  const failed = outcomes.find(
-    (item) =>
-      item.state === "maintenance" ||
-      item.state === "reconnect-required" ||
-      item.state === "error",
-  );
-  const unavailable = outcomes.find((item) => item.state === "unavailable");
-  if (!failed) return unavailable?.message;
-  return failed.state === "reconnect-required"
-    ? "Sign-in required. Check the account in Settings → School accounts."
-    : failed.message;
-}
-
-function sessionStatusLabel(
-  state: SchoolSessionState | undefined,
-  detail?: string,
-) {
+function sessionStatusLabel(state: SchoolSessionState | undefined) {
   if (state === "active") return t("Signed in");
   if (state === "maintenance") return t("Under maintenance");
-  if (state === "failed") return t(detail || "Sign-in failed");
+  if (state === "failed") return t("Sign-in failed");
   if (state === "not-configured") return t("Not configured");
-  return t(detail || "Checking session");
+  return t("Checking session");
 }
 
-function pullScienceLms(options?: SchoolPullOptions) {
-  return workspaceActions.pullSchool("science-lms", options);
-}
-
-async function refreshReferenceSubscriptions(force = false): Promise<string> {
-  if (!desktopBridge?.refreshReferenceSubscriptions)
-    return "Paused: desktop app required";
-  const current = workspaceStore.getState().workspace;
-  if (!current) throw new Error("Workspace is not ready.");
-  const network = subscriptionNetwork();
-  if (network === "offline") return "Paused: offline";
-  if (
-    network === "cellular" &&
-    !current.settings.subscriptionRefresh.allowCellular
-  )
-    return "Paused: waiting for Wi-Fi";
-  await workspaceStore.flush();
-  try {
-    return await desktopBridge.refreshReferenceSubscriptions(force);
-  } finally {
-    // Failed sources may still accompany successful commits from other sources.
-    await workspaceStore.reload();
-  }
-}
-
-/** A school service named in the route, or null when it names none. */
-const schoolSite = (value?: string): SchoolSite | null =>
-  value && value in official ? (value as SchoolSite) : null;
 const pages: Page[] = ["home", "timetable", "lectures", "web"];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
@@ -224,7 +174,6 @@ const icons: Record<Page, React.ReactElement> = {
 
 export function WorkspaceApp() {
   useTranslation();
-  const formFactor = useFormFactor();
   const wideHome = useMediaQuery("(min-width: 1001px)");
   const scienceSession = useSchoolSession(desktopBridge, "science");
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
@@ -342,27 +291,6 @@ export function WorkspaceApp() {
   pageLocations.current[page] = location.pathname;
   const pagePath = (next: Page) =>
     pageLocations.current[next] ?? paths.page(next);
-  // The path of each history entry, so going up can reuse the entry below.
-  const historyPaths = useRef<string[]>([]);
-  {
-    const index = window.history.state?.idx ?? 0;
-    historyPaths.current[index] = location.pathname;
-    historyPaths.current.length = index + 1;
-  }
-  // On mobile, back means up one level (to `path`), never "wherever I came
-  // from". When the entry below is already that parent, step back to it so
-  // the system back button keeps a clean history; otherwise replace.
-  const closeTo = (path: string) => {
-    if (formFactor !== "mobile") return void navigate(path);
-    const index = window.history.state?.idx ?? 0;
-    if (index > 0 && historyPaths.current[index - 1] === path)
-      void navigate(-1);
-    else void navigate(path, { replace: true });
-  };
-  // Official-page extractors write to SQLite; reload only after an ingestion.
-  const ingestedOnWeb = useRef(false);
-  // Tapping the Web tab again while browsing asks Web for its service menu.
-  const [webSitesRequest, setWebSitesRequest] = useState(0);
   const [webContext, setWebContext] = useState<{
     page: "home" | "lectures";
     label: string;
@@ -374,8 +302,6 @@ export function WorkspaceApp() {
   const renderedRoutes = useRef({
     homeView,
     section,
-    settingsOpen: Boolean(params.section),
-    webSite: schoolSite(params.site),
     lectureEntry: null as CourseEntry | null,
     examEntry: null as { key: string; term: TermId; request: number } | null,
   });
@@ -410,12 +336,8 @@ export function WorkspaceApp() {
           : Date.now()),
     };
   }, [params.examKey, params.examTerm, location.state?.lectureRequest]);
-  if (page === "web") renderedRoutes.current.webSite = schoolSite(params.site);
   if (page === "home") renderedRoutes.current.homeView = homeView;
-  if (page === "settings") {
-    renderedRoutes.current.section = section;
-    renderedRoutes.current.settingsOpen = Boolean(params.section);
-  }
+  if (page === "settings") renderedRoutes.current.section = section;
   if (page === "lectures") {
     renderedRoutes.current.lectureEntry = lectureEntry;
     renderedRoutes.current.examEntry = examEntry;
@@ -434,10 +356,6 @@ export function WorkspaceApp() {
         if (cancelled) return;
         if (page === "web") {
           void desktopBridge?.setKyomuGuide?.([]).catch(() => undefined);
-          if (ingestedOnWeb.current) {
-            ingestedOnWeb.current = false;
-            void workspaceStore.reload().catch(notify.error);
-          }
         }
         blocker.proceed();
       })
@@ -454,7 +372,6 @@ export function WorkspaceApp() {
     if (!sourceData) return;
     const target = routeRedirect(location.pathname + location.search, {
       courses: sourceData.courses,
-      stacked: formFactor === "mobile",
     });
     if (target) void navigate(target, { replace: true });
   }, [
@@ -462,7 +379,6 @@ export function WorkspaceApp() {
     location.search,
     sourceData?.courses,
     navigate,
-    formFactor,
   ]);
   const [courseEditor, setCourseEditor] = useState<{
     course?: Course;
@@ -493,10 +409,7 @@ export function WorkspaceApp() {
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
     Boolean(
-      overview.value &&
-      formFactor !== "mobile" &&
-      page === "timetable" &&
-      finderActive,
+      overview.value && page === "timetable" && finderActive,
     ),
   );
   const finderEdits = useFinderEditQueue({
@@ -510,15 +423,10 @@ export function WorkspaceApp() {
   // A search result opened from the syllabus panel, shown over the timetable.
   const [offeringPanel, setOfferingPanel] = useState<FinderCourse | null>(null);
   const schoolRecords = useWorkspace((state) => state.schoolRecords);
-  const {
-    lmsProgress,
-    kyomuProgress,
-    lmsPhase,
-    loginSteps,
-    pulling,
-    schoolStatus,
-  } = usePullState();
-  const [forceRefreshing, setForceRefreshing] = useState(false);
+  const sync = useSync();
+  // Pages only render Core's runs; the planner decides what is read.
+  const lmsProgress = pageProgress(runsFor(sync, ["lms"]));
+  const kyomuProgress = pageProgress(runsFor(sync, ["kyomu"]));
   useCoreLifecycle();
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
   /** After a pull settles the timetable, ask once for the physics group of
@@ -531,64 +439,17 @@ export function WorkspaceApp() {
     }).catch(() => []);
     setGroupPrompt(choices.find((choice) => choice.needsChoice) ?? null);
   };
-  const loadSchoolRecords = () => workspaceActions.refreshSchool();
+  // The ingest's commit patches the records through `workspace-changed`.
   useEffect(
     () =>
       desktopBridge?.onSchoolIngest?.((outcome) => {
-        if (
-          (outcome.state === "ok" || outcome.state === "unavailable") &&
-          pageRef.current === "web"
-        )
-          ingestedOnWeb.current = true;
-        if (outcome.state === "ok" || outcome.state === "unavailable")
-          void workspaceActions
-            .refreshSchool()
-            .then(() => {
-              if (outcome.site === "science-lms" && outcome.state === "ok")
-                notify.updated(outcome.changed);
-            })
-            .catch(() => undefined);
+        if (outcome.site === "science-lms" && outcome.state === "ok")
+          notify.updated(outcome.changed);
       }),
     [],
   );
   const { schedulerState, nativeCapabilities, nativeCapabilitiesReady } =
     useWorkspaceRuntime(sourceData);
-  const missingNamesKey =
-    sourceData?.courses
-      .filter(
-        (course) =>
-          !course.deletedAt &&
-          course.offeringId &&
-          (!course.names?.title?.en ||
-            !sourceData.offerings.some(
-              (offering) =>
-                offering.id === course.offeringId && offering.fetchedAt?.en,
-            )),
-      )
-      .map((course) => course.offeringId!)
-      .sort()
-      .join(",") ?? "";
-  useEffect(() => {
-    if (
-      !missingNamesKey ||
-      !desktopBridge?.catalogSyncOfferings ||
-      !nativeCapabilities?.syllabusSearch
-    )
-      return;
-    let active = true;
-    const ids = missingNamesKey.split(",");
-    void (async () => {
-      for (let start = 0; active && start < ids.length; start += 20) {
-        await desktopBridge.catalogSyncOfferings!(
-          ids.slice(start, start + 20),
-        ).catch(() => undefined);
-      }
-      if (active) await workspaceStore.reload();
-    })().catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [missingNamesKey, nativeCapabilities?.syllabusSearch]);
   useAppearance(data);
   useEffect(() => {
     if (store.error && sourceData)
@@ -626,20 +487,53 @@ export function WorkspaceApp() {
       )
     );
   };
-  // Pulls across courses leave material details out (files, pages,
-  // announcements); opening a lecture fills in its own, once per session.
+  const openedCourse =
+    page === "lectures" && lectureEntry && sourceData
+      ? sourceData.courses.find(
+          (item) => item.id === lectureEntry.courseId && !item.deletedAt,
+        )
+      : undefined;
+  const openedRecord = openedCourse && lmsRecordFor(openedCourse);
+  // Each visible view tells Core once; Core's open threshold decides what
+  // is read. A page shown again sends its view again.
+  useOpenHint(page === "home" ? { kind: "today" } : null);
+  useOpenHint(
+    page !== "lectures"
+      ? null
+      : openedRecord
+        ? { kind: "course", lmsCourseId: openedRecord.lmsId }
+        : lectureEntry
+          ? null
+          : { kind: "assignments" },
+  );
+  useOpenHint(page === "timetable" ? { kind: "timetable" } : null);
+  useOpenHint(page === "timetable" ? { kind: "grades" } : null);
+  useOpenHint(
+    page === "timetable" && finderActive
+      ? { kind: "finder", year: finderYear }
+      : null,
+  );
+  useOpenHint(
+    page === "timetable" && offeringPanel
+      ? { kind: "offering", offeringId: offeringPanel.id }
+      : null,
+  );
+  // A 教務Web read that lands may settle a semester's physics group.
+  const kyomuUpdated =
+    sync.sources.find((source) => source.source === "kyomu")?.lastUpdated ??
+    null;
+  const seenKyomu = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (page !== "lectures" || !lectureEntry || !sourceData) return;
-    const course = sourceData.courses.find(
-      (item) => item.id === lectureEntry.courseId && !item.deletedAt,
-    );
-    const record = course && lmsRecordFor(course);
-    if (!record) return;
-    void desktopBridge
-      ?.schoolRefreshEvent?.({ kind: "lecture-opened", courseId: record.lmsId })
-      .catch(() => undefined);
+    if (!sync.sources.length) return;
+    if (
+      seenKyomu.current !== undefined &&
+      kyomuUpdated &&
+      kyomuUpdated !== seenKyomu.current
+    )
+      void askClassGroup();
+    seenKyomu.current = kyomuUpdated;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, lectureEntry?.courseId, Boolean(schoolRecords)]);
+  }, [kyomuUpdated, sync.sources.length]);
   if (!data || !overview.value)
     return (
       <div className="loading">
@@ -836,10 +730,7 @@ export function WorkspaceApp() {
       url,
       request: Date.now(),
     });
-    // Phones browse inside a service; Web corrects the service once resolved.
-    void navigate(
-      formFactor === "mobile" ? paths.web("science-lms") : paths.web(),
-    );
+    void navigate(paths.web());
   };
   /** Opens a lecture on Lecture Desk, optionally at one assignment. */
   const openLecture = (
@@ -856,46 +747,11 @@ export function WorkspaceApp() {
       state: { lectureRequest: Date.now() },
     });
   };
-  /** Refresh LMS course content and all available timetable quarters. */
-  const fetchLms = async (
-    quiet = false,
-    lmsCourseId?: number,
-    currentOnly = false,
-  ) => {
-    if (!desktopBridge?.pullSchool) return false;
-    // Progress and failures show through Core's school status.
-    try {
-      const outcomes = await pullScienceLms({ lmsCourseId, currentOnly });
-      const problem = pullProblem(outcomes);
-      if (!quiet) notify.info(problem ?? "LMS updated");
-      return !problem;
-    } catch (error) {
-      if (!quiet) notify.error(error);
-      return false;
-    }
-  };
-  const refreshKyomu = async (quiet = false) => {
-    if (!desktopBridge?.pullSchool) return;
-    try {
-      const outcomes = await workspaceActions.pullSchool("kyomu");
-      const problem = pullProblem(outcomes);
-
-      if (!quiet) notify.info(problem ?? "教務Web updated");
-      if (!problem) await askClassGroup();
-    } catch (error) {
-      if (!quiet) notify.error(error);
-    }
-  };
-  const forceSchoolRefresh = async () => {
-    if (forceRefreshing) return;
-    setForceRefreshing(true);
-    try {
-      await refreshKyomu(true);
-      await fetchLms(true);
-    } finally {
-      setForceRefreshing(false);
-    }
-  };
+  // Refresh buttons ask Core for a scope; progress and failures arrive in
+  // the sync snapshot.
+  const canSync = syncAvailable() && !readOnly;
+  const fetchLms = () => refresh({ kind: "site", site: "science-lms" });
+  const refreshKyomu = () => refresh({ kind: "site", site: "kyomu" });
   /** Opens 教務Web registration with this quarter's timetable as a queue. */
   const openRegistration = async (term: TermId) => {
     const quarter = term.slice(5);
@@ -970,11 +826,6 @@ export function WorkspaceApp() {
       select={(courseId, assignmentId, term) =>
         openLecture(courseId, { assignmentId, term })
       }
-      clear={() =>
-        void hideNativeSchoolWeb()
-          .then(() => closeTo(paths.lectures()))
-          .catch(notify.error)
-      }
       renderWorkspace={(entry, active, sidebarToggle) => {
         const course = data.courses.find(
           (c) => c.id === entry.courseId && !c.deletedAt,
@@ -991,24 +842,35 @@ export function WorkspaceApp() {
               active={active}
               navigationProvided
               headerStart={sidebarToggle}
-              openOfficial={
-                formFactor === "mobile"
-                  ? (url) => openWeb(url, "lectures")
-                  : undefined
-              }
               schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
               close={() =>
                 void hideNativeSchoolWeb()
-                  .then(() => closeTo(paths.lectures()))
+                  .then(() => navigate(paths.lectures()))
                   .catch(notify.error)
               }
               refresh={
-                desktopBridge?.pullSchool && record
-                  ? (currentOnly) =>
-                      void fetchLms(false, undefined, currentOnly)
+                canSync && record
+                  ? () =>
+                      refresh({ kind: "course", lmsCourseId: record.lmsId })
                   : undefined
               }
-              progress={lmsProgress}
+              progress={
+                record
+                  ? pageProgress(
+                      runsFor(
+                        sync,
+                        ["lms.course", "lms.assign"],
+                        String(record.lmsId),
+                      ),
+                    )
+                  : null
+              }
+              updatedAt={
+                record
+                  ? schoolRecords?.freshness[`lms.course/${record.lmsId}`]
+                      ?.fetchedAt
+                  : null
+              }
               markLesson={
                 readOnly
                   ? undefined
@@ -1059,8 +921,6 @@ export function WorkspaceApp() {
       }}
     />
   );
-  // The workstation timetable is always the planner; phones only view it.
-  const planning = formFactor !== "mobile";
   const showSchoolSetup =
     !readOnly &&
     !data.importStatus.timetableReviewedAt &&
@@ -1114,15 +974,6 @@ export function WorkspaceApp() {
               if (assignment)
                 openLecture(assignment.courseId, { assignmentId });
             }}
-            pinAssignment={(assignmentId) =>
-              void academicIntent({
-                kind: "setAssignmentMark",
-                assignmentId,
-                pinned: !data.assignments.find(
-                  (item) => item.id === assignmentId,
-                )?.pinned,
-              })
-            }
             hideAssignment={(assignmentId) =>
               void academicIntent({
                 kind: "setAssignmentMark",
@@ -1140,7 +991,7 @@ export function WorkspaceApp() {
         <div className="homeWeek">
           <UiButton
             className="textButton homeBack"
-            onClick={() => closeTo(paths.home())}
+            onClick={() => navigate(paths.home())}
           >
             ‹ {t("Today")}
           </UiButton>
@@ -1182,8 +1033,6 @@ export function WorkspaceApp() {
     <div className="quarterPage">
       {" "}
       <Courses
-        compact={formFactor === "mobile"}
-        editing={planning}
         openPlan={(plan) => !readOnly && setPlanEditor(plan)}
         newPlan={() => !readOnly && setPlanEditor("new")}
         side={
@@ -1215,7 +1064,6 @@ export function WorkspaceApp() {
             manual={
               readOnly ? undefined : () => setCourseEditor({ term: courseTerm })
             }
-            query={desktopBridge?.catalogQuery}
           />
         }
         leftPanel={
@@ -1245,14 +1093,12 @@ export function WorkspaceApp() {
               key={panelCourse.id}
               course={panelCourse}
               data={data}
-              readOnly={readOnly || !planning}
+              readOnly={readOnly}
               close={() => setPanelCourseId(null)}
               remove={() => void removeFromTimetable(panelCourse)}
               editIntensive={() => setIntensiveCourseId(panelCourse.id)}
               openWeb={(url) => openWeb(url)}
-              fetchLms={
-                desktopBridge?.pullSchool ? () => void fetchLms() : undefined
-              }
+              fetchLms={canSync ? fetchLms : undefined}
               progress={lmsProgress}
               conflicts={(cachedTimetable?.planning?.conflicts ?? []).filter(
                 (conflict) => conflict.courseId === panelCourse.id,
@@ -1291,10 +1137,8 @@ export function WorkspaceApp() {
           }
         }}
         open={(courseId) => {
-          if (planning) {
-            setOfferingPanel(null);
-            setPanelCourseId(courseId);
-          } else openLecture(courseId);
+          setOfferingPanel(null);
+          setPanelCourseId(courseId);
         }}
         openEvent={(event, term) =>
           !readOnly && setEventEditor({ event, term })
@@ -1304,9 +1148,7 @@ export function WorkspaceApp() {
         onIntensive={(append) => pickFinderTime("集中", append)}
         intensiveActive={finderKeys.includes("集中")}
         addTerm={() => setTermDialog(true)}
-        refreshSchedule={
-          desktopBridge?.pullSchool ? () => void fetchLms() : undefined
-        }
+        refreshSchedule={canSync ? fetchLms : undefined}
         pullProgress={lmsProgress}
         register={
           desktopBridge?.setKyomuGuide
@@ -1318,10 +1160,8 @@ export function WorkspaceApp() {
             summaries={data.gpaSummary}
             termCredits={termCredits}
             availability={schoolRecords?.pageAvailability?.["kyomu:gpa"]}
-            progress={kyomuProgress ?? (pulling ? 0 : null)}
-            refresh={
-              desktopBridge?.pullSchool ? () => void refreshKyomu() : undefined
-            }
+            progress={kyomuProgress}
+            refresh={canSync ? refreshKyomu : undefined}
             openOfficial={() => openWeb(KYOMU_GPA)}
           />
         }
@@ -1344,14 +1184,6 @@ export function WorkspaceApp() {
   const webPage = (
     <Web
       key={webContext?.url ?? "web"}
-      layout={formFactor === "mobile" ? "mobile" : "workstation"}
-      mobileSite={renderedRoutes.current.webSite}
-      sitesRequest={webSitesRequest}
-      openMobileSite={(site, replace) =>
-        site
-          ? void navigate(paths.web(site), { replace })
-          : closeTo(paths.web())
-      }
       active={page === "web"}
       platform={platform}
       data={data}
@@ -1384,32 +1216,19 @@ export function WorkspaceApp() {
         platform !== "native-desktop" || nativeCapabilitiesReady
       }
       section={renderedRoutes.current.section}
-      layout={
-        formFactor !== "mobile"
-          ? "split"
-          : renderedRoutes.current.settingsOpen
-            ? "detail"
-            : "list"
-      }
-      back={() => closeTo(paths.settings())}
       setSection={(next) =>
-        void navigate(paths.settings(next), {
-          replace: formFactor !== "mobile",
-        })
+        void navigate(paths.settings(next), { replace: true })
       }
       notify={notify.info}
       runScheduledTask={
         desktopBridge?.runScheduledTask
           ? async (task) => {
-              const result = await desktopBridge!.runScheduledTask(task.id);
-              await workspaceStore.reload();
-              return result;
+              // The run's record arrives as a `scheduler` change.
+              return desktopBridge!.runScheduledTask(task.id);
             }
           : undefined
       }
-      refreshReferences={
-        desktopBridge ? () => refreshReferenceSubscriptions(true) : undefined
-      }
+      refreshReferences={syncAvailable()}
       matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
       showLoginPage={(profile) => {
         sessionStorage.setItem(
@@ -1426,7 +1245,7 @@ export function WorkspaceApp() {
         <CourseDrawer
           course={drawerCourse}
           data={data}
-          readOnly={readOnly || (page === "timetable" && !planning)}
+          readOnly={readOnly}
           onTimetable={workspaceView.onTimetableCourseIds.includes(
             drawerCourse.id,
           )}
@@ -1451,9 +1270,7 @@ export function WorkspaceApp() {
             const from = pageRef.current;
             openWeb(url, from === "lectures" ? "lectures" : "home");
           }}
-          fetchLms={
-            desktopBridge?.pullSchool ? () => void fetchLms() : undefined
-          }
+          fetchLms={canSync ? fetchLms : undefined}
           progress={lmsProgress}
         />
       )}
@@ -1614,90 +1431,12 @@ export function WorkspaceApp() {
       )}
     </>
   );
-  const sessionLabel = (profile: "science" | "tokyo-tech") =>
-    profile === "science"
-      ? sessionStatusLabel(scienceSession, loginSteps.science)
-      : sessionStatusLabel(tokyoTechSession, loginSteps["tokyo-tech"]);
-
-  // The screen pushed over the current tab's root, closed by an edge swipe.
-  const mobileBack =
-    page === "settings" && params.section
-      ? () => closeTo(paths.settings())
-      : page === "home" && homeView === "week"
-        ? () => closeTo(paths.home())
-        : page === "lectures" && params.courseId
-          ? () =>
-              void hideNativeSchoolWeb()
-                .then(() => closeTo(paths.lectures()))
-                .catch(notify.error)
-          : page === "web" && params.site
-            ? () => closeTo(paths.web())
-            : undefined;
-  if (formFactor === "mobile")
-    return (
-      <MobileShell
-        webMenu={
-          params.site
-            ? () => setWebSitesRequest((count) => count + 1)
-            : undefined
-        }
-        back={mobileBack}
-        page={page}
-        density={data.settings.density}
-        labels={navigation}
-        icons={icons}
-        openPage={(next) =>
-          next === "settings"
-            ? void navigate(pagePath("settings"))
-            : navigatePage(next)
-        }
-        openRoot={(root) =>
-          root === "lectures"
-            ? void hideNativeSchoolWeb()
-                .then(() => closeTo(paths.lectures()))
-                .catch(notify.error)
-            : closeTo(paths.page(root))
-        }
-        pages={{
-          home: keep("home", homePage),
-          timetable: keep("timetable", timetablePage),
-          lectures: keep("lectures", lecturesPage),
-          web: keep("web", webPage),
-          settings: keep("settings", settingsPage),
-        }}
-        overlays={overlays}
-        status={{
-          accounts: [
-            {
-              profile: "science",
-              name: "Science Tokyo",
-              state: scienceSession,
-              label: sessionLabel("science"),
-            },
-            {
-              profile: "tokyo-tech",
-              name: "TokyoTech",
-              state: tokyoTechSession,
-              label: sessionLabel("tokyo-tech"),
-            },
-          ],
-          lmsPhase,
-          progress: lmsProgress,
-          refresh:
-            desktopBridge?.pullSchool && !readOnly
-              ? () => void fetchLms()
-              : undefined,
-          openAccounts: () => void navigate(paths.settings("accounts")),
-        }}
-      />
-    );
-
   return (
     <AppShell
       className="app"
       data-density={data.settings.density}
-      navbar={{ width: 72, breakpoint: "48em", collapsed: { mobile: true } }}
-      footer={{ height: 62, offset: false }}
+      // The native window's minimum width always leaves room for the rail.
+      navbar={{ width: 72, breakpoint: 0 }}
       padding={0}
     >
       <AppShell.Navbar className="rail">
@@ -1739,29 +1478,6 @@ export function WorkspaceApp() {
           <span>{navigation.settings}</span>
         </UiButton>
       </AppShell.Navbar>
-      <AppShell.Footer className="mobileRail" hiddenFrom="sm">
-        <nav aria-label={t("Pages")}>
-          {pages.map((p) => (
-            <UiButton
-              className={page === p ? "active" : ""}
-              onClick={() => navigatePage(p)}
-              key={p}
-              title={navigation[p]}
-            >
-              {icons[p]}
-              <span>{navigation[p]}</span>
-            </UiButton>
-          ))}
-          <UiButton
-            className={page === "settings" ? "active" : ""}
-            onClick={() => void navigate(pagePath("settings"))}
-            title={navigation.settings}
-          >
-            {icons.settings}
-            <span>{navigation.settings}</span>
-          </UiButton>
-        </nav>
-      </AppShell.Footer>
       <AppShell.Main
         component="main"
         className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
@@ -1786,7 +1502,7 @@ export function WorkspaceApp() {
             <span>
               <b>Science Tokyo</b>
               <small>
-                {sessionStatusLabel(scienceSession, loginSteps.science)}
+                {sessionStatusLabel(scienceSession)}
               </small>
             </span>
           </span>
@@ -1798,22 +1514,15 @@ export function WorkspaceApp() {
             <span>
               <b>TokyoTech</b>
               <small>
-                {sessionStatusLabel(tokyoTechSession, loginSteps["tokyo-tech"])}
+                {sessionStatusLabel(tokyoTechSession)}
               </small>
             </span>
           </span>
         </div>
         <SchoolStatusLine
-          status={schoolStatus}
+          snapshot={sync}
           locale={data.settings.locale}
-          refresh={
-            desktopBridge?.pullSchool
-              ? {
-                  busy: forceRefreshing,
-                  run: () => void forceSchoolRefresh(),
-                }
-              : undefined
-          }
+          refresh={canSync ? () => refresh({ kind: "everything" }) : undefined}
         />
       </aside>
     </AppShell>

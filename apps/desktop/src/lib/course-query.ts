@@ -5,8 +5,6 @@ export type {
   Condition,
   Factor,
   Suggestion,
-  RemotePlan,
-  RemoteQuery,
 } from "../generated/persistence";
 import type {
   Condition,

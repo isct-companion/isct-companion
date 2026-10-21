@@ -7,6 +7,44 @@ plugins {
 // The Core SDK built by `yarn sdk:android` (bindings/kotlin/README.md).
 val coreAar = rootDir.resolve("../../bindings/kotlin/artifacts/isct-core.aar")
 
+/** The Kotlin half of rustls-platform-verifier must match the Rust crate in
+ * the SDK exactly, so its version is read from the workspace Cargo.lock
+ * (the crate's documented Gradle setup). */
+abstract class RustlsVersion : ValueSource<String, RustlsVersion.Params> {
+    interface Params : ValueSourceParameters {
+        val lockFile: RegularFileProperty
+    }
+
+    override fun obtain(): String {
+        val lines = parameters.lockFile.get().asFile.readLines()
+        val index = lines.indexOfFirst { it.trim() == "name = \"$CRATE\"" }
+        return lines.drop(index + 1)
+            .takeIf { index >= 0 }
+            ?.firstOrNull { it.trimStart().startsWith("version = ") }
+            ?.substringAfter('"')
+            ?.substringBefore('"')
+            ?.takeIf { it.isNotEmpty() }
+            ?: error("$CRATE not found in Cargo.lock")
+    }
+
+    companion object {
+        const val CRATE = "rustls-platform-verifier-android"
+    }
+}
+
+val rustlsPlatformVerifierVersion = providers.of(RustlsVersion::class.java) {
+    parameters.lockFile.set(rootProject.layout.projectDirectory.file("../../Cargo.lock"))
+}
+
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.rustls" && requested.name == "rustls-platform-verifier") {
+            useVersion(rustlsPlatformVerifierVersion.get())
+            because("must match ${RustlsVersion.CRATE} in Cargo.lock")
+        }
+    }
+}
+
 android {
     namespace = "app.isctcompanion"
     compileSdk = 35
@@ -50,6 +88,8 @@ android {
 dependencies {
     implementation(files(coreAar))
     implementation("net.java.dev.jna:jna:5.17.0@aar")
+    // Versioned from Cargo.lock above.
+    implementation("org.rustls:rustls-platform-verifier")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.annotation:annotation-jvm:1.9.1")
 
@@ -61,6 +101,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-process:2.9.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.navigation:navigation-compose:2.9.0")
     // OTP QR codes: Google's scanner UI for the camera, ML Kit for screenshots.
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")

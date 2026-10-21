@@ -44,8 +44,9 @@ the "unavailable" OCR backend, so only a device exercises recognition.
 The agent may not type passwords, so nothing after the login page was
 exercised.
 
-- Save the ID and password in the settings sheet, then pull. `AppModel.pull`
-  runs `scienceLms`, then `kyomu`. Check that 今日, 時間割 and 課題 fill from a
+- Save the ID and password in the settings sheet. The shell sends Core's sync
+  planner `Hint.signedIn`, and pull to refresh sends `Hint.refresh(.everything)`;
+  Core decides the order of reads. Check that 今日, 時間割 and 課題 fill from a
   fresh install, with no copied `school.db`.
 - Check that the SSO plus matrix second factor completes inside the resident
   WKWebView (`Core/SchoolBrowserHost.swift`).
@@ -67,7 +68,7 @@ these items only work in a signed build:
   `docs/verification/manual-checks.yaml`.
 - **Notifications on a device.** `Core/NotificationScheduler.swift` registers
   Core's `notificationPlan`, up to 64 pending. Check permission, delivery
-  times and re-planning after a pull.
+  times and re-planning after a school update.
 - **iCloud backup.** Built; see below and `docs/mobile-backup-handoff.md`. The App ID needs the iCloud
   capability with the `iCloud.app.isctcompanion` container, which the Mac app
   already uses, so a signed build with the team can read the Mac's record.

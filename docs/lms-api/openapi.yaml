@@ -1,0 +1,956 @@
+openapi: 3.0.3
+info:
+  title: Science Tokyo LMS · Read API
+  version: 2026.10.20
+  description: |
+    The parts of the Science Tokyo LMS (Moodle 4.5.10, `/2025`) that Isct
+    Companion reads, as probed on 2026-10-20. Not a mirror of the 470 service
+    functions: only the read functions the app calls, the token launch, the
+    cookie fallback endpoints and file downloads.
+
+    REST is a single RPC path selected by `wsfunction`; the request variants
+    are described with `oneOf`. No `/courses`-style routes exist. Response
+    models list the fields the app uses and allow extra fields.
+
+    Native clients send `User-Agent: Mozilla/5.0 (compatible; IsctCompanion/0.1)`,
+    keep TLS verification on and never follow redirects automatically.
+
+    HTTP 200 may carry a Moodle error (`errorcode`). The token is not a JWT,
+    has no refresh flow, and its expiry is unknown to the client.
+  contact:
+    name: Isct Companion integration notes (docs/lms-api/README.md)
+servers:
+- url: https://lms.s.isct.ac.jp/2025
+  description: Science Tokyo LMS (the 2025 path also serves 2026 courses)
+tags:
+- name: Token launch
+- name: Read RPC
+- name: Cookie fallback
+- name: Discovery
+- name: Files
+paths:
+  /admin/tool/mobile/launch.php:
+    get:
+      tags:
+      - Token launch
+      operationId: launchMobileToken
+      summary: Obtain the mobile web-service token with the web session cookie
+      description: |
+        Verified 2026-10-20: a native GET with the LMS session cookie from the
+        school WebView store, redirects disabled, is answered with **302** and
+        `Location: moodlemobile://token=<base64>` directly.
+
+        The base64 decodes to `signature:::token[:::privatetoken]`. Accept it
+        only when `signature == md5(wwwroot + passport)` with
+        `wwwroot = https://lms.s.isct.ac.jp/2025`. Parse the Location with a
+        dedicated parser: a generic URL parser reads the token as the host.
+        Keep only `token`; drop `privatetoken` (not a refresh token). Never log
+        the Location.
+
+        A 302 to `/login/` or to the SSO host means the web session is gone.
+        The launch may return an existing token or create one; students cannot
+        list or revoke tokens.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: service
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - moodle_mobile_app
+      - name: passport
+        in: query
+        required: true
+        schema:
+          type: string
+        description: A fresh unpredictable value per launch; it binds the answer
+          to this launch through the signature.
+      - name: urlscheme
+        in: query
+        schema:
+          type: string
+          default: moodlemobile
+      responses:
+        '302':
+          description: '`moodlemobile://token=…` (token answer) or a sign-in page
+            (session gone). The Location may contain a credential.'
+          headers:
+            Location:
+              schema:
+                type: string
+        '200':
+          description: An intermediate page; the client treats the token path as
+            unavailable and uses the cookie transport.
+        default: &gateway
+          description: Gateway or HTTP-level failure; may be HTML rather than a
+            Moodle error. Not a business response.
+  /webservice/rest/server.php:
+    post:
+      tags:
+      - Read RPC
+      operationId: callReadFunction
+      summary: Call one read-only function
+      description: |
+        `application/x-www-form-urlencoded`. Arrays are sent as
+        `courseids[0]=…`, objects as `options[0][name]=…`, booleans as `1`/`0`.
+        The app also sends `moodlewssettingfilter=true` so text is filtered as
+        the web pages show it.
+
+        Check the error envelope before parsing the success shape: errors,
+        including `invalidtoken`, arrive with HTTP 200. `warnings` in a
+        success body means the result may be partial.
+      security:
+      - FormToken: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RpcRequest'
+            examples:
+              core_webservice_get_site_info:
+                summary: Prove the token (synthetic)
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: core_webservice_get_site_info
+                  moodlewsrestformat: json
+              core_course_get_contents:
+                summary: Course outline (synthetic)
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: core_course_get_contents
+                  moodlewsrestformat: json
+                  moodlewssettingfilter: 'true'
+                  courseid: 1001
+              mod_assign_get_assignments:
+                summary: Assignments of two courses (synthetic)
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: mod_assign_get_assignments
+                  moodlewsrestformat: json
+                  courseids[0]: 1001
+                  courseids[1]: 1002
+              mod_assign_get_submission_status:
+                summary: Own submission (synthetic)
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: mod_assign_get_submission_status
+                  moodlewsrestformat: json
+                  assignid: 2001
+              core_calendar_get_action_events_by_timesort:
+                summary: Open work, next page (synthetic)
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: core_calendar_get_action_events_by_timesort
+                  moodlewsrestformat: json
+                  timesortfrom: 0
+                  limitnum: 50
+                  aftereventid: 4242
+      responses:
+        '200':
+          description: The function's success data, or a MoodleError. The shape
+            depends on `wsfunction`; see `x-moodle-functions`.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/MoodleError'
+                - $ref: '#/components/schemas/SiteInfo'
+                - $ref: '#/components/schemas/TimelineCourses'
+                - $ref: '#/components/schemas/CourseContents'
+                - $ref: '#/components/schemas/ActionEvents'
+                - $ref: '#/components/schemas/Assignments'
+                - $ref: '#/components/schemas/SubmissionStatus'
+                - $ref: '#/components/schemas/Discussions'
+                - $ref: '#/components/schemas/QuizAttempts'
+                - $ref: '#/components/schemas/QuizBestGrade'
+              examples:
+                invalidtoken:
+                  summary: A refused token is still HTTP 200 (measured)
+                  value:
+                    exception: core\exception\moodle_exception
+                    errorcode: invalidtoken
+                    message: Invalid token - token not found
+        '403': *gateway
+        default: *gateway
+  /lib/ajax/service.php:
+    post:
+      tags:
+      - Cookie fallback
+      operationId: callAjaxFunction
+      summary: AJAX call with the session cookie and sesskey (fallback)
+      description: |
+        Used only when the token path is unavailable. `sesskey` comes from
+        `M.cfg.sesskey` on `/my/`. Only functions marked `ajax` answer;
+        `core_course_get_contents` and the module getters answer
+        `servicenotavailable`. A non-JSON body means the session is gone;
+        `invalidsesskey` means fetch a new sesskey.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: sesskey
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: info
+        in: query
+        required: true
+        schema:
+          type: string
+        description: The method name, for server logs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 1
+              items:
+                type: object
+                properties:
+                  index:
+                    type: integer
+                  methodname:
+                    type: string
+                    enum:
+                    - core_course_get_enrolled_courses_by_timeline_classification
+                    - core_courseformat_get_state
+                    - core_calendar_get_action_events_by_timesort
+                    - core_calendar_get_action_events_by_course
+                    - core_calendar_get_calendar_upcoming_view
+                    - core_calendar_get_calendar_monthly_view
+                  args:
+                    type: object
+                    additionalProperties: true
+                required:
+                - index
+                - methodname
+                - args
+      responses:
+        '200':
+          description: A batch envelope, or a sign-in page (HTML) when the
+            session is gone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AjaxEnvelope'
+  /my/index.php:
+    post:
+      tags:
+      - Cookie fallback
+      operationId: selectTimetableQuarter
+      summary: Dashboard timetable for another year and quarter
+      description: |
+        The custom timetable block (`data-block="tttimetable"`) has no
+        web-service function and is read with the session cookie on both
+        transports. This read-only filter POST sends exactly the block's three
+        fields. Keep `search`: without it Moodle ignores `year` and `quota`
+        and returns the current quarter.
+      security:
+      - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                year:
+                  type: string
+                  description: The `value` of a `select[name=year]` option.
+                quota:
+                  type: string
+                  description: The `value` of a `select[name=quota]` option (1–4).
+                search:
+                  type: string
+                  description: The hidden `input[name=search]` value, unchanged.
+              required:
+              - year
+              - quota
+              - search
+      responses:
+        '200':
+          description: The dashboard HTML with the selected grid.
+          content:
+            text/html:
+              schema:
+                type: string
+  /lib/ajax/service-nologin.php:
+    post:
+      tags:
+      - Discovery
+      operationId: getPublicMobileConfig
+      summary: Public mobile-service switches
+      description: Verified both as POST with a JSON body and as GET with
+        `args=`. Measured `enablemobilewebservice=1`, `typeoflogin=2`.
+      security: []
+      parameters:
+      - name: info
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - tool_mobile_get_public_config
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              example:
+              - index: 0
+                methodname: tool_mobile_get_public_config
+                args: {}
+      responses:
+        '200':
+          description: AJAX envelope; not the REST shape.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AjaxEnvelope'
+        default: *gateway
+  /webservice/pluginfile.php/{contextid}/mod_resource/content/{revision}/{filename}:
+    get:
+      tags:
+      - Files
+      operationId: downloadResourceFile
+      summary: Download a file listed by the API (Range supported)
+      description: |
+        Use `fileurl` as returned; this template only describes the verified
+        `mod_resource` shape. Keep the URL's parameters and add `token` (not
+        `wstoken`), same origin only. The app stores the credential-free
+        `…/pluginfile.php/…` form and adds the transport's credential when it
+        downloads (token here, or the session cookie on the plain form).
+
+        An invalid token answers HTTP 200 with JSON, not the file: check the
+        content type, magic bytes and size.
+      security:
+      - FileToken: []
+      parameters:
+      - name: contextid
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - name: revision
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: Range
+        in: header
+        schema:
+          type: string
+        example: bytes=0-1023
+      responses:
+        '200':
+          description: The whole file (measured 45,268-byte PDF), or a JSON
+            `invalidtoken` error.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoodleError'
+        '206':
+          description: 'Partial content; measured `Content-Range: bytes 0-1023/45268`,
+            matching the full file''s prefix.'
+          headers:
+            Content-Range:
+              schema:
+                type: string
+        '416':
+          description: Range not satisfiable (not measured).
+        default: *gateway
+components:
+  securitySchemes:
+    FormToken:
+      type: apiKey
+      in: query
+      name: wstoken
+      description: Sent as the `wstoken` field of the form body, never in a URL
+        or header. Kept only in the OS vault.
+    FileToken:
+      type: apiKey
+      in: query
+      name: token
+      description: Added only for the LMS origin; logs strip it.
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: MoodleSession
+      description: The school WebView's session cookie.
+  schemas:
+    MoodleError:
+      type: object
+      properties:
+        exception:
+          type: string
+        errorcode:
+          type: string
+          description: '`invalidtoken` and `webservice_access_exception`/`accessexception`:
+            drop the token, sign in, launch again once. `servicenotavailable`: the
+            function is not offered on this path.'
+        message:
+          type: string
+          description: Never logged; may echo request values.
+        debuginfo:
+          type: string
+          nullable: true
+      additionalProperties: true
+      required:
+      - errorcode
+    Warning:
+      type: object
+      properties:
+        item:
+          type: string
+        itemid:
+          type: integer
+          format: int64
+        warningcode:
+          type: string
+        message:
+          type: string
+      additionalProperties: true
+    FileEntry:
+      type: object
+      properties:
+        type:
+          type: string
+          description: '`file`, `url` or `content`; only `file` is downloadable.
+            A URL module''s single `url` entry is its link.'
+        filename:
+          type: string
+        filepath:
+          type: string
+          nullable: true
+        filesize:
+          type: integer
+          format: int64
+        fileurl:
+          type: string
+          format: uri
+        mimetype:
+          type: string
+        timemodified:
+          type: integer
+          format: int64
+      additionalProperties: true
+      required:
+      - type
+      - filename
+    TimelineCourse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: LMS course id; not the official offering number.
+        fullname:
+          type: string
+          description: May hold a Japanese and English title split by " / ".
+        shortname:
+          type: string
+          description: Ends with the academic year, e.g. `[2026]`.
+        idnumber:
+          type: string
+          description: Often the 9-digit syllabus offering id; not guaranteed.
+        coursecategory:
+          type: string
+          description: The category name, which is the course's quarter (1–4).
+        startdate:
+          type: integer
+          format: int64
+        enddate:
+          type: integer
+          format: int64
+        viewurl:
+          type: string
+          format: uri
+        hidden:
+          type: boolean
+      additionalProperties: true
+      required:
+      - id
+      - fullname
+    TimelineCourses:
+      type: object
+      properties:
+        courses:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineCourse'
+        nextoffset:
+          type: integer
+          format: int64
+      additionalProperties: true
+      required:
+      - courses
+    Module:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The cmid, as in `mod/*/view.php?id=…`.
+        instance:
+          type: integer
+          format: int64
+          description: The activity instance id (assignid, forumid, quizid).
+        modname:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+          description: Absent for labels.
+        visible:
+          type: integer
+        uservisible:
+          type: boolean
+        description:
+          type: string
+          description: Optional HTML shown on the course page (labels, shown
+            descriptions). Untrusted; sanitized before display.
+        contents:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileEntry'
+      additionalProperties: true
+      required:
+      - id
+      - instance
+      - modname
+      - name
+    Section:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        section:
+          type: integer
+          format: int64
+          description: The section number.
+        name:
+          type: string
+        summary:
+          type: string
+          description: Section HTML; untrusted.
+        visible:
+          type: integer
+        uservisible:
+          type: boolean
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/Module'
+      additionalProperties: true
+      required:
+      - id
+      - name
+      - modules
+    CourseContents:
+      type: array
+      description: The sections directly (not a JSON string like
+        `core_courseformat_get_state`).
+      items:
+        $ref: '#/components/schemas/Section'
+    ActionEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        activityname:
+          type: string
+        modulename:
+          type: string
+        instance:
+          type: integer
+          format: int64
+          description: The app keys work by the cmid in `url` whenever present.
+        eventtype:
+          type: string
+        timestart:
+          type: integer
+          format: int64
+        timesort:
+          type: integer
+          format: int64
+        overdue:
+          type: boolean
+        course:
+          type: object
+          properties:
+            id:
+              type: integer
+              format: int64
+          additionalProperties: true
+        url:
+          type: string
+          format: uri
+      additionalProperties: true
+      required:
+      - id
+      - name
+      - timesort
+    ActionEvents:
+      type: object
+      description: Open work only, not the history; submitted work may leave
+        the list. Page with `aftereventid` = previous `lastid` until a short
+        page or a cursor that does not advance.
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionEvent'
+        firstid:
+          type: integer
+          format: int64
+        lastid:
+          type: integer
+          format: int64
+      additionalProperties: true
+      required:
+      - events
+    Assignment:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The assignid.
+        cmid:
+          type: integer
+          format: int64
+        course:
+          type: integer
+          format: int64
+        name:
+          type: string
+        duedate:
+          type: integer
+          format: int64
+          description: 0 when unset.
+        cutoffdate:
+          type: integer
+          format: int64
+          description: When submissions stop; not the due date.
+        intro:
+          type: string
+        introattachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileEntry'
+      additionalProperties: true
+      required:
+      - id
+      - cmid
+      - name
+    Assignments:
+      type: object
+      properties:
+        courses:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+                format: int64
+              assignments:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Assignment'
+            additionalProperties: true
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+      additionalProperties: true
+      required:
+      - courses
+    SubmissionStatus:
+      type: object
+      description: |
+        The app reads it as the assignment page showed it: `graded` when
+        `gradingstatus` is `graded` or `released`; `submitted` only for the
+        exact submission status `submitted` (measured `new` and `submitted`;
+        a draft is open); `acceptsSubmission` from `canedit`; the grade from
+        `feedback.gradefordisplay` text. A missing `lastattempt` says nothing.
+      properties:
+        lastattempt:
+          type: object
+          properties:
+            submission:
+              type: object
+              properties:
+                status:
+                  type: string
+              additionalProperties: true
+            teamsubmission:
+              type: object
+              additionalProperties: true
+            gradingstatus:
+              type: string
+            canedit:
+              type: boolean
+            cansubmit:
+              type: boolean
+          additionalProperties: true
+        feedback:
+          type: object
+          properties:
+            gradefordisplay:
+              type: string
+              description: Display text; may hold HTML.
+          additionalProperties: true
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+      additionalProperties: true
+    QuizAttempts:
+      type: object
+      properties:
+        attempts:
+          type: array
+          items:
+            type: object
+            properties:
+              state:
+                type: string
+                description: '`finished` counts as submitted.'
+            additionalProperties: true
+      additionalProperties: true
+    QuizBestGrade:
+      type: object
+      properties:
+        hasgrade:
+          type: boolean
+        grade:
+          type: number
+      additionalProperties: true
+    Discussion:
+      type: object
+      properties:
+        discussion:
+          type: integer
+          format: int64
+          description: The discussion id (`discuss.php?d=`).
+        id:
+          type: integer
+          format: int64
+          description: The first post's id.
+        subject:
+          type: string
+        message:
+          type: string
+          description: First post HTML.
+        created:
+          type: integer
+          format: int64
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileEntry'
+      additionalProperties: true
+      required:
+      - id
+      - discussion
+      - message
+    Discussions:
+      type: object
+      properties:
+        discussions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Discussion'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+      additionalProperties: true
+      required:
+      - discussions
+    SiteInfo:
+      type: object
+      properties:
+        userid:
+          type: integer
+          format: int64
+        lang:
+          type: string
+        release:
+          type: string
+          example: 4.5.10+ (Build 20260227)
+        functions:
+          type: array
+          description: 470 entries on 2026-10-20, including write functions.
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+            additionalProperties: true
+      additionalProperties: true
+      required:
+      - userid
+    AjaxEnvelope:
+      type: array
+      items:
+        type: object
+        properties:
+          error:
+            type: boolean
+          data:
+            description: The function's result; `core_courseformat_get_state`
+              returns a JSON string.
+          exception:
+            $ref: '#/components/schemas/MoodleError'
+        additionalProperties: true
+        required:
+        - error
+    RpcRequestBase:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+        moodlewssettingfilter:
+          type: string
+          enum:
+          - 'true'
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+    RpcRequest:
+      description: One variant per function; `x-moodle-functions` lists the
+        app's closed read-only set and each one's arguments.
+      allOf:
+      - $ref: '#/components/schemas/RpcRequestBase'
+      - type: object
+        properties:
+          wsfunction:
+            type: string
+            enum:
+            - core_webservice_get_site_info
+            - core_course_get_enrolled_courses_by_timeline_classification
+            - core_course_get_contents
+            - core_calendar_get_action_events_by_timesort
+            - core_calendar_get_action_events_by_course
+            - core_calendar_get_calendar_upcoming_view
+            - core_calendar_get_calendar_monthly_view
+            - mod_assign_get_assignments
+            - mod_assign_get_submission_status
+            - mod_quiz_get_quizzes_by_courses
+            - mod_quiz_get_user_attempts
+            - mod_quiz_get_user_best_grade
+            - mod_forum_get_forums_by_courses
+            - mod_forum_get_forum_discussions
+            - mod_page_get_pages_by_courses
+            - mod_resource_get_resources_by_courses
+            - mod_folder_get_folders_by_courses
+            - mod_url_get_urls_by_courses
+        additionalProperties: true
+x-moodle-functions:
+- name: core_webservice_get_site_info
+  arguments: none
+  responseSchema: SiteInfo
+  verified: native REST, 2026-10-20
+- name: core_course_get_enrolled_courses_by_timeline_classification
+  arguments: classification=all, limit=0, offset, sort=fullname
+  responseSchema: TimelineCourses
+  verified: AJAX, 2026-10-20 (46 courses); REST expected in the mobile service
+- name: core_course_get_contents
+  arguments: courseid
+  responseSchema: CourseContents
+  verified: native REST, 2026-10-20 (10 sections, modules with fileurl)
+- name: core_calendar_get_action_events_by_timesort
+  arguments: timesortfrom=0, limitnum=50, aftereventid
+  responseSchema: ActionEvents
+  verified: native REST and AJAX, 2026-10-20
+- name: core_calendar_get_action_events_by_course
+  arguments: courseid, timesortfrom=0, limitnum=50, aftereventid
+  responseSchema: ActionEvents
+  verified: listed by site_info
+- name: core_calendar_get_calendar_upcoming_view
+  arguments: courseid=1, categoryid=0
+  responseSchema: '{events: ActionEvent[]}'
+  verified: listed by site_info
+- name: core_calendar_get_calendar_monthly_view
+  arguments: year, month, courseid=1, categoryid=0, day=1
+  responseSchema: '{weeks: [{days: [{events: ActionEvent[]}]}]}'
+  verified: listed by site_info
+- name: mod_assign_get_assignments
+  arguments: courseids[n]
+  responseSchema: Assignments
+  verified: native REST, 2026-10-20
+- name: mod_assign_get_submission_status
+  arguments: assignid (Module.instance, never the cmid)
+  responseSchema: SubmissionStatus
+  verified: native REST, 2026-10-20
+- name: mod_quiz_get_quizzes_by_courses
+  arguments: courseids[n]
+  responseSchema: '{quizzes: [{id, coursemodule, grade, decimalpoints}]}'
+  verified: listed by site_info
+- name: mod_quiz_get_user_attempts
+  arguments: quizid, status=all, includepreviews=0
+  responseSchema: QuizAttempts
+  verified: listed by site_info
+- name: mod_quiz_get_user_best_grade
+  arguments: quizid
+  responseSchema: QuizBestGrade
+  verified: listed by site_info
+- name: mod_forum_get_forums_by_courses
+  arguments: courseids[n]
+  responseSchema: '[{id, cmid, course, intro}]'
+  verified: listed by site_info
+- name: mod_forum_get_forum_discussions
+  arguments: forumid (Module.instance), sortorder=-1, page=0, perpage
+  responseSchema: Discussions
+  verified: native REST, 2026-10-20
+- name: mod_page_get_pages_by_courses
+  arguments: courseids[n]
+  responseSchema: '{pages: [{coursemodule, intro, content}]}'
+  verified: listed by site_info
+- name: mod_resource_get_resources_by_courses
+  arguments: courseids[n]
+  responseSchema: '{resources: [{coursemodule, intro}]}'
+  verified: listed by site_info
+- name: mod_folder_get_folders_by_courses
+  arguments: courseids[n]
+  responseSchema: '{folders: [{coursemodule, intro}]}'
+  verified: listed by site_info
+- name: mod_url_get_urls_by_courses
+  arguments: courseids[n]
+  responseSchema: '{urls: [{coursemodule, intro, externalurl}]}'
+  verified: listed by site_info
+externalDocs:
+  description: Upstream Moodle implementation (4.5)
+  url: https://github.com/moodle/moodle/tree/MOODLE_405_STABLE

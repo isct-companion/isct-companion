@@ -4,15 +4,14 @@ use crate::{
     agent::AgentService,
     data::{CommitObserver, DataStore, WorkspaceChangeSource},
     ports::EventSink,
-    pull_coordinator::PullNetwork,
-    reference_refresh::ReferenceService,
     runtime::{CloudWakeError, CoreRuntime, RuntimeError},
     scheduler::{ScheduledExporter, SchedulerServices},
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
-    school_service::{SchoolExecutor, SchoolService},
-    school_status::{SchoolStatus, SchoolStatusTracker},
+    sync_engine::{Hint, Network, SyncEngine, SyncHints, SyncSnapshot},
     workspace::{WorkspaceError, WorkspaceService},
+    workspace_changes::{self, Coalescer, WorkspaceChange, WorkspacePatch, COALESCE_WINDOW},
 };
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 pub struct Core {
@@ -22,44 +21,19 @@ pub struct Core {
     pub agent: AgentService,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
+    /// Every network read of school and reference data; `Core::reset`
+    /// closes its admission.
+    pub(crate) sync: Arc<SyncEngine>,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
-    school_status: Arc<SchoolStatusHub>,
+    pub(crate) reset_lease: crate::reset::ResetLease,
 }
 
 struct CoreEvents {
     sink: Mutex<Option<Arc<dyn EventSink>>>,
-    school_status: Arc<SchoolStatusHub>,
-}
-
-/// Every pull, progress, ingest and sign-in event passes the relay below, so
-/// the school status is folded there once for all shells.
-struct SchoolStatusHub {
-    tracker: Mutex<SchoolStatusTracker>,
-    store: DataStore,
-}
-
-impl SchoolStatusHub {
-    /// The new status when `event` changed it. Import runs are re-read only
-    /// when a school pull or extractor finished, a few times per pull.
-    fn observe(&self, event: &crate::events::CoreEvent) -> Option<SchoolStatus> {
-        use crate::events::CoreEvent::*;
-        if !matches!(
-            event,
-            PullStateChanged(_) | SchoolPullProgress(_) | SchoolIngest(_) | SchoolLogin(_)
-        ) {
-            return None;
-        }
-        let mut tracker = self.tracker.lock().ok()?;
-        let before = tracker.status();
-        if tracker.observe(event) {
-            if let Ok(runs) = self.store.last_import_runs() {
-                tracker.set_runs(runs);
-            }
-        }
-        let after = tracker.status();
-        (after != before).then_some(after)
-    }
+    /// Every event passes the relay below, so sign-in and maintenance facts
+    /// reach the sync snapshot once for all shells.
+    sync: SyncHints,
 }
 
 struct NoopEvents;
@@ -72,7 +46,9 @@ impl EventSink for NoopEvents {
 
 impl EventSink for CoreEvents {
     fn emit(&self, event: crate::events::CoreEvent) -> Result<(), crate::ports::EventError> {
-        let status = self.school_status.observe(&event);
+        if !matches!(event, crate::events::CoreEvent::SyncSnapshot(_)) {
+            self.sync.observe(&event);
+        }
         let sink = self
             .sink
             .lock()
@@ -83,29 +59,43 @@ impl EventSink for CoreEvents {
                 "Event bridge has stopped.".into(),
             ));
         };
-        sink.emit(event)?;
-        match status {
-            Some(status) => sink.emit(crate::events::CoreEvent::SchoolStatusChanged(status)),
-            None => Ok(()),
-        }
+        sink.emit(event)
     }
 }
 
 /// Every committed workspace write reaches shells and cloud sync from here,
 /// whichever service, executor or agent tool made it.
 struct StoreChanges {
-    events: Option<Arc<CoreEvents>>,
+    events: Option<(Arc<CoreEvents>, Arc<Coalescer>)>,
     runtime: Arc<CoreRuntime>,
 }
 
 impl CommitObserver for StoreChanges {
-    fn committed(&self, source: WorkspaceChangeSource, revision: Option<String>) {
-        if let Some(events) = &self.events {
-            // Events are hints with snapshot recovery; a failed delivery does
-            // not undo the committed write.
-            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged { source, revision });
+    fn committed(
+        &self,
+        source: WorkspaceChangeSource,
+        revision: Option<String>,
+        tables: &BTreeSet<String>,
+    ) {
+        if workspace_changes::touches_user_data(tables) {
+            self.runtime.request_cloud_capture();
         }
-        self.runtime.request_cloud_capture();
+        let Some((events, coalescer)) = &self.events else {
+            return;
+        };
+        let changes = workspace_changes::changes_for(tables);
+        if source == WorkspaceChangeSource::UserIntent {
+            // The shell that made the intent waits on this event; it is
+            // never held back. Events are hints with snapshot recovery; a
+            // failed delivery does not undo the committed write.
+            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged {
+                source,
+                revision,
+                changes: changes.into_iter().collect(),
+            });
+        } else if !changes.is_empty() {
+            coalescer.push(source, changes);
+        }
     }
 }
 
@@ -117,87 +107,135 @@ impl CoreEvents {
     }
 }
 
+impl Drop for Core {
+    fn drop(&mut self) {
+        // The sync driver holds the engine; it ends once its tasks close.
+        self.sync.stop();
+    }
+}
+
 impl Core {
-    pub fn new(store: DataStore, auth: Arc<SchoolAuthService>, network: PullNetwork) -> Self {
-        Self::build(store, auth, network, None)
+    /// The network starts as `Unknown`; shells send `Hint::Network`.
+    pub fn new(store: DataStore, auth: Arc<SchoolAuthService>) -> Self {
+        Self::build(store, auth, None)
     }
 
     pub fn with_events(
         store: DataStore,
         auth: Arc<SchoolAuthService>,
-        network: PullNetwork,
         events: Arc<dyn EventSink>,
     ) -> Self {
-        Self::build(store, auth, network, Some(events))
+        Self::build(store, auth, Some(events))
     }
 
     fn build(
         store: DataStore,
         auth: Arc<SchoolAuthService>,
-        network: PullNetwork,
         events: Option<Arc<dyn EventSink>>,
     ) -> Self {
-        let school_status = Arc::new(SchoolStatusHub {
-            tracker: Mutex::new(SchoolStatusTracker::default()),
-            store: store.clone(),
-        });
+        let sync = SyncEngine::new(store.clone(), auth.clone(), Network::Unknown);
         let events = events.map(|events| {
             Arc::new(CoreEvents {
                 sink: Mutex::new(Some(events)),
-                school_status: school_status.clone(),
+                sync: sync.hints(),
             })
         });
-        let runtime = Arc::new(CoreRuntime::new(network));
+        if let Some(events) = &events {
+            sync.set_events(events.clone());
+        }
+        let runtime = Arc::new(CoreRuntime::new(sync.hints()));
+        let sync = Arc::new(sync);
         store.observe(Arc::new(StoreChanges {
-            events: events.clone(),
+            events: events.clone().map(|events| {
+                let sink = events.clone();
+                let coalescer = Coalescer::new(COALESCE_WINDOW, move |source, changes| {
+                    let _ = sink.emit(crate::events::CoreEvent::WorkspaceChanged {
+                        source,
+                        revision: None,
+                        changes,
+                    });
+                });
+                (events, coalescer)
+            }),
             runtime: runtime.clone(),
         }));
         Self {
             agent: AgentService::new(store.clone()),
             workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),
+            sync,
             school_browser: Mutex::new(None),
             store,
             auth,
             runtime,
             events,
-            school_status,
+            reset_lease: Default::default(),
         }
     }
 
-    /// What the school connection is doing now. The same value is sent as
-    /// `school-status` whenever it changes; shells read this on start and
-    /// after a missed event.
-    pub async fn school_status(&self) -> Result<SchoolStatus, crate::data::DataError> {
-        let pulls = self.runtime.pull_snapshots().await;
-        let store = self.store.clone();
-        let runs = tokio::task::spawn_blocking(move || store.last_import_runs())
-            .await
-            .map_err(|error| crate::data::DataError::Storage(error.to_string()))??;
-        let mut tracker =
-            self.school_status.tracker.lock().map_err(|_| {
-                crate::data::DataError::Storage("School status is unavailable.".into())
-            })?;
-        tracker.observe(&crate::events::CoreEvent::PullStateChanged(pulls));
-        tracker.set_runs(runs);
-        Ok(tracker.status())
+    /// One syllabus course for a detail panel or the course editor. The
+    /// planner reads it (`catalog.detail`); a stored detail answers at once.
+    pub async fn syllabus_course(
+        &self,
+        id: String,
+        language: String,
+    ) -> Result<serde_json::Value, crate::catalog::CatalogError> {
+        let offering_id = crate::catalog::offering_id_of(&id).ok_or_else(|| {
+            crate::catalog::CatalogError::InvalidInput("This is not a シラバス course page.".into())
+        })?;
+        self.sync.hint(crate::sync_engine::Hint::Open {
+            view: crate::sync_engine::View::Offering {
+                offering_id: offering_id.clone(),
+            },
+        });
+        crate::catalog::syllabus_course(&self.store, &offering_id, &language).await
     }
 
-    /// Start Core-owned event bridges on the shell's runtime. Cores built
-    /// without an event sink need no bridge, which keeps unit tests headless.
+    /// A shell fact or intent for the sync planner. Never blocks.
+    pub fn sync_hint(&self, hint: Hint) {
+        self.sync.hint(hint);
+    }
+
+    /// Holds an OS background wake open: resumes, then waits until sync
+    /// has nothing left that it may read out of front, at most `limit`. The
+    /// planner keeps 教務 and the LMS reads that need the dashboard for the
+    /// foreground, and a phone's sign-in waits for it too, so only token and
+    /// public reads run. Returns whether sync went quiet in time.
+    pub async fn sync_in_background(&self, limit: std::time::Duration) -> bool {
+        self.runtime.resume().await;
+        self.sync.wait_quiet(limit).await
+    }
+
+    /// Ends a background wake: suspends again unless the app came to the
+    /// front meanwhile.
+    pub async fn end_background_wake(&self) {
+        if !self.sync.in_front() {
+            self.runtime.suspend().await;
+        }
+    }
+
+    /// What sync is doing now. The same value is sent as `sync-snapshot`
+    /// whenever it changes; shells read this on start and after a missed
+    /// event.
+    pub async fn sync_snapshot(&self) -> SyncSnapshot {
+        self.sync.snapshot()
+    }
+
+    /// Starts the sync driver on the shell's runtime. A hint from inside a
+    /// runtime starts it too.
     pub fn start(
         &self,
         handle: &tokio::runtime::Handle,
     ) -> Result<(), crate::runtime_tasks::RuntimeTaskError> {
-        match &self.events {
-            Some(events) => self.runtime.start_event_forwarding(events.clone(), handle),
-            None => Ok(()),
-        }
+        self.sync.start(handle)
     }
 
+    /// Attaches the shell's school WebView and the cookie port that lets
+    /// Core's HTTP clients read with the WebView's school session.
     pub fn attach_school_browser(
         &self,
         browser: Arc<dyn SchoolBrowser>,
+        cookies: Arc<dyn crate::net::SessionCookies>,
     ) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
         let mut owner = self
             .school_browser
@@ -213,35 +251,14 @@ impl Core {
             .as_ref()
             .map(|events| events.clone() as Arc<dyn EventSink>)
             .unwrap_or_else(|| Arc::new(NoopEvents));
-        let engine = SchoolBrowserEngine::new(
-            self.store.clone(),
-            self.auth.clone(),
-            events,
-            browser,
-            self.runtime.refresh.clone(),
-        )?;
+        let engine =
+            SchoolBrowserEngine::new(self.auth.clone(), events, browser, self.sync.hints())?;
+        let http = crate::net::Http::new()
+            .map_err(|error| SchoolBrowserError::Platform(error.to_string()))?;
+        engine.attach_transport(http, cookies)?;
         *owner = Some(engine.clone());
+        self.sync.attach_school(engine.clone());
         Ok(engine)
-    }
-
-    /// Desktop and foreign shells share the same authenticated page and cursor policy.
-    pub async fn catalog_query(
-        &self,
-        query: String,
-        year: u16,
-        filters: Option<crate::catalog::CatalogFilters>,
-        cursor: Option<String>,
-    ) -> Result<crate::catalog::CatalogPage, crate::catalog::CatalogError> {
-        crate::catalog::kyomu_query(
-            self.store.clone(),
-            self.school_browser()?,
-            self.runtime.coordinator.clone(),
-            query,
-            year,
-            filters,
-            cursor,
-        )
-        .await
     }
 
     pub fn school_browser(&self) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
@@ -276,6 +293,8 @@ impl Core {
         profile: SchoolAuthProfile,
         configured: bool,
     ) -> Result<(), CredentialMutationError> {
+        // The account keys belong to may have changed.
+        self.sync.reevaluate();
         let browser = self
             .school_browser
             .lock()
@@ -288,27 +307,23 @@ impl Core {
     }
 
     /// Ports are scoped to operations, so completed work releases native handles.
-    pub fn services(
-        &self,
-        executor: Arc<dyn SchoolExecutor>,
-        exporter: Arc<dyn ScheduledExporter>,
-    ) -> SchedulerServices {
+    pub fn services(&self, exporter: Arc<dyn ScheduledExporter>) -> SchedulerServices {
         SchedulerServices {
-            references: ReferenceService::new(self.store.clone(), self.runtime.coordinator.clone()),
-            school: SchoolService::new(
-                self.runtime.coordinator.clone(),
-                self.auth.clone(),
-                self.runtime.refresh.clone(),
-            ),
-            refresh: self.runtime.refresh.clone(),
             store: self.store.clone(),
-            executor,
             exporter,
         }
     }
 
-    pub fn school_records(&self) -> Result<serde_json::Value, WorkspaceError> {
-        Ok(self.workspace.snapshot()?.school_records)
+    /// The records `changes` feed, from one snapshot, for a shell that heard
+    /// `workspace-changed` and patches its copy instead of reading it all.
+    pub fn workspace_records(
+        &self,
+        changes: &[WorkspaceChange],
+    ) -> Result<WorkspacePatch, WorkspaceError> {
+        Ok(workspace_changes::patch(
+            self.workspace.snapshot()?,
+            changes,
+        ))
     }
 
     /// Evaluate a page's related queries against one coherent database snapshot.
@@ -344,10 +359,8 @@ impl Core {
         let mut workspace = snapshot.workspace;
         workspace["kyomuSearchOptions"] = self
             .store
-            .reference_cache_marker("kyomu-search-options", i32::from(request.year))
-            .map_err(crate::catalog::CatalogError::from)?
-            .map(|marker| marker["options"].clone())
-            .unwrap_or_else(|| serde_json::json!([]));
+            .kyomu_search_options(request.year)
+            .map_err(crate::catalog::CatalogError::from)?;
         Ok(crate::course_query::finder_view(
             &workspace, offerings, request,
         )?)
@@ -364,10 +377,7 @@ impl Core {
     /// Run every periodic domain service once. Each result is retained so a
     /// failed refresh cannot suppress cloud journaling or reminder delivery.
     pub async fn wake(&self, services: WakeServices) -> WakeReport {
-        let runtime = self
-            .runtime
-            .wake(services.scheduler, services.school_visible)
-            .await;
+        let runtime = self.runtime.wake(services.scheduler).await;
         let cloud = services
             .cloud
             .map(|services| self.runtime.wake_cloud(services));
@@ -392,6 +402,8 @@ impl Core {
 
     pub async fn shutdown(&self) {
         self.reminders.shutdown().await;
+        // Reads stop before the browser they may be signing in with.
+        self.sync.shutdown().await;
         if let Ok(browser) = self.school_browser() {
             browser.shutdown().await;
         }
@@ -417,7 +429,6 @@ pub struct ReminderWake {
 
 pub struct WakeServices {
     pub scheduler: SchedulerServices,
-    pub school_visible: bool,
     pub cloud: Option<crate::cloud_sync::CloudServices>,
     pub reminders: Option<ReminderWake>,
 }

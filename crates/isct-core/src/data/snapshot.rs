@@ -2,17 +2,45 @@ use super::*;
 
 pub(crate) type SnapshotParts = (Value, Value, String);
 
-#[derive(Default)]
+/// `PRAGMA data_version` of user.db and cache.db on the snapshot connection.
+type Versions = (i64, i64);
+
 pub(super) struct SnapshotReader {
-    connection: Option<Connection>,
-    cached: Option<(i64, chrono::NaiveDate, SnapshotParts, String)>,
+    /// A read connection of its own: data versions only compare between
+    /// reads of one connection. Every commit lands on another connection
+    /// (the store's write connection, or another store on the same files),
+    /// so every commit changes them.
+    connection: Connection,
+    cached: Option<(Versions, chrono::NaiveDate, SnapshotParts, String)>,
 }
 
 impl SnapshotReader {
-    fn baseline(&self, version: i64, today: chrono::NaiveDate) -> Option<(SnapshotParts, String)> {
+    pub(super) fn new(connection: Connection) -> Self {
+        Self {
+            connection,
+            cached: None,
+        }
+    }
+
+    fn versions(&self) -> Result<Versions, DataError> {
+        let version = |schema: &str| {
+            self.connection
+                .query_row(&format!("PRAGMA {schema}.data_version"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(DataError::from)
+        };
+        Ok((version("main")?, version("cache")?))
+    }
+
+    fn baseline(
+        &self,
+        versions: Versions,
+        today: chrono::NaiveDate,
+    ) -> Option<(SnapshotParts, String)> {
         self.cached
             .as_ref()
-            .filter(|(v, day, _, _)| *v == version && *day == today)
+            .filter(|(v, day, _, _)| *v == versions && *day == today)
             .map(|(_, _, parts, hash)| (parts.clone(), hash.clone()))
     }
 }
@@ -36,41 +64,28 @@ impl DataStore {
             .snapshot_reader
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if reader.connection.is_none() {
-            reader.connection = Some(self.open()?);
-        }
         let today = (Utc::now() + chrono::Duration::hours(9)).date_naive();
-        let version: i64 = reader
-            .connection
-            .as_ref()
-            .ok_or_else(|| DataError::storage("Snapshot connection unavailable"))?
-            .query_row("PRAGMA data_version", [], |row| row.get(0))?;
-        if let Some(parts) = reader.baseline(version, today) {
+        // Observed before the read: a commit landing during the read must
+        // invalidate this snapshot rather than be stamped onto old data.
+        let versions = reader.versions()?;
+        if let Some(parts) = reader.baseline(versions, today) {
             if std::env::var_os("ISCT_TRACE_READS").is_some() {
-                eprintln!("[workspace-snapshot] cache=hit data_version={version}");
+                eprintln!("[workspace-snapshot] cache=hit data_version={versions:?}");
             }
             return Ok(parts);
         }
         if std::env::var_os("ISCT_TRACE_READS").is_some() {
-            eprintln!("[workspace-snapshot] cache=miss data_version={version}");
+            eprintln!("[workspace-snapshot] cache=miss data_version={versions:?}");
         }
-        let transaction = reader
-            .connection
-            .as_mut()
-            .ok_or_else(|| DataError::storage("Snapshot connection unavailable"))?
-            .transaction()?;
+        let transaction = reader.connection.transaction()?;
         let parts = (
             Self::load_workspace_from(&transaction)?,
             Self::school_records_from(&transaction)?,
             intent_revision(&transaction)?,
         );
         transaction.commit()?;
-        // data_version belongs to this persistent connection. Every commit on
-        // another connection invalidates it, including school and cloud writes.
-        // Keep the version observed before the read: a concurrent later commit
-        // must invalidate this snapshot rather than be stamped onto old data.
         let hash = content_revision(&parts.0, &parts.1)?;
-        reader.cached = Some((version, today, parts.clone(), hash.clone()));
+        reader.cached = Some((versions, today, parts.clone(), hash.clone()));
         Ok((parts, hash))
     }
 
@@ -86,22 +101,18 @@ impl DataStore {
             &Value,
         ) -> Result<(T, SnapshotParts, String), DataError>,
     ) -> Result<T, DataError> {
+        // Lock order: snapshot reader, then the write connection.
         let mut reader = self
             .snapshot_reader
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if reader.connection.is_none() {
-            reader.connection = Some(self.open()?);
-        }
         let today = (Utc::now() + chrono::Duration::hours(9)).date_naive();
         let prior = reader.cached.clone();
-        let connection = reader
-            .connection
-            .as_mut()
-            .ok_or_else(|| DataError::storage("Snapshot connection unavailable"))?;
-        let ((result, parts, hash, version), changed) = commit_on(connection, |transaction| {
-            let version: i64 =
-                transaction.query_row("PRAGMA data_version", [], |row| row.get(0))?;
+        let mut writer = self.connections.writer();
+        let ((result, parts, hash), tables) = commit_on(&mut writer, |transaction| {
+            // Under the write lock no other commit can land, so these are the
+            // versions of the state this transaction starts from.
+            let versions = reader.versions()?;
             let actual = intent_revision(transaction)?;
             if actual != expected_revision {
                 return Err(DataError::conflict(format!(
@@ -109,7 +120,7 @@ impl DataStore {
                 )));
             }
             let (current, school_records, _) = match prior {
-                Some((v, day, parts, _)) if v == version && day == today => parts,
+                Some((v, day, parts, _)) if v == versions && day == today => parts,
                 _ => (
                     Self::load_workspace_from(transaction)?,
                     Self::school_records_from(transaction)?,
@@ -120,18 +131,22 @@ impl DataStore {
                 transaction,
                 actor: WorkspaceChangeSource::UserIntent.actor(),
             };
-            let (result, parts, hash) = operation(&write, &current, &school_records)?;
-            Ok((result, parts, hash, version))
+            operation(&write, &current, &school_records)
         })?;
         let revision = parts.2.clone();
-        // Own-connection commits do not change data_version. This update is
-        // atomic with the write; any later external commit invalidates it.
-        reader.cached = Some((version, today, parts, hash));
+        // The committed parts are the snapshot for the versions after this
+        // commit. They are read before the write lock is released, so no
+        // commit of this store can land in between; only another process
+        // writing the same files could, and the app opens one store per
+        // data folder. Without versions the next read builds it afresh.
+        reader.cached = reader
+            .versions()
+            .ok()
+            .map(|versions| (versions, today, parts, hash));
+        drop(writer);
         drop(reader);
-        if changed {
-            self.observer
-                .committed(WorkspaceChangeSource::UserIntent, Some(revision));
-        }
+        self.observer
+            .committed(WorkspaceChangeSource::UserIntent, Some(revision), &tables);
         Ok(result)
     }
 
@@ -304,72 +319,64 @@ impl DataStore {
                 Value::Array(read_visible_rows(connection, table)?),
             );
         }
-        records.insert("lastRuns".into(), Self::last_import_runs_from(connection)?);
+        let freshness = crate::sync_state::list(connection, None)?;
+        records.insert("freshness".into(), Self::freshness_from(&freshness));
         records.insert(
             "pageAvailability".into(),
-            Self::page_availability_from(connection)?,
+            Self::page_availability_from(&freshness)?,
         );
         Ok(Value::Object(records))
     }
 
-    pub(super) fn last_import_runs_from(connection: &Connection) -> Result<Value, DataError> {
-        let mut statement = connection
-            .prepare(
-                "SELECT provider, scope, MAX(finished_at) FROM import_runs
-                 WHERE state IN ('complete','unavailable') AND finished_at IS NOT NULL
-                 GROUP BY provider, scope",
-            )
-            .map_err(DataError::from)?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(DataError::from)?;
-        let mut runs = Map::new();
-        for row in rows {
-            let (provider, scope, finished) = row.map_err(DataError::from)?;
-            runs.insert(format!("{provider}:{scope}"), Value::String(finished));
-        }
-        Ok(Value::Object(runs))
+    /// `dataset/key` → when the key was last read in full and how its latest
+    /// attempt went, for shells that show data age.
+    fn freshness_from(states: &[crate::sync_state::KeyState]) -> Value {
+        let time = |at: Option<DateTime<Utc>>| at.map(|at| at.to_rfc3339());
+        Value::Object(
+            states
+                .iter()
+                .map(|state| {
+                    (
+                        format!("{}/{}", state.dataset, state.key),
+                        json!({
+                            "fetchedAt": time(state.fetched_at),
+                            "outcome": state.outcome,
+                            "message": state.message,
+                            "failures": state.failures,
+                            "nextEligible": time(state.next_eligible),
+                            "lastError": state.last_error,
+                        }),
+                    )
+                })
+                .collect(),
+        )
     }
 
-    pub(super) fn page_availability_from(connection: &Connection) -> Result<Value, DataError> {
-        let mut statement = connection
-            .prepare(
-                "SELECT provider,scope,state,finished_at,COALESCE(message,'') FROM import_runs
-                 WHERE state IN ('complete','unavailable') AND finished_at IS NOT NULL
-                 ORDER BY finished_at,rowid",
-            )
-            .map_err(DataError::from)?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })
-            .map_err(DataError::from)?;
+    /// The latest complete read of each 教務Web page, keyed `kyomu:<kind>`.
+    fn page_availability_from(states: &[crate::sync_state::KeyState]) -> Result<Value, DataError> {
         let mut availability = Map::new();
-        for row in rows {
-            let (provider, scope, state, checked_at, message) = row.map_err(DataError::from)?;
-            let availability_state = if state == "unavailable" {
-                SchoolPageAvailabilityState::Unavailable
-            } else {
-                SchoolPageAvailabilityState::Available
+        for state in states
+            .iter()
+            .filter(|state| state.dataset == crate::sync_state::Dataset::KyomuPage.name())
+        {
+            let Some(checked_at) = state.fetched_at else {
+                continue;
             };
+            let unavailable = state.outcome == Some(crate::sync_state::Outcome::Unavailable);
             availability.insert(
-                format!("{provider}:{scope}"),
+                format!("kyomu:{}", state.key),
                 serde_json::to_value(SchoolPageAvailability {
-                    state: availability_state,
-                    checked_at,
-                    message,
+                    state: if unavailable {
+                        SchoolPageAvailabilityState::Unavailable
+                    } else {
+                        SchoolPageAvailabilityState::Available
+                    },
+                    checked_at: checked_at.to_rfc3339(),
+                    message: if unavailable {
+                        state.message.clone().unwrap_or_default()
+                    } else {
+                        String::new()
+                    },
                 })
                 .map_err(DataError::from)?,
             );

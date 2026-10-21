@@ -1,27 +1,20 @@
-//! Shared refresh lifetime. Shells supply facts, adapters and periodic wakeups.
+//! Shared background lifetime. Shells supply facts, adapters and periodic
+//! wakeups; school and reference reads belong to `crate::sync_engine`.
 use crate::{
-    pull_coordinator::{PullCoordinator, PullNetwork},
     runtime_tasks::{RuntimeTaskError, RuntimeTasks},
     scheduler::{Scheduler, SchedulerError, SchedulerServices},
-    school_refresh::SchoolRefresh,
-    school_service::SchoolError,
+    sync_engine::{Hint, SyncHints},
 };
 use std::{
     future::Future,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, OnceLock,
-    },
+    sync::{atomic::Ordering, Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
-use tokio::runtime::Handle;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error(transparent)]
     Task(#[from] RuntimeTaskError),
-    #[error(transparent)]
-    School(#[from] SchoolError),
     #[error("Refresh clock is unavailable.")]
     Clock,
     #[error("Cloud sync is already attached to this runtime.")]
@@ -36,85 +29,48 @@ pub enum CloudWakeError {
     Sync(#[from] crate::cloud_sync::CloudSyncError),
 }
 
+/// Cache gc stays clear of startup work, then asks again now and then;
+/// `sync_gc::gc` decides whether a day has passed since its last run.
+const GC_START_DELAY: Duration = Duration::from_secs(60);
+const GC_CHECK_INTERVAL: Duration = Duration::from_secs(10 * 60);
+
 #[cfg(test)]
 #[path = "tests/runtime.rs"]
 mod tests;
 
 pub struct CoreRuntime {
-    /// Pulls go through `run`-tracked services; shells read and cancel via
-    /// the methods below.
-    pub(crate) coordinator: PullCoordinator,
+    /// The sync engine `Core` owns; the runtime forwards lifecycle facts.
+    /// Weak: the engine's store observer owns this runtime.
+    sync: SyncHints,
     pub notes: crate::notes::NoteStore,
     cloud: OnceLock<crate::cloud_sync::CloudSync>,
     pub downloads: crate::downloads::Downloader,
     pub lms_session: crate::lms_session::LmsSession,
-    pub(crate) refresh: SchoolRefresh,
     scheduler: Scheduler,
     tasks: RuntimeTasks,
     next_scheduled: Mutex<Instant>,
+    next_gc: Mutex<Instant>,
     ticking: Arc<tokio::sync::Mutex<()>>,
     lifecycle: tokio::sync::Mutex<()>,
-    suspended: AtomicBool,
-    event_forwarder_started: AtomicBool,
+    suspended: std::sync::atomic::AtomicBool,
 }
 
 impl CoreRuntime {
-    pub fn new(initial_network: PullNetwork) -> Self {
+    pub fn new(sync: SyncHints) -> Self {
         Self {
-            coordinator: PullCoordinator::default(),
+            sync,
             notes: crate::notes::NoteStore::default(),
             cloud: OnceLock::new(),
             downloads: crate::downloads::Downloader::default(),
             lms_session: crate::lms_session::LmsSession::default(),
-            refresh: SchoolRefresh::new(initial_network),
             scheduler: Scheduler::default(),
             tasks: RuntimeTasks::default(),
             next_scheduled: Mutex::new(Instant::now()),
+            next_gc: Mutex::new(Instant::now() + GC_START_DELAY),
             ticking: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle: tokio::sync::Mutex::new(()),
-            suspended: AtomicBool::new(false),
-            event_forwarder_started: AtomicBool::new(false),
+            suspended: std::sync::atomic::AtomicBool::new(false),
         }
-    }
-
-    /// Start the runtime-owned pull snapshot bridge exactly once. Its lifetime
-    /// is the runtime task scope, so every shell gets identical forwarding and
-    /// shutdown behavior.
-    pub fn start_event_forwarding(
-        self: &Arc<Self>,
-        events: Arc<dyn crate::ports::EventSink>,
-        handle: &Handle,
-    ) -> Result<(), RuntimeTaskError> {
-        if self.tasks.is_closed() {
-            return Err(RuntimeTaskError::Stopped);
-        }
-        if self
-            .event_forwarder_started
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Ok(());
-        }
-        let mut states = self.subscribe_pulls();
-        let tasks = self.tasks.clone();
-        if !tasks.clone().spawn_on(handle, async move {
-            loop {
-                tokio::select! {
-                    _ = tasks.closed() => break,
-                    changed = states.changed() => {
-                        if changed.is_err() {
-                            break;
-                        }
-                    }
-                }
-                let snapshot = states.borrow_and_update().clone();
-                let _ = events.emit(crate::events::CoreEvent::PullStateChanged(snapshot));
-            }
-        }) {
-            self.event_forwarder_started.store(false, Ordering::Release);
-            return Err(RuntimeTaskError::Stopped);
-        }
-        Ok(())
     }
 
     pub fn attach_cloud(&self, cloud: crate::cloud_sync::CloudSync) -> Result<(), RuntimeError> {
@@ -145,20 +101,15 @@ impl CoreRuntime {
             .map_err(CloudWakeError::from)
     }
 
-    pub async fn wake(
-        self: &Arc<Self>,
-        services: SchedulerServices,
-        school_visible: bool,
-    ) -> Result<(), RuntimeError> {
+    /// The periodic shell wake: the sync planner's `Wake`, cache gc and the
+    /// person's scheduled tasks.
+    pub async fn wake(self: &Arc<Self>, services: SchedulerServices) -> Result<(), RuntimeError> {
         if self.tasks.is_closed() {
             return Err(RuntimeTaskError::Stopped.into());
         }
         if self.suspended.load(Ordering::Acquire) {
             return Ok(());
         }
-        // Storage reads happen before the lifecycle lock, so suspend/resume
-        // (called on the UI thread) only ever wait for in-memory work.
-        let inputs = SchoolRefresh::load_inputs(&services.store).await;
         let _lifecycle = self.lifecycle.lock().await;
         if self.tasks.is_closed() {
             return Err(RuntimeTaskError::Stopped.into());
@@ -166,18 +117,34 @@ impl CoreRuntime {
         if self.suspended.load(Ordering::Acquire) {
             return Ok(());
         }
-        self.refresh
-            .apply_conditions(inputs.as_ref(), &self.coordinator, school_visible)
-            .await?;
-        if let Ok(inputs) = &inputs {
-            self.refresh.tick(
-                inputs,
-                &services.school,
-                services.executor.clone(),
-                &self.tasks,
-            )?;
-        }
+        self.sync.send(Hint::Wake);
         let now = Instant::now();
+        let gc_due = {
+            let mut next = self.next_gc.lock().map_err(|_| RuntimeError::Clock)?;
+            if now < *next {
+                false
+            } else {
+                *next = now + GC_CHECK_INTERVAL;
+                true
+            }
+        };
+        if gc_due {
+            // `sync_gc::gc` itself runs at most once a day, across restarts.
+            let store = services.store.clone();
+            self.tasks.spawn(async move {
+                let collected = tokio::task::spawn_blocking(move || {
+                    store.write(None, |transaction| {
+                        crate::sync_gc::gc(transaction, chrono::Utc::now())
+                    })
+                })
+                .await;
+                match collected {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => crate::diagnostics::report("sync-gc", &error),
+                    Err(error) => crate::diagnostics::report("sync-gc", &error),
+                }
+            });
+        }
         let due = {
             let mut next = self
                 .next_scheduled
@@ -204,45 +171,8 @@ impl CoreRuntime {
         Ok(())
     }
 
-    /// Republish pull conditions after a shell fact changed (focus, network,
-    /// school view). Async and off the lifecycle lock: safe to spawn from a UI
-    /// event handler without blocking it.
-    pub async fn publish_conditions(
-        &self,
-        store: &crate::data::DataStore,
-        school_visible: bool,
-    ) -> Result<(), RuntimeError> {
-        self.refresh
-            .publish_conditions(store, &self.coordinator, school_visible)
-            .await
-            .map_err(RuntimeError::from)
-    }
-
-    /// Forward a shell fact (foreground, account, lecture, network).
-    pub fn refresh_event(
-        &self,
-        event: crate::school_refresh::RefreshEvent,
-    ) -> Result<(), RuntimeError> {
-        Ok(self.refresh.event(event)?)
-    }
-
-    pub async fn pull_snapshots(&self) -> Vec<crate::pull_coordinator::PullSnapshot> {
-        self.coordinator.snapshots().await
-    }
-
-    pub fn subscribe_pulls(
-        &self,
-    ) -> tokio::sync::watch::Receiver<Vec<crate::pull_coordinator::PullSnapshot>> {
-        self.coordinator.subscribe()
-    }
-
-    /// Cancel a pull before it applies; false when it cannot be cancelled.
-    pub async fn cancel_pull(&self, id: &str) -> bool {
-        self.coordinator.cancel(id).await
-    }
-
-    /// Track the complete operation, including result/event writes after its
-    /// coordinated pull finishes. Closing a shell request does not detach it.
+    /// Track the complete operation, including result and event writes.
+    /// Closing a shell request does not detach it.
     pub async fn run<T: Send + 'static>(
         &self,
         work: impl Future<Output = T> + Send + 'static,
@@ -263,7 +193,7 @@ impl CoreRuntime {
     pub async fn suspend(&self) {
         let _lifecycle = self.lifecycle.lock().await;
         self.suspended.store(true, Ordering::Release);
-        self.coordinator.suspend().await;
+        self.sync.send(Hint::Suspend);
     }
 
     pub async fn resume(&self) {
@@ -271,8 +201,8 @@ impl CoreRuntime {
         if self.tasks.is_closed() {
             return;
         }
-        self.coordinator.resume().await;
         self.suspended.store(false, Ordering::Release);
+        self.sync.send(Hint::Resume);
         if let Ok(mut next) = self.next_scheduled.lock() {
             *next = Instant::now();
         }
@@ -288,11 +218,13 @@ impl CoreRuntime {
                 cloud.shutdown().await;
             }
         };
-        tokio::join!(
-            self.coordinator.shutdown(),
-            self.downloads.shutdown(),
-            cloud
-        );
+        let sync = self.sync.engine();
+        let sync = async move {
+            if let Some(sync) = sync {
+                sync.shutdown().await;
+            }
+        };
+        tokio::join!(sync, self.downloads.shutdown(), cloud);
         self.tasks.wait().await;
     }
 }

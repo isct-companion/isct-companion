@@ -32,10 +32,10 @@ with `// @vitest-environment jsdom`; everything else runs in plain node.
 | Dates, quarters, timetable geometry, locales, text               | `unit/schedule-and-dates`, `unit/text-and-locales` |
 | Course eligibility, finder ranking, editors                      | `unit/courses-and-eligibility`                     |     | LMS files, previews, lessons, assignments, OCR input | `unit/lms-content` |
 | School hosts, login scripts, sessions, injected web scripts      | `unit/school-sites`                                |
-| 教務/LMS extractors, source-safety audit, fixture provenance     | `unit/school-extractors`                           |
+| Public fixture provenance, bundled subscription data             | `unit/school-extractors`                           |
 | Bridge contracts, capability policy, query caches, store, routes | `unit/workspace-store`                             |
 | Build/release tooling, generated artifacts                       | `unit/tooling`                                     |
-| Shell navigation, retention, shortcuts, mobile layout            | `e2e/app-shell`                                    |
+| Shell navigation, retention, shortcuts                           | `e2e/app-shell`                                    |
 | Planner add/replace/undo, plan editor                            | `e2e/planner`                                      |
 | LMS reading workspace, viewers, notes                            | `e2e/lms-workspace`                                |
 | Settings pages                                                   | `e2e/settings`                                     |
@@ -131,7 +131,8 @@ const core = installFakeCore({
 });
 core.calls                        // every command sent, in order
 core.intents                      // every accepted intent, in order
-core.emit("workspace-changed", { revision: core.revision });
+core.emit("workspace-changed", { source: "school-pull", changes: ["courses"] });
+                                  // the shell patches through `workspace_records`
 ```
 
 Answer read models from `core.workspace` rather than closing over a literal, or

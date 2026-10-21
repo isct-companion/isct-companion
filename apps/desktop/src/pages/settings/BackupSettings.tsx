@@ -20,6 +20,7 @@ import {
   Toggle,
 } from "../../components/forms";
 import { formatDay } from "./subscription-status";
+import { ResetSettings } from "./ResetSettings";
 
 const providerName: Record<CloudSyncProvider, string> = {
   icloud: "iCloud",
@@ -142,20 +143,6 @@ export function BackupSettings({
       );
     }
   };
-  const erase = async () => {
-    if (
-      !(await confirmAction(
-        t(
-          "Erase all data on this device and start over? This cannot be undone.",
-        ),
-        t("Erase"),
-      ))
-    )
-      return;
-    await workspaceActions.reset();
-    notify(t("This device was reset."));
-  };
-
   const providers = sync?.providers ?? [];
   const enabled = providers.filter((item) => item.enabled);
   // Keychain sync only helps once iCloud itself works on this device.
@@ -426,20 +413,11 @@ export function BackupSettings({
           </div>
         </Row>
       </SettingsGroup>
-      <SettingsGroup tone="danger">
-        <Row
-          id="reset"
-          group
-          title="Erase data on this device"
-          hint="Can't be undone."
-        >
-          <div className="actions">
-            <UiButton className="button small danger" onClick={erase}>
-              {t("Erase…")}
-            </UiButton>
-          </div>
-        </Row>
-      </SettingsGroup>
+      <ResetSettings
+        locale={locale}
+        cloudProviders={enabled.map((item) => item.provider)}
+        notify={notify}
+      />
     </>
   );
 }

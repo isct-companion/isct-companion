@@ -1,23 +1,13 @@
 use crate::data::{resolve_course_id, versioned::content_hash};
 use crate::lms_ingest::IngestError;
 use crate::school_parser::kyomu::KyomuPayload;
+use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
 
-/// App-owned, read-only reader for the five approved 教務 pages. It only
-/// inspects the current document and returns plain data through the relay.
-pub const KYOMU_EXTRACT_SCRIPT: &str = include_str!("school_browser/assets/kyomu-extract.js");
-
-fn upsert(
-    tx: &Transaction<'_>,
-    table: &str,
-    id: &str,
-    value: &Value,
-    extra: &[(&str, rusqlite::types::Value)],
-) -> Result<bool, IngestError> {
+fn upsert(tx: &Transaction<'_>, table: &str, id: &str, value: &Value) -> Result<bool, IngestError> {
     let hash = content_hash(value)?;
     let old: Option<(String, u64, Option<String>)> = tx
         .query_row(
@@ -37,19 +27,6 @@ fn upsert(
             .map_err(IngestError::from)?;
         return Ok(changed);
     }
-    let mut names = vec![
-        "id",
-        "value",
-        "hash",
-        "updated_at",
-        "updated_by",
-        "rev",
-        "source",
-        "deleted_at",
-        "last_seen_at",
-        "missing_since",
-    ];
-    names.extend(extra.iter().map(|(n, _)| *n));
     let rev = old.map_or(0, |x| x.1) + 1;
     let mut stored = value.clone();
     if let Some(object) = stored.as_object_mut() {
@@ -65,37 +42,18 @@ fn upsert(
         object.remove("missingSince");
         object.remove("deletedAt");
     }
-    let mut values = vec![
-        id.to_string().into(),
-        serde_json::to_string(&stored)
-            .map_err(IngestError::from)?
-            .into(),
-        hash.into(),
-        timestamp.clone().into(),
-        String::from("kyomu").into(),
-        (rev as i64).into(),
-        String::from("kyomu").into(),
-        rusqlite::types::Value::Null,
-        timestamp.clone().into(),
-        rusqlite::types::Value::Null,
-    ];
-    values.extend(extra.iter().map(|(_, v)| v.clone()));
-    let marks = (1..=names.len())
-        .map(|i| format!("?{i}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let updates = names
-        .iter()
-        .skip(1)
-        .map(|n| format!("{n}=excluded.{n}"))
-        .collect::<Vec<_>>()
-        .join(",");
+    let json = serde_json::to_string(&stored).map_err(IngestError::from)?;
     tx.execute(
         &format!(
-            "INSERT INTO {table} ({}) VALUES ({marks}) ON CONFLICT(id) DO UPDATE SET {updates}",
-            names.join(",")
+            "INSERT INTO {table}
+             (id,value,hash,updated_at,updated_by,rev,source,deleted_at,last_seen_at,missing_since)
+             VALUES (?1,?2,?3,?4,'kyomu',?5,'kyomu',NULL,?4,NULL)
+             ON CONFLICT(id) DO UPDATE SET value=excluded.value,hash=excluded.hash,
+               updated_at=excluded.updated_at,updated_by=excluded.updated_by,rev=excluded.rev,
+               source=excluded.source,deleted_at=NULL,last_seen_at=excluded.last_seen_at,
+               missing_since=NULL"
         ),
-        rusqlite::params_from_iter(values),
+        params![id, json, hash, timestamp, rev as i64],
     )
     .map_err(IngestError::from)?;
     Ok(true)
@@ -291,16 +249,16 @@ fn grade_row_id(
     Ok(format!("kyomu-grade:flat:{identity}"))
 }
 
-/// Projects one 教務Web page inside the caller's transaction.
+/// Projects one 教務Web page inside the caller's transaction and marks its
+/// `kyomu.page/{kind}` key fresh for `account` in the same transaction.
 pub fn apply_kyomu_payload(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
+    account: &str,
 ) -> Result<usize, IngestError> {
     if payload.status != "ok" {
         return Err("教務 extraction is not ready".into());
     }
-    let run = Uuid::new_v4().to_string();
-    tx.execute("INSERT INTO import_runs(id,provider,scope,state,started_at) VALUES(?1,'kyomu',?2,'running',?3)",params![run,payload.kind,Utc::now().to_rfc3339()]).map_err(IngestError::from)?;
     let mut changed = 0;
     match payload.kind.as_str() {
         "profile" => {
@@ -342,13 +300,13 @@ pub fn apply_kyomu_payload(
                             .unwrap_or_else(|| json!([])),
                     );
                 }
-                changed += usize::from(upsert(tx, "registration_states", id, &value, &[])?);
+                changed += usize::from(upsert(tx, "registration_states", id, &value)?);
                 let scope_id = format!(
                     "kyomu-scope:{}:{}",
                     value["academicYear"], value["quarters"]
                 );
                 value["id"] = scope_id.clone().into();
-                changed += usize::from(upsert(tx, "registration_states", &scope_id, &value, &[])?);
+                changed += usize::from(upsert(tx, "registration_states", &scope_id, &value)?);
             }
             let mut ids = HashSet::new();
             for course in payload
@@ -370,7 +328,7 @@ pub fn apply_kyomu_payload(
                 if let Some(o) = value.as_object_mut() {
                     o.insert("id".into(), id.clone().into());
                 }
-                changed += usize::from(upsert(tx, "registrations", &id, &value, &[])?);
+                changed += usize::from(upsert(tx, "registrations", &id, &value)?);
             }
             // This page covers one academic year. Never expire previous years.
             let current = (Utc::now() + chrono::Duration::hours(9)).date_naive();
@@ -408,7 +366,7 @@ pub fn apply_kyomu_payload(
                 .collect();
             for row in &rows {
                 let id = row["id"].as_str().unwrap_or_default();
-                changed += usize::from(upsert(tx, "registrations", id, row, &[])?);
+                changed += usize::from(upsert(tx, "registrations", id, row)?);
             }
             let scope: Option<String> = tx
                 .query_row(
@@ -465,7 +423,7 @@ pub fn apply_kyomu_payload(
                         o.insert("id".into(), id.clone().into());
                         o.insert("category".into(), json!({"ja":category}));
                     }
-                    changed += usize::from(upsert(tx, "grades", &id, &value, &[])?);
+                    changed += usize::from(upsert(tx, "grades", &id, &value)?);
                 }
             }
             changed += mark_missing(tx, "grades", "kyomu-grade:", &live)?;
@@ -507,8 +465,7 @@ pub fn apply_kyomu_payload(
                             format!("kyomu-requirement:{table_index}:{column}:{category}:{label}");
                         live.insert(id.clone());
                         let record = json!({"id":id,"table":table_index,"category":category,"label":label,"value":value});
-                        changed +=
-                            usize::from(upsert(tx, "requirement_progress", &id, &record, &[])?);
+                        changed += usize::from(upsert(tx, "requirement_progress", &id, &record)?);
                     }
                 }
             }
@@ -519,14 +476,7 @@ pub fn apply_kyomu_payload(
             for summary in gpa_summaries(&payload.data) {
                 let id = summary["id"].as_str().unwrap_or_default().to_string();
                 summary_ids.insert(id.clone());
-                let scope = summary["scope"].as_str().unwrap_or_default().to_string();
-                changed += usize::from(upsert(
-                    tx,
-                    "gpa_summary",
-                    &id,
-                    &summary,
-                    &[("scope", scope.into())],
-                )?);
+                changed += usize::from(upsert(tx, "gpa_summary", &id, &summary)?);
             }
             let mut term_ids = HashSet::new();
             for (index, row) in payload
@@ -540,44 +490,54 @@ pub fn apply_kyomu_payload(
                 let id = format!("kyomu-gpa-term:{index}");
                 term_ids.insert(id.clone());
                 let value = json!({"id":id,"cells":row});
-                changed += usize::from(upsert(tx, "gpa_by_term", &id, &value, &[])?);
+                changed += usize::from(upsert(tx, "gpa_by_term", &id, &value)?);
             }
             changed += mark_missing(tx, "gpa_summary", "kyomu-gpa:", &summary_ids)?;
             changed += mark_missing(tx, "gpa_by_term", "kyomu-gpa-term:", &term_ids)?;
         }
         _ => return Err("unsupported kyomu payload".into()),
     }
-    tx.execute(
-        "UPDATE import_runs SET state='complete',finished_at=?2,message=?3 WHERE id=?1",
-        params![
-            run,
-            Utc::now().to_rfc3339(),
-            format!("{changed} rows changed")
-        ],
-    )
-    .map_err(IngestError::from)?;
+    commit_page(tx, payload, account, Outcome::Complete, None)?;
     Ok(changed)
 }
 
 /// Persists a positive observation that an approved 教務 page is not offered
-/// to this account. Existing page-owned rows remain untouched, while refresh
-/// freshness and the UI can distinguish retained data from a current result.
+/// to this account. Existing page-owned rows remain untouched; the key reads
+/// as current with outcome `unavailable`, so the UI can tell retained data
+/// from a current result.
 pub fn record_kyomu_unavailable(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
+    account: &str,
 ) -> Result<(), IngestError> {
-    let now = Utc::now().to_rfc3339();
-    tx.execute(
-        "INSERT INTO import_runs(id,provider,scope,state,started_at,finished_at,message)
-             VALUES(?1,'kyomu',?2,'unavailable',?3,?3,?4)",
-        params![
-            Uuid::new_v4().to_string(),
-            payload.kind,
-            now,
-            payload.message
-        ],
-    )
-    .map_err(IngestError::from)?;
+    if payload.status != "unavailable" {
+        return Err("教務 page is not reported unavailable".into());
+    }
+    let message = Some(payload.message.as_str()).filter(|message| !message.is_empty());
+    commit_page(tx, payload, account, Outcome::Unavailable, message)
+}
+
+fn commit_page(
+    tx: &Transaction<'_>,
+    payload: &KyomuPayload,
+    account: &str,
+    outcome: Outcome,
+    message: Option<&str>,
+) -> Result<(), IngestError> {
+    if crate::school_parser::kyomu::page_url(&payload.kind).is_none() {
+        return Err("unsupported kyomu payload".into());
+    }
+    sync_state::commit(
+        tx,
+        &Key::new(Dataset::KyomuPage, payload.kind.as_str()),
+        Commit {
+            account,
+            validator: None,
+            outcome,
+            message,
+        },
+        Utc::now(),
+    )?;
     Ok(())
 }
 
@@ -664,7 +624,7 @@ fn expire_registration_scope(
             .unwrap_or_default();
         inactive.extend(removed);
         row["inactiveQuarters"] = json!(inactive);
-        changed += usize::from(upsert(tx, "registrations", &id, &row, &[])?);
+        changed += usize::from(upsert(tx, "registrations", &id, &row)?);
         if registration_quarters(&row).is_empty() {
             let missing = Utc::now().to_rfc3339();
             tx.execute("UPDATE registrations SET missing_since=?2,value=json_set(value,'$.missingSince',?2) WHERE id=?1",params![id,missing])?;

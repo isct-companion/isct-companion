@@ -104,8 +104,7 @@ fn exam_and_exam_week_class_feeds_validate_and_store_apart() {
     };
     let exam = published(exams, feed_json("exam", periods.clone()));
     let class = published(classes, feed_json("class", periods));
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrations::migrate(&mut connection).unwrap();
+    let mut connection = migrations::open_in_memory().unwrap();
     assert_eq!(
         commit_on(&mut connection, |tx| apply_exam_feed(tx, &exam))
             .map(|(changed, _)| changed)
@@ -330,8 +329,7 @@ fn admission_year_2025_selects_only_the_real_guide_2025_dataset() {
 fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
     let (calendar, departments_2025) = fixture_selection(2026, 2025).unwrap();
     let (_, departments_2026) = fixture_selection(2026, 2026).unwrap();
-    let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
-    migrations::migrate(&mut connection).expect("schema v3");
+    let mut connection = migrations::open_in_memory().expect("both schemas");
     commit_on(&mut connection, |tx| {
         apply_reference(tx, Some(&calendar), Some(&departments_2025))
     })
@@ -372,8 +370,7 @@ fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
 #[test]
 fn subscription_update_is_idempotent_and_changes_only_the_edited_day() {
     let (calendar, departments) = fixture_selection(2026, 2026).expect("official fixture data");
-    let mut connection = Connection::open_in_memory().expect("in-memory SQLite");
-    migrations::migrate(&mut connection).expect("schema v3");
+    let mut connection = migrations::open_in_memory().expect("both schemas");
 
     assert!(
         commit_on(&mut connection, |tx| apply_reference(
@@ -434,8 +431,7 @@ fn calendar_v2_preserves_disjoint_teaching_ranges_and_rejects_exam_overlap() {
 #[test]
 fn independent_calendar_refresh_does_not_remove_guide_recommendations() {
     let (calendar, departments) = fixture_selection(2026, 2026).unwrap();
-    let mut connection = Connection::open_in_memory().unwrap();
-    migrations::migrate(&mut connection).unwrap();
+    let mut connection = migrations::open_in_memory().unwrap();
     commit_on(&mut connection, |tx| {
         apply_reference(tx, Some(&calendar), Some(&departments))
     })

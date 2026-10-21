@@ -1,16 +1,18 @@
-//! Shared catalog acquisition and freshness policy.
-use crate::course_query::OfficialSelection;
-use crate::{contracts, data, syllabus};
-use futures_util::{stream::FuturesOrdered, StreamExt};
+//! Catalog acquisition: the official 教務 department reads and シラバス
+//! details as sync keys, and the stored offerings the finder searches. The
+//! catalog skeleton of a year comes from the Isct-Data pack
+//! (`catalog_pack`). A search never reads the network.
+use crate::course_query::OfficialFilterOption;
+use crate::net::{kyomu::KyomuClient, KeyOutcome, NetError};
+use crate::sync_engine::{KeyEnd, Lease};
+use crate::sync_state::{self, Commit, Dataset, Key, Outcome, RunOutcome, RunRecord};
+use crate::{data, school_auth::SchoolAuthProfile, syllabus};
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
     #[error(transparent)]
     Data(#[from] data::DataError),
-    #[error(transparent)]
-    Pull(#[from] crate::pull_coordinator::PullError),
-    #[error(transparent)]
-    School(#[from] crate::school_browser::SchoolBrowserError),
     #[error(transparent)]
     Syllabus(#[from] syllabus::SyllabusError),
     #[error(transparent)]
@@ -19,18 +21,66 @@ pub enum CatalogError {
     InvalidInput(String),
 }
 
-/// Fetch and project one syllabus course for a shell editor.
+/// The offering id a syllabus locator names: the id itself, a `jwc` query
+/// value or the last path segment.
+pub fn offering_id_of(id: &str) -> Option<String> {
+    if id.len() == 9 && id.chars().all(|value| value.is_ascii_digit()) {
+        return Some(id.to_string());
+    }
+    url::Url::parse(id)
+        .ok()
+        .and_then(|url| {
+            url.query_pairs()
+                .find(|(k, _)| k == "jwc")
+                .map(|(_, v)| v.into_owned())
+                .or_else(|| url.path_segments()?.next_back().map(str::to_string))
+        })
+        .filter(|value| value.len() == 9 && value.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// How long a detail nobody has stored yet is awaited from the planner.
+const DETAIL_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// One syllabus course for a shell editor or detail panel, from the stored
+/// detail. The planner reads `catalog.detail/{id}` (the caller sends
+/// `Hint::Open { Offering }`): a stored detail answers at once, also while
+/// a stale one is renewed, and a missing one is awaited until its key
+/// commits or its read fails.
 pub async fn syllabus_course(
     store: &data::DataStore,
-    id: String,
-    language: String,
+    offering_id: &str,
+    language: &str,
 ) -> Result<serde_json::Value, CatalogError> {
     if language != "en" && language != "ja" {
         return Err(CatalogError::InvalidInput(
             "Unsupported syllabus language.".into(),
         ));
     }
-    let synced = catalog_sync_offering(store, id).await?;
+    let key = detail_key(offering_id);
+    let failures = |store: &data::DataStore| -> Result<u32, CatalogError> {
+        Ok(store
+            .catalog_key_states(std::slice::from_ref(&key))?
+            .pop()
+            .flatten()
+            .map_or(0, |state| state.failures))
+    };
+    let failed_before = failures(store)?;
+    let deadline = std::time::Instant::now() + DETAIL_WAIT;
+    let synced = loop {
+        if let Some(stored) = stored_detail(store, offering_id)? {
+            break stored;
+        }
+        if failures(store)? > failed_before || std::time::Instant::now() >= deadline {
+            return Err(CatalogError::Syllabus(syllabus::SyllabusError::network(
+                "The syllabus page could not be read. Try again later.",
+            )));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    };
+    // The interface reads this detail now, so gc keeps it.
+    store.write(None, |transaction| {
+        sync_state::touch(transaction, &[detail_key(&synced.offering.id)], Utc::now())
+    })?;
     let preferred = synced
         .content
         .iter()
@@ -43,208 +93,84 @@ pub async fn syllabus_course(
     let workspace = store.load_workspace()?;
     let teaching_periods = crate::schedule::teaching_periods(&workspace)
         .map_err(|error| CatalogError::InvalidInput(error.to_string()))?;
-    crate::workspace::catalog_course(&offering, &language, content.as_ref(), &teaching_periods)
+    crate::workspace::catalog_course(&offering, language, content.as_ref(), &teaching_periods)
         .map_err(|error| CatalogError::InvalidInput(error.to_string()))
 }
 
-pub async fn catalog_sync_offering(
+fn detail_key(offering_id: &str) -> Key {
+    Key::new(Dataset::CatalogDetail, offering_id)
+}
+
+/// The stored bilingual detail, whatever its age; the planner renews it.
+fn stored_detail(
     store: &data::DataStore,
-    id: String,
-) -> Result<syllabus::SyncOfferingResult, CatalogError> {
-    let offering_id = if id.len() == 9 && id.chars().all(|value| value.is_ascii_digit()) {
-        Some(id.clone())
-    } else {
-        url::Url::parse(&id)
-            .ok()
-            .and_then(|url| {
-                url.query_pairs()
-                    .find(|(k, _)| k == "jwc")
-                    .map(|(_, v)| v.into_owned())
-                    .or_else(|| url.path_segments()?.next_back().map(str::to_string))
-            })
-            .filter(|value| value.len() == 9 && value.chars().all(|c| c.is_ascii_digit()))
+    offering_id: &str,
+) -> Result<Option<syllabus::SyncOfferingResult>, CatalogError> {
+    let Some(stored) = store.catalog_offering(offering_id)? else {
+        return Ok(None);
     };
-    if let Some(offering_id) = offering_id {
-        if let Some(stored) = store.catalog_offering(&offering_id)? {
-            let cutoff = chrono::Utc::now()
-                - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
-            let fresh = ["ja", "en"].iter().all(|language| {
-                stored
-                    .pointer(&format!("/fetchedAt/{language}"))
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                    .is_some_and(|value| value.with_timezone(&chrono::Utc) >= cutoff)
-            });
-            if fresh {
-                let offering = serde_json::from_value(stored)?;
-                let content = store
-                    .table_rows("offering_content")?
-                    .into_iter()
-                    .filter(|row| {
-                        row.get("offeringId").and_then(serde_json::Value::as_str)
-                            == Some(offering_id.as_str())
-                    })
-                    .map(serde_json::from_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                if content.len() == 2 {
-                    return Ok(syllabus::SyncOfferingResult {
-                        offering,
-                        content,
-                        warnings: Vec::new(),
-                    });
-                }
-            }
-        }
+    let content = store
+        .table_rows("offering_content")?
+        .into_iter()
+        .filter(|row| {
+            row.get("offeringId").and_then(serde_json::Value::as_str) == Some(offering_id)
+        })
+        .map(serde_json::from_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    if content.len() != 2 {
+        return Ok(None);
     }
-    let mut result = syllabus::sync_offering(&id).await?;
-    let offering = serde_json::to_value(&result.offering)?;
-    let content = result
+    Ok(Some(syllabus::SyncOfferingResult {
+        offering: serde_json::from_value(stored)?,
+        content,
+        warnings: Vec::new(),
+    }))
+}
+
+/// `host/path` of a syllabus locator, or `syllabus` for a bare offering id.
+fn detail_source(locator: &str) -> String {
+    url::Url::parse(locator)
+        .map(|url| sync_state::source_of_url(&url))
+        .unwrap_or_else(|_| "syllabus".into())
+}
+
+/// Stores one detail read and marks its `catalog.detail` key fresh in one
+/// transaction.
+fn store_detail(
+    store: &data::DataStore,
+    run: &str,
+    started: DateTime<Utc>,
+    mut synced: syllabus::SyncOfferingResult,
+) -> Result<syllabus::SyncOfferingResult, CatalogError> {
+    let offering = serde_json::to_value(&synced.offering)?;
+    let content = synced
         .content
         .iter()
         .map(serde_json::to_value)
         .collect::<Result<Vec<_>, _>>()?;
-    store.catalog_upsert_offerings(&[offering])?;
-    store.upsert_offering_content(&content)?;
-    if let Some(merged) = store.catalog_offering(&result.offering.id)? {
-        result.offering = serde_json::from_value(merged)?;
+    let key = detail_key(&synced.offering.id);
+    let source = detail_source(&synced.offering.syllabus_url);
+    let merged = store.catalog_store_detail(
+        &offering,
+        &content,
+        &RunRecord {
+            run,
+            key: &key,
+            account: "",
+            started_at: started,
+            finished_at: Utc::now(),
+            outcome: RunOutcome::Complete,
+            changed: 1 + content.len(),
+            requests: None,
+            bytes: None,
+            source: &source,
+            error_kind: None,
+        },
+    )?;
+    if let Some(merged) = merged {
+        synced.offering = serde_json::from_value(merged)?;
     }
-    Ok(result)
-}
-
-/// Fetches detail pages for offerings that have none or a stale one (older
-/// than a week), storing each bounded batch as it arrives.
-async fn sync_stale_details(
-    store: &data::DataStore,
-    targets: Vec<(String, String)>,
-    summary_only: bool,
-) -> Result<(Vec<syllabus::SyncOfferingResult>, Vec<String>), CatalogError> {
-    let cutoff =
-        chrono::Utc::now() - chrono::Duration::seconds(contracts::SYLLABUS_STALE_SECONDS as i64);
-    let stale = targets
-        .into_iter()
-        .filter(|(id, _)| {
-            let Ok(Some(stored)) = store.catalog_offering(id) else {
-                return true;
-            };
-            stored.get("schedule").is_none()
-                || (if summary_only {
-                    &["en"][..]
-                } else {
-                    &["ja", "en"][..]
-                })
-                .iter()
-                .any(|language| {
-                    stored
-                        .pointer(&format!("/fetchedAt/{language}"))
-                        .and_then(serde_json::Value::as_str)
-                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                        .is_none_or(|value| value.with_timezone(&chrono::Utc) < cutoff)
-                })
-        })
-        .collect::<Vec<_>>();
-    let mut offerings = Vec::with_capacity(stale.len());
-    let mut warnings = Vec::new();
-    // All at once: the syllabus transport's limiter paces the requests.
-    let mut handles = stale
-        .iter()
-        .map(|(_, url)| {
-            let url = url.clone();
-            async move {
-                if summary_only {
-                    syllabus::sync_offering_summary(&url).await
-                } else {
-                    syllabus::sync_offering(&url).await
-                }
-            }
-        })
-        .collect::<FuturesOrdered<_>>();
-    // Each result is stored as soon as it (and those before it) arrive.
-    for (id, _) in &stale {
-        let Some(result) = handles.next().await else {
-            break;
-        };
-        match result {
-            Ok(mut synced) => {
-                let offering = serde_json::to_value(&synced.offering)?;
-                let content = synced
-                    .content
-                    .iter()
-                    .map(serde_json::to_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                store.catalog_upsert_offerings(&[offering])?;
-                store.upsert_offering_content(&content)?;
-                if let Some(merged) = store.catalog_offering(&synced.offering.id)? {
-                    synced.offering = serde_json::from_value(merged)?;
-                }
-                offerings.push(synced);
-            }
-            Err(error) => warnings.push(format!("{id}: {error}")),
-        }
-    }
-    Ok((offerings, warnings))
-}
-
-pub async fn catalog_sync_department(
-    store: &data::DataStore,
-    year: u16,
-    scope_path: String,
-    quarter: Option<String>,
-) -> Result<syllabus::DepartmentSyncResult, CatalogError> {
-    let catalog = syllabus::department_catalog(year, &scope_path, quarter.as_deref()).await?;
-    let targets = catalog
-        .items
-        .iter()
-        .map(|item| (item.id.clone(), item.syllabus_url.clone()))
-        .collect();
-    let (offerings, warnings) = sync_stale_details(store, targets, false).await?;
-    Ok(syllabus::DepartmentSyncResult {
-        listed: catalog.items.len(),
-        synced: offerings.len(),
-        truncated: catalog.truncated,
-        offerings,
-        warnings,
-    })
-}
-
-/// Detail pages for the given stored offerings (schedule, credits, format).
-pub async fn catalog_sync_offerings(
-    store: &data::DataStore,
-    ids: Vec<String>,
-) -> Result<Vec<String>, CatalogError> {
-    if ids.len() > 20 {
-        return Err(CatalogError::InvalidInput(
-            "Too many offerings in one request.".into(),
-        ));
-    }
-    let mut targets = Vec::new();
-    let mut missing = Vec::new();
-    for id in ids {
-        // A course found by a search is stored as a search row until its
-        // details have been read once.
-        let url = [
-            store.catalog_offering(&id)?,
-            store.catalog_search_item(&id)?,
-        ]
-        .into_iter()
-        .flatten()
-        .find_map(|row| {
-            row.get("syllabusUrl")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        });
-        match url {
-            Some(url) => targets.push((id, url)),
-            // An LMS offering id is already an official syllabus locator;
-            // a fresh install need not search the catalog before reading it.
-            None if id.len() == 9 && id.bytes().all(|byte| byte.is_ascii_digit()) => {
-                targets.push((id.clone(), id));
-            }
-            None => missing.push(format!("{id}: not in the catalog")),
-        }
-    }
-    let (_, mut warnings) = sync_stale_details(store, targets, true).await?;
-    warnings.extend(missing);
-    Ok(warnings)
+    Ok(synced)
 }
 
 /// Stored offerings for one year, including search rows until details arrive.
@@ -279,212 +205,278 @@ pub fn finder_offerings(
 #[path = "tests/catalog.rs"]
 mod tests;
 
-/// One bounded page. The IDs address full official schedule rows already in
-/// the shared store, so every shell can render them through finder_query.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CatalogPage {
-    pub ids: Vec<String>,
-    pub next_cursor: Option<String>,
-    pub truncated: bool,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CatalogFilters {
-    pub controls: Option<Vec<OfficialSelection>>,
-    pub recommended: Option<bool>,
-    pub teacher: Option<String>,
-    pub code: Option<String>,
-    pub department: Option<String>,
-    pub groups: Option<Vec<String>>,
-    pub quarters: Option<Vec<u8>>,
-    pub days: Option<Vec<u8>>,
-    pub period_starts: Option<Vec<u8>>,
-    pub language: Option<String>,
-    pub requirement_groups: Option<Vec<String>>,
-}
-
 pub(crate) const KYOMU_SEARCH_PATH: &str =
     "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0_1.aspx";
 
-/// Search the authenticated official catalogue, then persist its full timing
-/// rows before returning IDs. Syllabus enriches these rows on demand.
-pub async fn kyomu_query(
-    store: data::DataStore,
-    browser: std::sync::Arc<crate::school_browser::SchoolBrowserEngine>,
-    coordinator: crate::pull_coordinator::PullCoordinator,
-    query: String,
-    year: u16,
-    filters: Option<CatalogFilters>,
-    cursor: Option<String>,
-) -> Result<CatalogPage, CatalogError> {
-    use crate::pull_coordinator::{PullOptions, PullTarget};
-    let filters = filters.unwrap_or_default();
-    let departments: Vec<crate::course_query::FinderDepartment> =
-        serde_json::from_str(include_str!("course_query/departments.json"))?;
-    let department = filters
-        .department
-        .as_ref()
-        .and_then(|scope| departments.iter().find(|d| d.scope.as_ref() == Some(scope)));
-    if filters.department.is_some() && department.is_none() {
-        return Err(CatalogError::InvalidInput(
-            "Unknown course department.".into(),
-        ));
-    }
-    let controls = filters.controls.clone().unwrap_or_default();
-    if controls.len() > 40
-        || controls.iter().any(|c| {
-            c.id.len() > 100
-                || c.value.len() > 100
-                || !c.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                || c.value.chars().any(char::is_control)
-        })
-    {
-        return Err(CatalogError::InvalidInput(
-            "Invalid official search controls.".into(),
-        ));
-    }
-    let code = filters
-        .code
-        .as_deref()
-        .or_else(|| department.map(|d| d.code_prefix.as_str()))
-        .unwrap_or("");
-    let word = if query.trim() == "." {
-        ""
-    } else {
-        query.trim()
+/// Weekly slots of a course row as (day, first period).
+fn weekly_slots(row: &serde_json::Value) -> Vec<(u64, u64)> {
+    row["schedule"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|slot| slot["kind"] == "weekly")
+        .filter_map(|slot| Some((slot["day"].as_u64()?, slot["periods"][0].as_u64()?)))
+        .collect()
+}
+
+fn has_quarter(row: &serde_json::Value, quarter: u64) -> bool {
+    row["quarters"]
+        .as_array()
+        .is_some_and(|quarters| quarters.iter().any(|q| *q == format!("{quarter}Q")))
+}
+
+/// The leading number of a label such as `100番台` or `3限`.
+fn leading_number(label: &str) -> Option<u64> {
+    let digits: String = label.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+/// Whether a row meets one choice of the official form, read from its label
+/// the way the form means it. A choice whose meaning the row cannot show
+/// (an unknown family, a category the grid does not list) keeps the row.
+pub(crate) fn official_control_match(
+    row: &serde_json::Value,
+    option: &OfficialFilterOption,
+) -> bool {
+    const DAYS: &str = "月火水木金土日";
+    let label = option.label.as_str();
+    let kyomu = &row["kyomu"];
+    let schedule_kind = |kind: &str| {
+        row["schedule"]
+            .as_array()
+            .is_some_and(|slots| slots.iter().any(|slot| slot["kind"] == kind))
     };
-    if !(2020..=2200).contains(&year)
-        || [word, code, filters.teacher.as_deref().unwrap_or("")]
-            .iter()
-            .any(|v| v.chars().count() > 200 || v.chars().any(char::is_control))
-    {
-        return Err(CatalogError::InvalidInput(
-            "Invalid official course search.".into(),
-        ));
+    match option.family.as_str() {
+        "level" => leading_number(label).is_none_or(|level| {
+            row["code"]
+                .as_str()
+                .and_then(|code| code.chars().nth(5))
+                .and_then(|digit| digit.to_digit(10))
+                .is_some_and(|digit| u64::from(digit) * 100 == level)
+        }),
+        "quarter" => {
+            let digits: Vec<u64> = label
+                .chars()
+                .filter_map(|c| c.to_digit(10))
+                .filter(|digit| (1..=4).contains(digit))
+                .map(u64::from)
+                .collect();
+            let quarters: Vec<u64> = match digits.as_slice() {
+                [from, to] if label.contains(['~', '〜', '～', '-']) => (*from..=*to).collect(),
+                _ => digits,
+            };
+            quarters
+                .into_iter()
+                .any(|quarter| has_quarter(row, quarter))
+        }
+        "delivery" => match DAYS.chars().position(|day| label == day.to_string()) {
+            Some(index) => weekly_slots(row)
+                .iter()
+                .any(|(day, _)| *day == index as u64 + 1),
+            None if label.contains("オンデマンド") => schedule_kind("on-demand"),
+            None if label.contains("集中") => schedule_kind("intensive"),
+            None if label.contains("申告専用") => schedule_kind("registration-only"),
+            None => true,
+        },
+        "start" => leading_number(label)
+            .is_none_or(|start| weekly_slots(row).iter().any(|(_, first)| *first == start)),
+        "language" => {
+            let lower = label.to_lowercase();
+            if label.contains("日本語") || lower.contains("japanese") {
+                row["instructionLanguage"] == "ja"
+            } else if label.contains("英語") || lower.contains("english") {
+                row["instructionLanguage"] == "en"
+            } else {
+                true
+            }
+        }
+        "requirement" => kyomu["group"] == label,
+        "recommended" => kyomu["mark"].as_str().is_some_and(|mark| !mark.is_empty()),
+        "category" => kyomu["category"]
+            .as_str()
+            .filter(|category| !category.is_empty())
+            .is_none_or(|category| category.contains(label) || label.contains(category)),
+        _ => true,
     }
-    let mut url = url::Url::parse(&format!(
-        "https://kyomu0.gakumu.titech.ac.jp{KYOMU_SEARCH_PATH}"
-    ))
-    .map_err(|e| CatalogError::InvalidInput(e.to_string()))?;
-    url.query_pairs_mut().extend_pairs([
-        ("back", "0"),
-        ("ZengakuSenmonAll", "True"),
-        ("TermUnit", &format!("{year}2")),
-        ("_search", "True"),
-    ]);
-    if !code.is_empty() {
-        url.query_pairs_mut().append_pair("ShinkokuNoS", code);
+}
+
+/// `catalog.official/{year}/{prefix}`: the whole department from the
+/// official course search, merged into `offerings` with the official-field
+/// ownership (教務 owns timing, credits and instructors), its freshness and
+/// its run row in one transaction. A year the school does not offer yet is
+/// recorded as unavailable; stored rows stay.
+pub(crate) async fn read_official(client: &KyomuClient, lease: &Lease) -> KeyEnd {
+    let source = format!("{}{}", crate::school_parser::kyomu::HOST, KYOMU_SEARCH_PATH);
+    let Some((year, prefix)) = lease
+        .key
+        .key
+        .split_once('/')
+        .and_then(|(year, prefix)| Some((year.parse::<u16>().ok()?, prefix.to_string())))
+    else {
+        return KeyEnd::failed("invalid-key", source);
+    };
+    let (rows, outcome) = match client.catalog(year, &prefix).await {
+        Ok(KeyOutcome::Complete(rows)) => (Some(rows), Outcome::Complete),
+        Ok(KeyOutcome::Unavailable(_)) => (None, Outcome::Unavailable),
+        // The search never splits a department; a split is incomplete.
+        Ok(KeyOutcome::Partial { .. }) => return KeyEnd::failed("partial", source),
+        Ok(KeyOutcome::SignInRequired) | Err(NetError::SignInRequired) => {
+            return KeyEnd::SignInRequired {
+                profile: SchoolAuthProfile::TokyoTech,
+                source,
+            }
+        }
+        Err(NetError::HostPaused { host, until_unix }) => {
+            return KeyEnd::HostPaused {
+                host,
+                until: DateTime::from_timestamp(until_unix, 0).unwrap_or_else(Utc::now),
+                notice: client.maintenance_notice(),
+                source,
+            }
+        }
+        Err(NetError::Cancelled) => return KeyEnd::Cancelled { source },
+        Err(error) => return KeyEnd::failed(error.kind(), source),
+    };
+    if lease.is_cancelled() {
+        return KeyEnd::Cancelled { source };
     }
-    if !word.is_empty() {
-        url.query_pairs_mut().append_pair("Name", word);
+    // Rows past the school's cap were not read even by quarter: the key is
+    // not complete and must not be marked fresh.
+    if rows.as_ref().is_some_and(|rows| rows.truncated) {
+        log::warn!(target: "isct_core::catalog", "official catalog {} reached the search cap", lease.key);
+        return KeyEnd::failed("truncated", source);
     }
-    if let Some(teacher) = &filters.teacher {
-        url.query_pairs_mut().append_pair("KyouinName", teacher);
-    }
-    // Native requests carry semantic choices; the browser resolves them to the
-    // controls actually offered by this account's current authenticated form.
-    if filters
-        .quarters
-        .as_ref()
-        .is_some_and(|values| values.iter().any(|q| !(1..=4).contains(q)))
-        || filters
-            .days
-            .as_ref()
-            .is_some_and(|values| values.iter().any(|day| !(1..=7).contains(day)))
-        || filters
-            .period_starts
-            .as_ref()
-            .is_some_and(|values| values.contains(&0))
-        || filters
-            .language
-            .as_ref()
-            .is_some_and(|language| !["ja", "en"].contains(&language.as_str()))
-    {
-        return Err(CatalogError::InvalidInput("Invalid course filters.".into()));
-    }
-    let url = url.to_string();
-    let identity = serde_json::to_string(&controls)?;
-    let browser_filters = filters.clone();
-    let payload = coordinator
-        .run(
-            PullTarget::Catalog {
-                year,
-                query: format!("{url}#{identity}#{}", cursor.as_deref().unwrap_or("")),
-            },
-            PullOptions::manual(),
-            move |context| {
-                let browser = browser.clone();
-                let url = url.clone();
-                let cursor = cursor.clone();
-                let browser_filters = browser_filters.clone();
-                async move {
-                    browser
-                        .catalog_search(&url, cursor, browser_filters, &context)
-                        .await
-                        .map_err(crate::pull_coordinator::PullError::from)
+    let writer = lease.writer();
+    let (key, account, run, started, record_source) = (
+        lease.key.clone(),
+        lease.account.clone(),
+        lease.run.clone(),
+        lease.started,
+        source.clone(),
+    );
+    let applied = tokio::task::spawn_blocking(move || {
+        let now = Utc::now();
+        let committed = writer.write(None, |transaction| {
+            let changed = match &rows {
+                Some(rows) => {
+                    data::DataStore::catalog_upsert_offerings_in(transaction, &rows.courses)?
                 }
-            },
-        )
-        .await?;
-    if payload["searchOptions"].is_array() {
-        // Captured public form metadata is device-local and never cloud user data.
-        let options: Vec<crate::course_query::OfficialFilterOption> =
-            serde_json::from_value(payload["searchOptions"].clone())?;
-        let options = serde_json::to_value(options)?;
-        let previous = store.reference_cache_marker("kyomu-search-options", i32::from(year))?;
-        let now = chrono::Utc::now().timestamp();
-        let changed = previous.as_ref().is_none_or(|p| {
-            p["options"] != options
-                || p["capturedAt"]
-                    .as_i64()
-                    .is_none_or(|at| now - at >= 30 * 24 * 60 * 60)
-        });
-        if changed {
-            store.record_reference_cache(
-                "kyomu-search-options",
-                i32::from(year),
-                serde_json::json!({"options":options,"capturedAt":now}),
+                None => 0,
+            };
+            sync_state::commit(
+                transaction,
+                &key,
+                Commit {
+                    account: &account,
+                    validator: None,
+                    outcome,
+                    message: None,
+                },
+                now,
             )?;
+            sync_state::record_run(
+                transaction,
+                &RunRecord {
+                    run: &run,
+                    key: &key,
+                    account: &account,
+                    started_at: started,
+                    finished_at: now,
+                    outcome: if outcome == Outcome::Unavailable {
+                        RunOutcome::Unavailable
+                    } else {
+                        RunOutcome::Complete
+                    },
+                    changed,
+                    requests: None,
+                    bytes: None,
+                    source: &record_source,
+                    error_kind: None,
+                },
+            )?;
+            Ok::<_, data::DataError>(changed)
+        });
+        // The form's filter choices are their own key, `{year}/options`.
+        if let (Ok(_), Some(rows)) = (&committed, &rows) {
+            if let (Some(_gate), Ok(options)) =
+                (writer.enter(), serde_json::to_value(&rows.search_options))
+            {
+                if let Err(error) = writer
+                    .store()
+                    .record_kyomu_search_options(year, &options, now)
+                {
+                    crate::diagnostics::report("catalog", &error);
+                }
+            }
         }
-    }
-    let rows = payload["courses"].as_array().ok_or_else(|| {
-        CatalogError::InvalidInput("Official course search returned no collection.".into())
-    })?;
-    if rows
-        .iter()
-        .any(|row| row["year"].as_u64() != Some(u64::from(year)))
-    {
-        return Err(CatalogError::InvalidInput("教務Web did not return the requested academic year. The current year is available after sign-in.".into()));
-    }
-    let mut items = Vec::new();
-    for row in rows {
-        if filters.groups.as_ref().is_some_and(|groups| {
-            !groups.is_empty()
-                && !groups.iter().any(|group| {
-                    row["code"]
-                        .as_str()
-                        .and_then(|c| c.chars().nth(5))
-                        .and_then(|c| c.to_digit(10))
-                        .is_some_and(|level| group == &(level * 100).to_string())
-                })
-        }) {
-            continue;
-        }
-        items.push(serde_json::from_value::<syllabus::CatalogSearchItem>(
-            row.clone(),
-        )?);
-    }
-    // Persistence uses the same field ownership merge as visible captures and
-    // later syllabus detail refreshes.
-    store.catalog_upsert_offerings(rows)?;
-    Ok(CatalogPage {
-        next_cursor: payload["nextCursor"].as_str().map(str::to_string),
-        ids: items
-            .into_iter()
-            .map(|item: syllabus::CatalogSearchItem| item.id)
-            .collect(),
-        truncated: payload["truncated"].as_bool().unwrap_or(true),
+        committed
     })
+    .await;
+    match applied {
+        Ok(Ok(changed)) => KeyEnd::Done { changed },
+        Ok(Err(gated)) => KeyEnd::from_gated(gated, "storage", &source),
+        Err(_) => KeyEnd::failed("stopped", source),
+    }
+}
+
+/// `catalog.detail/{offering}`: both languages of one シラバス page, stored
+/// with the offering and the key's freshness in one transaction.
+pub(crate) async fn read_detail(lease: &Lease) -> KeyEnd {
+    let id = lease.key.key.clone();
+    let store = lease.writer().store().clone();
+    let lookup = id.clone();
+    // A course found by a search is stored as a search row until its
+    // details have been read once; a bare offering id is a locator too.
+    let locator = tokio::task::spawn_blocking(move || {
+        [
+            store.catalog_offering(&lookup),
+            store.catalog_search_item(&lookup),
+        ]
+        .into_iter()
+        .filter_map(Result::ok)
+        .flatten()
+        .find_map(|row| {
+            row.get("syllabusUrl")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+    })
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| id.clone());
+    let source = detail_source(&locator);
+    let synced = match syllabus::sync_offering(&locator).await {
+        Ok(synced) => synced,
+        Err(error) => return KeyEnd::failed(detail_error_kind(&error), source),
+    };
+    if lease.is_cancelled() {
+        return KeyEnd::Cancelled { source };
+    }
+    let writer = lease.writer();
+    let (run, started) = (lease.run.clone(), lease.started);
+    let stored = tokio::task::spawn_blocking(move || {
+        let _gate = writer.enter()?;
+        Some(store_detail(writer.store(), &run, started, synced).map(|synced| synced.content.len()))
+    })
+    .await;
+    match stored {
+        Ok(Some(Ok(content))) => KeyEnd::Done {
+            changed: 1 + content,
+        },
+        Ok(Some(Err(error))) => {
+            log::warn!(target: "isct_core::catalog", "detail {id} not stored: {error}");
+            KeyEnd::failed("storage", source)
+        }
+        Ok(None) => KeyEnd::Stale,
+        Err(_) => KeyEnd::failed("stopped", source),
+    }
+}
+
+fn detail_error_kind(error: &syllabus::SyllabusError) -> &'static str {
+    match error {
+        syllabus::SyllabusError::Network(_) => "network",
+        syllabus::SyllabusError::SiteChanged(_) => "parse",
+        syllabus::SyllabusError::InvalidInput(_) => "invalid-input",
+    }
 }

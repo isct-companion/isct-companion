@@ -23,8 +23,8 @@ fn corrupt_stored_rows_are_storage_failures() {
 use std::fs;
 
 fn store(name: &str) -> DataStore {
-    let path = std::env::temp_dir().join(format!("isct-companion-{name}-{}.db", Uuid::new_v4()));
-    DataStore::initialize(path).unwrap().0
+    let path = std::env::temp_dir().join(format!("isct-companion-{name}-{}", Uuid::new_v4()));
+    DataStore::initialize_dir(path).unwrap().0
 }
 
 #[test]
@@ -148,8 +148,8 @@ fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes(
         "comfortable"
     );
     assert_eq!(latest["tables"]["plans"].as_array().unwrap().len(), 2); // includes tombstone
-    let _ = fs::remove_file(a.path());
-    let _ = fs::remove_file(b.path());
+    let _ = fs::remove_dir_all(a.directory());
+    let _ = fs::remove_dir_all(b.directory());
 }
 
 #[test]
@@ -157,11 +157,11 @@ fn keeps_a_resolved_folder_listing_once_and_reads_it_back() {
     let store = store("folder-files");
     let url = "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9";
     {
-        let connection = store.open().unwrap();
+        let connection = store.test_connection();
         connection
             .execute(
-                "INSERT INTO lms_items (id,cmid,value,hash,updated_at,updated_by,rev,source)
-                     VALUES ('m9',9,?1,'h','2026-10-01T00:00:00Z','lms',1,'lms')",
+                "INSERT INTO lms_items (id,value,hash,updated_at,updated_by,rev,source)
+                     VALUES ('m9',?1,'h','2026-10-01T00:00:00Z','lms',1,'lms')",
                 [json!({"id":"m9","cmid":9,"module":"folder","url":url}).to_string()],
             )
             .unwrap();
@@ -259,7 +259,9 @@ fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
         .delete_user_record("scheduled_tasks", "builtin:reference-subscriptions")
         .unwrap();
     // The next launch writes defaults again; a deleted built-in stays deleted.
-    let store = DataStore::initialize(store.path().to_path_buf()).unwrap().0;
+    let store = DataStore::initialize_dir(store.directory().to_path_buf())
+        .unwrap()
+        .0;
     let workspace = store.load_workspace().unwrap();
     let tasks = workspace["scheduledTasks"].as_array().unwrap();
     assert_eq!(tasks.len(), 2);
@@ -268,7 +270,7 @@ fn installs_reference_refresh_as_a_user_controllable_scheduled_task() {
         .find(|task| task["id"] == "builtin:reference-subscriptions")
         .unwrap()["deletedAt"]
         .is_string());
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 #[test]
@@ -314,7 +316,7 @@ fn checked_record_mutations_reject_stale_writers() {
         .iter()
         .any(|row| row["id"] == untouched["id"] && row["title"] == "Two"));
     assert!(rows.iter().any(|row| row["title"] == "First writer"));
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 #[test]
@@ -364,11 +366,11 @@ fn unchanged_checked_put_returns_the_stored_revision() {
         store.user_rows("plans").unwrap()[0]["title"],
         "Edited again"
     );
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 fn insert_school_assignment(store: &DataStore) {
-    let mut connection = store.open().unwrap();
+    let mut connection = store.test_connection();
     let transaction = connection.transaction().unwrap();
     upsert_row(
         &transaction,
@@ -388,7 +390,7 @@ fn insert_school_assignment(store: &DataStore) {
 #[test]
 fn course_identity_is_shared_by_every_provider() {
     let store = store("course-identity");
-    let mut connection = store.open().unwrap();
+    let mut connection = store.test_connection();
     let transaction = connection.transaction().unwrap();
     let lms = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
     let syllabus = resolve_course_id(
@@ -415,7 +417,7 @@ fn course_identity_is_shared_by_every_provider() {
         )
         .unwrap();
     assert_eq!(rows, 3);
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 #[test]
@@ -449,7 +451,7 @@ fn catalog_list_includes_search_rows_until_details_replace_them() {
         "the detailed offering replaces its search row"
     );
     assert_eq!(rows[0]["instructionLanguage"], "en");
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 #[test]
@@ -497,7 +499,7 @@ fn overlay_survives_school_disappearance_and_reappearance() {
         true
     );
 
-    let connection = store.open().unwrap();
+    let connection = store.test_connection();
     connection.execute(
             "UPDATE assignments SET missing_since='2026-10-07T00:00:00Z',value=json_set(value,'$.missingSince','2026-10-07T00:00:00Z') WHERE id='assignment-1'",
             [],
@@ -519,7 +521,7 @@ fn overlay_survives_school_disappearance_and_reappearance() {
         store.load_workspace().unwrap()["assignments"][0]["hidden"],
         true
     );
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 #[test]
@@ -560,7 +562,7 @@ fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
             .len(),
         1
     );
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 #[test]
@@ -610,7 +612,7 @@ fn invalid_study_history_rolls_back_restore_and_cloud_replacement() {
         assert_eq!(after["academicProfile"], before["academicProfile"]);
         assert_eq!(after["plans"], before["plans"]);
     }
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
 }
 
 #[test]
@@ -635,8 +637,8 @@ fn legacy_backup_without_study_history_still_restores() {
     assert!(restored["academicProfile"]
         .get("studyEnrollments")
         .is_none());
-    let _ = fs::remove_file(source.path());
-    let _ = fs::remove_file(target.path());
+    let _ = fs::remove_dir_all(source.directory());
+    let _ = fs::remove_dir_all(target.directory());
 }
 
 #[test]
@@ -650,5 +652,57 @@ fn backup_from_another_schema_is_rejected_by_its_version() {
         parse_import(&document.to_string()).unwrap_err().to_string(),
         "the backup uses schema version 5; this app reads version 6"
     );
-    let _ = fs::remove_file(store.path());
+    let _ = fs::remove_dir_all(store.directory());
+}
+
+#[derive(Default)]
+struct HeardCommits(std::sync::Mutex<Vec<std::collections::BTreeSet<String>>>);
+
+impl CommitObserver for HeardCommits {
+    fn committed(
+        &self,
+        _source: WorkspaceChangeSource,
+        _revision: Option<String>,
+        tables: &std::collections::BTreeSet<String>,
+    ) {
+        self.0.lock().unwrap().push(tables.clone());
+    }
+}
+
+/// Each commit reports the tables it changed, in both files, by the names
+/// SQL uses: a table emptied without `WHERE` counts, an FTS index reports its
+/// virtual table rather than its shadow tables, and a commit that changed
+/// nothing is not reported.
+#[test]
+fn commits_report_the_tables_they_changed() {
+    let store = store("changed-tables");
+    let heard = Arc::new(HeardCommits::default());
+    store.observe(heard.clone());
+    let write = |sql: &str| {
+        store
+            .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
+                transaction.execute_batch(sql).map_err(DataError::from)
+            })
+            .unwrap()
+    };
+    write(
+        "INSERT INTO offerings_fts(offering_id,code,title_ja,title_en,instructors_ja,instructors_en)
+           VALUES('2026-202601234','MTH.A201','線形代数学第一','Linear Algebra I','','');
+         INSERT INTO course_identity_map
+           VALUES('lms','42',2026,'2026-lms-42',NULL,'2026-10-01T00:00:00Z');",
+    );
+    write("DELETE FROM course_identity_map");
+    write("DELETE FROM course_identity_map");
+
+    let names = |tables: &[&str]| -> std::collections::BTreeSet<String> {
+        tables.iter().map(|table| (*table).to_string()).collect()
+    };
+    assert_eq!(
+        *heard.0.lock().unwrap(),
+        vec![
+            names(&["course_identity_map", "offerings_fts"]),
+            names(&["course_identity_map"]),
+        ]
+    );
+    let _ = fs::remove_dir_all(store.directory());
 }

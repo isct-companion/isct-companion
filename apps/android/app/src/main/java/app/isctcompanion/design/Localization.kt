@@ -11,8 +11,9 @@ import java.util.Locale
  * The UI language, read from `settings.locale` like the desktop's.
  *
  * Strings are keyed by their English text and translated from the catalogs
- * the desktop uses (`resources/locales/{ja,zh}.json`, i18next format with
- * `{{name}}` placeholders, packaged as assets); English is the key itself.
+ * the desktop uses (`resources/locales/{en,ja,zh}.json`, i18next format with
+ * `{{name}}` placeholders, packaged as assets); English is the key itself,
+ * except for the few dotted keys (`settings.reset.…`) that `en.json` spells out.
  * They are read directly rather than through `strings.xml` because the
  * language is an in-app setting, not the system's, and the placeholders must
  * stay the desktop's named ones so every shell shares one translation.
@@ -25,6 +26,7 @@ object Localizer {
     var language by mutableStateOf("en")
         private set
     private var catalog: Map<String, String> = emptyMap()
+    private var loaded: String? = null
     private var context: Context? = null
 
     fun attach(context: Context) {
@@ -34,8 +36,9 @@ object Localizer {
     /** Switches to a stored `settings.locale`; anything unknown reads English. */
     fun use(stored: String?) {
         val next = stored?.takeIf { it == "ja" || it == "zh" } ?: "en"
-        if (next == language) return
-        catalog = if (next == "en") emptyMap() else load(next)
+        if (next == loaded) return
+        catalog = load(next)
+        loaded = next
         language = next
     }
 

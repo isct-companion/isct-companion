@@ -31,7 +31,8 @@ use tokio_util::sync::CancellationToken;
 pub struct SessionConfig {
     pub data_directory: String,
     pub files_directory: String,
-    pub initial_network: PullNetwork,
+    /// Sent to Core's planner as the first `Hint::Network`.
+    pub initial_network: SyncNetwork,
     pub cloud_providers: Vec<CloudProvider>,
     pub authorized_cloud_providers: Vec<CloudProvider>,
 }
@@ -303,6 +304,20 @@ impl Session {
             })
         })
     }
+    /// The records the `changes` of a `workspace-changed` event feed, for a
+    /// shell that patches its copy instead of reading the whole snapshot.
+    pub fn workspace_records(
+        &self,
+        changes: Vec<WorkspaceChange>,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let changes: Vec<isct_core::workspace_changes::WorkspaceChange> =
+                project_input(changes)?;
+            Ok(OperationResult::WorkspaceRecords {
+                patch: project(i.core.workspace_records(&changes)?)?,
+            })
+        })
+    }
     pub fn schedule_query(&self, queries: Vec<WorkspaceQuery>) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             let snapshot = i.core.schedule_query(project_input(queries)?)?;
@@ -321,20 +336,22 @@ impl Session {
             })
         })
     }
-    pub fn catalog_query(
-        &self,
-        query: String,
-        year: u16,
-        filters: Option<CatalogFilters>,
-        cursor: Option<String>,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            let page = i
-                .core
-                .catalog_query(query, year, project_input(filters)?, cursor)
-                .await?;
-            Ok(OperationResult::Catalog {
-                page: project(page)?,
+    /// A lifecycle fact, network change, opened view or refresh button. Core
+    /// decides what is due; this never waits for a read.
+    pub fn sync_hint(&self, hint: Hint) -> Result<(), SdkError> {
+        if *self.inner.gate.lock().map_err(|_| SdkError::Closed)? {
+            return Err(SdkError::Closed);
+        }
+        self.inner.core.sync_hint(project_input(hint)?);
+        Ok(())
+    }
+    /// The planner's current runs and sources; the same value every
+    /// `sync-snapshot` event carries. Read it on start and after
+    /// `StreamUpdate::SnapshotRequired`.
+    pub fn sync_snapshot(&self) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, |i, _| async move {
+            Ok(OperationResult::Sync {
+                snapshot: project(i.core.sync_snapshot().await)?,
             })
         })
     }
@@ -369,28 +386,6 @@ impl Session {
             Ok(OperationResult::Flag { value })
         })
     }
-    pub fn pull_state(&self) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, |i, _| async move {
-            Ok(OperationResult::Pulls {
-                snapshots: project(i.core.runtime.pull_snapshots().await)?,
-            })
-        })
-    }
-    /// What the school connection is doing; re-read on `school-status`.
-    pub fn school_status(&self) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, |i, _| async move {
-            Ok(OperationResult::SchoolStatus {
-                status: project(i.core.school_status().await?)?,
-            })
-        })
-    }
-    pub fn cancel_pull(&self, id: String) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            Ok(OperationResult::Flag {
-                value: i.core.runtime.cancel_pull(&id).await,
-            })
-        })
-    }
     pub fn school_session(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(|i| {
             Ok(OperationResult::SchoolSession {
@@ -414,50 +409,7 @@ impl Session {
             })
         })
     }
-    pub fn refresh_references(&self, force: bool) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            let services = services(&i)?;
-            Ok(OperationResult::Text {
-                value: services.references.refresh_all(force).await?,
-            })
-        })
-    }
-    pub fn pull_school(
-        &self,
-        site: SchoolSite,
-        course_id: Option<u64>,
-        login_first: bool,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            let services = services(&i)?;
-            let executor = i.core.school_browser()?;
-            let result = services
-                .school
-                .pull(
-                    executor,
-                    project_input(site)?,
-                    course_id,
-                    isct_core::pull_coordinator::PullOptions::manual(),
-                    login_first,
-                )
-                .await?;
-            Ok(OperationResult::SchoolPull {
-                outcomes: project(result)?,
-            })
-        })
-    }
-    /// The light manual refresh: the current quarter's LMS courses, their
-    /// content and the deadlines in one pass, also on a fresh install.
-    pub fn pull_current_term(&self) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            let services = services(&i)?;
-            let executor = i.core.school_browser()?;
-            let outcomes = services.school.pull_current_term(executor).await?;
-            Ok(OperationResult::SchoolPull {
-                outcomes: project(outcomes)?,
-            })
-        })
-    }
+    /// The OS is about to suspend the process: Core stops leasing new keys.
     pub fn suspend(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, |i, _| async move {
             i.core.runtime.suspend().await;
@@ -473,59 +425,36 @@ impl Session {
             Ok(OperationResult::Done)
         })
     }
-    pub fn lifecycle(
-        &self,
-        foreground: bool,
-        network: PullNetwork,
-        school_visible: bool,
-    ) -> Result<Arc<Operation>, SdkError> {
+    /// The shell's periodic wake (about once a second): forwards
+    /// `Hint::Wake` to the sync planner, then runs reminders, cloud sync and
+    /// the user's scheduled tasks.
+    pub fn wake(&self) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
-            let mut event = isct_core::school_refresh::RefreshEvent::lifecycle(foreground);
-            event.network = Some(
-                serde_json::to_value(network)
-                    .map_err(|e| SdkError::InvalidInput {
-                        detail: e.to_string(),
-                    })?
-                    .as_str()
-                    .ok_or(SdkError::InvalidInput {
-                        detail: "network".into(),
-                    })?
-                    .into(),
-            );
-            i.core.runtime.refresh_event(event).map_err(runtime_error)?;
-            i.core
-                .runtime
-                .publish_conditions(&i.core.store, school_visible)
-                .await
-                .map_err(runtime_error)?;
+            wake_services(&i).await?;
             Ok(OperationResult::Done)
         })
     }
-    pub fn wake(&self, school_visible: bool) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            let report = i
-                .core
-                .wake(isct_core::facade::WakeServices {
-                    scheduler: services(&i)?,
-                    school_visible,
-                    cloud: i.cloud().ok().map(|(_, services)| services.clone()),
-                    reminders: i.notifications.as_ref().map(|sink| {
-                        isct_core::facade::ReminderWake {
-                            sink: Arc::new(Notifications(sink.clone())),
-                            now: chrono::Utc::now().fixed_offset(),
-                        }
-                    }),
-                })
-                .await;
-            // All services have run even when one failed; return the first
-            // typed error and let snapshots expose any successful work.
-            report.runtime.map_err(runtime_error)?;
-            if let Some(result) = report.cloud {
-                result?;
-            }
-            if let Some(result) = report.reminders {
-                result?;
-            }
+    /// One wake from the OS background scheduler (iOS BGAppRefreshTask,
+    /// Android WorkManager), sent while the app is out of front. Core
+    /// resumes, runs one `wake`, reads what may be read in the background
+    /// (LMS deadlines and assignment states over the token, references and
+    /// catalog packs; nothing that needs the school WebView) and waits for
+    /// those reads at most `budget_seconds`. It then suspends again unless
+    /// the app came to the front. Cancel it when the OS ends the task early.
+    pub fn background_wake(&self, budget_seconds: u32) -> Result<Arc<Operation>, SdkError> {
+        self.start(true, move |i, cancel| async move {
+            let budget = std::time::Duration::from_secs(u64::from(budget_seconds));
+            let work = async {
+                let (woke, _) = tokio::join!(wake_services(&i), i.core.sync_in_background(budget));
+                woke
+            };
+            let woke = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => Ok(()),
+                woke = work => woke,
+            };
+            i.core.end_background_wake().await;
+            woke?;
             Ok(OperationResult::Done)
         })
     }
@@ -585,6 +514,12 @@ impl Session {
             .await
     }
 }
+/// Decodes the payload of a `sync-snapshot` stream event, so a shell can
+/// render it without another `sync_snapshot` round trip.
+#[uniffi::export]
+pub fn decode_sync_snapshot(payload: JsonValue) -> Result<SyncSnapshot, SdkError> {
+    project_input(payload.0)
+}
 pub(crate) fn unavailable(name: &str) -> SdkError {
     SdkError::Unavailable {
         detail: format!("{name} is not installed"),
@@ -601,7 +536,6 @@ fn backup_error(e: isct_core::backup::BackupError) -> SdkError {
 fn runtime_error(e: isct_core::runtime::RuntimeError) -> SdkError {
     match e {
         isct_core::runtime::RuntimeError::Task(e) => e.into(),
-        isct_core::runtime::RuntimeError::School(e) => e.into(),
         other => SdkError::Internal {
             detail: other.to_string(),
         },
@@ -617,29 +551,10 @@ impl isct_core::scheduler::ScheduledExporter for Exporter {
     }
 }
 fn services(i: &Arc<Inner>) -> Result<isct_core::scheduler::SchedulerServices, SdkError> {
-    let executor: Arc<dyn isct_core::school_service::SchoolExecutor> = match i.core.school_browser()
-    {
-        Ok(browser) => browser,
-        Err(_) => Arc::new(NoBrowser),
-    };
-    Ok(i.core.services(
-        executor,
-        Arc::new(Exporter(i.backup.clone(), i.backup_directory.clone())),
-    ))
-}
-struct NoBrowser;
-impl isct_core::school_service::SchoolExecutor for NoBrowser {
-    fn execute(
-        &self,
-        _: isct_core::school_service::SchoolExecution,
-        _: isct_core::pull_coordinator::PullContext,
-    ) -> isct_core::school_service::SchoolExecutorFuture<'_> {
-        Box::pin(async {
-            Err(isct_core::school_service::SchoolExecutorError::Execution(
-                "School browser is not installed".into(),
-            ))
-        })
-    }
+    Ok(i.core.services(Arc::new(Exporter(
+        i.backup.clone(),
+        i.backup_directory.clone(),
+    ))))
 }
 fn ocr_available() -> bool {
     #[cfg(feature = "ocr")]
@@ -670,15 +585,10 @@ async fn initialize(
         notifications: notifications.is_some(),
         ocr: ocr_available(),
     };
-    let initial_network = match config.initial_network {
-        PullNetwork::Unknown => isct_core::pull_coordinator::PullNetwork::Unknown,
-        PullNetwork::Offline => isct_core::pull_coordinator::PullNetwork::Offline,
-        PullNetwork::Wifi => isct_core::pull_coordinator::PullNetwork::Wifi,
-        PullNetwork::Cellular => isct_core::pull_coordinator::PullNetwork::Cellular,
-    };
+    let initial_network: isct_core::sync_engine::Network = project_input(config.initial_network)?;
     let native_cloud = cloud.clone();
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
-        let (store, _) = DataStore::initialize(data.join("school.db"))?;
+        let (store, _) = DataStore::initialize_dir(data.clone())?;
         let auth = Arc::new(SchoolAuthService::with_status_cache(
             Vault(vault),
             data.join("school-credential-status.json"),
@@ -698,16 +608,21 @@ async fn initialize(
     .await
     .map_err(isct_core::runtime_tasks::RuntimeTaskError::from)??;
     let events = Events::new();
-    let core = Arc::new(Core::with_events(
-        store,
-        auth,
-        initial_network,
-        events.clone(),
-    ));
+    let core = Arc::new(Core::with_events(store, auth, events.clone()));
+    core.sync_hint(isct_core::sync_engine::Hint::Network {
+        network: initial_network,
+    });
     let browser_shutdown_error = if let Some(native) = browser {
         let browser = Arc::new(Browser::new(native));
         let errors = browser.shutdown_error.clone();
-        core.attach_school_browser(browser)?;
+        // Without a native cookie port Core cannot read school data over
+        // HTTP; the shell must pass one together with the browser.
+        let cookies = downloads.clone().ok_or_else(|| {
+            SdkError::from(isct_core::school_browser::SchoolBrowserError::Platform(
+                "A school browser needs the native cookie session.".into(),
+            ))
+        })?;
+        core.attach_school_browser(browser, Arc::new(crate::ports::NativeCookies(cookies)))?;
         Some(errors)
     } else {
         None
@@ -749,4 +664,32 @@ async fn initialize(
     });
     inner.core.start(&Handle::current())?;
     Ok(inner)
+}
+
+/// `Hint::Wake` for the sync planner, then reminders, cloud sync and the
+/// user's scheduled tasks. All services run even when one fails; the first
+/// typed error is returned and snapshots expose any successful work.
+async fn wake_services(i: &Arc<Inner>) -> Result<(), SdkError> {
+    i.core.sync_hint(isct_core::sync_engine::Hint::Wake);
+    let report = i
+        .core
+        .wake(isct_core::facade::WakeServices {
+            scheduler: services(i)?,
+            cloud: i.cloud().ok().map(|(_, services)| services.clone()),
+            reminders: i.notifications.as_ref().map(|sink| {
+                isct_core::facade::ReminderWake {
+                    sink: Arc::new(Notifications(sink.clone())),
+                    now: chrono::Utc::now().fixed_offset(),
+                }
+            }),
+        })
+        .await;
+    report.runtime.map_err(runtime_error)?;
+    if let Some(result) = report.cloud {
+        result?;
+    }
+    if let Some(result) = report.reminders {
+        result?;
+    }
+    Ok(())
 }
