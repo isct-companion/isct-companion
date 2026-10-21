@@ -297,7 +297,7 @@ fn matches_original_typescript_finder_traces() {
                 &ctx,
                 &row
             ))),
-            "live" => json!(live_text(text(input, "input"), &keys, &courses, &ctx, &row)),
+            "live" => json!(live_text(text(input, "input"), &ctx)),
             other => panic!("unknown trace {other}"),
         };
         assert_eq!(actual, case["expected"], "case {index}: {}", case["input"]);
@@ -385,5 +385,29 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
         |s| matches!(s, Suggestion::Condition{condition,..} if condition.r#type == "official-level")
     ));
     assert!(view.context.recommended.is_empty());
+    // A word that also names a department narrows the rows by text while it
+    // is typed, and the department is still offered as a condition.
+    let physics = json!({"id":"physics","year":2026,"code":"PHY.Q201","quarters":["3Q"],
+        "title":{"ja":"物理学演習"},"format":{"kinds":[]}});
+    let typed = finder_page(
+        &workspace,
+        vec![eligibility_offering("fresh", "CSC.T401"), physics],
+        request(json!([]), "物理"),
+    )
+    .unwrap();
+    assert_eq!(typed.live, "物理");
+    assert_eq!(
+        typed
+            .rows
+            .iter()
+            .map(|row| text(&row.course, "id"))
+            .collect::<Vec<_>>(),
+        ["physics"]
+    );
+    assert!(typed.suggestions.iter().any(|s| matches!(
+        s,
+        Suggestion::Condition { condition, .. }
+            if condition.r#type == "dept" && condition.label == "物理学系"
+    )));
     assert!(finder_page(&workspace, vec![], request(json!(["!100"]), "")).is_err());
 }

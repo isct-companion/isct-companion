@@ -913,17 +913,6 @@ fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
     }
     out
 }
-/// What [`suggest`] reads from the input: whether it excludes, and the
-/// normalized word after `!`.
-fn typed(input: &str) -> (bool, String) {
-    let exclude = input.starts_with('!');
-    let typed = normalized(if exclude {
-        input.strip_prefix('!').unwrap_or(input)
-    } else {
-        input
-    });
-    (exclude, typed.trim().to_string())
-}
 /// What a typed word offers: categories, conditions with their counts,
 /// matching courses (as `row` presents them) and the word itself.
 pub fn suggest(
@@ -933,8 +922,13 @@ pub fn suggest(
     ctx: &FinderContext,
     row: &dyn Fn(&IndexedCourse) -> FinderRowView,
 ) -> Vec<Suggestion> {
-    let (exclude, typed) = typed(input);
-    let typed = typed.as_str();
+    let exclude = input.starts_with('!');
+    let typed = normalized(if exclude {
+        input.strip_prefix('!').unwrap_or(input)
+    } else {
+        input
+    });
+    let typed = typed.trim();
     let lt = typed.to_lowercase();
     let mut out = Vec::new();
     let count = |key: &str| {
@@ -1080,31 +1074,17 @@ pub fn suggest(
     }
     out
 }
-pub fn live_text(
-    input: &str,
-    keys: &[String],
-    courses: &[&IndexedCourse],
-    ctx: &FinderContext,
-    row: &dyn Fn(&IndexedCourse) -> FinderRowView,
-) -> String {
-    live_with(input, ctx, |value| suggest(value, keys, courses, ctx, row))
-}
-/// The typed text that filters rows as it is typed: none while it reads as,
-/// or is offered as, a condition. `suggest_trimmed` suggests for the trimmed
-/// input; a caller that already suggested for the same word passes those.
-fn live_with(
-    input: &str,
-    ctx: &FinderContext,
-    suggest_trimmed: impl FnOnce(&str) -> Vec<Suggestion>,
-) -> String {
+/// The typed text that narrows the rows as it is typed, also while the
+/// suggestions offer a condition it names (物理 narrows by text while 物理学系
+/// is offered). None where text matching means nothing: an empty input, an
+/// official category such as `level:`, an exclusion, or the syntax of a
+/// condition itself (`4Q`, `火3-4`).
+pub fn live_text(input: &str, ctx: &FinderContext) -> String {
     let value = input.trim();
     if value.is_empty()
         || official_group(value).is_some()
         || value.starts_with('!')
         || condition(value, ctx).r#type != "text"
-        || suggest_trimmed(value)
-            .iter()
-            .any(|s| matches!(s, Suggestion::Condition { .. }))
     {
         String::new()
     } else {
@@ -1603,15 +1583,7 @@ fn page(
         .collect::<Vec<_>>();
     let row = |c: &IndexedCourse| personal.row(c, Vec::new());
     let suggestions = suggest(&request.input, &keys, &visible, &ctx, &row);
-    // `live_with` suggests for the trimmed input; the same typed word gets
-    // the same suggestions.
-    let live = live_with(&request.input, &ctx, |value| {
-        if typed(value) == typed(&request.input) {
-            suggestions.clone()
-        } else {
-            suggest(value, &keys, &visible, &ctx, &row)
-        }
-    });
+    let live = live_text(&request.input, &ctx);
     let matches = run(&visible, &parsed.factors, &ctx, &live);
     let total = matches.len();
     let offset = (request.offset as usize).min(total);
