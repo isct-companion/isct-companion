@@ -317,14 +317,14 @@ export function WorkspaceApp() {
     if (!desktopBridge || otpSetupRequest.current) return;
     const request = { id: null as number | null, shown: false };
     otpSetupRequest.current = request;
-    const open = (url: string) => {
+    const open = async (url: string) => {
       setWebContext({
         page: "settings",
         label: navigation.settings,
         url,
         request: Date.now(),
       });
-      void navigate(paths.web());
+      await navigate(paths.web());
     };
     try {
       const id = await desktopBridge.beginSchoolOtpSetup();
@@ -333,7 +333,7 @@ export function WorkspaceApp() {
         return;
       }
       request.id = id;
-      open("https://isct.ex-tic.com/idm/user/mfa_setting/");
+      await open("https://isct.ex-tic.com/idm/user/mfa_setting/");
       const setup = await desktopBridge.schoolOtpSetup(id);
       if (otpSetupRequest.current !== request) return;
       otpSetupRequest.current = null;
@@ -356,7 +356,7 @@ export function WorkspaceApp() {
       request.id = enrollment;
       request.shown = false;
       otpSetupRequest.current = request;
-      open("https://isct.ex-tic.com/idm/user/mfa_setting/");
+      await open("https://isct.ex-tic.com/idm/user/mfa_setting/");
       await desktopBridge.completeSchoolOtpSetup(enrollment, setup.registered);
       if (otpSetupRequest.current !== request) return;
       otpSetupRequest.current = null;
