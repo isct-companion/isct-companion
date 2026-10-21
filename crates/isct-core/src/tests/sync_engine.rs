@@ -283,17 +283,36 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
     }
 }
 
+/// The open finder reads a department it never stored before other due
+/// work and on any network; a stored one, however old, keeps the view's
+/// priority. English names wait for the Japanese rows they merge into.
 #[test]
-fn english_catalog_keys_wait_for_their_japanese_rows() {
+fn finder_catalog_keys_read_new_departments_first_and_english_after_japanese() {
     let department = planner::department_prefixes()[0].clone();
     let japanese = key(Dataset::CatalogOfficial, &format!("2026/{department}"));
     let english = key(Dataset::CatalogOfficial, &format!("2026/{department}/en"));
     let mut inputs = inputs(Vec::new());
     inputs.year = Some(2026);
     let finder = [View::Finder { year: 2026 }];
-    // Japanese content: the English page is never read.
     let plan_now = |inputs: &Inputs, facts: &Facts| plan(inputs, facts, &finder, &[]);
-    assert!(find(&plan_now(&inputs, &facts()), &japanese).is_some());
+    let priority = |plan: &[Candidate], wanted: &Key| {
+        find(plan, wanted).map(|candidate| (candidate.priority, candidate.held.clone()))
+    };
+    // Nothing stored: the shown year's departments come first, even on
+    // cellular; without the finder they are background work that waits.
+    let cellular = Facts {
+        network: Network::Cellular,
+        ..facts()
+    };
+    assert_eq!(
+        priority(&plan_now(&inputs, &cellular), &japanese),
+        Some((Priority::Interactive, None))
+    );
+    assert_eq!(
+        priority(&plan(&inputs, &cellular, &[], &[]), &japanese),
+        Some((Priority::Background, Some(Held::Cellular)))
+    );
+    // Japanese content: the English page is never read.
     assert!(find(&plan_now(&inputs, &facts()), &english).is_none());
     // English content: only once the Japanese rows it names are stored.
     inputs.english = true;
@@ -302,14 +321,16 @@ fn english_catalog_keys_wait_for_their_japanese_rows() {
         Dataset::CatalogOfficial,
         &japanese.key,
         "",
-        Some(now() - Duration::days(1)),
+        Some(now() - Duration::days(8)),
         None,
     );
     inputs.states.insert(state_key, state);
-    let english_read = find(&plan_now(&inputs, &facts()), &english)
-        .cloned()
-        .unwrap();
+    let plan = plan_now(&inputs, &facts());
+    let english_read = find(&plan, &english).cloned().unwrap();
     assert_eq!(english_read.lane, Lane::Kyomu);
+    assert_eq!(english_read.priority, Priority::Interactive);
+    // A week-old stored department is renewed at the view's priority.
+    assert_eq!(priority(&plan, &japanese), Some((Priority::Visible, None)));
     assert_eq!(planner::japanese_key(&english), Some(japanese.clone()));
     assert_eq!(planner::japanese_key(&japanese), None);
 }
