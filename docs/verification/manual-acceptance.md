@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 69 checks must be re-run before the next release.**
+**7 of 74 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**60 checks have never been run or could not be run:**
+**65 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -48,6 +48,11 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-PULL-STRESS` — never verified
 - `DESKTOP-SYNC-STATUS` — never verified
 - `DESKTOP-FINDER-CATALOG-DOWNLOAD` — never verified
+- `DESKTOP-FINDER-COMMIT` — never verified
+- `DESKTOP-FINDER-SLOT-HIGHLIGHT` — never verified
+- `DESKTOP-FINDER-IME-KANA` — never verified
+- `DESKTOP-FINDER-IME-PINYIN` — never verified
+- `DESKTOP-FINDER-ADD-SAVING` — never verified
 - `DESKTOP-SYLLABUS-IN-APP` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
@@ -119,6 +124,11 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
+| `DESKTOP-FINDER-SLOT-HIGHLIGHT` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
+| `DESKTOP-FINDER-IME-KANA` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
+| `DESKTOP-FINDER-IME-PINYIN` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
+| `DESKTOP-FINDER-ADD-SAVING` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CourseDetails.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
@@ -1617,6 +1627,217 @@ instant results offline.
 The first-download timing needs a real empty cache and the real 教務Web
 catalog; the switch itself is covered in tests/e2e/planner.test.tsx,
 but how the notice reads during a real download is a glance check.
+
+**Covers**
+
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
+
+**Last recorded** never run
+
+### A course-search condition commits at once (`DESKTOP-FINDER-COMMIT`)
+
+**Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build with the year's catalog stored, on the timetable.
+
+**Steps**
+
+1. Type a condition such as 4q or 火3-4 and press Enter.
+   - *Why:* The field must empty and the suggestion list close in the same
+     frame, with the condition shown as a faint pill. A list that stays
+     open, or text that lingers until the results change, is the lag
+     this change removed.
+2. Type a word, press ↓ to reopen the list, then press Escape; click
+   into the results; tab out of the field.
+   - *Why:* The list opens only on typing, focus or ↑↓, and closes on Escape,
+     blur and a click into the results; a list that reopens by itself
+     covers the results being read.
+
+**Where to look**
+
+The search field, its suggestion list and the condition pills.
+
+**Expected**
+
+Enter empties the field and closes the list at once; the faint pill
+turns into the normal condition pill when the results update.
+
+**Why this is manual**
+
+Whether it feels instant is a glance in the real app; the order of
+state changes is covered in tests/e2e/planner.test.tsx.
+
+**Covers**
+
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
+- `apps/desktop/src/pages/courses/useFinder.ts`
+
+**Last recorded** never run
+
+### A clicked timetable slot lights up before the results change (`DESKTOP-FINDER-SLOT-HIGHLIGHT`)
+
+**Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build with the year's catalog stored, on the timetable.
+
+**Steps**
+
+1. Click an empty timetable cell, then ⌘-click another, then click the
+   first again.
+   - *Why:* Each cell must light up (or go dark) the moment it is clicked; the
+     results and pills may follow a moment later. A cell that waits for
+     the results is the stall this change removed.
+
+**Where to look**
+
+The timetable cells and the condition pills above the results.
+
+**Expected**
+
+The first click highlights one cell, ⌘-click adds a second, and
+clicking the first again clears it, each instantly.
+
+**Why this is manual**
+
+Perceived latency is a glance check; the toggle rules are Core's
+(crates/isct-core/src/tests/course_query.rs) and the local highlight
+before Core answers is in tests/e2e/planner.test.tsx.
+
+**Covers**
+
+- `apps/desktop/src/app/App.tsx`
+- `apps/desktop/src/pages/courses/useFinder.ts`
+
+**Last recorded** never run
+
+### Kana composition searches once it is confirmed (macOS WebKit) (`DESKTOP-FINDER-IME-KANA`)
+
+**Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS desktop build started with ISCT_TRACE_READS=1 from a terminal,
+the Japanese input method on, the year's catalog stored.
+
+**Steps**
+
+1. In the course search type ぶつり and convert it to 物理 without
+   confirming, watching the terminal.
+   - *Why:* Each search prints one [workspace-snapshot] line. Lines while the
+     text is still underlined mean every keystroke of the composition
+     was searched, which stalls typing.
+2. Confirm the conversion with Enter.
+   - *Why:* The confirming Enter belongs to the IME: exactly one search must
+     follow with 物理, and no condition pill may appear.
+
+**Where to look**
+
+The terminal's [workspace-snapshot] lines and the results count.
+
+**Expected**
+
+No search while composing, one search after confirming, results for
+物理 and no new pill.
+
+**Why this is manual**
+
+Real IME event order differs between WebKit and WebView2 and a DOM
+test can only replay one order; this needs the real input method.
+
+**Covers**
+
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
+- `apps/desktop/src/pages/courses/useFinder.ts`
+
+**Last recorded** never run
+
+### Pinyin composition searches once it is confirmed (Windows WebView2) (`DESKTOP-FINDER-IME-PINYIN`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Windows desktop build started with ISCT_TRACE_READS=1 from a
+terminal, Microsoft Pinyin on, the year's catalog stored.
+
+**Steps**
+
+1. In the course search type wuli and pick 物理 from the candidate list
+   with the space bar, watching the terminal.
+   - *Why:* WebView2 sends its input and composition events in another order
+     than WebKit; a search per pinyin letter, or a second search for the
+     same confirmed text, means the order is relied on.
+2. Press Enter once the candidate is confirmed.
+   - *Why:* Enter after the composition is a real commit and must turn 物理 into
+     a condition; one swallowed or doubled here is a wiring bug.
+
+**Where to look**
+
+The terminal's [workspace-snapshot] lines, the results and the pills.
+
+**Expected**
+
+No search for the pinyin letters, one for 物理 when it is confirmed,
+and one condition pill after Enter.
+
+**Why this is manual**
+
+Needs the real Windows input method and WebView2's event order.
+
+**Covers**
+
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
+- `apps/desktop/src/pages/courses/useFinder.ts`
+
+**Last recorded** never run
+
+### An added course shows as saving, then settles (`DESKTOP-FINDER-ADD-SAVING`)
+
+**Area** desktop · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build with the year's catalog stored and an eligible course
+not yet on the timetable.
+
+**Steps**
+
+1. Click Add on a result row.
+   - *Why:* The row must say it is added and saving in the same frame; a row
+     that keeps its Add button until the timetable redraws invites a
+     second click.
+2. Wait for the timetable to show the course, then press Undo.
+   - *Why:* The row must settle on Added without flickering back to Add, and
+     Undo must offer Add again at once.
+
+**Where to look**
+
+The result row's Add / Added label and the timetable.
+
+**Expected**
+
+Add → "Added · saving" at once → "Added" with the course on the
+timetable; Undo returns the row to Add.
+
+**Why this is manual**
+
+The saving state passes in a moment on a real database and is a glance
+check; the rollback on a failed write is in
+tests/e2e/planner.test.tsx.
 
 **Covers**
 

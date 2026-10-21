@@ -27,7 +27,8 @@ import type {
   Factor,
   FinderAction,
   FinderCourse,
-  FinderView,
+  FinderPage,
+  FinderRowView,
 } from "@app/generated/persistence";
 import type { Course, TermId, Workspace } from "@app/lib/model";
 import type { WorkspaceIntent } from "@app/lib/workspace-intents";
@@ -41,14 +42,14 @@ import type { WorkspaceIntent } from "@app/lib/workspace-intents";
  * harness answers the real query path with `queries` / `finderHandler`, so a
  * passing test says something about the app rather than about a mock.
  *
- * Local helpers below exist because the harness has no finder-view builder:
- * `finderView`, `factorFor`, `chooseOption`, `timetableTitles`, `planningWeekByDay`.
+ * Local helpers below exist because the harness has no finder-page builder:
+ * `finderPage`, `factorFor`, `chooseOption`, `timetableTitles`, `planningWeekByDay`.
  */
 
 const FALLBACK = "2026-3Q" as TermId;
 
 /* ------------------------------------------------------------------ *
- * A scripted finder_view, the way Core would build one from conditions.
+ * A scripted finder_query page, the way Core would build one.
  * ------------------------------------------------------------------ */
 
 type FinderOptions = {
@@ -57,10 +58,9 @@ type FinderOptions = {
   widened?: FinderCourse[];
   clashes?: FinderCourse[];
   eligibility?: Record<string, { status: string; reason: string }>;
-  ineligibleIds?: string[];
   replacements?: Record<string, string[]>;
-  recommended?: Record<string, { group: string; mark?: string | null }>;
-  suggestions?: FinderView["suggestions"];
+  recommended?: Record<string, { group: string; mark?: string }>;
+  suggestions?: FinderPage["suggestions"];
 };
 
 function factorFor(key: string): Factor {
@@ -73,20 +73,21 @@ function factorFor(key: string): Factor {
   return { type: "time", alts: [condition] };
 }
 
-/** Mirrors the one thing Core decides for `toggleTime`: append or replace. */
+/** Mirrors the one thing Core decides for an action: the keys that follow. */
 function keysAfterAction(
   keys: string[],
   action: FinderAction | null | undefined,
 ) {
+  if (action?.kind === "commit") return [...new Set([...keys, action.key])];
   if (action?.kind !== "toggleTime") return keys;
   return action.append ? [...new Set([...keys, action.key])] : [action.key];
 }
 
-function finderView(
+function finderPage(
   options: FinderOptions,
   request: Record<string, unknown>,
   core: FakeCore,
-): FinderView {
+): FinderPage {
   const keys = (request.keys as string[] | undefined) ?? [];
   const includeIneligible = Boolean(request.includeIneligible);
   const action = request.action as FinderAction | null | undefined;
@@ -96,15 +97,29 @@ function finderView(
     ...(includeIneligible ? (options.widened ?? []) : []),
   ];
   const eligibility = options.eligibility ?? {};
-  const ineligibleIds =
-    options.ineligibleIds ??
-    Object.entries(eligibility)
-      .filter(([, value]) => value.status === "ineligible")
-      .map(([id]) => id);
-  const credits: Record<string, number> = {};
-  for (const course of courses)
-    credits[course.id] =
-      course.credits.lecture + course.credits.exercise + course.credits.lab;
+  const placedCodes = core.workspace.courses
+    .filter((row) => !row.deletedAt)
+    .map((row) => row.code);
+  const row = (course: FinderCourse): FinderRowView => {
+    const verdict = eligibility[course.id];
+    return {
+      course,
+      matched: [],
+      placed: placedCodes.includes(course.code),
+      clash: (options.clashes ?? []).some((clash) => clash.id === course.id),
+      replaces: options.replacements?.[course.id] ?? [],
+      credits:
+        course.credits.lecture + course.credits.exercise + course.credits.lab,
+      ...(verdict && verdict.status !== "allowed"
+        ? { eligibility: verdict as FinderRowView["eligibility"] }
+        : {}),
+      ...(options.recommended?.[course.code]
+        ? { recommended: options.recommended[course.code] }
+        : {}),
+    };
+  };
+  const offset = Number(request.offset ?? 0);
+  const limit = Number(request.limit ?? 100);
   return {
     context: {
       currentQuarter: 3,
@@ -113,27 +128,33 @@ function finderView(
       busy: [],
       officialOptions: [],
     },
-    courses,
     factors: nextKeys.map(factorFor),
     duplicates: 0,
     keys: nextKeys,
-    rows: courses.map((course) => ({ course, matched: [] })),
-    suggestions: options.suggestions ?? [],
     live: String(request.input ?? ""),
-    clashes: (options.clashes ?? []).map((course) => course.id),
-    ineligibleIds,
-    eligibility: eligibility as FinderView["eligibility"],
-    replacements: options.replacements ?? {},
-    credits,
-    onTimetable: core.workspace.courses
-      .filter((row) => !row.deletedAt)
-      .map((row) => row.code),
-    activeSlots: [],
+    suggestions: options.suggestions ?? [],
+    total: courses.length,
+    offset,
+    rows: courses.slice(offset, offset + limit).map(row),
+    stored: options.courses.length + (options.widened?.length ?? 0),
+    ineligible: Object.values(eligibility).filter(
+      (verdict) => verdict.status === "ineligible",
+    ).length,
+    // Core highlights the slots of the time conditions.
+    activeSlots: nextKeys.flatMap((key) => {
+      const time = /^([月火水木金土])(\d+)-(\d+)$/.exec(key);
+      return time
+        ? [`${"月火水木金土".indexOf(time[1]) + 1}:${time[2]}-${time[3]}`]
+        : [];
+    }),
+    placedCodes,
     commitKey: null,
     pasteHandled: false,
-    pastedIds: [],
+    pasted: [],
     missingCodes: [],
     ineligibleCodes: [],
+    catalogVersion: 1,
+    contentRevision: core.revision,
   };
 }
 
@@ -145,13 +166,13 @@ type Handle = (
 
 /**
  * Answers `finder_query` from `handle`, not `finder`, because only `handle`
- * receives the live fake store — needed so `onTimetable` follows a commit.
+ * receives the live fake store — needed so `placed` follows a commit.
  */
 const finderHandler =
   (options: FinderOptions, extra?: Handle): Handle =>
   (command, args, core) => {
     if (command === "finder_query")
-      return finderView(options, args.request as Record<string, unknown>, core);
+      return finderPage(options, args.request as Record<string, unknown>, core);
     return extra?.(command, args, core);
   };
 
@@ -409,6 +430,81 @@ describe("the course planner", () => {
     );
   });
 
+  it("commits at once, shows the condition until Core answers, and searches a composition only when it ends", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const options: FinderOptions = {
+      courses: [eligible],
+      suggestions: [{ kind: "text", key: "graph", count: -1 }],
+    };
+    const answer = finderHandler(options);
+    app = await mountApp(
+      {
+        revision: freshRevision(),
+        workspace: workspaceFixture(),
+        queries: plannerQueries(),
+        handle: (command, args, core) =>
+          command === "finder_query" &&
+          (args.request as { action?: FinderAction }).action?.kind === "commit"
+            ? gate.then(() => answer(command, args, core))
+            : answer(command, args, core),
+      },
+      { route: paths.timetable() },
+    );
+    const { host, core } = app;
+    const input = await enablePlanning(app);
+    await typeInto(input, "graph");
+    await settled(() =>
+      expect(host.querySelectorAll('[role="option"]')).toHaveLength(1),
+    );
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    // Before Core answers: the field is empty, the list is closed and the
+    // condition waits as a pill.
+    expect(input.value).toBe("");
+    expect(host.querySelectorAll('[role="option"]')).toHaveLength(0);
+    expect(host.querySelector(".finderPill.pending")?.textContent).toBe(
+      "graph",
+    );
+    await act(async () => {
+      release();
+      await gate;
+    });
+    await settled(() => expect(pills(host)).toEqual(["Timegraph"]));
+    expect(host.querySelector(".finderPill.pending")).toBeNull();
+
+    // An IME composition is shown but not searched until it ends; the input
+    // event a webview sends after the end does not search it again.
+    const searches = () => core.commands("finder_query").length;
+    const before = searches();
+    await act(async () => {
+      input.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+    });
+    await typeInto(input, "ぶつ");
+    await typeInto(input, "物理");
+    expect(searches()).toBe(before);
+    await act(async () => {
+      input.dispatchEvent(
+        new CompositionEvent("compositionend", { bubbles: true, data: "物理" }),
+      );
+    });
+    await settled(() =>
+      expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject(
+        { input: "物理", keys: ["graph"] },
+      ),
+    );
+    expect(searches()).toBe(before + 1);
+    await typeInto(input, "物理");
+    expect(searches()).toBe(before + 1);
+  }, 60_000);
+
   it("searches only the stored catalog and renders a large result in batches of mounted rows", async () => {
     const courses = Array.from({ length: 1000 }, (_, index) =>
       offering(
@@ -479,7 +575,7 @@ describe("the course planner", () => {
         queries: plannerQueries(),
         handle: (command, args, core) =>
           command === "finder_query"
-            ? finderView(
+            ? finderPage(
                 { courses: stored },
                 args.request as Record<string, unknown>,
                 core,
@@ -602,13 +698,82 @@ describe("the course planner", () => {
     );
   }, 60_000);
 
-  it("replaces the time condition on a plain slot click and appends with the meta key", async () => {
+  it("shows an added course as saving until Core commits it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     app = await mountApp(
       {
         revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
-        handle: finderHandler({ courses: [eligible] }),
+        handle: finderHandler({ courses: [eligible] }, (command, _args, core) =>
+          command === "mutate_workspace"
+            ? gate.then(() => {
+                const rows = [eligibleCourse];
+                core.publish(
+                  workspaceFixture({
+                    courses: rows,
+                    planItems: rows.map((course) => planItemFor(course)),
+                  }),
+                  `${core.revision}+placed`,
+                );
+                return {
+                  revision: core.revision,
+                  contentRevision: core.revision,
+                  workspace: structuredClone(core.workspace),
+                  schoolRecords: structuredClone(core.schoolRecords),
+                };
+              })
+            : undefined,
+        ),
+      },
+      { route: paths.timetable() },
+    );
+    const { host } = app;
+    const input = await enablePlanning(app);
+    await typeInto(input, "graph");
+    await click(
+      await required(
+        () => host.querySelector<HTMLButtonElement>(".finderAdd"),
+        "the row Add action",
+      ),
+    );
+    expect(host.querySelector(".finderRow .finderPlaced")?.textContent).toBe(
+      "Added · saving",
+    );
+    await act(async () => {
+      release();
+      await gate;
+    });
+    await settled(() =>
+      expect(host.querySelector(".finderRow .finderPlaced")?.textContent).toBe(
+        "Added",
+      ),
+    );
+    await settled(() =>
+      expect(timetableTitles(host)).toEqual(["Graph Algorithms"]),
+    );
+  }, 60_000);
+
+  it("replaces the time condition on a plain slot click and appends with the meta key", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const answer = finderHandler({ courses: [eligible] });
+    app = await mountApp(
+      {
+        revision: freshRevision(),
+        workspace: workspaceFixture(),
+        queries: plannerQueries(),
+        handle: (command, args, core) =>
+          command === "finder_query" &&
+          (args.request as { action?: FinderAction }).action?.kind ===
+            "toggleTime"
+            ? held.then(() => answer(command, args, core))
+            : answer(command, args, core),
       },
       { route: paths.timetable() },
     );
@@ -630,8 +795,18 @@ describe("the course planner", () => {
     expect(columns[5].querySelector(".ttSlot")).not.toBeNull();
 
     // A plain slot click replaces the time condition; ⌘/Ctrl appends one.
+    // The slot lights up before Core answers.
+    const slot = (column: number) =>
+      host.querySelectorAll(".ttCol")[column].querySelector(".ttSlot");
     await clickSlot(app, 1, false);
+    expect(slot(1)?.getAttribute("aria-pressed")).toBe("true");
+    expect(pills(host)).toEqual([]);
+    await act(async () => {
+      release();
+      await held;
+    });
     await settled(() => expect(pills(host)).toEqual(["Time火1-2"]));
+    expect(slot(1)?.getAttribute("aria-pressed")).toBe("true");
 
     await clickSlot(app, 0, true);
     await settled(() =>
@@ -745,7 +920,10 @@ describe("course eligibility", () => {
         "write failed",
       ),
     );
-    // The choice survives the failure, so it can be retried.
+    // The row is offered again and the choice survives, so it can be retried.
+    expect(host.querySelector(".finderRow .finderAdd")?.textContent).toBe(
+      "Add",
+    );
     expect(selected.checked).toBe(true);
     expect(host.querySelector(".finderFoot")?.textContent).toContain(
       "1 selected",
