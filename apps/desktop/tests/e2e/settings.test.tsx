@@ -218,10 +218,16 @@ describe("School accounts", () => {
       const url = registered
         ? "https://isct.ex-tic.com/idm/user/mfa_setting/"
         : "https://isct.ex-tic.com/idm/user/totp_setting/add";
+      let complete!: (value: { registered: boolean; url: string }) => void;
+      let operation = 0;
       const mounted = await mountAccounts({
         capabilities: { schoolWeb: true },
         handle: (command, args) => {
-          if (command === "school_otp_setup") return { registered, url };
+          if (command === "begin_school_otp_setup") return ++operation;
+          if (command === "school_otp_setup")
+            return new Promise((resolve) => {
+              complete = resolve;
+            });
           if (
             [
               "configure_school_web_policy",
@@ -234,18 +240,42 @@ describe("School accounts", () => {
           if (command === "resolve_school_url")
             return { site: "science-portal", url: args.url };
           if (command === "open_school_site")
-            return { site: "science-portal", url, phase: "pageLoaded" };
+            return {
+              site: "science-portal",
+              url:
+                args.targetUrl ??
+                "https://isct.ex-tic.com/idm/user/mfa_setting/",
+              phase: "pageLoaded",
+            };
           return undefined;
         },
       });
-      await clickButton(account(mounted, "science"), "Help me set up");
+      const start = async () => {
+        await clickButton(account(mounted, "science"), "Help me set up");
+        await wait(() =>
+          expect(
+            mounted.core.commands("resolve_school_url").at(-1)?.args,
+          ).toMatchObject({
+            url: "https://isct.ex-tic.com/idm/user/mfa_setting/",
+          }),
+        );
+        await wait(() =>
+          expect(document.querySelector('[role="dialog"]')).toBeNull(),
+        );
+        await act(async () => {
+          complete({ registered, url });
+        });
+      };
+      await start();
       if (registered) {
         const dialog = await wait(() => openDialog());
         expect(dialog.textContent).toContain("every other authenticator");
-        expect(mounted.core.commands("resolve_school_url")).toHaveLength(0);
+        const opened = mounted.core.commands("resolve_school_url").length;
         await answerDialog("Cancel");
-        expect(mounted.core.commands("resolve_school_url")).toHaveLength(0);
-        await clickButton(account(mounted, "science"), "Help me set up");
+        expect(mounted.core.commands("resolve_school_url")).toHaveLength(
+          opened,
+        );
+        await start();
         await answerDialog("Continue to reset");
       }
       await wait(() =>

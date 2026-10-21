@@ -383,7 +383,9 @@ export interface DesktopBridge {
     callback: (event: WorkspaceChangedEvent) => void,
   ): Promise<() => void>;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
-  schoolOtpSetup(): Promise<SchoolOtpSetup>;
+  beginSchoolOtpSetup(): Promise<number>;
+  cancelSchoolOtpSetup(operationId: number): Promise<void>;
+  schoolOtpSetup(operationId: number): Promise<SchoolOtpSetup>;
   saveSchoolCredentials(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -611,7 +613,18 @@ export function createTauriDesktopBridge(
       return () => quietly(unlisten);
     },
     schoolCredentialStatus: () => result("school_credential_status"),
-    schoolOtpSetup: () => result("school_otp_setup"),
+    beginSchoolOtpSetup: async () => {
+      const id = await invoke("begin_school_otp_setup");
+      if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0)
+        throw new Error("begin_school_otp_setup returned an invalid result.");
+      return id;
+    },
+    cancelSchoolOtpSetup: (operationId) =>
+      invoke("cancel_school_otp_setup", { operationId }).then(() => {}),
+    schoolOtpSetup: (operationId) =>
+      invoke("school_otp_setup", { operationId }).then((value) =>
+        requireObject<SchoolOtpSetup>("school_otp_setup", value),
+      ),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();

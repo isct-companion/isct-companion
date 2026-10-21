@@ -219,6 +219,103 @@ fn engine() -> (
     engine_with_auth(Arc::new(SchoolAuthService::new(EmptyVault)))
 }
 
+#[tokio::test]
+async fn otp_setup_uses_visible_manual_login_then_continues_to_settings_without_saved_otp() {
+    for auth in [
+        Arc::new(SchoolAuthService::new(EmptyVault)),
+        Arc::new(SchoolAuthService::new(saved_science_vault())),
+    ] {
+        let (engine, browser, _, _) = engine_with_auth(auth);
+        let operation = engine.begin_school_otp_setup().unwrap();
+        let settings = "https://isct.ex-tic.com/idm/user/mfa_setting/";
+        engine
+            .navigate(SchoolSite::SciencePortal, settings)
+            .unwrap();
+        let opened = browser.navigation(0).await;
+        let listener = browser.listener();
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: opened.browser,
+                sequence: 1,
+            },
+            cause: None,
+            url: Url::parse("https://isct.ex-tic.com/auth/session/second_factor").unwrap(),
+        });
+        tokio::task::yield_now().await;
+        assert!(!browser.commands.lock().unwrap().iter().any(|command| {
+            matches!(&command.command, BrowserAction::Eval(script) if script.contains("isct-companion-login:"))
+        }));
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: opened.browser,
+                sequence: 2,
+            },
+            cause: None,
+            url: Url::parse("https://isct.ex-tic.com/idm/user/portal/").unwrap(),
+        });
+        let continued = browser.navigation(1).await;
+        assert!(
+            matches!(&continued.command, BrowserAction::Navigate(url) if url.as_str() == settings)
+        );
+        // Leaving cancels this enrollment, so a later portal load cannot
+        // redirect a different browsing session.
+        engine.user_browsing(None).unwrap();
+        assert!(matches!(
+            engine.school_otp_setup(operation).await,
+            Err(crate::school_auth::OtpSetupError::Cancelled)
+        ));
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: opened.browser,
+                sequence: 3,
+            },
+            cause: None,
+            url: Url::parse("https://isct.ex-tic.com/idm/user/portal/").unwrap(),
+        });
+        assert_eq!(
+            browser
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|command| matches!(&command.command, BrowserAction::Navigate(_)))
+                .count(),
+            2
+        );
+        engine.shutdown().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn otp_setup_waits_have_correlated_cancellation_drop_timeout_and_shutdown() {
+    use crate::school_auth::OtpSetupError;
+    let (engine, _, _, _) = engine();
+    let first = engine.begin_school_otp_setup().unwrap();
+    let second = engine.begin_school_otp_setup().unwrap();
+    engine.cancel_school_otp_setup(first);
+    assert!(matches!(
+        engine.school_otp_setup(first).await,
+        Err(OtpSetupError::Cancelled)
+    ));
+    let mut wait = Box::pin(engine.school_otp_setup(second));
+    assert!(futures_util::poll!(&mut wait).is_pending());
+    drop(wait);
+    assert!(matches!(
+        engine.school_otp_setup(second).await,
+        Err(OtpSetupError::Cancelled)
+    ));
+    let third = engine.begin_school_otp_setup().unwrap();
+    assert!(matches!(
+        engine.school_otp_setup(third).await,
+        Err(OtpSetupError::TimedOut)
+    ));
+    let fourth = engine.begin_school_otp_setup().unwrap();
+    let mut wait = Box::pin(engine.school_otp_setup(fourth));
+    assert!(futures_util::poll!(&mut wait).is_pending());
+    engine.shutdown().await;
+    assert!(matches!(wait.await, Err(OtpSetupError::Cancelled)));
+}
+
 #[cfg(feature = "desktop-workspaces")]
 #[tokio::test]
 async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinations() {

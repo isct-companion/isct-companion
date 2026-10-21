@@ -288,6 +288,84 @@ export function WorkspaceApp() {
     url: string;
     request: number;
   } | null>(null);
+  const otpSetupRequest = useRef<{ id: number | null; shown: boolean } | null>(
+    null,
+  );
+  useEffect(() => {
+    const request = otpSetupRequest.current;
+    if (!request) return;
+    if (page === "web") request.shown = true;
+    else if (request.shown) {
+      otpSetupRequest.current = null;
+      if (request.id !== null)
+        void desktopBridge
+          ?.cancelSchoolOtpSetup(request.id)
+          .catch(notify.error);
+    }
+  }, [page]);
+  useEffect(
+    () => () => {
+      const request = otpSetupRequest.current;
+      otpSetupRequest.current = null;
+      if (request?.id != null)
+        void desktopBridge?.cancelSchoolOtpSetup(request.id).catch(() => {});
+    },
+    [],
+  );
+  const startOtpSetup = async () => {
+    if (!desktopBridge || otpSetupRequest.current) return;
+    const request = { id: null as number | null, shown: false };
+    otpSetupRequest.current = request;
+    const open = (url: string) => {
+      setWebContext({
+        page: "settings",
+        label: navigation.settings,
+        url,
+        request: Date.now(),
+      });
+      void navigate(paths.web());
+    };
+    try {
+      const id = await desktopBridge.beginSchoolOtpSetup();
+      if (otpSetupRequest.current !== request) {
+        await desktopBridge.cancelSchoolOtpSetup(id);
+        return;
+      }
+      request.id = id;
+      open("https://isct.ex-tic.com/idm/user/mfa_setting/");
+      const setup = await desktopBridge.schoolOtpSetup(id);
+      if (otpSetupRequest.current !== request) return;
+      otpSetupRequest.current = null;
+      if (setup.registered) {
+        await hideNativeSchoolWeb();
+        setWebContext(null);
+        await navigate(pagePath("settings"));
+        if (
+          !(await confirmAction(
+            t(
+              "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. You must replace the school entry in every other authenticator with the new QR code or Secret key, and import it here too.",
+            ),
+            t("Continue to reset"),
+            { title: t("Reset school OTP?") },
+          ))
+        )
+          return;
+      }
+      open(setup.url);
+    } catch (error) {
+      if (otpSetupRequest.current !== request) return;
+      otpSetupRequest.current = null;
+      if (!(
+        error &&
+        typeof error === "object" &&
+        "kind" in error &&
+        error.kind === "cancelled"
+      ))
+        notify.error(
+          t("Could not finish OTP setup. Check the school page and try again."),
+        );
+    }
+  };
   // Hidden Activities keep their last route props so another page's params
   // cannot replace retained subpages. Visible navigation always reads the URL.
   const renderedRoutes = useRef({
@@ -1208,7 +1286,11 @@ export function WorkspaceApp() {
       }
       refreshReferences={syncAvailable()}
       matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
-      showLoginPage={(profile, targetUrl) => {
+      showLoginPage={(profile, targetUrl, setupOtp) => {
+        if (setupOtp) {
+          void startOtpSetup();
+          return;
+        }
         if (targetUrl) {
           setWebContext({
             page: "settings",

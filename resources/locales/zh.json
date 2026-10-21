@@ -1554,5 +1554,7 @@
   "1. Press Help me set up to check the school registration. If it is Unset, the app opens App Authentication Settings; if it is Already Set, you can confirm a reset or import from another authenticator instead.": "1. 点击「帮我设置」检查学校注册状态。未设置时会打开 App Authentication Settings；已设置时可确认重新设置，或从其他验证器导入。",
   "2. On the school page, open Show secret key and press Copy, then paste the Secret key above. You can also scan or import the QR image. Add the same setup to your authenticator, replacing its old school entry when resetting.": "2. 在学校页面展开 Show secret key，点击 Copy，将 Secret key 粘贴到上方；也可以扫描或导入二维码图片。将同一配置加入验证器；重新设置时替换验证器中的学校旧配置。",
   "3. Enter the current six-digit code from the new authenticator entry in Token on the school page and press Setup. Once registration succeeds, return here and press Connect to save this setup.": "3. 将验证器新配置生成的当前六位验证码填入学校页面的 Token，点击 Setup。注册成功后返回本应用，点击「连接」保存配置。",
-  "Paste the Secret key or setup link here, not the changing six-digit code. Importing fills a draft; Connect saves it after you finish school verification.": "这里填写 Secret key 或设置链接，不是不断变化的六位验证码。导入后仅填入草稿；完成学校验证后，点击「连接」保存。"
+  "Paste the Secret key or setup link here, not the changing six-digit code. Importing fills a draft; Connect saves it after you finish school verification.": "这里填写 Secret key 或设置链接，不是不断变化的六位验证码。导入后仅填入草稿；完成学校验证后，点击「连接」保存。",
+  "1. Press Help me set up to open the school sign-in page. Sign in manually using an available method. After sign-in, the app continues to OTP settings and checks whether registration or a reset is needed.": "1. 点击「帮我设置」打开学校登录页，使用可用方式手动登录。登录成功后，应用会自动进入 OTP 设置，检查是首次注册还是需要重新设置。",
+  "Could not finish OTP setup. Check the school page and try again.": "未能完成 OTP 设置引导，请检查学校页面后重试。"
 }

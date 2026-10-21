@@ -34,6 +34,7 @@ use url::Url;
 mod history;
 mod lane;
 mod login;
+mod otp_setup;
 mod pull;
 mod restore;
 
@@ -84,6 +85,7 @@ struct Inner {
 
 #[derive(Default)]
 struct State {
+    otp_setup: Option<u64>,
     views: HashMap<SchoolSite, ViewState>,
     browsing: Option<SchoolSite>,
     login: Option<ActiveLogin>,
@@ -176,6 +178,11 @@ impl SchoolBrowserEngine {
 
     pub fn user_browsing(&self, site: Option<SchoolSite>) -> Result<(), SchoolBrowserError> {
         let mut state = self.0.state.guard();
+        if state.browsing == Some(SchoolSite::SciencePortal)
+            && site != Some(SchoolSite::SciencePortal)
+        {
+            state.otp_setup = None;
+        }
         state.browsing = site;
         drop(state);
         let _ = self.0.traces.send(Trace::Browsing(site));
@@ -571,6 +578,18 @@ impl Inner {
                     false,
                 );
             }
+        }
+        // Enrollment starts with a visible manual sign-in. In particular it
+        // must never select App OTP using a missing or obsolete saved secret.
+        if self.state.guard().otp_setup.is_some()
+            && event.page.browser.site == SchoolSite::SciencePortal
+        {
+            if foreground && login_succeeded(event.url.as_str(), SchoolAuthProfile::Science) {
+                if let Ok(url) = Url::parse(crate::school_auth::otp_setup::SETTINGS_URL) {
+                    let _ = self.dispatch(event.page.browser, BrowserAction::Navigate(url));
+                }
+            }
+            return;
         }
         if let Some(active) = login {
             if login_succeeded(event.url.as_str(), active.profile) {

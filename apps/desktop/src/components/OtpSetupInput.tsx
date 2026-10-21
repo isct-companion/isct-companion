@@ -20,10 +20,9 @@ import {
   type OtpImportAccount,
 } from "../platform/otp-import";
 import { QrCamera } from "./QrCamera";
-import { confirmAction } from "./confirm";
 import "./otp-setup-input.css";
 
-type SetupSource = "new" | "reset" | "import";
+type SetupSource = "new" | "import";
 
 function OtpSetupGuide({
   saved,
@@ -32,87 +31,35 @@ function OtpSetupGuide({
 }: {
   saved: boolean;
   disabled: boolean;
-  openSchoolSettings: (url: string) => void;
+  openSchoolSettings: (url: string, setupOtp?: boolean) => void;
 }) {
   // A saved app secret says nothing about registration on the school site.
   const [source, setSource] = useState<SetupSource | null>(
     saved ? null : "new",
   );
-  const [error, setError] = useState("");
-  const [checking, setChecking] = useState(false);
-  const active = useRef(true);
-  useEffect(() => {
-    active.current = true;
-    return () => {
-      active.current = false;
-    };
-  }, []);
   const settingsUrl = "https://isct.ex-tic.com/idm/user/mfa_setting/";
-  const helpSetUp = async () => {
-    if (!desktopBridge || checking) return;
-    setError("");
-    setChecking(true);
+  const helpSetUp = () => {
     setSource("new");
-    try {
-      const setup = await desktopBridge.schoolOtpSetup();
-      if (!active.current) return;
-      if (setup.registered) {
-        setSource("reset");
-        const reset = await confirmAction(
-          t(
-            "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. You must replace the school entry in every other authenticator with the new QR code or Secret key, and import it here too.",
-          ),
-          t("Continue to reset"),
-          { title: t("Reset school OTP?") },
-        );
-        if (!active.current || !reset) return;
-      }
-      openSchoolSettings(setup.url);
-    } catch (reason) {
-      if (!active.current) return;
-      if (
-        reason &&
-        typeof reason === "object" &&
-        "kind" in reason &&
-        reason.kind === "signInRequired"
-      ) {
-        setError(
-          t(
-            "Sign in to the school account settings, then return here and press Help me set up again.",
-          ),
-        );
-        openSchoolSettings(settingsUrl);
-      } else {
-        setError(
-          t(
-            "Could not check school OTP settings. Open school settings to sign in, then try again.",
-          ),
-        );
-      }
-    } finally {
-      if (active.current) setChecking(false);
-    }
+    openSchoolSettings(settingsUrl, true);
   };
   return (
     <Stack gap="xs" mt="xs">
       <Group gap="xs">
         <Button
           size="compact-xs"
-          loading={checking}
           disabled={disabled || !desktopBridge}
-          onClick={() => void helpSetUp()}
+          onClick={helpSetUp}
         >
           {t("Help me set up")}
         </Button>
         <Button
           variant={source === "import" ? "light" : "subtle"}
           size="compact-xs"
-          disabled={disabled || checking}
+          disabled={disabled}
           aria-expanded={source === "import"}
           aria-controls="school-otp-guide"
           onClick={() => {
             setSource(source === "import" ? null : "import");
-            setError("");
           }}
         >
           {t("Import from another app")}
@@ -147,21 +94,10 @@ function OtpSetupGuide({
             </>
           ) : (
             <>
-              {source === "reset" ? (
-                <Alert color="orange">
-                  {t(
-                    "Resetting replaces your school OTP setup. The old authenticator entry will stop working. Keep another working sign-in method available before removing App Authentication.",
-                  )}
-                </Alert>
-              ) : null}
               <Text size="sm">
-                {source === "reset"
-                  ? t(
-                      "1. Under App Authentication, press Remove. When it shows Unset, press Setup to register again.",
-                    )
-                  : t(
-                      "1. Press Help me set up to check the school registration. If it is Unset, the app opens App Authentication Settings; if it is Already Set, you can confirm a reset or import from another authenticator instead.",
-                    )}
+                {t(
+                  "1. Press Help me set up to open the school sign-in page. Sign in manually using an available method. After sign-in, the app continues to OTP settings and checks whether registration or a reset is needed.",
+                )}
               </Text>
               <Text size="sm">
                 {t(
@@ -189,11 +125,6 @@ function OtpSetupGuide({
               "Paste the Secret key or setup link here, not the changing six-digit code. Importing fills a draft; Connect saves it after you finish school verification.",
             )}
           </Text>
-          {error && (
-            <Alert color="red" role="alert">
-              {error}
-            </Alert>
-          )}
         </Stack>
       )}
     </Stack>
@@ -213,7 +144,7 @@ export function OtpSetupInput({
   disabled: boolean;
   onChange: (value: string) => void;
   onScanState: (scanning: boolean) => void;
-  openSchoolSettings: (url: string) => void;
+  openSchoolSettings: (url: string, setupOtp?: boolean) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const copiedTimeout = useTimeout(() => setCopied(false), 2000);

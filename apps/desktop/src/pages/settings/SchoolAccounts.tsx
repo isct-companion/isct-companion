@@ -440,7 +440,11 @@ function Account({
   setDraft: (draft: Draft) => void;
   refresh: () => Promise<void>;
   notify: (message: string) => void;
-  showLoginPage: (profile: SchoolAuthProfile, targetUrl?: string) => void;
+  showLoginPage: (
+    profile: SchoolAuthProfile,
+    targetUrl?: string,
+    setupOtp?: boolean,
+  ) => void;
   matrixOcrAvailable: boolean;
 }) {
   const [busy, setBusy] = useState(false);
@@ -681,7 +685,9 @@ function Account({
         {profile === "science" && (
           <OtpSetupInput
             value={draft.otpSecret}
-            openSchoolSettings={(url) => showLoginPage("science", url)}
+            openSchoolSettings={(url, setupOtp) =>
+              showLoginPage("science", url, setupOtp)
+            }
             saved={summary.hasOtp}
             disabled={busy}
             onScanState={setScanning}
@@ -734,7 +740,11 @@ export function SchoolAccounts({
   matrixOcrAvailable,
 }: {
   notify: (message: string) => void;
-  showLoginPage: (profile: SchoolAuthProfile, targetUrl?: string) => void;
+  showLoginPage: (
+    profile: SchoolAuthProfile,
+    targetUrl?: string,
+    setupOtp?: boolean,
+  ) => void;
   matrixOcrAvailable: boolean;
 }) {
   const [status, setStatus] = useState(emptyStatus);

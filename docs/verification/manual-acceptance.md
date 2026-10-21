@@ -137,7 +137,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/kyomu.rs |
 | `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
-| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/isct-core/src/school_auth/otp_setup.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
+| `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/isct-core/src/school_auth/otp_setup.rs<br>crates/isct-core/src/school_browser/engine/*.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
@@ -2622,7 +2622,7 @@ A packaged desktop app, a physical camera, and a disposable test TOTP QR on anot
 
 **Steps**
 
-1. In School accounts, press Help me set up using the real school session. For an Unset account, confirm the embedded browser opens App Authentication Settings. For an Already Set account, cancel the reset dialog once, then retry and continue; check its warning about updating every other authenticator and the return link to Settings. If signed out, sign in on the embedded school settings page and return to retry. Do not remove a real registration just to inspect the flow.
+1. Start signed out with no OTP saved locally and press Help me set up. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
    - *Why:* Confirms the live server markup and school WebView cookies work together; missing local OTP must not be treated as an unset school registration. The native browser must retain the settings draft and provide a way back. Scripted-host tests cover cancellation but cannot establish these real session and navigation facts.
 2. When registering or rotating OTP on an authorized test account, have the account owner perform the school-side change. On the school page, copy Show secret key into the app input or import its QR; add the same setup to the authenticator. Enter its code in Token and press Setup, then return and press Connect. For an existing setup, export only the school account from the authenticator and reimport without changing the school registration.
    - *Why:* A real school's registration and verification screen determines when the new setup becomes active. The two copies must agree before the app saves it; an offline fixture cannot prove registration or authenticator replacement.
@@ -2649,6 +2649,7 @@ Requires native camera permissions, optical input and an OS camera indicator in 
 
 - `apps/desktop/src/components/OtpSetupInput.tsx`
 - `crates/isct-core/src/school_auth/otp_setup.rs`
+- `crates/isct-core/src/school_browser/engine/*.rs`
 - `apps/desktop/src-tauri/src/commands/school_auth.rs`
 - `apps/desktop/src/components/QrCamera.tsx`
 - `apps/desktop/src/components/CameraPreview.tsx`

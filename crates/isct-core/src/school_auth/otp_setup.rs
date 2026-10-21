@@ -25,6 +25,10 @@ pub enum OtpSetupError {
     UnexpectedPage,
     #[error("Could not check school OTP settings. Try again.")]
     Unavailable,
+    #[error("OTP setup was cancelled.")]
+    Cancelled,
+    #[error("School sign-in took too long. Start OTP setup again.")]
+    TimedOut,
 }
 
 impl From<NetError> for OtpSetupError {

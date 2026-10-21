@@ -27,7 +27,7 @@ use chrono::{DateTime, Utc};
 /// The HTTP clients the executors read with. Built once, when the shell
 /// attaches its cookie port.
 pub(crate) struct Transport {
-    otp_setup: crate::school_auth::otp_setup::OtpSetupClient,
+    pub(super) otp_setup: crate::school_auth::otp_setup::OtpSetupClient,
     pub(crate) moodle: MoodleClient,
     pub(crate) kyomu: Arc<KyomuClient>,
 }
@@ -107,22 +107,11 @@ impl SchoolBrowserEngine {
         Ok(self.transport()?.kyomu.clone())
     }
 
-    fn transport(&self) -> Result<&Transport, SchoolBrowserError> {
+    pub(super) fn transport(&self) -> Result<&Transport, SchoolBrowserError> {
         self.0
             .transport
             .get()
             .ok_or_else(|| SchoolBrowserError::Platform("School transport is unavailable.".into()))
-    }
-
-    /// Reads only enrollment state, never the OTP secret or registration form.
-    pub async fn school_otp_setup(
-        &self,
-    ) -> Result<crate::school_auth::SchoolOtpSetup, crate::school_auth::OtpSetupError> {
-        self.transport()
-            .map_err(|_| crate::school_auth::OtpSetupError::Unavailable)?
-            .otp_setup
-            .read()
-            .await
     }
 
     /// Reads and commits one leased LMS key. `reader` is the transport the
