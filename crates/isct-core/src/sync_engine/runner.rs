@@ -916,10 +916,7 @@ impl SyncEngine {
                 return;
             }
         };
-        let school = self.school();
-        let school_attached = school.is_some();
-        let kyomu_browsing = school
-            .is_some_and(|school| school.browsing() == Some(SchoolSite::Kyomu));
+        let school_attached = self.school().is_some();
         let now = Utc::now();
         let instant = Instant::now();
         let mut state = guard(&self.0.state);
@@ -956,7 +953,6 @@ impl SyncEngine {
         }
         state.facts.resetting = state.closed > 0;
         state.facts.school_attached = school_attached;
-        state.facts.kyomu_browsing = kyomu_browsing;
         state.facts.paused.retain(|_, until| *until > now);
         let opens: Vec<View> = state.opens.keys().cloned().collect();
         let manual: HashMap<Key, Option<String>> = state
@@ -1125,29 +1121,15 @@ impl SyncEngine {
                     source: String::new(),
                 },
             },
-            Dataset::CatalogOfficial => match self.school() {
-                // The planner holds English reads while the person views
-                // 教務; one may have opened since.
-                Some(engine)
-                    if planner::japanese_key(&lease.key).is_some()
-                        && engine.browsing() == Some(SchoolSite::Kyomu) =>
-                {
-                    KeyEnd::Cancelled {
-                        source: String::new(),
-                    }
-                }
-                Some(engine) => match engine.kyomu_client() {
-                    Ok(client) => crate::catalog::read_official(&client, lease).await,
-                    Err(_) => KeyEnd::SignInRequired {
+            Dataset::CatalogOfficial => {
+                match self.school().and_then(|engine| engine.kyomu_client().ok()) {
+                    Some(client) => crate::catalog::read_official(&client, lease).await,
+                    None => KeyEnd::SignInRequired {
                         profile: SchoolAuthProfile::TokyoTech,
                         source: String::new(),
                     },
-                },
-                None => KeyEnd::SignInRequired {
-                    profile: SchoolAuthProfile::TokyoTech,
-                    source: String::new(),
-                },
-            },
+                }
+            }
             Dataset::Reference => {
                 crate::reference_refresh::read_reference(lease, &self.0.probes).await
             }

@@ -286,7 +286,7 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
 }
 
 #[test]
-fn english_catalog_keys_wait_for_their_japanese_rows_and_never_meet_a_visible_kyomu() {
+fn english_catalog_keys_wait_for_their_japanese_rows() {
     let department = planner::department_prefixes()[0].clone();
     let japanese = key(Dataset::CatalogOfficial, &format!("2026/{department}"));
     let english = key(Dataset::CatalogOfficial, &format!("2026/{department}/en"));
@@ -310,13 +310,6 @@ fn english_catalog_keys_wait_for_their_japanese_rows_and_never_meet_a_visible_ky
     inputs.states.insert(state_key, state);
     let english_read = find(&plan_now(&inputs, &facts()), &english).cloned().unwrap();
     assert_eq!(english_read.lane, Lane::Kyomu);
-    // Switching the session to English would reach the page the person is
-    // viewing.
-    let viewing = Facts {
-        kyomu_browsing: true,
-        ..facts()
-    };
-    assert!(find(&plan_now(&inputs, &viewing), &english).is_none());
     assert_eq!(planner::japanese_key(&english), Some(japanese.clone()));
     assert_eq!(planner::japanese_key(&japanese), None);
 }

@@ -138,9 +138,6 @@ pub(crate) struct Facts {
     pub(crate) signed_in: HashSet<SchoolAuthProfile>,
     /// Hosts the circuit breaker paused, until when.
     pub(crate) paused: HashMap<Host, DateTime<Utc>>,
-    /// The person is viewing 教務Web, whose session language an English
-    /// read would switch.
-    pub(crate) kyomu_browsing: bool,
 }
 
 impl Default for Facts {
@@ -154,7 +151,6 @@ impl Default for Facts {
             school_attached: false,
             signed_in: HashSet::new(),
             paused: HashMap::new(),
-            kyomu_browsing: false,
         }
     }
 }
@@ -667,15 +663,13 @@ pub(crate) fn plan(
                     .get(&Key::new(Dataset::LmsCourse, key.key.clone()))
                     .is_some_and(|state| state.fetched_at.is_some())
         })
-        // English names merge into rows the Japanese page stored, and the
-        // switch to English would reach a 教務 page the person is viewing.
+        // English names merge into rows the Japanese page stored.
         .filter(|(key, _)| {
             japanese_key(key).is_none_or(|japanese| {
-                !facts.kyomu_browsing
-                    && inputs
-                        .states
-                        .get(&japanese)
-                        .is_some_and(|state| state.fetched_at.is_some())
+                inputs
+                    .states
+                    .get(&japanese)
+                    .is_some_and(|state| state.fetched_at.is_some())
             })
         })
         .filter_map(|(key, watch)| {

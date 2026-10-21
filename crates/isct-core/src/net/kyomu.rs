@@ -7,7 +7,8 @@
 
 use crate::course_query::OfficialFilterOption;
 use crate::net::{
-    Body, Host, Http, KeyOutcome, Limits, NetError, NetRequest, SessionCookies, SignInGate,
+    sign_in::Session, Body, Host, Http, KeyOutcome, Limits, NetError, NetRequest, SessionCookies,
+    SignInGate,
 };
 use crate::school_auth::SchoolAuthProfile;
 use crate::school_parser::kyomu::{
@@ -43,12 +44,55 @@ pub struct CatalogRows {
     pub truncated: bool,
 }
 
-/// The language the school renders the course search in. The server keeps
-/// it per session, so the WebView sees the same language.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Language {
-    Japanese,
-    English,
+/// Cookies the server set for one detached 教務 session: its own ASP.NET
+/// session and language. Requests carry the WebView's sign-in cookies with
+/// these in place of the WebView's session cookies, and nothing the server
+/// sets is written back, so switching this session to English never reaches
+/// a 教務 page the person has open.
+#[derive(Default)]
+struct Detached(Mutex<Vec<(String, String)>>);
+
+/// Cookies a detached session never borrows from the WebView.
+const SESSION_COOKIES: [&str; 2] = ["ASP.NET_SessionId", "Language"];
+
+impl Detached {
+    fn cookies(&self) -> std::sync::MutexGuard<'_, Vec<(String, String)>> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The WebView's `Cookie` header for this session.
+    fn header(&self, shared: &str) -> String {
+        let own = self.cookies();
+        shared
+            .split("; ")
+            .filter(|pair| {
+                let name = pair.split('=').next().unwrap_or("");
+                !pair.is_empty()
+                    && !SESSION_COOKIES.contains(&name)
+                    && !own.iter().any(|(owned, _)| owned == name)
+            })
+            .map(str::to_owned)
+            .chain(own.iter().map(|(name, value)| format!("{name}={value}")))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    /// Keeps what the server set, for this session only.
+    fn store(&self, set_cookies: &[String]) {
+        let mut own = self.cookies();
+        for raw in set_cookies {
+            let Some((name, rest)) = raw.split_once('=') else {
+                continue;
+            };
+            let name = name.trim();
+            let value = rest.split(';').next().unwrap_or("").trim();
+            let expired = value.is_empty() || raw.to_ascii_lowercase().contains("max-age=0");
+            own.retain(|(owned, _)| owned != name);
+            if !expired {
+                own.push((name.to_owned(), value.to_owned()));
+            }
+        }
+    }
 }
 
 /// What the course search is asked for. Every field maps to a query
@@ -105,11 +149,6 @@ enum Fetched {
     SignedOut,
     /// A redirect within 教務Web.
     Redirected(u16),
-}
-
-enum Read<T> {
-    Done(T),
-    SignedOut,
 }
 
 fn invalid(error: impl std::fmt::Display) -> NetError {
@@ -181,17 +220,12 @@ impl KyomuClient {
         let url = kyomu::page_url(kind)
             .and_then(|url| Url::parse(&url).ok())
             .ok_or_else(|| NetError::Invalid(format!("Unknown 教務Web page: {kind}")))?;
-        let mut signed_in = false;
-        loop {
-            match self.read_page(&url).await? {
-                Read::Done(payload) => return Ok(KeyOutcome::Complete(payload)),
-                Read::SignedOut => {
-                    if !self.recover(&mut signed_in).await? {
-                        return Ok(KeyOutcome::SignInRequired);
-                    }
-                }
-            }
-        }
+        let url = &url;
+        let read = self
+            .sign_in
+            .signed_in(SchoolAuthProfile::TokyoTech, move || self.read_page(url))
+            .await?;
+        Ok(read.map_or(KeyOutcome::SignInRequired, KeyOutcome::Complete))
     }
 
     /// Whole-department official catalog: GET the search for one code
@@ -203,14 +237,13 @@ impl KyomuClient {
         year: u16,
         code_prefix: &str,
     ) -> Result<KeyOutcome<CatalogRows>, NetError> {
-        self.catalog_in(year, code_prefix, Language::Japanese).await
+        self.catalog_in(year, code_prefix, None).await
     }
 
-    /// The department's English titles and romanized instructors: switches
-    /// the session to English, reads the search as [`Self::catalog`] does
-    /// (rows in the `search::read_english` shape), and switches it back. A
-    /// session left in English (a failed switch back, a cancelled read) is
-    /// switched back by the next request that receives an English page.
+    /// The department's English titles and romanized instructors, read as
+    /// [`Self::catalog`] reads (rows in the `search::read_english` shape) in
+    /// a detached session switched to English. The WebView's own session,
+    /// and any 教務 page the person has open, stays as it is.
     pub async fn catalog_english(
         &self,
         year: u16,
@@ -223,35 +256,36 @@ impl KyomuClient {
                 ..CatalogSearch::default()
             },
         )?;
-        let mut signed_in = false;
-        loop {
-            match self.switch(&url, Language::English).await? {
-                Read::Done(()) => break,
-                Read::SignedOut => {
-                    if !self.recover(&mut signed_in).await? {
-                        return Ok(KeyOutcome::SignInRequired);
-                    }
-                }
-            }
+        let url = &url;
+        let started = self
+            .sign_in
+            .signed_in(SchoolAuthProfile::TokyoTech, move || async move {
+                let english = Detached::default();
+                Ok::<_, NetError>(match self.to_english(url, &english).await? {
+                    Session::Live(()) => Session::Live(english),
+                    Session::Gone => Session::Gone,
+                })
+            })
+            .await?;
+        match started {
+            Some(english) => self.catalog_in(year, code_prefix, Some(&english)).await,
+            None => Ok(KeyOutcome::SignInRequired),
         }
-        let read = self.catalog_in(year, code_prefix, Language::English).await;
-        if let Err(error) = self.switch(&url, Language::Japanese).await {
-            log::warn!(target: "isct_core::kyomu", "the 教務 session stays in English: {error}");
-        }
-        read
     }
 
+    /// `english` reads the English page in that detached session; `None`
+    /// reads the Japanese page in the WebView's session.
     async fn catalog_in(
         &self,
         year: u16,
         code_prefix: &str,
-        language: Language,
+        english: Option<&Detached>,
     ) -> Result<KeyOutcome<CatalogRows>, NetError> {
         let whole = CatalogSearch {
             code: code_prefix.into(),
             ..CatalogSearch::default()
         };
-        let first = match self.search_in(year, &whole, language).await? {
+        let first = match self.search_in(year, &whole, english).await? {
             KeyOutcome::Complete(rows) if rows.truncated => rows,
             other => return Ok(other),
         };
@@ -266,7 +300,7 @@ impl KyomuClient {
                 quarter,
                 ..whole.clone()
             };
-            let rows = match self.search_in(year, &part, language).await? {
+            let rows = match self.search_in(year, &part, english).await? {
                 KeyOutcome::Complete(rows) => rows,
                 other => return Ok(other),
             };
@@ -291,42 +325,38 @@ impl KyomuClient {
         year: u16,
         query: &CatalogSearch,
     ) -> Result<KeyOutcome<CatalogRows>, NetError> {
-        self.search_in(year, query, Language::Japanese).await
+        self.search_in(year, query, None).await
     }
 
     async fn search_in(
         &self,
         year: u16,
         query: &CatalogSearch,
-        language: Language,
+        english: Option<&Detached>,
     ) -> Result<KeyOutcome<CatalogRows>, NetError> {
-        let url = search_url(year, query)?;
-        let mut signed_in = false;
-        loop {
-            match self.read_search(year, &url, language).await? {
-                Read::Done(outcome) => return Ok(outcome),
-                Read::SignedOut => {
-                    if !self.recover(&mut signed_in).await? {
-                        return Ok(KeyOutcome::SignInRequired);
-                    }
-                }
-            }
-        }
+        let url = &search_url(year, query)?;
+        let read = self
+            .sign_in
+            .signed_in(SchoolAuthProfile::TokyoTech, move || {
+                self.read_search(year, url, english)
+            })
+            .await?;
+        Ok(read.unwrap_or(KeyOutcome::SignInRequired))
     }
 
-    async fn read_page(&self, url: &Url) -> Result<Read<KyomuPayload>, NetError> {
+    async fn read_page(&self, url: &Url) -> Result<Session<KyomuPayload>, NetError> {
         let html = match self
-            .fetch(Method::GET, url, MENU, Body::None, Limits::page())
+            .send(None, Method::GET, url, MENU, Body::None, Limits::page())
             .await?
         {
             Fetched::Html(html) => html,
-            Fetched::SignedOut => return Ok(Read::SignedOut),
+            Fetched::SignedOut => return Ok(Session::Gone),
             Fetched::Redirected(status) => return Err(NetError::Http(status)),
         };
         let payload = kyomu::extract_page(url.as_str(), &html);
         match payload.status.as_str() {
             "maintenance" => return Err(self.maintenance(payload.message)),
-            "login" => return Ok(Read::SignedOut),
+            "login" => return Ok(Session::Gone),
             _ => {}
         }
         // The same trust boundary every 教務 payload has always passed:
@@ -335,9 +365,9 @@ impl KyomuClient {
         match kyomu::parse_payload(&raw).map_err(invalid)? {
             (KyomuStage::Ready | KyomuStage::Unavailable, Some(payload)) => {
                 self.clear_notice();
-                Ok(Read::Done(payload))
+                Ok(Session::Live(payload))
             }
-            (KyomuStage::ReconnectRequired, _) => Ok(Read::SignedOut),
+            (KyomuStage::ReconnectRequired, _) => Ok(Session::Gone),
             _ => Err(NetError::Invalid("kyomu extraction was incomplete".into())),
         }
     }
@@ -346,28 +376,26 @@ impl KyomuClient {
         &self,
         year: u16,
         url: &Url,
-        language: Language,
-    ) -> Result<Read<KeyOutcome<CatalogRows>>, NetError> {
-        let parse = match language {
-            Language::Japanese => search::read_search,
-            Language::English => search::read_english,
+        english: Option<&Detached>,
+    ) -> Result<Session<KeyOutcome<CatalogRows>>, NetError> {
+        let parse = match english {
+            None => search::read_search,
+            Some(_) => search::read_english,
         };
-        // A read in English must not switch the session back first.
-        let english = language == Language::English;
         let fetched_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let html = match self
-            .fetch_as(english, Method::GET, url, MENU, Body::None, Limits::page())
+            .send(english, Method::GET, url, MENU, Body::None, Limits::page())
             .await?
         {
             Fetched::Html(html) => html,
-            Fetched::SignedOut => return Ok(Read::SignedOut),
+            Fetched::SignedOut => return Ok(Session::Gone),
             Fetched::Redirected(status) => return Err(NetError::Http(status)),
         };
         let read = match parse(&html, true, &fetched_at).map_err(invalid)? {
             SearchRead::Expand(fields) => {
                 // A 1000-row page is about 3 MB.
                 let html = match self
-                    .fetch_as(
+                    .send(
                         english,
                         Method::POST,
                         url,
@@ -378,7 +406,7 @@ impl KyomuClient {
                     .await?
                 {
                     Fetched::Html(html) => html,
-                    Fetched::SignedOut => return Ok(Read::SignedOut),
+                    Fetched::SignedOut => return Ok(Session::Gone),
                     Fetched::Redirected(status) => return Err(NetError::Http(status)),
                 };
                 parse(&html, false, &fetched_at).map_err(invalid)?
@@ -400,52 +428,35 @@ impl KyomuClient {
             .iter()
             .any(|course| course["year"].as_u64() != Some(u64::from(year)))
         {
-            return Ok(Read::Done(KeyOutcome::Unavailable(YEAR_NOT_OFFERED)));
+            return Ok(Session::Live(KeyOutcome::Unavailable(YEAR_NOT_OFFERED)));
         }
-        Ok(Read::Done(KeyOutcome::Complete(CatalogRows {
+        Ok(Session::Live(KeyOutcome::Complete(CatalogRows {
             courses: results.courses,
             search_options: results.options,
             truncated: results.truncated,
         })))
     }
 
-    /// Switches the session to `language` with the header postback on the
-    /// page at `url`.
-    async fn switch(&self, url: &Url, language: Language) -> Result<Read<()>, NetError> {
-        match self
-            .send(Method::GET, url, MENU, Body::None, Limits::page())
+    /// Starts the detached session `english` on the page at `url` and posts
+    /// its header link to English (`ctl00$ToEnglish`).
+    async fn to_english(&self, url: &Url, english: &Detached) -> Result<Session<()>, NetError> {
+        let html = match self
+            .send(Some(english), Method::GET, url, MENU, Body::None, Limits::page())
             .await?
         {
-            Fetched::Html(html) => self.switch_on(url, &html, language).await,
-            Fetched::SignedOut => Ok(Read::SignedOut),
-            Fetched::Redirected(status) => Err(NetError::Http(status)),
-        }
-    }
-
-    /// Posts the header link of `language` on `html`, the page at `url`. A
-    /// page that offers only the other link is already in `language`.
-    async fn switch_on(
-        &self,
-        url: &Url,
-        html: &str,
-        language: Language,
-    ) -> Result<Read<()>, NetError> {
-        let (target, other) = match language {
-            Language::English => (search::TO_ENGLISH, search::TO_JAPANESE),
-            Language::Japanese => (search::TO_JAPANESE, search::TO_ENGLISH),
+            Fetched::Html(html) => html,
+            Fetched::SignedOut => return Ok(Session::Gone),
+            Fetched::Redirected(status) => return Err(NetError::Http(status)),
         };
-        let Some(fields) = search::language_postback(html, target) else {
-            return if search::language_postback(html, other).is_some() {
-                Ok(Read::Done(()))
-            } else {
-                Err(NetError::Invalid(
-                    "The 教務Web language links changed.".into(),
-                ))
-            };
+        let Some(fields) = search::language_postback(&html, search::TO_ENGLISH) else {
+            return Err(NetError::Invalid(
+                "The 教務Web language links changed.".into(),
+            ));
         };
         // The postback answers with the page again or a redirect to it.
         match self
             .send(
+                Some(english),
                 Method::POST,
                 url,
                 url.as_str(),
@@ -454,57 +465,16 @@ impl KyomuClient {
             )
             .await?
         {
-            Fetched::SignedOut => Ok(Read::SignedOut),
-            Fetched::Html(_) | Fetched::Redirected(_) => Ok(Read::Done(())),
+            Fetched::SignedOut => Ok(Session::Gone),
+            Fetched::Html(_) | Fetched::Redirected(_) => Ok(Session::Live(())),
         }
     }
 
-    /// One request with the WebView's 教務 cookies. An English page (it
-    /// offers the link back to Japanese) means the session was left in
-    /// English: it is switched back and the request sent again, so the
-    /// person's 教務 pages stay Japanese.
-    async fn fetch(
-        &self,
-        method: Method,
-        url: &Url,
-        referer: &str,
-        body: Body,
-        limits: Limits,
-    ) -> Result<Fetched, NetError> {
-        let fetched = self
-            .send(method.clone(), url, referer, body.clone(), limits)
-            .await?;
-        let Fetched::Html(html) = &fetched else {
-            return Ok(fetched);
-        };
-        if !html.contains(search::TO_JAPANESE) {
-            return Ok(fetched);
-        }
-        match self.switch_on(url, html, Language::Japanese).await? {
-            Read::Done(()) => self.send(method, url, referer, body, limits).await,
-            Read::SignedOut => Ok(Fetched::SignedOut),
-        }
-    }
-
-    /// [`Self::fetch`], or a plain [`Self::send`] for a read in English.
-    async fn fetch_as(
-        &self,
-        english: bool,
-        method: Method,
-        url: &Url,
-        referer: &str,
-        body: Body,
-        limits: Limits,
-    ) -> Result<Fetched, NetError> {
-        if english {
-            return self.send(method, url, referer, body, limits).await;
-        }
-        self.fetch(method, url, referer, body, limits).await
-    }
-
-    /// One request with the WebView's 教務 cookies; never follows redirects.
+    /// One request with the WebView's 教務 cookies, or with those of the
+    /// detached session `detached`; never follows redirects.
     async fn send(
         &self,
+        detached: Option<&Detached>,
         method: Method,
         url: &Url,
         referer: &str,
@@ -512,7 +482,7 @@ impl KyomuClient {
         limits: Limits,
     ) -> Result<Fetched, NetError> {
         let cookie = match self.cookies.cookie_header(url).await {
-            Ok(cookie) => cookie,
+            Ok(cookie) => detached.map_or(cookie.clone(), |detached| detached.header(&cookie)),
             Err(NetError::SignInRequired) => return Ok(Fetched::SignedOut),
             Err(error) => return Err(error),
         };
@@ -529,9 +499,14 @@ impl KyomuClient {
             .await?;
         // ASP.NET and GetAccess may rotate or clear cookies on any answer,
         // the expiry redirect included; the WebView must see the same jar.
+        // A detached session keeps what it is sent to itself.
         let set_cookies = response.set_cookies();
-        if !set_cookies.is_empty() {
-            self.cookies.store_set_cookies(url, &set_cookies).await?;
+        match detached {
+            Some(detached) => detached.store(&set_cookies),
+            None if !set_cookies.is_empty() => {
+                self.cookies.store_set_cookies(url, &set_cookies).await?
+            }
+            None => {}
         }
         match classify(response.status, response.location().as_deref()) {
             Reply::Page => Ok(Fetched::Html(response.text()?)),
@@ -540,21 +515,6 @@ impl KyomuClient {
                 Ok(Fetched::Redirected(status))
             }
             Reply::Unexpected(status) => Err(NetError::Http(status)),
-        }
-    }
-
-    /// The session expired: run (or join) the WebView sign-in once, then the
-    /// caller retries the whole read. `false` when it already did, or no
-    /// saved sign-in can run.
-    async fn recover(&self, signed_in: &mut bool) -> Result<bool, NetError> {
-        if *signed_in {
-            return Ok(false);
-        }
-        *signed_in = true;
-        match self.sign_in.ensure(SchoolAuthProfile::TokyoTech).await {
-            Ok(()) => Ok(true),
-            Err(NetError::SignInRequired) => Ok(false),
-            Err(error) => Err(error),
         }
     }
 

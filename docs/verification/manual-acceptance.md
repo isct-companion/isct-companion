@@ -1631,12 +1631,10 @@ course on the timetable and its LMS course synced.
    - *Why:* It shows the 教務 department of the offering now that no syllabus
      detail is read.
 4. Set Settings → content language to English, open 教務Web in the app
-   and stay on one of its pages for a minute, then leave it and open the
-   course search.
-   - *Why:* The English page is read by switching the shared 教務 session to
-     English. While the person views 教務 that switch must not happen, so
-     the open page must stay Japanese; once it is left, the search fills
-     in English titles and instructor names.
+   and keep browsing it while the course search fills in English titles.
+   - *Why:* The English page is read in a detached session of its own. If its
+     language switch leaked into the WebView's session, the open 教務
+     pages would turn English.
 5. Sign out of TokyoTech (Settings → accounts), clear the school cache
    and open the course search.
    - *Why:* Without a 教務 session there is no catalog; the finder must say so
@@ -1645,7 +1643,7 @@ course on the timetable and its LMS course synced.
 **Where to look**
 
 The course page, the LMS reader and the course search panel; the 教務Web
-page in the app while English names are pending; the finder empty state.
+pages in the app while English names arrive; the finder empty state.
 
 **Expected**
 
@@ -1658,8 +1656,8 @@ when signed out.
 **Why this is manual**
 
 Framing is decided by the live school site, and the English page and the
-session language need a real 教務 session; the URL and the planner rule
-that holds English reads are tested in Core. Which panel shows what is a
+detached session need a real 教務 sign-in; the URL and the planner rule
+for English keys are tested in Core. Which panel shows what is a
 glance check (AGENTS.md §5).
 
 **Covers**

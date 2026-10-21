@@ -271,10 +271,9 @@ pub fn read_english(
     }))
 }
 
-/// The header language links (`ctl00$ToEnglish`, `ctl00$ToJapanese`)
-/// switch the server session's language for every later page.
+/// The header link that switches a session's language to English for
+/// every later page.
 pub(crate) const TO_ENGLISH: &str = "ctl00$ToEnglish";
-pub(crate) const TO_JAPANESE: &str = "ctl00$ToJapanese";
 
 /// The form post that runs the page's `target` postback (a LinkButton's
 /// `__doPostBack` or `WebForm_DoPostBackWithOptions`, or a submit input named
