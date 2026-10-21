@@ -517,7 +517,7 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
         }
     }
     let mut encoded = Cursor::new(Vec::new());
-    card()
+    alternating_matrix()
         .write_to(&mut encoded, image::ImageFormat::Jpeg)
         .unwrap();
     let service = MatrixOcrService::default();
