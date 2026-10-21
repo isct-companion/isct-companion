@@ -17,7 +17,6 @@ export type SyncMeta = {
 export type SourceProvider =
   | "sample"
   | "school"
-  | "syllabus"
   | "lms"
   | "kyomu"
   | "manual"
@@ -220,30 +219,27 @@ export type ScheduleEntry =
   | { kind: "tba"; room: Localized | null }
   | { kind: "registration-only"; room: Localized | null };
 
-export type ClassFormat = { kinds: Array<string>; delivery?: string };
+export type ClassFormat = { kinds: Array<string> };
+
+export type OfficialListing = { department: string };
 
 export type Offering = {
   year: number;
   quarters: Array<Quarter>;
   code: string;
   sourceKey?: string;
-  classCode?: string;
   unitCode?: string;
   title: Localized;
   instructors: Array<Localized>;
   instructionLanguage: InstructionLanguage;
   format: ClassFormat;
-  media: Localized;
-  classLabel?: string;
   credits: CreditSplit;
   schedule: Array<ScheduleEntry>;
-  academicUnit: Localized;
   intensive: boolean;
   syllabusUrl: string;
-  sourceUpdated?: string;
-  fetchedAt: Localized;
   lastSeenAt?: string;
   missingSince?: string;
+  kyomu?: OfficialListing;
   id: string;
   rev: number;
   updatedAt: string;
@@ -684,16 +680,6 @@ export type Workspace = {
   logs?: Array<WorkspaceLog>;
   importStatus: ImportStatus;
   syncStatus: SyncStatus;
-};
-
-export type CatalogSearchItem = {
-  id: string;
-  year: number;
-  code: string;
-  title: Localized;
-  instructors: Array<Localized>;
-  quarters: Array<Quarter>;
-  syllabusUrl: string;
 };
 
 export type IntegerPolicy = { default: number; min: number; max: number };
@@ -1737,7 +1723,6 @@ export type FinderCourse = {
   schedule: Array<FinderSchedule>;
   unitCode?: string;
   syllabusUrl: string;
-  detailed?: boolean;
 };
 
 export type FinderSchedule = {
@@ -1835,7 +1820,6 @@ export type FinderView = {
   pastedIds: Array<string>;
   missingCodes: Array<string>;
   ineligibleCodes: Array<string>;
-  detailIds: Array<string>;
 };
 
 export type MatrixPoint = { x: number; y: number };

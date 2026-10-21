@@ -437,8 +437,8 @@ impl Session {
     /// One wake from the OS background scheduler (iOS BGAppRefreshTask,
     /// Android WorkManager), sent while the app is out of front. Core
     /// resumes, runs one `wake`, reads what may be read in the background
-    /// (LMS deadlines and assignment states over the token, references and
-    /// catalog packs; nothing that needs the school WebView) and waits for
+    /// (LMS deadlines and assignment states over the token, and references;
+    /// nothing that needs the school WebView) and waits for
     /// those reads at most `budget_seconds`. It then suspends again unless
     /// the app came to the front. Cancel it when the OS ends the task early.
     pub fn background_wake(&self, budget_seconds: u32) -> Result<Arc<Operation>, SdkError> {

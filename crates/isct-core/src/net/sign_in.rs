@@ -18,6 +18,12 @@ pub trait SignIn: Send + Sync {
     fn sign_in<'a>(&'a self, profile: SchoolAuthProfile) -> BoxFuture<'a, Result<(), NetError>>;
 }
 
+/// What one read found: its value, or a school session that is gone.
+pub(crate) enum Session<T> {
+    Live(T),
+    Gone,
+}
+
 type Flight = Shared<BoxFuture<'static, Result<(), NetError>>>;
 
 struct Gate {
@@ -68,5 +74,31 @@ impl SignInGate {
             flights.remove(&profile);
         }
         result
+    }
+
+    /// Runs `read`; when the session is gone, signs in once (or joins the
+    /// sign-in already running) and reads again. `None` when the session is
+    /// still gone or no saved sign-in can run.
+    pub(crate) async fn signed_in<T, E, Fut>(
+        &self,
+        profile: SchoolAuthProfile,
+        mut read: impl FnMut() -> Fut,
+    ) -> Result<Option<T>, E>
+    where
+        E: From<NetError>,
+        Fut: std::future::Future<Output = Result<Session<T>, E>>,
+    {
+        if let Session::Live(value) = read().await? {
+            return Ok(Some(value));
+        }
+        match self.ensure(profile).await {
+            Ok(()) => {}
+            Err(NetError::SignInRequired) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+        Ok(match read().await? {
+            Session::Live(value) => Some(value),
+            Session::Gone => None,
+        })
     }
 }

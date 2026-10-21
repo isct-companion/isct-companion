@@ -1,4 +1,4 @@
-use crate::data::{resolve_course_id, versioned::content_hash, DataError};
+use crate::data::{canonical_course_id, versioned::content_hash, DataError};
 use chrono::{Datelike, NaiveDate, NaiveTime, Utc};
 use reqwest::{Client, Url};
 use rusqlite::{OptionalExtension, Transaction};
@@ -1462,13 +1462,7 @@ pub fn apply_exam_feed(
         object.insert("academicYear".into(), published.feed.academic_year.into());
         object.insert("level".into(), published.level.clone().into());
         if let Some(offering_id) = entry.syllabus_course_id.as_deref() {
-            let course_id = resolve_course_id(
-                tx,
-                "syllabus",
-                offering_id,
-                published.feed.academic_year,
-                Some(offering_id),
-            )?;
+            let course_id = canonical_course_id(published.feed.academic_year, offering_id)?;
             object.insert("courseId".into(), course_id.into());
         }
         object.insert(

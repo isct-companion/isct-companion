@@ -27,7 +27,6 @@ pub struct CourseDetail {
 }
 
 const LMS_HOST: &str = "lms.s.isct.ac.jp";
-const SYLLABUS: &str = "https://syllabus.s.isct.ac.jp/";
 
 fn lms_url(workspace: &Value, course: &Value) -> Option<String> {
     let provider = course.pointer("/source/provider").and_then(Value::as_str);
@@ -70,23 +69,19 @@ pub(super) fn lms_record<'a>(workspace: &'a Value, course: &Value) -> Option<&'a
     })
 }
 
+/// The course's シラバス page in the content language, from its offering or
+/// a シラバス link the course or its materials carry.
 fn syllabus_url(workspace: &Value, course: &Value, materials: &[&Value]) -> Option<String> {
-    let offering = text(course, "offeringId");
-    array(workspace, "offerings")
-        .iter()
-        .find(|row| offering.is_some() && text(row, "id") == offering)
-        .and_then(|row| text(row, "syllabusUrl"))
-        .filter(|url| !url.is_empty())
-        .or_else(|| text(course, "url").filter(|url| url.starts_with(SYLLABUS)))
+    let linked = || {
+        std::iter::once(text(course, "url"))
+            .chain(materials.iter().map(|row| text(row, "resourceUrl")))
+            .flatten()
+            .find_map(crate::catalog::syllabus_offering)
+    };
+    text(course, "offeringId")
         .map(str::to_owned)
-        .or_else(|| offering.map(|id| format!("{SYLLABUS}courses/-/-/-/{id}")))
-        .or_else(|| {
-            materials
-                .iter()
-                .filter_map(|row| text(row, "resourceUrl"))
-                .find(|url| url.starts_with(SYLLABUS))
-                .map(str::to_owned)
-        })
+        .or_else(linked)
+        .map(|id| crate::catalog::syllabus_url(&id, super::content_language(workspace)))
 }
 
 pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {

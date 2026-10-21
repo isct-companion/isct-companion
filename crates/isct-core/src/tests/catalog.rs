@@ -1,94 +1,59 @@
 use super::*;
 use serde_json::json;
-#[tokio::test]
-async fn cached_bilingual_details_preserve_wire_and_do_not_fetch() {
-    let root = std::env::temp_dir().join(format!("isct-catalog-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
+#[test]
+fn english_names_from_the_english_page_survive_japanese_rereads() {
+    let japanese = json!({"id":"202602431","year":2026,"quarters":["3Q"],"code":"CSC.T273",
+        "title":{"ja":"オブジェクト指向プログラミング"},"instructors":[{"ja":"山田 太郎"},{"ja":"鈴木 花子"}],
+        "instructionLanguage":"ja","format":{"kinds":["lecture"]},"media":{},
+        "credits":{"lecture":1,"exercise":1,"lab":0},
+        "schedule":[{"kind":"weekly","day":1,"periods":[3,4],"room":{"ja":"M-B07"}}],
+        "academicUnit":{},"intensive":false,
+        "syllabusUrl":crate::catalog::syllabus_url("202602431", "ja"),"fetchedAt":{},
+        "kyomu":{"department":"情報工学系","group":"C","mark":"recommended","fetchedAt":"2026-10-16T00:00:00Z"}});
+    let english = json!({"id":"202602431","year":2026,"title":{"en":"Object-Oriented Programming"},
+        "instructors":[{"en":"Yamada Taro"},{"en":"Suzuki Hanako"}]});
+    let unknown = json!({"id":"202699999","year":2026,"title":{"en":"Not stored"},"instructors":[]});
+    let root = std::env::temp_dir().join(format!("isct-source-{}", uuid::Uuid::new_v4()));
     let store = data::DataStore::initialize_dir(root.clone()).unwrap().0;
-    let now = chrono::Utc::now().to_rfc3339();
-    let value = json!({
-        "id":"202602431", "year":2026, "quarters":["3Q"], "code":"TEST.1",
-        "title":{"en":"Test"}, "instructors":[], "instructionLanguage":"en",
-        "format":{"kinds":[]}, "media":{}, "credits":{"lecture":2,"exercise":0,"lab":0},
-        "schedule":[], "academicUnit":{}, "intensive":false,
-        "syllabusUrl":"https://example.invalid/202602431", "fetchedAt":{"ja":now,"en":now}
-    });
-    let content = ["ja","en"].map(|lang| json!({"offeringId":"202602431","lang":lang,"content":{
-            "schemaVersion":1,"sourceUrl":"https://example.invalid/202602431","sourceLanguage":lang,
-            "fetchedAt":now,"sourceUpdated":null,"metadata":[],"sections":[],"lecturePlan":[],"competencies":[]
-        }}));
-    let key = detail_key("202602431");
-    let read_at = Utc::now();
-    store
-        .catalog_store_detail(
-            &value,
-            &content,
-            &RunRecord {
-                run: "seed",
-                key: &key,
-                account: "",
-                started_at: read_at,
-                finished_at: read_at,
-                outcome: RunOutcome::Complete,
-                changed: 3,
-                requests: None,
-                bytes: None,
-                source: "example.invalid/202602431",
-                error_kind: None,
-            },
-        )
-        .unwrap();
-    // Served from the store: example.invalid is never reached.
-    let course = syllabus_course(&store, "202602431", "en").await.unwrap();
-    assert!(course.is_object());
+    let merge_english = |rows: &[serde_json::Value]| {
+        store
+            .write(None, |transaction| {
+                data::DataStore::catalog_merge_english_in(transaction, rows)
+            })
+            .unwrap()
+    };
+    // English before the Japanese row exists adds nothing.
+    assert_eq!(merge_english(std::slice::from_ref(&english)), 0);
+    store.catalog_upsert_offerings(std::slice::from_ref(&japanese)).unwrap();
+    assert_eq!(merge_english(&[english.clone(), unknown]), 1);
+    // The Japanese page read again keeps the English names, and a changed
+    // instructor list drops the name it no longer matches.
+    let mut reread = japanese.clone();
+    reread["instructors"] = json!([{"ja":"山田 太郎"},{"ja":"田中 一郎"}]);
+    store.catalog_upsert_offerings(&[reread]).unwrap();
+    let merged = store.catalog_offering("202602431").unwrap().unwrap();
+    assert_eq!(merged["schedule"], japanese["schedule"]);
+    assert_eq!(merged["title"]["ja"], japanese["title"]["ja"]);
+    assert_eq!(merged["title"]["en"], "Object-Oriented Programming");
+    assert_eq!(
+        merged["instructors"],
+        json!([{"ja":"山田 太郎","en":"Yamada Taro"},{"ja":"田中 一郎"}])
+    );
+    assert_eq!(merged["unitCode"], "342300");
     assert_eq!(offerings(&store, 2026).unwrap().len(), 1);
     assert!(offerings(&store, 2025).unwrap().is_empty());
+    let planned = crate::workspace::planned_catalog_course(
+        &merged,
+        "planned",
+        "2026-3Q",
+        "en",
+        &crate::schedule::default_teaching_periods(),
+    )
+    .unwrap();
+    assert_eq!(planned["source"]["provider"], "kyomu");
+    assert_eq!(planned["title"], "Object-Oriented Programming");
+    assert_eq!(planned["meetings"][0]["room"], "M-B07");
     std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn official_delivery_facts_survive_syllabus_enrichment_in_both_arrival_orders() {
-    let syllabus = json!({"id":"202602431","year":2026,"quarters":["3Q"],"code":"CSC.T273",
-        "title":{"ja":"Old name","en":"Object-Oriented Programming"},"instructors":[{"en":"Teacher"}],
-        "instructionLanguage":"en","format":{"kinds":["lecture"]},"media":{},
-        "credits":{"lecture":2,"exercise":0,"lab":0},"schedule":[{"kind":"weekly","day":5,"periods":[5,6],"room":{"en":"Old room"}}],
-        "academicUnit":{},"intensive":false,"syllabusUrl":"https://syllabus.s.isct.ac.jp/courses?jwc=202602431","fetchedAt":{}});
-    let mut official = syllabus.clone();
-    official["title"] = json!({"ja":"オブジェクト指向プログラミング"});
-    official["credits"] = json!({"lecture":1,"exercise":1,"lab":0});
-    official["schedule"] = json!([{"kind":"weekly","day":1,"periods":[3,4],"room":{"ja":"M-B07"}}]);
-    official["kyomu"] = json!({"department":"情報工学系","group":"C","mark":"recommended","fetchedAt":"2026-10-16T00:00:00Z"});
-    for first_official in [false, true] {
-        let root = std::env::temp_dir().join(format!("isct-source-{}", uuid::Uuid::new_v4()));
-        let store = data::DataStore::initialize_dir(root).unwrap().0;
-        let rows = if first_official {
-            vec![official.clone(), syllabus.clone()]
-        } else {
-            vec![syllabus.clone(), official.clone()]
-        };
-        for row in rows {
-            store.catalog_upsert_offerings(&[row]).unwrap();
-        }
-        store
-            .catalog_upsert_offerings(std::slice::from_ref(&syllabus))
-            .unwrap();
-        let merged = store.catalog_offering("202602431").unwrap().unwrap();
-        assert_eq!(merged["schedule"], official["schedule"]);
-        assert_eq!(merged["credits"], official["credits"]);
-        assert_eq!(merged["title"]["ja"], official["title"]["ja"]);
-        assert_eq!(merged["title"]["en"], syllabus["title"]["en"]);
-        assert_eq!(merged["unitCode"], "342300");
-        let planned = crate::workspace::planned_catalog_course(
-            &merged,
-            "planned",
-            "2026-3Q",
-            "ja",
-            &crate::schedule::default_teaching_periods(),
-        )
-        .unwrap();
-        assert_eq!(planned["source"]["provider"], "kyomu");
-        assert_eq!(planned["meetings"][0]["room"], "M-B07");
-    }
 }
 
 #[test]

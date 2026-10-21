@@ -513,36 +513,10 @@
   .lmsImageCard [data-image-src][data-state="loading"] { animation: none; }
 }
 
-/* ---------- Syllabus as a document in the reader ----------
-   Facts first as a compact grid, then each part read straight through under
-   a quiet heading; the lesson plan marks where the course is. */
-.syllabusDocument { max-width: 78ch; margin: 0 auto; font-size: 14px; line-height: 1.8; }
-.syllabusDocument .syllabusStatus { color: var(--muted); font-size: 13px; }
-.syllabusFacts {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 24px;
-  margin: 0 0 8px; padding: 0 0 22px; border-bottom: 1px solid var(--line);
-}
-.syllabusFacts > div { min-width: 0; }
-.syllabusFacts dt { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .02em; }
-.syllabusFacts dd { margin: 2px 0 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
-.syllabusPart { padding: 22px 0 4px; }
-.syllabusPart + .syllabusPart { border-top: 1px solid var(--line); }
-.syllabusPart > h3 { margin: 0 0 8px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
-.syllabusDocument .syllabusProse { max-width: none; padding: 0; }
-.syllabusDocument .syllabusProse p { margin: 0 0 8px; font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
-.syllabusDocument .syllabusProse h4 { margin: 14px 0 4px; font-size: 13px; font-weight: 600; }
-.syllabusDocument .syllabusItem { position: relative; padding-left: 14px; }
-.syllabusDocument .syllabusItem::before { content: ""; position: absolute; left: 2px; top: .8em; width: 4px; height: 4px; border-radius: 50%; background: var(--line-strong); }
-.syllabusPlan { margin: 0; padding: 0; list-style: none; }
-.syllabusPlan > li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 8px 8px 8px 6px; border-radius: var(--lms-radius-sm); }
-.syllabusPlan p { margin: 0; font-size: 13.5px; line-height: 1.6; }
-.syllabusPlanNo { color: var(--muted); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-.syllabusPlan > li.held .syllabusPlanNo, .syllabusPlan > li.held p { color: var(--muted); }
-.syllabusPlan > li.current { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-.syllabusPlan > li.current .syllabusPlanNo { color: var(--accent); }
-.syllabusDocument .syllabusObjective { color: var(--muted); font-size: 12.5px; }
-.syllabusTags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.syllabusTags > li { padding: 3px 9px; border-radius: 6px; background: var(--surface-3); color: var(--ink); font-size: 12px; }
+/* ---------- Syllabus: the school's page, inside the reader ---------- */
+.lmsSyllabus { display: flex; flex-direction: column; height: 100%; }
+.lmsSyllabus .syllabusFrame { flex: 1; }
+.lmsSyllabus .syllabusFrame iframe { flex: 1; height: auto; }
 .lmsRefresh[aria-pressed="true"] { background: var(--accent-soft); }
 
 @container workspace (max-width: 520px) {

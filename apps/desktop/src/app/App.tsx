@@ -513,11 +513,6 @@ export function WorkspaceApp() {
       ? { kind: "finder", year: finderYear }
       : null,
   );
-  useOpenHint(
-    page === "timetable" && offeringPanel
-      ? { kind: "offering", offeringId: offeringPanel.id }
-      : null,
-  );
   // A 教務Web read that lands may settle a semester's physics group.
   const kyomuUpdated =
     sync.sources.find((source) => source.source === "kyomu")?.lastUpdated ??
@@ -1358,15 +1353,6 @@ export function WorkspaceApp() {
           teachingPeriods={resolvedTeachingPeriods(
             data.academicProfile.teachingPeriods,
           )}
-          fetchSyllabus={
-            nativeCapabilities?.syllabusSearch === true && desktopBridge
-              ? (url) =>
-                  desktopBridge!.syllabusCourse(
-                    url,
-                    contentLanguage(data.settings),
-                  )
-              : undefined
-          }
           term={courseEditor.term}
           onTimetable={
             courseEditor.course

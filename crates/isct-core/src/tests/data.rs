@@ -188,22 +188,6 @@ fn keeps_a_resolved_folder_listing_once_and_reads_it_back() {
 }
 
 #[test]
-fn summary_metadata_keeps_other_search_languages() {
-    let mut summary = json!({
-        "title": {"en": "Assembly Language"},
-        "instructors": [{"en": "Teacher"}]
-    });
-    let search = json!({
-        "title": {"ja": "アセンブリ言語", "en": "Old English"},
-        "instructors": [{"ja": "教員", "en": "Old Teacher"}]
-    });
-    fill_missing(&mut summary, &search);
-    assert_eq!(summary["title"]["en"], "Assembly Language");
-    assert_eq!(summary["title"]["ja"], "アセンブリ言語");
-    assert_eq!(summary["instructors"][0]["ja"], "教員");
-}
-
-#[test]
 fn current_term_uses_profile_then_calendar_then_selected_term() {
     let date = chrono::NaiveDate::from_ymd_opt(2026, 6, 4).unwrap();
     let profile = json!({
@@ -393,19 +377,10 @@ fn course_identity_is_shared_by_every_provider() {
     let mut connection = store.test_connection();
     let transaction = connection.transaction().unwrap();
     let lms = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
-    let syllabus = resolve_course_id(
-        &transaction,
-        "syllabus",
-        "202602440",
-        2026,
-        Some("202602440"),
-    )
-    .unwrap();
     let kyomu =
         resolve_course_id(&transaction, "kyomu", "202602440", 2026, Some("202602440")).unwrap();
     transaction.commit().unwrap();
     assert_eq!(lms, "2026-202602440");
-    assert_eq!(syllabus, lms);
     assert_eq!(kyomu, lms);
     let rows: i64 = store
         .open()
@@ -416,41 +391,7 @@ fn course_identity_is_shared_by_every_provider() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(rows, 3);
-    let _ = fs::remove_dir_all(store.directory());
-}
-
-#[test]
-fn catalog_list_includes_search_rows_until_details_replace_them() {
-    let store = store("catalog-search-fallback");
-    store.catalog_upsert_search_items(&[json!({
-            "id":"202602427", "year":2026, "code":"CSC.T263",
-            "title":{"en":"Assembly Language"}, "instructors":[],
-            "quarters":["3Q"], "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/CSC.T263/202602427"
-        })]).unwrap();
-    let rows = store.catalog_search("").unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0]["id"], "202602427");
-    assert_eq!(rows[0]["detailed"], Value::Null);
-
-    let now = chrono::Utc::now().to_rfc3339();
-    store
-        .catalog_upsert_offerings(&[json!({
-            "id":"202602427", "year":2026, "quarters":["3Q"], "code":"CSC.T263",
-            "title":{"en":"Assembly Language"}, "instructors":[], "instructionLanguage":"en",
-            "format":{"kinds":[]}, "media":{}, "credits":{"lecture":2,"exercise":0,"lab":0},
-            "schedule":[], "academicUnit":{}, "intensive":false,
-            "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/2026/CSC.T263/202602427",
-            "fetchedAt":{"ja":now,"en":now}
-        })])
-        .unwrap();
-    let rows = store.catalog_search("").unwrap();
-    assert_eq!(
-        rows.len(),
-        1,
-        "the detailed offering replaces its search row"
-    );
-    assert_eq!(rows[0]["instructionLanguage"], "en");
+    assert_eq!(rows, 2);
     let _ = fs::remove_dir_all(store.directory());
 }
 

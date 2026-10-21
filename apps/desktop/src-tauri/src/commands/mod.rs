@@ -1,6 +1,5 @@
 pub(crate) mod agent;
 pub(crate) mod backup;
-pub(crate) mod catalog;
 pub(crate) mod cloud;
 pub(crate) mod notifications;
 pub(crate) mod platform;

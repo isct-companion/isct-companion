@@ -134,7 +134,6 @@ function finderView(
     pastedIds: [],
     missingCodes: [],
     ineligibleCodes: [],
-    detailIds: [],
   };
 }
 
@@ -195,7 +194,7 @@ async function enablePlanning(
 ): Promise<HTMLInputElement> {
   const input = await required(
     () => app.host.querySelector<HTMLInputElement>("#course-finder-input"),
-    "the syllabus search input",
+    "the course search input",
   );
   if (focus) await act(async () => input.focus());
   return input;
@@ -542,7 +541,7 @@ describe("the course planner", () => {
     });
   });
 
-  it("shows syllabus results on the right and places an eligible course when its row Add is clicked", async () => {
+  it("shows course search results on the right and places an eligible course when its row Add is clicked", async () => {
     app = await mountApp(
       {
         revision: freshRevision(),
@@ -1324,7 +1323,7 @@ type PublicCourse = {
   language: string;
   meetings: Course["meetings"];
   url: string;
-  content: { fetchedAt: string; sourceUrl: string };
+  fetchedAt: string;
 };
 type OfficialDepartments = {
   admissionYear: number;
@@ -1350,7 +1349,7 @@ type OfficialDepartments = {
 const parsedCourses = () =>
   JSON.parse(
     readRepoFile(
-      "crates/isct-core/tests/fixtures/syllabus/course-examples-parsed.json",
+      "crates/isct-core/tests/fixtures/catalog/course-examples.json",
     ),
   ) as PublicCourse[];
 const departments = (year: 2025 | 2026) =>
@@ -1405,10 +1404,10 @@ describe("the committed school fixtures", () => {
     workspace.academicProfile.admissionYear = 2026;
     workspace.settings.departmentId = "cs";
     const course = {
-      id: `syllabus:${source.externalId}`,
+      id: `kyomu:${source.externalId}`,
       rev: 1,
-      updatedAt: source.content.fetchedAt,
-      updatedBy: "public-syllabus-fixture",
+      updatedAt: source.fetchedAt,
+      updatedBy: "catalog-fixture",
       kind: "course",
       termId: "2026-2Q",
       code: source.code,
@@ -1421,9 +1420,9 @@ describe("the committed school fixtures", () => {
       meetings: source.meetings,
       url: source.url,
       source: {
-        provider: "syllabus",
+        provider: "kyomu",
         externalId: source.externalId,
-        fetchedAt: source.content.fetchedAt,
+        fetchedAt: source.fetchedAt,
       },
     } as Course;
     workspace.courses = [course];
