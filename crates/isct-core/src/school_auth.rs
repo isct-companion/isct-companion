@@ -1,5 +1,7 @@
 mod otp_import;
+pub(crate) mod otp_setup;
 pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
+pub use otp_setup::{OtpSetupError, SchoolOtpSetup};
 
 use crate::lifecycle::SchoolSite;
 use crate::ports::{SecretError, SecretVault};

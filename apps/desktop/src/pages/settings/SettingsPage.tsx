@@ -104,7 +104,7 @@ export function Settings({
   section: Section;
   setSection: (s: Section) => void;
   notify: (s: string) => void;
-  showLoginPage: (profile: SchoolAuthProfile) => void;
+  showLoginPage: (profile: SchoolAuthProfile, targetUrl?: string) => void;
   runScheduledTask?: (task: ScheduledTask) => Promise<string>;
   /** Whether reference data can be checked now (the desktop app). */
   refreshReferences?: boolean;

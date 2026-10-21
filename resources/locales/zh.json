@@ -1542,5 +1542,17 @@
   "2. Import the new QR code here using Scan QR or Select image, and add the same QR code to your authenticator. When resetting, replace its old school entry with the new one.": "2. 在本应用中扫描或选择新二维码图片，并将同一二维码导入验证器。重新设置时，将验证器中的学校旧配置替换为新配置。",
   "3. Complete verification on the school page with a code from the new authenticator entry. After the school confirms registration, press Connect here to save this setup.": "3. 使用验证器新配置生成的验证码，完成学校页面上的验证。学校确认注册成功后，在本应用点击「连接」保存配置。",
   "Could not open school settings. Try again.": "无法打开学校设置，请重试。",
-  "School settings are unavailable.": "学校设置暂不可用。"
+  "School settings are unavailable.": "学校设置暂不可用。",
+  "Help me set up": "帮我设置",
+  "Continue to reset": "继续重新设置",
+  "Reset school OTP?": "重新设置学校 OTP？",
+  "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. You must replace the school entry in every other authenticator with the new QR code or Secret key, and import it here too.": "学校已注册 App Authentication，是否重新设置？旧 OTP 配置将失效。你需要用新二维码或 Secret key 替换其他所有验证器中的学校旧配置，并将新配置导入本应用。",
+  "Sign in to the school account settings, then return here and press Help me set up again.": "请先在学校账号设置页面登录，然后返回这里再次点击「帮我设置」。",
+  "Could not check school OTP settings. Open school settings to sign in, then try again.": "无法读取学校 OTP 状态。请打开学校验证设置确认已登录，再重试。",
+  "Importing keeps the same school OTP setup. If your authenticator cannot export it, press Help me set up to check the school registration and reset it.": "重新导入沿用学校现有的 OTP 配置。如果验证器无法导出，请点击「帮我设置」，检查学校注册状态并重新设置。",
+  "1. Under App Authentication, press Remove. When it shows Unset, press Setup to register again.": "1. 在 App Authentication 下点击 Remove；显示 Unset 后，点击 Setup 重新注册。",
+  "1. Press Help me set up to check the school registration. If it is Unset, the app opens App Authentication Settings; if it is Already Set, you can confirm a reset or import from another authenticator instead.": "1. 点击「帮我设置」检查学校注册状态。未设置时会打开 App Authentication Settings；已设置时可确认重新设置，或从其他验证器导入。",
+  "2. On the school page, open Show secret key and press Copy, then paste the Secret key above. You can also scan or import the QR image. Add the same setup to your authenticator, replacing its old school entry when resetting.": "2. 在学校页面展开 Show secret key，点击 Copy，将 Secret key 粘贴到上方；也可以扫描或导入二维码图片。将同一配置加入验证器；重新设置时替换验证器中的学校旧配置。",
+  "3. Enter the current six-digit code from the new authenticator entry in Token on the school page and press Setup. Once registration succeeds, return here and press Connect to save this setup.": "3. 将验证器新配置生成的当前六位验证码填入学校页面的 Token，点击 Setup。注册成功后返回本应用，点击「连接」保存配置。",
+  "Paste the Secret key or setup link here, not the changing six-digit code. Importing fills a draft; Connect saves it after you finish school verification.": "这里填写 Secret key 或设置链接，不是不断变化的六位验证码。导入后仅填入草稿；完成学校验证后，点击「连接」保存。"
 }

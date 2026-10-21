@@ -4,12 +4,7 @@ import { CalendarView } from "../pages/today/CalendarView";
 import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
-import {
-  refresh,
-  syncAvailable,
-  useOpenHint,
-  useSync,
-} from "./useSync";
+import { refresh, syncAvailable, useOpenHint, useSync } from "./useSync";
 import { pageProgress, runsFor } from "../platform/sync";
 import { useAnimatedNavigate } from "./navigation";
 import { SchoolStatusLine } from "./SchoolStatusLine";
@@ -50,11 +45,7 @@ import { UiButton } from "../components/mantine";
 import { confirmAction } from "../components/confirm";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
-import {
-  desktopBridge,
-  hideNativeSchoolWeb,
-  saveExportFile,
-} from "./native";
+import { desktopBridge, hideNativeSchoolWeb, saveExportFile } from "./native";
 import { jstDate, type Page, type Section } from "./shared";
 
 import { Today } from "../pages/today/TodayPage";
@@ -292,7 +283,7 @@ export function WorkspaceApp() {
   const pagePath = (next: Page) =>
     pageLocations.current[next] ?? paths.page(next);
   const [webContext, setWebContext] = useState<{
-    page: "home" | "lectures";
+    page: "home" | "lectures" | "settings";
     label: string;
     url: string;
     request: number;
@@ -374,12 +365,7 @@ export function WorkspaceApp() {
       courses: sourceData.courses,
     });
     if (target) void navigate(target, { replace: true });
-  }, [
-    location.pathname,
-    location.search,
-    sourceData?.courses,
-    navigate,
-  ]);
+  }, [location.pathname, location.search, sourceData?.courses, navigate]);
   const [courseEditor, setCourseEditor] = useState<{
     course?: Course;
     term: TermId;
@@ -408,9 +394,7 @@ export function WorkspaceApp() {
   const finderView = useFinderQuery(
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
-    Boolean(
-      overview.value && page === "timetable" && finderActive,
-    ),
+    Boolean(overview.value && page === "timetable" && finderActive),
   );
   const finderEdits = useFinderEditQueue({
     year: finderYear,
@@ -845,8 +829,7 @@ export function WorkspaceApp() {
               }
               refresh={
                 canSync && record
-                  ? () =>
-                      refresh({ kind: "course", lmsCourseId: record.lmsId })
+                  ? () => refresh({ kind: "course", lmsCourseId: record.lmsId })
                   : undefined
               }
               progress={
@@ -1225,7 +1208,17 @@ export function WorkspaceApp() {
       }
       refreshReferences={syncAvailable()}
       matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
-      showLoginPage={(profile) => {
+      showLoginPage={(profile, targetUrl) => {
+        if (targetUrl) {
+          setWebContext({
+            page: "settings",
+            label: navigation.settings,
+            url: targetUrl,
+            request: Date.now(),
+          });
+          void navigate(paths.web());
+          return;
+        }
         sessionStorage.setItem(
           "isct-companion-active-school-site",
           profile === "science" ? "science-portal" : "tokyo-portal",
@@ -1487,9 +1480,7 @@ export function WorkspaceApp() {
             <i aria-hidden="true" />
             <span>
               <b>Science Tokyo</b>
-              <small>
-                {sessionStatusLabel(scienceSession)}
-              </small>
+              <small>{sessionStatusLabel(scienceSession)}</small>
             </span>
           </span>
           <span
@@ -1499,9 +1490,7 @@ export function WorkspaceApp() {
             <i aria-hidden="true" />
             <span>
               <b>TokyoTech</b>
-              <small>
-                {sessionStatusLabel(tokyoTechSession)}
-              </small>
+              <small>{sessionStatusLabel(tokyoTechSession)}</small>
             </span>
           </span>
         </div>

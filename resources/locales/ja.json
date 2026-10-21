@@ -1542,5 +1542,17 @@
   "2. Import the new QR code here using Scan QR or Select image, and add the same QR code to your authenticator. When resetting, replace its old school entry with the new one.": "2. 新しいQRコードをこのアプリでスキャンまたは画像から読み取り、同じQRコードを認証アプリにも登録します。再設定時は大学の古い登録を新しいものに置き換えてください。",
   "3. Complete verification on the school page with a code from the new authenticator entry. After the school confirms registration, press Connect here to save this setup.": "3. 認証アプリの新しい登録で生成したコードを大学のページに入力して認証を完了します。大学側で登録が完了したら、このアプリの「接続」で設定を保存してください。",
   "Could not open school settings. Try again.": "大学の設定を開けませんでした。もう一度お試しください。",
-  "School settings are unavailable.": "大学の設定を開けません。"
+  "School settings are unavailable.": "大学の設定を開けません。",
+  "Help me set up": "設定を手伝う",
+  "Continue to reset": "再設定に進む",
+  "Reset school OTP?": "大学の OTP を再設定しますか？",
+  "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. You must replace the school entry in every other authenticator with the new QR code or Secret key, and import it here too.": "大学では App Authentication が登録済みです。再設定しますか？古い OTP 設定は使えなくなります。他のすべての認証アプリでも、新しいQRコードまたは Secret key で大学の登録を置き換え、このアプリにも読み込んでください。",
+  "Sign in to the school account settings, then return here and press Help me set up again.": "大学のアカウント設定にログインしてから、ここに戻ってもう一度「設定を手伝う」を押してください。",
+  "Could not check school OTP settings. Open school settings to sign in, then try again.": "大学の OTP 登録状態を確認できませんでした。大学の認証設定でログインを確認してから、もう一度お試しください。",
+  "Importing keeps the same school OTP setup. If your authenticator cannot export it, press Help me set up to check the school registration and reset it.": "インポートでは大学の既存の OTP 設定を使います。エクスポートできない場合は「設定を手伝う」で大学の登録状態を確認し、再設定してください。",
+  "1. Under App Authentication, press Remove. When it shows Unset, press Setup to register again.": "1. App Authentication の Remove を押します。Unset と表示されたら Setup で再登録します。",
+  "1. Press Help me set up to check the school registration. If it is Unset, the app opens App Authentication Settings; if it is Already Set, you can confirm a reset or import from another authenticator instead.": "1. 「設定を手伝う」で大学の登録状態を確認します。Unset なら App Authentication Settings を開き、Already Set なら再設定を確認するか他の認証アプリからインポートできます。",
+  "2. On the school page, open Show secret key and press Copy, then paste the Secret key above. You can also scan or import the QR image. Add the same setup to your authenticator, replacing its old school entry when resetting.": "2. 大学のページで Show secret key を開き、Copy でコピーした Secret key を上に貼り付けます。QRコードのスキャンや画像読み込みも使えます。同じ設定を認証アプリに登録し、再設定時は古い大学の登録を置き換えてください。",
+  "3. Enter the current six-digit code from the new authenticator entry in Token on the school page and press Setup. Once registration succeeds, return here and press Connect to save this setup.": "3. 認証アプリの新しい登録で生成した現在の6桁コードを大学のページの Token に入力し、Setup を押します。登録に成功したら、このアプリに戻り「接続」で保存します。",
+  "Paste the Secret key or setup link here, not the changing six-digit code. Importing fills a draft; Connect saves it after you finish school verification.": "ここには変化する6桁コードではなく Secret key または設定リンクを入力します。読み込んだ内容は下書きです。大学側の認証を完了してから「接続」で保存してください。"
 }

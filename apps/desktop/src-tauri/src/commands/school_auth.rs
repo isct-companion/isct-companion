@@ -23,6 +23,21 @@ async fn with_credentials<T: Send + 'static>(
 }
 
 #[tauri::command]
+pub(crate) async fn school_otp_setup(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+) -> Result<isct_core::school_auth::SchoolOtpSetup, isct_core::school_auth::OtpSetupError> {
+    use isct_core::school_auth::OtpSetupError;
+    require_local_main(&webview).map_err(|_| OtpSetupError::Unavailable)?;
+    let engine = controller.engine.clone();
+    crate::core_ports::runtime(&app)
+        .run(async move { engine.school_otp_setup().await })
+        .await
+        .map_err(|_| OtpSetupError::Unavailable)?
+}
+
+#[tauri::command]
 pub(crate) async fn school_credential_status(
     webview: tauri::Webview,
     service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,

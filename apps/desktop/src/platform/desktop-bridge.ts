@@ -9,13 +9,10 @@ import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type {
   SchoolPageAvailability,
+  SchoolOtpSetup,
   WorkspaceChange,
 } from "../generated/persistence";
-import {
-  isSyncSnapshot,
-  type SyncHint,
-  type SyncSnapshot,
-} from "./sync";
+import { isSyncSnapshot, type SyncHint, type SyncSnapshot } from "./sync";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop";
@@ -386,6 +383,7 @@ export interface DesktopBridge {
     callback: (event: WorkspaceChangedEvent) => void,
   ): Promise<() => void>;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
+  schoolOtpSetup(): Promise<SchoolOtpSetup>;
   saveSchoolCredentials(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -613,6 +611,7 @@ export function createTauriDesktopBridge(
       return () => quietly(unlisten);
     },
     schoolCredentialStatus: () => result("school_credential_status"),
+    schoolOtpSetup: () => result("school_otp_setup"),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();

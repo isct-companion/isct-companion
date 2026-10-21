@@ -212,6 +212,55 @@ function cardButtons(card: HTMLElement): (string | undefined)[] {
 }
 
 describe("School accounts", () => {
+  it.each([false, true])(
+    "checks school OTP enrollment and gates an existing registration behind confirmation (%s)",
+    async (registered) => {
+      const url = registered
+        ? "https://isct.ex-tic.com/idm/user/mfa_setting/"
+        : "https://isct.ex-tic.com/idm/user/totp_setting/add";
+      const mounted = await mountAccounts({
+        capabilities: { schoolWeb: true },
+        handle: (command, args) => {
+          if (command === "school_otp_setup") return { registered, url };
+          if (
+            [
+              "configure_school_web_policy",
+              "set_school_web_bounds",
+              "hide_school_web",
+              "set_school_web_zoom",
+            ].includes(command)
+          )
+            return true;
+          if (command === "resolve_school_url")
+            return { site: "science-portal", url: args.url };
+          if (command === "open_school_site")
+            return { site: "science-portal", url, phase: "pageLoaded" };
+          return undefined;
+        },
+      });
+      await clickButton(account(mounted, "science"), "Help me set up");
+      if (registered) {
+        const dialog = await wait(() => openDialog());
+        expect(dialog.textContent).toContain("every other authenticator");
+        expect(mounted.core.commands("resolve_school_url")).toHaveLength(0);
+        await answerDialog("Cancel");
+        expect(mounted.core.commands("resolve_school_url")).toHaveLength(0);
+        await clickButton(account(mounted, "science"), "Help me set up");
+        await answerDialog("Continue to reset");
+      }
+      await wait(() =>
+        expect(
+          mounted.core.commands("resolve_school_url").at(-1)?.args,
+        ).toMatchObject({ url }),
+      );
+      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      expect(mounted.core.commands("delete_school_credentials")).toHaveLength(
+        0,
+      );
+    },
+    TIMEOUT,
+  );
+
   it(
     "imports a selected QR account into the draft and saves only on Connect",
     async () => {

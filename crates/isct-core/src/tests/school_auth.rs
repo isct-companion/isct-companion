@@ -2,6 +2,34 @@ use super::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+/// Enrollment is scoped to App Authentication: an enabled email factor or
+/// a login/error page must never be mistaken for an unset app factor.
+#[test]
+fn otp_registration_discovery_is_scoped_and_rejects_unknown_pages() {
+    let page = |app: &str| {
+        format!(
+            "<div class='form-group'><label for='appAuth'>App Authentication</label>{app}</div>\
+         <div class='form-group'><label for='mailAuth'>Email Authentication</label>\
+         <button class='btn-danger'>Remove</button></div>"
+        )
+    };
+    assert!(!otp_setup::registration_state(&page(
+        "<button onclick=\"doGet('../totp_setting/add')\">Setup</button>"
+    ))
+    .unwrap());
+    assert!(
+        otp_setup::registration_state(&page("<button class='btn-danger'>Remove</button>")).unwrap()
+    );
+    for html in [
+        "<form><input type='password'></form>".to_string(),
+        page("<p>Unknown</p>"),
+        page("<button onclick=\"doGet('../totp_setting/add')\">Setup</button><button class='btn-danger'>Remove</button>"),
+        format!("{}{}", page(""), page("")),
+    ] {
+        assert!(matches!(otp_setup::registration_state(&html), Err(OtpSetupError::UnexpectedPage)));
+    }
+}
+
 #[derive(Clone, Default)]
 struct MemoryVault(Arc<Mutex<HashMap<String, String>>>);
 
