@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 68 checks must be re-run before the next release.**
+**7 of 69 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**59 checks have never been run or could not be run:**
+**60 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -59,6 +59,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-PHYSICS-PAIR` — never verified
 - `SCHOOL-OFFICIAL-COURSE-PAGES` — never verified
 - `DESKTOP-WINDOWS-UPDATES` — never verified
+- `DESKTOP-DEV-BUILD-UPDATES` — never verified
 - `DESKTOP-WINDOWS-SCHOOL-PULL` — never verified
 - `DESKTOP-WINDOWS-SIGNED-INSTALL` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
@@ -132,6 +133,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs<br>crates/isct-core/src/school_parser/kyomu/pages.rs<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/isct-core/src/app_updates.rs |
+| `DESKTOP-DEV-BUILD-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs |
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/kyomu.rs |
 | `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
@@ -2447,6 +2449,42 @@ Needs a signed release on GitHub, a Windows PC, a real slow or broken network, a
 - `apps/desktop/src/app/useDesktopUpdates.ts`
 - `apps/desktop/src/pages/settings/AboutSettings.tsx`
 - `crates/isct-core/src/app_updates.rs`
+
+**Last recorded** never run
+
+### A dev build does not offer to roll back to the release it was built on (`DESKTOP-DEV-BUILD-UPDATES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+`yarn desktop:dev` from a checkout whose package version equals the latest
+published release, with Automatic updates previously turned on.
+
+**Steps**
+
+1. Open Settings > About and press Check for updates.
+   - *Why:* The dev version `x.y.z-dev.<stamp>` sorted below release `x.y.z`, so the dev app offered the older release as an update.
+
+**Where to look**
+
+Settings > About, the App updates and Automatic updates rows.
+
+**Expected**
+
+"You're up to date · v<release>", no download button, and the Automatic
+updates toggle disabled with "Automatic installation requires an
+update-enabled build." (a `tauri dev` binary is never replaced).
+
+**Why this is manual**
+
+Needs the real dev shell talking to the published GitHub release; the version ordering itself is covered in Core.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/desktop_updates.rs`
 
 **Last recorded** never run
 
