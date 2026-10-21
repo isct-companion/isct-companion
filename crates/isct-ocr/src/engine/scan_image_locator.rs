@@ -321,7 +321,7 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
     // orientation even when the photo is tilted or quarter-turned.
     let stripes = stripe_candidates(&gray);
     if stripes.is_empty() {
-        return None;
+        return locate_from_gray_grid(&gray);
     }
     let mut candidates = Vec::new();
     for stripe in stripes {
@@ -374,7 +374,9 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
     }
 
     candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
-    let winner = candidates.into_iter().next()?;
+    let Some(winner) = candidates.into_iter().next() else {
+        return locate_from_gray_grid(&gray);
+    };
     // The two measured outside edges are retained as independent metadata.
     // Only the matrix body quadrilateral determines the 70 cell selections.
     let cells = refine_grid_cells(&gray, &winner.body);
@@ -382,6 +384,178 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
         cells,
         edges: winner.edges,
     })
+}
+
+/// A grayscale-only compatibility path for clean cards whose left label
+/// background is uniform instead of alternating. It measures the header and
+/// the eight visible horizontal body seams; the feature-first label detector
+/// remains authoritative when those labels are present.
+fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
+    let mut candidates = Vec::new();
+    for turn in 0..4 {
+        let rotated = match turn {
+            0 => image.clone(),
+            1 => image::imageops::rotate90(image),
+            2 => image::imageops::rotate180(image),
+            _ => image::imageops::rotate270(image),
+        };
+        for band in header_bands(&rotated) {
+            let Some(threshold) = header_grid_threshold(&rotated, band) else {
+                continue;
+            };
+            let mut lines = horizontal_grid_lines(&rotated, band, threshold);
+            let body_edges = match lines.len() {
+                7 => {
+                    let mut edges = vec![band.bottom as f64];
+                    edges.append(&mut lines);
+                    edges
+                }
+                8 => lines,
+                _ => continue,
+            };
+            let pitches = body_edges
+                .windows(2)
+                .map(|pair| pair[1] - pair[0])
+                .collect::<Vec<_>>();
+            let smallest = pitches.iter().copied().fold(f64::INFINITY, f64::min);
+            let largest = pitches.iter().copied().fold(0., f64::max);
+            if smallest < 4. || largest / smallest > 1.8 {
+                continue;
+            }
+            let body = [
+                geometry::Point {
+                    x: band.left,
+                    y: body_edges[0],
+                },
+                geometry::Point {
+                    x: band.right,
+                    y: body_edges[0],
+                },
+                geometry::Point {
+                    x: band.right,
+                    y: body_edges[ROWS],
+                },
+                geometry::Point {
+                    x: band.left,
+                    y: body_edges[ROWS],
+                },
+            ];
+            let edges = AnchorEdges {
+                header_top: Some([
+                    geometry::Point {
+                        x: band.left,
+                        y: band.top as f64,
+                    },
+                    geometry::Point {
+                        x: band.right,
+                        y: band.top as f64,
+                    },
+                ]),
+                labels_left: None,
+                body_top: Some([body[0], body[1]]),
+                body_left: Some([body[0], body[3]]),
+            };
+            let Some(mut candidate) = score_candidate(&rotated, body, edges) else {
+                continue;
+            };
+            let (vertical, horizontal) = grid_support(&rotated, &body);
+            if vertical < 0.45 || horizontal < 0.45 {
+                continue;
+            }
+            candidate.score += vertical + horizontal;
+            candidates.push((candidate, turn));
+        }
+    }
+    let (candidate, turn) = candidates
+        .into_iter()
+        .max_by(|a, b| a.0.score.total_cmp(&b.0.score))?;
+    let rotated = image_for_turn(image, turn);
+    let cells = refine_grid_cells(&rotated, &candidate.body)
+        .into_iter()
+        .map(|cell| cell.map(|point| unrotate_quarter(point, turn, image.dimensions())))
+        .collect();
+    Some(LocatedGrid {
+        cells,
+        edges: map_edges(candidate.edges, |point| {
+            unrotate_quarter(point, turn, image.dimensions())
+        }),
+    })
+}
+
+fn image_for_turn(image: &GrayImage, turn: usize) -> GrayImage {
+    match turn {
+        0 => image.clone(),
+        1 => image::imageops::rotate90(image),
+        2 => image::imageops::rotate180(image),
+        _ => image::imageops::rotate270(image),
+    }
+}
+
+fn unrotate_quarter(point: geometry::Point, turn: usize, original: (u32, u32)) -> geometry::Point {
+    let (width, height) = (original.0 as f64 - 1., original.1 as f64 - 1.);
+    match turn {
+        0 => point,
+        1 => geometry::Point {
+            x: point.y,
+            y: height - point.x,
+        },
+        2 => geometry::Point {
+            x: width - point.x,
+            y: height - point.y,
+        },
+        _ => geometry::Point {
+            x: width - point.y,
+            y: point.x,
+        },
+    }
+}
+
+fn header_grid_threshold(image: &GrayImage, band: Band) -> Option<u8> {
+    let header_y = (band.top + band.bottom) as f64 * 0.5;
+    let paper_y = (band.bottom + 4) as f64;
+    let values = (0..10)
+        .filter_map(|index| {
+            let x = band.left + (band.right - band.left) * (index as f64 + 0.5) / 10.;
+            Some((
+                sample(image, geometry::Point { x, y: header_y })?,
+                sample(image, geometry::Point { x, y: paper_y })?,
+            ))
+        })
+        .collect::<Vec<_>>();
+    if values.len() < 6 {
+        return None;
+    }
+    let header = median(values.iter().map(|pair| pair.0).collect());
+    let paper = median(values.iter().map(|pair| pair.1).collect());
+    (paper - header >= 25.).then_some(((header + paper) * 0.5).clamp(60., 180.) as u8)
+}
+
+fn horizontal_grid_lines(image: &GrayImage, band: Band, threshold: u8) -> Vec<f64> {
+    let left = band.left.round().max(0.) as u32;
+    let right = band.right.round().min((image.width() - 1) as f64) as u32;
+    if right <= left + 24 {
+        return Vec::new();
+    }
+    let width = (right - left + 1) as f64;
+    let mut lines = Vec::new();
+    let mut start = None;
+    let mut last = 0;
+    for y in band.bottom.saturating_add(1)..image.height() {
+        let dark = (left..=right)
+            .filter(|&x| image.get_pixel(x, y)[0] <= threshold)
+            .count() as f64
+            / width;
+        if dark >= 0.55 {
+            start.get_or_insert(y);
+            last = y;
+        } else if let Some(first) = start.take() {
+            lines.push((first as f64 + last as f64) * 0.5);
+        }
+    }
+    if let Some(first) = start {
+        lines.push((first as f64 + last as f64) * 0.5);
+    }
+    lines
 }
 
 fn map_edges(
