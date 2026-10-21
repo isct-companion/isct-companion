@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Paper } from "@mantine/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { UiButton } from "../../components/mantine";
 import {
@@ -11,15 +11,12 @@ import {
   type Suggestion,
 } from "../../lib/course-query";
 import { pickLocalized, type Lang, type TermId } from "../../lib/model";
-import {
-  finderQuery,
-  useFinderQuery,
-  type FinderAction,
-  type FinderView,
-} from "../../platform/finder-query";
+import type { FinderRowView } from "../../platform/finder-query";
+import type { CourseEligibility } from "../../generated/persistence";
 import { runsFor } from "../../platform/sync";
 import { useSync } from "../../app/useSync";
 import { t } from "../../i18n";
+import type { Finder } from "./useFinder";
 
 const TAG: Partial<Record<Condition["type"], string>> = {
   quarter: "Quarter",
@@ -65,14 +62,49 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-const RENDER_BATCH = 100;
 const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
+
+function eligibilityLabel(eligibility: CourseEligibility | undefined) {
+  switch (eligibility?.reason) {
+    case "undergraduateFirstYearUpperLevel":
+      return t("Not available to regular first-year undergraduate students");
+    case "masterFirstSemesterHumanitiesUpperLevel":
+      return t("Available to master's students from their second semester");
+    case "graduateCourseApprovalRequired":
+      return t(
+        "Course approval after the research proposal presentation must be confirmed",
+      );
+    case "leadershipWorkshopGradeRequired":
+      return t("A Leadership Workshop grade of 80 or higher must be confirmed");
+    case "doctoralFirstSemesterGenerallyRestricted":
+      return t(
+        "Generally unavailable during the first six months; confirm any exception",
+      );
+    case "doctoralFirstSemesterRestricted":
+      return t("Not available during the first six months of doctoral study");
+    case "separateApplicationRequired":
+      return t("A separate course application must be confirmed");
+    case "ruleYearUnsupported":
+      return t("This rule is not yet verified for the selected academic year");
+    default:
+      return undefined;
+  }
+}
+const unavailable = (row: FinderRowView) =>
+  row.eligibility?.status === "ineligible";
+const unavailableLabel = (row: FinderRowView) =>
+  eligibilityLabel(row.eligibility) ??
+  t("Not available for this study profile");
+
+/** An add or undo the row shows before Core confirms it. `after` is the
+ * last request sent when it settled; a page sent later is authoritative. */
+type Mark = { placed: boolean; saving: boolean; after: number };
 
 /**
  * Browser-address-bar style course search: type, pick a suggestion, conditions become
  * pills. Same kind = or, different kinds = and, "!" excludes. Clicking a timetable slot
- * toggles a time condition (wired by the parent through `keys`).
+ * toggles a time condition through the shared `finder`.
  */
 export function CourseFinder({
   year,
@@ -80,9 +112,7 @@ export function CourseFinder({
   enabled,
   activate,
   language,
-  keys,
-  edit,
-  replaceKeys,
+  finder,
   add,
   undo,
   manual,
@@ -96,14 +126,12 @@ export function CourseFinder({
   enabled: boolean;
   activate: () => void;
   language: Lang;
-  keys: string[];
-  edit: (action: FinderAction) => Promise<FinderView | undefined>;
-  replaceKeys: (keys: string[] | ((current: string[]) => string[])) => void;
+  finder: Finder;
   add: (courses: FinderCourse[]) => Promise<unknown>;
   undo: (courses: FinderCourse[]) => Promise<unknown>;
   manual?: () => void;
   /** Shows a result's syllabus details (over the timetable). */
-  openCourse?: (course: FinderCourse) => void;
+  openCourse?: (row: FinderRowView) => void;
   /** The result whose details are open. */
   activeId?: string;
   readOnly?: boolean;
@@ -111,21 +139,21 @@ export function CourseFinder({
   summary?: string;
 }) {
   const [error, setError] = useState("");
-  const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [selected, setSelected] = useState<Map<string, FinderRowView>>(
+    () => new Map(),
+  );
   const [lastAdded, setLastAdded] = useState<FinderCourse[] | null>(null);
+  const [marks, setMarks] = useState<Map<string, Mark>>(() => new Map());
   const [mutating, setMutating] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const [showUnavailable, setShowUnavailable] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => setShowUnavailable(false), [year, term]);
+  const composing = useRef(false);
+  const input = finder.input;
 
   // Search is local only. Core's planner downloads the year's catalog
-  // (`catalog.official`); while it runs, the query is re-read when it lands.
+  // (`catalog.official`); the finder re-reads it when it lands.
   const sync = useSync();
   const catalogRuns = runsFor(sync, ["catalog.official"], String(year));
   // The catalog is the 教務 course search: it waits for a 教務 sign-in.
@@ -133,16 +161,6 @@ export function CourseFinder({
     (run) => run.held?.kind === "sign-in-required",
   );
   const downloading = catalogRuns.some((run) => !run.failure && !run.held);
-  // Catalog rows commit without a workspace revision, so each finished
-  // download is its own refresh key; a boolean would reuse the empty answer
-  // cached before the download began.
-  const [catalogLanded, setCatalogLanded] = useState(0);
-  const wasDownloading = useRef(downloading);
-  useEffect(() => {
-    if (wasDownloading.current && !downloading)
-      setCatalogLanded((count) => count + 1);
-    wasDownloading.current = downloading;
-  }, [downloading]);
   useEffect(() => {
     const focus = (event: KeyboardEvent) => {
       if (
@@ -159,87 +177,42 @@ export function CourseFinder({
     return () => removeEventListener("keydown", focus);
   }, []);
 
-  const planning = useFinderQuery(
-    {
-      year,
-      term,
-      keys,
-      includeIneligible: showUnavailable,
-    },
-    0,
-    enabled,
-  );
-  const result = useFinderQuery(
-    {
-      year,
-      term,
-      keys,
-      includeIneligible: showUnavailable,
-      input,
-    },
-    catalogLanded,
-    enabled,
-  );
-  const view = result.value;
-  const courses = view?.courses;
-  const list = view?.courses ?? [];
+  const view = finder.page;
+  const stored = view?.stored ?? 0;
   // Only an empty year waits on the download; a stored catalog stays usable
   // while Core renews it.
-  const firstDownload = downloading && list.length === 0;
-  const factors = view?.factors ?? planning.value?.factors ?? [];
+  const firstDownload = downloading && stored === 0;
+  // Removed pills leave at once; committed ones show until Core answers.
+  const factors = (view?.factors ?? [])
+    .map((f) => ({
+      ...f,
+      alts: f.alts.filter((c) => finder.keys.includes(c.key)),
+    }))
+    .filter((f) => f.alts.length);
+  const pendingPills = finder.pending.filter(
+    (key) => !factors.some((f) => f.alts.some((c) => c.key === key)),
+  );
   const duplicates = view?.duplicates ?? 0;
-  const onTimetable = new Set(view?.onTimetable ?? []);
-  const ineligible = new Set(view?.ineligibleIds ?? []);
-  const eligibilityLabel = (id: string) => {
-    switch (view?.eligibility[id]?.reason) {
-      case "undergraduateFirstYearUpperLevel":
-        return t("Not available to regular first-year undergraduate students");
-      case "masterFirstSemesterHumanitiesUpperLevel":
-        return t("Available to master's students from their second semester");
-      case "graduateCourseApprovalRequired":
-        return t(
-          "Course approval after the research proposal presentation must be confirmed",
-        );
-      case "leadershipWorkshopGradeRequired":
-        return t(
-          "A Leadership Workshop grade of 80 or higher must be confirmed",
-        );
-      case "doctoralFirstSemesterGenerallyRestricted":
-        return t(
-          "Generally unavailable during the first six months; confirm any exception",
-        );
-      case "doctoralFirstSemesterRestricted":
-        return t("Not available during the first six months of doctoral study");
-      case "separateApplicationRequired":
-        return t("A separate course application must be confirmed");
-      case "ruleYearUnsupported":
-        return t(
-          "This rule is not yet verified for the selected academic year",
-        );
-      default:
-        return undefined;
-    }
+  const showUnavailable = finder.includeIneligible;
+  const placed = (row: FinderRowView) => {
+    const mark = marks.get(row.course.id);
+    return mark && finder.shown <= mark.after ? mark.placed : row.placed;
   };
-  const unavailableLabel = (id: string) =>
-    eligibilityLabel(id) ?? t("Not available for this study profile");
+  const saving = (row: FinderRowView) =>
+    Boolean(marks.get(row.course.id)?.saving);
 
   const live = view?.live ?? "";
-  const rows = view?.rows ?? [];
-  const shown = rows.slice(0, visibleCount);
+  const rows = finder.rows;
+  const total = view?.total ?? 0;
   const virtualRows = useVirtualizer({
-    count: shown.length,
+    count: rows.length,
     getScrollElement: () => resultsRef.current,
     estimateSize: () => 96,
-    getItemKey: (index) => shown[index].course.id,
+    getItemKey: (index) => rows[index].course.id,
     overscan: 5,
     // React Activity may reveal the list during a lifecycle commit.
     useFlushSync: false,
   });
-  // Rows are local; this only widens how many are rendered at once.
-  const loadMore = () => {
-    if (visibleCount < rows.length)
-      setVisibleCount((count) => count + RENDER_BATCH);
-  };
   // IntersectionObserver follows the scroll container. A button exposes the
   // same action to keyboard users.
   const sentinel = useRef<HTMLDivElement>(null);
@@ -248,78 +221,79 @@ export function CourseFinder({
       return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) loadMore();
+        if (entries.some((entry) => entry.isIntersecting)) finder.loadMore();
       },
       { root: resultsRef.current, rootMargin: "240px" },
     );
     observer.observe(sentinel.current);
     return () => observer.disconnect();
-  }, [visibleCount, rows.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  const conditionsKey = JSON.stringify([year, term, keys, showUnavailable]);
+  }, [rows.length, total]); // eslint-disable-line react-hooks/exhaustive-deps
+  const conditionsKey = JSON.stringify([
+    year,
+    term,
+    finder.keys,
+    showUnavailable,
+  ]);
   useEffect(() => {
-    setVisibleCount(RENDER_BATCH);
     resultsRef.current?.scrollTo?.({ top: 0 });
   }, [conditionsKey]);
-  useEffect(() => setVisibleCount(RENDER_BATCH), [live]);
   const availableSuggestions = view?.suggestions ?? [];
   const suggestions: Suggestion[] = open ? availableSuggestions : [];
-  const byId = useMemo(() => new Map(list.map((c) => [c.id, c])), [list]);
-  const chosen = [...selected]
-    .map((id) => byId.get(id))
-    .filter((c): c is FinderCourse => Boolean(c))
-    .filter((c) => !ineligible.has(c.id));
-  const chosenCredits = chosen.reduce(
-    (sum, c) => sum + (view?.credits[c.id] ?? 0),
-    0,
+  const chosen = [...selected.values()].filter(
+    (row) => !unavailable(row) && !placed(row),
   );
-  const chosenClashes = chosen.filter((c) =>
-    view?.clashes.includes(c.id),
-  ).length;
-  const editSequence = useRef(0);
+  const chosenCredits = chosen.reduce((sum, row) => sum + row.credits, 0);
+  const chosenClashes = chosen.filter((row) => row.clash).length;
   const commit = (key: string) => {
-    const sequence = ++editSequence.current;
-    void edit({ kind: "commit", key })
-      .then((next) => {
-        if (!next || sequence !== editSequence.current) return;
-        setInput("");
-        setActive(0);
-      })
-      .catch((reason) => setError(message(reason)));
+    finder.commit(key);
+    setActive(0);
+    setOpen(false);
   };
-  const toggle = (course: FinderCourse) => {
-    if (onTimetable.has(course.code) || ineligible.has(course.id)) return;
+  const toggle = (row: FinderRowView) => {
+    if (placed(row) || unavailable(row)) return;
     setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(course.id)) next.delete(course.id);
-      else next.add(course.id);
+      const next = new Map(current);
+      if (next.has(row.course.id)) next.delete(row.course.id);
+      else next.set(row.course.id, row);
       return next;
     });
   };
   const apply = (s: Suggestion | undefined) => {
     if (!s) return;
     if (s.kind === "category") {
-      ++editSequence.current;
-      setInput(s.key);
+      finder.type(s.key);
       setActive(0);
       setOpen(true);
       inputRef.current?.focus();
     } else if (s.kind === "course")
-      toggle(s.course); // keep the text: several matches can be picked in a row
+      toggle(s.row); // keep the text: several matches can be picked in a row
     else commit(s.key);
   };
+  const mark = (courses: FinderCourse[], next: Mark | undefined) =>
+    setMarks((current) => {
+      const marked = new Map(current);
+      for (const course of courses)
+        if (next) marked.set(course.id, next);
+        else marked.delete(course.id);
+      return marked;
+    });
+  // The rows say "Added" at once; a failed write puts them back.
   const addCourses = async (courses: FinderCourse[]) => {
     if (mutating) return;
     setMutating(true);
     setError("");
+    mark(courses, { placed: true, saving: true, after: Infinity });
     try {
       await add(courses);
+      mark(courses, { placed: true, saving: false, after: finder.issued() });
       setLastAdded(courses);
       setSelected((current) => {
-        const next = new Set(current);
+        const next = new Map(current);
         courses.forEach((course) => next.delete(course.id));
         return next;
       });
     } catch (reason) {
+      mark(courses, undefined);
       setError(message(reason));
     } finally {
       setMutating(false);
@@ -327,16 +301,20 @@ export function CourseFinder({
   };
   const addSelected = () => {
     if (!chosen.length) return;
-    void addCourses(chosen);
+    void addCourses(chosen.map((row) => row.course));
   };
   const undoLast = async () => {
     if (!lastAdded || mutating) return;
+    const courses = lastAdded;
     setMutating(true);
     setError("");
+    mark(courses, { placed: false, saving: false, after: Infinity });
     try {
-      await undo(lastAdded);
+      await undo(courses);
+      mark(courses, { placed: false, saving: false, after: finder.issued() });
       setLastAdded(null);
     } catch (reason) {
+      mark(courses, { placed: true, saving: false, after: finder.issued() });
       setError(message(reason));
     } finally {
       setMutating(false);
@@ -344,6 +322,7 @@ export function CourseFinder({
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // Enter or Tab that confirms a composition is the IME's, not a commit.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
@@ -372,30 +351,18 @@ export function CourseFinder({
       apply(suggestions[active] ?? suggestions[0]);
     } else if (event.key === "Escape") {
       setOpen(false);
-    } else if (event.key === "Backspace" && !input && keys.length) {
-      replaceKeys((current) => current.slice(0, -1));
+    } else if (event.key === "Backspace" && !input && finder.keys.length) {
+      finder.replace((current) => current.slice(0, -1));
     }
   };
-  const onChange = (value: string, composing = false) => {
+  // While an IME composes, the text is shown but not searched; the
+  // composition's end searches the field as it then reads, whichever order
+  // the webview sends its input and composition events in.
+  const onChange = (value: string, composingNow = false) => {
     activate();
-    const sequence = ++editSequence.current;
-    setInput(value);
+    finder.type(value, !composing.current && !composingNow);
     setActive(0);
     setOpen(true);
-    if (!composing && /\s$/.test(value) && value.trim()) {
-      void finderQuery({
-        year,
-        term,
-        keys,
-        includeIneligible: showUnavailable,
-        input: value,
-      })
-        .then((next) => {
-          if (sequence === editSequence.current && next.commitKey)
-            commit(next.commitKey);
-        })
-        .catch((reason) => setError(message(reason)));
-    }
   };
   const onPaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
     const text = event.clipboardData.getData("text");
@@ -405,15 +372,20 @@ export function CourseFinder({
       input.slice(0, field.selectionStart ?? input.length) +
       text +
       input.slice(field.selectionEnd ?? input.length);
-    const sequence = ++editSequence.current;
-    void edit({ kind: "paste", text })
+    activate();
+    void finder
+      .paste(text)
       .then((next) => {
-        if (sequence !== editSequence.current || !next) return;
+        if (!next) return;
         if (!next.pasteHandled) {
           onChange(pasted);
           return;
         }
-        setSelected((current) => new Set([...current, ...next.pastedIds]));
+        setSelected((current) => {
+          const selection = new Map(current);
+          for (const row of next.pasted) selection.set(row.course.id, row);
+          return selection;
+        });
         setError(
           [
             next.ineligibleCodes.length
@@ -458,18 +430,18 @@ export function CourseFinder({
             <span>
               {firstDownload
                 ? t("Downloading the {{year}} course catalog", { year })
-                : courses
-                  ? `${list.length} ${t("stored")}`
+                : view
+                  ? `${stored} ${t("stored")}`
                   : t("Loading…")}
             </span>
           )}
         </div>
         <div className="courseListTools">
-          {(showUnavailable || Boolean(view?.ineligibleIds.length)) && (
+          {(showUnavailable || Boolean(view?.ineligible)) && (
             <UiButton
               type="button"
               aria-pressed={showUnavailable}
-              onClick={() => setShowUnavailable((show) => !show)}
+              onClick={() => finder.showIneligible(!showUnavailable)}
             >
               {showUnavailable
                 ? t("Hide unavailable courses")
@@ -496,7 +468,7 @@ export function CourseFinder({
                   title={t("Remove")}
                   onClick={(event) => {
                     event.stopPropagation();
-                    replaceKeys((current) =>
+                    finder.replace((current) =>
                       current.filter((key) => key !== c.key),
                     );
                   }}
@@ -515,6 +487,13 @@ export function CourseFinder({
               </span>
             )),
           )}
+          {pendingPills.map((key) => (
+            <span key={key} className="finderPillGroup">
+              <span className="finderPill pending" aria-busy="true">
+                {key}
+              </span>
+            </span>
+          ))}
           <input
             ref={inputRef}
             id="course-finder-input"
@@ -531,7 +510,9 @@ export function CourseFinder({
             autoComplete="off"
             spellCheck={false}
             placeholder={
-              keys.length ? "" : t("Title, code, 火3-4, teacher:小林, room:W9…")
+              finder.keys.length || pendingPills.length
+                ? ""
+                : t("Title, code, 火3-4, teacher:小林, room:W9…")
             }
             onChange={(event) =>
               onChange(
@@ -539,6 +520,13 @@ export function CourseFinder({
                 (event.nativeEvent as InputEvent).isComposing,
               )
             }
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={(event) => {
+              composing.current = false;
+              onChange(event.currentTarget.value);
+            }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             onFocus={() => {
@@ -567,7 +555,7 @@ export function CourseFinder({
               const query = input.replace(/^!/, "").trim();
               return (
                 <div
-                  key={`${s.kind}-${s.kind === "course" ? s.course.id : s.key}`}
+                  key={`${s.kind}-${s.kind === "course" ? s.row.course.id : s.key}`}
                 >
                   {showHead && <div className="finderHead">{head}</div>}
                   <div
@@ -607,22 +595,23 @@ export function CourseFinder({
                     {s.kind === "course" && (
                       <>
                         <span>
-                          {selected.has(s.course.id) && (
+                          {selected.has(s.row.course.id) && (
                             <i className="finderCheck">✓</i>
                           )}
                           <Highlight
-                            text={pickLocalized(s.course.title, language)}
+                            text={pickLocalized(s.row.course.title, language)}
                             query={query}
                           />
                           <em>
-                            <Highlight text={s.course.code} query={query} /> ·{" "}
-                            {schedule(s.course)} · {s.course.quarters.join(" ")}
+                            <Highlight text={s.row.course.code} query={query} />{" "}
+                            · {schedule(s.row.course)} ·{" "}
+                            {s.row.course.quarters.join(" ")}
                           </em>
                         </span>
                         <small>
-                          {onTimetable.has(s.course.code)
+                          {placed(s.row)
                             ? t("On timetable")
-                            : selected.has(s.course.id)
+                            : selected.has(s.row.course.id)
                               ? t("Selected")
                               : t("Enter to select")}
                         </small>
@@ -666,21 +655,24 @@ export function CourseFinder({
 
       <div className="finderStatus">
         <span>
-          {rows.length} {t("courses")} {filteredByText}
+          {total} {t("courses")} {filteredByText}
           {duplicates > 0 && ` · ${t("duplicates merged")}`}
         </span>
-        {(error || result.error || planning.error) && (
-          <span className="finderError">
-            {error || result.error || planning.error}
-          </span>
+        {(error || finder.error) && (
+          <span className="finderError">{error || finder.error}</span>
         )}
       </div>
 
-      <div className="finderResults" ref={resultsRef} aria-busy={firstDownload}>
-        {enabled && !courses && !error && (
+      <div
+        className="finderResults"
+        ref={resultsRef}
+        aria-busy={firstDownload}
+        onClick={() => setOpen(false)}
+      >
+        {enabled && !view && !error && (
           <div className="empty">{t("Loading…")}</div>
         )}
-        {courses && rows.length === 0 && (
+        {view && total === 0 && (
           <div className="empty finderEmpty">
             <span>
               {firstDownload
@@ -688,13 +680,13 @@ export function CourseFinder({
                     "Downloading the {{year}} course catalog. Results appear when it is saved.",
                     { year },
                   )
-                : courses.length === 0 && signInNeeded
+                : stored === 0 && signInNeeded
                   ? t("Sign in to 教務 to search courses")
-                  : courses.length === 0
-                  ? t("No {{year}} course catalog is saved yet.", { year })
-                  : t(
-                      "No matching courses. Remove a condition to widen the search.",
-                    )}
+                  : stored === 0
+                    ? t("No {{year}} course catalog is saved yet.", { year })
+                    : t(
+                        "No matching courses. Remove a condition to widen the search.",
+                      )}
             </span>
           </div>
         )}
@@ -702,17 +694,17 @@ export function CourseFinder({
           style={{ height: virtualRows.getTotalSize(), position: "relative" }}
         >
           {virtualRows.getVirtualItems().map((virtualRow) => {
-            const { course, matched } = shown[virtualRow.index];
-            const placed = onTimetable.has(course.code);
-            const unavailable = ineligible.has(course.id);
-            const eligibilityNote = eligibilityLabel(course.id);
+            const row = rows[virtualRow.index];
+            const { course, matched } = row;
+            const isPlaced = placed(row);
+            const isSaving = saving(row);
+            const blocked = unavailable(row);
+            const eligibilityNote = eligibilityLabel(row.eligibility);
             const eligibilityUnknown =
-              view?.eligibility[course.id]?.status === "unknown" &&
-              Boolean(eligibilityNote);
-            const rec = view?.context.recommended[course.code];
-            const clash = !placed && Boolean(view?.clashes.includes(course.id));
-            const replacing =
-              clash && Boolean(view?.replacements[course.id]?.length);
+              row.eligibility?.status === "unknown" && Boolean(eligibilityNote);
+            const rec = row.recommended;
+            const clash = !isPlaced && row.clash;
+            const replacing = clash && row.replaces.length > 0;
             return (
               <div
                 key={course.id}
@@ -725,21 +717,21 @@ export function CourseFinder({
                   width: "100%",
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
-                className={`finderRow${placed ? " placed" : ""}${activeId === course.id ? " active" : ""}`}
+                className={`finderRow${isPlaced ? " placed" : ""}${activeId === course.id ? " active" : ""}`}
               >
                 <input
                   type="checkbox"
                   id={`finder-${course.id}`}
                   aria-label={t("Select")}
                   checked={selected.has(course.id)}
-                  disabled={placed || unavailable || readOnly}
-                  title={unavailable ? unavailableLabel(course.id) : undefined}
-                  onChange={() => toggle(course)}
+                  disabled={isPlaced || blocked || readOnly}
+                  title={blocked ? unavailableLabel(row) : undefined}
+                  onChange={() => toggle(row)}
                 />
                 <button
                   type="button"
                   className="finderMain"
-                  onClick={() => openCourse?.(course)}
+                  onClick={() => openCourse?.(row)}
                 >
                   <b>
                     <Highlight
@@ -765,24 +757,29 @@ export function CourseFinder({
                       </i>
                     )}
                     {clash && <i className="clash">{t("Conflict")}</i>}
-                    {unavailable && (
-                      <i className="clash">{unavailableLabel(course.id)}</i>
+                    {blocked && (
+                      <i className="clash">{unavailableLabel(row)}</i>
                     )}
                     {eligibilityUnknown && (
                       <i className="eligibilityUnknown">{eligibilityNote}</i>
                     )}
                   </span>
                 </button>
-                {placed ? (
-                  <i className="finderPlaced">{t("Added")}</i>
+                {isPlaced ? (
+                  <i
+                    className={`finderPlaced${isSaving ? " saving" : ""}`}
+                    aria-busy={isSaving}
+                  >
+                    {isSaving ? t("Added · saving") : t("Added")}
+                  </i>
                 ) : (
                   <UiButton
                     type="button"
                     className={`finderAdd${replacing ? " replace" : ""}`}
-                    disabled={readOnly || mutating || unavailable}
+                    disabled={readOnly || mutating || blocked}
                     title={
-                      unavailable
-                        ? unavailableLabel(course.id)
+                      blocked
+                        ? unavailableLabel(row)
                         : replacing
                           ? t("Replaces the course in the same periods")
                           : undefined
@@ -797,8 +794,8 @@ export function CourseFinder({
           })}
         </div>
         <div ref={sentinel} className="finderLoadMore">
-          {shown.length < rows.length && (
-            <UiButton className="textButton" onClick={loadMore}>
+          {rows.length < total && (
+            <UiButton className="textButton" onClick={() => finder.loadMore()}>
               {t("Load more courses")}
             </UiButton>
           )}
@@ -829,7 +826,7 @@ export function CourseFinder({
           type="button"
           className="button"
           disabled={!chosen.length || mutating}
-          onClick={() => setSelected(new Set())}
+          onClick={() => setSelected(new Map())}
         >
           {t("Clear")}
         </UiButton>

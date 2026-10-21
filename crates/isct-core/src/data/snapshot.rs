@@ -11,7 +11,8 @@ pub(super) struct SnapshotReader {
     /// (the store's write connection, or another store on the same files),
     /// so every commit changes them.
     connection: Connection,
-    cached: Option<(Versions, chrono::NaiveDate, SnapshotParts, String)>,
+    /// Shared so a read hands it out without copying the workspace.
+    cached: Option<(Versions, chrono::NaiveDate, Arc<SnapshotParts>, String)>,
 }
 
 impl SnapshotReader {
@@ -37,7 +38,7 @@ impl SnapshotReader {
         &self,
         versions: Versions,
         today: chrono::NaiveDate,
-    ) -> Option<(SnapshotParts, String)> {
+    ) -> Option<(Arc<SnapshotParts>, String)> {
         self.cached
             .as_ref()
             .filter(|(v, day, _, _)| *v == versions && *day == today)
@@ -60,6 +61,14 @@ impl DataStore {
     pub(crate) fn workspace_snapshot_with_revision(
         &self,
     ) -> Result<(SnapshotParts, String), DataError> {
+        self.workspace_snapshot_shared()
+            .map(|(parts, hash)| (Arc::unwrap_or_clone(parts), hash))
+    }
+
+    /// The cached snapshot itself, for read models that only borrow it.
+    pub(crate) fn workspace_snapshot_shared(
+        &self,
+    ) -> Result<(Arc<SnapshotParts>, String), DataError> {
         let mut reader = self
             .snapshot_reader
             .lock()
@@ -78,11 +87,11 @@ impl DataStore {
             eprintln!("[workspace-snapshot] cache=miss data_version={versions:?}");
         }
         let transaction = reader.connection.transaction()?;
-        let parts = (
+        let parts = Arc::new((
             Self::load_workspace_from(&transaction)?,
             Self::school_records_from(&transaction)?,
             intent_revision(&transaction)?,
-        );
+        ));
         transaction.commit()?;
         let hash = content_revision(&parts.0, &parts.1)?;
         reader.cached = Some((versions, today, parts.clone(), hash.clone()));
@@ -120,7 +129,9 @@ impl DataStore {
                 )));
             }
             let (current, school_records, _) = match prior {
-                Some((v, day, parts, _)) if v == versions && day == today => parts,
+                Some((v, day, parts, _)) if v == versions && day == today => {
+                    Arc::unwrap_or_clone(parts)
+                }
                 _ => (
                     Self::load_workspace_from(transaction)?,
                     Self::school_records_from(transaction)?,
@@ -142,9 +153,10 @@ impl DataStore {
         reader.cached = reader
             .versions()
             .ok()
-            .map(|versions| (versions, today, parts, hash));
+            .map(|versions| (versions, today, Arc::new(parts), hash));
         drop(writer);
         drop(reader);
+        self.committed_tables(&tables);
         self.observer
             .committed(WorkspaceChangeSource::UserIntent, Some(revision), &tables);
         Ok(result)

@@ -430,40 +430,85 @@ pub fn catalog_course_eligibility(
     term_id: &str,
     offering: &Value,
 ) -> CourseEligibility {
-    let Some(planned_term) = term_key(term_id) else {
-        return CourseEligibility::unknown(CourseEligibilityReason::EnrollmentForTermMissing);
-    };
-    let enrollments = match history(workspace) {
-        Ok(enrollments) => enrollments,
-        Err(reason) => return CourseEligibility::unknown(reason),
-    };
-    let Some(enrollment) = enrollments.iter().rev().find(|enrollment| {
-        term_key(&enrollment.admitted_term).is_some_and(|term| term <= planned_term)
-    }) else {
-        return CourseEligibility::unknown(CourseEligibilityReason::EnrollmentForTermMissing);
-    };
+    PlannedTerm::new(workspace, term_id).eligibility(offering)
+}
 
-    let Some(admitted_term) = term_key(&enrollment.admitted_term) else {
-        return CourseEligibility::unknown(CourseEligibilityReason::InvalidStudyHistory);
-    };
-    let Some(code) = offering
-        .get("code")
-        .and_then(Value::as_str)
-        .and_then(course_code)
-    else {
-        return CourseEligibility::unknown(CourseEligibilityReason::CourseCodeUnrecognized);
-    };
+/// The study enrollment that governs one planned term, read once from the
+/// workspace so a whole catalog can be judged against it.
+pub(crate) struct PlannedTerm {
+    /// The governing enrollment, or the result every offering gets when the
+    /// history cannot decide.
+    basis: Result<Basis, CourseEligibility>,
+}
 
-    match enrollment.stage {
-        StudyStage::Unknown => {
-            CourseEligibility::unknown(CourseEligibilityReason::AcademicIdentityMissing)
+struct Basis {
+    enrollment: StudyEnrollment,
+    admitted_term: (i32, u8),
+    planned_term: (i32, u8),
+}
+
+impl PlannedTerm {
+    pub(crate) fn new(workspace: &Value, term_id: &str) -> Self {
+        Self {
+            basis: Self::basis(workspace, term_id),
         }
-        StudyStage::Undergraduate => {
-            undergraduate_eligibility(enrollment, admitted_term, planned_term, &code)
+    }
+
+    fn basis(workspace: &Value, term_id: &str) -> Result<Basis, CourseEligibility> {
+        let Some(planned_term) = term_key(term_id) else {
+            return Err(CourseEligibility::unknown(
+                CourseEligibilityReason::EnrollmentForTermMissing,
+            ));
+        };
+        let enrollments = history(workspace).map_err(CourseEligibility::unknown)?;
+        let Some(enrollment) = enrollments.into_iter().rev().find(|enrollment| {
+            term_key(&enrollment.admitted_term).is_some_and(|term| term <= planned_term)
+        }) else {
+            return Err(CourseEligibility::unknown(
+                CourseEligibilityReason::EnrollmentForTermMissing,
+            ));
+        };
+        let Some(admitted_term) = term_key(&enrollment.admitted_term) else {
+            return Err(CourseEligibility::unknown(
+                CourseEligibilityReason::InvalidStudyHistory,
+            ));
+        };
+        Ok(Basis {
+            enrollment,
+            admitted_term,
+            planned_term,
+        })
+    }
+
+    pub(crate) fn eligibility(&self, offering: &Value) -> CourseEligibility {
+        self.eligibility_of_code(offering.get("code").and_then(Value::as_str))
+    }
+
+    /// The same decision from the offering's `code` field alone.
+    pub(crate) fn eligibility_of_code(&self, code: Option<&str>) -> CourseEligibility {
+        let Basis {
+            enrollment,
+            admitted_term,
+            planned_term,
+        } = match &self.basis {
+            Ok(basis) => basis,
+            Err(result) => return result.clone(),
+        };
+        let (admitted_term, planned_term) = (*admitted_term, *planned_term);
+        let Some(code) = code.and_then(course_code) else {
+            return CourseEligibility::unknown(CourseEligibilityReason::CourseCodeUnrecognized);
+        };
+        match enrollment.stage {
+            StudyStage::Unknown => {
+                CourseEligibility::unknown(CourseEligibilityReason::AcademicIdentityMissing)
+            }
+            StudyStage::Undergraduate => {
+                undergraduate_eligibility(enrollment, admitted_term, planned_term, &code)
+            }
+            StudyStage::Master => master_eligibility(admitted_term, planned_term, &code),
+            StudyStage::Professional => professional_eligibility(planned_term, &code),
+            StudyStage::Doctoral => doctoral_eligibility(admitted_term, planned_term, &code),
         }
-        StudyStage::Master => master_eligibility(admitted_term, planned_term, &code),
-        StudyStage::Professional => professional_eligibility(planned_term, &code),
-        StudyStage::Doctoral => doctoral_eligibility(admitted_term, planned_term, &code),
     }
 }
 

@@ -22,8 +22,14 @@ Swift still land under that directory's `native-sdk/`.
 
 Then open `apps/ios/IsctCompanion.xcodeproj` (generated, not committed) and run
 the `IsctCompanion` scheme. `--simulator-only` builds the slice for the host's
-simulator (x86_64 on Intel Macs, arm64 on Apple silicon); drop it for a device
-build. OCR is unavailable on the Intel simulator.
+simulator (x86_64 on Intel Macs, arm64 on Apple silicon); `--device-only`
+builds just the iPhone slice for installing on a phone.
+
+A free Personal Team cannot sign the iCloud container, and `CKContainer`
+traps at launch without it. Such a build passes an entitlements file with only
+`keychain-access-groups` as `CODE_SIGN_ENTITLEMENTS` and adds `ISCT_NO_ICLOUD`
+to `SWIFT_ACTIVE_COMPILATION_CONDITIONS`, which opens the session without
+iCloud backup. OCR is unavailable on the Intel simulator.
 
 ## Layout
 

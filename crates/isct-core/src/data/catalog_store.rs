@@ -98,7 +98,7 @@ impl DataStore {
             format!("{year}/options"),
         );
         let setting = search_options_setting(year);
-        self.write(None, |transaction| {
+        self.catalog_write(year, |transaction| {
             if read_setting(transaction, &setting)?.as_ref() == Some(options)
                 && crate::sync_state::renew(transaction, &key, "", now)?
             {
@@ -289,6 +289,28 @@ impl DataStore {
             .map(|row| {
                 serde_json::from_str(&row.map_err(DataError::from)?)
                     .map_err(|_| DataError::storage("offering contains invalid JSON"))
+            })
+            .collect();
+        rows
+    }
+
+    /// The live offerings of one academic year through `offerings_by_year`,
+    /// ordered by their stored text as [`Self::catalog_search`] lists them.
+    pub fn catalog_year(&self, year: u16) -> Result<Vec<Value>, DataError> {
+        let connection = self.open()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT value FROM offerings
+                 WHERE year=?1 AND deleted_at IS NULL AND missing_since IS NULL
+                 ORDER BY value",
+            )
+            .map_err(DataError::from)?;
+        let rows = statement
+            .query_map([year], |row| row.get::<_, String>(0))
+            .map_err(DataError::from)?
+            .map(|row| {
+                serde_json::from_str(&row.map_err(DataError::from)?)
+                    .map_err(|_| DataError::storage("catalog row contains invalid JSON"))
             })
             .collect();
         rows

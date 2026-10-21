@@ -1,7 +1,7 @@
 /** Finder contracts are generated from Core alongside the persistence protocol. */
 export type {
   FinderCourse,
-  FinderRow,
+  FinderRowView,
   Condition,
   Factor,
   Suggestion,

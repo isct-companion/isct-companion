@@ -17,7 +17,8 @@ import {
   useTimetableViews,
   type WorkspaceOverview,
 } from "../platform/core-query";
-import { useFinderEditQueue, useFinderQuery } from "../platform/finder-query";
+import { useFinder } from "../pages/courses/useFinder";
+import type { FinderRowView } from "../platform/finder-query";
 import { contentLanguage, pickLocalized } from "../lib/model";
 import { decodeEntities } from "../lib/text";
 import { ModalsProvider } from "@mantine/modals";
@@ -470,33 +471,32 @@ export function WorkspaceApp() {
     null,
   );
   const [termDialog, setTermDialog] = useState(false);
-  // Course finder conditions; shared with the Courses timetable so slot clicks set times.
-  const [finderKeys, setFinderKeys] = useState<string[]>([]);
   // The quarter the finder's conditions were made for; switching quarters resets them.
   const [finderTerm, setFinderTerm] = useState<TermId | null>(null);
-  const finderYear = Number(courseViewTerm?.slice(0, 4) ?? 2026);
   const finderCourseTerm = courseViewTerm ?? "2026-1Q";
+  const finderYear = Number(finderCourseTerm.slice(0, 4));
   const finderSession = JSON.stringify([location.key, finderCourseTerm]);
   const [activeFinderSession, setActiveFinderSession] = useState<string | null>(
     null,
   );
   const finderActive = activeFinderSession === finderSession;
   const activateFinder = () => setActiveFinderSession(finderSession);
-  const finderView = useFinderQuery(
-    { year: finderYear, term: finderCourseTerm, keys: finderKeys },
-    0,
-    Boolean(overview.value && page === "timetable" && finderActive),
-  );
-  const finderEdits = useFinderEditQueue({
+  // The one finder owner: the search panel and the timetable's slot
+  // highlight read the same Core request.
+  const finder = useFinder({
     year: finderYear,
     term: finderCourseTerm,
-    keys: finderKeys,
-    setKeys: setFinderKeys,
+    session: finderSession,
+    enabled: Boolean(overview.value && page === "timetable" && finderActive),
+    defaultKeys:
+      (cachedTimetable?.overview ?? overview.value)?.defaultFinderKeys ?? [],
   });
   // A course opened from the Courses timetable, shown over the syllabus panel.
   const [panelCourseId, setPanelCourseId] = useState<string | null>(null);
   // A search result opened from the syllabus panel, shown over the timetable.
-  const [offeringPanel, setOfferingPanel] = useState<FinderCourse | null>(null);
+  const [offeringPanel, setOfferingPanel] = useState<FinderRowView | null>(
+    null,
+  );
   const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const sync = useSync();
   // Pages only render Core's runs; the planner decides what is read.
@@ -671,13 +671,9 @@ export function WorkspaceApp() {
     : undefined;
   const courseTerm = courseViewTerm ?? workspaceView.coursesTerm;
   const finderTermCourses = workspaceView.courses;
-  const finderPlaced = new Set(finderView.value?.onTimetable ?? []);
-  const finderSlots = new Set(finderView.value?.activeSlots ?? []);
-  const pickFinderTime = (key: string, append = false) => {
+  const pickFinderTime = (key: string, append = false, slot?: string) => {
     activateFinder();
-    void finderEdits
-      .run({ kind: "toggleTime", key, append })
-      .catch(notify.error);
+    finder.toggleTime(key, append, slot);
   };
   const toggleFinderSlot = (
     day: number,
@@ -688,7 +684,8 @@ export function WorkspaceApp() {
     // With a course open on the right, an empty cell just closes it.
     if (panelCourseId) return setPanelCourseId(null);
     const name = FINDER_DAYS[day - 1];
-    if (name) pickFinderTime(`${name}${from}-${to}`, append);
+    if (name)
+      pickFinderTime(`${name}${from}-${to}`, append, `${day}:${from}-${to}`);
   };
   // Start from the quarter being planned ("curr" when it is the current one)
   // and your own department; remove the department pill to search everywhere.
@@ -696,7 +693,6 @@ export function WorkspaceApp() {
     setFinderTerm(courseTerm);
     setPanelCourseId(null);
     setOfferingPanel(null);
-    setFinderKeys(workspaceView.defaultFinderKeys);
   }
   const panelCourse = panelCourseId
     ? data.courses.find((c) => c.id === panelCourseId && !c.deletedAt)
@@ -1113,14 +1109,12 @@ export function WorkspaceApp() {
             term={courseTerm}
             summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
             language={contentLanguage(data.settings)}
-            keys={finderKeys}
-            edit={finderEdits.run}
-            replaceKeys={finderEdits.replace}
-            openCourse={(course) => {
+            finder={finder}
+            openCourse={(row) => {
               setPanelCourseId(null);
-              setOfferingPanel(course);
+              setOfferingPanel(row);
             }}
-            activeId={offeringPanel?.id}
+            activeId={offeringPanel?.course.id}
             readOnly={readOnly}
             add={addFinderCourses}
             undo={(rows) =>
@@ -1138,20 +1132,24 @@ export function WorkspaceApp() {
         leftPanel={
           offeringPanel && (
             <OfferingPanel
-              key={offeringPanel.id}
-              course={offeringPanel}
+              key={offeringPanel.course.id}
+              course={offeringPanel.course}
               language={contentLanguage(data.settings)}
-              placed={finderPlaced.has(offeringPanel.code)}
+              placed={finder.placedCodes.has(offeringPanel.course.code)}
               replaces={(
-                finderView.value?.replacements[offeringPanel.id] ?? []
-              ).map(
+                finder.rows.find(
+                  (row) => row.course.id === offeringPanel.course.id,
+                ) ?? offeringPanel
+              ).replaces.map(
                 (id) =>
                   data.courses.find((course) => course.id === id)?.title ?? "",
               )}
               readOnly={readOnly}
               close={() => setOfferingPanel(null)}
               add={() => {
-                void addFinderCourses([offeringPanel]).catch(notify.error);
+                void addFinderCourses([offeringPanel.course]).catch(
+                  notify.error,
+                );
               }}
             />
           )
@@ -1178,7 +1176,7 @@ export function WorkspaceApp() {
                 const key =
                   panelCourse.code.replace(/-\d+$/, "") || panelCourse.title;
                 setPanelCourseId(null);
-                finderEdits.replace([key]);
+                finder.replace([key]);
                 activateFinder();
               }}
             />
@@ -1213,9 +1211,9 @@ export function WorkspaceApp() {
           !readOnly && setEventEditor({ event, term })
         }
         onSlot={toggleFinderSlot}
-        activeSlots={finderSlots}
+        activeSlots={finder.slots}
         onIntensive={(append) => pickFinderTime("集中", append)}
-        intensiveActive={finderKeys.includes("集中")}
+        intensiveActive={finder.keys.includes("集中")}
         addTerm={() => setTermDialog(true)}
         refreshSchedule={canSync ? fetchLms : undefined}
         pullProgress={lmsProgress}

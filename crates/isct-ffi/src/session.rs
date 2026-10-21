@@ -332,7 +332,7 @@ impl Session {
     pub fn finder_query(&self, request: FinderRequest) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Finder {
-                view: project(i.core.finder_query(project_input(request)?)?)?,
+                page: project(i.core.finder_query(project_input(request)?)?)?,
             })
         })
     }

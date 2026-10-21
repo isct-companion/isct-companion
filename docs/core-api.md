@@ -53,7 +53,11 @@ without an additional `{data:...}` wrapper.
 | `workspace_records`  | `{changes: WorkspaceChange[]}`  | `WorkspacePatch`                             | `Core.workspace_records(changes)`     |
 | `mutate_workspace`   | `{mutation: WorkspaceMutation}` | Committed `WorkspaceSnapshot`                | `Core.workspace.mutate(mutation)`     |
 | `schedule_query`     | `{queries: WorkspaceQuery[]}`   | `{revision, values: WorkspaceQueryResult[]}` | `Core.schedule_query(queries)`        |
-| `finder_query`       | `{request: FinderRequest}`      | `FinderView`                                 | `Core.finder_query(request)`          |
+| `finder_query`       | `{request: FinderRequest}`      | `FinderPage`                                 | `Core.finder_query(request)`          |
+
+`schedule_query` and `finder_query` only read, from Core's pooled read
+connections and caches, so the desktop runs them outside the lock that
+serializes its other data commands; a write never queues behind searches.
 
 `WorkspaceSnapshot` fields are `revision`, `contentRevision`, `workspace` and `schoolRecords`.
 `WorkspacePatch` has the same fields, but `workspace` and `schoolRecords` hold
@@ -184,8 +188,13 @@ in `workspace_changes.rs`, emits `workspace-changed` with the write's source
 and `changes`, and, when a user-owned table changed, brings the next cloud
 capture forward. Services, executors, agent
 tools and shells therefore never emit the event or ask for a capture
-themselves, and a write that changes nothing publishes nothing. Catalog cache
-rows and reference cache markers commit with no source and are not published.
+themselves, and a write that changes nothing publishes nothing. Reference
+cache markers commit with no source and are not published. Catalog commits
+(`DataStore::catalog_write`) are not workspace changes either: a commit that
+changed a year's offerings or its search form's choices emits
+`catalog-changed` (`{ year, version }`) instead, coalesced per year like
+background changes, so a finder showing that year queries again while a
+download lands department by department, without re-reading the workspace.
 
 Successful workspace mutations emit `workspace-changed` with
 `source: "user-intent"` and the committed workspace `revision` after commit, at once. The initiating shell uses that

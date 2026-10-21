@@ -148,6 +148,19 @@ impl LeaseWriter {
         };
         self.store.write(source, work).map_err(Gated::Failed)
     }
+
+    /// One transaction to `year`'s catalog inside the gate
+    /// (`DataStore::catalog_write`).
+    pub(crate) fn catalog_write<T, E: From<DataError>>(
+        &self,
+        year: u16,
+        work: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
+    ) -> Result<T, Gated<E>> {
+        let Some(_guard) = self.enter() else {
+            return Err(Gated::Stale);
+        };
+        self.store.catalog_write(year, work).map_err(Gated::Failed)
+    }
 }
 
 // -- Leases -------------------------------------------------------------------
