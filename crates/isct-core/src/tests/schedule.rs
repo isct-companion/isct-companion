@@ -1009,8 +1009,14 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         .all(|m| m.material_id != "quiz"));
     assert_eq!(ids(&class.class_assignments), ["soon"]);
     // The class in progress is the hero, never also the stack's first card.
-    assert_eq!(class.hero.as_ref().unwrap().occurrence.course_id.as_deref(), Some("course"));
-    assert_eq!(class.upcoming[0].occurrence.course_id.as_deref(), Some("afternoon"));
+    assert_eq!(
+        class.hero.as_ref().unwrap().occurrence.course_id.as_deref(),
+        Some("course")
+    );
+    assert_eq!(
+        class.upcoming[0].occurrence.course_id.as_deref(),
+        Some("afternoon")
+    );
     assert_eq!(
         class.next_boundary.as_deref(),
         Some("2026-04-13T10:30:00+09:00")
@@ -1429,7 +1435,11 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
         ("https://example.invalid/courses?jwc=202602431", None),
     ] {
         let manual = json!({"courses":[{"id":"m","url":url}]});
-        assert_eq!(course_detail(&manual, "m").syllabus_url.as_deref(), expected, "{url}");
+        assert_eq!(
+            course_detail(&manual, "m").syllabus_url.as_deref(),
+            expected,
+            "{url}"
+        );
     }
     // An LMS-sourced course links to itself and has no syllabus without an offering.
     let lms = json!({"courses":[{"id":"l","source":{"provider":"lms","externalId":"9"},"url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=9"}]});

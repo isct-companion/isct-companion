@@ -1106,6 +1106,23 @@ describe("runtime capabilities", () => {
         }),
       )["local-notifications"],
     ).toMatchObject({ support: "unsupported" });
+    expect(
+      resolveCapabilities(
+        "native-desktop",
+        false,
+        "denied",
+        runtime({
+          native: {
+            ...runtime().native!,
+            notifications: false,
+            notificationUnavailableReason: "Open the installed app.",
+          },
+        }),
+      )["local-notifications"],
+    ).toMatchObject({
+      support: "unsupported",
+      reason: "Open the installed app.",
+    });
   });
 
   it("detects the platform from the injected native target", () => {
@@ -1386,6 +1403,7 @@ describe("Tauri bridge contract", () => {
         case "delete_school_credentials":
           return "yes";
         case "request_notification_permission":
+        case "notification_permission":
           return "maybe";
         case "sync_snapshot":
           return { runs: "later" };
@@ -1404,6 +1422,9 @@ describe("Tauri bridge contract", () => {
     );
     await expect(bridge.requestNotificationPermission()).rejects.toThrow(
       "request_notification_permission returned an invalid result",
+    );
+    await expect(bridge.getNotificationPermission()).rejects.toThrow(
+      "notification_permission returned an invalid result",
     );
     await expect(bridge.syncSnapshot!()).rejects.toThrow(
       "sync_snapshot returned an invalid result",

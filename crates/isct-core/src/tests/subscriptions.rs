@@ -343,7 +343,8 @@ fn stored_recommendations_are_namespaced_and_tagged_by_admission_cohort() {
 
     let mut statement = connection
         .prepare(
-            "SELECT id,value FROM recommended_courses WHERE code='CSC.T241' AND course_group='A'",
+            "SELECT id,value FROM recommended_courses
+             WHERE json_extract(value,'$.code')='CSC.T241' AND json_extract(value,'$.group')='A'",
         )
         .unwrap();
     let rows = statement

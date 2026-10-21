@@ -51,6 +51,7 @@ pub struct MatrixCaptureGlyph {
     pub sharpness: f64,
     pub source_size: f64,
     pub centering: f64,
+    pub glare: f64,
 }
 pub struct MatrixCaptureFrame {
     pub quads: Vec<[[f64; 2]; 4]>,
@@ -107,6 +108,10 @@ pub enum MatrixOcrError {
 
 #[cfg(matrix_ocr)]
 pub use engine::{capture_matrix_frame, MatrixAlphabetService, MatrixOcrService};
+#[cfg(all(matrix_ocr, feature = "training-tools"))]
+pub use engine::{
+    capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
+};
 
 #[cfg(not(matrix_ocr))]
 pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {

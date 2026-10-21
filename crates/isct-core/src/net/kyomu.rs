@@ -57,7 +57,9 @@ const SESSION_COOKIES: [&str; 2] = ["ASP.NET_SessionId", "Language"];
 
 impl Detached {
     fn cookies(&self) -> std::sync::MutexGuard<'_, Vec<(String, String)>> {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The WebView's `Cookie` header for this session.
@@ -441,7 +443,14 @@ impl KyomuClient {
     /// its header link to English (`ctl00$ToEnglish`).
     async fn to_english(&self, url: &Url, english: &Detached) -> Result<Session<()>, NetError> {
         let html = match self
-            .send(Some(english), Method::GET, url, MENU, Body::None, Limits::page())
+            .send(
+                Some(english),
+                Method::GET,
+                url,
+                MENU,
+                Body::None,
+                Limits::page(),
+            )
             .await?
         {
             Fetched::Html(html) => html,

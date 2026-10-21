@@ -20,6 +20,7 @@ export type CapabilityRuntime = {
     schoolImport: boolean;
     schoolWeb: boolean;
     notifications: boolean;
+    notificationUnavailableReason?: string | null;
     backgroundSchedule: boolean;
     cloudSync: boolean;
     matrixOcr: boolean;
@@ -90,7 +91,9 @@ export function resolveCapabilities(
       : {
           support: "unsupported",
           readiness: "temporarily-unavailable",
-          reason: "Notifications are unavailable in this runtime.",
+          reason:
+            native?.notificationUnavailableReason ??
+            "Notifications are unavailable in this runtime.",
         },
     "remote-push": {
       support: "unsupported",
