@@ -213,7 +213,14 @@ fn matches_original_typescript_finder_traces() {
     let fixture: Value =
         serde_json::from_str(include_str!("../course_query/fixtures.json")).unwrap();
     let ctx: FinderContext = serde_json::from_value(fixture["context"].clone()).unwrap();
-    let courses = fixture["courses"].as_array().unwrap();
+    let indexed: Vec<_> = fixture["courses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .cloned()
+        .map(IndexedCourse::new)
+        .collect();
+    let courses: Vec<_> = indexed.iter().collect();
     for (index, case) in fixture["cases"].as_array().unwrap().iter().enumerate() {
         let mut ctx = ctx.clone();
         let input = &case["input"];
@@ -226,9 +233,9 @@ fn matches_original_typescript_finder_traces() {
         let actual = match text(case, "kind") {
             "condition" => serde_json::to_value(condition(text(input, "word"), &ctx)).unwrap(),
             "factors" => serde_json::to_value(factors).unwrap(),
-            "run" => json!(run(courses, &factors.factors, &ctx, "")),
-            "suggest" => json!(suggest(text(input, "input"), &keys, courses, &ctx)),
-            "live" => json!(live_text(text(input, "input"), &keys, courses, &ctx)),
+            "run" => json!(run(&courses, &factors.factors, &ctx, "")),
+            "suggest" => json!(suggest(text(input, "input"), &keys, &courses, &ctx)),
+            "live" => json!(live_text(text(input, "input"), &keys, &courses, &ctx)),
             other => panic!("unknown trace {other}"),
         };
         assert_eq!(actual, case["expected"], "case {index}: {}", case["input"]);
@@ -253,7 +260,8 @@ fn teacher_room_and_overlap_filters_run_on_the_stored_catalog() {
         course("wrong-time", "Tanaka", "W9-324", [5, 6]),
         course("wrong-teacher", "Suzuki", "W9-324", [3, 4]),
     ];
-    let rows = run(&courses, &factors, &context, "");
+    let courses = courses.map(IndexedCourse::new);
+    let rows = run(&courses.iter().collect::<Vec<_>>(), &factors, &context, "");
     assert_eq!(
         rows.iter()
             .map(|row| text(&row.course, "id"))

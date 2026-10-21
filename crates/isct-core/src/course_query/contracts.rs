@@ -2,6 +2,7 @@
 use super::{Condition, Value};
 use crate::contracts::{ClassFormat, CreditSplit, Localized, Quarter};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
@@ -55,8 +56,9 @@ pub struct FinderSchedule {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 pub struct FinderRow {
+    /// Shared with the cached catalog; serializes as the row itself.
     #[cfg_attr(feature = "ts", ts(type = "FinderCourse"))]
-    pub course: Value,
+    pub course: Arc<Value>,
     pub matched: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize)]

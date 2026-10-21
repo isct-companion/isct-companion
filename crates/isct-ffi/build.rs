@@ -2,7 +2,7 @@
 //! Core remains independent of UniFFI. Only ABI representation changes live here.
 use quote::{quote, ToTokens};
 use std::{env, fs, path::PathBuf};
-use syn::{visit_mut::VisitMut, Attribute, Item, Type};
+use syn::{visit_mut::VisitMut, Attribute, GenericArgument, Item, PathArguments, Type};
 
 fn attrs(attrs: &mut Vec<Attribute>) {
     attrs.retain(|a| {
@@ -68,6 +68,23 @@ impl VisitMut for ForeignTypes {
                         .any(|part| part.ident == "contracts") =>
             {
                 *ty = syn::parse_quote!(JsonValue);
+            }
+            // Core shares large values behind `Arc`; serde writes the value itself.
+            Type::Path(path)
+                if path
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|part| part.ident == "Arc") =>
+            {
+                if let Some(PathArguments::AngleBracketed(arguments)) =
+                    path.path.segments.last().map(|part| &part.arguments)
+                {
+                    if let Some(GenericArgument::Type(inner)) = arguments.args.first() {
+                        *ty = inner.clone();
+                        self.visit_type_mut(ty);
+                    }
+                }
             }
             Type::Path(path) if path.path.is_ident("usize") => *ty = syn::parse_quote!(u64),
             Type::Path(path) if path.path.is_ident("Task") => *ty = syn::parse_quote!(CloudTask),

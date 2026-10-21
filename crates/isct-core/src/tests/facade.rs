@@ -423,6 +423,60 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
     assert_eq!(changes().len(), 3);
 }
 
+/// The finder keeps its prepared catalog and personal context between
+/// keystrokes. A catalog commit, an emptied cache.db and a workspace change
+/// each show at the next query, never the cached state.
+#[test]
+fn finder_queries_follow_catalog_and_workspace_commits() {
+    let store = store("finder-cache");
+    let core = Core::new(
+        store.clone(),
+        Arc::new(SchoolAuthService::new(MemoryVault::default())),
+    );
+    let offering = |id: &str, code: &str| {
+        json!({"id":id,"year":2026,"quarters":["3Q"],"code":code,
+            "title":{"ja":code},"instructors":[],"instructionLanguage":"ja",
+            "format":{"kinds":["lecture"]},"media":{},
+            "credits":{"lecture":2,"exercise":0,"lab":0},"schedule":[],
+            "academicUnit":{},"intensive":false,
+            "syllabusUrl":crate::catalog::syllabus_url(id, "ja"),"fetchedAt":{}})
+    };
+    let query = || {
+        core.finder_query(serde_json::from_value(json!({"year":2026,"term":"2026-3Q"})).unwrap())
+            .unwrap()
+    };
+    let ids = |view: &crate::course_query::FinderView| {
+        view.courses
+            .iter()
+            .map(|course| course["id"].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>()
+    };
+
+    store
+        .catalog_upsert_offerings(&[offering("202600001", "CSC.T101")])
+        .unwrap();
+    assert_eq!(ids(&query()), ["202600001"]);
+    store
+        .catalog_upsert_offerings(&[offering("202600002", "CSC.T201")])
+        .unwrap();
+    let view = query();
+    assert_eq!(ids(&view), ["202600001", "202600002"]);
+    assert!(view.ineligible_ids.is_empty());
+
+    store
+        .put_workspace_setting(
+            "academicProfile",
+            json!({"name":"Mine","gradePath":[],"years":[],
+                "studyEnrollments":[{"stage":"undergraduate","entryKind":"regular",
+                "entryGrade":1,"admittedTerm":"2026-1Q"}]}),
+        )
+        .unwrap();
+    assert_eq!(query().ineligible_ids, ["202600002"]);
+
+    store.rebuild_cache().unwrap();
+    assert!(query().courses.is_empty());
+}
+
 /// A sync commits key after key. The shell hears the first commit at once
 /// and the rest of its window merged, each event naming what changed; the
 /// records those names read back cover every field the commits changed,

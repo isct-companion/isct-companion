@@ -31,9 +31,12 @@ use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 use uuid::Uuid;
 use versioned::{content_hash, VersionedValue};
 
@@ -766,6 +769,9 @@ pub struct DataStore {
     snapshot_reader: Arc<Mutex<snapshot::SnapshotReader>>,
     connections: Arc<connection::Connections>,
     observer: changes::Observer,
+    /// Moves after every commit that changed `offerings`; catalog read
+    /// caches key on it (see [`DataStore::catalog_version`]).
+    catalog_version: Arc<AtomicU64>,
 }
 
 impl DataStore {
@@ -785,6 +791,7 @@ impl DataStore {
             connections: Arc::new(connections),
             snapshot_reader: Arc::new(Mutex::new(snapshot_reader)),
             observer: changes::Observer::default(),
+            catalog_version: Arc::default(),
         };
         store.write(None, ensure_defaults_in)?;
         Ok((store, split || created))
@@ -811,10 +818,25 @@ impl DataStore {
         operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
         let (value, tables) = commit_on(&mut self.connections.writer(), operation)?;
+        self.committed_tables(&tables);
         if let Some(source) = source {
             self.observer.committed(source, None, &tables);
         }
         Ok(value)
+    }
+
+    /// The catalog's version in this store. It moves only after a commit
+    /// that changed `offerings` has landed, so a reader that reads it before
+    /// the rows never stamps older rows with a newer version. Every write of
+    /// the app goes through this store (one store per data folder).
+    pub(crate) fn catalog_version(&self) -> u64 {
+        self.catalog_version.load(Ordering::Acquire)
+    }
+
+    fn committed_tables(&self, tables: &BTreeSet<String>) {
+        if tables.contains("offerings") {
+            self.catalog_version.fetch_add(1, Ordering::AcqRel);
+        }
     }
 
     fn user_table(table: &str) -> bool {
