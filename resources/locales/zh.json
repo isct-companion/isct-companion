@@ -1529,5 +1529,18 @@
   "settings.reset.item.cloud": "云端副本和其他设备",
   "settings.reset.item.logs": "应用日志",
   "Offered by": "开课院系",
-  "Sign in to 教務 to search courses": "登录教務Web后即可搜索课程"
+  "Sign in to 教務 to search courses": "登录教務Web后即可搜索课程",
+  "Set up at school": "在学校注册",
+  "Reset at school": "重新设置 OTP",
+  "Import from another app": "从其他应用重新导入",
+  "No OTP setup is saved in this app. Your school account may already have App Authentication registered.": "本应用尚未保存 OTP 配置；学校账号可能已经注册了 App Authentication。",
+  "For other authenticators, export a TOTP setup QR code or setup link. Use Scan QR, Select image, or paste the link above, then press Connect to save it.": "其他验证器请导出 TOTP 配置二维码或设置链接。在上方扫描二维码、选择图片或粘贴链接，然后点击「连接」保存。",
+  "Importing keeps the same school OTP setup. If your authenticator cannot export it, use Reset at school.": "重新导入沿用学校现有的 OTP 配置。如果验证器不支持导出，请选择「重新设置 OTP」。",
+  "Resetting replaces your school OTP setup. The old authenticator entry will stop working. Keep another working sign-in method available before removing App Authentication.": "重新设置会替换学校的 OTP 配置，验证器中的旧配置将失效。移除 App Authentication 前，请确保还有其他可用的登录方式。",
+  "1. Open school verification settings. Under App Authentication, remove the existing registration, then register it again.": "1. 打开学校验证设置，在 App Authentication 下移除原有注册，再重新注册。",
+  "1. Open school verification settings and register App Authentication. If it says Already Set, import from your authenticator or choose Reset at school.": "1. 打开学校验证设置，注册 App Authentication。如果显示 Already Set，请从验证器导入，或选择「重新设置 OTP」。",
+  "2. Import the new QR code here using Scan QR or Select image, and add the same QR code to your authenticator. When resetting, replace its old school entry with the new one.": "2. 在本应用中扫描或选择新二维码图片，并将同一二维码导入验证器。重新设置时，将验证器中的学校旧配置替换为新配置。",
+  "3. Complete verification on the school page with a code from the new authenticator entry. After the school confirms registration, press Connect here to save this setup.": "3. 使用验证器新配置生成的验证码，完成学校页面上的验证。学校确认注册成功后，在本应用点击「连接」保存配置。",
+  "Could not open school settings. Try again.": "无法打开学校设置，请重试。",
+  "School settings are unavailable.": "学校设置暂不可用。"
 }

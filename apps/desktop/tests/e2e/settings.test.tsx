@@ -257,34 +257,6 @@ describe("School accounts", () => {
         },
       });
       const science = account(mounted, "science");
-      const help = science.querySelector<HTMLButtonElement>(
-        'button[aria-label="How do I find the QR code?"]',
-      )!;
-      await click(help);
-      await wait(() =>
-        expect(document.body.textContent).toContain(
-          "Transfer accounts → Export accounts",
-        ),
-      );
-      const other = [
-        ...document.querySelectorAll<HTMLLabelElement>(
-          ".mantine-SegmentedControl-label",
-        ),
-      ].find((label) => label.textContent === "Microsoft / other")!;
-      await click(other);
-      expect(document.body.textContent).toContain(
-        "Replace its old entry with the new one",
-      );
-      const newSetup = [
-        ...document.querySelectorAll<HTMLLabelElement>(
-          ".mantine-SegmentedControl-label",
-        ),
-      ].find((label) => label.textContent === "Not set up")!;
-      await click(newSetup);
-      expect(document.body.textContent).toContain(
-        "Replace its old entry with the new one",
-      );
-      await click(help);
       await click(
         science.querySelector<HTMLButtonElement>(
           '[aria-label="Copy OTP setup"]',

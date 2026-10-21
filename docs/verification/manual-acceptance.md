@@ -2618,15 +2618,19 @@ Requires a native Windows release executable, Explorer and the real desktop shel
 
 **Preconditions**
 
-A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display.
+A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display. School-side registration or rotation additionally requires a test school account whose owner explicitly authorizes and performs the credential change.
 
 **Steps**
 
-1. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
+1. In School accounts, check the three visible OTP paths with and without a saved app setup. Open Set up at school, Reset at school, and Import from another app; follow the school settings link without removing the current registration.
+   - *Why:* Confirms the real settings destination and that missing local OTP is not presented as proof that the school has no registration. The reset path must explain replacing both app and authenticator entries; reimport must explain keeping the existing school setup.
+2. When registering or rotating OTP on an authorized test account, have the account owner perform the school-side change. Import the same new QR into this app and the authenticator, finish school verification, then press Connect. For an existing setup, export only the school account from the authenticator and reimport without changing the school registration.
+   - *Why:* A real school's registration and verification screen determines when the new setup becomes active. The two copies must agree before the app saves it; an offline fixture cannot prove registration or authenticator replacement.
+3. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
    - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
-2. Move the QR into and out of view, then close the dialog and background the app during a second scan.
+4. Move the QR into and out of view, then close the dialog and background the app during a second scan.
    - *Why:* Optical decoding and the real camera indicator must be checked on physical hardware, independently of mocked scanner controls.
-3. Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
+5. Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
    - *Why:* Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
 
 **Where to look**
@@ -2639,7 +2643,7 @@ Clear scans fill the draft, permission errors offer image import, and closing or
 
 **Why this is manual**
 
-Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault.
+Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault. Registration and rotation also depend on the live school account and the owner's authenticator.
 
 **Covers**
 

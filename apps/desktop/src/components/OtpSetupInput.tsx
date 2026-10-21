@@ -1,18 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ActionIcon,
   Alert,
   Button,
   FileButton,
   Group,
   Input,
   Modal,
-  Popover,
-  SegmentedControl,
   Stack,
   Text,
   TextInput,
-  Tooltip,
 } from "@mantine/core";
 import { t } from "../i18n";
 import { useTimeout } from "@mantine/hooks";
@@ -26,82 +22,137 @@ import {
 import { QrCamera } from "./QrCamera";
 import "./otp-setup-input.css";
 
-function OtpHelp() {
-  const [opened, setOpened] = useState(false);
-  const [source, setSource] = useState("google");
+type SetupSource = "new" | "reset" | "import";
+
+function OtpSetupGuide({
+  saved,
+  disabled,
+}: {
+  saved: boolean;
+  disabled: boolean;
+}) {
+  // A saved app secret says nothing about registration on the school site.
+  const [source, setSource] = useState<SetupSource | null>(
+    saved ? null : "new",
+  );
+  const [error, setError] = useState("");
+  const openSettings = async () => {
+    setError("");
+    try {
+      if (!desktopBridge)
+        throw new Error(t("School settings are unavailable."));
+      await desktopBridge.openExternal(
+        "https://isct.ex-tic.com/idm/user/mfa_setting/",
+      );
+    } catch {
+      setError(t("Could not open school settings. Try again."));
+    }
+  };
   return (
-    <Popover
-      opened={opened}
-      onChange={setOpened}
-      width={340}
-      position="bottom-start"
-      withinPortal
-    >
-      <Popover.Target>
-        <Tooltip disabled={opened} label={t("How do I find the QR code?")}>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="sm"
-            aria-label={t("How do I find the QR code?")}
-            aria-expanded={opened}
-            onClick={() => setOpened((v) => !v)}
-          >
-            ?
-          </ActionIcon>
-        </Tooltip>
-      </Popover.Target>
-      <Popover.Dropdown>
-        <Stack gap="sm">
-          <Text size="sm" fw={600}>
-            {t("How do I find the QR code?")}
-          </Text>
-          <SegmentedControl
-            value={source}
-            onChange={setSource}
-            data={[
-              { value: "google", label: "Google" },
-              { value: "other", label: t("Microsoft / other") },
-              { value: "new", label: t("Not set up") },
-            ]}
-          />
-          <Text size="sm">
-            {source === "google"
-              ? t(
-                  "In Google Authenticator, open Transfer accounts → Export accounts. Select only your school account, then scan its QR code here.",
-                )
-              : source === "other"
-                ? t(
-                    "Look for an export QR code in your authenticator. If it cannot export, reset App Authentication in the school account settings.",
-                  )
-                : t(
-                    "Open the school account settings and register App Authentication.",
-                  )}
-          </Text>
-          <Text size="sm">
-            {t(
-              "You can set up or reset OTP in the school account settings. Import the new QR code here and in your authenticator. Replace its old entry with the new one, then finish verification on the school page.",
-            )}
-          </Text>
+    <Stack gap="xs" mt="xs">
+      <Group gap="xs">
+        {(
+          [
+            ["new", "Set up at school"],
+            ["reset", "Reset at school"],
+            ["import", "Import from another app"],
+          ] as const
+        ).map(([key, label]) => (
           <Button
-            variant="light"
-            size="xs"
-            onClick={() =>
-              void desktopBridge?.openExternal(
-                "https://isct.ex-tic.com/idm/user/mfa_setting/",
-              )
-            }
+            key={key}
+            variant={source === key ? "light" : "subtle"}
+            size="compact-xs"
+            disabled={disabled}
+            aria-expanded={source === key}
+            aria-controls="school-otp-guide"
+            onClick={() => {
+              setSource(source === key ? null : key);
+              setError("");
+            }}
           >
-            {t("Open school verification settings")}
+            {t(label)}
           </Button>
+        ))}
+      </Group>
+      {source && (
+        <Stack id="school-otp-guide" gap="xs" className="otpSetupGuide">
+          {!saved && (
+            <Text size="xs" c="dimmed">
+              {t(
+                "No OTP setup is saved in this app. Your school account may already have App Authentication registered.",
+              )}
+            </Text>
+          )}
+          {source === "import" ? (
+            <>
+              <Text size="sm">
+                {t(
+                  "In Google Authenticator, open Transfer accounts → Export accounts. Select only your school account, then scan its QR code here.",
+                )}
+              </Text>
+              <Text size="sm">
+                {t(
+                  "For other authenticators, export a TOTP setup QR code or setup link. Use Scan QR, Select image, or paste the link above, then press Connect to save it.",
+                )}
+              </Text>
+              <Text size="xs" c="dimmed">
+                {t(
+                  "Importing keeps the same school OTP setup. If your authenticator cannot export it, use Reset at school.",
+                )}
+              </Text>
+            </>
+          ) : (
+            <>
+              {source === "reset" ? (
+                <Alert color="orange">
+                  {t(
+                    "Resetting replaces your school OTP setup. The old authenticator entry will stop working. Keep another working sign-in method available before removing App Authentication.",
+                  )}
+                </Alert>
+              ) : null}
+              <Text size="sm">
+                {source === "reset"
+                  ? t(
+                      "1. Open school verification settings. Under App Authentication, remove the existing registration, then register it again.",
+                    )
+                  : t(
+                      "1. Open school verification settings and register App Authentication. If it says Already Set, import from your authenticator or choose Reset at school.",
+                    )}
+              </Text>
+              <Text size="sm">
+                {t(
+                  "2. Import the new QR code here using Scan QR or Select image, and add the same QR code to your authenticator. When resetting, replace its old school entry with the new one.",
+                )}
+              </Text>
+              <Text size="sm">
+                {t(
+                  "3. Complete verification on the school page with a code from the new authenticator entry. After the school confirms registration, press Connect here to save this setup.",
+                )}
+              </Text>
+              <Button
+                variant="light"
+                size="xs"
+                disabled={disabled || !desktopBridge}
+                onClick={() => void openSettings()}
+                style={{ alignSelf: "flex-start" }}
+              >
+                {t("Open school verification settings")}
+              </Button>
+            </>
+          )}
           <Text size="xs" c="dimmed">
             {t(
               "This field needs a setup link or secret, not the changing six-digit code. You can leave it blank and enter codes when signing in.",
             )}
           </Text>
+          {error && (
+            <Alert color="red" role="alert">
+              {error}
+            </Alert>
+          )}
         </Stack>
-      </Popover.Dropdown>
-    </Popover>
+      )}
+    </Stack>
   );
 }
 
@@ -195,7 +246,6 @@ export function OtpSetupInput({
       label={
         <Group gap={5}>
           <span>{t("Automatic school verification codes")}</span>
-          <OtpHelp />
         </Group>
       }
       id="school-otp-setup"
@@ -258,6 +308,7 @@ export function OtpSetupInput({
           </FileButton>
         </Button.Group>
       </div>
+      <OtpSetupGuide saved={saved} disabled={disabled || reading || camera} />
       {label && (
         <Text size="xs" c="dimmed">
           {t("Read {{account}}. Connect to save this setup.", {

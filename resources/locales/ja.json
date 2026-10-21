@@ -1529,5 +1529,18 @@
   "settings.reset.item.cloud": "クラウドのコピーとほかの端末",
   "settings.reset.item.logs": "アプリのログ",
   "Offered by": "開講元",
-  "Sign in to 教務 to search courses": "教務Webにサインインすると科目を検索できます"
+  "Sign in to 教務 to search courses": "教務Webにサインインすると科目を検索できます",
+  "Set up at school": "大学で登録",
+  "Reset at school": "OTP を再設定",
+  "Import from another app": "他のアプリから再インポート",
+  "No OTP setup is saved in this app. Your school account may already have App Authentication registered.": "このアプリには OTP 設定が保存されていません。大学側では App Authentication が登録済みの場合があります。",
+  "For other authenticators, export a TOTP setup QR code or setup link. Use Scan QR, Select image, or paste the link above, then press Connect to save it.": "他の認証アプリでは TOTP 設定のQRコードまたは設定リンクをエクスポートしてください。上でQRをスキャン、画像を選択、またはリンクを貼り付けてから「接続」で保存します。",
+  "Importing keeps the same school OTP setup. If your authenticator cannot export it, use Reset at school.": "インポートでは大学の既存の OTP 設定を使います。エクスポートできない場合は「OTP を再設定」を選んでください。",
+  "Resetting replaces your school OTP setup. The old authenticator entry will stop working. Keep another working sign-in method available before removing App Authentication.": "再設定すると大学の OTP 設定が置き換わり、認証アプリの古い登録は使えなくなります。App Authentication を削除する前に、別のログイン方法が使えることを確認してください。",
+  "1. Open school verification settings. Under App Authentication, remove the existing registration, then register it again.": "1. 大学の認証設定を開き、App Authentication の既存の登録を削除してから再登録します。",
+  "1. Open school verification settings and register App Authentication. If it says Already Set, import from your authenticator or choose Reset at school.": "1. 大学の認証設定で App Authentication を登録します。Already Set と表示される場合は、認証アプリからインポートするか「OTP を再設定」を選んでください。",
+  "2. Import the new QR code here using Scan QR or Select image, and add the same QR code to your authenticator. When resetting, replace its old school entry with the new one.": "2. 新しいQRコードをこのアプリでスキャンまたは画像から読み取り、同じQRコードを認証アプリにも登録します。再設定時は大学の古い登録を新しいものに置き換えてください。",
+  "3. Complete verification on the school page with a code from the new authenticator entry. After the school confirms registration, press Connect here to save this setup.": "3. 認証アプリの新しい登録で生成したコードを大学のページに入力して認証を完了します。大学側で登録が完了したら、このアプリの「接続」で設定を保存してください。",
+  "Could not open school settings. Try again.": "大学の設定を開けませんでした。もう一度お試しください。",
+  "School settings are unavailable.": "大学の設定を開けません。"
 }
