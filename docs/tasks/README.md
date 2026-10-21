@@ -40,7 +40,6 @@ Task 1 first. Then 2–5 in parallel. Then 6–10 (7 and 9 share ICS export: do 
 
 ## Tools
 
-- `scripts/research/syllabus_sample.py` re-checks the syllabus structure on 100 random offerings (both languages); run it after any syllabus site change and before changing task-2 parsers.
 - `docs/tasks/data/` holds hand-transcribed reference data.
 
 ## Verify

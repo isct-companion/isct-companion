@@ -1599,9 +1599,9 @@ describe("sync snapshot surfaces", () => {
     expect(
       retryScope(run({ dataset: "catalog.official", scope: "2026" })),
     ).toEqual({ kind: "catalog", year: 2026 });
-    // An offering id is not a year.
+    // A scope that is not a year names no catalog.
     expect(
-      retryScope(run({ dataset: "catalog.detail", scope: "202602431" })),
+      retryScope(run({ dataset: "catalog.official", scope: "202602431" })),
     ).toEqual({ kind: "everything" });
     expect(retryScope(run({ dataset: "reference" }))).toEqual({
       kind: "references",

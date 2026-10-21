@@ -88,7 +88,7 @@ export function courseFor(
       },
     ],
     url: source.syllabusUrl,
-    source: { provider: "syllabus", externalId: source.id },
+    source: { provider: "kyomu", externalId: source.id },
     ...overrides,
   } as Course;
 }

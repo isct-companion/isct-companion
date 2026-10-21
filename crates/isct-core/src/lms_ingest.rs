@@ -406,15 +406,6 @@ pub fn apply_lms_enrolment(
         let lms_id = course.id.to_string();
         let academic_year = year.unwrap_or_else(|| Utc::now().year() as u32) as i32;
         resolve_course_id(tx, "lms", &lms_id, academic_year, offering.as_deref())?;
-        if let Some(offering_id) = offering.as_deref() {
-            resolve_course_id(
-                tx,
-                "syllabus",
-                offering_id,
-                academic_year,
-                Some(offering_id),
-            )?;
-        }
     }
     changed += mark_missing(
         tx,

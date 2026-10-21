@@ -173,24 +173,6 @@ impl Core {
         }
     }
 
-    /// One syllabus course for a detail panel or the course editor. The
-    /// planner reads it (`catalog.detail`); a stored detail answers at once.
-    pub async fn syllabus_course(
-        &self,
-        id: String,
-        language: String,
-    ) -> Result<serde_json::Value, crate::catalog::CatalogError> {
-        let offering_id = crate::catalog::offering_id_of(&id).ok_or_else(|| {
-            crate::catalog::CatalogError::InvalidInput("This is not a シラバス course page.".into())
-        })?;
-        self.sync.hint(crate::sync_engine::Hint::Open {
-            view: crate::sync_engine::View::Offering {
-                offering_id: offering_id.clone(),
-            },
-        });
-        crate::catalog::syllabus_course(&self.store, &offering_id, &language).await
-    }
-
     /// A shell fact or intent for the sync planner. Never blocks.
     pub fn sync_hint(&self, hint: Hint) {
         self.sync.hint(hint);

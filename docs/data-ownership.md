@@ -26,8 +26,8 @@ Settings offers two resets, both decided in Core (`crates/isct-core/src/reset.rs
 `data/reset_store.rs`) and affecting only this device; neither writes a tombstone.
 
 - **Clear school caches and resync** deletes the school, reference and derived
-  caches (every school-cache table, `offerings`, `offerings_fts`,
-  `offering_content`, `catalog_search_items`), `dataset_state`, `sync_runs`,
+  caches (every school-cache table, `offerings`, `offerings_fts`),
+  `dataset_state`, `sync_runs`,
   the cache settings rows (`kyomuAcademicIdentity`, `kyomuSearchOptions:*`),
   the refresh bookkeeping inside subscription rows and the LMS token. Options
   also remove the school WebView cookies and downloaded attachments. User

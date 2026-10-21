@@ -313,7 +313,7 @@ fn put_user_record_in_transaction(
                 .and_then(|source| source.get("provider"))
                 .and_then(Value::as_str);
             let provider = source_provider
-                .filter(|provider| matches!(*provider, "lms" | "syllabus" | "kyomu"))
+                .filter(|provider| matches!(*provider, "lms" | "kyomu"))
                 .unwrap_or("manual");
             let external = object
                 .get("source")
@@ -593,7 +593,7 @@ impl WorkspaceWrite<'_, '_> {
     }
 
     pub(crate) fn catalog_row(&self, id: &str) -> Result<Option<Value>, DataError> {
-        catalog_row_in(self.transaction, id)
+        catalog_offering_in(self.transaction, id)
     }
 
     pub(crate) fn save_setting(&self, key: &str, value: &Value) -> Result<(), DataError> {
@@ -628,19 +628,12 @@ impl WorkspaceWrite<'_, '_> {
     }
 }
 
-/// Every catalog row: detailed offerings, plus search-only rows not yet
-/// replaced by details.
+/// Every live catalog row.
 fn catalog_list(connection: &Connection) -> Result<Vec<Value>, DataError> {
     let mut statement = connection
         .prepare(
             "SELECT value FROM offerings
              WHERE deleted_at IS NULL AND missing_since IS NULL
-             UNION ALL
-             SELECT s.value FROM catalog_search_items s
-             WHERE NOT EXISTS (
-               SELECT 1 FROM offerings o
-               WHERE o.id=s.id AND o.deleted_at IS NULL AND o.missing_since IS NULL
-             )
              ORDER BY 1",
         )
         .map_err(DataError::from)?;
@@ -667,27 +660,6 @@ fn catalog_offering_in(connection: &Connection, id: &str) -> Result<Option<Value
         .map_err(DataError::from)?;
     raw.map(|raw| {
         serde_json::from_str(&raw).map_err(|_| DataError::storage("offering contains invalid JSON"))
-    })
-    .transpose()
-}
-
-fn catalog_row_in(connection: &Connection, id: &str) -> Result<Option<Value>, DataError> {
-    let raw: Option<String> = connection
-        .query_row(
-            "SELECT COALESCE(
-                (SELECT value FROM offerings
-                 WHERE id=?1 AND deleted_at IS NULL AND missing_since IS NULL),
-                (SELECT value FROM catalog_search_items WHERE id=?1)
-             )",
-            [id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(DataError::from)?
-        .flatten();
-    raw.map(|raw| {
-        serde_json::from_str(&raw)
-            .map_err(|_| DataError::storage("catalog row contains invalid JSON"))
     })
     .transpose()
 }
@@ -831,9 +803,8 @@ impl DataStore {
     /// The one commit path of the store, on its write connection. The
     /// operation runs inside an IMMEDIATE transaction; once it commits with
     /// changed rows, the observer hears `source` and the changed tables.
-    /// `None` marks local caches the workspace hint does not cover: syllabus
-    /// catalog rows, which a sync stores one offering at a time and shells
-    /// query on demand, and reference cache markers.
+    /// `None` marks local caches the workspace hint does not cover: catalog
+    /// rows, which shells query on demand, and reference cache markers.
     pub(crate) fn write<T, E: From<DataError>>(
         &self,
         source: Option<WorkspaceChangeSource>,
@@ -985,31 +956,12 @@ impl DataStore {
             "assignments",
             "gpa_summary",
             "gpa_by_term",
-            "offering_content",
             "recommended_courses",
         ];
         if !READABLE.contains(&table) {
             return Err("table is not available to agent access".into());
         }
         let connection = self.open()?;
-        if table == "offering_content" {
-            let mut statement = connection
-                .prepare(
-                    "SELECT json_object('offeringId', offering_id, 'lang', lang,
-                     'content', json(content), 'fetchedAt', fetched_at)
-                     FROM offering_content ORDER BY offering_id, lang",
-                )
-                .map_err(DataError::from)?;
-            let rows = statement
-                .query_map([], |row| row.get::<_, String>(0))
-                .map_err(DataError::from)?
-                .map(|row| {
-                    serde_json::from_str(&row.map_err(DataError::from)?)
-                        .map_err(|_| DataError::storage("offering content is invalid JSON"))
-                })
-                .collect();
-            return rows;
-        }
         read_visible_rows(&connection, table)
     }
 

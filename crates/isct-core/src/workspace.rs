@@ -10,7 +10,6 @@ mod courses;
 
 pub(crate) use calendar::set_assignment_mark;
 use calendar::*;
-pub use catalog::catalog_course;
 use catalog::*;
 pub(crate) use catalog::{catalog_instructor_names, meetings_from_grid, planned_catalog_course};
 use courses::*;

@@ -17,7 +17,6 @@ export type SyncView =
   | { kind: "timetable" }
   | { kind: "course"; lmsCourseId: number }
   | { kind: "finder"; year: number }
-  | { kind: "offering"; offeringId: string }
   | { kind: "grades" };
 
 export type SyncScope =

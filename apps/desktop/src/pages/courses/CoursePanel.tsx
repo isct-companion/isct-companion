@@ -10,8 +10,7 @@ import {
 } from "../../lib/model";
 import type { FinderCourse } from "../../lib/course-query";
 import type { CourseConflict } from "../../generated/persistence";
-import { getDesktopBridge } from "../../platform/desktop-bridge";
-import { SyllabusDetails } from "./syllabus-details";
+import { SyllabusFrame } from "./syllabus-frame";
 import { CourseDetails } from "./CourseDetails";
 
 /**
@@ -167,7 +166,6 @@ export function OfferingPanel({
   close: () => void;
   add: () => void;
 }) {
-  const bridge = getDesktopBridge();
   const times = course.schedule
     .map((entry) =>
       entry.kind === "weekly" && entry.day && entry.periods
@@ -202,7 +200,7 @@ export function OfferingPanel({
       <div className="coursePanelBody">
         <dl>
           <dt>{t("Schedule")}</dt>
-          <dd>{course.detailed === false ? "…" : times || "—"}</dd>
+          <dd>{times || "—"}</dd>
           <dt>{t("Instructor")}</dt>
           <dd>
             {course.instructors
@@ -211,17 +209,10 @@ export function OfferingPanel({
           </dd>
           <dt>{t("Credits")}</dt>
           <dd>
-            {course.detailed === false
-              ? "…"
-              : `${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
+            {`${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
           </dd>
         </dl>
-        <SyllabusDetails
-          url={course.syllabusUrl}
-          fetchCourse={
-            bridge ? (url) => bridge.syllabusCourse(url, language) : undefined
-          }
-        />
+        <SyllabusFrame url={course.syllabusUrl} />
       </div>
       {!readOnly && (
         <footer className="coursePanelFoot">

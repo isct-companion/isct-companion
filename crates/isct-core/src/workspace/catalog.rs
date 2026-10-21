@@ -278,65 +278,6 @@ pub(super) fn undo_catalog_courses(
     Ok(())
 }
 
-/// Converts a catalog offering to the shell's syllabus-course shape.  Keeping
-/// this conversion beside `AddCatalogCourses` prevents sync and add flows from
-/// disagreeing about localized names, rooms, credits, or period clocks.
-pub fn catalog_course(
-    offering: &Value,
-    locale: &str,
-    content: Option<&Value>,
-    teaching_periods: &[crate::schedule::TeachingPeriod],
-) -> Result<Value, WorkspaceError> {
-    let offering_id = string(offering, "id").map_err(WorkspaceError::from)?;
-    let year = offering
-        .get("year")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| WorkspaceError::InvalidIntent("catalog offering is missing year".into()))?;
-    let quarters = offering
-        .get("quarters")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            WorkspaceError::InvalidIntent("catalog offering is missing quarters".into())
-        })?;
-    let quarter = quarters.first().and_then(Value::as_str).unwrap_or("1Q");
-    let credits = offering.get("credits").and_then(Value::as_object);
-    let total_credits = credits.map(|credits| {
-        ["lecture", "exercise", "lab"]
-            .into_iter()
-            .filter_map(|key| credits.get(key).and_then(Value::as_f64))
-            .sum::<f64>()
-    });
-    let instructors = offering
-        .get("instructors")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(|name| localized(Some(name), locale))
-        .filter(|name| !name.is_empty())
-        .collect::<Vec<_>>()
-        .join(" / ");
-    let mut result = json!({
-        "externalId":offering_id,
-        "year":year,
-        "quarter":quarter,
-        "quarters":quarters,
-        "code":string(offering, "code").map_err(WorkspaceError::from)?,
-        "title":localized(offering.get("title"), locale),
-        "instructor":instructors,
-        "language":offering.get("instructionLanguage"),
-        "meetings":catalog_meetings(offering, locale, teaching_periods).map_err(WorkspaceError::from)?,
-        "url":string(offering, "syllabusUrl").map_err(WorkspaceError::from)?,
-        "updated":offering.get("sourceUpdated")
-    });
-    if let Some(credits) = total_credits {
-        result["credits"] = json!(credits);
-    }
-    if let Some(content) = content {
-        result["content"] = content.clone();
-    }
-    Ok(result)
-}
-
 /// The manual course a catalog offering is planned as, shared by
 /// `AddCatalogCourses` and the agent's `plan_add`.
 ///
@@ -394,7 +335,7 @@ pub(crate) fn planned_catalog_course(
         "instructionLanguage":normalize_language(offering.get("instructionLanguage").and_then(Value::as_str)),
         "color":"#556b8d", "meetings":catalog_meetings(offering, locale, teaching_periods)?,
         "url":offering.get("syllabusUrl"),
-        "source":{"provider":if offering.get("kyomu").is_some() { "kyomu" } else { "syllabus" },"externalId":offering_id}
+        "source":{"provider":"kyomu","externalId":offering_id}
     }))
 }
 

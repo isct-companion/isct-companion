@@ -6,7 +6,6 @@
 
 pub mod kyomu;
 pub mod lms;
-pub(crate) mod syllabus;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]

@@ -119,7 +119,6 @@ const CAPABILITIES = {
   notifications: false,
   backgroundSchedule: false,
   cloudSync: false,
-  syllabusSearch: false,
   matrixOcr: false,
 };
 
@@ -219,7 +218,6 @@ const emptyFinder = (request: Record<string, unknown>) => ({
   pastedIds: [],
   missingCodes: [],
   ineligibleCodes: [],
-  detailIds: [],
 });
 
 function shellOptions(

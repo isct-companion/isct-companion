@@ -204,7 +204,6 @@ fn partial_offerings_have_stable_finder_defaults() {
         json!({"id":"a","code":"ABC.A123","title":{"ja":"A"},"quarters":["3Q"],"format":{}}),
     )
     .unwrap();
-    assert_eq!(row["detailed"], false);
     assert_eq!(row["instructionLanguage"], "other");
     assert_eq!(row["format"]["kinds"], json!([]));
     assert_eq!(total_credits(&row), 0.0);

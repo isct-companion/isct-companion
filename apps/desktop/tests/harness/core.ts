@@ -247,8 +247,6 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         return options.sync ?? idleSync();
       case "sync_hint":
         return null;
-      case "catalog_offerings":
-        return [];
       default:
         return null;
     }

@@ -172,14 +172,6 @@ impl From<isct_core::catalog::CatalogError> for SdkError {
             E::Json(e) => Self::Compatibility {
                 detail: e.to_string(),
             },
-            E::Syllabus(e) => match e {
-                isct_core::syllabus::SyllabusError::InvalidInput(detail) => {
-                    Self::InvalidInput { detail }
-                }
-                other => Self::Network {
-                    detail: other.to_string(),
-                },
-            },
         }
     }
 }

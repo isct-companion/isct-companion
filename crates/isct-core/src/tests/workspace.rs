@@ -832,26 +832,6 @@ fn catalog_course_preserves_localized_fields_credits_rooms_and_long_period_range
     assert_eq!(course["meetings"][0]["room"], "West Hall");
     assert_eq!(course["meetings"][0]["roomNames"]["ja"], "西講義棟");
 
-    let converted = catalog_course(
-            &json!({
-                "id":"202600001", "year":2026, "quarters":["3Q"],
-                "code":"CSC.T363", "title":{"ja":"演習","en":"Exercise"},
-                "instructors":[{"ja":"教員一","en":"Teacher One"},{"ja":"教員二","en":"Teacher Two"}],
-                "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202600001",
-                "credits":{"lecture":0,"exercise":1.5,"lab":0.5},
-                "instructionLanguage":"ja", "sourceUpdated":"2026-10-01",
-                "schedule":[{"kind":"weekly","day":2,"periods":[5,8],"room":{"ja":"西講義棟","en":"West Hall"}}]
-            }),
-            "ja",
-            Some(&json!({"summary":{"ja":"内容"}})),
-            &crate::schedule::default_teaching_periods(),
-        )
-        .unwrap();
-    assert_eq!(converted["title"], "演習");
-    assert_eq!(converted["instructor"], "教員一 / 教員二");
-    assert_eq!(converted["credits"], 2.0);
-    assert_eq!(converted["meetings"][0]["endTime"], "17:05");
-    assert_eq!(converted["content"]["summary"]["ja"], "内容");
     // A language change reprojects every quarter, including a non-current one.
     let mut offering = service
         .store

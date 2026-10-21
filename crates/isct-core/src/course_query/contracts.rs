@@ -37,9 +37,6 @@ pub struct FinderCourse {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub unit_code: Option<String>,
     pub syllabus_url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "ts", ts(optional))]
-    pub detailed: Option<bool>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]

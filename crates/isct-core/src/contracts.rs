@@ -58,7 +58,6 @@ contract!(SyncMeta {
 pub enum SourceProvider {
     Sample,
     School,
-    Syllabus,
     Lms,
     Kyomu,
     Manual,
@@ -227,25 +226,21 @@ pub enum ScheduleEntry {
         room: Option<Localized>,
     },
 }
-contract!(ClassFormat {
-    pub kinds: Vec<String>, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub delivery: Option<String>,
-});
+contract!(ClassFormat { pub kinds: Vec<String>, });
+// The 教務 course search's facts about an offering.
+contract!(OfficialListing { pub department: String, });
 contract!(Offering {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     pub year: i32, pub quarters: Vec<Quarter>, pub code: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_code: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub unit_code: Option<String>,
     pub title: Localized, pub instructors: Vec<Localized>,
     pub instruction_language: InstructionLanguage, pub format: ClassFormat,
-    pub media: Localized,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_label: Option<String>,
-    pub credits: CreditSplit, pub schedule: Vec<ScheduleEntry>, pub academic_unit: Localized,
+    pub credits: CreditSplit, pub schedule: Vec<ScheduleEntry>,
     pub intensive: bool, pub syllabus_url: String,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_updated: Option<String>,
-    pub fetched_at: Localized,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_seen_at: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub missing_since: Option<String>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub kyomu: Option<OfficialListing>,
 });
 
 contract!(IntensiveDay { pub date: String, pub periods: Option<(u8, u8)>, });
@@ -559,11 +554,6 @@ contract!(Workspace {
     pub import_status: ImportStatus, pub sync_status: SyncStatus,
 });
 
-contract!(CatalogSearchItem {
-    pub id: String, pub year: i32, pub code: String, pub title: Localized,
-    pub instructors: Vec<Localized>, pub quarters: Vec<Quarter>, pub syllabus_url: String,
-});
-
 contract!(IntegerPolicy { pub default: u32, pub min: u32, pub max: u32, });
 contract!(CourseFilePolicy { pub auto_download_limit_mb: IntegerPolicy, pub retention_days: IntegerPolicy, });
 
@@ -625,6 +615,7 @@ pub fn declarations() -> Vec<String> {
         CalendarException::decl(),
         ScheduleEntry::decl(),
         ClassFormat::decl(),
+        OfficialListing::decl(),
         Offering::decl(),
         IntensiveDay::decl(),
         IntensiveSchedule::decl(),
@@ -662,7 +653,6 @@ pub fn declarations() -> Vec<String> {
         SyncStatus::decl(),
         WorkspaceLog::decl(),
         Workspace::decl(),
-        CatalogSearchItem::decl(),
         IntegerPolicy::decl(),
         CourseFilePolicy::decl(),
     ]

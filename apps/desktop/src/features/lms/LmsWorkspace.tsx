@@ -36,7 +36,6 @@ import type {
   LmsSection,
 } from "../../platform/desktop-bridge";
 import { t } from "../../i18n";
-import { desktopBridge } from "../../app/native";
 import { detectPlatform } from "../../platform/capabilities";
 import { useClock } from "../../platform/use-clock";
 import type { PageProgress } from "../../platform/sync";
@@ -51,6 +50,7 @@ import {
   safeUrl,
 } from "./content";
 import { OfficialLmsView } from "./OfficialLmsView";
+import { SyllabusFrame } from "../../pages/courses/syllabus-frame";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import { springScroll, type SpringScroll } from "./spring-scroll";
 import {
@@ -103,11 +103,6 @@ export type CourseEntry = {
   endTime?: string;
   assignmentId?: string;
 };
-const SyllabusDetails = lazy(() =>
-  import("../../pages/courses/syllabus-details").then((module) => ({
-    default: module.SyllabusDetails,
-  })),
-);
 const isSyllabus = (m: Material) =>
   /^(シラバス|syllabus)$/i.test(m.title.trim()) ||
   Boolean(m.resourceUrl?.startsWith("https://syllabus.s.isct.ac.jp/"));
@@ -1542,23 +1537,8 @@ export function LmsWorkspace({
                   )}
                 </div>
               ) : opened.kind === "syllabus" ? (
-                <div className="lmsDocument">
-                  <Suspense fallback={<p>{t("Loading…")}</p>}>
-                    <SyllabusDetails
-                      variant="document"
-                      currentLesson={at?.number}
-                      url={opened.url!}
-                      fetchCourse={
-                        desktopBridge
-                          ? (url) =>
-                              desktopBridge!.syllabusCourse(
-                                url,
-                                contentLanguage(data.settings),
-                              )
-                          : undefined
-                      }
-                    />
-                  </Suspense>
+                <div className="lmsDocument lmsSyllabus">
+                  <SyllabusFrame url={opened.url} />
                 </div>
               ) : opened.kind === "note" ? (
                 <Suspense fallback={<p>{t("Loading editor…")}</p>}>

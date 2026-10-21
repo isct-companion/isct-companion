@@ -28,17 +28,12 @@ pub enum Dataset {
     KyomuPage,
     /// 教務Web course search for one department. Key: `{year}/{prefix}`.
     CatalogOfficial,
-    /// One シラバス detail page. Key: offering id.
-    CatalogDetail,
     /// One Isct-Data file. Key: `{kind}/{year}`.
     Reference,
-    /// The Isct-Data catalog pack of one academic year (シラバス offerings
-    /// of every department). Key: `{year}`.
-    CatalogSyllabus,
 }
 
 impl Dataset {
-    pub const ALL: [Dataset; 10] = [
+    pub const ALL: [Dataset; 8] = [
         Self::LmsEnrolment,
         Self::LmsDeadlines,
         Self::LmsCourse,
@@ -46,9 +41,7 @@ impl Dataset {
         Self::LmsHistory,
         Self::KyomuPage,
         Self::CatalogOfficial,
-        Self::CatalogDetail,
         Self::Reference,
-        Self::CatalogSyllabus,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -60,9 +53,7 @@ impl Dataset {
             Self::LmsHistory => "lms.history",
             Self::KyomuPage => "kyomu.page",
             Self::CatalogOfficial => "catalog.official",
-            Self::CatalogDetail => "catalog.detail",
             Self::Reference => "reference",
-            Self::CatalogSyllabus => "catalog.syllabus",
         }
     }
 
@@ -97,8 +88,7 @@ pub fn ttl(dataset: Dataset, term: Term) -> Option<Duration> {
         (Dataset::LmsAssign, Term::Current) => 6 * HOUR,
         (Dataset::LmsCourse | Dataset::LmsAssign, Term::Past) => 30 * DAY,
         (Dataset::LmsHistory, _) => DAY,
-        (Dataset::KyomuPage | Dataset::CatalogOfficial | Dataset::CatalogSyllabus, _) => 7 * DAY,
-        (Dataset::CatalogDetail, _) => 14 * DAY,
+        (Dataset::KyomuPage | Dataset::CatalogOfficial, _) => 7 * DAY,
         (Dataset::Reference, _) => DAY,
     };
     Some(Duration::seconds(seconds))

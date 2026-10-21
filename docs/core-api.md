@@ -236,7 +236,7 @@ a snapshot command the UI reads after subscribing.
 | School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::workspace_records`                                                          | Native views, presentation, callbacks and downloads            |
 | Sync                        | `Core::{sync_hint,sync_snapshot}`, `CoreEvent::SyncSnapshot` (`sync-snapshot`)                                                             | Send lifecycle/network/open/refresh hints; render the snapshot |
 | Scheduler                   | `Core::runtime`: wake, run_scheduled, suspend, resume                                                                                      | Periodic wakeups and scheduled exporter port                   |
-| Catalog                     | `catalog::{offerings,finder_offerings,syllabus_course}`; downloads are the planner's `catalog.*` datasets                                  | Search locally through `finder_query`                          |
+| Catalog                     | `catalog::{offerings,syllabus_url}`; downloads are the planner's `catalog.official` keys (教務 Japanese and English pages) | Search locally through `finder_query`                          |
 | Downloads                   | `Core::runtime.downloads`, `course_materials::CourseMaterials`                                                                             | Cookie acquisition, native URL handlers and opening files      |
 | Notes / backups / cloud     | `notes::NoteStore`, `BackupService`, `CloudSync`                                                                                           | Selected root, dialogs, transport and events                   |
 | School credentials          | `Core::auth` / `SchoolAuthService`                                                                                                         | `SecretVault`, native login surface                            |
@@ -465,8 +465,9 @@ one of them (otherwise into the quarter on screen) and replaces only local
 drafts that clash in that quarter. `UndoCatalogCourses` reverses exactly the
 last add of the session: it removes the plan items that add placed and brings
 back the ones it replaced. `SetCourseOnTimetable` off and `DeleteCourseBatch`
-remove a course's placements in every quarter, whatever added them. `catalog::syllabus_course`
-returns the localized editor projection, including period times and rooms.
+remove a course's placements in every quarter, whatever added them.
+`catalog::syllabus_url` builds the one link to an offering's シラバス page
+(`courses/-/-/-/{id}`, `?hl=en` in English); shells open it as given.
 
 `taskView(now)` returns deadline presentation, the IDs Core treats as
 submitted, nearest assignment per course, and per-term

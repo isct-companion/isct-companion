@@ -24,7 +24,10 @@ pub(crate) use mapping::months_to_read;
 pub(crate) use reader::LmsReader;
 
 use crate::{
-    net::{Body, Host, Http, Limits, NetError, NetRequest, Response, SessionCookies, SignInGate},
+    net::{
+        sign_in::Session, Body, Host, Http, Limits, NetError, NetRequest, Response,
+        SessionCookies, SignInGate,
+    },
     school_auth::{MoodleToken, SchoolAuthProfile, SchoolAuthService},
     school_parser::{
         lms::{
@@ -384,13 +387,24 @@ impl MoodleClient {
 
     /// The dashboard, signing in once in the WebView when the session is gone.
     async fn dashboard(&self) -> Result<Dashboard, MoodleError> {
-        match self.load_dashboard().await {
-            Err(MoodleError::SignInRequired) => {
-                self.ensure_signed_in().await?;
-                self.load_dashboard().await
-            }
-            other => other,
-        }
+        self.signed_in(|| self.load_dashboard()).await
+    }
+
+    /// Runs `read`, signing in once in the WebView when it finds the session
+    /// gone (`net::SignInGate::signed_in`).
+    async fn signed_in<T, Fut>(&self, read: impl Fn() -> Fut) -> Result<T, MoodleError>
+    where
+        Fut: std::future::Future<Output = Result<T, MoodleError>>,
+    {
+        self.sign_in
+            .signed_in(SchoolAuthProfile::Science, || async {
+                match read().await {
+                    Err(MoodleError::SignInRequired) => Ok(Session::Gone),
+                    other => other.map(Session::Live),
+                }
+            })
+            .await?
+            .ok_or(MoodleError::SignInRequired)
     }
 
     /// The timetable grids: the dashboard's current one first, then every
@@ -533,13 +547,7 @@ impl MoodleClient {
     }
 
     async fn launch(&self) -> Result<MoodleToken, MoodleError> {
-        match self.launch_once().await {
-            Err(MoodleError::SignInRequired) => {
-                self.ensure_signed_in().await?;
-                self.launch_once().await
-            }
-            other => other,
-        }
+        self.signed_in(|| self.launch_once()).await
     }
 
     /// One `launch.php` GET with the LMS cookie, redirects off.

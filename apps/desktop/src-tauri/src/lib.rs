@@ -271,8 +271,6 @@ pub fn run() {
             commands::backup::export_data,
             commands::backup::save_file,
             commands::backup::import_data,
-            commands::catalog::catalog_offerings,
-            commands::catalog::syllabus_course,
             commands::agent::agent_connection,
             #[cfg(target_os = "macos")]
             campus_wifi::campus_wifi_connect,

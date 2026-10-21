@@ -33,15 +33,14 @@ import type {
   TermId,
   Workspace,
 } from "@app/lib/model";
-import type { SyllabusCourse } from "@app/lib/syllabus";
 import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
 
 /**
- * Today, the lecture desk, the grades panel and syllabus details, driven
- * through the real shell over a scripted Core.
+ * Today, the lecture desk and the grades panel, driven through the real shell
+ * over a scripted Core.
  *
- * The legacy suites mounted `Today`, `CourseFinder`, `LectureDesk`,
- * `AcademicSummary` and `SyllabusDetails` directly and replaced `core-query`,
+ * The legacy suites mounted `Today`, `CourseFinder`, `LectureDesk` and
+ * `AcademicSummary` directly and replaced `core-query`,
  * `finder-query` and `@mantine/core` with `vi.mock`. Here the pages are reached
  * through the shipped routes and the harness answers the real query path, so a
  * passing test says something about the app instead of about a mock.
@@ -52,9 +51,6 @@ import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
  *   (only the dev-only `?preview=lms` workbench passes it), so the Today course
  *   list is mounted as the real page over the same scripted host, inside the
  *   shell's `MantineProvider`.
- * - `mountSyllabusDocument`: `variant="document"` is only ever rendered by the
- *   LMS reader's syllabus tab, whose `currentLesson` comes from LMS lesson
- *   state; the real component is mounted directly with a chosen lesson.
  * - `taskViewFor`: the harness has no `TaskView` builder, so the scripted Core
  *   derives one from the workspace the same way Core decides those sets.
  *
@@ -1274,162 +1270,5 @@ describe("the grades panel", () => {
     );
     expect(document.body.textContent).toContain("Previous fetch:");
     expect(document.body.textContent).toContain("3.20");
-  }, 20_000);
-});
-
-/* ------------------------------------------------------------------ *
- * Syllabus details.
- * ------------------------------------------------------------------ */
-
-/** An official offering-ID locator, which redirects to the dated syllabus. */
-const SYLLABUS_LOCATOR =
-  "https://syllabus.s.isct.ac.jp/courses/-/-/-/202600001";
-
-function englishSyllabus(): SyllabusCourse {
-  const url = `${SYLLABUS_LOCATOR}?hl=en`;
-  return {
-    externalId: "202600001",
-    year: 2026,
-    quarter: "3Q",
-    code: "CSC.T101",
-    title: "Assembly",
-    instructor: "Teacher",
-    url,
-    content: {
-      schemaVersion: 1,
-      sourceUrl: url,
-      sourceLanguage: "en",
-      fetchedAt: "2026-10-05",
-      sourceUpdated: null,
-      metadata: [{ label: "Credits", value: "2" }],
-      sections: [
-        {
-          key: "overview",
-          heading: "Overview",
-          blocks: [{ kind: "paragraph", text: "English course objectives" }],
-          links: [],
-        },
-      ],
-      lecturePlan: [],
-      competencies: [],
-    },
-  };
-}
-
-function documentSyllabus(): SyllabusCourse {
-  const url = `${SYLLABUS_LOCATOR}?hl=en`;
-  return {
-    externalId: "202600001",
-    year: 2026,
-    quarter: "3Q",
-    code: "CSC.T101",
-    title: "Assembly",
-    instructor: "Teacher",
-    url,
-    content: {
-      schemaVersion: 1,
-      sourceUrl: url,
-      sourceLanguage: "en",
-      fetchedAt: "2026-10-05",
-      sourceUpdated: null,
-      metadata: [{ label: "Credits", value: "2" }],
-      sections: [
-        {
-          key: "overview",
-          heading: "Course overview",
-          blocks: [{ kind: "paragraph", text: "Machine instructions" }],
-          links: [],
-        },
-      ],
-      lecturePlan: [
-        { label: "Class 1", topic: "Introduction", objective: "" },
-        { label: "Class 2", topic: "Registers", objective: "" },
-        { label: "Class 3", topic: "Memory", objective: "" },
-      ],
-      competencies: [],
-    },
-  };
-}
-
-async function mountSyllabusDocument(): Promise<Mounted> {
-  standaloneCore = installFakeCore({
-    workspace: workspaceFixture(),
-    revision: freshRevision(),
-  });
-  const { SyllabusDetails } =
-    await import("@app/pages/courses/syllabus-details");
-  standalone = await mount(
-    <MantineProvider
-      theme={appTheme}
-      cssVariablesResolver={cssVariablesResolver}
-    >
-      <SyllabusDetails
-        variant="document"
-        currentLesson={2}
-        url={`${SYLLABUS_LOCATOR}?hl=en`}
-        fetchCourse={async () => documentSyllabus()}
-      />
-    </MantineProvider>,
-  );
-  return standalone;
-}
-
-describe("syllabus details", () => {
-  it("resolves an official offering-ID locator into the canonical English syllabus", async () => {
-    const course = courseRow("offering", "Assembly", {
-      offeringId: "202600001",
-      source: { provider: "syllabus", externalId: "202600001" },
-    });
-    app = await mountApp(
-      {
-        workspace: workspaceFixture({ courses: [course] }),
-        revision: freshRevision(),
-        // Core derives the locator from the offering id; the drawer shows it.
-        queries: {
-          ...homeQueries,
-          courseDetail: { syllabusUrl: SYLLABUS_LOCATOR },
-        },
-        handle: (command) => {
-          if (command === "syllabus_course") return englishSyllabus();
-          return nativeNoise(command);
-        },
-      },
-      { route: paths.drawer(paths.home(), course.id, "syllabus") },
-    );
-
-    await until(() =>
-      expect(document.body.textContent).toContain("English course objectives"),
-    );
-    // The locator itself is what the host was asked for; the canonical page
-    // comes back from it.
-    expect(
-      app.core
-        .commands("syllabus_course")
-        .some((call) => call.args.id === SYLLABUS_LOCATOR),
-    ).toBe(true);
-    expect(document.body.textContent).toContain("Credits");
-  }, 20_000);
-
-  it("reads as a document in the course reader: facts, parts and the current lesson", async () => {
-    const mounted = await mountSyllabusDocument();
-    const plan = await required(
-      () => mounted.host.querySelector(".syllabusPlan"),
-      "the lesson plan",
-    );
-
-    // Nothing folds: no disclosure triangles in the reader.
-    expect(mounted.host.querySelector("details")).toBeNull();
-    expect(mounted.host.querySelector(".syllabusFacts")?.textContent).toContain(
-      "Credits",
-    );
-    expect(mounted.host.querySelector(".syllabusPart h3")?.textContent).toBe(
-      "Course overview",
-    );
-    expect(mounted.host.querySelector(".syllabusPart")?.textContent).toContain(
-      "Machine instructions",
-    );
-    expect(
-      [...plan.querySelectorAll(":scope > li")].map((row) => row.className),
-    ).toEqual(["held", "current", ""]);
   }, 20_000);
 });

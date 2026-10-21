@@ -1,0 +1,167 @@
+[
+  {
+    "externalId": "202600907",
+    "year": 2026,
+    "quarter": "2Q",
+    "quarters": [
+      "2Q"
+    ],
+    "code": "LAH.T209",
+    "title": "Social Modeling B",
+    "instructor": "Yukiko Kato",
+    "credits": 2.0,
+    "language": "Japanese",
+    "meetings": [
+      {
+        "days": [
+          1
+        ],
+        "periods": [
+          1,
+          2
+        ],
+        "startTime": "08:50",
+        "endTime": "10:30",
+        "room": "M-123"
+      },
+      {
+        "days": [
+          4
+        ],
+        "periods": [
+          1,
+          2
+        ],
+        "startTime": "08:50",
+        "endTime": "10:30",
+        "room": "M-123"
+      }
+    ],
+    "url": "https://syllabus.s.isct.ac.jp/courses/2026/7/0-907-0-110100-0/202600907?hl=en",
+    "updated": "Mar 5, 2026",
+    "fetchedAt": "2026-09-10T03:14:11Z"
+  },
+  {
+    "externalId": "202602440",
+    "year": 2026,
+    "quarter": "2Q",
+    "quarters": [
+      "2Q"
+    ],
+    "code": "CSC.T354",
+    "title": "Parallel Programming",
+    "instructor": "Suguru Saito / Youmi Ma",
+    "credits": 2.0,
+    "language": "Japanese",
+    "meetings": [
+      {
+        "days": [
+          2
+        ],
+        "periods": [
+          3,
+          4
+        ],
+        "startTime": "10:45",
+        "endTime": "12:25",
+        "room": "W9-323"
+      },
+      {
+        "days": [
+          5
+        ],
+        "periods": [
+          3,
+          4
+        ],
+        "startTime": "10:45",
+        "endTime": "12:25",
+        "room": "W9-323"
+      }
+    ],
+    "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602440?hl=en",
+    "updated": "Apr 14, 2026",
+    "fetchedAt": "2026-09-10T03:14:11Z"
+  },
+  {
+    "externalId": "202602417",
+    "year": 2026,
+    "quarter": "1Q",
+    "quarters": [
+      "1Q"
+    ],
+    "code": "CSC.T243",
+    "title": "Procedural Programming Fundamentals",
+    "instructor": "Shio Miyafuji / Masahiro Nomura",
+    "credits": 3.0,
+    "language": "Japanese",
+    "meetings": [
+      {
+        "days": [
+          1
+        ],
+        "periods": [
+          7,
+          8
+        ],
+        "startTime": "15:25",
+        "endTime": "17:05",
+        "room": "WL2-201"
+      }
+    ],
+    "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602417?hl=en",
+    "updated": "Apr 6, 2026",
+    "fetchedAt": "2026-09-10T03:14:11Z"
+  },
+  {
+    "externalId": "202604060",
+    "year": 2026,
+    "quarter": "3Q",
+    "quarters": [
+      "3Q"
+    ],
+    "code": "MCS.T416",
+    "title": "Logic and Computation",
+    "instructor": "Ryo Kashima",
+    "credits": 2.0,
+    "language": "English",
+    "meetings": [],
+    "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/1-22-442222-0-0/202604060?hl=en",
+    "updated": "Mar 5, 2026",
+    "fetchedAt": "2026-09-10T03:14:11Z"
+  },
+  {
+    "externalId": "202602427",
+    "year": 2026,
+    "quarter": "3Q",
+    "quarters": [
+      "3Q"
+    ],
+    "code": "CSC.T262",
+    "title": "Assembly Language",
+    "instructor": "Katsuhiko Gondow",
+    "credits": 2.0,
+    "language": "Japanese",
+    "meetings": [],
+    "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342300-0-0/202602427?hl=en",
+    "updated": "Mar 5, 2026",
+    "fetchedAt": "2026-09-10T03:14:11Z"
+  },
+  {
+    "externalId": "202602384",
+    "year": 2026,
+    "quarter": "3Q",
+    "quarters": [
+      "3Q"
+    ],
+    "code": "MCS.T224",
+    "title": "Programming I",
+    "instructor": "Ken Wakita / Mikito Nanashima",
+    "credits": 3.0,
+    "language": "Japanese",
+    "meetings": [],
+    "url": "https://syllabus.s.isct.ac.jp/courses/2026/4/0-904-342200-0-0/202602384?hl=en",
+    "updated": "Mar 5, 2026",
+    "fetchedAt": "2026-09-10T03:14:12Z"
+  }
+]

@@ -18,7 +18,6 @@ const DATASET_NAMES: Record<string, string> = {
   "lms.history": "Past courses",
   "kyomu.page": "教務Web pages",
   "catalog.official": "Course catalog",
-  "catalog.detail": "Syllabus details",
   reference: "Reference data",
 };
 

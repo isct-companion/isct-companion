@@ -156,26 +156,6 @@ pub(super) fn read_visible_rows(
     rows
 }
 
-pub(super) fn fill_missing(value: &mut Value, fallback: &Value) {
-    match (value, fallback) {
-        (Value::Object(value), Value::Object(fallback)) => {
-            for (key, fallback) in fallback {
-                if let Some(current) = value.get_mut(key) {
-                    fill_missing(current, fallback);
-                } else {
-                    value.insert(key.clone(), fallback.clone());
-                }
-            }
-        }
-        (Value::Array(value), Value::Array(fallback)) if value.len() == fallback.len() => {
-            for (current, fallback) in value.iter_mut().zip(fallback) {
-                fill_missing(current, fallback);
-            }
-        }
-        _ => {}
-    }
-}
-
 pub(crate) fn canonical_course_id(
     academic_year: i32,
     offering_id: &str,
@@ -199,7 +179,7 @@ pub(crate) fn resolve_course_id(
     academic_year: i32,
     offering_id: Option<&str>,
 ) -> Result<String, DataError> {
-    if !matches!(provider, "lms" | "syllabus" | "kyomu" | "manual") || external_id.trim().is_empty()
+    if !matches!(provider, "lms" | "kyomu" | "manual") || external_id.trim().is_empty()
     {
         return Err("invalid course identity source".into());
     }

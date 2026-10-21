@@ -368,24 +368,12 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                 "assignments": visible_rows(&workspace, "assignments").into_iter()
                     .filter(|row| row.get("courseId").and_then(Value::as_str) == Some(id)
                         && row.get("hidden") != Some(&Value::Bool(true))).collect::<Vec<_>>(),
-                "syllabus": store.table_rows("offering_content")?.into_iter()
-                    .filter(|row| row.get("offeringId").and_then(Value::as_str)
-                        == course.get("offeringId").and_then(Value::as_str)).collect::<Vec<_>>()
+                "syllabusUrl": crate::schedule::course_detail(&workspace, id).syllabus_url
             }))
         }
-        "search_catalog" => {
-            // Search-only rows lack the schedule and credits plan_add needs;
-            // the app reads them from the syllabus site, which this server never contacts.
-            let mut rows = store.catalog_search(required(args, "query")?)?;
-            for row in &mut rows {
-                let plannable = match text(row, "id") {
-                    Some(id) => store.catalog_offering(id)?.is_some(),
-                    None => false,
-                };
-                row["plannable"] = Value::Bool(plannable);
-            }
-            Ok(Value::Array(rows))
-        }
+        "search_catalog" => Ok(Value::Array(
+            store.catalog_search(required(args, "query")?)?,
+        )),
         "registration" => {
             let year = args.get("year").and_then(Value::as_i64);
             let term = args.get("term").and_then(Value::as_str);
@@ -457,14 +445,9 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
             let offering_id = required(args, "offeringId")?;
             let term = required(args, "term")?;
             let (year, quarter) = parse_term(term)?;
-            let Some(_) = store.catalog_offering(offering_id)? else {
-                return Err(if store.catalog_search_item(offering_id)?.is_some() {
-                    "this course's schedule is not synced yet (plannable: false). Open it once in IsctCompanion, then try again."
-                } else {
-                    "offering was not found in the local catalog"
-                }
-                .into());
-            };
+            if store.catalog_offering(offering_id)?.is_none() {
+                return Err("offering was not found in the local catalog".into());
+            }
             let details = agent_write_result(store.agent_write(name, |write, latest_workspace| {
                 let offering = write.catalog_offering(offering_id)?.ok_or_else(|| {
                     DataError::InvalidInput(

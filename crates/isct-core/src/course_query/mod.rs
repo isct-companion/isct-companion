@@ -1112,7 +1112,6 @@ pub struct FinderView {
     pub pasted_ids: Vec<String>,
     pub missing_codes: Vec<String>,
     pub ineligible_codes: Vec<String>,
-    pub detail_ids: Vec<String>,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum FinderError {
@@ -1237,9 +1236,15 @@ pub fn finder_view(
             .transpose()?
             .unwrap_or_default(),
     };
+    let language = crate::schedule::content_language(workspace);
     let courses = offerings
         .into_iter()
         .filter_map(normalize_offering)
+        .map(|mut course| {
+            let url = crate::catalog::syllabus_url(text(&course, "id"), language);
+            course["syllabusUrl"] = url.into();
+            course
+        })
         .collect::<Vec<_>>();
     let eligibility = courses
         .iter()
@@ -1367,17 +1372,6 @@ pub fn finder_view(
         .filter(|c| clashes(c, &ctx.busy))
         .map(|c| text(c, "id").to_string())
         .collect();
-    let quarter_factors = parsed
-        .factors
-        .iter()
-        .filter(|f| f.r#type == "quarter")
-        .cloned()
-        .collect::<Vec<_>>();
-    let detail_ids = run(visible_base, &quarter_factors, &ctx, "")
-        .iter()
-        .filter(|row| row.course.get("detailed") == Some(&Value::Bool(false)))
-        .map(|row| text(&row.course, "id").to_string())
-        .collect();
     let on_timetable = placed
         .iter()
         .map(|c| text(c, "code").to_string())
@@ -1440,7 +1434,6 @@ pub fn finder_view(
         pasted_ids,
         missing_codes,
         ineligible_codes,
-        detail_ids,
     })
 }
 
@@ -1453,10 +1446,6 @@ pub fn normalize_offering(mut row: Value) -> Option<Value> {
     {
         return None;
     }
-    row["detailed"] = json!(
-        row.get("schedule").is_some_and(Value::is_array)
-            && row.get("credits").is_some_and(Value::is_object)
-    );
     if !row.get("schedule").is_some_and(Value::is_array) {
         row["schedule"] = json!([]);
     }

@@ -38,7 +38,6 @@ fun datasetName(dataset: String): String = when (dataset) {
     "lms.history" -> t("Past courses")
     "kyomu.page" -> t("教務Web pages")
     "catalog.official" -> t("Course catalog")
-    "catalog.detail" -> t("Syllabus details")
     "reference" -> t("Reference data")
     else -> dataset
 }

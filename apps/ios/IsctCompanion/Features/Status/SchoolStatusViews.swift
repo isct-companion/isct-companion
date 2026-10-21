@@ -28,7 +28,6 @@ enum SyncText {
         case "lms.history": return t("Past courses")
         case "kyomu.page": return t("教務Web pages")
         case "catalog.official": return t("Course catalog")
-        case "catalog.detail": return t("Syllabus details")
         case "reference": return t("Reference data")
         default: return nil
         }

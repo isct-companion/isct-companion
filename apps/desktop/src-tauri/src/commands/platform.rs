@@ -15,7 +15,6 @@ pub(crate) struct RuntimeCapabilities {
     notifications: bool,
     background_schedule: bool,
     cloud_sync: bool,
-    syllabus_search: bool,
     matrix_ocr: bool,
 }
 
@@ -72,7 +71,6 @@ pub(crate) fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCap
         notifications: true,
         background_schedule: true,
         cloud_sync: true,
-        syllabus_search: true,
         matrix_ocr: cfg!(matrix_ocr),
     })
 }

@@ -84,10 +84,6 @@ pub enum View {
     Finder {
         year: u16,
     },
-    /// One シラバス detail (catalog.detail at Interactive).
-    Offering {
-        offering_id: String,
-    },
     Grades,
 }
 

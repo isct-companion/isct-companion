@@ -34,7 +34,6 @@ const TAG: Partial<Record<Condition["type"], string>> = {
 };
 
 function schedule(course: FinderCourse) {
-  if (course.detailed === false) return "…";
   return (
     course.schedule
       .map((s) =>
@@ -129,7 +128,11 @@ export function CourseFinder({
   // (`catalog.official`); while it runs, the query is re-read when it lands.
   const sync = useSync();
   const catalogRuns = runsFor(sync, ["catalog.official"], String(year));
-  const downloading = catalogRuns.some((run) => !run.failure);
+  // The catalog is the 教務 course search: it waits for a 教務 sign-in.
+  const signInNeeded = catalogRuns.some(
+    (run) => run.held?.kind === "sign-in-required",
+  );
+  const downloading = catalogRuns.some((run) => !run.failure && !run.held);
   // Catalog rows commit without a workspace revision, so each finished
   // download is its own refresh key; a boolean would reuse the empty answer
   // cached before the download began.
@@ -685,7 +688,9 @@ export function CourseFinder({
                     "Downloading the {{year}} course catalog. Results appear when it is saved.",
                     { year },
                   )
-                : courses.length === 0
+                : courses.length === 0 && signInNeeded
+                  ? t("Sign in to 教務 to search courses")
+                  : courses.length === 0
                   ? t("No {{year}} course catalog is saved yet.", { year })
                   : t(
                       "No matching courses. Remove a condition to widen the search.",
@@ -745,8 +750,7 @@ export function CourseFinder({
                   <small>
                     <code>{course.code}</code> · {schedule(course)} ·{" "}
                     {course.quarters.join(" ")}
-                    {course.detailed !== false &&
-                      ` · ${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
+                    {` · ${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
                     {matched.length > 0 && <em> · {matched.join(" / ")}</em>}
                   </small>
                   <span className="finderBadges">

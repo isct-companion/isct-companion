@@ -13,8 +13,6 @@ use serde_json::Value;
 
 /// Module details of a past course nobody opened for this long.
 const COURSE_DETAILS_UNUSED_DAYS: i64 = 180;
-/// A シラバス detail page nobody opened for this long.
-const CATALOG_DETAIL_UNUSED_DAYS: i64 = 365;
 const RUNS_KEPT_DAYS: i64 = 30;
 /// gc leaves its own `sync_runs` row under this dataset name, so it runs at
 /// most once a day however often the app starts.
@@ -26,8 +24,6 @@ pub struct GcReport {
     pub ran: bool,
     /// `lms.course` keys whose module details were stripped.
     pub courses_stripped: usize,
-    /// `catalog.detail` keys whose content was deleted.
-    pub details_deleted: usize,
     pub runs_deleted: usize,
 }
 
@@ -68,20 +64,6 @@ pub fn gc(connection: &Connection, now: DateTime<Utc>) -> Result<GcReport, DataE
         sync_state::invalidate(connection, &Key::new(Dataset::LmsCourse, state.key))?;
         report.courses_stripped += 1;
     }
-    for state in sync_state::list(connection, Some(Dataset::CatalogDetail))? {
-        if !unused(&state, now, CATALOG_DETAIL_UNUSED_DAYS) {
-            continue;
-        }
-        // The catalog row itself stays searchable; only the detail text goes.
-        connection
-            .execute(
-                "DELETE FROM offering_content WHERE offering_id=?1",
-                [&state.key],
-            )
-            .map_err(DataError::from)?;
-        sync_state::invalidate(connection, &Key::new(Dataset::CatalogDetail, state.key))?;
-        report.details_deleted += 1;
-    }
     report.runs_deleted = connection
         .execute(
             "DELETE FROM sync_runs WHERE finished_at < ?1",
@@ -97,7 +79,7 @@ pub fn gc(connection: &Connection, now: DateTime<Utc>) -> Result<GcReport, DataE
                 uuid::Uuid::now_v7().simple().to_string(),
                 GC_RUN,
                 at,
-                (report.courses_stripped + report.details_deleted + report.runs_deleted) as i64,
+                (report.courses_stripped + report.runs_deleted) as i64,
             ],
         )
         .map_err(DataError::from)?;
