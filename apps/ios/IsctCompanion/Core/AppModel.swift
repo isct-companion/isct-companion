@@ -857,11 +857,12 @@ extension AppModel {
     /// The syllabus departments, as the desktop's course finder lists them.
     func departments() async -> [FinderDepartment] {
         guard let session, let term = today?.term, let year = UInt16(term.prefix(4)),
-            case let .finder(view)? = try? await session.finderQuery(request: FinderRequest(
-                year: year, term: term, includeIneligible: false, keys: [], input: "", action: nil
+            case let .finder(page)? = try? await session.finderQuery(request: FinderRequest(
+                year: year, term: term, includeIneligible: false, keys: [], input: "", action: nil,
+                offset: 0, limit: 0
             )).value()
         else { return [] }
-        return view.context.departments
+        return page.context.departments
     }
 
     private static func stage(_ raw: String?) -> StudyStage {

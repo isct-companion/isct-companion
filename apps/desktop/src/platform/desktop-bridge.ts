@@ -3,7 +3,7 @@ import type {
   CoreWorkspaceSnapshot,
   WorkspaceMutation,
 } from "../lib/workspace-intents";
-import type { FinderRequest, FinderView } from "./finder-query";
+import type { FinderRequest, FinderPage } from "./finder-query";
 import type { Localized } from "../lib/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
@@ -359,7 +359,7 @@ export interface DesktopBridge {
     changes: readonly WorkspaceChange[],
   ): Promise<CoreWorkspacePatch>;
   mutateWorkspace(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
-  finderQuery(request: FinderRequest): Promise<FinderView>;
+  finderQuery(request: FinderRequest): Promise<FinderPage>;
   scheduleQuery(queries: readonly unknown[]): Promise<{
     revision: string;
     values: { kind: string; value: unknown }[];

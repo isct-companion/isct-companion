@@ -37,9 +37,8 @@ import { paths } from "@app/app/routes";
 import { notify } from "@app/app/notify";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
-import type { FinderAction } from "@app/generated/persistence";
+import type { FinderAction, FinderPage } from "@app/generated/persistence";
 import type { ScheduleQuery } from "@app/platform/core-query";
-import type { FinderRequest } from "@app/platform/finder-query";
 
 /**
  * The whole shell over a scripted Core: hash routing, page retention, keyboard
@@ -50,8 +49,8 @@ import type { FinderRequest } from "@app/platform/finder-query";
  * Local helpers exist where the harness has no builder: `shellOptions` (a
  * navigable workspace with the school-web commands answered), `mountShell`
  * (adopts this test's workspace before mounting, because the harness reuses one
- * module-level store), `emptyFinder`, and the `Schedule*` / `Finder*` probe
- * components.
+ * module-level store), `emptyFinder`, and the `Schedule*` / `FinderProbe`
+ * probe components.
  */
 
 const placed = offering("202602421", "CSC.T252", "Placed");
@@ -66,13 +65,13 @@ const clashingCourse = courseFor(clashing);
  * service, which is exactly what `mountApp`'s ordering rule protects against.
  */
 let coreQuery: typeof import("@app/platform/core-query");
-let finderQuery: typeof import("@app/platform/finder-query");
+let finderOwner: typeof import("@app/pages/courses/useFinder");
 let storeModule: typeof import("@app/store/workspace");
 
 beforeAll(async () => {
   installFakeCore({ workspace: workspaceFixture() });
   coreQuery = await import("@app/platform/core-query");
-  finderQuery = await import("@app/platform/finder-query");
+  finderOwner = await import("@app/pages/courses/useFinder");
   storeModule = await import("@app/store/workspace");
   // Warm the shell's module graph too, so the first mounted test does not pay
   // the whole transform cost inside its own timeout.
@@ -197,27 +196,34 @@ function shellQueries(): QueryTable {
   };
 }
 
-/** The finder view Core returns when nothing is placed and nothing searched. */
-const emptyFinder = (request: Record<string, unknown>) => ({
-  context: { currentQuarter: 3, recommended: {}, departments: [], busy: [] },
-  courses: [],
+/** The finder page Core returns when nothing is stored, placed or searched. */
+const emptyFinder = (request: Record<string, unknown>): FinderPage => ({
+  context: {
+    currentQuarter: 3,
+    recommended: {},
+    departments: [],
+    busy: [],
+    officialOptions: [],
+  },
   factors: [],
   duplicates: 0,
-  keys: request.keys ?? [],
-  rows: [],
-  suggestions: [],
+  keys: (request.keys as string[] | undefined) ?? [],
   live: String(request.input ?? ""),
-  clashes: [],
-  ineligibleIds: [],
-  eligibility: {},
-  replacements: {},
-  credits: {},
-  onTimetable: [],
+  suggestions: [],
+  total: 0,
+  offset: 0,
+  rows: [],
+  stored: 0,
+  ineligible: 0,
   activeSlots: [],
+  placedCodes: [],
+  commitKey: null,
   pasteHandled: false,
-  pastedIds: [],
+  pasted: [],
   missingCodes: [],
   ineligibleCodes: [],
+  catalogVersion: 0,
+  contentRevision: "",
 });
 
 function shellOptions(
@@ -1028,95 +1034,42 @@ function ScheduleSwitchProbe({
   );
 }
 
-function FinderConsumer({
-  request,
-  label,
-}: {
-  request: FinderRequest;
-  label: string;
-}) {
-  const state = finderQuery.useFinderQuery(request);
-  return (
-    <output className={`finderProbe finderProbe-${label}`}>
-      {(state.value?.keys ?? []).join(",")}
-    </output>
-  );
-}
-
-function FinderPair({ request }: { request: FinderRequest }) {
-  return (
-    <div>
-      <FinderConsumer request={request} label="one" />
-      <FinderConsumer request={request} label="two" />
-    </div>
-  );
-}
-
-function FinderSwitchProbe({
-  initial,
-  next,
-}: {
-  initial: string;
-  next: string;
-}) {
-  const [term, setTerm] = useState(initial);
-  const state = finderQuery.useFinderQuery({ year: 2026, term, keys: [] });
-  return (
-    <div>
-      <output className="finderTerm">
-        {(state.value?.keys ?? []).join(",")}
-      </output>
-      <button className="finderSwitch" onClick={() => setTerm(next)}>
-        switch
-      </button>
-    </div>
-  );
-}
-
-function FinderQueueProbe({
-  term,
-  nextTerm,
-}: {
-  term: string;
-  nextTerm: string;
-}) {
+/** The finder owner alone, its keys and its shown page's input. */
+function FinderProbe({ term, nextTerm }: { term: string; nextTerm: string }) {
   const [current, setCurrent] = useState(term);
-  const [keys, setKeys] = useState<string[]>([]);
-  const queue = finderQuery.useFinderEditQueue({
+  const finder = finderOwner.useFinder({
     year: 2026,
     term: current,
-    keys,
-    setKeys,
+    session: current,
+    enabled: true,
+    defaultKeys: [],
   });
   return (
     <div>
-      <output className="queueKeys">{keys.join(",")}</output>
-      <button
-        className="queueA"
-        onClick={() =>
-          void queue.run({ kind: "toggleTime", key: "A", append: false })
-        }
-      >
+      <output className="queueKeys">{finder.keys.join(",")}</output>
+      <output className="shownInput">{finder.page?.live ?? ""}</output>
+      <button className="typeLate" onClick={() => finder.type("late")}>
+        late
+      </button>
+      <button className="typeQuick" onClick={() => finder.type("quick")}>
+        quick
+      </button>
+      <button className="queueA" onClick={() => finder.toggleTime("A", false)}>
         A
       </button>
-      <button
-        className="queueB"
-        onClick={() =>
-          void queue.run({ kind: "toggleTime", key: "B", append: true })
-        }
-      >
+      <button className="queueB" onClick={() => finder.toggleTime("B", true)}>
         B
       </button>
       <button
         className="queueRapid"
         onClick={() => {
-          void queue.run({ kind: "toggleTime", key: "A", append: false });
-          void queue.run({ kind: "toggleTime", key: "B", append: true });
+          finder.toggleTime("A", false);
+          finder.toggleTime("B", true);
         }}
       >
         rapid
       </button>
-      <button className="queueReplace" onClick={() => queue.replace(["X"])}>
+      <button className="queueReplace" onClick={() => finder.replace(["X"])}>
         replace
       </button>
       <button className="queueTerm" onClick={() => setCurrent(nextTerm)}>
@@ -1127,17 +1080,19 @@ function FinderQueueProbe({
 }
 
 /** Core's key contract for one finder action: read keys, apply, return keys. */
-function finderAnswer(
-  request: Record<string, unknown>,
-): Record<string, unknown> {
+function finderAnswer(request: Record<string, unknown>): FinderPage {
   const keys = [...((request.keys as string[] | undefined) ?? [])];
   const action = request.action as FinderAction | null | undefined;
   if (action?.kind === "toggleTime") {
     if (action.append) keys.push(action.key);
     else keys.splice(0, keys.length, action.key);
   }
-  return { keys };
+  return { ...emptyFinder(request), keys };
 }
+const actions = (core: FakeCore) =>
+  core
+    .commands("finder_query")
+    .filter((call) => (call.args.request as { action?: unknown }).action);
 
 function scheduleAnswer(kind: string, value: unknown, revision: string) {
   return { revision, values: [{ kind, value }] };
@@ -1409,73 +1364,41 @@ describe("schedule query caches", () => {
   }, 20_000);
 });
 
-describe("finder query caches", () => {
-  const request: FinderRequest = { year: 2026, term: "finder-share", keys: [] };
-
-  it("shares one identical finder read between two mounted consumers", async () => {
-    const core = installFakeCore({
-      workspace: workspaceFixture(),
-      revision: "rev:finder-share",
-      finder: (incoming) => finderAnswer(incoming),
-    });
-    probe = await mount(<FinderPair request={request} />);
-    await until(() =>
-      expect(probe!.host.querySelector(".finderProbe-one")?.textContent).toBe(
-        "",
-      ),
-    );
-    expect(core.commands("finder_query")).toHaveLength(1);
-    expect(core.commands("finder_query")[0].args.request).toEqual(request);
-
-    await probe.unmount();
-    probe = await mount(<FinderConsumer request={request} label="two" />);
-    await act(async () => {});
-    expect(core.commands("finder_query")).toHaveLength(1);
-  }, 20_000);
-
-  it("ignores an old finder response once the request changed", async () => {
-    const workspace = workspaceFixture();
-    let holdOld = true;
+describe("the finder owner", () => {
+  it("shows the latest typed search when an older one answers last", async () => {
     let releaseOld!: () => void;
     const old = new Promise<void>((resolve) => {
       releaseOld = resolve;
     });
     const core = installFakeCore({
-      workspace,
-      revision: "rev:finder-stale",
+      workspace: workspaceFixture(),
+      revision: "rev:finder-latest",
       handle: (command, args) => {
-        if (command === "finder_query") {
-          const incoming = args.request as { term?: string };
-          if (incoming.term === "finder-late" && holdOld)
-            return old.then(() => ({ keys: ["late"] }));
-          if (incoming.term === "finder-quick") return { keys: ["quick"] };
-        }
-        return undefined;
+        if (command !== "finder_query") return undefined;
+        const request = args.request as Record<string, unknown>;
+        return request.input === "late"
+          ? old.then(() => finderAnswer(request))
+          : finderAnswer(request);
       },
     });
-    probe = await mount(
-      <FinderSwitchProbe initial="finder-late" next="finder-quick" />,
-    );
-    expect(probe.host.querySelector(".finderTerm")?.textContent).toBe("");
-
-    await click(probe.host.querySelector(".finderSwitch"));
+    probe = await mount(<FinderProbe term="finder-latest" nextTerm="x" />);
+    await click(probe.host.querySelector(".typeLate"));
+    await click(probe.host.querySelector(".typeQuick"));
     await until(() =>
-      expect(probe!.host.querySelector(".finderTerm")?.textContent).toBe(
+      expect(probe!.host.querySelector(".shownInput")?.textContent).toBe(
         "quick",
       ),
     );
-
-    holdOld = false;
     await act(async () => {
       releaseOld();
       await old;
     });
-    expect(probe.host.querySelector(".finderTerm")?.textContent).toBe("quick");
+    expect(probe.host.querySelector(".shownInput")?.textContent).toBe("quick");
     expect(
       core
         .commands("finder_query")
-        .map((call) => (call.args.request as { term?: string }).term),
-    ).toEqual(["finder-late", "finder-quick"]);
+        .map((call) => (call.args.request as { input?: string }).input),
+    ).toEqual(["", "late", "quick"]);
   }, 20_000);
 
   it("feeds each rapid action the keys Core returned for the previous one", async () => {
@@ -1488,15 +1411,13 @@ describe("finder query caches", () => {
         return undefined;
       },
     });
-    probe = await mount(
-      <FinderQueueProbe term="queue" nextTerm="queue-next" />,
-    );
+    probe = await mount(<FinderProbe term="queue" nextTerm="queue-next" />);
 
     await click(probe.host.querySelector(".queueRapid"));
     await until(() =>
       expect(probe!.host.querySelector(".queueKeys")?.textContent).toBe("A,B"),
     );
-    const calls = core.commands("finder_query");
+    const calls = actions(core);
     expect(calls).toHaveLength(2);
     expect(calls[0].args.request).toMatchObject({
       keys: [],
@@ -1519,8 +1440,8 @@ describe("finder query caches", () => {
       revision: "rev:queue-term",
       handle: (command, args) => {
         if (command === "finder_query") {
-          const incoming = args.request as { term?: string };
-          if (incoming.term === "queue-late" && holdAnswer)
+          const incoming = args.request as Record<string, unknown>;
+          if (incoming.term === "queue-late" && incoming.action && holdAnswer)
             return pending.then(() => finderAnswer(incoming));
           return finderAnswer(incoming);
         }
@@ -1528,7 +1449,7 @@ describe("finder query caches", () => {
       },
     });
     probe = await mount(
-      <FinderQueueProbe term="queue-late" nextTerm="queue-next" />,
+      <FinderProbe term="queue-late" nextTerm="queue-next" />,
     );
 
     await click(probe.host.querySelector(".queueA"));
@@ -1561,9 +1482,7 @@ describe("finder query caches", () => {
         return undefined;
       },
     });
-    probe = await mount(
-      <FinderQueueProbe term="queue" nextTerm="queue-next" />,
-    );
+    probe = await mount(<FinderProbe term="queue" nextTerm="queue-next" />);
 
     await click(probe.host.querySelector(".queueReplace"));
     expect(probe.host.querySelector(".queueKeys")?.textContent).toBe("X");
@@ -1572,7 +1491,7 @@ describe("finder query caches", () => {
     await until(() =>
       expect(probe!.host.querySelector(".queueKeys")?.textContent).toBe("X,B"),
     );
-    expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject({
+    expect(actions(core).at(-1)?.args.request).toMatchObject({
       keys: ["X"],
     });
   }, 20_000);

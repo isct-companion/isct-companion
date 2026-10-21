@@ -6,7 +6,7 @@ import type { QueryState } from "./core-query";
 
 /** The revision of the records a view family reads: a whole snapshot read,
  * or a patch of any change it names, makes a new one. */
-const viewRevision = (
+export const viewRevision = (
   revisions: ViewRevisions,
   reads: readonly WorkspaceChange[],
 ) =>

@@ -27,6 +27,7 @@ pub struct Core {
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
     pub(crate) reset_lease: crate::reset::ResetLease,
+    finder: crate::course_query::FinderCache,
 }
 
 struct CoreEvents {
@@ -170,6 +171,7 @@ impl Core {
             runtime,
             events,
             reset_lease: Default::default(),
+            finder: Default::default(),
         }
     }
 
@@ -335,17 +337,19 @@ impl Core {
     pub fn finder_query(
         &self,
         request: crate::course_query::FinderRequest,
-    ) -> Result<crate::course_query::FinderView, ReadModelError> {
-        let snapshot = self.workspace.snapshot()?;
-        let offerings = crate::catalog::offerings(&self.store, request.year)?;
-        let mut workspace = snapshot.workspace;
-        workspace["kyomuSearchOptions"] = self
+    ) -> Result<crate::course_query::FinderPage, ReadModelError> {
+        // Borrowed, not copied: each keystroke reads the cached snapshot.
+        let (parts, content_revision) = self
+            .store
+            .workspace_snapshot_shared()
+            .map_err(WorkspaceError::from)?;
+        let options = self
             .store
             .kyomu_search_options(request.year)
             .map_err(crate::catalog::CatalogError::from)?;
-        Ok(crate::course_query::finder_view(
-            &workspace, offerings, request,
-        )?)
+        Ok(self
+            .finder
+            .page(&self.store, &parts.0, &content_revision, &options, request)?)
     }
 
     pub async fn reminder_tick(

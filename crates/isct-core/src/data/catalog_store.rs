@@ -294,6 +294,28 @@ impl DataStore {
         rows
     }
 
+    /// The live offerings of one academic year through `offerings_by_year`,
+    /// ordered by their stored text as [`Self::catalog_search`] lists them.
+    pub fn catalog_year(&self, year: u16) -> Result<Vec<Value>, DataError> {
+        let connection = self.open()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT value FROM offerings
+                 WHERE year=?1 AND deleted_at IS NULL AND missing_since IS NULL
+                 ORDER BY value",
+            )
+            .map_err(DataError::from)?;
+        let rows = statement
+            .query_map([year], |row| row.get::<_, String>(0))
+            .map_err(DataError::from)?
+            .map(|row| {
+                serde_json::from_str(&row.map_err(DataError::from)?)
+                    .map_err(|_| DataError::storage("catalog row contains invalid JSON"))
+            })
+            .collect();
+        rows
+    }
+
     pub fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
         let connection = self.open()?;
         catalog_offering_in(&connection, id)

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, HashSet},
-    sync::LazyLock,
+    sync::{Arc, LazyLock, Mutex, PoisonError},
 };
 #[cfg(feature = "ts")]
 use ts_rs::TS;
@@ -558,6 +558,21 @@ pub fn clashing_courses(course: &Value, placed: &[Value]) -> Vec<Value> {
         .cloned()
         .collect()
 }
+/// A catalog row with the lowercase text a typed word is looked up in,
+/// built once per catalog rather than per search.
+pub struct IndexedCourse {
+    pub course: Arc<Value>,
+    haystack: String,
+}
+impl IndexedCourse {
+    pub fn new(course: Value) -> Self {
+        let haystack = searchable(&course);
+        Self {
+            course: Arc::new(course),
+            haystack,
+        }
+    }
+}
 fn searchable(course: &Value) -> String {
     let mut terms = vec![
         text(course, "code"),
@@ -585,7 +600,8 @@ fn searchable(course: &Value) -> String {
             .join(" "),
     )
 }
-fn hit(course: &Value, c: &Condition, ctx: &FinderContext) -> bool {
+fn hit(indexed: &IndexedCourse, c: &Condition, ctx: &FinderContext) -> bool {
+    let course = &indexed.course;
     // Official form choices are read from each stored row the way the form
     // means them. A choice the captured form no longer lists, or whose
     // meaning the row cannot show, keeps the row.
@@ -670,33 +686,47 @@ fn hit(course: &Value, c: &Condition, ctx: &FinderContext) -> bool {
             .any(|s| s.get("kind") == Some(v)),
         "credits" => v.as_f64() == Some(total_credits(course)),
         "free" => !clashes(course, &ctx.busy),
-        "text" => v.as_str().is_some_and(|s| searchable(course).contains(s)),
+        "text" => v.as_str().is_some_and(|s| indexed.haystack.contains(s)),
         _ => false,
     })
 }
-pub fn run(
-    courses: &[Value],
+fn matches(c: &IndexedCourse, factors: &[Factor], ctx: &FinderContext, live: &str) -> bool {
+    (live.is_empty() || c.haystack.contains(live))
+        && factors.iter().all(|f| {
+            if f.r#type == "exclude" {
+                f.alts.first().is_none_or(|a| !hit(c, a, ctx))
+            } else {
+                f.alts.iter().any(|a| hit(c, a, ctx))
+            }
+        })
+}
+/// How many rows [`run`] would return, without building them.
+fn count_rows(courses: &[&IndexedCourse], factors: &[Factor], ctx: &FinderContext) -> usize {
+    let mut seen = HashSet::new();
+    courses
+        .iter()
+        .filter(|c| matches(c, factors, ctx, "") && seen.insert(text(&c.course, "id")))
+        .count()
+}
+/// A row that met every condition, with the either-or labels it met.
+pub struct FinderMatch<'a> {
+    pub course: &'a IndexedCourse,
+    pub matched: Vec<String>,
+}
+/// Every matching row, recommended first, then by code.
+pub fn run<'a>(
+    courses: &[&'a IndexedCourse],
     factors: &[Factor],
     ctx: &FinderContext,
     live: &str,
-) -> Vec<FinderRow> {
+) -> Vec<FinderMatch<'a>> {
     let live = lower(live.trim());
     let mut seen = HashSet::new();
-    let mut rows: Vec<FinderRow> = courses
+    let mut rows: Vec<FinderMatch<'a>> = courses
         .iter()
-        .filter(|c| {
-            (live.is_empty() || searchable(c).contains(&live))
-                && factors.iter().all(|f| {
-                    if f.r#type == "exclude" {
-                        f.alts.first().is_none_or(|a| !hit(c, a, ctx))
-                    } else {
-                        f.alts.iter().any(|a| hit(c, a, ctx))
-                    }
-                })
-                && seen.insert(text(c, "id"))
-        })
-        .map(|c| FinderRow {
-            course: c.clone(),
+        .filter(|c| matches(c, factors, ctx, &live) && seen.insert(text(&c.course, "id")))
+        .map(|c| FinderMatch {
+            course: c,
             matched: factors
                 .iter()
                 .filter(|f| f.alts.len() > 1 && f.r#type != "exclude")
@@ -720,9 +750,9 @@ pub fn run(
             .unwrap_or(0)
     };
     rows.sort_by(|a, b| {
-        weight(&b.course)
-            .cmp(&weight(&a.course))
-            .then_with(|| text(&a.course, "code").cmp(text(&b.course, "code")))
+        weight(&b.course.course)
+            .cmp(&weight(&a.course.course))
+            .then_with(|| text(&a.course.course, "code").cmp(text(&b.course.course, "code")))
     });
     rows
 }
@@ -883,11 +913,14 @@ fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
     }
     out
 }
+/// What a typed word offers: categories, conditions with their counts,
+/// matching courses (as `row` presents them) and the word itself.
 pub fn suggest(
     input: &str,
     keys: &[String],
-    courses: &[Value],
+    courses: &[&IndexedCourse],
     ctx: &FinderContext,
+    row: &dyn Fn(&IndexedCourse) -> FinderRowView,
 ) -> Vec<Suggestion> {
     let exclude = input.starts_with('!');
     let typed = normalized(if exclude {
@@ -901,7 +934,7 @@ pub fn suggest(
     let count = |key: &str| {
         let mut keys = keys.to_vec();
         keys.push(key.into());
-        run(courses, &factors_of(&keys, ctx).factors, ctx, "").len()
+        count_rows(courses, &factors_of(&keys, ctx).factors, ctx)
     };
     let add = |key: &str, out: &mut Vec<Suggestion>| {
         let full = if exclude {
@@ -1015,15 +1048,13 @@ pub fn suggest(
         let mut matching: Vec<_> = courses
             .iter()
             .filter(|c| {
-                (text(c, "code").starts_with(&upper) || searchable(c).contains(&lt))
-                    && seen.insert(text(c, "code"))
+                (text(&c.course, "code").starts_with(&upper) || c.haystack.contains(&lt))
+                    && seen.insert(text(&c.course, "code"))
             })
             .collect();
-        matching.sort_by_key(|c| !text(c, "code").starts_with(&upper));
-        for course in matching.into_iter().take(6) {
-            out.push(Suggestion::Course {
-                course: course.clone(),
-            });
+        matching.sort_by_key(|c| !text(&c.course, "code").starts_with(&upper));
+        for c in matching.into_iter().take(6) {
+            out.push(Suggestion::Course { row: row(c) });
         }
     }
     let key = if exclude {
@@ -1043,15 +1074,17 @@ pub fn suggest(
     }
     out
 }
-pub fn live_text(input: &str, keys: &[String], courses: &[Value], ctx: &FinderContext) -> String {
+/// The typed text that narrows the rows as it is typed, also while the
+/// suggestions offer a condition it names (物理 narrows by text while 物理学系
+/// is offered). None where text matching means nothing: an empty input, an
+/// official category such as `level:`, an exclusion, or the syntax of a
+/// condition itself (`4Q`, `火3-4`).
+pub fn live_text(input: &str, ctx: &FinderContext) -> String {
     let value = input.trim();
     if value.is_empty()
         || official_group(value).is_some()
         || value.starts_with('!')
         || condition(value, ctx).r#type != "text"
-        || suggest(value, keys, courses, ctx)
-            .iter()
-            .any(|s| matches!(s, Suggestion::Condition { .. }))
     {
         String::new()
     } else {
@@ -1074,6 +1107,15 @@ pub struct FinderRequest {
     pub input: String,
     #[serde(default)]
     pub action: Option<FinderAction>,
+    /// The first matching row to return.
+    #[serde(default)]
+    pub offset: u32,
+    /// How many matching rows to return from `offset`.
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+fn default_page_size() -> u32 {
+    100
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -1087,31 +1129,39 @@ pub enum FinderAction {
     ToggleTime { key: String, append: bool },
     Paste { text: String },
 }
+/// One page of a search: the conditions as Core read them, what the typed
+/// word offers, how many rows match and the rows of this page, and what the
+/// timetable highlights. `catalog_version` and `content_revision` name the
+/// data it was read from.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
-pub struct FinderView {
+pub struct FinderPage {
     pub context: FinderContext,
-    #[cfg_attr(feature = "ts", ts(type = "FinderCourse[]"))]
-    pub courses: Vec<Value>,
     pub factors: Vec<Factor>,
     pub duplicates: usize,
     pub keys: Vec<String>,
-    pub rows: Vec<FinderRow>,
-    pub suggestions: Vec<Suggestion>,
     pub live: String,
-    pub clashes: Vec<String>,
-    pub ineligible_ids: Vec<String>,
-    pub eligibility: BTreeMap<String, CourseEligibility>,
-    pub replacements: BTreeMap<String, Vec<String>>,
-    pub credits: BTreeMap<String, f64>,
-    pub on_timetable: Vec<String>,
+    pub suggestions: Vec<Suggestion>,
+    /// Matching rows in all.
+    pub total: usize,
+    pub offset: usize,
+    pub rows: Vec<FinderRowView>,
+    /// Stored rows of the year's catalog.
+    pub stored: usize,
+    /// Stored rows this study profile cannot newly plan.
+    pub ineligible: usize,
     pub active_slots: Vec<String>,
+    /// Codes on the term's timetable.
+    pub placed_codes: Vec<String>,
     pub commit_key: Option<String>,
     pub paste_handled: bool,
-    pub pasted_ids: Vec<String>,
+    pub pasted: Vec<FinderRowView>,
     pub missing_codes: Vec<String>,
     pub ineligible_codes: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub catalog_version: u64,
+    pub content_revision: String,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum FinderError {
@@ -1134,16 +1184,311 @@ pub fn department_name_ja(id: &str) -> Result<Option<String>, serde_json::Error>
         .and_then(|department| department.name.get("ja").cloned()))
 }
 
-pub fn finder_view(
-    workspace: &Value,
-    offerings: Vec<Value>,
-    request: FinderRequest,
-) -> Result<FinderView, FinderError> {
+/// One year's stored catalog prepared for the finder: the rows it can list,
+/// with syllabus links and search text, and the 教務 guide fields of every
+/// stored row, listable or not.
+pub struct FinderCatalog {
+    courses: Vec<IndexedCourse>,
+    guide: Vec<GuideRow>,
+}
+struct GuideRow {
+    year: Option<u64>,
+    department: Option<String>,
+    code: Option<String>,
+    group: String,
+    mark: Option<String>,
+}
+impl FinderCatalog {
+    pub fn new(offerings: Vec<Value>, language: &str) -> Self {
+        let guide = offerings
+            .iter()
+            .filter_map(|r| {
+                let group = r.pointer("/kyomu/group")?.as_str()?;
+                if group.is_empty() {
+                    return None;
+                }
+                Some(GuideRow {
+                    year: r["year"].as_u64(),
+                    department: r
+                        .pointer("/kyomu/department")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    code: r.get("code").and_then(Value::as_str).map(str::to_string),
+                    group: group.into(),
+                    mark: r
+                        .pointer("/kyomu/mark")
+                        .and_then(Value::as_str)
+                        .filter(|m| !m.is_empty())
+                        .map(str::to_string),
+                })
+            })
+            .collect();
+        let courses = offerings
+            .into_iter()
+            .filter_map(normalize_offering)
+            .map(|mut course| {
+                let url = crate::catalog::syllabus_url(text(&course, "id"), language);
+                course["syllabusUrl"] = url.into();
+                IndexedCourse::new(course)
+            })
+            .collect();
+        Self { courses, guide }
+    }
+}
+
+/// What a search reads from the workspace for one term and catalog,
+/// whatever is typed: recommendations, the timetable, and each row's
+/// eligibility, clashes and replacements.
+pub struct FinderPersonal {
+    current_quarter: u8,
+    recommended: BTreeMap<String, Recommendation>,
+    busy: Vec<BusySlot>,
+    eligibility: BTreeMap<String, CourseEligibility>,
+    ineligible: usize,
+    /// Per catalog row: whether a default search lists it.
+    eligible: Vec<bool>,
+    replacements: BTreeMap<String, Vec<String>>,
+    clashes: HashSet<String>,
+    on_timetable: Vec<String>,
+}
+impl FinderPersonal {
+    pub fn new(
+        workspace: &Value,
+        catalog: &FinderCatalog,
+        year: u16,
+        term: &str,
+    ) -> Result<Self, FinderError> {
+        let planned = crate::study_profile::PlannedTerm::new(workspace, term);
+        let selected_department = workspace
+            .pointer("/settings/departmentId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let department_name = department_name_ja(selected_department)?;
+        let recommended = catalog
+            .guide
+            .iter()
+            .filter(|r| {
+                r.year == Some(u64::from(year))
+                    && department_name.is_some()
+                    && r.department == department_name
+            })
+            .filter(|r| {
+                planned.eligibility_of_code(r.code.as_deref()).status
+                    != CourseEligibilityStatus::Ineligible
+            })
+            .map(|r| {
+                (
+                    r.code.clone().unwrap_or_default(),
+                    Recommendation {
+                        group: r.group.clone(),
+                        mark: r.mark.clone(),
+                    },
+                )
+            })
+            .collect();
+        let placed = crate::schedule::scheduled_courses(workspace, term);
+        let busy: Vec<BusySlot> = placed
+            .iter()
+            .flat_map(|c| array(c, "meetings"))
+            .flat_map(|m| {
+                let periods: Vec<_> = array(m, "periods")
+                    .iter()
+                    .filter_map(Value::as_u64)
+                    .collect();
+                let (from, to) = match (periods.iter().min(), periods.iter().max()) {
+                    (Some(a), Some(b)) => (*a as u8, *b as u8),
+                    _ => return Vec::new(),
+                };
+                array(m, "days")
+                    .iter()
+                    .filter_map(|d| {
+                        d.as_u64().map(|day| BusySlot {
+                            day: day as u8,
+                            from,
+                            to,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let courses = || catalog.courses.iter().map(|c| &c.course);
+        let eligibility = courses()
+            .map(|course| (text(course, "id").to_string(), planned.eligibility(course)))
+            .collect::<BTreeMap<_, _>>();
+        let ineligible = eligibility
+            .iter()
+            .filter(|(_, result)| result.status == CourseEligibilityStatus::Ineligible)
+            .map(|(id, _)| id.as_str())
+            .collect::<HashSet<_>>();
+        let eligible = courses()
+            .map(|course| !ineligible.contains(text(course, "id")))
+            .collect();
+        let ineligible = ineligible.len();
+        let replaceable: Vec<_> = placed
+            .iter()
+            .filter(|course| {
+                array(workspace, "planItems").iter().any(|p| {
+                    text(p, "courseId") == text(course, "id")
+                        && text(p, "termId") == term
+                        && p.get("deletedAt").is_none_or(Value::is_null)
+                })
+            })
+            .cloned()
+            .collect();
+        let replacements = courses()
+            .map(|c| {
+                (
+                    text(c, "id").to_string(),
+                    clashing_courses(c, &replaceable)
+                        .iter()
+                        .map(|v| text(v, "id").to_string())
+                        .collect(),
+                )
+            })
+            .collect();
+        let clashes = courses()
+            .filter(|c| clashes(c, &busy))
+            .map(|c| text(c, "id").to_string())
+            .collect();
+        let on_timetable = placed.iter().map(|c| text(c, "code").to_string()).collect();
+        Ok(Self {
+            current_quarter: text(workspace, "currentTerm")
+                .chars()
+                .rev()
+                .nth(1)
+                .and_then(|c| c.to_digit(10))
+                .unwrap_or(1) as u8,
+            recommended,
+            busy,
+            eligibility,
+            ineligible,
+            eligible,
+            replacements,
+            clashes,
+            on_timetable,
+        })
+    }
+    fn ineligible(&self, id: &str) -> bool {
+        self.eligibility
+            .get(id)
+            .is_some_and(|result| result.status == CourseEligibilityStatus::Ineligible)
+    }
+    /// One result as its row shows it.
+    fn row(&self, c: &IndexedCourse, matched: Vec<String>) -> FinderRowView {
+        let id = text(&c.course, "id");
+        let code = text(&c.course, "code");
+        FinderRowView {
+            course: c.course.clone(),
+            matched,
+            placed: self.on_timetable.iter().any(|placed| placed == code),
+            clash: self.clashes.contains(id),
+            replaces: self.replacements.get(id).cloned().unwrap_or_default(),
+            credits: total_credits(&c.course),
+            eligibility: self
+                .eligibility
+                .get(id)
+                .filter(|result| result.status != CourseEligibilityStatus::Allowed)
+                .cloned(),
+            recommended: self.recommended.get(code).cloned(),
+        }
+    }
+}
+
+/// Core's finder caches. Typing reruns only the filter and suggestions: the
+/// prepared catalog is kept per year, catalog version and syllabus language,
+/// and the personal context per catalog, workspace content and term.
+#[derive(Default)]
+pub struct FinderCache {
+    catalog: Mutex<Option<CatalogEntry>>,
+    personal: Mutex<Option<PersonalEntry>>,
+}
+type CatalogEntry = ((u16, u64, String), Arc<FinderCatalog>);
+type PersonalEntry = (Arc<FinderCatalog>, (String, String), Arc<FinderPersonal>);
+impl FinderCache {
+    pub fn page(
+        &self,
+        store: &crate::data::DataStore,
+        workspace: &Value,
+        content_revision: &str,
+        official_options: &Value,
+        request: FinderRequest,
+    ) -> Result<FinderPage, FinderError> {
+        validate(&request)?;
+        let catalog_version = store.catalog_version();
+        let catalog = self.catalog(store, request.year, catalog_version, workspace)?;
+        let personal = self.personal(&catalog, workspace, content_revision, &request)?;
+        let options = parse_options(Some(official_options))?;
+        page(
+            &catalog,
+            &personal,
+            options,
+            request,
+            (catalog_version, content_revision),
+        )
+    }
+    fn catalog(
+        &self,
+        store: &crate::data::DataStore,
+        year: u16,
+        version: u64,
+        workspace: &Value,
+    ) -> Result<Arc<FinderCatalog>, FinderError> {
+        // The version is read before the rows: a commit in between moves it
+        // again, so newer rows are never kept under an older version.
+        let key = (
+            year,
+            version,
+            crate::schedule::content_language(workspace).to_string(),
+        );
+        if let Some((_, catalog)) = lock(&self.catalog).as_ref().filter(|(k, _)| *k == key) {
+            return Ok(catalog.clone());
+        }
+        let offerings = crate::catalog::offerings(store, year).map_err(|error| match error {
+            crate::catalog::CatalogError::Data(error) => FinderError::Data(error),
+            crate::catalog::CatalogError::Json(error) => FinderError::Compatibility(error),
+            crate::catalog::CatalogError::InvalidInput(message) => {
+                FinderError::InvalidInput(message)
+            }
+        })?;
+        let catalog = Arc::new(FinderCatalog::new(offerings, &key.2));
+        *lock(&self.catalog) = Some((key, catalog.clone()));
+        Ok(catalog)
+    }
+    fn personal(
+        &self,
+        catalog: &Arc<FinderCatalog>,
+        workspace: &Value,
+        content_revision: &str,
+        request: &FinderRequest,
+    ) -> Result<Arc<FinderPersonal>, FinderError> {
+        let key = (content_revision.to_string(), request.term.clone());
+        if let Some((_, _, personal)) = lock(&self.personal)
+            .as_ref()
+            .filter(|(c, k, _)| Arc::ptr_eq(c, catalog) && *k == key)
+        {
+            return Ok(personal.clone());
+        }
+        let personal = Arc::new(FinderPersonal::new(
+            workspace,
+            catalog,
+            request.year,
+            &request.term,
+        )?);
+        *lock(&self.personal) = Some((catalog.clone(), key, personal.clone()));
+        Ok(personal)
+    }
+}
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn validate(request: &FinderRequest) -> Result<(), FinderError> {
     crate::schedule::Term::parse(&request.term)?;
     if !(1000..=9999).contains(&request.year)
         || request.keys.len() > 200
         || request.keys.iter().any(|k| k.len() > 2048)
         || request.input.len() > 4096
+        || request.limit > 1000
     {
         return Err(FinderError::InvalidInput(
             "Course search exceeds its input limits.".into(),
@@ -1155,115 +1500,48 @@ pub fn finder_view(
             "Course condition is too long.".into(),
         ));
     }
+    Ok(())
+}
+fn parse_options(options: Option<&Value>) -> Result<Vec<OfficialFilterOption>, FinderError> {
+    Ok(options
+        .map(|options| {
+            serde_json::from_value(options.clone())
+                .map_err(|e| FinderError::InvalidInput(e.to_string()))
+        })
+        .transpose()?
+        .unwrap_or_default())
+}
+
+/// The finder over offerings prepared for this one call; Core keeps them
+/// in a [`FinderCache`] instead. The page names no stored data version.
+pub fn finder_page(
+    workspace: &Value,
+    offerings: Vec<Value>,
+    request: FinderRequest,
+) -> Result<FinderPage, FinderError> {
+    validate(&request)?;
+    let catalog = FinderCatalog::new(offerings, crate::schedule::content_language(workspace));
+    let personal = FinderPersonal::new(workspace, &catalog, request.year, &request.term)?;
+    let options = parse_options(workspace.get("kyomuSearchOptions"))?;
+    page(&catalog, &personal, options, request, (0, ""))
+}
+
+fn page(
+    catalog: &FinderCatalog,
+    personal: &FinderPersonal,
+    official_options: Vec<OfficialFilterOption>,
+    request: FinderRequest,
+    (catalog_version, content_revision): (u64, &str),
+) -> Result<FinderPage, FinderError> {
     let departments: Vec<FinderDepartment> =
         serde_json::from_str(include_str!("departments.json"))?;
-    let selected_department = workspace
-        .pointer("/settings/departmentId")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let department_name = department_name_ja(selected_department)?;
-    let recommended = offerings
-        .iter()
-        .filter(|r| {
-            r["year"].as_u64() == Some(u64::from(request.year))
-                && department_name.as_deref().is_some_and(|name| {
-                    r.pointer("/kyomu/department").and_then(Value::as_str) == Some(name)
-                })
-        })
-        .filter(|r| {
-            catalog_course_eligibility(workspace, &request.term, r).status
-                != CourseEligibilityStatus::Ineligible
-        })
-        .filter_map(|r| {
-            let group = r.pointer("/kyomu/group")?.as_str()?;
-            if group.is_empty() {
-                return None;
-            }
-            Some((
-                text(r, "code").to_string(),
-                Recommendation {
-                    group: group.into(),
-                    mark: r
-                        .pointer("/kyomu/mark")
-                        .and_then(Value::as_str)
-                        .filter(|m| !m.is_empty())
-                        .map(str::to_string),
-                },
-            ))
-        })
-        .collect();
-    let placed = crate::schedule::scheduled_courses(workspace, &request.term);
-    let busy = placed
-        .iter()
-        .flat_map(|c| array(c, "meetings"))
-        .flat_map(|m| {
-            let periods: Vec<_> = array(m, "periods")
-                .iter()
-                .filter_map(Value::as_u64)
-                .collect();
-            let (from, to) = match (periods.iter().min(), periods.iter().max()) {
-                (Some(a), Some(b)) => (*a as u8, *b as u8),
-                _ => return Vec::new(),
-            };
-            array(m, "days")
-                .iter()
-                .filter_map(|d| {
-                    d.as_u64().map(|day| BusySlot {
-                        day: day as u8,
-                        from,
-                        to,
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
     let ctx = FinderContext {
-        current_quarter: text(workspace, "currentTerm")
-            .chars()
-            .rev()
-            .nth(1)
-            .and_then(|c| c.to_digit(10))
-            .unwrap_or(1) as u8,
-        recommended,
+        current_quarter: personal.current_quarter,
+        recommended: personal.recommended.clone(),
         departments,
-        busy,
-        official_options: workspace
-            .get("kyomuSearchOptions")
-            .map(|options| {
-                serde_json::from_value(options.clone())
-                    .map_err(|e| FinderError::InvalidInput(e.to_string()))
-            })
-            .transpose()?
-            .unwrap_or_default(),
+        busy: personal.busy.clone(),
+        official_options,
     };
-    let language = crate::schedule::content_language(workspace);
-    let courses = offerings
-        .into_iter()
-        .filter_map(normalize_offering)
-        .map(|mut course| {
-            let url = crate::catalog::syllabus_url(text(&course, "id"), language);
-            course["syllabusUrl"] = url.into();
-            course
-        })
-        .collect::<Vec<_>>();
-    let eligibility = courses
-        .iter()
-        .map(|course| {
-            (
-                text(course, "id").to_string(),
-                catalog_course_eligibility(workspace, &request.term, course),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    let ineligible_ids = eligibility
-        .iter()
-        .filter(|(_, result)| result.status == CourseEligibilityStatus::Ineligible)
-        .map(|(id, _)| id.clone())
-        .collect::<Vec<_>>();
-    let ineligible = ineligible_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
     let mut keys = request.keys;
     match &request.action {
         Some(FinderAction::Commit { key }) => keys.push(key.clone()),
@@ -1296,21 +1574,25 @@ pub fn finder_view(
         .iter()
         .flat_map(|f| f.alts.iter().map(|c| c.key.clone()))
         .collect();
-    let base = courses.clone();
-    let eligible_base = base
+    let visible = catalog
+        .courses
         .iter()
-        .filter(|course| !ineligible.contains(text(course, "id")))
-        .cloned()
+        .zip(&personal.eligible)
+        .filter(|(_, eligible)| request.include_ineligible || **eligible)
+        .map(|(course, _)| course)
         .collect::<Vec<_>>();
-    let visible_base = if request.include_ineligible {
-        &base
-    } else {
-        &eligible_base
-    };
-    let live = live_text(&request.input, &keys, visible_base, &ctx);
-    let factors = parsed.factors.clone();
-    let rows = run(visible_base, &factors, &ctx, &live);
-    let suggestions = suggest(&request.input, &keys, visible_base, &ctx);
+    let row = |c: &IndexedCourse| personal.row(c, Vec::new());
+    let suggestions = suggest(&request.input, &keys, &visible, &ctx, &row);
+    let live = live_text(&request.input, &ctx);
+    let matches = run(&visible, &parsed.factors, &ctx, &live);
+    let total = matches.len();
+    let offset = (request.offset as usize).min(total);
+    let rows = matches
+        .into_iter()
+        .skip(offset)
+        .take(request.limit as usize)
+        .map(|m| personal.row(m.course, m.matched))
+        .collect();
     let commit_key =
         if request.input.ends_with(char::is_whitespace) && !request.input.trim().is_empty() {
             let canonical = condition(request.input.trim(), &ctx);
@@ -1340,44 +1622,8 @@ pub fn finder_view(
             ))
         })
         .collect();
-    let replaceable: Vec<_> = placed
-        .iter()
-        .filter(|course| {
-            array(workspace, "planItems").iter().any(|p| {
-                text(p, "courseId") == text(course, "id")
-                    && text(p, "termId") == request.term
-                    && p.get("deletedAt").is_none_or(Value::is_null)
-            })
-        })
-        .cloned()
-        .collect();
-    let replacements = courses
-        .iter()
-        .map(|c| {
-            (
-                text(c, "id").to_string(),
-                clashing_courses(c, &replaceable)
-                    .iter()
-                    .map(|v| text(v, "id").to_string())
-                    .collect(),
-            )
-        })
-        .collect();
-    let credits = courses
-        .iter()
-        .map(|c| (text(c, "id").to_string(), total_credits(c)))
-        .collect();
-    let clashes = courses
-        .iter()
-        .filter(|c| clashes(c, &ctx.busy))
-        .map(|c| text(c, "id").to_string())
-        .collect();
-    let on_timetable = placed
-        .iter()
-        .map(|c| text(c, "code").to_string())
-        .collect::<Vec<_>>();
     let mut paste_handled = false;
-    let mut pasted_ids = Vec::new();
+    let mut pasted = Vec::new();
     let mut missing_codes = Vec::new();
     let mut ineligible_codes = Vec::new();
     if let Some(FinderAction::Paste { text: raw }) = &request.action {
@@ -1396,44 +1642,47 @@ pub fn finder_view(
             .filter(|code| seen.insert(code.clone()))
             .collect::<Vec<_>>();
         paste_handled = codes.len() >= 2;
+        let courses = || catalog.courses.iter();
         for code in codes.into_iter().filter(|_| paste_handled) {
             let quarter = request.term.rsplit('-').next().unwrap_or("");
-            let found = courses
-                .iter()
-                .find(|c| text(c, "code") == code && array(c, "quarters").contains(&json!(quarter)))
-                .or_else(|| courses.iter().find(|c| text(c, "code") == code));
+            let found = courses()
+                .find(|c| {
+                    text(&c.course, "code") == code
+                        && array(&c.course, "quarters").contains(&json!(quarter))
+                })
+                .or_else(|| courses().find(|c| text(&c.course, "code") == code));
             if let Some(c) = found {
-                if ineligible.contains(text(c, "id")) {
+                if personal.ineligible(text(&c.course, "id")) {
                     ineligible_codes.push(code);
-                } else if !on_timetable.contains(&code) {
-                    pasted_ids.push(text(c, "id").into());
+                } else if !personal.on_timetable.contains(&code) {
+                    pasted.push(personal.row(c, Vec::new()));
                 }
             } else {
                 missing_codes.push(code);
             }
         }
     }
-    Ok(FinderView {
+    Ok(FinderPage {
         context: ctx,
-        courses,
         factors: parsed.factors,
         duplicates: parsed.duplicates,
         keys,
-        rows,
-        suggestions,
         live,
-        clashes,
-        ineligible_ids,
-        eligibility,
-        replacements,
-        credits,
-        on_timetable,
+        suggestions,
+        total,
+        offset,
+        rows,
+        stored: catalog.courses.len(),
+        ineligible: personal.ineligible,
         active_slots,
+        placed_codes: personal.on_timetable.clone(),
         commit_key,
         paste_handled,
-        pasted_ids,
+        pasted,
         missing_codes,
         ineligible_codes,
+        catalog_version,
+        content_revision: content_revision.into(),
     })
 }
 
@@ -1474,7 +1723,7 @@ pub fn declarations() -> Vec<String> {
         TimeValue::decl(),
         FinderCourse::decl(),
         FinderSchedule::decl(),
-        FinderRow::decl(),
+        FinderRowView::decl(),
         Suggestion::decl(),
         OfficialSelection::decl(),
         OfficialFilterOption::decl(),
@@ -1487,6 +1736,6 @@ pub fn declarations() -> Vec<String> {
         Factors::decl(),
         FinderRequest::decl(),
         FinderAction::decl(),
-        FinderView::decl(),
+        FinderPage::decl(),
     ]
 }

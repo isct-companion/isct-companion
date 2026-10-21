@@ -1375,6 +1375,165 @@ checks:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
     verified: null
 
+  - id: DESKTOP-FINDER-COMMIT
+    area: desktop
+    title: A course-search condition commits at once
+    persona: narrow-window-keyboard
+    preconditions: |
+      A desktop build with the year's catalog stored, on the timetable.
+    steps:
+      - action: |
+          Type a condition such as 4q or 火3-4 and press Enter.
+        reason: |
+          The field must empty and the suggestion list close in the same
+          frame, with the condition shown as a faint pill. A list that stays
+          open, or text that lingers until the results change, is the lag
+          this change removed.
+      - action: |
+          Type a word, press ↓ to reopen the list, then press Escape; click
+          into the results; tab out of the field.
+        reason: |
+          The list opens only on typing, focus or ↑↓, and closes on Escape,
+          blur and a click into the results; a list that reopens by itself
+          covers the results being read.
+    observe: |
+      The search field, its suggestion list and the condition pills.
+    expected: |
+      Enter empties the field and closes the list at once; the faint pill
+      turns into the normal condition pill when the results update.
+    why_manual: |
+      Whether it feels instant is a glance in the real app; the order of
+      state changes is covered in tests/e2e/planner.test.tsx.
+    covers:
+      - apps/desktop/src/pages/courses/CourseFinder.tsx
+      - apps/desktop/src/pages/courses/useFinder.ts
+    verified: null
+
+  - id: DESKTOP-FINDER-SLOT-HIGHLIGHT
+    area: desktop
+    title: A clicked timetable slot lights up before the results change
+    persona: undergraduate-first-term
+    preconditions: |
+      A desktop build with the year's catalog stored, on the timetable.
+    steps:
+      - action: |
+          Click an empty timetable cell, then ⌘-click another, then click the
+          first again.
+        reason: |
+          Each cell must light up (or go dark) the moment it is clicked; the
+          results and pills may follow a moment later. A cell that waits for
+          the results is the stall this change removed.
+    observe: |
+      The timetable cells and the condition pills above the results.
+    expected: |
+      The first click highlights one cell, ⌘-click adds a second, and
+      clicking the first again clears it, each instantly.
+    why_manual: |
+      Perceived latency is a glance check; the toggle rules are Core's
+      (crates/isct-core/src/tests/course_query.rs) and the local highlight
+      before Core answers is in tests/e2e/planner.test.tsx.
+    covers:
+      - apps/desktop/src/app/App.tsx
+      - apps/desktop/src/pages/courses/useFinder.ts
+    verified: null
+
+  - id: DESKTOP-FINDER-IME-KANA
+    area: desktop
+    title: Kana composition searches once it is confirmed (macOS WebKit)
+    persona: undergraduate-first-term
+    preconditions: |
+      A macOS desktop build started with ISCT_TRACE_READS=1 from a terminal,
+      the Japanese input method on, the year's catalog stored.
+    steps:
+      - action: |
+          In the course search type ぶつり and convert it to 物理 without
+          confirming, watching the terminal.
+        reason: |
+          Each search prints one [workspace-snapshot] line. Lines while the
+          text is still underlined mean every keystroke of the composition
+          was searched, which stalls typing.
+      - action: |
+          Confirm the conversion with Enter.
+        reason: |
+          The confirming Enter belongs to the IME: exactly one search must
+          follow with 物理, and no condition pill may appear.
+    observe: |
+      The terminal's [workspace-snapshot] lines and the results count.
+    expected: |
+      No search while composing, one search after confirming, results for
+      物理 and no new pill.
+    why_manual: |
+      Real IME event order differs between WebKit and WebView2 and a DOM
+      test can only replay one order; this needs the real input method.
+    covers:
+      - apps/desktop/src/pages/courses/CourseFinder.tsx
+      - apps/desktop/src/pages/courses/useFinder.ts
+    verified: null
+
+  - id: DESKTOP-FINDER-IME-PINYIN
+    area: desktop
+    title: Pinyin composition searches once it is confirmed (Windows WebView2)
+    persona: windows-snap-user
+    preconditions: |
+      A Windows desktop build started with ISCT_TRACE_READS=1 from a
+      terminal, Microsoft Pinyin on, the year's catalog stored.
+    steps:
+      - action: |
+          In the course search type wuli and pick 物理 from the candidate list
+          with the space bar, watching the terminal.
+        reason: |
+          WebView2 sends its input and composition events in another order
+          than WebKit; a search per pinyin letter, or a second search for the
+          same confirmed text, means the order is relied on.
+      - action: |
+          Press Enter once the candidate is confirmed.
+        reason: |
+          Enter after the composition is a real commit and must turn 物理 into
+          a condition; one swallowed or doubled here is a wiring bug.
+    observe: |
+      The terminal's [workspace-snapshot] lines, the results and the pills.
+    expected: |
+      No search for the pinyin letters, one for 物理 when it is confirmed,
+      and one condition pill after Enter.
+    why_manual: |
+      Needs the real Windows input method and WebView2's event order.
+    covers:
+      - apps/desktop/src/pages/courses/CourseFinder.tsx
+      - apps/desktop/src/pages/courses/useFinder.ts
+    verified: null
+
+  - id: DESKTOP-FINDER-ADD-SAVING
+    area: desktop
+    title: An added course shows as saving, then settles
+    persona: undergraduate-first-term
+    preconditions: |
+      A desktop build with the year's catalog stored and an eligible course
+      not yet on the timetable.
+    steps:
+      - action: |
+          Click Add on a result row.
+        reason: |
+          The row must say it is added and saving in the same frame; a row
+          that keeps its Add button until the timetable redraws invites a
+          second click.
+      - action: |
+          Wait for the timetable to show the course, then press Undo.
+        reason: |
+          The row must settle on Added without flickering back to Add, and
+          Undo must offer Add again at once.
+    observe: |
+      The result row's Add / Added label and the timetable.
+    expected: |
+      Add → "Added · saving" at once → "Added" with the course on the
+      timetable; Undo returns the row to Add.
+    why_manual: |
+      The saving state passes in a moment on a real database and is a glance
+      check; the rollback on a failed write is in
+      tests/e2e/planner.test.tsx.
+    covers:
+      - apps/desktop/src/pages/courses/CourseFinder.tsx
+    verified: null
+
   - id: DESKTOP-SYLLABUS-IN-APP
     area: desktop
     title: Syllabus pages open inside the app; the catalog comes from 教務 only

@@ -20,7 +20,7 @@ pub(crate) async fn finder_query(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     request: isct_core::course_query::FinderRequest,
-) -> Result<isct_core::course_query::FinderView, String> {
+) -> Result<isct_core::course_query::FinderPage, String> {
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
     run_data_command(move || {

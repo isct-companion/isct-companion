@@ -118,6 +118,7 @@ impl DataStore {
             });
         connection::forbid_truncate(&writer);
         rebuilt?;
+        self.committed_tables(&BTreeSet::from(["offerings".to_string()]));
         // Best effort: a busy reader keeps the free pages for reuse.
         if let Err(error) =
             writer.execute_batch("VACUUM cache; PRAGMA cache.wal_checkpoint(TRUNCATE);")
