@@ -716,7 +716,7 @@ function Account({
         >
           {t("Connect")}
         </Button>
-        {summary.saved && (
+        {(summary.saved || summary.hasOtp) && (
           <Button
             variant="subtle"
             color="red"
@@ -735,10 +735,12 @@ function Account({
 const SAVED_SECRET = "••••••••";
 
 export function SchoolAccounts({
+  otpSetupRevision = 0,
   notify,
   showLoginPage,
   matrixOcrAvailable,
 }: {
+  otpSetupRevision?: number;
   notify: (message: string) => void;
   showLoginPage: (
     profile: SchoolAuthProfile,
@@ -767,6 +769,13 @@ export function SchoolAccounts({
     void refresh().catch((error) => appNotify.error(error));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const observedOtpSetup = useRef(otpSetupRevision);
+  useEffect(() => {
+    if (observedOtpSetup.current === otpSetupRevision) return;
+    observedOtpSetup.current = otpSetupRevision;
+    setScience((current) => ({ ...current, otpSecret: "" }));
+    void refresh().catch((error) => appNotify.error(error));
+  }, [otpSetupRevision]);
   if (!desktopBridge)
     return (
       <p className="settingsNote">

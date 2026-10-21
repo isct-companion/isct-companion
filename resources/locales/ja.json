@@ -1556,5 +1556,12 @@
   "3. Enter the current six-digit code from the new authenticator entry in Token on the school page and press Setup. Once registration succeeds, return here and press Connect to save this setup.": "3. 認証アプリの新しい登録で生成した現在の6桁コードを大学のページの Token に入力し、Setup を押します。登録に成功したら、このアプリに戻り「接続」で保存します。",
   "Paste the Secret key or setup link here, not the changing six-digit code. Importing fills a draft; Connect saves it after you finish school verification.": "ここには変化する6桁コードではなく Secret key または設定リンクを入力します。読み込んだ内容は下書きです。大学側の認証を完了してから「接続」で保存してください。",
   "1. Press Help me set up to open the school sign-in page. Sign in manually using an available method. After sign-in, the app continues to OTP settings and checks whether registration or a reset is needed.": "1. 「設定を手伝う」で大学のログインページを開き、利用できる方法で手動ログインしてください。ログイン後は自動で OTP 設定に進み、新規登録か再設定かを確認します。",
-  "Could not finish OTP setup. Check the school page and try again.": "OTP 設定の案内を完了できませんでした。大学のページを確認して、もう一度お試しください。"
+  "Could not finish OTP setup. Check the school page and try again.": "OTP の設定を完了できませんでした。学校のページを確認して再試行してください。",
+  "School setup": "学校で設定",
+  "Help me set up opens the school website. Sign in manually if needed; the app then reads the new OTP setup, submits its verification code, and saves it after the school confirms registration.": "「設定を手伝って」を押すと学校のサイトが開きます。必要に応じて手動でログインしてください。その後、アプリが新しい OTP を読み取り、確認コードを送信し、学校で登録が完了したら自動保存します。",
+  "An existing registration requires reset confirmation. After a reset, replace the school entry in every other authenticator using the new setup saved in this app.": "登録済みの場合はリセットの確認が表示されます。リセット後、このアプリから新しい設定をコピーして、ほかのすべての認証アプリの学校の登録を更新してください。",
+  "Import an exported TOTP QR code, setup link or Secret key using the controls here. If your authenticator cannot export, Help me set up can reset the school registration.": "認証アプリからエクスポートした TOTP の QR コード、設定リンク、Secret key を読み込めます。エクスポートできない場合は「設定を手伝って」から再登録できます。",
+  "Manual imports need the setup link or Secret key, not the changing six-digit code. Press Connect to save a manual import.": "手動で読み込むのは設定リンクまたは Secret key です。変化する6桁のコードではありません。読み込み後は「接続」で保存します。",
+  "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, copy the new setup from this app to replace the school entry in every other authenticator.": "学校で App Authentication は登録済みです。リセットしますか？古い OTP は使えなくなります。自動設定の完了後、このアプリから新しい設定をコピーして、ほかのすべての認証アプリの学校の登録を更新してください。",
+  "School OTP is configured and saved.": "学校の OTP を設定して保存しました。"
 }

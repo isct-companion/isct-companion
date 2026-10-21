@@ -219,11 +219,16 @@ describe("School accounts", () => {
         ? "https://isct.ex-tic.com/idm/user/mfa_setting/"
         : "https://isct.ex-tic.com/idm/user/totp_setting/add";
       let complete!: (value: { registered: boolean; url: string }) => void;
+      let finish!: () => void;
       let operation = 0;
       const mounted = await mountAccounts({
         capabilities: { schoolWeb: true },
         handle: (command, args) => {
           if (command === "begin_school_otp_setup") return ++operation;
+          if (command === "complete_school_otp_setup")
+            return new Promise<void>((resolve) => {
+              finish = resolve;
+            });
           if (command === "school_otp_setup")
             return new Promise((resolve) => {
               complete = resolve;
@@ -280,8 +285,16 @@ describe("School accounts", () => {
       }
       await wait(() =>
         expect(
-          mounted.core.commands("resolve_school_url").at(-1)?.args,
-        ).toMatchObject({ url }),
+          mounted.core.commands("complete_school_otp_setup").at(-1)?.args,
+        ).toMatchObject({ reset: registered }),
+      );
+      await act(async () => {
+        finish();
+      });
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "School OTP is configured and saved.",
+        ),
       );
       expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
       expect(mounted.core.commands("delete_school_credentials")).toHaveLength(

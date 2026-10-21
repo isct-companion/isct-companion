@@ -29,6 +29,12 @@ pub enum OtpSetupError {
     Cancelled,
     #[error("School sign-in took too long. Start OTP setup again.")]
     TimedOut,
+    #[error("The school rejected OTP registration. Your previous app configuration was kept.")]
+    Rejected,
+    #[error("The school account already has App Authentication. Confirm a reset first.")]
+    AlreadyRegistered,
+    #[error("OTP configuration could not be saved in the system credential vault.")]
+    Storage,
 }
 
 impl From<NetError> for OtpSetupError {

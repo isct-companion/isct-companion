@@ -386,6 +386,7 @@ export interface DesktopBridge {
   beginSchoolOtpSetup(): Promise<number>;
   cancelSchoolOtpSetup(operationId: number): Promise<void>;
   schoolOtpSetup(operationId: number): Promise<SchoolOtpSetup>;
+  completeSchoolOtpSetup(operationId: number, reset: boolean): Promise<void>;
   saveSchoolCredentials(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -624,6 +625,10 @@ export function createTauriDesktopBridge(
     schoolOtpSetup: (operationId) =>
       invoke("school_otp_setup", { operationId }).then((value) =>
         requireObject<SchoolOtpSetup>("school_otp_setup", value),
+      ),
+    completeSchoolOtpSetup: (operationId, reset) =>
+      invoke("complete_school_otp_setup", { operationId, reset }).then(
+        () => {},
       ),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {

@@ -286,6 +286,132 @@ async fn otp_setup_uses_visible_manual_login_then_continues_to_settings_without_
     }
 }
 
+// Drives the real enrollment coordinator through native page/title events.
+// A school rejection must leave the saved key untouched; success must retain
+// the password and only promote the correlated candidate after registered.
+#[tokio::test]
+async fn otp_enrollment_submits_visible_form_and_promotes_only_after_school_success() {
+    for (accepted, reset) in [(false, false), (true, false), (true, true)] {
+        let auth = Arc::new(SchoolAuthService::new(saved_science_vault()));
+        let (engine, browser, events, _) = engine_with_auth(auth.clone());
+        let operation = engine.begin_school_otp_setup().unwrap();
+        let settings = "https://isct.ex-tic.com/idm/user/mfa_setting/";
+        engine
+            .navigate(SchoolSite::SciencePortal, settings)
+            .unwrap();
+        let browser_id = browser.navigation(0).await.browser;
+        let listener = browser.listener();
+        let load = |sequence, url: &str| {
+            listener.page_loaded(PageLoaded {
+                page: PageId {
+                    browser: browser_id,
+                    sequence,
+                },
+                cause: None,
+                url: Url::parse(url).unwrap(),
+            });
+        };
+        let reply = |config: &serde_json::Value, kind: &str, extra: serde_json::Value| {
+            let mut packet = serde_json::json!({"operation":config["operation"], "sequence":config["sequence"], "token":config["token"], "kind":kind});
+            packet
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            listener.title_changed(
+                PageId {
+                    browser: browser_id,
+                    sequence: config["sequence"].as_u64().unwrap(),
+                },
+                format!(
+                    "{}{}",
+                    config["relay"].as_str().unwrap(),
+                    URL_SAFE_NO_PAD.encode(packet.to_string())
+                ),
+            );
+        };
+        load(1, settings);
+        let wait = {
+            let engine = engine.clone();
+            tokio::spawn(async move { engine.complete_school_otp_setup(operation, reset).await })
+        };
+        let inspect = login_config(&browser.eval(0).await);
+        reply(
+            &inspect,
+            "settings",
+            serde_json::json!({"owner":"student", "registered":reset}),
+        );
+        let offset = if reset {
+            let remove = login_config(&browser.eval(1).await);
+            assert_eq!(remove["action"], "remove");
+            assert_eq!(remove["owner"], "student");
+            load(2, settings);
+            let cleared = login_config(&browser.eval(2).await);
+            reply(
+                &cleared,
+                "settings",
+                serde_json::json!({"owner":"student", "registered":false}),
+            );
+            2
+        } else {
+            0
+        };
+        let register = browser.navigation(1).await;
+        assert!(
+            matches!(register.command, BrowserAction::Navigate(ref url) if url.path() == "/idm/user/totp_setting/add")
+        );
+        load(
+            2 + u64::from(reset),
+            "https://isct.ex-tic.com/idm/user/totp_setting/add",
+        );
+        let inspect = login_config(&browser.eval(1 + offset).await);
+        let next = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        reply(
+            &inspect,
+            "secret",
+            serde_json::json!({"owner":"student", "secret":next}),
+        );
+        let submit = login_config(&browser.eval(2 + offset).await);
+        assert_eq!(submit["action"], "submit");
+        assert_eq!(submit["owner"], "student");
+        assert_eq!(submit["secret"], next);
+        assert_eq!(submit["code"].as_str().unwrap().len(), 6);
+        assert_eq!(
+            auth.load(SchoolAuthProfile::Science)
+                .unwrap()
+                .unwrap()
+                .otp_secret,
+            "JBSWY3DPEHPK3PXP"
+        );
+        // Duplicate read callback cannot complete or resubmit this operation.
+        reply(
+            &inspect,
+            "secret",
+            serde_json::json!({"owner":"student", "secret":next}),
+        );
+        assert!(!wait.is_finished());
+        load(3 + u64::from(reset), settings);
+        let confirm = login_config(&browser.eval(3 + offset).await);
+        reply(
+            &confirm,
+            "settings",
+            serde_json::json!({"owner":"student", "registered":accepted}),
+        );
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), wait)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.is_ok(), accepted);
+        let saved = auth.load(SchoolAuthProfile::Science).unwrap().unwrap();
+        assert_eq!(
+            saved.otp_secret,
+            if accepted { next } else { "JBSWY3DPEHPK3PXP" }
+        );
+        assert_eq!(saved.password, "password");
+        assert_eq!(events.0.lock().unwrap().iter().any(|event| matches!(event, CoreEvent::SchoolLogin(event) if event.message == "OTP setup complete")), accepted);
+        engine.shutdown().await;
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn otp_setup_waits_have_correlated_cancellation_drop_timeout_and_shutdown() {
     use crate::school_auth::OtpSetupError;

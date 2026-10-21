@@ -34,6 +34,7 @@ use url::Url;
 mod history;
 mod lane;
 mod login;
+mod otp_enroll;
 mod otp_setup;
 mod pull;
 mod restore;
@@ -86,6 +87,7 @@ struct Inner {
 #[derive(Default)]
 struct State {
     otp_setup: Option<u64>,
+    otp_enrollment: Option<otp_enroll::Enrollment>,
     views: HashMap<SchoolSite, ViewState>,
     browsing: Option<SchoolSite>,
     login: Option<ActiveLogin>,
@@ -122,6 +124,7 @@ struct ViewState {
 
 #[derive(Clone, Debug)]
 enum Trace {
+    Enrollment,
     Session {
         profile: SchoolAuthProfile,
         state: SchoolSessionState,
@@ -182,6 +185,7 @@ impl SchoolBrowserEngine {
             && site != Some(SchoolSite::SciencePortal)
         {
             state.otp_setup = None;
+            state.otp_enrollment = None;
         }
         state.browsing = site;
         drop(state);
@@ -589,6 +593,7 @@ impl Inner {
                     let _ = self.dispatch(event.page.browser, BrowserAction::Navigate(url));
                 }
             }
+            self.otp_enrollment_page(&event);
             return;
         }
         if let Some(active) = login {
@@ -676,6 +681,10 @@ impl Inner {
                 .map(|view| view.auth_relay.clone())
         });
         if let Some(encoded) = auth.and_then(|auth| title.strip_prefix(&auth).map(str::to_string)) {
+            if let Some(encoded) = encoded.strip_prefix("otp:") {
+                self.otp_enrollment_relay(page, encoded);
+                return;
+            }
             self.login_relay(&encoded);
         }
     }

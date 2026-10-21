@@ -1,3 +1,4 @@
+mod otp_enrollment;
 mod otp_import;
 pub(crate) mod otp_setup;
 pub use otp_import::{import_otp, OtpImportAccount, OtpImportError};
@@ -161,6 +162,8 @@ pub struct SchoolCredentialStatus {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialSummary {
+    #[serde(default)]
+    pub otp_only: bool,
     /// Authoritative vault state. `saved` is retained for older clients, but
     /// new callers must render this state instead of inferring availability.
     #[serde(default)]
@@ -231,6 +234,10 @@ fn moodle_token_account(profile: SchoolAuthProfile) -> Option<&'static str> {
 struct SchoolCredentialBundle {
     version: u8,
     accounts: HashMap<SchoolAuthProfile, SchoolCredentials>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    science_otp: Option<otp_enrollment::EnrollmentOtp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_science_otp: Option<otp_enrollment::EnrollmentOtp>,
 }
 
 pub struct SchoolAuthService {
@@ -289,9 +296,12 @@ impl SchoolAuthService {
                 username: c.username.clone(),
                 has_otp: !c.otp_secret.is_empty(),
                 has_matrix: !c.matrix.is_empty(),
+                otp_only: false,
             })
             .unwrap_or_else(|| {
-                if availability == CredentialAvailability::AccessDenied {
+                if availability == CredentialAvailability::AccessDenied
+                    || (profile == SchoolAuthProfile::Science && previous.otp_only)
+                {
                     CredentialSummary {
                         availability,
                         ..previous
@@ -363,7 +373,8 @@ impl SchoolAuthService {
                 }
             }
             if !accounts.is_empty() {
-                self.write_accounts(&accounts)?;
+                // The bundle was absent above; there is no enrollment to preserve.
+                self.write_accounts_with_otp(&accounts, None)?;
                 // Verify the replacement before touching either legacy entry.
                 let payload = self.vault.load(SCHOOL_CREDENTIAL_ACCOUNT)?.ok_or_else(|| {
                     SchoolAuthError::storage("Credential migration could not be verified")
@@ -404,9 +415,29 @@ impl SchoolAuthService {
         &self,
         accounts: &HashMap<SchoolAuthProfile, SchoolCredentials>,
     ) -> Result<(), SchoolAuthError> {
+        let stored = self.enrollment_bundle()?;
+        self.write_credential_bundle(accounts, stored.science_otp, stored.pending_science_otp)
+    }
+
+    fn write_accounts_with_otp(
+        &self,
+        accounts: &HashMap<SchoolAuthProfile, SchoolCredentials>,
+        science_otp: Option<otp_enrollment::EnrollmentOtp>,
+    ) -> Result<(), SchoolAuthError> {
+        self.write_credential_bundle(accounts, science_otp, None)
+    }
+
+    fn write_credential_bundle(
+        &self,
+        accounts: &HashMap<SchoolAuthProfile, SchoolCredentials>,
+        science_otp: Option<otp_enrollment::EnrollmentOtp>,
+        pending_science_otp: Option<otp_enrollment::EnrollmentOtp>,
+    ) -> Result<(), SchoolAuthError> {
         let payload = serde_json::to_string(&SchoolCredentialBundle {
             version: 1,
             accounts: accounts.clone(),
+            science_otp,
+            pending_science_otp,
         })
         .map_err(|_| SchoolAuthError::storage("School credentials could not be encoded."))?;
         self.vault
@@ -429,6 +460,8 @@ impl SchoolAuthService {
         serde_json::to_string(&SchoolCredentialBundle {
             version: 1,
             accounts,
+            science_otp: self.enrollment_otp()?.filter(|otp| otp.confirmed),
+            pending_science_otp: self.enrollment_otp()?.filter(|otp| otp.confirmed),
         })
         .map_err(|_| SchoolAuthError::storage("School credentials could not be encoded."))
     }
@@ -451,7 +484,16 @@ impl SchoolAuthService {
             .unlocked
             .lock()
             .map_err(|_| SchoolAuthError::storage("Credential cache unavailable"))?;
-        self.write_accounts(&bundle.accounts)?;
+        if let Some(otp) = &bundle.science_otp {
+            if !otp.confirmed || otp.username.is_empty() || otp.username.len() > 128 {
+                return Err(SchoolAuthError::invalid(
+                    "Synced OTP enrollment is invalid.",
+                ));
+            }
+            otp_config(&otp.setup)?;
+        }
+        self.write_accounts_with_otp(&bundle.accounts, bundle.science_otp.clone())?;
+        self.record_enrollment_summary(None);
         for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
             let credentials = bundle.accounts.get(&profile).cloned();
             unlocked.insert(profile, credentials.clone());
@@ -465,7 +507,14 @@ impl SchoolAuthService {
                 },
             );
         }
-        Ok(bundle.accounts.len())
+        if !bundle.accounts.contains_key(&SchoolAuthProfile::Science) {
+            self.record_enrollment_summary(bundle.science_otp.as_ref());
+        }
+        Ok(bundle.accounts.len()
+            + usize::from(
+                bundle.science_otp.is_some()
+                    && !bundle.accounts.contains_key(&SchoolAuthProfile::Science),
+            ))
     }
 
     pub fn save(
@@ -543,6 +592,16 @@ impl SchoolAuthService {
                     .into(),
             ));
         }
+        if profile == SchoolAuthProfile::Science && credentials.otp_secret.trim().is_empty() {
+            if let Some(otp) = self.enrollment_otp()?.filter(|otp| {
+                otp.confirmed
+                    && (credentials.username.trim().is_empty()
+                        || credentials.username.trim() == otp.username)
+            }) {
+                credentials.username = otp.username;
+                credentials.otp_secret = otp.setup;
+            }
+        }
         credentials.validate(profile)?;
         Ok(credentials)
     }
@@ -594,10 +653,17 @@ impl SchoolAuthService {
         accounts.remove(&profile);
         // Keep an empty bundle when forgetting the final account: an old legacy
         // entry whose cleanup failed must never resurrect a forgotten account.
-        self.write_accounts(&accounts)?;
+        if profile == SchoolAuthProfile::Science {
+            self.write_accounts_with_otp(&accounts, None)?;
+        } else {
+            self.write_accounts(&accounts)?;
+        }
         let _ = self.vault.delete(profile.account());
         unlocked.insert(profile, None);
         drop(unlocked);
+        if profile == SchoolAuthProfile::Science {
+            self.record_enrollment_summary(None);
+        }
         // Signing out also forgets the LMS token; students cannot revoke it.
         let _ = self.delete_moodle_token(profile);
         self.record_summary(profile, None, CredentialAvailability::NotConfigured);
@@ -693,6 +759,7 @@ impl SchoolAuthService {
                 username: credentials.username,
                 has_otp: !credentials.otp_secret.is_empty(),
                 has_matrix: !credentials.matrix.is_empty(),
+                otp_only: false,
             },
             None => CredentialSummary::default(),
         };
@@ -701,6 +768,13 @@ impl SchoolAuthService {
             tokyo_tech: summary(self.load(SchoolAuthProfile::TokyoTech)?),
             ..Default::default()
         };
+        if !status.science.saved {
+            if let Some(otp) = self.enrollment_otp()?.filter(|otp| otp.confirmed) {
+                status.science.username = otp.username;
+                status.science.has_otp = true;
+                status.science.otp_only = true;
+            }
+        }
         status.suggested_admission_year = student_admission_year(&status.tokyo_tech.username);
         self.write_status(&status);
         Ok(status)
@@ -714,6 +788,10 @@ impl SchoolAuthService {
         } else {
             self.load(SchoolAuthProfile::Science)?
                 .map(|credentials| credentials.otp_secret)
+                .or(self
+                    .enrollment_otp()?
+                    .filter(|otp| otp.confirmed)
+                    .map(|otp| otp.setup))
                 .unwrap_or_default()
         };
         if text.is_empty() {

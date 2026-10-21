@@ -3,7 +3,7 @@
 use super::*;
 use crate::school_auth::{OtpSetupError, SchoolOtpSetup};
 
-struct WaitGuard<'a>(&'a SchoolBrowserEngine, u64);
+pub(super) struct WaitGuard<'a>(pub(super) &'a SchoolBrowserEngine, pub(super) u64);
 
 impl Drop for WaitGuard<'_> {
     fn drop(&mut self) {
@@ -19,6 +19,7 @@ impl SchoolBrowserEngine {
         let id = self.0.next_action.fetch_add(1, Ordering::Relaxed);
         let mut state = self.0.state.guard();
         state.otp_setup = Some(id);
+        state.otp_enrollment = None;
         if state
             .login
             .as_ref()
@@ -38,6 +39,7 @@ impl SchoolBrowserEngine {
         let mut state = self.0.state.guard();
         if state.otp_setup == Some(id) {
             state.otp_setup = None;
+            state.otp_enrollment = None;
         }
         drop(state);
         let _ = self.0.traces.send(Trace::Browsing(None));

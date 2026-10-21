@@ -78,6 +78,7 @@ function searchSettings(
 }
 
 export function Settings({
+  otpSetupRevision = 0,
   platform,
   data,
   mutate,
@@ -104,6 +105,7 @@ export function Settings({
   section: Section;
   setSection: (s: Section) => void;
   notify: (s: string) => void;
+  otpSetupRevision?: number;
   showLoginPage: (
     profile: SchoolAuthProfile,
     targetUrl?: string,
@@ -197,6 +199,7 @@ export function Settings({
       <>
         <SettingsHeader title="School accounts" />
         <SchoolAccounts
+          otpSetupRevision={otpSetupRevision}
           notify={notify}
           showLoginPage={showLoginPage}
           matrixOcrAvailable={matrixOcrAvailable}

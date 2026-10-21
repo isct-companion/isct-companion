@@ -312,6 +312,7 @@ export function WorkspaceApp() {
     },
     [],
   );
+  const [otpSetupRevision, setOtpSetupRevision] = useState(0);
   const startOtpSetup = async () => {
     if (!desktopBridge || otpSetupRequest.current) return;
     const request = { id: null as number | null, shown: false };
@@ -343,7 +344,7 @@ export function WorkspaceApp() {
         if (
           !(await confirmAction(
             t(
-              "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. You must replace the school entry in every other authenticator with the new QR code or Secret key, and import it here too.",
+              "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, copy the new setup from this app to replace the school entry in every other authenticator.",
             ),
             t("Continue to reset"),
             { title: t("Reset school OTP?") },
@@ -351,7 +352,19 @@ export function WorkspaceApp() {
         )
           return;
       }
-      open(setup.url);
+      const enrollment = await desktopBridge.beginSchoolOtpSetup();
+      request.id = enrollment;
+      request.shown = false;
+      otpSetupRequest.current = request;
+      open("https://isct.ex-tic.com/idm/user/mfa_setting/");
+      await desktopBridge.completeSchoolOtpSetup(enrollment, setup.registered);
+      if (otpSetupRequest.current !== request) return;
+      otpSetupRequest.current = null;
+      await hideNativeSchoolWeb();
+      setWebContext(null);
+      await navigate(pagePath("settings"));
+      setOtpSetupRevision((revision) => revision + 1);
+      notify.info("School OTP is configured and saved.");
     } catch (error) {
       if (otpSetupRequest.current !== request) return;
       otpSetupRequest.current = null;
@@ -1262,6 +1275,7 @@ export function WorkspaceApp() {
   );
   const settingsPage = (
     <Settings
+      otpSetupRevision={otpSetupRevision}
       mutate={workspaceActions.mutate}
       platform={platform}
       data={data}

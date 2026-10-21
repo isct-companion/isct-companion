@@ -233,6 +233,7 @@ pub fn run() {
             commands::sync::sync_snapshot,
             commands::school_auth::school_credential_status,
             commands::school_auth::school_otp_setup,
+            commands::school_auth::complete_school_otp_setup,
             commands::school_auth::begin_school_otp_setup,
             commands::school_auth::cancel_school_otp_setup,
             commands::school_auth::save_school_credentials,

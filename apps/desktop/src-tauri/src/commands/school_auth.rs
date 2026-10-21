@@ -43,6 +43,23 @@ pub(crate) fn cancel_school_otp_setup(
 }
 
 #[tauri::command]
+pub(crate) async fn complete_school_otp_setup(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+    operation_id: u64,
+    reset: bool,
+) -> Result<(), isct_core::school_auth::OtpSetupError> {
+    use isct_core::school_auth::OtpSetupError;
+    require_local_main(&webview).map_err(|_| OtpSetupError::Unavailable)?;
+    let engine = controller.engine.clone();
+    crate::core_ports::runtime(&app)
+        .run(async move { engine.complete_school_otp_setup(operation_id, reset).await })
+        .await
+        .map_err(|_| OtpSetupError::Unavailable)?
+}
+
+#[tauri::command]
 pub(crate) async fn school_otp_setup(
     webview: tauri::Webview,
     app: tauri::AppHandle,
