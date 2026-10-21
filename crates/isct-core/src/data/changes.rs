@@ -49,6 +49,12 @@ pub trait CommitObserver: Send + Sync {
         revision: Option<String>,
         tables: &BTreeSet<String>,
     );
+
+    /// After a commit that changed one year's catalog: its offerings or the
+    /// official search form's choices. `version` is the store's catalog
+    /// version once the commit landed (`DataStore::catalog_version`).
+    /// Catalog commits do not reach [`Self::committed`].
+    fn catalog_changed(&self, _year: u16, _version: u64) {}
 }
 
 /// Shared by every clone of one store, so an observer installed after the
@@ -78,6 +84,17 @@ impl Observer {
             .clone();
         if let Some(observer) = observer {
             observer.committed(source, revision, tables);
+        }
+    }
+
+    pub(super) fn catalog_changed(&self, year: u16, version: u64) {
+        let observer = self
+            .0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(observer) = observer {
+            observer.catalog_changed(year, version);
         }
     }
 }

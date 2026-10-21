@@ -1357,6 +1357,16 @@ checks:
           search that needs another keystroke means the finder stopped
           following the snapshot.
       - action: |
+          Clear the field and watch the stored count in the finder header
+          while the download is still running.
+        reason: |
+          Core commits one department at a time and tells the finder each
+          year that changed. The count and the rows must grow in steps,
+          several times before the download ends; rows that appear only once
+          it finishes mean the catalog-changed event does not reach the
+          finder. The rows must not flicker or jump back to the top more than
+          about four times a second.
+      - action: |
           Search several conditions in a row with the network off.
         reason: |
           Search is local only; a spinner or error while offline means a
@@ -1365,14 +1375,20 @@ checks:
       The course finder header and empty state, and the app log for network
       requests while typing.
     expected: |
-      The download notice, then complete results without retyping, and
-      instant results offline.
+      The download notice, then results that fill in department by
+      department without retyping, and instant results offline.
     why_manual: |
       The first-download timing needs a real empty cache and the real 教務Web
-      catalog; the switch itself is covered in tests/e2e/planner.test.tsx,
-      but how the notice reads during a real download is a glance check.
+      catalog. The switch on a catalog-changed event is covered in
+      tests/e2e/planner.test.tsx, the event's per-year coalescing in
+      Core's facade tests and the shown year's first-read priority in the
+      sync planner tests; how a real download fills the list is a glance
+      check.
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
+      - apps/desktop/src/pages/courses/useFinder.ts
+      - crates/isct-core/src/catalog.rs
+      - crates/isct-core/src/facade.rs
     verified: null
 
   - id: DESKTOP-FINDER-COMMIT
@@ -1532,6 +1548,46 @@ checks:
       tests/e2e/planner.test.tsx.
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
+    verified: null
+
+  - id: DESKTOP-FINDER-ADD-WHILE-TYPING
+    area: desktop
+    title: Adding a course is not held up by searches typed just before
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build with the year's catalog stored (about 2,700 courses)
+      and an eligible course not yet on the timetable.
+    steps:
+      - action: |
+          Type a long query quickly, e.g. a title word letter by letter,
+          then immediately click Add on a result row while the list is still
+          updating.
+        reason: |
+          Searches run outside the write queue now. Before, every keystroke's
+          search queued ahead of the add, so the course reached the timetable
+          only after all of them; the add must land as quickly as it does
+          with the field idle.
+      - action: |
+          Repeat with an IME (kana) composition still open in the search
+          field.
+        reason: |
+          The composition's end sends one search; the add must not wait for
+          it either.
+    observe: |
+      The time from the click to the course drawn on the timetable, and the
+      row's Added label. With ISCT_TRACE_READS=1 the app log shows each
+      command's queue_ms; the add's must stay near zero.
+    expected: |
+      The course appears on the timetable within a fraction of a second of
+      the click, typing or not, and the row settles on Added.
+    why_manual: |
+      The queueing only shows with the real Tauri command runner, a real
+      database of the real catalog's size and real typing speed; the fake
+      host in tests/e2e answers every command at once.
+    covers:
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/src/commands/read_models.rs
+      - crates/isct-core/src/course_query/mod.rs
     verified: null
 
   - id: DESKTOP-SYLLABUS-IN-APP

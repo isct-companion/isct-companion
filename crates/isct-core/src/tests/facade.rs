@@ -425,21 +425,33 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
 
 /// The finder keeps its prepared catalog and personal context between
 /// keystrokes. A catalog commit, an emptied cache.db and a workspace change
-/// each show at the next query, never the cached state.
+/// each show at the next query, never the cached state. A catalog commit
+/// tells shells which year changed, at most once per window and year, with
+/// the version a page read after it names; queries that miss together agree.
 #[test]
 fn finder_queries_follow_catalog_and_workspace_commits() {
     let store = store("finder-cache");
-    let core = Core::new(
+    let events = Arc::new(RecordedEvents::default());
+    let core = Core::with_events(
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
+        events.clone(),
     );
-    let offering = |id: &str, code: &str| {
-        json!({"id":id,"year":2026,"quarters":["3Q"],"code":code,
+    let offering = |id: &str, year: u16, code: &str| {
+        json!({"id":id,"year":year,"quarters":["3Q"],"code":code,
             "title":{"ja":code},"instructors":[],"instructionLanguage":"ja",
             "format":{"kinds":["lecture"]},"media":{},
             "credits":{"lecture":2,"exercise":0,"lab":0},"schedule":[],
             "academicUnit":{},"intensive":false,
             "syllabusUrl":crate::catalog::syllabus_url(id, "ja"),"fetchedAt":{}})
+    };
+    // As the sync engine commits one department of a year.
+    let land = |year: u16, rows: &[serde_json::Value]| {
+        store
+            .catalog_write(year, |transaction| {
+                DataStore::catalog_upsert_offerings_in(transaction, rows)
+            })
+            .unwrap()
     };
     let query = || {
         core.finder_query(serde_json::from_value(json!({"year":2026,"term":"2026-3Q"})).unwrap())
@@ -451,20 +463,77 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
             .map(|row| row.course["id"].as_str().unwrap_or_default().to_string())
             .collect::<Vec<_>>()
     };
+    let catalog_events = |count: usize| {
+        let heard = || {
+            events
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(name, _)| *name == "catalog-changed")
+                .map(|(_, payload)| payload.clone())
+                .collect::<Vec<_>>()
+        };
+        // A held change is delivered when its 250 ms window ends.
+        for _ in 0..200 {
+            if heard().len() >= count {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        heard()
+    };
 
-    store
-        .catalog_upsert_offerings(&[offering("202600001", "CSC.T101")])
-        .unwrap();
+    land(2026, &[offering("202600001", 2026, "CSC.T101")]);
     let first = query();
     assert_eq!(ids(&first), ["202600001"]);
+    // The first change goes out at once and names the version just read.
+    assert_eq!(
+        catalog_events(1),
+        [json!({"year":2026,"version":first.catalog_version})]
+    );
+    // The rest of the window arrives merged, one event per year; the
+    // search form's new choices count as a change of their year.
+    land(2026, &[offering("202600002", 2026, "CSC.T201")]);
     store
-        .catalog_upsert_offerings(&[offering("202600002", "CSC.T201")])
+        .record_kyomu_search_options(2026, &json!([]), chrono::Utc::now())
         .unwrap();
+    land(2025, &[offering("202500001", 2025, "CSC.T101")]);
+    assert_eq!(catalog_events(0).len(), 1, "held until the window ends");
     let page = query();
     assert_eq!(ids(&page), ["202600001", "202600002"]);
     assert_eq!(page.ineligible, 0);
     // The page names the data it was read from, so a shell can tell it is newer.
     assert!(page.catalog_version > first.catalog_version);
+    let heard = catalog_events(3);
+    assert_eq!(heard[1]["year"], 2026);
+    assert!(heard[1]["version"].as_u64() > Some(first.catalog_version));
+    assert_eq!(
+        heard[2],
+        json!({"year":2025,"version":page.catalog_version})
+    );
+    // A commit that changed no row of the catalog says nothing, even once
+    // the window has passed.
+    std::thread::sleep(Duration::from_millis(300));
+    store
+        .record_kyomu_search_options(2026, &json!([]), chrono::Utc::now())
+        .unwrap();
+    land(2026, &[offering("202600002", 2026, "CSC.T201")]);
+    assert_eq!(catalog_events(0).len(), 3);
+
+    // Cold queries made at once, as typing can now send them, agree.
+    land(2026, &[offering("202600003", 2026, "CSC.T102")]);
+    let pages: Vec<_> = std::thread::scope(|scope| {
+        let running: Vec<_> = (0..4).map(|_| scope.spawn(query)).collect();
+        running
+            .into_iter()
+            .map(|query| query.join().unwrap())
+            .collect()
+    });
+    for concurrent in &pages {
+        assert_eq!(ids(concurrent), ["202600001", "202600003", "202600002"]);
+        assert_eq!(concurrent.catalog_version, pages[0].catalog_version);
+    }
 
     store
         .put_workspace_setting(

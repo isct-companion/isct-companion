@@ -251,7 +251,9 @@ final class AppModel {
                         }
                     case "cloud-sync-state":
                         await refreshCloud()
-                    case "school-web-url", "school-download":
+                    // No screen here lists finder results; the catalog
+                    // changes once per department while it downloads.
+                    case "school-web-url", "school-download", "catalog-changed":
                         break
                     case "workspace-changed":
                         // A key re-read with nothing new renews only its

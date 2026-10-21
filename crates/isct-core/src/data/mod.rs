@@ -811,7 +811,9 @@ impl DataStore {
     /// operation runs inside an IMMEDIATE transaction; once it commits with
     /// changed rows, the observer hears `source` and the changed tables.
     /// `None` marks local caches the workspace hint does not cover: catalog
-    /// rows, which shells query on demand, and reference cache markers.
+    /// rows, which shells query on demand, and reference cache markers. The
+    /// sync engine's catalog reads commit through [`Self::catalog_write`],
+    /// which tells shells the year that changed.
     pub(crate) fn write<T, E: From<DataError>>(
         &self,
         source: Option<WorkspaceChangeSource>,
@@ -821,6 +823,23 @@ impl DataStore {
         self.committed_tables(&tables);
         if let Some(source) = source {
             self.observer.committed(source, None, &tables);
+        }
+        Ok(value)
+    }
+
+    /// One commit to `year`'s catalog, which shells query on demand rather
+    /// than through the workspace. Once it changed the year's offerings or
+    /// its search form's choices (the only `settings` row a catalog commit
+    /// writes), the observer hears `catalog_changed`.
+    pub(crate) fn catalog_write<T, E: From<DataError>>(
+        &self,
+        year: u16,
+        operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let (value, tables) = commit_on(&mut self.connections.writer(), operation)?;
+        self.committed_tables(&tables);
+        if tables.contains("offerings") || tables.contains("settings") {
+            self.observer.catalog_changed(year, self.catalog_version());
         }
         Ok(value)
     }

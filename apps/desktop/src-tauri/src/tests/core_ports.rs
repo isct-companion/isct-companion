@@ -16,6 +16,7 @@ use serde_json::json;
 fn sample(event: &CoreEvent) -> &'static str {
     match event {
         CoreEvent::WorkspaceChanged { .. } => "workspace",
+        CoreEvent::CatalogChanged { .. } => "catalog",
         CoreEvent::OcrProgress { .. } => "ocr",
         CoreEvent::SchoolLogin(_) => "login",
         CoreEvent::SchoolSession(_) => "session",
@@ -43,6 +44,14 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             },
             "workspace-changed",
             json!({"source":"cloud-restore","changes":["plans","scheduled-tasks"]}),
+        ),
+        (
+            CoreEvent::CatalogChanged {
+                year: 2026,
+                version: 12,
+            },
+            "catalog-changed",
+            json!({"year":2026,"version":12}),
         ),
         (
             CoreEvent::OcrProgress {
@@ -152,5 +161,5 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
         covered.insert(sample(&event));
         assert_eq!(wire(&event), (name, payload));
     }
-    assert_eq!(covered.len(), 10);
+    assert_eq!(covered.len(), 11);
 }

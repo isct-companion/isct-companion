@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 74 checks must be re-run before the next release.**
+**7 of 75 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**65 checks have never been run or could not be run:**
+**66 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -53,6 +53,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-FINDER-IME-KANA` — never verified
 - `DESKTOP-FINDER-IME-PINYIN` — never verified
 - `DESKTOP-FINDER-ADD-SAVING` — never verified
+- `DESKTOP-FINDER-ADD-WHILE-TYPING` — never verified
 - `DESKTOP-SYLLABUS-IN-APP` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
@@ -123,12 +124,13 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
-| `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/facade.rs |
 | `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-SLOT-HIGHLIGHT` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-IME-KANA` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-IME-PINYIN` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-ADD-SAVING` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `DESKTOP-FINDER-ADD-WHILE-TYPING` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/read_models.rs<br>crates/isct-core/src/course_query/mod.rs |
 | `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CourseDetails.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
@@ -1608,7 +1610,15 @@ cache), signed in to TokyoTech.
    - *Why:* Results must appear on their own when Core commits the catalog. A
      search that needs another keystroke means the finder stopped
      following the snapshot.
-3. Search several conditions in a row with the network off.
+3. Clear the field and watch the stored count in the finder header
+   while the download is still running.
+   - *Why:* Core commits one department at a time and tells the finder each
+     year that changed. The count and the rows must grow in steps,
+     several times before the download ends; rows that appear only once
+     it finishes mean the catalog-changed event does not reach the
+     finder. The rows must not flicker or jump back to the top more than
+     about four times a second.
+4. Search several conditions in a row with the network off.
    - *Why:* Search is local only; a spinner or error while offline means a
      remote search path came back.
 
@@ -1619,18 +1629,24 @@ requests while typing.
 
 **Expected**
 
-The download notice, then complete results without retyping, and
-instant results offline.
+The download notice, then results that fill in department by
+department without retyping, and instant results offline.
 
 **Why this is manual**
 
 The first-download timing needs a real empty cache and the real 教務Web
-catalog; the switch itself is covered in tests/e2e/planner.test.tsx,
-but how the notice reads during a real download is a glance check.
+catalog. The switch on a catalog-changed event is covered in
+tests/e2e/planner.test.tsx, the event's per-year coalescing in
+Core's facade tests and the shown year's first-read priority in the
+sync planner tests; how a real download fills the list is a glance
+check.
 
 **Covers**
 
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
+- `apps/desktop/src/pages/courses/useFinder.ts`
+- `crates/isct-core/src/catalog.rs`
+- `crates/isct-core/src/facade.rs`
 
 **Last recorded** never run
 
@@ -1842,6 +1858,56 @@ tests/e2e/planner.test.tsx.
 **Covers**
 
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
+
+**Last recorded** never run
+
+### Adding a course is not held up by searches typed just before (`DESKTOP-FINDER-ADD-WHILE-TYPING`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build with the year's catalog stored (about 2,700 courses)
+and an eligible course not yet on the timetable.
+
+**Steps**
+
+1. Type a long query quickly, e.g. a title word letter by letter,
+   then immediately click Add on a result row while the list is still
+   updating.
+   - *Why:* Searches run outside the write queue now. Before, every keystroke's
+     search queued ahead of the add, so the course reached the timetable
+     only after all of them; the add must land as quickly as it does
+     with the field idle.
+2. Repeat with an IME (kana) composition still open in the search
+   field.
+   - *Why:* The composition's end sends one search; the add must not wait for
+     it either.
+
+**Where to look**
+
+The time from the click to the course drawn on the timetable, and the
+row's Added label. With ISCT_TRACE_READS=1 the app log shows each
+command's queue_ms; the add's must stay near zero.
+
+**Expected**
+
+The course appears on the timetable within a fraction of a second of
+the click, typing or not, and the row settles on Added.
+
+**Why this is manual**
+
+The queueing only shows with the real Tauri command runner, a real
+database of the real catalog's size and real typing speed; the fake
+host in tests/e2e answers every command at once.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/src/commands/read_models.rs`
+- `crates/isct-core/src/course_query/mod.rs`
 
 **Last recorded** never run
 

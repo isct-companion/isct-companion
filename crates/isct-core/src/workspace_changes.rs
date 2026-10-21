@@ -307,32 +307,46 @@ pub(crate) fn patch(snapshot: WorkspaceSnapshot, changes: &[WorkspaceChange]) ->
 /// often it hears one at most.
 pub(crate) const COALESCE_WINDOW: Duration = Duration::from_millis(250);
 
-type Deliver = dyn Fn(WorkspaceChangeSource, Vec<WorkspaceChange>) + Send + Sync;
+type Deliver<K, V> = dyn Fn(K, Vec<V>) + Send + Sync;
 
 /// Delivers background changes at most once per window and source. The
 /// first change after a quiet window goes out at once; later ones in the
 /// window are merged and go out when it ends. User intents do not pass
-/// here: the shell that made one waits on it.
-pub(crate) struct Coalescer {
+/// here: the shell that made one waits on it. Catalog changes pass a
+/// coalescer of their own, keyed by year.
+pub(crate) struct Coalescer<K = WorkspaceChangeSource, V = WorkspaceChange> {
     window: Duration,
-    state: Mutex<Window>,
-    deliver: Box<Deliver>,
+    state: Mutex<Window<K, V>>,
+    deliver: Box<Deliver<K, V>>,
 }
 
-#[derive(Default)]
-struct Window {
+struct Window<K, V> {
     /// Changes before this instant wait for the trailing delivery.
     open_until: Option<Instant>,
     /// Merged per source, in the order sources first appeared.
-    pending: Vec<(WorkspaceChangeSource, BTreeSet<WorkspaceChange>)>,
+    pending: Vec<(K, BTreeSet<V>)>,
     /// A thread owns the trailing delivery.
     flushing: bool,
 }
 
-impl Coalescer {
+impl<K, V> Default for Window<K, V> {
+    fn default() -> Self {
+        Self {
+            open_until: None,
+            pending: Vec::new(),
+            flushing: false,
+        }
+    }
+}
+
+impl<K, V> Coalescer<K, V>
+where
+    K: Eq + Send + 'static,
+    V: Ord + Send + 'static,
+{
     pub(crate) fn new(
         window: Duration,
-        deliver: impl Fn(WorkspaceChangeSource, Vec<WorkspaceChange>) + Send + Sync + 'static,
+        deliver: impl Fn(K, Vec<V>) + Send + Sync + 'static,
     ) -> Arc<Self> {
         Arc::new(Self {
             window,
@@ -341,11 +355,7 @@ impl Coalescer {
         })
     }
 
-    pub(crate) fn push(
-        self: &Arc<Self>,
-        source: WorkspaceChangeSource,
-        changes: BTreeSet<WorkspaceChange>,
-    ) {
+    pub(crate) fn push(self: &Arc<Self>, source: K, changes: BTreeSet<V>) {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.open_until.is_none_or(|until| until <= now) {
@@ -373,7 +383,7 @@ impl Coalescer {
         // deliveries reach a cleared sink and are dropped.
         let this = self.clone();
         let spawned = std::thread::Builder::new()
-            .name("workspace-changes".into())
+            .name("coalesced-changes".into())
             .spawn(move || this.flush());
         if spawned.is_err() {
             // No thread to wait with: deliver now rather than never.
