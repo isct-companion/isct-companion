@@ -403,14 +403,28 @@ fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
             let Some(threshold) = header_grid_threshold(&rotated, band) else {
                 continue;
             };
-            let mut lines = horizontal_grid_lines(&rotated, band, threshold);
-            let body_edges = match lines.len() {
+            let lines = horizontal_grid_lines(&rotated, band, threshold);
+            let line_thickness = if lines.is_empty() {
+                0.
+            } else {
+                median(
+                    lines
+                        .iter()
+                        .map(|(first, last)| last - first + 1.)
+                        .collect(),
+                )
+            };
+            let mut line_edges = lines.iter().map(|(first, _)| *first).collect::<Vec<_>>();
+            let body_edges = match line_edges.len() {
                 7 => {
-                    let mut edges = vec![band.bottom as f64];
-                    edges.append(&mut lines);
+                    // The header may touch the top border, so its measured
+                    // band can include the border's thickness. Recover the
+                    // top line's first pixel from the same measured thickness.
+                    let mut edges = vec![band.bottom as f64 - (line_thickness - 1.)];
+                    edges.append(&mut line_edges);
                     edges
                 }
-                8 => lines,
+                8 => line_edges,
                 _ => continue,
             };
             let pitches = body_edges
@@ -530,7 +544,7 @@ fn header_grid_threshold(image: &GrayImage, band: Band) -> Option<u8> {
     (paper - header >= 12.).then_some(((header + paper) * 0.5).clamp(8., 220.) as u8)
 }
 
-fn horizontal_grid_lines(image: &GrayImage, band: Band, threshold: u8) -> Vec<f64> {
+fn horizontal_grid_lines(image: &GrayImage, band: Band, threshold: u8) -> Vec<(f64, f64)> {
     let left = band.left.round().max(0.) as u32;
     let right = band.right.round().min((image.width() - 1) as f64) as u32;
     if right <= left + 24 {
@@ -549,11 +563,11 @@ fn horizontal_grid_lines(image: &GrayImage, band: Band, threshold: u8) -> Vec<f6
             start.get_or_insert(y);
             last = y;
         } else if let Some(first) = start.take() {
-            lines.push((first as f64 + last as f64) * 0.5);
+            lines.push((first as f64, last as f64));
         }
     }
     if let Some(first) = start {
-        lines.push((first as f64 + last as f64) * 0.5);
+        lines.push((first as f64, last as f64));
     }
     lines
 }
