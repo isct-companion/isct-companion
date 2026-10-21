@@ -267,9 +267,7 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
     assert!(find(&plan, &key(Dataset::LmsCourse, "103")).is_none());
     // An open page's key that failed recently: shown as waiting.
     assert!(matches!(
-        find(&plan, &key(Dataset::LmsCourse, "104"))
-            .unwrap()
-            .held,
+        find(&plan, &key(Dataset::LmsCourse, "104")).unwrap().held,
         Some(Held::Backoff { .. })
     ));
     // The refresh button reads a backing-off and a fresh key now.
@@ -308,7 +306,9 @@ fn english_catalog_keys_wait_for_their_japanese_rows() {
         None,
     );
     inputs.states.insert(state_key, state);
-    let english_read = find(&plan_now(&inputs, &facts()), &english).cloned().unwrap();
+    let english_read = find(&plan_now(&inputs, &facts()), &english)
+        .cloned()
+        .unwrap();
     assert_eq!(english_read.lane, Lane::Kyomu);
     assert_eq!(planner::japanese_key(&english), Some(japanese.clone()));
     assert_eq!(planner::japanese_key(&japanese), None);

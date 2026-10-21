@@ -1435,7 +1435,11 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
         ("https://example.invalid/courses?jwc=202602431", None),
     ] {
         let manual = json!({"courses":[{"id":"m","url":url}]});
-        assert_eq!(course_detail(&manual, "m").syllabus_url.as_deref(), expected, "{url}");
+        assert_eq!(
+            course_detail(&manual, "m").syllabus_url.as_deref(),
+            expected,
+            "{url}"
+        );
     }
     // An LMS-sourced course links to itself and has no syllabus without an offering.
     let lms = json!({"courses":[{"id":"l","source":{"provider":"lms","externalId":"9"},"url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=9"}]});
