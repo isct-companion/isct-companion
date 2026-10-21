@@ -104,6 +104,8 @@ impl Paddle {
             .collect();
         let glyphs: Vec<_> = active.iter().map(|&i| &binaries[i].cleaned).collect();
         let (raw, mut preprocessing, mut inference) = self.recognize_glyphs(&glyphs)?;
+        #[cfg(test)]
+        eprintln!("Raw OCR batch: {:?}", raw.iter().map(|r| (&r.text, r.confidence)).collect::<Vec<_>>());
         let mut accepted = vec![Recognition::default(); binaries.len()];
         for (i, r) in active.into_iter().zip(raw) {
             accepted[i] = recognition::accept(&r.text, r.confidence);
