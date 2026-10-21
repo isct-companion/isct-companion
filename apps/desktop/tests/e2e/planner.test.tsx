@@ -566,7 +566,7 @@ describe("the course planner", () => {
     ).toHaveLength(queriesBeforeNavigation);
   });
 
-  it("says the year's catalog is downloading while nothing is stored and switches when it lands", async () => {
+  it("says the year's catalog is downloading while nothing is stored and shows each department as Core commits it", async () => {
     let stored: FinderCourse[] = [];
     app = await mountApp(
       {
@@ -627,9 +627,19 @@ describe("the course planner", () => {
         `Downloading the ${year} course catalog`,
       ),
     );
-    // Core commits the catalog; the run leaves the snapshot.
+    // Core commits one department while the run goes on. Another year's
+    // commit is not this finder's; the shown year's is queried at once.
     stored = [eligible];
-    await snapshot([]);
+    const queries = () =>
+      app!.core.calls.filter((call) => call.command === "finder_query").length;
+    const before = queries();
+    await act(async () =>
+      app!.core.emit("catalog-changed", { year: year + 1, version: 1 }),
+    );
+    expect(queries()).toBe(before);
+    await act(async () =>
+      app!.core.emit("catalog-changed", { year, version: 2 }),
+    );
     await settled(() => {
       const finder = app!.host.querySelector(".courseFinder")!;
       expect(finder.textContent).not.toContain("Downloading");

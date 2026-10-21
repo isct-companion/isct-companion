@@ -391,6 +391,8 @@ fn view_keys(
         ),
         // The catalog changes little in a year: opening the finder raises
         // its departments, but each is still read only once its week is up.
+        // A department never read is the one the finder is waiting for
+        // (`first_read`).
         View::Finder { year } => (
             catalog_keys(*year, inputs.english),
             Priority::Visible,
@@ -407,6 +409,18 @@ fn view_keys(
             Rule::Open,
         ),
     }
+}
+
+/// A finder shows only what is stored: on a year with nothing stored it is
+/// empty until its departments land, so each department never read is read
+/// as if the person asked for it, before other due work and on any network.
+/// A stored department, however old, keeps the view's own priority.
+fn first_read(view: &View, key: &Key, inputs: &Inputs) -> bool {
+    matches!(view, View::Finder { .. })
+        && inputs
+            .states
+            .get(key)
+            .is_none_or(|state| state.fetched_at.is_none())
 }
 
 /// The base attributes of `key`, or `None` when nothing can read it (an
@@ -637,6 +651,11 @@ pub(crate) fn plan(
     for view in opens {
         let (keys, priority, rule) = view_keys(view, inputs, now);
         for (key, scope) in keys {
+            let priority = if first_read(view, &key, inputs) {
+                Priority::Interactive
+            } else {
+                priority
+            };
             want(&mut watched, key, priority, rule, scope, inputs, now);
         }
     }

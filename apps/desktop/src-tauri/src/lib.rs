@@ -76,11 +76,35 @@ where
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
     static DATA_COMMANDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    run_blocking(Some(&DATA_COMMANDS), work).await
+}
+
+/// Read models Core answers from its pooled read connections, its snapshot
+/// cache and its own caches, all safe to share with a commit in progress.
+/// They run outside the data command lock, so a write such as adding a
+/// course never queues behind the searches typing sends.
+async fn run_read_command<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    run_blocking(None, work).await
+}
+
+async fn run_blocking<T, F>(
+    serialized: Option<&'static std::sync::Mutex<()>>,
+    work: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
     let queued_at = std::time::Instant::now();
     tauri::async_runtime::spawn_blocking(move || {
-        let _serialized = DATA_COMMANDS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _serialized = serialized.map(|lock| {
+            lock.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        });
         let started = std::time::Instant::now();
         let result = work();
         if std::env::var_os("ISCT_TRACE_READS").is_some() {

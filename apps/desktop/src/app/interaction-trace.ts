@@ -14,6 +14,7 @@ type TraceEvent = { kind: string } & Record<string, unknown>;
 
 const BACKEND_EVENTS = [
   "workspace-changed",
+  "catalog-changed",
   "sync-snapshot",
   "school-ingest",
   "school-download",

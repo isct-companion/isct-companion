@@ -67,8 +67,15 @@ impl EventSink for CoreEvents {
 /// Every committed workspace write reaches shells and cloud sync from here,
 /// whichever service, executor or agent tool made it.
 struct StoreChanges {
-    events: Option<(Arc<CoreEvents>, Arc<Coalescer>)>,
+    events: Option<StoreEvents>,
     runtime: Arc<CoreRuntime>,
+}
+
+struct StoreEvents {
+    sink: Arc<CoreEvents>,
+    workspace: Arc<Coalescer>,
+    /// Catalog commits by year, with the catalog version after each.
+    catalog: Arc<Coalescer<u16, u64>>,
 }
 
 impl CommitObserver for StoreChanges {
@@ -81,7 +88,7 @@ impl CommitObserver for StoreChanges {
         if workspace_changes::touches_user_data(tables) {
             self.runtime.request_cloud_capture();
         }
-        let Some((events, coalescer)) = &self.events else {
+        let Some(events) = &self.events else {
             return;
         };
         let changes = workspace_changes::changes_for(tables);
@@ -89,13 +96,23 @@ impl CommitObserver for StoreChanges {
             // The shell that made the intent waits on this event; it is
             // never held back. Events are hints with snapshot recovery; a
             // failed delivery does not undo the committed write.
-            let _ = events.emit(crate::events::CoreEvent::WorkspaceChanged {
-                source,
-                revision,
-                changes: changes.into_iter().collect(),
-            });
+            let _ = events
+                .sink
+                .emit(crate::events::CoreEvent::WorkspaceChanged {
+                    source,
+                    revision,
+                    changes: changes.into_iter().collect(),
+                });
         } else if !changes.is_empty() {
-            coalescer.push(source, changes);
+            events.workspace.push(source, changes);
+        }
+    }
+
+    /// A download lands department by department, one commit each; the
+    /// shell hears it at most once per window and year.
+    fn catalog_changed(&self, year: u16, version: u64) {
+        if let Some(events) = &self.events {
+            events.catalog.push(year, BTreeSet::from([version]));
         }
     }
 }
@@ -149,14 +166,23 @@ impl Core {
         store.observe(Arc::new(StoreChanges {
             events: events.clone().map(|events| {
                 let sink = events.clone();
-                let coalescer = Coalescer::new(COALESCE_WINDOW, move |source, changes| {
+                let workspace = Coalescer::new(COALESCE_WINDOW, move |source, changes| {
                     let _ = sink.emit(crate::events::CoreEvent::WorkspaceChanged {
                         source,
                         revision: None,
                         changes,
                     });
                 });
-                (events, coalescer)
+                let sink = events.clone();
+                let catalog = Coalescer::new(COALESCE_WINDOW, move |year, versions: Vec<u64>| {
+                    let version = versions.last().copied().unwrap_or_default();
+                    let _ = sink.emit(crate::events::CoreEvent::CatalogChanged { year, version });
+                });
+                StoreEvents {
+                    sink: events,
+                    workspace,
+                    catalog,
+                }
             }),
             runtime: runtime.clone(),
         }));

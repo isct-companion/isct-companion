@@ -98,7 +98,7 @@ impl DataStore {
             format!("{year}/options"),
         );
         let setting = search_options_setting(year);
-        self.write(None, |transaction| {
+        self.catalog_write(year, |transaction| {
             if read_setting(transaction, &setting)?.as_ref() == Some(options)
                 && crate::sync_state::renew(transaction, &key, "", now)?
             {

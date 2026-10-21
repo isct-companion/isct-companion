@@ -1397,6 +1397,11 @@ impl FinderPersonal {
 /// Core's finder caches. Typing reruns only the filter and suggestions: the
 /// prepared catalog is kept per year, catalog version and syllabus language,
 /// and the personal context per catalog, workspace content and term.
+///
+/// Queries run concurrently with each other and with commits. Each entry is
+/// built while its lock is held, so queries that miss together build it
+/// once and the later ones reuse it. The two locks are never held together,
+/// and a build reads only pooled store connections, which never wait.
 #[derive(Default)]
 pub struct FinderCache {
     catalog: Mutex<Option<CatalogEntry>>,
@@ -1414,8 +1419,7 @@ impl FinderCache {
         request: FinderRequest,
     ) -> Result<FinderPage, FinderError> {
         validate(&request)?;
-        let catalog_version = store.catalog_version();
-        let catalog = self.catalog(store, request.year, catalog_version, workspace)?;
+        let (catalog_version, catalog) = self.catalog(store, request.year, workspace)?;
         let personal = self.personal(&catalog, workspace, content_revision, &request)?;
         let options = parse_options(Some(official_options))?;
         page(
@@ -1430,18 +1434,21 @@ impl FinderCache {
         &self,
         store: &crate::data::DataStore,
         year: u16,
-        version: u64,
         workspace: &Value,
-    ) -> Result<Arc<FinderCatalog>, FinderError> {
-        // The version is read before the rows: a commit in between moves it
-        // again, so newer rows are never kept under an older version.
+    ) -> Result<(u64, Arc<FinderCatalog>), FinderError> {
+        let mut entry = lock(&self.catalog);
+        // Read under the lock, so a query that waited for a build sees that
+        // build's version or a newer one. The version is read before the
+        // rows: a commit in between moves it again, so newer rows are never
+        // kept under an older version.
+        let version = store.catalog_version();
         let key = (
             year,
             version,
             crate::schedule::content_language(workspace).to_string(),
         );
-        if let Some((_, catalog)) = lock(&self.catalog).as_ref().filter(|(k, _)| *k == key) {
-            return Ok(catalog.clone());
+        if let Some((_, catalog)) = entry.as_ref().filter(|(k, _)| *k == key) {
+            return Ok((version, catalog.clone()));
         }
         let offerings = crate::catalog::offerings(store, year).map_err(|error| match error {
             crate::catalog::CatalogError::Data(error) => FinderError::Data(error),
@@ -1451,8 +1458,8 @@ impl FinderCache {
             }
         })?;
         let catalog = Arc::new(FinderCatalog::new(offerings, &key.2));
-        *lock(&self.catalog) = Some((key, catalog.clone()));
-        Ok(catalog)
+        *entry = Some((key, catalog.clone()));
+        Ok((version, catalog))
     }
     fn personal(
         &self,
@@ -1462,7 +1469,8 @@ impl FinderCache {
         request: &FinderRequest,
     ) -> Result<Arc<FinderPersonal>, FinderError> {
         let key = (content_revision.to_string(), request.term.clone());
-        if let Some((_, _, personal)) = lock(&self.personal)
+        let mut entry = lock(&self.personal);
+        if let Some((_, _, personal)) = entry
             .as_ref()
             .filter(|(c, k, _)| Arc::ptr_eq(c, catalog) && *k == key)
         {
@@ -1474,7 +1482,7 @@ impl FinderCache {
             request.year,
             &request.term,
         )?);
-        *lock(&self.personal) = Some((catalog.clone(), key, personal.clone()));
+        *entry = Some((catalog.clone(), key, personal.clone()));
         Ok(personal)
     }
 }

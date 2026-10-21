@@ -41,12 +41,15 @@ copyFileSync(
 );
 const options = [];
 // The simulator runs the host's architecture, so an Intel Mac needs the
-// x86_64 slice. `--simulator-only` skips the device slice for a faster local loop.
+// x86_64 slice. `--simulator-only` / `--device-only` build one slice for a
+// faster local loop.
 const simulator =
   process.arch === "x64" ? "x86_64-apple-ios" : "aarch64-apple-ios-sim";
 const triples = process.argv.includes("--simulator-only")
   ? [simulator]
-  : ["aarch64-apple-ios", simulator];
+  : process.argv.includes("--device-only")
+    ? ["aarch64-apple-ios"]
+    : ["aarch64-apple-ios", simulator];
 for (const triple of triples) {
   run(
     "cargo",

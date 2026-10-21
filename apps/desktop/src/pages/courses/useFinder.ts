@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef } from "react";
 
-import { useSync } from "../../app/useSync";
+import { desktopBridge } from "../../app/native";
 import type { WorkspaceChange } from "../../generated/persistence";
 import {
   finderQuery,
@@ -8,7 +8,6 @@ import {
   type FinderPage,
   type FinderRowView,
 } from "../../platform/finder-query";
-import { runsFor } from "../../platform/sync";
 import { viewRevision } from "../../platform/view-query";
 import { useWorkspace } from "../../store/useWorkspace";
 
@@ -226,29 +225,31 @@ export function useFinder({
     if (s.sent === s.shown && !s.actions) search();
   }, [enabled, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Committed records the finder reads, or a catalog download that lands,
-  // refresh the current page with as many rows as are loaded.
+  // Committed records the finder reads, or a change to the shown year's
+  // catalog, refresh the current page with as many rows as are loaded.
+  // Core sends a download's commits at most every 250 ms, so its results
+  // appear department by department.
+  const refresh = useRef(() => {});
+  refresh.current = () => {
+    if (started.current === session)
+      search(Math.min(MOST, Math.max(PAGE, s.rows.length)));
+  };
   const revision = useWorkspace((snapshot) =>
     viewRevision(snapshot.viewRevisions, FINDER_READS),
   );
-  const sync = useSync();
-  const downloading = runsFor(sync, ["catalog.official"], String(year)).some(
-    (run) => !run.failure && !run.held,
+  const refreshed = useRef(revision);
+  useEffect(() => {
+    if (refreshed.current === revision) return;
+    refreshed.current = revision;
+    refresh.current();
+  }, [revision]);
+  useEffect(
+    () =>
+      desktopBridge?.onCatalogChanged?.((changed) => {
+        if (changed.year === live.current.year) refresh.current();
+      }),
+    [],
   );
-  const [landed, land] = useReducer((count: number) => count + 1, 0);
-  const wasDownloading = useRef(downloading);
-  useEffect(() => {
-    if (wasDownloading.current && !downloading) land();
-    wasDownloading.current = downloading;
-  }, [downloading]);
-  const refreshed = useRef({ revision, landed });
-  useEffect(() => {
-    const last = refreshed.current;
-    refreshed.current = { revision, landed };
-    if (last.revision === revision && last.landed === landed) return;
-    if (started.current === session)
-      search(Math.min(MOST, Math.max(PAGE, s.rows.length)));
-  }, [revision, landed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const slots = s.slots ?? new Set(s.page?.activeSlots ?? []);
   return {

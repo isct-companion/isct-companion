@@ -230,7 +230,7 @@ pub(crate) async fn read_official(client: &KyomuClient, lease: &Lease) -> KeyEnd
     );
     let applied = tokio::task::spawn_blocking(move || {
         let now = Utc::now();
-        let committed = writer.write(None, |transaction| {
+        let committed = writer.catalog_write(year, |transaction| {
             let changed = match &rows {
                 Some(rows) if english => {
                     data::DataStore::catalog_merge_english_in(transaction, &rows.courses)?

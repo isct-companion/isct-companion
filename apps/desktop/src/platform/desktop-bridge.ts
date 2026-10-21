@@ -382,6 +382,11 @@ export interface DesktopBridge {
   onWorkspaceChanged(
     callback: (event: WorkspaceChangedEvent) => void,
   ): Promise<() => void>;
+  /** A year's stored catalog changed; Core sends it at most every 250 ms
+   * while a download lands department by department. */
+  onCatalogChanged?(
+    callback: (event: { year: number; version: number }) => void,
+  ): () => void;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
   beginSchoolOtpSetup(): Promise<number>;
   cancelSchoolOtpSetup(operationId: number): Promise<void>;
@@ -612,6 +617,25 @@ export function createTauriDesktopBridge(
         });
       });
       return () => quietly(unlisten);
+    },
+    onCatalogChanged: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<unknown>("catalog-changed", (payload) => {
+        if (disposed || !payload || typeof payload !== "object") return;
+        const { year, version } = payload as Record<string, unknown>;
+        if (Number.isSafeInteger(year) && Number.isSafeInteger(version))
+          callback({ year: year as number, version: version as number });
+      })
+        .then((fn) => {
+          if (disposed) quietly(fn);
+          else unlisten = fn;
+        })
+        .catch(() => undefined);
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
     },
     schoolCredentialStatus: () => result("school_credential_status"),
     beginSchoolOtpSetup: async () => {

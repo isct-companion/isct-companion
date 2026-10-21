@@ -49,6 +49,15 @@ pub enum CoreEvent {
         /// reads the records they feed.
         changes: Vec<WorkspaceChange>,
     },
+    /// One year's stored catalog changed: its offerings or the official
+    /// search form's choices. A finder showing `year` queries again.
+    /// Arrives at most once per `workspace_changes::COALESCE_WINDOW`
+    /// while a download lands department by department; `version` is the
+    /// catalog version (a finder page's `catalogVersion`) once it landed.
+    CatalogChanged {
+        year: u16,
+        version: u64,
+    },
     OcrProgress {
         operation_id: u64,
         completed: u64,
@@ -77,6 +86,7 @@ impl CoreEvent {
     pub fn name(&self) -> &'static str {
         match self {
             Self::WorkspaceChanged { .. } => "workspace-changed",
+            Self::CatalogChanged { .. } => "catalog-changed",
             Self::OcrProgress { .. } => "ocr-progress",
             Self::SchoolLogin(_) => "school-login-status",
             Self::SchoolSession(_) => "school-session",
@@ -102,6 +112,9 @@ impl CoreEvent {
                     payload["revision"] = json!(revision);
                 }
                 payload
+            }
+            Self::CatalogChanged { year, version } => {
+                json!({ "year": year, "version": version })
             }
             Self::OcrProgress {
                 operation_id,
