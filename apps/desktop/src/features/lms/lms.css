@@ -272,8 +272,8 @@
 .lmsPdfPagination { gap: 5px; }
 .lmsPdfControls input, .lmsPdfControls select { height: 26px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
 .lmsPdfControls input:hover, .lmsPdfControls select:hover, .lmsPdfControls input:focus { border-color: var(--line); }
-.lmsPdfControls input { width: 36px; text-align: center; appearance: textfield; }
-.lmsPdfControls input::-webkit-inner-spin-button { appearance: none; }
+.lmsPdfPagination input { width: 36px; text-align: center; appearance: textfield; }
+.lmsPdfPagination input::-webkit-inner-spin-button { appearance: none; }
 .lmsPdfControls select { max-width: 92px; }
 .lmsPdfControls button, .lmsPdfSearch button { appearance: none; border: 0; background: transparent; color: var(--accent); cursor: pointer; }
 .lmsPdfControls button { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 6px; color: var(--muted); }
@@ -564,4 +564,4 @@
 .lmsPullControls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 
 .lmsPdfZoom .uiSelect { width: 100px; }
-.lmsPdfZoom .uiSelect input { height: 28px; min-height: 28px; font-size: 12px; }
+.lmsPdfZoom .uiSelect input { width: 100%; height: 28px; min-height: 28px; padding-inline-end: 28px; font-size: 12px; }
