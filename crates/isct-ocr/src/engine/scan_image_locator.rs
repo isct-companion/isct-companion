@@ -414,17 +414,18 @@ fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
                         .collect(),
                 )
             };
-            let mut line_edges = lines.iter().map(|(first, _)| *first).collect::<Vec<_>>();
-            let body_edges = match line_edges.len() {
+            let mut line_centers = lines
+                .iter()
+                .map(|(first, last)| (first + last) * 0.5)
+                .collect::<Vec<_>>();
+            let top_seam_in_header = line_centers.len() == 7;
+            let body_edges = match line_centers.len() {
                 7 => {
-                    // The header may touch the top border, so its measured
-                    // band can include the border's thickness. Recover the
-                    // top line's first pixel from the same measured thickness.
-                    let mut edges = vec![band.bottom as f64 - (line_thickness - 1.)];
-                    edges.append(&mut line_edges);
+                    let mut edges = vec![band.bottom as f64];
+                    edges.append(&mut line_centers);
                     edges
                 }
-                8 => line_edges,
+                8 => line_centers,
                 _ => continue,
             };
             let pitches = body_edges
@@ -477,22 +478,38 @@ fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
                 continue;
             }
             candidate.score += vertical + horizontal;
-            candidates.push((candidate, turn));
+            candidates.push((candidate, turn, line_thickness, top_seam_in_header));
         }
     }
-    let (candidate, turn) = candidates
+    let (candidate, turn, line_thickness, top_seam_in_header) = candidates
         .into_iter()
         .max_by(|a, b| a.0.score.total_cmp(&b.0.score))?;
     let rotated = image_for_turn(image, turn);
-    let cells = refine_grid_cells(&rotated, &candidate.body)
+    let mut body = candidate.body;
+    // When the black header touches the first horizontal seam, header-band
+    // grouping can extend down through the seam's thickness. Move just the
+    // top edge back by the measured excess; leave the ranked candidate intact.
+    let top_correction = if top_seam_in_header {
+        (line_thickness - 1.).max(0.)
+    } else {
+        0.
+    };
+    body[0].y -= top_correction;
+    body[1].y -= top_correction;
+    let cells = refine_grid_cells(&rotated, &body)
         .into_iter()
         .map(|cell| cell.map(|point| unrotate_quarter(point, turn, image.dimensions())))
         .collect();
     Some(LocatedGrid {
         cells,
-        edges: map_edges(candidate.edges, |point| {
-            unrotate_quarter(point, turn, image.dimensions())
-        }),
+        edges: map_edges(
+            AnchorEdges {
+                body_top: Some([body[0], body[1]]),
+                body_left: Some([body[0], body[3]]),
+                ..candidate.edges
+            },
+            |point| unrotate_quarter(point, turn, image.dimensions()),
+        ),
     })
 }
 
