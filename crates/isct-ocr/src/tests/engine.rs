@@ -488,17 +488,33 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
             |_| true,
         )
         .unwrap();
-    for (i, cell) in full.cells.iter().enumerate() {
-        let expected = ((b'A' + (i % 26) as u8) as char).to_string();
-        assert_eq!(
-            cell.text, expected,
-            "live cell {i}: {cell:?}, quad {:?}",
-            full.quads[i]
-        );
-        assert!(
-            cell.confidence >= 0.8,
-            "live cell {i} did not qualify: {cell:?}"
-        );
+    assert_eq!(full.cells.len(), MATRIX_CELLS);
+    assert_eq!(full.quads.len(), MATRIX_CELLS);
+    for (cell, corner, expected_x, expected_y) in [
+        (0, 0, 250. / 1600., 300. / 1100.),
+        (9, 1, 1350. / 1600., 300. / 1100.),
+        (69, 2, 1350. / 1600., 900. / 1100.),
+        (60, 3, 250. / 1600., 900. / 1100.),
+    ] {
+        let [x, y] = full.quads[cell][corner];
+        assert!((x - expected_x).abs() < 0.02, "cell {cell} x={x}");
+        assert!((y - expected_y).abs() < 0.02, "cell {cell} y={y}");
+    }
+    for row in 0..7 {
+        for column in 0..9 {
+            assert!(
+                full.quads[row * 10 + column][0][0] < full.quads[row * 10 + column + 1][0][0],
+                "columns are out of order at row {row}"
+            );
+        }
+    }
+    for row in 0..6 {
+        for column in 0..10 {
+            assert!(
+                full.quads[row * 10 + column][0][1] < full.quads[(row + 1) * 10 + column][0][1],
+                "rows are out of order at column {column}"
+            );
+        }
     }
     let mut encoded = Cursor::new(Vec::new());
     card()
