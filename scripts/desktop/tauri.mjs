@@ -12,13 +12,33 @@ const development = command.includes("dev") || command.includes("--debug");
 const packageVersion = JSON.parse(
   readFileSync(path.join(root, "package.json"), "utf8"),
 ).version;
-const version = development ? developmentVersion(packageVersion) : undefined;
+const version = development
+  ? (process.env.ISCT_DEV_VERSION ?? developmentVersion(packageVersion))
+  : undefined;
 const shouldSignMac =
+  process.platform === "darwin" && Boolean(process.env.APPLE_SIGNING_IDENTITY);
+// A linker-only signature identifies the executable by its Rust target name.
+// UserNotifications then cannot associate the debug .app with its bundle ID.
+// Local bundles need an ad-hoc bundle signature, without distribution-only
+// CloudKit/Keychain entitlements (those require a provisioning profile).
+const shouldSignLocalMac =
   process.platform === "darwin" &&
-  Boolean(process.env.APPLE_SIGNING_IDENTITY);
+  command.includes("build") &&
+  command.includes("--debug") &&
+  !shouldSignMac;
 const macConfig = shouldSignMac
   ? macSigningConfig({ required: true })
-  : undefined;
+  : shouldSignLocalMac
+    ? {
+        bundle: {
+          macOS: {
+            signingIdentity: "-",
+            entitlements: null,
+            hardenedRuntime: false,
+          },
+        },
+      }
+    : undefined;
 // Azure Artifact Signing signs the app binary and the NSIS installer on
 // Windows; without a trusted signature Smart App Control blocks the installer
 // and Controlled folder access blocks writes to Documents. Credentials come

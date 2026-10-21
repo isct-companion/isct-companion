@@ -1009,8 +1009,14 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         .all(|m| m.material_id != "quiz"));
     assert_eq!(ids(&class.class_assignments), ["soon"]);
     // The class in progress is the hero, never also the stack's first card.
-    assert_eq!(class.hero.as_ref().unwrap().occurrence.course_id.as_deref(), Some("course"));
-    assert_eq!(class.upcoming[0].occurrence.course_id.as_deref(), Some("afternoon"));
+    assert_eq!(
+        class.hero.as_ref().unwrap().occurrence.course_id.as_deref(),
+        Some("course")
+    );
+    assert_eq!(
+        class.upcoming[0].occurrence.course_id.as_deref(),
+        Some("afternoon")
+    );
     assert_eq!(
         class.next_boundary.as_deref(),
         Some("2026-04-13T10:30:00+09:00")

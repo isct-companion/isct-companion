@@ -52,6 +52,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut capture_ms = vec![];
     let mut sealed = None;
     let mut first_matrix_index = None;
+    let mut first_geometry_index = None;
+    let mut geometry_frames = 0usize;
     let mut sealed_index = None;
     let mut index = 0usize;
     let mut modified = None;
@@ -104,6 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         sharpness: g.sharpness,
                         source_size: g.source_size,
                         centering: g.centering,
+                        glare: g.glare,
                     })
                     .collect(),
             }),
@@ -111,6 +114,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             Err(error) => return Err(error.into()),
         };
         capture_ms.push(stage.elapsed().as_secs_f64() * 1000.);
+        if frame.is_some() {
+            first_geometry_index.get_or_insert(index);
+            geometry_frames += 1;
+        }
         let snapshot = scanner.observe(&id, frame, now)?;
         if snapshot.bounds.is_some() {
             first_matrix_index.get_or_insert(index);
@@ -122,7 +129,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         index += 1;
     }
-    let (captured, now) = sealed.ok_or("Recording ended before acquisition completed")?;
+    let Some((captured, now)) = sealed else {
+        // A missed card is an evaluation outcome, not a crashed replay. Keep it
+        // in the denominator and distinguish geometry from core admission.
+        println!(
+            "{}",
+            serde_json::json!({
+                "outcome": if first_geometry_index.is_none() { "noGeometry" }
+                    else if first_matrix_index.is_none() { "notAdmitted" }
+                    else { "recordingTooShort" },
+                "frames": capture_ms.len(), "geometryFrames": geometry_frames,
+                "firstGeometryIndex": first_geometry_index,
+                "firstMatrixIndex": first_matrix_index,
+                "correct": 0, "stableCells": 0, "wrongStableCells": [],
+                "diagnostics": scanner.diagnostics(&id, base + Duration::from_secs_f64(index as f64 / fps))?,
+            })
+        );
+        return Ok(());
+    };
     eprintln!(
         "CAPTURE_DONE: {} ms; {} ready cells",
         captured.capture_elapsed_ms, captured.ready_cells
@@ -130,6 +154,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model = isct_ocr::MatrixAlphabetService::default();
     let stage = Instant::now();
     let mut seen = vec![0usize; 70];
+    let mut blank_reads = vec![0usize; 70];
+    let mut weak_reads = vec![0usize; 70];
+    let mut wrong_qualified_reads = vec![0usize; 70];
     while let Some(batch) = scanner.batch(&id)? {
         if let Some(directory) = std::env::var_os("MATRIX_CAPTURE_DUMP") {
             let directory = PathBuf::from(directory);
@@ -141,8 +168,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                 seen[cell] += 1;
             }
         }
-        let readings = model
-            .recognize(&batch.images)?
+        let recognized = model.recognize(&batch.images)?;
+        for (&cell, reading) in batch.cells.iter().zip(&recognized) {
+            if reading.text.is_empty() {
+                blank_reads[cell] += 1;
+            } else if reading.confidence < 0.8 {
+                weak_reads[cell] += 1;
+            } else if reading.text.as_bytes() != [expected.as_bytes()[cell]] {
+                wrong_qualified_reads[cell] += 1;
+            }
+        }
+        let readings = recognized
             .into_iter()
             .map(|r| MatrixReading {
                 text: r.text,
@@ -165,7 +201,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let median = capture_ms.get(capture_ms.len() / 2).copied().unwrap_or(0.);
     println!(
         "{}",
-        serde_json::json!({"live":live,"captureMs":captured.capture_elapsed_ms,"firstMatrixIndex":first_matrix_index,"sealedIndex":sealed_index,"timedOut":captured.timed_out,"readyCells":captured.ready_cells,"retainedCandidates":captured.total_samples,"captureFrameMsMedian":median,"processingMs":processing_ms,"correct":70-wrong.len(),"wrongStableCells":wrong.iter().filter(|&&i|result.cells[i].stable).copied().collect::<Vec<_>>(),"wrongCells":wrong,"stableCells":result.cells.iter().filter(|c|c.stable).count(),"diagnostics":scanner.diagnostics(&id,now+stage.elapsed())?})
+        serde_json::json!({"outcome":"processed","frames":capture_ms.len(),"geometryFrames":geometry_frames,"firstGeometryIndex":first_geometry_index,"live":live,"captureMs":captured.capture_elapsed_ms,"firstMatrixIndex":first_matrix_index,"sealedIndex":sealed_index,"timedOut":captured.timed_out,"readyCells":captured.ready_cells,"retainedCandidates":captured.total_samples,"captureFrameMsMedian":median,"processingMs":processing_ms,"correct":70-wrong.len(),"wrongStableCells":wrong.iter().filter(|&&i|result.cells[i].stable).copied().collect::<Vec<_>>(),"wrongCells":wrong,"stableCells":result.cells.iter().filter(|c|c.stable).count(),"blankReads":blank_reads,"weakReads":weak_reads,"wrongQualifiedReads":wrong_qualified_reads,"diagnostics":scanner.diagnostics(&id,now+stage.elapsed())?})
     );
     Ok(())
 }

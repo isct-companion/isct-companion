@@ -862,11 +862,30 @@ checks:
           camera or returning to a 70/70 capture loop.
           Inspect matrix-scan/latest.json under the app cache for separate
           acquisition/processing times, per-cell candidate and qualified-vote
-          counts. Compare all 70 letters with the real card.
+          counts. Use an optimized build and move the framed card continuously:
+          the red outline must update at least 10 times per second (30 preferred).
+          Check frameMs and frames/elapsedMs alongside the visible tracking;
+          a smoothly interpolated stale outline does not count as a new detection.
+          Compare all 70 letters with the real card.
         reason: |
           OS camera permissions, native WebView video capture, optical focus,
           and the alignment of recognition boxes over a physical card require
           real hardware. Scripted frames cannot validate these surfaces.
+      - action: |
+          Start fresh camera sessions with a readable card under backlighting,
+          uneven shadow and a moving reflection. Confirm the first red outline
+          appears and acquisition starts. Move the card slightly so the reflection
+          leaves each cell; unobscured cells must retain their progress. Hold a
+          bright reflection over the same letters until the deadline and check
+          that erased strokes remain marked for review rather than accepted.
+          Include a white card background and modest hand movement.
+          After closing each session, inspect core.geometryFrames,
+          core.admissionRejections and core.glareRejections in
+          matrix-scan/latest.json, then compare all accepted letters with the card.
+        reason: |
+          Real camera exposure, sensor noise and specular reflections can differ
+          from synthetic lighting. Hardware is needed to check initial admission,
+          false glare on white paper and recovery as a reflection moves.
       - action: |
           Cancel and reopen the camera, then background the app during capture.
           Repeat and background it during processing: acquisition stops in the
@@ -1853,8 +1872,25 @@ checks:
     title: Deliver class, exam and assignment reminders at the selected times
     persona: narrow-window-keyboard
     preconditions: |
-      An updated native desktop build and OS notification permission available.
+      An updated native desktop build (on macOS, launch the packaged .app) and
+      OS notification permission available. Disable Focus for the banner check.
+      Stop screen sharing/mirroring, or allow notifications while sharing.
     steps:
+      - action: |
+          On macOS, launch with yarn desktop:dev and open Notifications. Then
+          build with yarn desktop:build --debug --bundles app, launch that
+          packaged .app and click Allow notifications or Send. For
+          first-time permission, accept the system prompt; for a previously
+          denied permission, use Open notification settings to allow the app,
+          then return. Toggle permission in System Settings and return again.
+        reason: |
+          The bare development executable cannot use UserNotifications. It must
+          report that limitation without persisting a refusal or claiming that
+          System Settings blocked the app. The packaged app must ask when
+          undetermined, link to settings when denied, and refresh the real OS
+          permission on return instead of trusting a stale saved value. Its
+          local bundle signature must use app.isctcompanion so macOS can match
+          it to the notification authorization.
       - action: |
           On both macOS and Windows, open Settings > Notifications, click Test
           notification, then click the native banner while the app is behind
@@ -1879,7 +1915,10 @@ checks:
       The operating system notification centre and the selected reminder times
       in Settings > Notifications after reopening the page.
     expected: |
-      The test notification appears and clicking it focuses the app. Each
+      The development executable explains that notification permission needs
+      the packaged app. In the .app, the permission status follows System
+      Settings without restarting. The test notification shows a banner both
+      in foreground and background, and clicking it focuses the app. Each
       scheduled native notification arrives while the app process remains
       running, with the correct exam or assignment title; the disabled class
       reminder stays silent, and selected times remain saved.
@@ -1890,6 +1929,9 @@ checks:
       - apps/desktop/src/pages/settings/NotificationSettings.tsx
       - apps/desktop/src-tauri/src/commands/notifications.rs
       - apps/desktop/src-tauri/src/notifications_macos.rs
+      - apps/desktop/src-tauri/src/commands/platform.rs
+      - apps/desktop/src/app/useWorkspaceRuntime.ts
+      - scripts/desktop/tauri.mjs
       - crates/isct-core/src/schedule/reminders.rs
     verified: null
 

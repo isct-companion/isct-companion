@@ -48,6 +48,11 @@ fn whole_card_geometry_and_unrelated_photo() {
         assert!((actual - expected).abs() < 5., "{actual} vs {expected}");
     }
     assert!(geometry::locate(&RgbImage::from_pixel(600, 460, Rgb([255; 3]))).is_none());
+    for level in [20, 230] {
+        assert!(
+            geometry::locate_capture(&RgbImage::from_pixel(600, 460, Rgb([level; 3]))).is_none()
+        );
+    }
 }
 #[test]
 fn cropped_grid_fallback() {
@@ -66,6 +71,9 @@ fn cropped_grid_fallback() {
     assert_eq!(cells.len(), 70);
     assert!((cells[0][0].x - 10.).abs() < 2.);
     assert!((cells[69][2].y - 290.).abs() < 2.);
+    // Photo import permits a cropped grid. Camera admission still requires its
+    // label strip, including after the illumination fallback.
+    assert!(geometry::locate_capture(&image).is_none());
 }
 #[test]
 fn colored_backgrounds_and_noise() {

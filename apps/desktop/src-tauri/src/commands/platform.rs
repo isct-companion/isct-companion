@@ -13,6 +13,7 @@ pub(crate) struct RuntimeCapabilities {
     school_import: bool,
     school_web: bool,
     notifications: bool,
+    notification_unavailable_reason: Option<&'static str>,
     background_schedule: bool,
     cloud_sync: bool,
     matrix_ocr: bool,
@@ -65,10 +66,12 @@ pub(crate) fn recognize_matrix_image(webview: tauri::Webview) -> Result<(), Stri
 #[tauri::command]
 pub(crate) fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCapabilities, String> {
     require_local_main(&webview)?;
+    let notification_unavailable_reason = super::notifications::unavailable_reason();
     Ok(RuntimeCapabilities {
         school_import: true,
         school_web: true,
-        notifications: true,
+        notifications: notification_unavailable_reason.is_none(),
+        notification_unavailable_reason,
         background_schedule: true,
         cloud_sync: true,
         matrix_ocr: cfg!(matrix_ocr),

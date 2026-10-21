@@ -26,17 +26,31 @@ boundary. It runs in the caller's process and does not claim to contain a native
 abort or memory fault; process isolation would require a separate worker.
 
 Desktop camera scanning has two phases. `capture_matrix_frame` decodes and
-locates a frame, rectifies 96×96 glyphs with bilinear interpolation, keeps
+locates a frame, rectifies complete 96×96 cells with bilinear interpolation, keeps
 Rec.601 grayscale, and measures contrast, Laplacian sharpness, source resolution
 and whether texture lies inside the glyph instead of on a cropped grid edge.
-It performs no character-model inference and no input binarization. Geometry
-localization retains its existing grid/header detection internally.
+It performs no character-model inference and no input binarization. Texture
+quality uses the central 78×78 region to exclude grid borders; this measurement
+window never trims the pixels retained for recognition. Geometry
+localization tries the existing grid/header detector first, then retries with
+locally corrected illumination while preserving its label/grid validation.
+The label bands are measured separately from the 7×10 body. Internal line
+centers calibrate the body bounds before rectification, so a taller/shorter
+header or a thick border cannot shift the letter crops. Contour and header
+fallback paths use the same validated body coordinates.
+Cell quality is measured after bounded local illumination correction so a dim
+but readable glyph can start acquisition without lowering the texture gates.
+The retained candidate remains the original grayscale image.
 
 `isct_core::matrix_scan::MatrixCameraScanner` owns the bounded acquisition.
 The first plausible Matrix (at least half its cells have usable texture) starts
 an eight-second deadline. Each cell independently retains up to six candidate
 gray images from observations at least 100 ms apart, preferring sharp centered
-texture. Acquisition stops immediately once every cell has five candidates, or
+texture. Clipped highlights combined with uneven paper brightness within a cell
+or relative to the card's upper-quartile paper level reject only the affected
+cells; uniform white paper is not treated as glare. These rejections
+do not suppress the first plausible grid or restart its deadline.
+Acquisition stops immediately once every cell has five candidates, or
 at the deadline. A periodic shell wakeup enforces the deadline even when video
 stalls. Missing geometry never restarts it. Before first detection there is no
 capture deadline. Candidate memory is bounded at 70×6×96×96 bytes plus small
@@ -44,7 +58,16 @@ metadata; buffers remain resident only for the current session.
 
 The shell releases the camera and closes its dialog before invoking background
 processing. `MatrixAlphabetService` uses the bundled A–Z + blank classifier on
-batches of up to ten candidate glyphs. Only results at confidence >= 0.8 vote.
+batches of up to ten candidate glyphs. Before inference, an illumination-adjusted
+Otsu mask and imageproc connected components locate the ink separately from grid
+edges. A near-full-width boundary line is split only when it joins central ink.
+Unresolved ink touching the crop boundary returns an explicit blank reading.
+The classifier receives the original grayscale glyph, centered with paper-colored
+padding and scaled proportionally to fit 80×76 pixels inside its 96×96 input.
+Only results at confidence >= 0.8 vote.
+Dark/uneven candidates also get an illumination-corrected reading. Confident
+disagreement marks the observation for review; both versions together can
+contribute only one vote. The gain is bounded, and erased strokes stay unreadable.
 Each cell requires at least three qualified observations and a strict weighted
 and count majority. Offline votes accumulate across all retained candidates;
 a later candidate does not erase earlier votes. The result is returned only
@@ -58,8 +81,25 @@ The preview displays only one red outline. Processing has inline progress and
 can continue while the app is in the background after capture has stopped.
 `matrix-scan/latest.json` under the app cache contains acquisition/processing
 times, per-cell candidate/vote counts, weak coverage and shell capture timing;
+`geometryFrames`, `admissionRejections`, and per-cell `glareRejections` distinguish
+missing geometry, a located grid with insufficient texture, and rejected highlights;
 it contains no images or recognized letters. `trackedMs` measures first visible
 outline to camera release, not the later inference completion.
+
+Desktop debug builds also log per-frame stage timings and min/median/max
+source-pixel size, contrast, sharpness and centering, without pixels or letters.
+The development profile optimizes OCR and image dependencies so unoptimized
+pixel loops do not dominate live tracking.
+
+For an explicitly authorized local diagnosis, launch a debug app with
+`ISCT_MATRIX_GLYPH_SAMPLES` pointing to a new directory under an ignored local
+cache. Once a frame has 60 usable cells of at least 25 source pixels, it saves
+12 shuffled glyphs with random filenames, then stops exporting for that process.
+Each `.gray` file is 96×96 unsigned 8-bit grayscale in row-major order. No card
+frame, cell coordinates or predictions are saved. The directory must not exist;
+Unix permissions are 0700 for the directory and 0600 for each file. Keep these
+samples local, out of commits and training uploads. Ordinary launches leave
+this export disabled.
 
 Photo imports retain the existing Paddle service and acceptance rules. The
 older `scan_live_frame` and `MatrixScanner` API remain for its adaptive replay
@@ -92,6 +132,16 @@ acquisition remain manual check `OCR-CAMPUS-CARD`. The Latin glyph fixture is
 rendered from the system Helvetica font and contains no student data.
 
 ## Candidate alphabet classifier evaluation
+
+The reproducible lighting replay and its baseline are documented in
+[`docs/verification/matrix-lighting.md`](../../docs/verification/matrix-lighting.md).
+`scripts/ocr/matrix_lighting.py` generates public-fixture sequences once and
+replays the same files against baseline/candidate `matrix_capture` binaries.
+Missed geometry and failed admission remain explicit report rows.
+`alphabet_synthetic.py --lighting` adds dim exposure, uneven shadows, gradients,
+sensor noise and glare; substantial erased ink is labelled blank. Font families
+used for validation are held out of training. These metrics do not replace
+the physical-card check.
 
 `matrix_live CAPTURE_DIRECTORY [ALPHABET_ONNX] [TIMEOUT_SECONDS]` can run an
 external A–Z + blank classifier against live `latest.jpg` frames. It uses the

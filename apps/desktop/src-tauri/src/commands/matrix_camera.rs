@@ -29,6 +29,86 @@ impl CameraScanner {
 fn backend(error: impl std::fmt::Display) -> MatrixScanError {
     MatrixScanError::Backend(error.to_string())
 }
+#[cfg(all(matrix_ocr, debug_assertions))]
+fn log_frame_quality(frame: &isct_ocr::MatrixCaptureFrame) {
+    // Numeric measurements only: no photographs, glyph pixels or letters.
+    let range = |measure: fn(&isct_ocr::MatrixCaptureGlyph) -> f64| {
+        let mut values: Vec<_> = frame.glyphs.iter().map(measure).collect();
+        values.sort_by(f64::total_cmp);
+        (
+            values.first().copied().unwrap_or_default(),
+            values.get(values.len() / 2).copied().unwrap_or_default(),
+            values.last().copied().unwrap_or_default(),
+        )
+    };
+    log::info!(
+        "[matrix-camera] frame_ms={:.1} decode_ms={:.1} geometry_ms={:.1} glyph_ms={:.1} source_px={:?} contrast={:?} sharpness={:?} centering={:?}",
+        frame.timing.total_ms,
+        frame.timing.decode_ms,
+        frame.timing.geometry_ms,
+        frame.timing.preprocess_ms,
+        range(|g| g.source_size),
+        range(|g| g.contrast),
+        range(|g| g.sharpness),
+        range(|g| g.centering),
+    );
+}
+#[cfg(all(matrix_ocr, debug_assertions))]
+fn save_anonymous_samples(frame: &isct_ocr::MatrixCaptureFrame) {
+    use rand::seq::SliceRandom;
+    use std::{
+        io::Write,
+        sync::atomic::{AtomicBool, Ordering},
+    };
+    static SAVED: AtomicBool = AtomicBool::new(false);
+    let Some(directory) = std::env::var_os("ISCT_MATRIX_GLYPH_SAMPLES") else {
+        return;
+    };
+    if SAVED.load(Ordering::Relaxed) {
+        return;
+    }
+    let mut glyphs: Vec<_> = frame
+        .glyphs
+        .iter()
+        .filter(|g| {
+            g.source_size >= 25. && g.centering >= 0.5 && g.contrast >= 12. && g.sharpness >= 10.
+        })
+        .collect();
+    if glyphs.len() < 60 || SAVED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    // Explicit local opt-in, once per process. Discard cell positions before
+    // writing at most twelve shuffled raw 96×96 samples; never retain a card.
+    glyphs.shuffle(&mut rand::rng());
+    glyphs.truncate(12);
+    let save = || -> std::io::Result<()> {
+        let directory = std::path::PathBuf::from(directory);
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&directory)?;
+        for glyph in glyphs {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            options
+                .open(directory.join(format!("{}.gray", uuid::Uuid::new_v4())))?
+                .write_all(&glyph.gray)?;
+        }
+        Ok(())
+    };
+    match save() {
+        Ok(()) => log::info!("[matrix-camera] saved twelve anonymous glyph samples"),
+        Err(error) => log::error!("[matrix-camera] anonymous sample export failed: {error}"),
+    }
+}
 #[tauri::command]
 pub(crate) fn begin_matrix_camera(
     webview: tauri::Webview,
@@ -101,7 +181,13 @@ pub(crate) async fn capture_matrix_camera_frame(
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(image)
                 .map_err(backend)?;
-            let frame = match isct_ocr::capture_matrix_frame(&bytes) {
+            let captured = isct_ocr::capture_matrix_frame(&bytes);
+            #[cfg(debug_assertions)]
+            if let Ok(frame) = &captured {
+                log_frame_quality(frame);
+                save_anonymous_samples(frame);
+            }
+            let frame = match captured {
                 Ok(frame) => Some(MatrixCaptureFrame {
                     quads: frame
                         .quads
@@ -117,6 +203,7 @@ pub(crate) async fn capture_matrix_camera_frame(
                             sharpness: g.sharpness,
                             source_size: g.source_size,
                             centering: g.centering,
+                            glare: g.glare,
                         })
                         .collect(),
                 }),

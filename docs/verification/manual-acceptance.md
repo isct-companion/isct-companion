@@ -127,7 +127,7 @@ an unverified area becomes an assumed-good one.
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
 | `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_parser/lms/pages.rs<br>crates/isct-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
-| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>crates/isct-core/src/schedule/reminders.rs |
+| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/isct-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs<br>crates/isct-core/src/school_parser/kyomu/pages.rs<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
@@ -1041,11 +1041,28 @@ camera or a photo of the card.
    camera or returning to a 70/70 capture loop.
    Inspect matrix-scan/latest.json under the app cache for separate
    acquisition/processing times, per-cell candidate and qualified-vote
-   counts. Compare all 70 letters with the real card.
+   counts. Use an optimized build and move the framed card continuously:
+   the red outline must update at least 10 times per second (30 preferred).
+   Check frameMs and frames/elapsedMs alongside the visible tracking;
+   a smoothly interpolated stale outline does not count as a new detection.
+   Compare all 70 letters with the real card.
    - *Why:* OS camera permissions, native WebView video capture, optical focus,
      and the alignment of recognition boxes over a physical card require
      real hardware. Scripted frames cannot validate these surfaces.
-3. Cancel and reopen the camera, then background the app during capture.
+3. Start fresh camera sessions with a readable card under backlighting,
+   uneven shadow and a moving reflection. Confirm the first red outline
+   appears and acquisition starts. Move the card slightly so the reflection
+   leaves each cell; unobscured cells must retain their progress. Hold a
+   bright reflection over the same letters until the deadline and check
+   that erased strokes remain marked for review rather than accepted.
+   Include a white card background and modest hand movement.
+   After closing each session, inspect core.geometryFrames,
+   core.admissionRejections and core.glareRejections in
+   matrix-scan/latest.json, then compare all accepted letters with the card.
+   - *Why:* Real camera exposure, sensor noise and specular reflections can differ
+     from synthetic lighting. Hardware is needed to check initial admission,
+     false glare on white paper and recovery as a reflection moves.
+4. Cancel and reopen the camera, then background the app during capture.
    Repeat and background it during processing: acquisition stops in the
    former case, but the latter may finish without reopening the camera.
    Cancel processing and confirm late results do not overwrite the editor.
@@ -1053,11 +1070,11 @@ camera or a photo of the card.
    - *Why:* Verify the camera indicator switches off and permissions can recover
      in the signed native app; headless tests cannot observe OS resource
      release or the native privacy prompt.
-4. Review the recognised cells and compare them with the card.
+5. Review the recognised cells and compare them with the card.
    - *Why:* The contract is "no wrong accepted cell", not "most cells right". A
      misread cell that is accepted is worse than a rejected one, so the
      comparison has to be cell by cell.
-5. Correct a cell and save.
+6. Correct a cell and save.
    - *Why:* Confirms the manual correction path, which the fixtures never take.
 
 **Where to look**
@@ -2152,20 +2169,35 @@ covered by the workspace Core tests and the lms-workspace e2e suite.
 
 **Preconditions**
 
-An updated native desktop build and OS notification permission available.
+An updated native desktop build (on macOS, launch the packaged .app) and
+OS notification permission available. Disable Focus for the banner check.
+Stop screen sharing/mirroring, or allow notifications while sharing.
 
 **Steps**
 
-1. On both macOS and Windows, open Settings > Notifications, click Test
+1. On macOS, launch with yarn desktop:dev and open Notifications. Then
+   build with yarn desktop:build --debug --bundles app, launch that
+   packaged .app and click Allow notifications or Send. For
+   first-time permission, accept the system prompt; for a previously
+   denied permission, use Open notification settings to allow the app,
+   then return. Toggle permission in System Settings and return again.
+   - *Why:* The bare development executable cannot use UserNotifications. It must
+     report that limitation without persisting a refusal or claiming that
+     System Settings blocked the app. The packaged app must ask when
+     undetermined, link to settings when denied, and refresh the real OS
+     permission on return instead of trusting a stale saved value. Its
+     local bundle signature must use app.isctcompanion so macOS can match
+     it to the notification authorization.
+2. On both macOS and Windows, open Settings > Notifications, click Test
    notification, then click the native banner while the app is behind
    another window.
    - *Why:* A successful command is not enough: this checks actual OS delivery
      and that the native activation callback returns focus to the app.
-2. Grant notification permission, enable class, exam and assignment reminders,
+3. Grant notification permission, enable class, exam and assignment reminders,
    and choose a separate non-default lead time for each type.
    - *Why:* Real OS consent and notification delivery are unavailable to the
      headless settings and reminder-plan tests.
-3. In a disposable local workspace, arrange a class, a linked subscription
+4. In a disposable local workspace, arrange a class, a linked subscription
    exam and an assignment so their reminder times occur shortly. Turn class
    reminders off while leaving exam reminders on, then background the app.
    - *Why:* Verifies that native lifecycle wakeups deliver the selected times
@@ -2178,7 +2210,10 @@ in Settings > Notifications after reopening the page.
 
 **Expected**
 
-The test notification appears and clicking it focuses the app. Each
+The development executable explains that notification permission needs
+the packaged app. In the .app, the permission status follows System
+Settings without restarting. The test notification shows a banner both
+in foreground and background, and clicking it focuses the app. Each
 scheduled native notification arrives while the app process remains
 running, with the correct exam or assignment title; the disabled class
 reminder stays silent, and selected times remain saved.
@@ -2193,6 +2228,9 @@ and native notification delivery; tests use a headless notification sink.
 - `apps/desktop/src/pages/settings/NotificationSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/notifications.rs`
 - `apps/desktop/src-tauri/src/notifications_macos.rs`
+- `apps/desktop/src-tauri/src/commands/platform.rs`
+- `apps/desktop/src/app/useWorkspaceRuntime.ts`
+- `scripts/desktop/tauri.mjs`
 - `crates/isct-core/src/schedule/reminders.rs`
 
 **Last recorded** never run

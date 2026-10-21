@@ -54,7 +54,7 @@ fn alphabet_frame(
         if shape.as_ref() != [batch.len() as i64, 27] {
             return Err("Invalid alphabet output shape".into());
         }
-        for row in data.chunks_exact(27) {
+        for row in data.as_chunks::<27>().0 {
             if row.iter().any(|v| !v.is_finite()) {
                 return Err("Invalid alphabet logits".into());
             }

@@ -23,6 +23,7 @@ fn frame(usable: impl Fn(usize) -> bool, marker: u8) -> MatrixCaptureFrame {
                 sharpness: 100.,
                 source_size: 20.,
                 centering: 0.7,
+                glare: 0.,
             })
             .collect(),
     }
@@ -180,6 +181,9 @@ fn invalid_capture_does_not_advance_clock_or_fill_candidates() {
     invalid.glyphs[0].gray.pop();
     assert!(scanner.observe(&id, Some(invalid), now).is_err());
     let mut invalid = frame(|_| true, 0);
+    invalid.glyphs[0].glare = f64::NAN;
+    assert!(scanner.observe(&id, Some(invalid), now).is_err());
+    let mut invalid = frame(|_| true, 0);
     invalid.glyphs[0].sharpness = f64::NAN;
     assert!(scanner.observe(&id, Some(invalid), now).is_err());
     assert!(scanner
@@ -215,4 +219,41 @@ fn invalid_capture_does_not_advance_clock_or_fill_candidates() {
         )
         .unwrap();
     assert!(scanner.observe(&id, Some(frame(|_| true, 0)), now).is_err());
+}
+
+#[test]
+fn glare_waits_for_clear_cells_without_preventing_first_matrix_admission() {
+    let mut scanner = MatrixCameraScanner::default();
+    let id = scanner.begin();
+    let now = Instant::now();
+    for round in 0..7 {
+        let mut sample = frame(|_| true, round);
+        if round < 2 {
+            sample.glyphs[0].glare = 0.5;
+        }
+        let state = scanner
+            .observe(
+                &id,
+                Some(sample),
+                now + Duration::from_millis(round as u64 * 100),
+            )
+            .unwrap();
+        assert!(state.bounds.is_some());
+        assert_eq!(
+            state.phase,
+            if round < 6 {
+                MatrixCameraPhase::Capturing
+            } else {
+                MatrixCameraPhase::Processing
+            }
+        );
+    }
+    let report = scanner
+        .diagnostics(&id, now + Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(report.candidates[0], 5);
+    assert_eq!(report.glare_rejections[0], 2);
+    assert_eq!(report.geometry_frames, 7);
+    assert_eq!(report.admission_rejections, 0);
+    assert_eq!(report.capture_elapsed_ms, 600.);
 }
