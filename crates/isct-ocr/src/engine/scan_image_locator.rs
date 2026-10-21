@@ -486,11 +486,11 @@ fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
         .max_by(|a, b| a.0.score.total_cmp(&b.0.score))?;
     let rotated = image_for_turn(image, turn);
     let mut body = candidate.body;
-    // When the black header touches the first horizontal seam, header-band
-    // grouping can extend down through the seam's thickness. Move just the
-    // top edge back by the measured excess; leave the ranked candidate intact.
+    // When the black header touches the first horizontal seam, its center is
+    // the candidate top. Move half the measured seam thickness to its outer
+    // edge; leave the ranked candidate intact.
     let top_correction = if top_seam_in_header {
-        (line_thickness - 1.).max(0.)
+        ((line_thickness - 1.) * 0.5).max(0.)
     } else {
         0.
     };
