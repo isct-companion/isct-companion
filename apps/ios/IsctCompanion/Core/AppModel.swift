@@ -97,11 +97,20 @@ final class AppModel {
             }
             // iCloud is the phone's provider, as on the Mac; the account is the
             // device's, so it needs no separate sign-in.
+            #if ISCT_NO_ICLOUD
+            // Personal-team builds carry no iCloud entitlement, and CKContainer
+            // traps without it.
+            let cloud: NativeCloud? = nil
+            let providers: [CloudProvider] = []
+            #else
+            let cloud: NativeCloud? = CloudKitStore()
+            let providers: [CloudProvider] = [.icloud]
+            #endif
             let config = SessionConfig(
                 dataDirectory: data.path, filesDirectory: files.path, initialNetwork: .unknown,
-                cloudProviders: [.icloud], authorizedCloudProviders: [.icloud])
+                cloudProviders: providers, authorizedCloudProviders: providers)
             let session = try await Session.open(
-                config: config, vault: KeychainVault(), browser: browser, cloud: CloudKitStore(),
+                config: config, vault: KeychainVault(), browser: browser, cloud: cloud,
                 notifications: nil, downloads: WebCookieSession())
             self.session = session
             web.session = session
