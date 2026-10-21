@@ -1356,6 +1356,71 @@ checks:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
     verified: null
 
+  - id: DESKTOP-SYLLABUS-IN-APP
+    area: desktop
+    title: Syllabus pages open inside the app; the catalog comes from 教務 only
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop dev build signed in to TokyoTech, with at least one registered
+      course on the timetable and its LMS course synced.
+    steps:
+      - action: |
+          Open a registered course's page and its Syllabus tab, then the same
+          course in the LMS reader (its syllabus entry), then any course in the
+          course search side panel.
+        reason: |
+          All three must show the school's own page for that offering inside
+          the app. "No syllabus is linked" or a blank frame means the shell got
+          no URL from Core or the school started refusing to be framed.
+      - action: |
+          Click "Open in browser" under one of them.
+        reason: |
+          The way out when the frame cannot be used; it must open the same
+          page in the system browser.
+      - action: |
+          Read the course page's 開講元 row.
+        reason: |
+          It shows the 教務 department of the offering now that no syllabus
+          detail is read.
+      - action: |
+          Set Settings → content language to English, open 教務Web in the app
+          and stay on one of its pages for a minute, then leave it and open the
+          course search.
+        reason: |
+          The English page is read by switching the shared 教務 session to
+          English. While the person views 教務 that switch must not happen, so
+          the open page must stay Japanese; once it is left, the search fills
+          in English titles and instructor names.
+      - action: |
+          Sign out of TokyoTech (Settings → accounts), clear the school cache
+          and open the course search.
+        reason: |
+          Without a 教務 session there is no catalog; the finder must say so
+          instead of "No course catalog is saved yet".
+    observe: |
+      The course page, the LMS reader and the course search panel; the 教務Web
+      page in the app while English names are pending; the finder empty state.
+    expected: |
+      The school's syllabus page in all three places (English page with
+      `?hl=en` in English content), a working external link, the 教務
+      department as 開講元, English titles in the finder without the visible
+      教務 page ever turning English, and "Sign in to 教務 to search courses"
+      when signed out.
+    why_manual: |
+      Framing is decided by the live school site, and the English page and the
+      session language need a real 教務 session; the URL and the planner rule
+      that holds English reads are tested in Core. Which panel shows what is a
+      glance check (AGENTS.md §5).
+    covers:
+      - apps/desktop/src/pages/courses/syllabus-frame.tsx
+      - apps/desktop/src/pages/courses/CourseDetails.tsx
+      - apps/desktop/src/pages/courses/CoursePanel.tsx
+      - apps/desktop/src/pages/courses/CourseFinder.tsx
+      - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - crates/isct-core/src/net/kyomu.rs
+      - crates/isct-core/src/school_parser/kyomu/search.rs
+    verified: null
+
   - id: NATIVE-IOS-SIMULATOR
     area: native
     title: Swift SDK and OCR on an iOS simulator
@@ -1901,7 +1966,7 @@ checks:
           school queue while Web is visible; native timing is not reproduced by
           the scripted browser.
       - action: |
-          Open one result's syllabus details and one registered course's LMS
+          Open one result's syllabus page and one registered course's LMS
           materials; refresh LMS and reopen the timetable.
         reason: |
           Real school sessions must support both content destinations without
@@ -1913,11 +1978,11 @@ checks:
     expected: |
       Fresh profile fields and registration records match 教務Web; timetable
       membership and weekday/period slots match each LMS quarter grid, and
-      rooms come from syllabus metadata. Search appends at most 100 courses per batch without
+      rooms come from 教務. Search appends at most 100 courses per batch without
       duplicates, changes filters on the server, and preserves loaded results.
       The active school source and progress agree; returning to Web restores
       its foreground page rather than the hidden search destination.
-      Syllabus details and LMS materials open for the same course; LMS refresh
+      The syllabus page and LMS materials open for the same course; LMS refresh
       keeps personal edits and removals, and retains cached clocks when a
       quarter read fails. No university registration is changed.
     why_manual: |

@@ -99,15 +99,14 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
             course(103, 2025, 1),
             course(104, 2026, 3),
         ],
-        offerings: HashMap::from([(101, "202602431".to_string())]),
         science: Some(SCIENCE.into()),
         tokyo: Some(TOKYO.into()),
         science_configured: true,
         tokyo_configured: true,
         allow_cellular: false,
         year: None,
+        english: false,
         references: Vec::new(),
-        packs: Vec::new(),
     }
 }
 
@@ -228,9 +227,9 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
             None,
         ),
         stored(
-            Dataset::CatalogDetail,
-            "202602431",
-            "",
+            Dataset::LmsCourse,
+            "104",
+            SCIENCE,
             minutes(30),
             Some(now() + Duration::minutes(10)),
         ),
@@ -248,6 +247,7 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
     let opens = [
         View::Course { lms_course_id: 101 },
         View::Course { lms_course_id: 103 },
+        View::Course { lms_course_id: 104 },
     ];
     let plan = plan(
         &inputs,
@@ -265,9 +265,9 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
     assert!(find(&plan, &key(Dataset::LmsAssign, "101")).is_none());
     // A frozen course stays frozen when opened.
     assert!(find(&plan, &key(Dataset::LmsCourse, "103")).is_none());
-    // The page's syllabus detail failed recently: shown as waiting.
+    // An open page's key that failed recently: shown as waiting.
     assert!(matches!(
-        find(&plan, &key(Dataset::CatalogDetail, "202602431"))
+        find(&plan, &key(Dataset::LmsCourse, "104"))
             .unwrap()
             .held,
         Some(Held::Backoff { .. })
@@ -283,6 +283,42 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
             (Priority::Interactive, None)
         );
     }
+}
+
+#[test]
+fn english_catalog_keys_wait_for_their_japanese_rows_and_never_meet_a_visible_kyomu() {
+    let department = planner::department_prefixes()[0].clone();
+    let japanese = key(Dataset::CatalogOfficial, &format!("2026/{department}"));
+    let english = key(Dataset::CatalogOfficial, &format!("2026/{department}/en"));
+    let mut inputs = inputs(Vec::new());
+    inputs.year = Some(2026);
+    let finder = [View::Finder { year: 2026 }];
+    // Japanese content: the English page is never read.
+    let plan_now = |inputs: &Inputs, facts: &Facts| plan(inputs, facts, &finder, &[]);
+    assert!(find(&plan_now(&inputs, &facts()), &japanese).is_some());
+    assert!(find(&plan_now(&inputs, &facts()), &english).is_none());
+    // English content: only once the Japanese rows it names are stored.
+    inputs.english = true;
+    assert!(find(&plan_now(&inputs, &facts()), &english).is_none());
+    let (state_key, state) = stored(
+        Dataset::CatalogOfficial,
+        &japanese.key,
+        "",
+        Some(now() - Duration::days(1)),
+        None,
+    );
+    inputs.states.insert(state_key, state);
+    let english_read = find(&plan_now(&inputs, &facts()), &english).cloned().unwrap();
+    assert_eq!(english_read.lane, Lane::Kyomu);
+    // Switching the session to English would reach the page the person is
+    // viewing.
+    let viewing = Facts {
+        kyomu_browsing: true,
+        ..facts()
+    };
+    assert!(find(&plan_now(&inputs, &viewing), &english).is_none());
+    assert_eq!(planner::japanese_key(&english), Some(japanese.clone()));
+    assert_eq!(planner::japanese_key(&japanese), None);
 }
 
 #[test]

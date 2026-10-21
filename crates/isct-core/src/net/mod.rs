@@ -38,25 +38,17 @@ pub enum Host {
     Moodle,
     Kyomu,
     GetAccess,
-    Syllabus,
     IsctData,
 }
 
 impl Host {
-    pub const ALL: [Host; 5] = [
-        Host::Moodle,
-        Host::Kyomu,
-        Host::GetAccess,
-        Host::Syllabus,
-        Host::IsctData,
-    ];
+    pub const ALL: [Host; 4] = [Host::Moodle, Host::Kyomu, Host::GetAccess, Host::IsctData];
 
     pub const fn name(self) -> &'static str {
         match self {
             Host::Moodle => "lms.s.isct.ac.jp",
             Host::Kyomu => "kyomu0.gakumu.titech.ac.jp",
             Host::GetAccess => "portal.nap.gsic.titech.ac.jp",
-            Host::Syllabus => "syllabus.s.isct.ac.jp",
             Host::IsctData => "raw.githubusercontent.com",
         }
     }
@@ -79,7 +71,6 @@ impl Host {
         match self {
             Host::Moodle => (4, Duration::from_millis(60)),
             Host::Kyomu | Host::GetAccess => (1, Duration::from_millis(300)),
-            Host::Syllabus => (6, Duration::from_millis(60)),
             Host::IsctData => (2, Duration::ZERO),
         }
     }

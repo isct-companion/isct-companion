@@ -7,8 +7,6 @@ import { SyncRing, progressLabel } from "../../components/PullRing";
 import type { PageProgress } from "../../platform/sync";
 import { dayNames } from "../../components/timetable/timetable";
 import {
-  contentLanguage,
-  pickLocalized,
   type ClassGroupChoice,
   type Course,
   type Workspace,
@@ -18,14 +16,13 @@ import { notify } from "../../app/notify";
 import { workspaceActions } from "../../store/workspace";
 import { ClassGroupSwitch } from "./ClassGroupPicker";
 import { t } from "../../i18n";
-import { getDesktopBridge } from "../../platform/desktop-bridge";
 import {
   useScheduleQuery,
   type CourseDetail,
   type TaskView,
 } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
-import { SyllabusDetails } from "./syllabus-details";
+import { SyllabusFrame } from "./syllabus-frame";
 
 export type CourseTab = "overview" | "materials" | "assignments" | "syllabus";
 
@@ -99,7 +96,6 @@ export function CourseDetails({
 }) {
   const [localTab, setTab] = useState<CourseTab>(initialTab);
   const tab = onTabChange ? initialTab : localTab;
-  const bridge = getDesktopBridge();
   const now = useClock();
   const tasks = useScheduleQuery<TaskView>({ kind: "taskView", now }).value;
   const groupChoices = (
@@ -108,7 +104,6 @@ export function CourseDetails({
       today: tokyoDate(new Date(now)),
     }).value ?? []
   ).filter((choice) => choice.courses.some((item) => item.id === course.id));
-  const language = contentLanguage(data.settings);
   const detail = useScheduleQuery<CourseDetail>({
     kind: "courseDetail",
     courseId: course.id,
@@ -209,14 +204,9 @@ export function CourseDetails({
               {offering && (
                 <>
                   <dt>{t("Format")}</dt>
-                  <dd>
-                    {offering.format.kinds.join(" / ") || "—"}
-                    {offering.format.delivery
-                      ? ` · ${offering.format.delivery}`
-                      : ""}
-                  </dd>
-                  <dt>{t("Academic unit")}</dt>
-                  <dd>{pickLocalized(offering.academicUnit, language, "—")}</dd>
+                  <dd>{offering.format.kinds.join(" / ") || "—"}</dd>
+                  <dt>{t("Offered by")}</dt>
+                  <dd>{offering.kyomu?.department || "—"}</dd>
                 </>
               )}
               {exams.length > 0 && (
@@ -319,21 +309,7 @@ export function CourseDetails({
             )}
           </div>
         )}
-        {tab === "syllabus" &&
-          (detail?.syllabusUrl ? (
-            <SyllabusDetails
-              url={detail.syllabusUrl}
-              fetchCourse={
-                bridge
-                  ? (url) => bridge.syllabusCourse(url, language)
-                  : undefined
-              }
-            />
-          ) : (
-            <div className="empty small">
-              {t("No syllabus is linked to this course.")}
-            </div>
-          ))}
+        {tab === "syllabus" && <SyllabusFrame url={detail?.syllabusUrl} />}
       </ScrollArea>
     </div>
   );

@@ -71,15 +71,13 @@ const KEYS: [(Dataset, &str); 4] = [
     (Dataset::Reference, "calendar/2026"),
 ];
 
-const SCHOOL_TABLES: [&str; 11] = [
+const SCHOOL_TABLES: [&str; 9] = [
     "lms_courses",
     "assignments",
     "registrations",
     "grades",
     "offerings",
     "offerings_fts",
-    "offering_content",
-    "catalog_search_items",
     "academic_calendar",
     "dataset_state",
     "sync_runs",
@@ -131,8 +129,6 @@ fn seed(fixture: &Fixture) {
         .execute_batch(
             "INSERT INTO offerings_fts(offering_id,code,title_ja,title_en,instructors_ja,instructors_en)
                VALUES('2026-202601234','MTH.A201','線形代数学第一','Linear Algebra I','','');
-             INSERT INTO offering_content VALUES('2026-202601234','en','{}','2026-10-01T00:00:00Z');
-             INSERT INTO catalog_search_items VALUES('2026-202605678','{}','2026-10-01T00:00:00Z');
              INSERT INTO settings(key,value,hash,updated_at,updated_by,rev)
                VALUES('kyomuSearchOptions:2026','[]','hash','2026-10-01T00:00:00Z','catalog',1);
              INSERT INTO settings(key,value,hash,updated_at,updated_by,rev,source)
@@ -262,8 +258,8 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
     let report = core.reset(scope).await.unwrap();
 
     assert_eq!(report.removed_rows, preview.removed_rows);
-    // 6 record rows, FTS, details, search row, 4 keys, 1 run, 2 settings.
-    assert_eq!(report.removed_rows, 16);
+    // 6 record rows, FTS, 4 keys, 1 run, 2 settings.
+    assert_eq!(report.removed_rows, 14);
     for table in SCHOOL_TABLES {
         assert_eq!(count(store, table), 0, "{table}");
     }
@@ -389,7 +385,7 @@ async fn concurrent_resets_join_the_running_one() {
         core.reset(ResetScope::Everything)
     );
 
-    assert_eq!(first.as_ref().unwrap().removed_rows, 16);
+    assert_eq!(first.as_ref().unwrap().removed_rows, 14);
     assert_eq!(first, second);
     assert_eq!(other, Err(ResetError::Busy));
     assert_eq!(core.sync.generation(), generation + 1);

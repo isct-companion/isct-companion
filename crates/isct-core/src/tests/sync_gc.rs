@@ -52,7 +52,7 @@ fn value(connection: &Connection, table: &str, id: String) -> Value {
     serde_json::from_str(&raw).unwrap()
 }
 
-/// Past course details, old シラバス details and old run records go, each
+/// Past course details and old run records go, each
 /// key reading as missing afterwards; anything opened recently stays, and a
 /// second pass the same day does nothing.
 #[test]
@@ -73,26 +73,6 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
         );
     }
     sync_state::touch(&connection, &[Key::new(Dataset::LmsCourse, "8")], days(10)).unwrap();
-    for offering in ["202600001", "202600002"] {
-        connection
-            .execute(
-                "INSERT INTO offering_content(offering_id,lang,content,fetched_at)
-                 VALUES(?1,'ja','{}',?2)",
-                params![offering, days(400).to_rfc3339()],
-            )
-            .unwrap();
-        commit(
-            &connection,
-            &Key::new(Dataset::CatalogDetail, offering),
-            days(400),
-        );
-    }
-    sync_state::touch(
-        &connection,
-        &[Key::new(Dataset::CatalogDetail, "202600002")],
-        days(30),
-    )
-    .unwrap();
     for (run, finished) in [("old", days(31)), ("recent", days(1))] {
         connection
             .execute(
@@ -111,7 +91,6 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
         GcReport {
             ran: true,
             courses_stripped: 1,
-            details_deleted: 1,
             runs_deleted: 1,
         }
     );
@@ -141,21 +120,11 @@ fn gc_drops_unused_content_and_invalidates_its_key_but_keeps_recently_used_keys(
         sync_state::due(Some(&state(dataset, key)), None, "science:student", now) == Due::Missing
     };
     assert!(missing(Dataset::LmsCourse, "7"));
-    assert!(missing(Dataset::CatalogDetail, "202600001"));
 
     // Recently opened keys keep their content and freshness.
     let kept = value(&connection, "lms_items", "lms-item:80".into());
     assert_eq!(kept["bodyHtml"], "<p>Notes</p>");
     assert!(!missing(Dataset::LmsCourse, "8"));
-    let details: Vec<String> = connection
-        .prepare("SELECT offering_id FROM offering_content")
-        .unwrap()
-        .query_map([], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    assert_eq!(details, ["202600002"]);
-    assert!(!missing(Dataset::CatalogDetail, "202600002"));
     let runs: Vec<String> = connection
         .prepare("SELECT run FROM sync_runs WHERE dataset='kyomu.page'")
         .unwrap()

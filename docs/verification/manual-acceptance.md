@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 67 checks must be re-run before the next release.**
+**7 of 68 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**58 checks have never been run or could not be run:**
+**59 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -48,6 +48,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-PULL-STRESS` — never verified
 - `DESKTOP-SYNC-STATUS` — never verified
 - `DESKTOP-FINDER-CATALOG-DOWNLOAD` — never verified
+- `DESKTOP-SYLLABUS-IN-APP` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `RELEASE-INSTALL` — never verified
@@ -117,6 +118,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CourseDetails.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/isct-ffi/** |
@@ -1603,6 +1605,75 @@ but how the notice reads during a real download is a glance check.
 
 **Last recorded** never run
 
+### Syllabus pages open inside the app; the catalog comes from 教務 only (`DESKTOP-SYLLABUS-IN-APP`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop dev build signed in to TokyoTech, with at least one registered
+course on the timetable and its LMS course synced.
+
+**Steps**
+
+1. Open a registered course's page and its Syllabus tab, then the same
+   course in the LMS reader (its syllabus entry), then any course in the
+   course search side panel.
+   - *Why:* All three must show the school's own page for that offering inside
+     the app. "No syllabus is linked" or a blank frame means the shell got
+     no URL from Core or the school started refusing to be framed.
+2. Click "Open in browser" under one of them.
+   - *Why:* The way out when the frame cannot be used; it must open the same
+     page in the system browser.
+3. Read the course page's 開講元 row.
+   - *Why:* It shows the 教務 department of the offering now that no syllabus
+     detail is read.
+4. Set Settings → content language to English, open 教務Web in the app
+   and stay on one of its pages for a minute, then leave it and open the
+   course search.
+   - *Why:* The English page is read by switching the shared 教務 session to
+     English. While the person views 教務 that switch must not happen, so
+     the open page must stay Japanese; once it is left, the search fills
+     in English titles and instructor names.
+5. Sign out of TokyoTech (Settings → accounts), clear the school cache
+   and open the course search.
+   - *Why:* Without a 教務 session there is no catalog; the finder must say so
+     instead of "No course catalog is saved yet".
+
+**Where to look**
+
+The course page, the LMS reader and the course search panel; the 教務Web
+page in the app while English names are pending; the finder empty state.
+
+**Expected**
+
+The school's syllabus page in all three places (English page with
+`?hl=en` in English content), a working external link, the 教務
+department as 開講元, English titles in the finder without the visible
+教務 page ever turning English, and "Sign in to 教務 to search courses"
+when signed out.
+
+**Why this is manual**
+
+Framing is decided by the live school site, and the English page and the
+session language need a real 教務 session; the URL and the planner rule
+that holds English reads are tested in Core. Which panel shows what is a
+glance check (AGENTS.md §5).
+
+**Covers**
+
+- `apps/desktop/src/pages/courses/syllabus-frame.tsx`
+- `apps/desktop/src/pages/courses/CourseDetails.tsx`
+- `apps/desktop/src/pages/courses/CoursePanel.tsx`
+- `apps/desktop/src/pages/courses/CourseFinder.tsx`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `crates/isct-core/src/net/kyomu.rs`
+- `crates/isct-core/src/school_parser/kyomu/search.rs`
+
+**Last recorded** never run
+
 ### Swift SDK and OCR on an iOS simulator (`NATIVE-IOS-SIMULATOR`)
 
 **Area** native · **Persona** Narrow window, keyboard only · **Result** pass ⚠
@@ -2205,7 +2276,7 @@ local workspace for the fresh-profile check.
      Hidden search must not replace the user's Web destination or hold the
      school queue while Web is visible; native timing is not reproduced by
      the scripted browser.
-4. Open one result's syllabus details and one registered course's LMS
+4. Open one result's syllabus page and one registered course's LMS
    materials; refresh LMS and reopen the timetable.
    - *Why:* Real school sessions must support both content destinations without
      a detail refresh changing course identity or mixing syllabus clocks
@@ -2220,11 +2291,11 @@ browser. Compare the same course code, quarter, time and room in 教務Web.
 
 Fresh profile fields and registration records match 教務Web; timetable
 membership and weekday/period slots match each LMS quarter grid, and
-rooms come from syllabus metadata. Search appends at most 100 courses per batch without
+rooms come from 教務. Search appends at most 100 courses per batch without
 duplicates, changes filters on the server, and preserves loaded results.
 The active school source and progress agree; returning to Web restores
 its foreground page rather than the hidden search destination.
-Syllabus details and LMS materials open for the same course; LMS refresh
+The syllabus page and LMS materials open for the same course; LMS refresh
 keeps personal edits and removals, and retains cached clocks when a
 quarter read fails. No university registration is changed.
 

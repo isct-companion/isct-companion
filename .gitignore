@@ -48,7 +48,6 @@ secrets.json
 *.log
 *.swp
 __pycache__/
-scripts/research/syllabus-sample-output/
 
 # Future native-shell build outputs
 apps/ios/build/

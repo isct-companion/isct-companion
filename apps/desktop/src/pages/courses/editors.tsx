@@ -4,8 +4,6 @@ import { t } from "../../i18n";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import { confirmAction } from "../../components/confirm";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
-import { SyllabusDetails } from "./syllabus-details";
-import type { SyllabusCourse } from "../../lib/syllabus";
 import { useState, type FormEvent } from "react";
 import type {
   Course,
@@ -115,7 +113,6 @@ function DayChips({
 
 export function CourseEditor({
   course,
-  fetchSyllabus,
   term,
   onTimetable,
   onClose,
@@ -124,7 +121,6 @@ export function CourseEditor({
   teachingPeriods,
 }: {
   course?: Course;
-  fetchSyllabus?: (url: string) => Promise<SyllabusCourse>;
   term: TermId;
   onTimetable: boolean;
   onClose: () => void;
@@ -297,15 +293,6 @@ export function CourseEditor({
                 />
               </div>
             </div>
-            <label className="field wide">
-              <span>{t("Syllabus URL")}</span>
-              <UiInput
-                type="url"
-                value={values.url}
-                onChange={(e) => setValues({ ...values, url: e.target.value })}
-                placeholder="https://syllabus.s.isct.ac.jp/courses/…"
-              />
-            </label>
             <Checkbox
               className="wide"
               checked={values.onTimetable}
@@ -422,7 +409,6 @@ export function CourseEditor({
               </p>
             )}
           </section>
-          <SyllabusDetails url={values.url} fetchCourse={fetchSyllabus} />
         </div>
         {course && onDelete && (
           <footer className="sheetDangerZone">

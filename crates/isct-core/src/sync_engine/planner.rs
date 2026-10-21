@@ -25,12 +25,11 @@ pub(crate) const OPEN_THRESHOLD: Duration = Duration::minutes(15);
 pub(crate) enum Lane {
     Moodle,
     Kyomu,
-    Syllabus,
     IsctData,
 }
 
 impl Lane {
-    pub(crate) const ALL: [Lane; 4] = [Lane::Moodle, Lane::Kyomu, Lane::Syllabus, Lane::IsctData];
+    pub(crate) const ALL: [Lane; 3] = [Lane::Moodle, Lane::Kyomu, Lane::IsctData];
 
     pub(crate) fn of(dataset: Dataset) -> Self {
         match dataset {
@@ -40,17 +39,15 @@ impl Lane {
             | Dataset::LmsAssign
             | Dataset::LmsHistory => Self::Moodle,
             Dataset::KyomuPage | Dataset::CatalogOfficial => Self::Kyomu,
-            Dataset::CatalogDetail => Self::Syllabus,
-            Dataset::Reference | Dataset::CatalogSyllabus => Self::IsctData,
+            Dataset::Reference => Self::IsctData,
         }
     }
 
-    /// Keys read at once: Moodle 4, 教務Web 1, シラバス 6, Isct-Data 2.
+    /// Keys read at once: Moodle 4, 教務Web 1, Isct-Data 2.
     pub(crate) const fn capacity(self) -> usize {
         match self {
             Self::Moodle => 4,
             Self::Kyomu => 1,
-            Self::Syllabus => 6,
             Self::IsctData => 2,
         }
     }
@@ -59,7 +56,6 @@ impl Lane {
         match self {
             Self::Moodle => Host::Moodle,
             Self::Kyomu => Host::Kyomu,
-            Self::Syllabus => Host::Syllabus,
             Self::IsctData => Host::IsctData,
         }
     }
@@ -70,7 +66,7 @@ pub(crate) fn profile_of(dataset: Dataset) -> Option<SchoolAuthProfile> {
     match Lane::of(dataset) {
         Lane::Moodle => Some(SchoolAuthProfile::Science),
         Lane::Kyomu => Some(SchoolAuthProfile::TokyoTech),
-        Lane::Syllabus | Lane::IsctData => None,
+        Lane::IsctData => None,
     }
 }
 
@@ -84,22 +80,11 @@ pub(crate) struct ReferenceWatch {
     pub(crate) due: Due,
 }
 
-/// One academic year's catalog pack.
-#[derive(Clone, Debug)]
-pub(crate) struct PackWatch {
-    pub(crate) key: Key,
-    /// `catalog_pack::pack_due`: rows gone or a held pack on top of
-    /// `sync_state::due`.
-    pub(crate) due: Due,
-}
-
 /// Stored facts, read once per evaluation on a blocking worker.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Inputs {
     pub(crate) states: HashMap<Key, KeyState>,
     pub(crate) courses: Vec<StoredLmsCourse>,
-    /// LMS course id → its シラバス offering id.
-    pub(crate) offerings: HashMap<u64, String>,
     /// `SchoolAuthService::sync_account`; `None` when it could not be read.
     pub(crate) science: Option<String>,
     pub(crate) tokyo: Option<String>,
@@ -109,9 +94,10 @@ pub(crate) struct Inputs {
     pub(crate) allow_cellular: bool,
     /// The academic year the person is viewing.
     pub(crate) year: Option<u16>,
+    /// Content is shown in English: the catalog reads 教務's English page
+    /// too.
+    pub(crate) english: bool,
     pub(crate) references: Vec<ReferenceWatch>,
-    /// The watched years' packs and the year being viewed.
-    pub(crate) packs: Vec<PackWatch>,
 }
 
 impl Inputs {
@@ -152,6 +138,9 @@ pub(crate) struct Facts {
     pub(crate) signed_in: HashSet<SchoolAuthProfile>,
     /// Hosts the circuit breaker paused, until when.
     pub(crate) paused: HashMap<Host, DateTime<Utc>>,
+    /// The person is viewing 教務Web, whose session language an English
+    /// read would switch.
+    pub(crate) kyomu_browsing: bool,
 }
 
 impl Default for Facts {
@@ -165,6 +154,7 @@ impl Default for Facts {
             school_attached: false,
             signed_in: HashSet::new(),
             paused: HashMap::new(),
+            kyomu_browsing: false,
         }
     }
 }
@@ -256,17 +246,33 @@ pub(crate) fn department_prefixes() -> &'static [String] {
     })
 }
 
-pub(crate) fn official_keys(year: u16) -> Vec<Key> {
+/// The 教務 search of every department: `{year}/{prefix}` in Japanese, and
+/// with `english` also `{year}/{prefix}/en`, the English page that adds
+/// English titles and instructor names to the same rows.
+pub(crate) fn official_keys(year: u16, english: bool) -> Vec<Key> {
     department_prefixes()
         .iter()
-        .map(|prefix| Key::new(Dataset::CatalogOfficial, format!("{year}/{prefix}")))
+        .flat_map(|prefix| {
+            let japanese = Key::new(Dataset::CatalogOfficial, format!("{year}/{prefix}"));
+            let english =
+                english.then(|| Key::new(Dataset::CatalogOfficial, format!("{year}/{prefix}/en")));
+            std::iter::once(japanese).chain(english)
+        })
         .collect()
 }
 
-/// A year's whole catalog: its pack and its official departments.
-fn catalog_keys(year: u16) -> Vec<(Key, Option<String>)> {
-    std::iter::once(crate::catalog_pack::pack_key(year))
-        .chain(official_keys(year))
+/// The Japanese key an English catalog key adds names to.
+pub(crate) fn japanese_key(key: &Key) -> Option<Key> {
+    (key.dataset == Dataset::CatalogOfficial)
+        .then(|| key.key.strip_suffix("/en"))
+        .flatten()
+        .map(|japanese| Key::new(Dataset::CatalogOfficial, japanese))
+}
+
+/// A year's whole catalog: its official departments.
+fn catalog_keys(year: u16, english: bool) -> Vec<(Key, Option<String>)> {
+    official_keys(year, english)
+        .into_iter()
         .map(|key| (key, Some(year.to_string())))
         .collect()
 }
@@ -333,7 +339,7 @@ pub(crate) fn scope_keys(
             site: SchoolSite::Kyomu,
         } => unscoped(kyomu_keys()),
         Scope::Site { .. } => Vec::new(),
-        Scope::Course { lms_course_id } => course_view_keys(*lms_course_id, inputs),
+        Scope::Course { lms_course_id } => course_view_keys(*lms_course_id),
         Scope::References => unscoped(
             inputs
                 .references
@@ -341,26 +347,19 @@ pub(crate) fn scope_keys(
                 .map(|watch| watch.key.clone())
                 .collect(),
         ),
-        Scope::Catalog { year } => catalog_keys(*year),
+        Scope::Catalog { year } => catalog_keys(*year, inputs.english),
     }
 }
 
-/// One course page: its LMS keys and its シラバス detail.
-fn course_view_keys(id: u64, inputs: &Inputs) -> Vec<(Key, Option<String>)> {
+/// One course page: its LMS keys.
+fn course_view_keys(id: u64) -> Vec<(Key, Option<String>)> {
     if id == 0 {
         return Vec::new();
     }
-    let mut keys: Vec<(Key, Option<String>)> = course_keys(id)
+    course_keys(id)
         .into_iter()
         .map(|key| (key, Some(id.to_string())))
-        .collect();
-    if let Some(offering) = inputs.offerings.get(&id) {
-        keys.push((
-            Key::new(Dataset::CatalogDetail, offering.clone()),
-            Some(offering.clone()),
-        ));
-    }
-    keys
+        .collect()
 }
 
 /// The keys a visible page depends on, their priority and rule.
@@ -390,25 +389,15 @@ fn view_keys(
             Rule::Open,
         ),
         View::Course { lms_course_id } => (
-            course_view_keys(*lms_course_id, inputs),
+            course_view_keys(*lms_course_id),
             Priority::Interactive,
             Rule::Open,
         ),
         // The catalog changes little in a year: opening the finder raises
-        // its pack and departments, but each is still read only once its
-        // week is up.
-        View::Finder { year } => (catalog_keys(*year), Priority::Visible, Rule::Ttl),
-        View::Offering { offering_id } => (
-            if valid_offering(offering_id) {
-                vec![(
-                    Key::new(Dataset::CatalogDetail, offering_id.clone()),
-                    Some(offering_id.clone()),
-                )]
-            } else {
-                Vec::new()
-            },
-            Priority::Interactive,
-            // Details change rarely: an open renews one only past its TTL.
+        // its departments, but each is still read only once its week is up.
+        View::Finder { year } => (
+            catalog_keys(*year, inputs.english),
+            Priority::Visible,
             Rule::Ttl,
         ),
         View::Grades => (
@@ -424,10 +413,6 @@ fn view_keys(
     }
 }
 
-fn valid_offering(id: &str) -> bool {
-    id.len() == 9 && id.bytes().all(|byte| byte.is_ascii_digit())
-}
-
 /// The base attributes of `key`, or `None` when nothing can read it (an
 /// account that could not be read, a reference kind that is off).
 fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
@@ -439,7 +424,6 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
         account,
         scope: match key.dataset {
             Dataset::CatalogOfficial => key.key.split('/').next().map(str::to_owned),
-            Dataset::CatalogDetail | Dataset::CatalogSyllabus => Some(key.key.clone()),
             _ => None,
         },
         title: None,
@@ -469,16 +453,7 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
             watch.due = Some(reference.due);
             watch.title = Some(key.key.clone());
         }
-        Dataset::CatalogSyllabus => {
-            key.key.parse::<u16>().ok()?;
-            watch.due = inputs
-                .packs
-                .iter()
-                .find(|watch| watch.key == *key)
-                .map(|watch| watch.due);
-            watch.title = Some(key.key.clone());
-        }
-        Dataset::LmsEnrolment | Dataset::LmsDeadlines | Dataset::CatalogDetail => {}
+        Dataset::LmsEnrolment | Dataset::LmsDeadlines => {}
     }
     Some(watch)
 }
@@ -516,7 +491,7 @@ fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Ke
         keys.extend(kyomu_keys().into_iter().map(|key| (key, Priority::Visible)));
         if let Some(year) = inputs.year {
             keys.extend(
-                official_keys(year)
+                official_keys(year, inputs.english)
                     .into_iter()
                     .map(|key| (key, Priority::Background)),
             );
@@ -527,12 +502,6 @@ fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Ke
             .references
             .iter()
             .map(|watch| (watch.key.clone(), Priority::Background)),
-    );
-    // Public catalogs need no session: the current and the next year.
-    keys.extend(
-        crate::catalog_pack::watched_years(now)
-            .into_iter()
-            .map(|year| (crate::catalog_pack::pack_key(year), Priority::Background)),
     );
     keys
 }
@@ -697,6 +666,17 @@ pub(crate) fn plan(
                     .states
                     .get(&Key::new(Dataset::LmsCourse, key.key.clone()))
                     .is_some_and(|state| state.fetched_at.is_some())
+        })
+        // English names merge into rows the Japanese page stored, and the
+        // switch to English would reach a 教務 page the person is viewing.
+        .filter(|(key, _)| {
+            japanese_key(key).is_none_or(|japanese| {
+                !facts.kyomu_browsing
+                    && inputs
+                        .states
+                        .get(&japanese)
+                        .is_some_and(|state| state.fetched_at.is_some())
+            })
         })
         .filter_map(|(key, watch)| {
             let (rank, backoff) = evaluate(&key, &watch, inputs.states.get(&key), now)?;

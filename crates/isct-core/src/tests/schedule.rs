@@ -1385,10 +1385,17 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     assert_eq!(crate::storage::folder_name(".."), "course");
     assert_eq!(crate::storage::folder_name(&"a".repeat(130)).len(), 120);
 
-    // Links: the LMS record matched by offering, then the syllabus by offering id.
+    // Links: the LMS record matched by offering, then the syllabus page
+    // Core builds from the offering id, in the content language.
     assert_eq!(view.lms_url, None);
     assert_eq!(
         view.syllabus_url.as_deref(),
+        Some("https://syllabus.s.isct.ac.jp/courses/-/-/-/o?hl=en")
+    );
+    let mut japanese = data.clone();
+    japanese["settings"] = json!({"contentLanguage":"ja"});
+    assert_eq!(
+        course_detail(&japanese, "c").syllabus_url.as_deref(),
         Some("https://syllabus.s.isct.ac.jp/courses/-/-/-/o")
     );
     let mut linked = data.clone();
@@ -1396,7 +1403,8 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
         {"lmsId":7,"offeringId":"other","url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=7"},
         {"lmsId":8,"offeringId":"o","url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=8"}
     ]);
-    linked["offerings"][0]["syllabusUrl"] = json!("https://syllabus.s.isct.ac.jp/courses/2026/x");
+    // A stored link of another form never reaches the shell.
+    linked["offerings"][0]["syllabusUrl"] = json!("https://syllabus.s.isct.ac.jp/courses?jwc=o");
     let view = course_detail(&linked, "c");
     assert_eq!(
         view.lms_url.as_deref(),
@@ -1405,8 +1413,24 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     assert_eq!(view.lms_course_id, Some(8));
     assert_eq!(
         view.syllabus_url.as_deref(),
-        Some("https://syllabus.s.isct.ac.jp/courses/2026/x")
+        Some("https://syllabus.s.isct.ac.jp/courses/-/-/-/o?hl=en")
     );
+    // Without an offering, the offering a シラバス link names (the 教務
+    // `courses?jwc=` form included); other links are not syllabus pages.
+    for (url, expected) in [
+        (
+            "https://syllabus.s.isct.ac.jp/courses?jwc=202602431",
+            Some("https://syllabus.s.isct.ac.jp/courses/-/-/-/202602431?hl=en"),
+        ),
+        (
+            "https://syllabus.s.isct.ac.jp/courses/2026/CSC.T263/202602427",
+            Some("https://syllabus.s.isct.ac.jp/courses/-/-/-/202602427?hl=en"),
+        ),
+        ("https://example.invalid/courses?jwc=202602431", None),
+    ] {
+        let manual = json!({"courses":[{"id":"m","url":url}]});
+        assert_eq!(course_detail(&manual, "m").syllabus_url.as_deref(), expected, "{url}");
+    }
     // An LMS-sourced course links to itself and has no syllabus without an offering.
     let lms = json!({"courses":[{"id":"l","source":{"provider":"lms","externalId":"9"},"url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=9"}]});
     let view = course_detail(&lms, "l");

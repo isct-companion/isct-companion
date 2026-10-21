@@ -43,6 +43,14 @@ pub struct CatalogRows {
     pub truncated: bool,
 }
 
+/// The language the school renders the course search in. The server keeps
+/// it per session, so the WebView sees the same language.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Language {
+    Japanese,
+    English,
+}
+
 /// What the course search is asked for. Every field maps to a query
 /// parameter of the search URL; empty fields are left out.
 #[derive(Clone, Debug, Default)]
@@ -95,6 +103,8 @@ fn is_sign_in_redirect(location: &str) -> bool {
 enum Fetched {
     Html(String),
     SignedOut,
+    /// A redirect within 教務Web.
+    Redirected(u16),
 }
 
 enum Read<T> {
@@ -193,11 +203,55 @@ impl KyomuClient {
         year: u16,
         code_prefix: &str,
     ) -> Result<KeyOutcome<CatalogRows>, NetError> {
+        self.catalog_in(year, code_prefix, Language::Japanese).await
+    }
+
+    /// The department's English titles and romanized instructors: switches
+    /// the session to English, reads the search as [`Self::catalog`] does
+    /// (rows in the `search::read_english` shape), and switches it back. A
+    /// session left in English (a failed switch back, a cancelled read) is
+    /// switched back by the next request that receives an English page.
+    pub async fn catalog_english(
+        &self,
+        year: u16,
+        code_prefix: &str,
+    ) -> Result<KeyOutcome<CatalogRows>, NetError> {
+        let url = search_url(
+            year,
+            &CatalogSearch {
+                code: code_prefix.into(),
+                ..CatalogSearch::default()
+            },
+        )?;
+        let mut signed_in = false;
+        loop {
+            match self.switch(&url, Language::English).await? {
+                Read::Done(()) => break,
+                Read::SignedOut => {
+                    if !self.recover(&mut signed_in).await? {
+                        return Ok(KeyOutcome::SignInRequired);
+                    }
+                }
+            }
+        }
+        let read = self.catalog_in(year, code_prefix, Language::English).await;
+        if let Err(error) = self.switch(&url, Language::Japanese).await {
+            log::warn!(target: "isct_core::kyomu", "the 教務 session stays in English: {error}");
+        }
+        read
+    }
+
+    async fn catalog_in(
+        &self,
+        year: u16,
+        code_prefix: &str,
+        language: Language,
+    ) -> Result<KeyOutcome<CatalogRows>, NetError> {
         let whole = CatalogSearch {
             code: code_prefix.into(),
             ..CatalogSearch::default()
         };
-        let first = match self.search(year, &whole).await? {
+        let first = match self.search_in(year, &whole, language).await? {
             KeyOutcome::Complete(rows) if rows.truncated => rows,
             other => return Ok(other),
         };
@@ -212,7 +266,7 @@ impl KyomuClient {
                 quarter,
                 ..whole.clone()
             };
-            let rows = match self.search(year, &part).await? {
+            let rows = match self.search_in(year, &part, language).await? {
                 KeyOutcome::Complete(rows) => rows,
                 other => return Ok(other),
             };
@@ -237,10 +291,19 @@ impl KyomuClient {
         year: u16,
         query: &CatalogSearch,
     ) -> Result<KeyOutcome<CatalogRows>, NetError> {
+        self.search_in(year, query, Language::Japanese).await
+    }
+
+    async fn search_in(
+        &self,
+        year: u16,
+        query: &CatalogSearch,
+        language: Language,
+    ) -> Result<KeyOutcome<CatalogRows>, NetError> {
         let url = search_url(year, query)?;
         let mut signed_in = false;
         loop {
-            match self.read_search(year, &url).await? {
+            match self.read_search(year, &url, language).await? {
                 Read::Done(outcome) => return Ok(outcome),
                 Read::SignedOut => {
                     if !self.recover(&mut signed_in).await? {
@@ -258,6 +321,7 @@ impl KyomuClient {
         {
             Fetched::Html(html) => html,
             Fetched::SignedOut => return Ok(Read::SignedOut),
+            Fetched::Redirected(status) => return Err(NetError::Http(status)),
         };
         let payload = kyomu::extract_page(url.as_str(), &html);
         match payload.status.as_str() {
@@ -282,20 +346,29 @@ impl KyomuClient {
         &self,
         year: u16,
         url: &Url,
+        language: Language,
     ) -> Result<Read<KeyOutcome<CatalogRows>>, NetError> {
+        let parse = match language {
+            Language::Japanese => search::read_search,
+            Language::English => search::read_english,
+        };
+        // A read in English must not switch the session back first.
+        let english = language == Language::English;
         let fetched_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let html = match self
-            .fetch(Method::GET, url, MENU, Body::None, Limits::page())
+            .fetch_as(english, Method::GET, url, MENU, Body::None, Limits::page())
             .await?
         {
             Fetched::Html(html) => html,
             Fetched::SignedOut => return Ok(Read::SignedOut),
+            Fetched::Redirected(status) => return Err(NetError::Http(status)),
         };
-        let read = match search::read_search(&html, true, &fetched_at).map_err(invalid)? {
+        let read = match parse(&html, true, &fetched_at).map_err(invalid)? {
             SearchRead::Expand(fields) => {
                 // A 1000-row page is about 3 MB.
                 let html = match self
-                    .fetch(
+                    .fetch_as(
+                        english,
                         Method::POST,
                         url,
                         url.as_str(),
@@ -306,8 +379,9 @@ impl KyomuClient {
                 {
                     Fetched::Html(html) => html,
                     Fetched::SignedOut => return Ok(Read::SignedOut),
+                    Fetched::Redirected(status) => return Err(NetError::Http(status)),
                 };
-                search::read_search(&html, false, &fetched_at).map_err(invalid)?
+                parse(&html, false, &fetched_at).map_err(invalid)?
             }
             read => read,
         };
@@ -335,8 +409,101 @@ impl KyomuClient {
         })))
     }
 
-    /// One request with the WebView's 教務 cookies; never follows redirects.
+    /// Switches the session to `language` with the header postback on the
+    /// page at `url`.
+    async fn switch(&self, url: &Url, language: Language) -> Result<Read<()>, NetError> {
+        match self
+            .send(Method::GET, url, MENU, Body::None, Limits::page())
+            .await?
+        {
+            Fetched::Html(html) => self.switch_on(url, &html, language).await,
+            Fetched::SignedOut => Ok(Read::SignedOut),
+            Fetched::Redirected(status) => Err(NetError::Http(status)),
+        }
+    }
+
+    /// Posts the header link of `language` on `html`, the page at `url`. A
+    /// page that offers only the other link is already in `language`.
+    async fn switch_on(
+        &self,
+        url: &Url,
+        html: &str,
+        language: Language,
+    ) -> Result<Read<()>, NetError> {
+        let (target, other) = match language {
+            Language::English => (search::TO_ENGLISH, search::TO_JAPANESE),
+            Language::Japanese => (search::TO_JAPANESE, search::TO_ENGLISH),
+        };
+        let Some(fields) = search::language_postback(html, target) else {
+            return if search::language_postback(html, other).is_some() {
+                Ok(Read::Done(()))
+            } else {
+                Err(NetError::Invalid(
+                    "The 教務Web language links changed.".into(),
+                ))
+            };
+        };
+        // The postback answers with the page again or a redirect to it.
+        match self
+            .send(
+                Method::POST,
+                url,
+                url.as_str(),
+                Body::Form(fields),
+                Limits::bulk(),
+            )
+            .await?
+        {
+            Fetched::SignedOut => Ok(Read::SignedOut),
+            Fetched::Html(_) | Fetched::Redirected(_) => Ok(Read::Done(())),
+        }
+    }
+
+    /// One request with the WebView's 教務 cookies. An English page (it
+    /// offers the link back to Japanese) means the session was left in
+    /// English: it is switched back and the request sent again, so the
+    /// person's 教務 pages stay Japanese.
     async fn fetch(
+        &self,
+        method: Method,
+        url: &Url,
+        referer: &str,
+        body: Body,
+        limits: Limits,
+    ) -> Result<Fetched, NetError> {
+        let fetched = self
+            .send(method.clone(), url, referer, body.clone(), limits)
+            .await?;
+        let Fetched::Html(html) = &fetched else {
+            return Ok(fetched);
+        };
+        if !html.contains(search::TO_JAPANESE) {
+            return Ok(fetched);
+        }
+        match self.switch_on(url, html, Language::Japanese).await? {
+            Read::Done(()) => self.send(method, url, referer, body, limits).await,
+            Read::SignedOut => Ok(Fetched::SignedOut),
+        }
+    }
+
+    /// [`Self::fetch`], or a plain [`Self::send`] for a read in English.
+    async fn fetch_as(
+        &self,
+        english: bool,
+        method: Method,
+        url: &Url,
+        referer: &str,
+        body: Body,
+        limits: Limits,
+    ) -> Result<Fetched, NetError> {
+        if english {
+            return self.send(method, url, referer, body, limits).await;
+        }
+        self.fetch(method, url, referer, body, limits).await
+    }
+
+    /// One request with the WebView's 教務 cookies; never follows redirects.
+    async fn send(
         &self,
         method: Method,
         url: &Url,
@@ -369,6 +536,9 @@ impl KyomuClient {
         match classify(response.status, response.location().as_deref()) {
             Reply::Page => Ok(Fetched::Html(response.text()?)),
             Reply::SessionExpired => Ok(Fetched::SignedOut),
+            Reply::Unexpected(status) if (300..400).contains(&status) => {
+                Ok(Fetched::Redirected(status))
+            }
             Reply::Unexpected(status) => Err(NetError::Http(status)),
         }
     }

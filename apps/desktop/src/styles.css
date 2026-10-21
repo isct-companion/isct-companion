@@ -1394,7 +1394,7 @@ p {
     width: 170px;
   }
 }
-/* Course editor: editable fields first, public reference content below. */
+/* Course editor: editable fields scroll as one column. */
 .courseEditBody {
   overflow: auto;
   align-content: start;
@@ -1403,71 +1403,30 @@ p {
 .courseEditBody .sheetCol {
   overflow: visible;
 }
-.syllabusDetails {
-  grid-column: 1 / -1;
-  min-width: 0;
-  padding: 18px;
-  background: var(--surface);
-  border-top: 1px solid var(--line);
-}
 .syllabusStatus {
   margin: 0 0 12px;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
 }
-.syllabusDetails details {
-  border-top: 1px solid var(--line);
+/* The school's syllabus page, as the school renders it, with a way out. */
+.syllabusFrame {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
 }
-.syllabusDetails summary {
-  padding: 13px 0;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
+.syllabusFrame iframe {
+  width: 100%;
+  height: 70vh;
+  min-height: 360px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
 }
-.syllabusProse {
-  max-width: 85ch;
-  padding: 0 0 12px;
-}
-.syllabusProse p,
-.syllabusLessonPlan p {
-  margin: 0 0 9px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 1.6;
-}
-.syllabusProse h3 {
-  font-size: 14px;
-}
-.syllabusMetadata {
-  margin: 0 0 16px;
-}
-.syllabusMetadata > div {
-  display: grid;
-  grid-template-columns: minmax(130px, 1fr) 3fr;
-  gap: 16px;
-  padding: 7px 0;
-  font-size: 14px;
-}
-.syllabusMetadata dt {
-  color: var(--muted);
-}
-.syllabusMetadata dd {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.syllabusLessonPlan > div {
-  display: grid;
-  grid-template-columns: 100px minmax(0, 1fr);
-  gap: 16px;
-  padding: 10px 0;
-  border-top: 1px solid var(--line);
-  font-size: 14px;
-}
-.syllabusObjective {
-  color: var(--muted);
+.syllabusOutside {
+  align-self: flex-end;
+  font-size: calc(12px * var(--text));
 }
 /* ---------- task workspace ---------- */
 .todayPage {
@@ -2494,25 +2453,6 @@ p {
 }
 .coursePanelBody > dl > dd {
   margin: 0;
-}
-/* The side panel is narrow: syllabus labels sit above their values. */
-.coursePanelBody .syllabusMetadata > div {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
-  padding: 6px 0;
-  font-size: calc(12.5px * var(--text));
-}
-.coursePanelBody .syllabusMetadata dt {
-  font-size: calc(11.5px * var(--text));
-}
-.coursePanelBody .syllabusLessonPlan > div {
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 8px;
-  font-size: calc(12.5px * var(--text));
-}
-.coursePanelBody .syllabusProse {
-  font-size: calc(12.5px * var(--text));
-  overflow-wrap: anywhere;
 }
 .coursePanelFoot {
   display: flex;

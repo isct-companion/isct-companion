@@ -298,8 +298,8 @@ fn project_lms_timetable(
                 course["offeringId"] = offering_id.into();
             }
         }
-        // Syllabus often exposes only a base code plus a letter class label.
-        // The linked LMS shortname retains the school's numeric class suffix.
+        // The catalog code is often only the base code; the linked LMS
+        // shortname retains the school's numeric class suffix.
         let same_offering = !offering_id.is_empty() && text(&course, "offeringId") == offering_id;
         let own_lms_record = course["source"]["provider"] == "lms"
             && text(&course["source"], "externalId") == lms_id.to_string();

@@ -38,19 +38,20 @@ pub struct SearchResults {
     pub truncated: bool,
 }
 
-/// Reads one search response. `expand` allows answering with the paging
-/// postback (the first, GET response); after the postback it is false and
-/// the rows on the page are read as they are. `fetched_at` stamps each row.
-pub fn read_search(
-    html: &str,
-    expand: bool,
-    fetched_at: &str,
-) -> Result<SearchRead, SchoolParseError> {
-    let document = Html::parse_document(html);
-    if let Some(notice) = maintenance_notice(&document) {
-        return Ok(SearchRead::Maintenance(notice));
+/// What a search response is before its grid is read.
+enum Prelude<'a> {
+    Read(SearchRead),
+    /// The result grid, or `None` when the page shows no grid.
+    Grid(Option<ElementRef<'a>>, Option<ElementRef<'a>>),
+}
+
+/// The maintenance page, the paging postback, or the grid and its page-size
+/// control: what every search response is checked for first.
+fn prelude(document: &Html, expand: bool) -> Result<Prelude<'_>, SchoolParseError> {
+    if let Some(notice) = maintenance_notice(document) {
+        return Ok(Prelude::Read(SearchRead::Maintenance(notice)));
     }
-    let grid = by_id(&document, "ctl00_ContentPlaceHolder1_gvGrid");
+    let grid = by_id(document, "ctl00_ContentPlaceHolder1_gvGrid");
     let page_size = grid.and_then(|grid| first(grid, r#"select[id$="_drpPageSize"]"#));
     if expand {
         if let Some(size) = page_size {
@@ -63,22 +64,56 @@ pub fn read_search(
             }
             let fields = form_data(&form_controls(form));
             if let Some(post) = expand_postback(fields, name, current.as_deref(), &values) {
-                return Ok(SearchRead::Expand(post));
+                return Ok(Prelude::Read(SearchRead::Expand(post)));
             }
         }
     }
+    Ok(Prelude::Grid(grid, page_size))
+}
+
+/// The empty-result notice is shown (not hidden by style).
+fn shows_empty_notice(document: &Html, text: &str) -> bool {
+    let empty = by_id(document, "ctl00_ContentPlaceHolder1_cvKamoku");
+    let hidden = empty
+        .and_then(|empty| empty.attr("style"))
+        .is_some_and(|style| {
+            regex!(r"(?i)display:\s*none|visibility:\s*hidden")
+                .is_some_and(|pattern| pattern.is_match(style))
+        });
+    empty.is_some_and(|empty| clean_text(empty).contains(text)) && !hidden
+}
+
+/// Whether the grid shows less than the school holds, by its rows, its
+/// pager and its page-size control.
+fn grid_truncated(grid: ElementRef<'_>, page_size: Option<ElementRef<'_>>, rows: usize) -> bool {
+    let next_link = select(grid, "a")
+        .into_iter()
+        .any(|link| matches!(clean_text(link).as_str(), ">>" | "次へ" | "次のページ" | "Next"));
+    // A drop-down still short of its largest size means rows are on other
+    // pages (the postback did not take effect).
+    let shrunk = page_size.is_some_and(|size| {
+        let (current, values) = page_sizes(size);
+        current.as_deref().and_then(number) != largest(&values)
+    });
+    is_truncated(rows, next_link || shrunk)
+}
+
+/// Reads one search response. `expand` allows answering with the paging
+/// postback (the first, GET response); after the postback it is false and
+/// the rows on the page are read as they are. `fetched_at` stamps each row.
+pub fn read_search(
+    html: &str,
+    expand: bool,
+    fetched_at: &str,
+) -> Result<SearchRead, SchoolParseError> {
+    let document = Html::parse_document(html);
+    let (grid, page_size) = match prelude(&document, expand)? {
+        Prelude::Read(read) => return Ok(read),
+        Prelude::Grid(grid, page_size) => (grid, page_size),
+    };
     let options = public_options(&document);
     let Some(grid) = grid else {
-        let empty = by_id(&document, "ctl00_ContentPlaceHolder1_cvKamoku");
-        let hidden = empty
-            .and_then(|empty| empty.attr("style"))
-            .is_some_and(|style| {
-                regex!(r"(?i)display:\s*none|visibility:\s*hidden")
-                    .is_some_and(|pattern| pattern.is_match(style))
-            });
-        if empty.is_some_and(|empty| clean_text(empty).contains("指定した条件の科目はありません"))
-            && !hidden
-        {
+        if shows_empty_notice(&document, "指定した条件の科目はありません") {
             return Ok(SearchRead::Results(SearchResults {
                 courses: Vec::new(),
                 options,
@@ -146,10 +181,6 @@ pub fn read_search(
         if cell("曜日・時限").is_none() || !seen.insert(id) {
             return Err("A course search row is incomplete.".into());
         }
-        // The row must be a valid catalog offering, or the merge would store
-        // a row the finder cannot read.
-        serde_json::from_value::<crate::syllabus::model::Offering>(course.clone())
-            .map_err(|_| SchoolParseError::from("kyomu course result is invalid"))?;
         courses.push(course);
     }
     if courses.is_empty()
@@ -158,21 +189,118 @@ pub fn read_search(
     {
         return Err("The empty course result is not explicit.".into());
     }
-    let next_link = select(grid, "a")
-        .into_iter()
-        .any(|link| matches!(clean_text(link).as_str(), ">>" | "次へ" | "次のページ"));
-    // A drop-down still short of its largest size means rows are on other
-    // pages (the postback did not take effect).
-    let shrunk = page_size.is_some_and(|size| {
-        let (current, values) = page_sizes(size);
-        current.as_deref().and_then(number) != largest(&values)
-    });
-    let truncated = is_truncated(courses.len(), next_link || shrunk);
+    let truncated = grid_truncated(grid, page_size, courses.len());
     Ok(SearchRead::Results(SearchResults {
         courses,
         options,
         truncated,
     }))
+}
+
+/// Reads one response of the search in English (after `ctl00$ToEnglish`):
+/// only each row's id, English title and romanized instructors, as
+/// `{ id, year, title: { en }, instructors: [{ en }] }`. The Japanese page
+/// owns every other field. A page without the English headers is refused,
+/// so a session still in Japanese never stores Japanese names as English.
+pub fn read_english(
+    html: &str,
+    expand: bool,
+    _fetched_at: &str,
+) -> Result<SearchRead, SchoolParseError> {
+    let document = Html::parse_document(html);
+    let (grid, page_size) = match prelude(&document, expand)? {
+        Prelude::Read(read) => return Ok(read),
+        Prelude::Grid(grid, page_size) => (grid, page_size),
+    };
+    let Some(grid) = grid else {
+        if shows_empty_notice(&document, "") {
+            return Ok(SearchRead::Results(SearchResults {
+                courses: Vec::new(),
+                options: Vec::new(),
+                truncated: false,
+            }));
+        }
+        return Err("The English course search result is incomplete.".into());
+    };
+    let headers: Vec<String> = select(grid, "th").into_iter().map(clean_text).collect();
+    let at = |name: &str| headers.iter().position(|header| header.starts_with(name));
+    let (Some(_), Some(instructor)) = (at("Course Title"), at("Instructor")) else {
+        return Err("The English course search columns changed.".into());
+    };
+    let rows: Vec<ElementRef<'_>> = table_rows(grid)
+        .into_iter()
+        .filter(|row| first(*row, r#"a[href*="jwc="]"#).is_some())
+        .collect();
+    if rows.len() > MAX_PAGE_ROWS {
+        return Err("The course search returned more rows than one page holds.".into());
+    }
+    let base = url::Url::parse(&format!(
+        "https://{}{}",
+        super::HOST,
+        crate::catalog::KYOMU_SEARCH_PATH
+    ))
+    .ok();
+    let mut courses = Vec::with_capacity(rows.len());
+    for row in rows {
+        let link = first(row, r#"a[href*="jwc="]"#).ok_or("A course search row is incomplete.")?;
+        let id = jwc(base.as_ref(), link.attr("href"));
+        if !nine_digits(&id) {
+            return Err("A course search row is incomplete.".into());
+        }
+        let instructors: Vec<Value> = cells(row)
+            .get(instructor)
+            .map(|cell| clean_text(*cell))
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| json!({ "en": name }))
+            .collect();
+        courses.push(json!({
+            "id": id,
+            "year": id.get(..4).and_then(|year| year.parse::<u16>().ok()),
+            "title": { "en": clean_text(link) },
+            "instructors": instructors,
+        }));
+    }
+    let truncated = grid_truncated(grid, page_size, courses.len());
+    Ok(SearchRead::Results(SearchResults {
+        courses,
+        options: Vec::new(),
+        truncated,
+    }))
+}
+
+/// The header language links (`ctl00$ToEnglish`, `ctl00$ToJapanese`)
+/// switch the server session's language for every later page.
+pub(crate) const TO_ENGLISH: &str = "ctl00$ToEnglish";
+pub(crate) const TO_JAPANESE: &str = "ctl00$ToJapanese";
+
+/// The form post that runs the page's `target` postback (a LinkButton's
+/// `__doPostBack` or `WebForm_DoPostBackWithOptions`, or a submit input named
+/// `target`), or `None` when the page offers no such control.
+pub(crate) fn language_postback(html: &str, target: &str) -> Option<Vec<(String, String)>> {
+    let document = Html::parse_document(html);
+    let id = target.replace('$', "_");
+    let control = select(document.root_element(), "a[href], input[name]")
+        .into_iter()
+        .find(|element| {
+            element.attr("name") == Some(target)
+                || element.attr("id") == Some(id.as_str())
+                || element.attr("href").is_some_and(|href| {
+                    href.contains(&format!("'{target}'")) || href.contains(&format!("\"{target}\""))
+                })
+        })?;
+    let form = closest(control, |element| is(element, "form"))?;
+    let mut fields = form_data(&form_controls(form));
+    if is(control, "input") {
+        set_field(&mut fields, "__EVENTTARGET", "");
+        fields.push((target.into(), control.attr("value").unwrap_or("").into()));
+    } else {
+        set_field(&mut fields, "__EVENTTARGET", target);
+    }
+    set_field(&mut fields, "__EVENTARGUMENT", "");
+    Some(fields)
 }
 
 /// Whether a search shows less than the school holds: it hit the school's
@@ -310,12 +438,9 @@ fn course_row(row: CourseCells<'_>) -> Result<Value, SchoolParseError> {
         },
         "instructionLanguage": language,
         "format": { "kinds": kinds },
-        "media": {},
-        "academicUnit": {},
         "intensive": intensive,
         "schedule": schedule,
-        "syllabusUrl": format!("https://syllabus.s.isct.ac.jp/courses?jwc={}", row.id),
-        "fetchedAt": {},
+        "syllabusUrl": crate::catalog::syllabus_url(row.id, "ja"),
         "kyomu": {
             "department": row.department,
             "group": mark.as_ref().map_or("", |found| group(found, 1)),

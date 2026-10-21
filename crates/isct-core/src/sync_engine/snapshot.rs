@@ -127,16 +127,8 @@ const SOURCES: [Source; 4] = [
     },
     Source {
         name: "catalog",
-        datasets: &[
-            Dataset::CatalogSyllabus,
-            Dataset::CatalogOfficial,
-            Dataset::CatalogDetail,
-        ],
-        updated_by: &[
-            Dataset::CatalogSyllabus,
-            Dataset::CatalogOfficial,
-            Dataset::CatalogDetail,
-        ],
+        datasets: &[Dataset::CatalogOfficial],
+        updated_by: &[Dataset::CatalogOfficial],
         profile: None,
     },
 ];

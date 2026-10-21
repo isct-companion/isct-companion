@@ -4,11 +4,9 @@ import type {
   WorkspaceMutation,
 } from "../lib/workspace-intents";
 import type { FinderRequest, FinderView } from "./finder-query";
-import type { FinderCourse } from "../lib/course-query";
 import type { Localized } from "../lib/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
-import type { SyllabusCourse } from "../lib/syllabus";
 import type {
   SchoolPageAvailability,
   WorkspaceChange,
@@ -236,7 +234,6 @@ export type NativeCapabilitySnapshot = {
   notifications: boolean;
   backgroundSchedule: boolean;
   cloudSync: boolean;
-  syllabusSearch: boolean;
   matrixOcr: boolean;
 };
 export type CampusWifiOutcome =
@@ -496,9 +493,6 @@ export interface DesktopBridge {
     restoreExisting: boolean,
   ): Promise<boolean>;
   clearCloudCredentialSyncPassword(): Promise<boolean>;
-  syllabusCourse(url: string, language: "en" | "ja"): Promise<SyllabusCourse>;
-  /** Every stored offering of a year, for the course finder's local search. */
-  catalogOfferings?(year: number): Promise<FinderCourse[]>;
 }
 
 /** Tauri's unlisten throws, or rejects, once the runtime is gone (window closing, tests). */
@@ -895,14 +889,6 @@ export function createTauriDesktopBridge(
       booleanCommand("sync_cloud_credentials", { provider, restoreExisting }),
     clearCloudCredentialSyncPassword: () =>
       booleanCommand("clear_cloud_credential_sync_password"),
-    syllabusCourse: (url, language) =>
-      result("syllabus_course", { id: url, language }),
-    catalogOfferings: async (year) => {
-      const rows = await invokeCommand("catalog_offerings", { year });
-      if (!Array.isArray(rows))
-        throw new Error("catalog_offerings returned an invalid result.");
-      return rows as FinderCourse[];
-    },
   };
 }
 

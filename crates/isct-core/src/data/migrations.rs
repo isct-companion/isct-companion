@@ -14,7 +14,7 @@ use std::path::Path;
 pub(super) const USER_FILE: &str = "user.db";
 pub(super) const CACHE_FILE: &str = "cache.db";
 pub const USER_SCHEMA_VERSION: i64 = 1;
-pub const CACHE_SCHEMA_VERSION: i64 = 2;
+pub const CACHE_SCHEMA_VERSION: i64 = 3;
 
 /// The single file of schemas 6–8, before the split.
 const LEGACY_FILE: &str = "school.db";
@@ -45,15 +45,13 @@ pub(crate) const USER_TABLES: &[&str] = &[
     "scheduled_tasks",
 ];
 
-/// Tables of cache.db: school and reference records, シラバス details,
-/// search-only catalog rows and the catalog index, freshness and runs.
+/// Tables of cache.db: school and reference records, the catalog and its
+/// index, freshness and runs.
 pub(crate) const CACHE_TABLES: &[&str] = &[
     "timetable_courses",
     "memberships",
     "assignments",
     "offerings",
-    "offering_content",
-    "catalog_search_items",
     "offerings_fts",
     "lms_courses",
     "lms_items",
@@ -196,19 +194,9 @@ CREATE TABLE cache.offerings (
   id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT,
-  year INTEGER GENERATED ALWAYS AS (json_extract(value,'$.year')) VIRTUAL,
-  -- Whether a catalog pack delivered the row / 教務 lists it.
-  pack INTEGER GENERATED ALWAYS AS (json_extract(value,'$.pack') IS NOT NULL) VIRTUAL,
-  kyomu INTEGER GENERATED ALWAYS AS (json_extract(value,'$.kyomu') IS NOT NULL) VIRTUAL
+  year INTEGER GENERATED ALWAYS AS (json_extract(value,'$.year')) VIRTUAL
 );
-CREATE INDEX cache.offerings_by_year ON offerings(year, pack);
-CREATE TABLE cache.offering_content (
-  offering_id TEXT NOT NULL, lang TEXT NOT NULL, content TEXT NOT NULL,
-  fetched_at TEXT NOT NULL, PRIMARY KEY (offering_id, lang)
-);
-CREATE TABLE cache.catalog_search_items (
-  id TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
-);
+CREATE INDEX cache.offerings_by_year ON offerings(year);
 CREATE VIRTUAL TABLE cache.offerings_fts USING fts5(
   offering_id UNINDEXED, code, title_ja, title_en, instructors_ja, instructors_en
 );

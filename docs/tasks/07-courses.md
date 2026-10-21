@@ -9,7 +9,7 @@ Product spec: `docs/product-definition.md` → Courses. Depends on tasks 1–4.
    - Overview: metadata fields from the offering (format, language, credits, schedule and rooms, class, academic unit, updated) — structured fields only.
    - Materials: `lms_items` grouped by LMS section; opening one goes to Web at its URL. Folders list files on demand (task 3 HTML).
    - Assignments: this course's assignments (same chips and Hide as Today).
-   - Syllabus: every section of `offering_content` in the app language (fallback to the other), rendered as stored — paragraphs, lists, competencies, lecture plan table. A link opens the official page.
+   - Syllabus: the school's シラバス page for the offering, inside the app (Core builds the URL from the offering id and content language), with a link that opens it in the browser.
 3. **Intensive dates** for offerings whose schedule has `intensive` (or any course, manually): an editor with
    - quick set: date range + periods (e.g. 7/1–7/8, 1–6) in one step;
    - per-day list below: change periods or remove a day;

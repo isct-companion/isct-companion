@@ -176,11 +176,22 @@ impl SchoolBrowserEngine {
 
     pub fn user_browsing(&self, site: Option<SchoolSite>) -> Result<(), SchoolBrowserError> {
         let mut state = self.0.state.guard();
-        state.browsing = site;
+        let before = std::mem::replace(&mut state.browsing, site);
         drop(state);
         let _ = self.0.traces.send(Trace::Browsing(site));
         self.0.browsing_changed.notify_waiters();
+        // 教務 reads in English wait while the person views 教務.
+        if (before == Some(SchoolSite::Kyomu)) != (site == Some(SchoolSite::Kyomu)) {
+            if let Some(engine) = self.0.hints.engine() {
+                engine.reevaluate();
+            }
+        }
         Ok(())
+    }
+
+    /// The school site the person is looking at, if any.
+    pub(crate) fn browsing(&self) -> Option<SchoolSite> {
+        self.0.state.guard().browsing
     }
 
     pub async fn open(

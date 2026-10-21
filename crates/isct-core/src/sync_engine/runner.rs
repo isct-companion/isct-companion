@@ -5,7 +5,7 @@
 //! reads one leased key, records how it ended, and takes the next key of its
 //! lane, so an LMS worker keeps its transport open across keys.
 use super::{
-    planner::{self, Candidate, Facts, Group, Inputs, Lane, PackWatch, ReferenceWatch},
+    planner::{self, Candidate, Facts, Group, Inputs, Lane, ReferenceWatch},
     snapshot, Hint, Network, Priority, Scope, SyncSnapshot, View,
 };
 use crate::{
@@ -38,8 +38,7 @@ use tokio_util::sync::CancellationToken;
 /// The longest one key may take, sign-in included. A key over it fails as
 /// `timeout`; a reset waits at most this long for commits in progress.
 pub const KEY_DEADLINE: Duration = Duration::from_secs(3 * 60);
-/// A whole-department 教務 search is one GET and one 3 MB postback; a
-/// catalog pack is a download and one import of a year's offerings.
+/// A whole-department 教務 search is one GET and one 3 MB postback.
 const BULK_DEADLINE: Duration = Duration::from_secs(6 * 60);
 const EVALUATE_EVERY: Duration = Duration::from_secs(30);
 /// A second press of a refresh button within this time joins the first.
@@ -51,7 +50,7 @@ const INTENT_LIFETIME: Duration = Duration::from_secs(10 * 60);
 const FAILURE_SHOWN: Duration = Duration::from_secs(30 * 60);
 
 fn deadline(dataset: Dataset) -> Duration {
-    if matches!(dataset, Dataset::CatalogOfficial | Dataset::CatalogSyllabus) {
+    if dataset == Dataset::CatalogOfficial {
         BULK_DEADLINE
     } else {
         KEY_DEADLINE
@@ -397,11 +396,7 @@ fn default_source(key: &Key, locator: Option<&str>) -> String {
             crate::school_parser::kyomu::HOST,
             crate::catalog::KYOMU_SEARCH_PATH
         ),
-        Dataset::CatalogDetail => "syllabus".into(),
         Dataset::Reference => locator.unwrap_or_default().into(),
-        Dataset::CatalogSyllabus => locator
-            .unwrap_or(crate::reference_refresh::PUBLIC_INDEX)
-            .into(),
     }
 }
 
@@ -687,15 +682,11 @@ impl SyncEngine {
                     true
                 }
                 Hint::Open { view } => {
-                    match &view {
-                        View::Course { lms_course_id } => state.shown.extend(
+                    if let View::Course { lms_course_id } = &view {
+                        state.shown.extend(
                             [Dataset::LmsCourse, Dataset::LmsAssign]
                                 .map(|dataset| Key::new(dataset, lms_course_id.to_string())),
-                        ),
-                        View::Offering { offering_id } => state
-                            .shown
-                            .push(Key::new(Dataset::CatalogDetail, offering_id.clone())),
-                        _ => {}
+                        );
                     }
                     state.opens.insert(view, now);
                     true
@@ -925,7 +916,10 @@ impl SyncEngine {
                 return;
             }
         };
-        let school_attached = self.school().is_some();
+        let school = self.school();
+        let school_attached = school.is_some();
+        let kyomu_browsing = school
+            .is_some_and(|school| school.browsing() == Some(SchoolSite::Kyomu));
         let now = Utc::now();
         let instant = Instant::now();
         let mut state = guard(&self.0.state);
@@ -962,6 +956,7 @@ impl SyncEngine {
         }
         state.facts.resetting = state.closed > 0;
         state.facts.school_attached = school_attached;
+        state.facts.kyomu_browsing = kyomu_browsing;
         state.facts.paused.retain(|_, until| *until > now);
         let opens: Vec<View> = state.opens.keys().cloned().collect();
         let manual: HashMap<Key, Option<String>> = state
@@ -1130,20 +1125,32 @@ impl SyncEngine {
                     source: String::new(),
                 },
             },
-            Dataset::CatalogOfficial => {
-                match self.school().and_then(|engine| engine.kyomu_client().ok()) {
-                    Some(client) => crate::catalog::read_official(&client, lease).await,
-                    None => KeyEnd::SignInRequired {
+            Dataset::CatalogOfficial => match self.school() {
+                // The planner holds English reads while the person views
+                // 教務; one may have opened since.
+                Some(engine)
+                    if planner::japanese_key(&lease.key).is_some()
+                        && engine.browsing() == Some(SchoolSite::Kyomu) =>
+                {
+                    KeyEnd::Cancelled {
+                        source: String::new(),
+                    }
+                }
+                Some(engine) => match engine.kyomu_client() {
+                    Ok(client) => crate::catalog::read_official(&client, lease).await,
+                    Err(_) => KeyEnd::SignInRequired {
                         profile: SchoolAuthProfile::TokyoTech,
                         source: String::new(),
                     },
-                }
-            }
-            Dataset::CatalogDetail => crate::catalog::read_detail(lease).await,
+                },
+                None => KeyEnd::SignInRequired {
+                    profile: SchoolAuthProfile::TokyoTech,
+                    source: String::new(),
+                },
+            },
             Dataset::Reference => {
                 crate::reference_refresh::read_reference(lease, &self.0.probes).await
             }
-            Dataset::CatalogSyllabus => crate::catalog_pack::read_pack(lease).await,
             _ => KeyEnd::failed("unsupported", ""),
         }
     }
@@ -1418,6 +1425,7 @@ fn load_inputs(
         .pointer("/settings/subscriptionRefresh/allowCellular")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let english = crate::schedule::content_language(&workspace) == "en";
     let year = crate::reference_refresh::subscription_year(&workspace)
         .and_then(|year| u16::try_from(year).ok());
     let account = |profile: SchoolAuthProfile| match auth.sync_account(profile) {
@@ -1446,21 +1454,6 @@ fn load_inputs(
             .collect();
         let courses = crate::lms_ingest::stored_courses(transaction)
             .map_err(|error| DataError::Storage(error.to_string()))?;
-        let mut statement = transaction.prepare(
-            "SELECT lms_id, json_extract(value,'$.offeringId')
-             FROM lms_courses WHERE missing_since IS NULL",
-        )?;
-        let offerings = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, Option<i64>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter_map(|(id, offering)| Some((u64::try_from(id?).ok()?, offering?)))
-            .collect();
         let mut references = Vec::new();
         for (kind, year, index_url) in followed {
             let key = crate::reference_refresh::reference_key(&kind, year);
@@ -1478,30 +1471,17 @@ fn load_inputs(
                 due,
             });
         }
-        let mut years = crate::catalog_pack::watched_years(now);
-        if let Some(viewed) = year.filter(|viewed| !years.contains(viewed)) {
-            years.push(viewed);
-        }
-        let packs = years
-            .into_iter()
-            .map(|year| {
-                let key = crate::catalog_pack::pack_key(year);
-                let due = crate::catalog_pack::pack_due(transaction, &key, now)?;
-                Ok(PackWatch { key, due })
-            })
-            .collect::<Result<Vec<_>, DataError>>()?;
         Ok(Inputs {
             states,
             courses,
-            offerings,
             science_configured: configured(&science),
             tokyo_configured: configured(&tokyo),
             science,
             tokyo,
             allow_cellular,
             year,
+            english,
             references,
-            packs,
         })
     })
 }
