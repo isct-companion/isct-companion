@@ -3128,6 +3128,36 @@ checks:
       - apps/desktop/src/pages/today/CalendarView.tsx
     verified: null
 
+  - id: DESKTOP-COURSE-OUTLINE-STILL
+    area: desktop
+    title: The course outline holds still where the app placed it
+    persona: undergraduate-senior
+    preconditions: |
+      The desktop app on Lectures › Assignments, with a lesson-paged course
+      that has an assignment card inside a lesson.
+    steps:
+      - action: Click that assignment in the list on the left ten times quickly.
+        reason: |
+          The first click brings the card into view; later clicks must not
+          move the outline at all. The section gravity used to pull the
+          app-placed outline a few pixels after each click and the next click
+          put it back, which looked like a twitch.
+      - action: Scroll the outline by hand to just past a lesson's start and let go.
+        reason: |
+          Gravity still pulls a scroll the person made; the fix must not
+          switch it off.
+    observe: The course outline on the right and its lesson rail.
+    expected: |
+      Repeated clicks leave the card exactly where it is; a hand scroll that
+      stops near a lesson boundary still settles onto it.
+    why_manual: |
+      Scroll positions and the spring after scrolling need real layout,
+      which jsdom does not compute; gravityTarget itself is pure and lives in
+      lessons.ts.
+    covers:
+      - apps/desktop/src/features/lms/LmsWorkspace.tsx
+    verified: null
+
   - id: IOS-COURSE-LESSON-PAGING
     area: native
     title: iPhone course page turns lessons by swipe, as one piece, both ways
