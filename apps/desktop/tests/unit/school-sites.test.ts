@@ -1399,3 +1399,75 @@ describe("assignment upload injection", () => {
     expect(changed.drops).toHaveLength(0);
   });
 });
+
+describe("visible school OTP enrollment forms", () => {
+  it("reads the candidate and submits only the same account, secret, CSRF form and live code", () => {
+    const dom = new JSDOM(
+      `<a class="nav-link dropdown-toggle">student / Name</a>
+      <form method="post" action="./add"><input name="_csrf" value="csrf">
+      <input name="secret" value="JBSWY3DPEHPK3PXP"><input id="token" name="token">
+      <button type="button" onclick="doSubmit(forms[0]); return false;">Setup</button></form>`,
+      {
+        url: "https://isct.ex-tic.com/idm/user/totp_setting/add",
+        runScripts: "outside-only",
+      },
+    );
+    const window = dom.window as Window & typeof globalThis;
+    window.TextEncoder = TextEncoder;
+    window.setTimeout = (() => 0) as unknown as typeof window.setTimeout;
+    const button = window.document.querySelector("button")!;
+    const clicked = vi.fn();
+    button.addEventListener("click", clicked);
+    const config = {
+      operation: 1,
+      sequence: 2,
+      token: "nonce",
+      relay: "relay:",
+      action: "inspect",
+      owner: "student",
+      secret: "JBSWY3DPEHPK3PXP",
+      code: "123456",
+      validUntil: Date.now() / 1000 + 30,
+    };
+    const run = (extra = {}) =>
+      window.eval(
+        readScript("otp-enrollment.js").replace(
+          "__OTP_ENROLLMENT_CONFIG__",
+          JSON.stringify({ ...config, ...extra }),
+        ),
+      );
+    const relay = () =>
+      JSON.parse(
+        Buffer.from(window.document.title.slice(6), "base64url").toString(),
+      );
+    try {
+      run();
+      expect(relay()).toMatchObject({
+        kind: "secret",
+        owner: "student",
+        secret: config.secret,
+        token: "nonce",
+      });
+      for (const invalid of [
+        { owner: "other" },
+        { secret: "other" },
+        { validUntil: 0 },
+      ]) {
+        run({ action: "submit", ...invalid });
+        expect(relay().kind).toBe("error");
+        expect(clicked).not.toHaveBeenCalled();
+      }
+      run({ action: "submit" });
+      expect(clicked).toHaveBeenCalledTimes(1);
+      expect(
+        (window.document.querySelector("#token") as HTMLInputElement).value,
+      ).toBe("123456");
+      window.document.querySelector('input[name="_csrf"]')!.remove();
+      run({ action: "submit" });
+      expect(relay().kind).toBe("error");
+      expect(clicked).toHaveBeenCalledTimes(1);
+    } finally {
+      window.close();
+    }
+  });
+});

@@ -2,6 +2,34 @@ use super::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+/// Enrollment is scoped to App Authentication: an enabled email factor or
+/// a login/error page must never be mistaken for an unset app factor.
+#[test]
+fn otp_registration_discovery_is_scoped_and_rejects_unknown_pages() {
+    let page = |app: &str| {
+        format!(
+            "<div class='form-group'><label for='appAuth'>App Authentication</label>{app}</div>\
+         <div class='form-group'><label for='mailAuth'>Email Authentication</label>\
+         <button class='btn-danger'>Remove</button></div>"
+        )
+    };
+    assert!(!otp_setup::registration_state(&page(
+        "<button onclick=\"doGet('../totp_setting/add')\">Setup</button>"
+    ))
+    .unwrap());
+    assert!(
+        otp_setup::registration_state(&page("<button class='btn-danger'>Remove</button>")).unwrap()
+    );
+    for html in [
+        "<form><input type='password'></form>".to_string(),
+        page("<p>Unknown</p>"),
+        page("<button onclick=\"doGet('../totp_setting/add')\">Setup</button><button class='btn-danger'>Remove</button>"),
+        format!("{}{}", page(""), page("")),
+    ] {
+        assert!(matches!(otp_setup::registration_state(&html), Err(OtpSetupError::UnexpectedPage)));
+    }
+}
+
 #[derive(Clone, Default)]
 struct MemoryVault(Arc<Mutex<HashMap<String, String>>>);
 
@@ -90,6 +118,61 @@ fn otp_export_prefers_a_valid_draft_without_mutating_saved_credentials() {
             .otp_secret,
         saved
     );
+}
+
+// Protects durable enrollment without a saved password, and prevents a
+// rejected/stale school submission from replacing the active OTP.
+#[test]
+fn enrollment_promotes_only_the_matching_confirmed_candidate() {
+    let vault = MemoryVault::default();
+    let service = SchoolAuthService::new(vault.clone());
+    let first = "JBSWY3DPEHPK3PXP";
+    let next = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    service
+        .stage_enrollment_otp("student", first, "one")
+        .unwrap();
+    assert!(service.otp_setup_text(None).is_err());
+    assert!(service.confirm_enrollment_otp("stale", "student").is_err());
+    assert!(service.confirm_enrollment_otp("one", "other").is_err());
+    service.confirm_enrollment_otp("one", "student").unwrap();
+    let reopened = SchoolAuthService::new(vault);
+    assert!(reopened.status().unwrap().science.has_otp);
+    assert!(!reopened.status().unwrap().science.saved);
+    assert_eq!(reopened.otp_setup_text(None).unwrap(), first);
+    assert!(reopened.check_enrollment_owner("other").is_err());
+    reopened
+        .stage_enrollment_otp("student", next, "two")
+        .unwrap();
+    assert_eq!(reopened.otp_setup_text(None).unwrap(), first);
+    let synced = SchoolAuthService::new(MemoryVault::default());
+    let payload = reopened.export_sync_payload().unwrap();
+    assert!(!payload.contains(next)); // pending setup never syncs
+    assert_eq!(synced.import_sync_payload(&payload).unwrap(), 1);
+    assert_eq!(synced.otp_setup_text(None).unwrap(), first);
+    let resolved = reopened
+        .resolve(
+            SchoolAuthProfile::Science,
+            SchoolCredentials {
+                username: "student".into(),
+                password: "password".into(),
+                otp_secret: String::new(),
+                matrix: String::new(),
+            },
+        )
+        .unwrap();
+    assert_eq!(resolved.otp_secret, first);
+    reopened.save(SchoolAuthProfile::Science, resolved).unwrap();
+    reopened.confirm_enrollment_otp("two", "student").unwrap();
+    assert_eq!(
+        reopened
+            .load(SchoolAuthProfile::Science)
+            .unwrap()
+            .unwrap()
+            .otp_secret,
+        next
+    );
+    reopened.delete(SchoolAuthProfile::Science).unwrap();
+    assert!(reopened.otp_setup_text(None).is_err());
 }
 
 #[test]

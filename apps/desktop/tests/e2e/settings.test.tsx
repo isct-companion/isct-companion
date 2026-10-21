@@ -212,6 +212,98 @@ function cardButtons(card: HTMLElement): (string | undefined)[] {
 }
 
 describe("School accounts", () => {
+  it.each([false, true])(
+    "checks school OTP enrollment and gates an existing registration behind confirmation (%s)",
+    async (registered) => {
+      const url = registered
+        ? "https://isct.ex-tic.com/idm/user/mfa_setting/"
+        : "https://isct.ex-tic.com/idm/user/totp_setting/add";
+      let complete!: (value: { registered: boolean; url: string }) => void;
+      let finish!: () => void;
+      let operation = 0;
+      const mounted = await mountAccounts({
+        capabilities: { schoolWeb: true },
+        handle: (command, args) => {
+          if (command === "begin_school_otp_setup") return ++operation;
+          if (command === "complete_school_otp_setup")
+            return new Promise<void>((resolve) => {
+              finish = resolve;
+            });
+          if (command === "school_otp_setup")
+            return new Promise((resolve) => {
+              complete = resolve;
+            });
+          if (
+            [
+              "configure_school_web_policy",
+              "set_school_web_bounds",
+              "hide_school_web",
+              "set_school_web_zoom",
+            ].includes(command)
+          )
+            return true;
+          if (command === "resolve_school_url")
+            return { site: "science-portal", url: args.url };
+          if (command === "open_school_site")
+            return {
+              site: "science-portal",
+              url:
+                args.targetUrl ??
+                "https://isct.ex-tic.com/idm/user/mfa_setting/",
+              phase: "pageLoaded",
+            };
+          return undefined;
+        },
+      });
+      const start = async () => {
+        await clickButton(account(mounted, "science"), "Help me set up");
+        await wait(() =>
+          expect(
+            mounted.core.commands("resolve_school_url").at(-1)?.args,
+          ).toMatchObject({
+            url: "https://isct.ex-tic.com/idm/user/mfa_setting/",
+          }),
+        );
+        await wait(() =>
+          expect(document.querySelector('[role="dialog"]')).toBeNull(),
+        );
+        await act(async () => {
+          complete({ registered, url });
+        });
+      };
+      await start();
+      if (registered) {
+        const dialog = await wait(() => openDialog());
+        expect(dialog.textContent).toContain("every other authenticator");
+        const opened = mounted.core.commands("resolve_school_url").length;
+        await answerDialog("Cancel");
+        expect(mounted.core.commands("resolve_school_url")).toHaveLength(
+          opened,
+        );
+        await start();
+        await answerDialog("Continue to reset");
+      }
+      await wait(() =>
+        expect(
+          mounted.core.commands("complete_school_otp_setup").at(-1)?.args,
+        ).toMatchObject({ reset: registered }),
+      );
+      await act(async () => {
+        finish();
+      });
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "School OTP is configured and saved.",
+        ),
+      );
+      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      expect(mounted.core.commands("delete_school_credentials")).toHaveLength(
+        0,
+      );
+    },
+    TIMEOUT,
+  );
+
   it(
     "imports a selected QR account into the draft and saves only on Connect",
     async () => {
@@ -257,34 +349,6 @@ describe("School accounts", () => {
         },
       });
       const science = account(mounted, "science");
-      const help = science.querySelector<HTMLButtonElement>(
-        'button[aria-label="How do I find the QR code?"]',
-      )!;
-      await click(help);
-      await wait(() =>
-        expect(document.body.textContent).toContain(
-          "Transfer accounts → Export accounts",
-        ),
-      );
-      const other = [
-        ...document.querySelectorAll<HTMLLabelElement>(
-          ".mantine-SegmentedControl-label",
-        ),
-      ].find((label) => label.textContent === "Microsoft / other")!;
-      await click(other);
-      expect(document.body.textContent).toContain(
-        "Replace its old entry with the new one",
-      );
-      const newSetup = [
-        ...document.querySelectorAll<HTMLLabelElement>(
-          ".mantine-SegmentedControl-label",
-        ),
-      ].find((label) => label.textContent === "Not set up")!;
-      await click(newSetup);
-      expect(document.body.textContent).toContain(
-        "Replace its old entry with the new one",
-      );
-      await click(help);
       await click(
         science.querySelector<HTMLButtonElement>(
           '[aria-label="Copy OTP setup"]',

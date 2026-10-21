@@ -4,12 +4,7 @@ import { CalendarView } from "../pages/today/CalendarView";
 import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { useMediaQuery } from "@mantine/hooks";
-import {
-  refresh,
-  syncAvailable,
-  useOpenHint,
-  useSync,
-} from "./useSync";
+import { refresh, syncAvailable, useOpenHint, useSync } from "./useSync";
 import { pageProgress, runsFor } from "../platform/sync";
 import { useAnimatedNavigate } from "./navigation";
 import { SchoolStatusLine } from "./SchoolStatusLine";
@@ -50,11 +45,7 @@ import { UiButton } from "../components/mantine";
 import { confirmAction } from "../components/confirm";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
-import {
-  desktopBridge,
-  hideNativeSchoolWeb,
-  saveExportFile,
-} from "./native";
+import { desktopBridge, hideNativeSchoolWeb, saveExportFile } from "./native";
 import { jstDate, type Page, type Section } from "./shared";
 
 import { Today } from "../pages/today/TodayPage";
@@ -292,11 +283,102 @@ export function WorkspaceApp() {
   const pagePath = (next: Page) =>
     pageLocations.current[next] ?? paths.page(next);
   const [webContext, setWebContext] = useState<{
-    page: "home" | "lectures";
+    page: "home" | "lectures" | "settings";
     label: string;
     url: string;
     request: number;
   } | null>(null);
+  const otpSetupRequest = useRef<{ id: number | null; shown: boolean } | null>(
+    null,
+  );
+  useEffect(() => {
+    const request = otpSetupRequest.current;
+    if (!request) return;
+    if (page === "web") request.shown = true;
+    else if (request.shown) {
+      otpSetupRequest.current = null;
+      if (request.id !== null)
+        void desktopBridge
+          ?.cancelSchoolOtpSetup(request.id)
+          .catch(notify.error);
+    }
+  }, [page]);
+  useEffect(
+    () => () => {
+      const request = otpSetupRequest.current;
+      otpSetupRequest.current = null;
+      if (request?.id != null)
+        void desktopBridge?.cancelSchoolOtpSetup(request.id).catch(() => {});
+    },
+    [],
+  );
+  const [otpSetupRevision, setOtpSetupRevision] = useState(0);
+  const startOtpSetup = async () => {
+    if (!desktopBridge || otpSetupRequest.current) return;
+    const request = { id: null as number | null, shown: false };
+    otpSetupRequest.current = request;
+    const open = async (url: string) => {
+      setWebContext({
+        page: "settings",
+        label: navigation.settings,
+        url,
+        request: Date.now(),
+      });
+      await navigate(paths.web());
+    };
+    try {
+      const id = await desktopBridge.beginSchoolOtpSetup();
+      if (otpSetupRequest.current !== request) {
+        await desktopBridge.cancelSchoolOtpSetup(id);
+        return;
+      }
+      request.id = id;
+      await open("https://isct.ex-tic.com/idm/user/mfa_setting/");
+      const setup = await desktopBridge.schoolOtpSetup(id);
+      if (otpSetupRequest.current !== request) return;
+      otpSetupRequest.current = null;
+      if (setup.registered) {
+        await hideNativeSchoolWeb();
+        setWebContext(null);
+        await navigate(pagePath("settings"));
+        if (
+          !(await confirmAction(
+            t(
+              "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, copy the new setup from this app to replace the school entry in every other authenticator.",
+            ),
+            t("Continue to reset"),
+            { title: t("Reset school OTP?") },
+          ))
+        )
+          return;
+      }
+      const enrollment = await desktopBridge.beginSchoolOtpSetup();
+      request.id = enrollment;
+      request.shown = false;
+      otpSetupRequest.current = request;
+      await open("https://isct.ex-tic.com/idm/user/mfa_setting/");
+      await desktopBridge.completeSchoolOtpSetup(enrollment, setup.registered);
+      if (otpSetupRequest.current !== request) return;
+      otpSetupRequest.current = null;
+      await hideNativeSchoolWeb();
+      setWebContext(null);
+      await navigate(pagePath("settings"));
+      setOtpSetupRevision((revision) => revision + 1);
+      notify.info("School OTP is configured and saved.");
+    } catch (error) {
+      if (otpSetupRequest.current !== request) return;
+      otpSetupRequest.current = null;
+      if (!(
+        error &&
+        typeof error === "object" &&
+        "kind" in error &&
+        error.kind === "cancelled"
+      ))
+        notify.error(
+          t("Could not finish OTP setup. Check the school page and try again."),
+        );
+    }
+  };
   // Hidden Activities keep their last route props so another page's params
   // cannot replace retained subpages. Visible navigation always reads the URL.
   const renderedRoutes = useRef({
@@ -374,12 +456,7 @@ export function WorkspaceApp() {
       courses: sourceData.courses,
     });
     if (target) void navigate(target, { replace: true });
-  }, [
-    location.pathname,
-    location.search,
-    sourceData?.courses,
-    navigate,
-  ]);
+  }, [location.pathname, location.search, sourceData?.courses, navigate]);
   const [courseEditor, setCourseEditor] = useState<{
     course?: Course;
     term: TermId;
@@ -408,9 +485,7 @@ export function WorkspaceApp() {
   const finderView = useFinderQuery(
     { year: finderYear, term: finderCourseTerm, keys: finderKeys },
     0,
-    Boolean(
-      overview.value && page === "timetable" && finderActive,
-    ),
+    Boolean(overview.value && page === "timetable" && finderActive),
   );
   const finderEdits = useFinderEditQueue({
     year: finderYear,
@@ -845,8 +920,7 @@ export function WorkspaceApp() {
               }
               refresh={
                 canSync && record
-                  ? () =>
-                      refresh({ kind: "course", lmsCourseId: record.lmsId })
+                  ? () => refresh({ kind: "course", lmsCourseId: record.lmsId })
                   : undefined
               }
               progress={
@@ -1201,6 +1275,7 @@ export function WorkspaceApp() {
   );
   const settingsPage = (
     <Settings
+      otpSetupRevision={otpSetupRevision}
       mutate={workspaceActions.mutate}
       platform={platform}
       data={data}
@@ -1225,7 +1300,21 @@ export function WorkspaceApp() {
       }
       refreshReferences={syncAvailable()}
       matrixOcrAvailable={nativeCapabilities?.matrixOcr === true}
-      showLoginPage={(profile) => {
+      showLoginPage={(profile, targetUrl, setupOtp) => {
+        if (setupOtp) {
+          void startOtpSetup();
+          return;
+        }
+        if (targetUrl) {
+          setWebContext({
+            page: "settings",
+            label: navigation.settings,
+            url: targetUrl,
+            request: Date.now(),
+          });
+          void navigate(paths.web());
+          return;
+        }
         sessionStorage.setItem(
           "isct-companion-active-school-site",
           profile === "science" ? "science-portal" : "tokyo-portal",
@@ -1487,9 +1576,7 @@ export function WorkspaceApp() {
             <i aria-hidden="true" />
             <span>
               <b>Science Tokyo</b>
-              <small>
-                {sessionStatusLabel(scienceSession)}
-              </small>
+              <small>{sessionStatusLabel(scienceSession)}</small>
             </span>
           </span>
           <span
@@ -1499,9 +1586,7 @@ export function WorkspaceApp() {
             <i aria-hidden="true" />
             <span>
               <b>TokyoTech</b>
-              <small>
-                {sessionStatusLabel(tokyoTechSession)}
-              </small>
+              <small>{sessionStatusLabel(tokyoTechSession)}</small>
             </span>
           </span>
         </div>

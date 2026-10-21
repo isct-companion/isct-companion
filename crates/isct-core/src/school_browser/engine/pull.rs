@@ -27,6 +27,7 @@ use chrono::{DateTime, Utc};
 /// The HTTP clients the executors read with. Built once, when the shell
 /// attaches its cookie port.
 pub(crate) struct Transport {
+    pub(super) otp_setup: crate::school_auth::otp_setup::OtpSetupClient,
     pub(crate) moodle: MoodleClient,
     pub(crate) kyomu: Arc<KyomuClient>,
 }
@@ -88,6 +89,10 @@ impl SchoolBrowserEngine {
             sign_in.clone(),
         ));
         let transport = Transport {
+            otp_setup: crate::school_auth::otp_setup::OtpSetupClient::new(
+                http.clone(),
+                cookies.clone(),
+            ),
             moodle: MoodleClient::new(http, cookies, sign_in, self.0.auth.clone()),
             kyomu: kyomu.clone(),
         };
@@ -102,7 +107,7 @@ impl SchoolBrowserEngine {
         Ok(self.transport()?.kyomu.clone())
     }
 
-    fn transport(&self) -> Result<&Transport, SchoolBrowserError> {
+    pub(super) fn transport(&self) -> Result<&Transport, SchoolBrowserError> {
         self.0
             .transport
             .get()

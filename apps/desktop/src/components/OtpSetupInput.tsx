@@ -26,9 +26,15 @@ import {
 import { QrCamera } from "./QrCamera";
 import "./otp-setup-input.css";
 
-function OtpHelp() {
+function OtpHelp({
+  disabled,
+  openSchoolSettings,
+}: {
+  disabled: boolean;
+  openSchoolSettings: (url: string, setupOtp?: boolean) => void;
+}) {
   const [opened, setOpened] = useState(false);
-  const [source, setSource] = useState("google");
+  const [source, setSource] = useState("new");
   return (
     <Popover
       opened={opened}
@@ -45,7 +51,7 @@ function OtpHelp() {
             size="sm"
             aria-label={t("How do I find the QR code?")}
             aria-expanded={opened}
-            onClick={() => setOpened((v) => !v)}
+            onClick={() => setOpened((value) => !value)}
           >
             ?
           </ActionIcon>
@@ -54,15 +60,15 @@ function OtpHelp() {
       <Popover.Dropdown>
         <Stack gap="sm">
           <Text size="sm" fw={600}>
-            {t("How do I find the QR code?")}
+            {t("Automatic school verification codes")}
           </Text>
           <SegmentedControl
             value={source}
             onChange={setSource}
             data={[
+              { value: "new", label: t("School setup") },
               { value: "google", label: "Google" },
               { value: "other", label: t("Microsoft / other") },
-              { value: "new", label: t("Not set up") },
             ]}
           />
           <Text size="sm">
@@ -72,31 +78,36 @@ function OtpHelp() {
                 )
               : source === "other"
                 ? t(
-                    "Look for an export QR code in your authenticator. If it cannot export, reset App Authentication in the school account settings.",
+                    "Import an exported TOTP QR code, setup link or Secret key using the controls here. If your authenticator cannot export, Help me set up can reset the school registration.",
                   )
                 : t(
-                    "Open the school account settings and register App Authentication.",
+                    "Help me set up opens the school website. Sign in manually if needed; the app then reads the new OTP setup, submits its verification code, and saves it after the school confirms registration.",
                   )}
           </Text>
-          <Text size="sm">
-            {t(
-              "You can set up or reset OTP in the school account settings. Import the new QR code here and in your authenticator. Replace its old entry with the new one, then finish verification on the school page.",
-            )}
-          </Text>
+          {source === "new" && (
+            <Text size="xs" c="dimmed">
+              {t(
+                "An existing registration requires reset confirmation. After a reset, replace the school entry in every other authenticator using the new setup saved in this app.",
+              )}
+            </Text>
+          )}
           <Button
-            variant="light"
             size="xs"
-            onClick={() =>
-              void desktopBridge?.openExternal(
+            variant="light"
+            disabled={disabled || !desktopBridge}
+            onClick={() => {
+              setOpened(false);
+              openSchoolSettings(
                 "https://isct.ex-tic.com/idm/user/mfa_setting/",
-              )
-            }
+                true,
+              );
+            }}
           >
-            {t("Open school verification settings")}
+            {t("Help me set up")}
           </Button>
           <Text size="xs" c="dimmed">
             {t(
-              "This field needs a setup link or secret, not the changing six-digit code. You can leave it blank and enter codes when signing in.",
+              "Manual imports need the setup link or Secret key, not the changing six-digit code. Press Connect to save a manual import.",
             )}
           </Text>
         </Stack>
@@ -111,12 +122,14 @@ export function OtpSetupInput({
   disabled,
   onChange,
   onScanState,
+  openSchoolSettings,
 }: {
   value: string;
   saved: boolean;
   disabled: boolean;
   onChange: (value: string) => void;
   onScanState: (scanning: boolean) => void;
+  openSchoolSettings: (url: string, setupOtp?: boolean) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const copiedTimeout = useTimeout(() => setCopied(false), 2000);
@@ -195,7 +208,10 @@ export function OtpSetupInput({
       label={
         <Group gap={5}>
           <span>{t("Automatic school verification codes")}</span>
-          <OtpHelp />
+          <OtpHelp
+            disabled={disabled || reading || camera}
+            openSchoolSettings={openSchoolSettings}
+          />
         </Group>
       }
       id="school-otp-setup"
@@ -218,6 +234,17 @@ export function OtpSetupInput({
           }}
         />
         <Button.Group aria-label={t("Import authenticator QR code")}>
+          <Button
+            disabled={disabled || reading || camera || !desktopBridge}
+            onClick={() =>
+              openSchoolSettings(
+                "https://isct.ex-tic.com/idm/user/mfa_setting/",
+                true,
+              )
+            }
+          >
+            {t("Help me set up")}
+          </Button>
           <Button
             variant="default"
             aria-label={t("Copy OTP setup")}

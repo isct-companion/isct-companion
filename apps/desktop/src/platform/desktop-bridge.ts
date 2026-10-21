@@ -9,13 +9,10 @@ import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type {
   SchoolPageAvailability,
+  SchoolOtpSetup,
   WorkspaceChange,
 } from "../generated/persistence";
-import {
-  isSyncSnapshot,
-  type SyncHint,
-  type SyncSnapshot,
-} from "./sync";
+import { isSyncSnapshot, type SyncHint, type SyncSnapshot } from "./sync";
 
 export type DesktopRuntime = "tauri";
 export type NativeTarget = "native-desktop";
@@ -386,6 +383,10 @@ export interface DesktopBridge {
     callback: (event: WorkspaceChangedEvent) => void,
   ): Promise<() => void>;
   schoolCredentialStatus(): Promise<SchoolCredentialStatus>;
+  beginSchoolOtpSetup(): Promise<number>;
+  cancelSchoolOtpSetup(operationId: number): Promise<void>;
+  schoolOtpSetup(operationId: number): Promise<SchoolOtpSetup>;
+  completeSchoolOtpSetup(operationId: number, reset: boolean): Promise<void>;
   saveSchoolCredentials(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -613,6 +614,22 @@ export function createTauriDesktopBridge(
       return () => quietly(unlisten);
     },
     schoolCredentialStatus: () => result("school_credential_status"),
+    beginSchoolOtpSetup: async () => {
+      const id = await invoke("begin_school_otp_setup");
+      if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0)
+        throw new Error("begin_school_otp_setup returned an invalid result.");
+      return id;
+    },
+    cancelSchoolOtpSetup: (operationId) =>
+      invoke("cancel_school_otp_setup", { operationId }).then(() => {}),
+    schoolOtpSetup: (operationId) =>
+      invoke("school_otp_setup", { operationId }).then((value) =>
+        requireObject<SchoolOtpSetup>("school_otp_setup", value),
+      ),
+    completeSchoolOtpSetup: (operationId, reset) =>
+      invoke("complete_school_otp_setup", { operationId, reset }).then(
+        () => {},
+      ),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();

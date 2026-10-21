@@ -208,6 +208,16 @@ async fn other_school_origins_read_the_store_directly() {
         session.cookie_header(&port, &portal).await.unwrap(),
         "TitechForm=x"
     );
+    let account = Url::parse("https://isct.ex-tic.com/idm/user/mfa_setting/").unwrap();
+    assert_eq!(
+        session.cookie_header(&port, &account).await.unwrap(),
+        "TitechForm=x"
+    );
+    let signed_out = FakePort::new(SessionState::Pending, 0, "");
+    assert_eq!(
+        session.cookie_header(&signed_out, &account).await,
+        Err(NetError::SignInRequired)
+    );
 
     let port = FakePort::new(
         SessionState::Pending,
@@ -252,4 +262,20 @@ fn set_cookie_write_back_keeps_only_cookies_for_the_response_host() {
     let public = Url::parse("https://syllabus.s.isct.ac.jp/").unwrap();
     session.store_set_cookies(&port, &public, &values).unwrap();
     assert_eq!(port.stored.lock().unwrap().len(), 3);
+    let account = Url::parse("https://isct.ex-tic.com/idm/user/mfa_setting/").unwrap();
+    session
+        .store_set_cookies(
+            &port,
+            &account,
+            &[
+                "session=school; Path=/; Secure".into(),
+                "shared=school; Domain=ex-tic.com".into(),
+                "foreign=x; Domain=isct.ac.jp".into(),
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        &port.stored.lock().unwrap()[3..],
+        &["session=school; Path=/; Secure"]
+    );
 }

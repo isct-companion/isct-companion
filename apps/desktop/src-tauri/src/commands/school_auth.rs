@@ -23,6 +23,59 @@ async fn with_credentials<T: Send + 'static>(
 }
 
 #[tauri::command]
+pub(crate) fn begin_school_otp_setup(
+    webview: tauri::Webview,
+    controller: tauri::State<'_, SchoolWebController>,
+) -> Result<u64, isct_core::school_auth::OtpSetupError> {
+    require_local_main(&webview).map_err(|_| isct_core::school_auth::OtpSetupError::Unavailable)?;
+    controller.engine.begin_school_otp_setup()
+}
+
+#[tauri::command]
+pub(crate) fn cancel_school_otp_setup(
+    webview: tauri::Webview,
+    controller: tauri::State<'_, SchoolWebController>,
+    operation_id: u64,
+) -> Result<(), isct_core::school_auth::OtpSetupError> {
+    require_local_main(&webview).map_err(|_| isct_core::school_auth::OtpSetupError::Unavailable)?;
+    controller.engine.cancel_school_otp_setup(operation_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn complete_school_otp_setup(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+    operation_id: u64,
+    reset: bool,
+) -> Result<(), isct_core::school_auth::OtpSetupError> {
+    use isct_core::school_auth::OtpSetupError;
+    require_local_main(&webview).map_err(|_| OtpSetupError::Unavailable)?;
+    let engine = controller.engine.clone();
+    crate::core_ports::runtime(&app)
+        .run(async move { engine.complete_school_otp_setup(operation_id, reset).await })
+        .await
+        .map_err(|_| OtpSetupError::Unavailable)?
+}
+
+#[tauri::command]
+pub(crate) async fn school_otp_setup(
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+    controller: tauri::State<'_, SchoolWebController>,
+    operation_id: u64,
+) -> Result<isct_core::school_auth::SchoolOtpSetup, isct_core::school_auth::OtpSetupError> {
+    use isct_core::school_auth::OtpSetupError;
+    require_local_main(&webview).map_err(|_| OtpSetupError::Unavailable)?;
+    let engine = controller.engine.clone();
+    crate::core_ports::runtime(&app)
+        .run(async move { engine.school_otp_setup(operation_id).await })
+        .await
+        .map_err(|_| OtpSetupError::Unavailable)?
+}
+
+#[tauri::command]
 pub(crate) async fn school_credential_status(
     webview: tauri::Webview,
     service: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,

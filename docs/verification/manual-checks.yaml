@@ -2245,10 +2245,14 @@ checks:
 
   - id: SCHOOL-OTP-QR
     area: school
-    title: Authenticator QR import with native camera permissions
+    title: Visible automatic OTP enrollment and authenticator QR import
     persona: undergraduate-first-term
-    preconditions: A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display.
+    preconditions: A packaged desktop app, a physical camera, and a disposable test TOTP QR on another display. School-side registration or rotation additionally requires a test school account whose owner explicitly authorizes the automatic credential change.
     steps:
+      - action: Start signed out with no OTP saved locally and press Help me set up. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
+        reason: Confirms the live server markup and school WebView cookies work together; missing local OTP must not be treated as an unset school registration. The native browser must retain the settings draft and provide a way back. Scripted-host tests cover cancellation but cannot establish these real session and navigation facts.
+      - action: On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Copy the new setup into the other authenticator and verify its code works. Cancel or reject school verification once and confirm no success is reported. Open the question-mark help and confirm instructions appear there without a long inline block. For an existing exported setup, import only the school account and press Connect without changing school registration.
+        reason: Only the live school and native vault can establish successful registration and cross-authenticator agreement. The visible form and question-mark layout need human inspection; offline tests protect promotion and rejection logic.
       - action: Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
         reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
       - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -2256,10 +2260,14 @@ checks:
       - action: Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
         reason: Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
     observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
-    expected: Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
-    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault.
+    expected: Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators. Help stays in the question-mark popover. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+    why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault. Registration and rotation also depend on the live school account and the owner's authenticator.
     covers:
       - apps/desktop/src/components/OtpSetupInput.tsx
+      - crates/isct-core/src/school_auth/otp_setup.rs
+      - crates/isct-core/src/school_auth/otp_enrollment.rs
+      - crates/isct-core/src/school_browser/assets/*.js
+      - crates/isct-core/src/school_browser/engine/*.rs
       - apps/desktop/src-tauri/src/commands/school_auth.rs
       - apps/desktop/src/components/QrCamera.tsx
       - apps/desktop/src/components/CameraPreview.tsx
