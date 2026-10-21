@@ -1,40 +1,6 @@
 use super::*;
 use image::{GrayImage, Luma};
 
-fn card() -> RgbImage {
-    let mut image = RgbImage::from_pixel(600, 460, Rgb([255; 3]));
-    let mut fill = |x: u32, y: u32, w: u32, h: u32, color: [u8; 3]| {
-        for j in y..y + h {
-            for i in x..x + w {
-                image.put_pixel(i, j, Rgb(color));
-            }
-        }
-    };
-    fill(0, 0, 600, 55, [175, 130, 70]);
-    fill(140, 100, 350, 25, [20; 3]);
-    for i in 0..10 {
-        fill(151 + i * 35, 105, 8, 14, [245; 3]);
-    }
-    fill(105, 125, 35, 175, [65; 3]);
-    for i in 0..7 {
-        fill(115, 132 + i * 25, 10, 12, [240; 3]);
-    }
-    fill(140, 125, 350, 175, [245, 190, 190]);
-    fill(143, 128, 344, 169, [255, 50, 50]);
-    fill(489, 125, 2, 175, [45; 3]);
-    fill(140, 299, 352, 2, [45; 3]);
-    for i in 0..30 {
-        fill(330 + i * 5, 325, 2, 50, [20; 3]);
-    }
-    fill(10, 320, 40, 50, [210, 175, 50]);
-    for j in 0..3 {
-        for i in 0..50 {
-            fill(15 + i * 10, 395 + j * 15, 4, 7, [45; 3]);
-        }
-    }
-    image
-}
-
 fn alternating_matrix() -> RgbImage {
     let mut image = RgbImage::from_pixel(800, 620, Rgb([255; 3]));
     for y in 190..540 {
