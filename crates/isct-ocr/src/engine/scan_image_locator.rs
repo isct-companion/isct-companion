@@ -1,8 +1,8 @@
-//! Grayscale, feature-first Matrix localization for still-image imports.
+//! Grayscale, feature-first Matrix localization for imports and camera frames.
 //!
 //! Coarse position and angle come from the alternating left label strip.
 //! Header, A1 paper and internal grid features then rank the matching body.
-//! Camera capture keeps its existing detector for now.
+//! Both paths preserve source resolution while measuring the same grid features.
 use super::geometry;
 use image::{GrayImage, Luma, RgbImage};
 use imageproc::{
@@ -36,7 +36,7 @@ struct Candidate {
 }
 
 #[derive(Clone, Copy)]
-/// Four grayscale reference lines, kept separate from the selected cell quads.
+/// Measured grayscale reference lines accompanying the selected cell quads.
 pub(super) struct AnchorEdges {
     pub(super) header_top: Option<[geometry::Point; 2]>,
     pub(super) labels_left: Option<[geometry::Point; 2]>,
@@ -103,8 +103,32 @@ struct Stripe {
 }
 
 fn stripe_candidates(image: &GrayImage) -> Vec<Stripe> {
+    let mut stripes = Vec::new();
+    // Exposure can move a dark label above a single fixed cutoff. Every seed
+    // still has to satisfy the same alternating gray/black rhythm checks.
+    for threshold in [90, 120, 150] {
+        stripes.extend(stripe_candidates_at(image, threshold));
+    }
+    stripes.sort_by(|a, b| b.score.total_cmp(&a.score));
+    let mut distinct: Vec<Stripe> = Vec::new();
+    for stripe in stripes {
+        let radius = 3.;
+        if distinct.iter().any(|s| {
+            point_distance(s.top, stripe.top) < radius
+                && point_distance(s.bottom, stripe.bottom) < radius
+        }) {
+            continue;
+        }
+        distinct.push(stripe);
+        if distinct.len() == 12 {
+            break;
+        }
+    }
+    distinct
+}
+fn stripe_candidates_at(image: &GrayImage, threshold: u8) -> Vec<Stripe> {
     let dark = GrayImage::from_fn(image.width(), image.height(), |x, y| {
-        Luma([u8::from(image.get_pixel(x, y)[0] <= 90) * 255])
+        Luma([u8::from(image.get_pixel(x, y)[0] <= threshold) * 255])
     });
     let labels = connected_components(&dark, Connectivity::Four, Luma([0]));
     let count = labels.as_raw().iter().copied().max().unwrap_or(0) as usize + 1;
@@ -240,9 +264,6 @@ fn stripe_candidates(image: &GrayImage) -> Vec<Stripe> {
             else {
                 continue;
             };
-            if dark_tones[0] > 110. {
-                continue;
-            }
             let mut weakest_contrast = f64::INFINITY;
             for step in 0..3 {
                 let before = dark_centers[step];
@@ -314,8 +335,8 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
     if image.width() < 32 || image.height() < 32 {
         return None;
     }
-    // Keep the grayscale image at source resolution. Reference edges remain
-    // separate from the cell quads and never alter the 70-cell selection.
+    // Keep the grayscale image at source resolution. Measured body boundaries
+    // determine cell selection; reference edges accompany the cells.
     let gray = grayscale(image);
     // Start from the alternating left label strip. Its fitted axis determines
     // orientation even when the photo is tilted or quarter-turned.
@@ -333,42 +354,85 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
             rotate_point(stripe.middle, theta, gray.dimensions(), raw.dimensions());
         let upright_bottom =
             rotate_point(stripe.bottom, theta, gray.dimensions(), raw.dimensions());
-        {
-            let probe = &raw;
-            for band in header_bands(probe) {
-                if (band.left - upright_top.x).abs() > (upright_bottom.y - upright_top.y).abs() / 4.
-                    || (band.bottom as f64 - upright_top.y).abs()
-                        > (upright_bottom.y - upright_top.y).abs() / 4.
-                {
-                    continue;
-                }
-                let Some((fallback_body, j_edge_contrast, edges)) = segment_body(
-                    probe,
-                    band,
-                    [upright_top, upright_first, upright_middle, upright_bottom],
-                    stripe.dark_heights,
-                ) else {
-                    continue;
-                };
-                if !stripe_matches_body(
-                    &fallback_body,
-                    upright_top,
-                    upright_first,
-                    upright_middle,
-                    upright_bottom,
-                ) {
-                    continue;
-                }
-                if let Some(mut candidate) = score_candidate(probe, fallback_body, edges) {
-                    candidate.score += j_edge_contrast / 100.;
-                    candidate.body = candidate.body.map(|point| {
-                        unrotate_point(point, theta, gray.dimensions(), raw.dimensions())
-                    });
-                    candidate.edges = map_edges(candidate.edges, |point| {
-                        unrotate_point(point, theta, gray.dimensions(), raw.dimensions())
-                    });
-                    candidates.push(candidate);
-                }
+        let pitch = (upright_first.y - upright_top.y) * 0.5;
+        let nearby = |band: &Band| {
+            (band.left - upright_top.x).abs() < pitch * 1.5
+                && (band.bottom as f64 - upright_top.y).abs() < pitch * 1.5
+        };
+        let raw_bands = stripe_header_bands(&raw, upright_top, pitch);
+        let mut slopes = raw_bands
+            .iter()
+            .filter(|b| nearby(b))
+            .filter_map(|&band| header_shear(&raw, band, upright_top, pitch))
+            .collect::<Vec<_>>();
+        slopes.sort_by(f64::total_cmp);
+        let slope = if slopes.is_empty() {
+            0.
+        } else {
+            slopes[slopes.len() / 2]
+        };
+        let shear = if slope.abs() < 0.02 { 0. } else { slope };
+        let Some(correction) = imageproc::geometric_transformations::Projection::from_matrix([
+            1.,
+            0.,
+            0.,
+            -shear as f32,
+            1.,
+            (shear * upright_top.x) as f32,
+            0.,
+            0.,
+            1.,
+        ]) else {
+            continue;
+        };
+        let corrected;
+        let (probe, bands) = if shear == 0. {
+            (&raw, raw_bands)
+        } else {
+            corrected = imageproc::geometric_transformations::warp(
+                &raw,
+                correction,
+                Interpolation::Bilinear,
+                Border::Constant(Luma([255])),
+            );
+            let bands = stripe_header_bands(&corrected, upright_top, pitch);
+            (&corrected, bands)
+        };
+        let correct = |p: geometry::Point| geometry::Point {
+            x: p.x,
+            y: p.y - shear * (p.x - upright_top.x),
+        };
+        let uncorrect = |p: geometry::Point| geometry::Point {
+            x: p.x,
+            y: p.y + shear * (p.x - upright_top.x),
+        };
+        let centers = [upright_top, upright_first, upright_middle, upright_bottom].map(correct);
+        for band in bands.into_iter().filter(nearby) {
+            let Some((body, contrast, edges)) =
+                segment_body(probe, band, centers, stripe.dark_heights)
+            else {
+                continue;
+            };
+            let body = body.map(uncorrect);
+            let edges = map_edges(edges, uncorrect);
+            if !stripe_matches_body(
+                &body,
+                upright_top,
+                upright_first,
+                upright_middle,
+                upright_bottom,
+            ) {
+                continue;
+            }
+            if let Some(mut candidate) = score_candidate(&raw, body, edges) {
+                candidate.score += contrast / 100.;
+                candidate.body = candidate
+                    .body
+                    .map(|p| unrotate_point(p, theta, gray.dimensions(), raw.dimensions()));
+                candidate.edges = map_edges(candidate.edges, |p| {
+                    unrotate_point(p, theta, gray.dimensions(), raw.dimensions())
+                });
+                candidates.push(candidate);
             }
         }
     }
@@ -543,21 +607,30 @@ fn unrotate_quarter(point: geometry::Point, turn: usize, original: (u32, u32)) -
 
 fn header_grid_threshold(image: &GrayImage, band: Band) -> Option<u8> {
     let header_y = (band.top + band.bottom) as f64 * 0.5;
-    let paper_y = (band.bottom + 4) as f64;
-    let values = (0..10)
-        .filter_map(|index| {
-            let x = band.left + (band.right - band.left) * (index as f64 + 0.5) / 10.;
-            Some((
-                sample(image, geometry::Point { x, y: header_y })?,
-                sample(image, geometry::Point { x, y: paper_y })?,
-            ))
+    let paper_y = band.bottom as f64 + ((band.bottom - band.top) as f64 * 0.5).max(4.);
+    let values = (0..COLS)
+        .flat_map(|column| {
+            [0.15, 0.3, 0.5, 0.7, 0.85]
+                .into_iter()
+                .filter_map(move |within| {
+                    let x = band.left
+                        + (band.right - band.left) * (column as f64 + within) / COLS as f64;
+                    Some((
+                        sample(image, geometry::Point { x, y: header_y })?,
+                        sample(image, geometry::Point { x, y: paper_y })?,
+                    ))
+                })
         })
         .collect::<Vec<_>>();
-    if values.len() < 6 {
+    if values.len() < 30 {
         return None;
     }
-    let header = median(values.iter().map(|pair| pair.0).collect());
-    let paper = median(values.iter().map(|pair| pair.1).collect());
+    let mut headers = values.iter().map(|p| p.0).collect::<Vec<_>>();
+    let mut papers = values.iter().map(|p| p.1).collect::<Vec<_>>();
+    headers.sort_by(f64::total_cmp);
+    papers.sort_by(f64::total_cmp);
+    let header = headers[headers.len() / 4];
+    let paper = papers[papers.len() * 3 / 4];
     (paper - header >= 12.).then_some(((header + paper) * 0.5).clamp(8., 220.) as u8)
 }
 
@@ -601,6 +674,76 @@ fn map_edges(
     }
 }
 
+// Only scan the header neighborhood, retaining full-resolution pixels and
+// the source image threshold choices. Bridge white glyph gaps by row pitch.
+fn stripe_header_bands(image: &GrayImage, top: geometry::Point, pitch: f64) -> Vec<Band> {
+    let first = (top.y - pitch * 3.5).floor().max(0.) as u32;
+    let last = (top.y + pitch).ceil().min(image.height() as f64) as u32;
+    if last <= first {
+        return Vec::new();
+    }
+    let crop = image::imageops::crop_imm(image, 0, first, image.width(), last - first).to_image();
+    header_bands_at(
+        &crop,
+        thresholds(image),
+        (pitch * 0.8)
+            .round()
+            .max((image.width() / 140).max(2) as f64) as u32,
+    )
+    .into_iter()
+    .map(|b| Band {
+        top: b.top + first,
+        bottom: b.bottom + first,
+        ..b
+    })
+    .collect()
+}
+
+// A vertical label strip does not imply a horizontal header under perspective.
+// Fit observed header transitions before applying the orthogonal scan profiles.
+fn header_shear(image: &GrayImage, band: Band, stripe: geometry::Point, pitch: f64) -> Option<f64> {
+    if band.right - band.left < pitch * 7. || pitch < 4. {
+        return None;
+    }
+    let left = band.left.max(stripe.x + pitch * 0.5);
+    let width = band.right - left;
+    let points = (0..10)
+        .filter_map(|i| {
+            let x = left + width * (i as f64 + 0.5) / 10.;
+            let profile = |y: i32| {
+                let mut values = [-0.2, -0.1, 0., 0.1, 0.2]
+                    .into_iter()
+                    .filter_map(|dx| {
+                        sample(
+                            image,
+                            geometry::Point {
+                                x: x + pitch * dx,
+                                y: y as f64,
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                values.sort_by(f64::total_cmp);
+                values.get(values.len() / 4).map(|v| 255. - v)
+            };
+            let y = transition_edge(
+                (stripe.y - pitch * 3.) as i32,
+                (stripe.y - pitch * 0.5) as i32,
+                profile,
+            )?;
+            let contrast = profile((y + pitch * 0.2) as i32)? - profile((y - pitch * 0.2) as i32)?;
+            (contrast >= 25.).then_some(geometry::Point { x, y })
+        })
+        .collect::<Vec<_>>();
+    if points.len() < 7 {
+        return None;
+    }
+    let fit = geometry::fit(&points);
+    let residual = median(points.iter().map(|p| (p.y - fit(p.x)).abs()).collect());
+    let slope = (fit(band.right) - fit(left)) / width;
+    (residual < pitch * 0.15 && slope.abs() < 0.3).then_some(slope)
+}
+
 /// The A-J header and 1-7 label strip are segmented in grayscale. Their
 /// measured outer edges, including J's right edge and 7's bottom edge, form
 /// the four extended body lines without trying cell-height hypotheses.
@@ -614,15 +757,22 @@ fn segment_body(
     if band.bottom + 8 >= image.height() || band.left < 6. {
         return None;
     }
+    let top_pitch = (stripe_first.y - stripe_top.y) * 0.5;
+    // Spread probes around the white header glyphs. The row-1 center measures
+    // paper; a fixed offset below the coarse band can still lie in the header.
     let mut header_values = (0..10)
-        .filter_map(|i| {
-            sample(
-                image,
-                geometry::Point {
-                    x: band.left + (band.right - band.left) * (i as f64 + 0.5) / 10.,
-                    y: (band.top + band.bottom) as f64 * 0.5,
-                },
-            )
+        .flat_map(|i| {
+            [0.15, 0.3, 0.5, 0.7, 0.85]
+                .into_iter()
+                .filter_map(move |within| {
+                    sample(
+                        image,
+                        geometry::Point {
+                            x: band.left + (band.right - band.left) * (i as f64 + within) / 10.,
+                            y: stripe_top.y - top_pitch,
+                        },
+                    )
+                })
         })
         .collect::<Vec<_>>();
     header_values.sort_by(f64::total_cmp);
@@ -633,7 +783,7 @@ fn segment_body(
                 image,
                 geometry::Point {
                     x: band.left + (band.right - band.left) * (i as f64 + 0.5) / 10.,
-                    y: (band.bottom + 4) as f64,
+                    y: stripe_top.y,
                 },
             )
         })
@@ -641,33 +791,37 @@ fn segment_body(
     if paper_values.is_empty() {
         return None;
     }
-    let paper = median(paper_values);
+    let mut paper_values = paper_values;
+    paper_values.sort_by(f64::total_cmp);
+    let paper = paper_values[paper_values.len() * 3 / 4];
     if paper - header_ink < 25. {
         return None;
     }
-    let dark_limit = ((header_ink + paper) * 0.5).clamp(70., 130.);
+    let dark_limit = ((header_ink + paper) * 0.5).clamp(70., 180.);
     let near_left = band.left.round() as i32;
-    let top_pitch = (stripe_first.y - stripe_top.y) * 0.5;
-    let row1 = (stripe_top.y - top_pitch * 0.5).round().max(0.) as u32;
+
+    // Measured label interiors survive extrapolation error in the row-1 top
+    // and white numeral strokes at a component's ink centroid.
     let row1_ink = |x: i32| {
-        if x < 0 || x >= image.width() as i32 {
-            return None;
-        }
-        let values = (1..=3)
-            .filter_map(|dy| {
-                sample(
-                    image,
-                    geometry::Point {
-                        x: x as f64,
-                        y: (row1 + dy) as f64,
-                    },
-                )
+        let mut values = [1usize, 2, 3]
+            .into_iter()
+            .flat_map(|index| {
+                [-0.2, 0., 0.2].into_iter().filter_map(move |offset| {
+                    sample(
+                        image,
+                        geometry::Point {
+                            x: x as f64,
+                            y: stripe_centers[index].y + top_pitch * offset,
+                        },
+                    )
+                })
             })
             .collect::<Vec<_>>();
-        (!values.is_empty()).then(|| median(values))
+        values.sort_by(f64::total_cmp);
+        values.get(values.len() / 3).copied()
     };
     let stripe_x = stripe_top.x.round() as i32;
-    let seed = (stripe_x - 4..=stripe_x + 4)
+    let seed = (stripe_x - (top_pitch * 0.5) as i32..=stripe_x + (top_pitch * 0.5) as i32)
         .filter(|&x| row1_ink(x).is_some_and(|value| value < dark_limit))
         .min_by_key(|&x| (x - stripe_x).abs())?;
     let mut label_left = seed;
@@ -741,7 +895,7 @@ fn segment_body(
     )?;
     // A white header letter can interrupt a dark scanline. J's outer edge is
     // different: the region beyond it stays light across the header height.
-    let outside = [4., 8., 12.]
+    let outside = [top_pitch * 0.2, top_pitch * 0.45, top_pitch * 0.7]
         .into_iter()
         .flat_map(|offset| {
             [0.25, 0.5, 0.75].into_iter().filter_map(move |fraction| {
@@ -749,13 +903,13 @@ fn segment_body(
                     image,
                     geometry::Point {
                         x: right + offset,
-                        y: band.top as f64 + (band.bottom - band.top) as f64 * fraction,
+                        y: stripe_top.y - top_pitch + top_pitch * (fraction - 0.5),
                     },
                 )
             })
         })
         .collect::<Vec<_>>();
-    let inside = [-4., -8., -12.]
+    let inside = [-top_pitch * 0.2, -top_pitch * 0.45, -top_pitch * 0.7]
         .into_iter()
         .flat_map(|offset| {
             [0.25, 0.5, 0.75].into_iter().filter_map(move |fraction| {
@@ -763,7 +917,7 @@ fn segment_body(
                     image,
                     geometry::Point {
                         x: right + offset,
-                        y: band.top as f64 + (band.bottom - band.top) as f64 * fraction,
+                        y: stripe_top.y - top_pitch + top_pitch * (fraction - 0.5),
                     },
                 )
             })
@@ -772,27 +926,34 @@ fn segment_body(
     if outside.len() < 6 || inside.len() < 6 {
         return None;
     }
-    let edge_contrast = median(outside) - median(inside);
+    let mut inside = inside;
+    inside.sort_by(f64::total_cmp);
+    let edge_contrast = median(outside) - inside[inside.len() / 4];
     if edge_contrast < (paper - header_ink) * 0.5 {
         return None;
     }
-    let top = transition_edge(band.bottom as i32 - 5, band.bottom as i32 + 6, |y| {
-        let values = (0..COLS)
-            .flat_map(|column| {
-                [0.2, 0.5, 0.8].into_iter().filter_map(move |within| {
-                    sample(
-                        image,
-                        geometry::Point {
-                            x: band.left
-                                + (band.right - band.left) * (column as f64 + within) / COLS as f64,
-                            y: y as f64,
-                        },
-                    )
+    let top = transition_edge(
+        (band.bottom as f64 - top_pitch * 0.3) as i32,
+        (band.bottom as f64 + top_pitch * 0.3) as i32,
+        |y| {
+            let values = (0..COLS)
+                .flat_map(|column| {
+                    [0.2, 0.5, 0.8].into_iter().filter_map(move |within| {
+                        sample(
+                            image,
+                            geometry::Point {
+                                x: band.left
+                                    + (band.right - band.left) * (column as f64 + within)
+                                        / COLS as f64,
+                                y: y as f64,
+                            },
+                        )
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
-        (!values.is_empty()).then(|| median(values))
-    })?;
+                .collect::<Vec<_>>();
+            (!values.is_empty()).then(|| median(values))
+        },
+    )?;
     let last_label_row = dark_rows[3].1 as i32;
     let bottom = transition_edge(last_label_row - 5, last_label_row + 7, |y| {
         let values = (1..=7)
@@ -806,44 +967,41 @@ fn segment_body(
     if right - left < 24. || bottom - top < 18. {
         return None;
     }
-    let pitch = (stripe_first.y - stripe_top.y) * 0.5;
-    // A row only a few pixels tall cannot supply a stable second edge.
-    let measured_right = if pitch < 12. {
-        right
-    } else {
-        row7_right_edge(image, dark_rows[3], left, right, pitch).unwrap_or(right)
-    };
-    let bottom_right = if (measured_right - right).abs() < (pitch * 0.25).max(2.) {
-        right
-    } else {
-        measured_right
-    };
-    let mut top_right = right;
-    if (bottom_right - right).abs() > pitch {
-        let slopes = dark_rows[..3]
-            .iter()
-            .filter_map(|&row| {
-                let (y, x) = upper_right_edge(image, row, left, right, bottom_right, pitch)?;
-                (bottom - y > pitch).then_some((x - bottom_right) / (y - bottom))
-            })
-            .collect::<Vec<_>>();
-        if slopes.len() >= 2 {
-            let slope = median(slopes);
-            let proposed = bottom_right + slope * (top - bottom);
-            if proposed > left + pitch * 6. && proposed < bottom_right + pitch * 2. {
-                top_right = proposed;
-            }
-        }
-    }
-    let (top_left_y, top_right_y) = if (bottom_right - right).abs() > pitch * 0.5 {
-        let expected = stripe_top.y - pitch * 0.5;
-        (
-            top_edge_at_column(image, left, top_right, expected, pitch, false).unwrap_or(top),
-            top_edge_at_column(image, left, top_right, expected, pitch, true).unwrap_or(top),
-        )
-    } else {
-        (top, top)
-    };
+    let pitch = top_pitch;
+    let initial_box = [
+        geometry::Point { x: left, y: top },
+        geometry::Point { x: right, y: top },
+        geometry::Point {
+            x: right,
+            y: bottom,
+        },
+        geometry::Point { x: left, y: bottom },
+    ];
+    let bottom_reference = body_bottom_edge(image, &initial_box, pitch);
+    let bottom_slope = bottom_reference
+        .map(|p| (p[1].y - p[0].y) / (p[1].x - p[0].x))
+        .unwrap_or(0.);
+    let bottom_right =
+        row7_right_edge(image, dark_rows[3], left, right, pitch, bottom_slope).unwrap_or(right);
+    let top_right = right;
+    let initial_body = [
+        geometry::Point { x: left, y: top },
+        geometry::Point {
+            x: top_right,
+            y: top,
+        },
+        geometry::Point {
+            x: bottom_right,
+            y: bottom,
+        },
+        geometry::Point { x: left, y: bottom },
+    ];
+    let top_line = detect_body_top_edge(image, &initial_body, pitch);
+    let (top_left_y, top_right_y) = top_line.map(|p| (p[0].y, p[1].y)).unwrap_or((top, top));
+    let bottom_line = body_bottom_edge(image, &initial_body, pitch);
+    let (bottom_left_y, bottom_right_y) = bottom_line
+        .map(|p| (p[0].y, p[1].y))
+        .unwrap_or((bottom, bottom));
     // Measure header/label outside edges and body top/left edges independently
     // from grayscale transitions; cell pitch is not used to invent these lines.
     let header_top = detect_header_top_edge(image, band, pitch);
@@ -856,7 +1014,7 @@ fn segment_body(
         bottom,
         pitch,
     );
-    let fallback_body = [
+    let mut fallback_body = [
         geometry::Point {
             x: left,
             y: top_left_y,
@@ -867,12 +1025,19 @@ fn segment_body(
         },
         geometry::Point {
             x: bottom_right,
-            y: bottom,
+            y: bottom_right_y,
         },
-        geometry::Point { x: left, y: bottom },
+        geometry::Point {
+            x: left,
+            y: bottom_left_y,
+        },
     ];
     let body_top = detect_body_top_edge(image, &fallback_body, pitch);
     let body_left = detect_body_left_edge(image, &fallback_body, pitch);
+    if let Some(edge) = body_left {
+        fallback_body[0].x = edge[0].x;
+        fallback_body[3].x = edge[1].x;
+    }
     Some((
         fallback_body,
         edge_contrast,
@@ -1174,116 +1339,43 @@ fn point_distance(a: geometry::Point, b: geometry::Point) -> f64 {
     (a.x - b.x).hypot(a.y - b.y)
 }
 
-fn top_edge_at_column(
+// Follow the bottom seam across columns before looking for the row-7 right
+// boundary. A horizontal profile can leave a slanted row and hit card paper.
+fn body_bottom_edge(
     image: &GrayImage,
-    left: f64,
-    right: f64,
-    expected: f64,
+    body: &[geometry::Point; 4],
     pitch: f64,
-    last: bool,
-) -> Option<f64> {
-    let cell = (right - left) / COLS as f64;
-    if cell < 3. {
-        return None;
-    }
-    let column_left = if last { right - cell } else { left };
-    transition_edge(
-        (expected - pitch).round() as i32,
-        (expected + pitch).round() as i32,
-        |y| {
-            let values = [0.15, 0.35, 0.65, 0.85]
+) -> Option<[geometry::Point; 2]> {
+    let width = body[2].x - body[3].x;
+    let mut points = Vec::new();
+    let mut expected = body[3].y;
+    for column in 0..COLS {
+        let x = body[3].x + width * (column as f64 + 0.5) / COLS as f64;
+        let profile = |y: i32| {
+            let values = [0.08, 0.12, 0.88, 0.92]
                 .into_iter()
-                .filter_map(|fraction| {
+                .filter_map(|offset| {
                     sample(
                         image,
                         geometry::Point {
-                            x: column_left + cell * fraction,
+                            x: body[3].x + width * (column as f64 + offset) / COLS as f64,
                             y: y as f64,
                         },
                     )
                 })
                 .collect::<Vec<_>>();
             (values.len() >= 3).then(|| median(values))
-        },
-    )
-}
-
-fn upper_right_edge(
-    image: &GrayImage,
-    row: (u32, u32),
-    left: f64,
-    header_right: f64,
-    bottom_right: f64,
-    pitch: f64,
-) -> Option<(f64, f64)> {
-    let run = (pitch * 0.5).round().clamp(5., 16.) as i32;
-    let body_start = (left + pitch).round() as i32;
-    let body_end = (header_right - pitch).round() as i32;
-    let search_start = (header_right - pitch).round().max(0.) as i32;
-    let search_end = (bottom_right + pitch * 2.)
-        .round()
-        .min((image.width() as i32 - run - 1) as f64) as i32;
-    let y_start = (row.0 as f64 - pitch).floor().max(2.) as i32;
-    let y_end = (row.1 as f64 + pitch * 0.25)
-        .ceil()
-        .min((image.height() - 3) as f64) as i32;
-    let mut best = None;
-    for y in (y_start..=y_end).step_by(2) {
-        let profile = |x: i32| {
-            let values = [-1, 0, 1]
-                .into_iter()
-                .filter_map(|dy| {
-                    sample(
-                        image,
-                        geometry::Point {
-                            x: x as f64,
-                            y: (y + dy) as f64,
-                        },
-                    )
-                })
-                .collect::<Vec<_>>();
-            (values.len() == 3).then(|| median(values))
         };
-        let body_values = (body_start..body_end)
-            .step_by(3)
-            .filter_map(profile)
-            .collect::<Vec<_>>();
-        if body_values.len() < 8 {
-            continue;
-        }
-        let mut body_values = body_values;
-        body_values.sort_by(f64::total_cmp);
-        let body_upper = body_values[body_values.len() * 3 / 4];
-        let Some(outside_tone) = (search_start..=search_end - run)
-            .step_by(2)
-            .filter_map(|x| {
-                let values = (0..run)
-                    .step_by(2)
-                    .filter_map(|offset| profile(x + offset))
-                    .collect::<Vec<_>>();
-                (values.len() >= 3).then(|| median(values))
-            })
-            .max_by(f64::total_cmp)
-        else {
-            continue;
-        };
-        let contrast = outside_tone - body_upper;
-        if contrast < 15. {
-            continue;
-        }
-        let light_limit = outside_tone - (contrast * 0.4).min(15.);
-        let Some(plateau_start) = (search_start..=search_end).find(|&x| {
-            (0..run).all(|offset| profile(x + offset).is_some_and(|value| value > light_limit))
-        }) else {
-            continue;
-        };
-        let edge = transition_edge(plateau_start - 5, plateau_start + 1, profile)
-            .unwrap_or(plateau_start as f64 - 0.5);
-        if best.is_none_or(|(score, _, _)| contrast > score) {
-            best = Some((contrast, y as f64, edge));
+        if let Some(y) = transition_edge(
+            (expected - pitch * 0.28) as i32,
+            (expected + pitch * 0.28) as i32,
+            profile,
+        ) {
+            points.push(geometry::Point { x, y });
+            expected = y;
         }
     }
-    best.map(|(_, y, edge)| (y, edge))
+    fit_horizontal_edge(&points, body[3].x, body[2].x, pitch * 0.12)
 }
 
 fn row7_right_edge(
@@ -1292,6 +1384,7 @@ fn row7_right_edge(
     left: f64,
     header_right: f64,
     pitch: f64,
+    slope: f64,
 ) -> Option<f64> {
     let profile = |x: i32| {
         let values = [0.3, 0.45, 0.6, 0.75]
@@ -1301,7 +1394,9 @@ fn row7_right_edge(
                     image,
                     geometry::Point {
                         x: x as f64,
-                        y: row.0 as f64 + (row.1 - row.0) as f64 * fraction,
+                        y: row.0 as f64
+                            + (row.1 - row.0) as f64 * fraction
+                            + slope * (x as f64 - left),
                     },
                 )
             })
@@ -1453,11 +1548,13 @@ fn thresholds(image: &GrayImage) -> Vec<u8> {
 }
 
 fn header_bands(image: &GrayImage) -> Vec<Band> {
+    header_bands_at(image, thresholds(image), (image.width() / 140).max(2))
+}
+fn header_bands_at(image: &GrayImage, levels: Vec<u8>, bridge: u32) -> Vec<Band> {
     let (width, height) = image.dimensions();
     let min_span = 24f64.max(width as f64 / 180.);
-    let bridge = (width / 140).max(2);
     let mut result: Vec<Band> = Vec::new();
-    for threshold in thresholds(image) {
+    for threshold in levels {
         let mut groups: Vec<Vec<Run>> = Vec::new();
         for y in 0..height {
             let mut runs = Vec::new();
@@ -1604,9 +1701,11 @@ fn anchor_levels(
             )
         })
         .collect::<Option<Vec<_>>>()?;
+    header.sort_by(f64::total_cmp);
+    labels.sort_by(f64::total_cmp);
     Some((
-        median(header),
-        median(labels),
+        header[header.len() / 4],
+        labels[labels.len() / 4],
         median(a1_samples),
         label_rows,
     ))

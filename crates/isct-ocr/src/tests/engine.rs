@@ -95,16 +95,80 @@ fn colored_backgrounds_and_noise() {
 
 #[test]
 fn grayscale_localizer_finds_cells_from_alternating_labels_and_dark_header() {
-    let cells = scan_image_locator::locate(&alternating_matrix()).expect("synthetic matrix grid");
-    assert_eq!(cells.len(), MATRIX_CELLS);
-    for (actual, expected) in [
-        (cells[0][0].x, 200.),
-        (cells[0][0].y, 190.),
-        (cells[69][2].x, 700.),
-        (cells[69][2].y, 540.),
-        (cells[1][0].x, 250.),
+    use imageproc::geometric_transformations::{warp, Border, Interpolation, Projection};
+    let identity = Projection::translate(0., 0.);
+    let shear = Projection::from_matrix([1., 0., 0., 0.08, 1., -16., 0., 0., 1.]).unwrap();
+    let theta = 18_f32.to_radians();
+    let (sin, cos) = theta.sin_cos();
+    let rotation = Projection::from_matrix([
+        0.75 * cos,
+        -0.75 * sin,
+        180.,
+        0.75 * sin,
+        0.75 * cos,
+        -20.,
+        0.,
+        0.,
+        1.,
+    ])
+    .unwrap();
+    for (name, foreground, brightness, transform) in [
+        ("plain", false, 0, identity),
+        ("white header letters", true, 0, identity),
+        ("bright labels", true, 75, identity),
+        ("nonorthogonal header", true, 0, shear),
+        ("rotated and sheared", true, 0, shear.and_then(rotation)),
     ] {
-        assert!((actual - expected).abs() < 8., "{actual} vs {expected}");
+        let mut source = alternating_matrix();
+        if foreground {
+            // Keep the grid lighter than the dark-label component threshold,
+            // as on printed cards, so it does not join all seven labels.
+            for pixel in source.pixels_mut() {
+                if pixel.0 == [40; 3] {
+                    pixel.0 = [130; 3];
+                }
+            }
+            // Deliberately put white strokes at the old per-column center probes.
+            for column in 0..10 {
+                for x in 215 + column * 50..235 + column * 50 {
+                    for y in 149..179 {
+                        source.put_pixel(x, y, Rgb([245; 3]));
+                    }
+                }
+            }
+            for row in [0, 2, 4, 6] {
+                for x in 170..180 {
+                    for y in 202 + row * 50..228 + row * 50 {
+                        source.put_pixel(x, y, Rgb([245; 3]));
+                    }
+                }
+            }
+        }
+        for pixel in source.pixels_mut() {
+            for channel in &mut pixel.0 {
+                *channel = channel.saturating_add(brightness);
+            }
+        }
+        let image = warp(
+            &source,
+            transform,
+            Interpolation::Bilinear,
+            Border::Constant(Rgb([255; 3])),
+        );
+        let cells = scan_image_locator::locate(&image).unwrap_or_else(|| panic!("{name}: no grid"));
+        assert_eq!(cells.len(), MATRIX_CELLS);
+        for (index, cell) in cells.iter().enumerate() {
+            let (column, row) = (index % 10, index / 10);
+            for (actual, (dx, dy)) in cell.iter().zip([(0, 0), (1, 0), (1, 1), (0, 1)]) {
+                let expected = transform
+                    * (
+                        (200 + (column + dx) * 50) as f32,
+                        (190 + (row + dy) * 50) as f32,
+                    );
+                let error = (actual.x - expected.0 as f64).hypot(actual.y - expected.1 as f64);
+                assert!(error < 10., "{name}: cell {index} corner error {error:.1}");
+            }
+        }
     }
     assert!(scan_image_locator::locate(&RgbImage::from_pixel(800, 620, Rgb([255; 3]))).is_none());
 }
