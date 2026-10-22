@@ -4,9 +4,10 @@
 //! for its key.
 use super::{
     ajax::{self, CookieTransport},
+    envelope::has_warnings,
     mapping::{
-        course_row, course_year, month_deadlines, normalize_event, BodyBudget, ACTION_EVENT_KEYS,
-        UPCOMING_EVENT_KEYS,
+        course_row, course_year, dashboard_timetable, month_deadlines, normalize_event, BodyBudget,
+        ACTION_EVENT_KEYS, UPCOMING_EVENT_KEYS,
     },
     rest::{self, TokenTransport},
     Dashboard, KeyError, MoodleClient, MoodleError, MoodleFunction,
@@ -126,8 +127,9 @@ impl<'a> LmsReader<'a> {
 
     // -- lms.enrolment -------------------------------------------------------
 
-    /// `lms.enrolment/all`: the enrolled courses and the timetable grids of
-    /// every quarter of their academic years.
+    /// `lms.enrolment/all`: enrolled courses and the default dashboard grid
+    /// over token. The cookie fallback reads all offered quarters. Ingestion
+    /// retains stored grids for quarters this read did not show.
     pub(crate) async fn enrolment(&mut self) -> Result<LmsEnrolment, KeyError> {
         let mut raw = self.read_enrolment().await;
         if self.falls_back(&raw) && self.fall_back().await {
@@ -138,21 +140,34 @@ impl<'a> LmsReader<'a> {
 
     async fn read_enrolment(&mut self) -> Result<Value, KeyError> {
         let courses = self.read_courses().await?;
+        if self.on_token() {
+            let function = MoodleFunction::DashboardBlocks;
+            let data = self
+                .transport
+                .call(function, json!({"returncontents": true}))
+                .await
+                .map_err(KeyError::at(function.name()))?;
+            if has_warnings(&data) {
+                return Err(KeyError::new(function.name(), MoodleError::Partial));
+            }
+            let grid = dashboard_timetable(&data).ok_or_else(|| {
+                KeyError::new(
+                    function.name(),
+                    MoodleError::Malformed("dashboard timetable"),
+                )
+            })?;
+            log::info!(target: "isct_core::net::moodle", "LMS enrolment read with token dashboard term={}", super::grid_term(&grid));
+            return Ok(
+                json!({"language": self.language, "courses": courses, "timetables": [grid]}),
+            );
+        }
         let dashboard = match self.dashboard.take() {
             Some(dashboard) => dashboard,
-            None => {
-                let on_token = self.on_token();
-                self.client.dashboard().await.map_err(|error| {
-                    let error = KeyError::new("my/", error).on_cookie();
-                    // The token path reads every other key without the web
-                    // session, so a lost session stops only this key.
-                    if on_token {
-                        error.continuing()
-                    } else {
-                        error
-                    }
-                })?
-            }
+            None => self
+                .client
+                .dashboard()
+                .await
+                .map_err(|error| KeyError::new("my/", error).on_cookie())?,
         };
         if !dashboard.config.language.is_empty() {
             self.language = dashboard.config.language.clone();

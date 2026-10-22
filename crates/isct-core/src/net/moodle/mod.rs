@@ -4,9 +4,9 @@
 //! service with a token obtained by a cookie-authenticated `launch.php`.
 //! [`ajax::CookieTransport`] is the fallback: AJAX `service.php` with the
 //! dashboard's sesskey, plus Rust HTML parsing of course and activity pages.
-//! Both take only [`MoodleFunction`]s, a closed read-only list. The custom
-//! timetable block has no web-service function, so it is read from the
-//! dashboard with the session cookie on both paths.
+//! Both take only [`MoodleFunction`]s, a closed read-only list. The token
+//! path reads the custom timetable through the generic dashboard-block API;
+//! the cookie fallback also reads the block's other quarters.
 //!
 //! Secrets: the token, `privatetoken`, passport, sesskey and cookies are never
 //! logged, formatted into errors or stored outside the OS vault. Requests
@@ -110,8 +110,6 @@ impl MoodleError {
 pub(crate) struct KeyError {
     pub(crate) part: &'static str,
     error: MoodleError,
-    /// Every later key would fail the same way, so the pull stops here.
-    pub(crate) stops_pull: bool,
     /// Failed on the session cookie (dashboard, timetable): reading it again
     /// over the cookie transport cannot help.
     cookie_side: bool,
@@ -119,15 +117,9 @@ pub(crate) struct KeyError {
 
 impl KeyError {
     pub(crate) fn new(part: &'static str, error: MoodleError) -> Self {
-        let stops_pull = matches!(
-            error,
-            MoodleError::SignInRequired
-                | MoodleError::Net(NetError::Cancelled | NetError::HostPaused { .. })
-        );
         Self {
             part,
             error,
-            stops_pull,
             cookie_side: false,
         }
     }
@@ -141,12 +133,6 @@ impl KeyError {
     fn parse(error: SchoolParseError) -> Self {
         log::warn!(target: "isct_core::net::moodle", "LMS key rejected: {error}");
         Self::new("validate", MoodleError::Malformed("rejected by validation"))
-    }
-
-    /// The pull goes on with its other keys after this one.
-    fn continuing(mut self) -> Self {
-        self.stops_pull = false;
-        self
     }
 
     /// Marks an error of a cookie request, which the cookie fallback cannot

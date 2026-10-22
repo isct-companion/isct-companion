@@ -56,13 +56,10 @@ impl SignIn for EngineSignIn {
                 SchoolBrowserError::Cancelled => NetError::Cancelled,
                 error => NetError::Invalid(error.to_string()),
             };
-            if !engine.ensure_session(profile).await.map_err(fail)? {
-                return Err(NetError::SignInRequired);
-            }
-            // A live GetAccess sign-in is not yet a 教務Web session: only
-            // its entry page starts one (see `enter_kyomu`).
-            if profile == SchoolAuthProfile::TokyoTech
-                && !engine.enter_kyomu().await.map_err(fail)?
+            if !engine
+                .ensure_transport_session(profile)
+                .await
+                .map_err(fail)?
             {
                 return Err(NetError::SignInRequired);
             }
