@@ -113,8 +113,6 @@ pub fn remove_specks(image: &GrayImage) -> (GrayImage, usize) {
 }
 pub struct Prepared {
     pub tensor: Vec<f32>,
-    #[cfg(any(debug_assertions, test))]
-    pub preview: GrayImage,
 }
 /// Tight glyph bounds + 8 white pixels; half-pixel bilinear resize, CHW, zero padding.
 pub fn prepare(image: &GrayImage) -> Prepared {
@@ -138,8 +136,6 @@ pub(super) fn prepare_width(image: &GrayImage, width: usize) -> Prepared {
     let rw = ((48. * w as f64 / h as f64).ceil() as usize).min(width);
     let plane = 48 * width;
     let mut tensor = vec![0.; 3 * plane];
-    #[cfg(any(debug_assertions, test))]
-    let mut preview = GrayImage::from_pixel(width as u32, 48, Luma([128]));
     let value = |x: i32, y: i32| {
         if x < 8 || y < 8 || x >= w - 8 || y >= h - 8 {
             255.
@@ -157,17 +153,11 @@ pub(super) fn prepare_width(image: &GrayImage, width: usize) -> Prepared {
             let pixel = ((value(x0, y0) * (1. - fx) + value(x1, y0) * fx) * (1. - fy)
                 + (value(x0, y1) * (1. - fx) + value(x1, y1) * fx) * fy)
                 .round() as u8;
-            #[cfg(any(debug_assertions, test))]
-            preview.put_pixel(x as u32, y as u32, Luma([pixel]));
             // Grayscale channels are identical in BGR and RGB.
             for channel in 0..3 {
                 tensor[channel * plane + y * width + x] = (pixel as f64 / 127.5 - 1.) as f32;
             }
         }
     }
-    Prepared {
-        tensor,
-        #[cfg(any(debug_assertions, test))]
-        preview,
-    }
+    Prepared { tensor }
 }

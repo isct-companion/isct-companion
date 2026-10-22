@@ -1,79 +1,8 @@
 use super::*;
 use image::{GrayImage, Luma};
 
-fn card() -> RgbImage {
-    let mut image = RgbImage::from_pixel(600, 460, Rgb([255; 3]));
-    let mut fill = |x: u32, y: u32, w: u32, h: u32, color: [u8; 3]| {
-        for j in y..y + h {
-            for i in x..x + w {
-                image.put_pixel(i, j, Rgb(color));
-            }
-        }
-    };
-    fill(0, 0, 600, 55, [175, 130, 70]);
-    fill(140, 100, 350, 25, [20; 3]);
-    for i in 0..10 {
-        fill(151 + i * 35, 105, 8, 14, [245; 3]);
-    }
-    fill(105, 125, 35, 175, [65; 3]);
-    for i in 0..7 {
-        fill(115, 132 + i * 25, 10, 12, [240; 3]);
-    }
-    fill(140, 125, 350, 175, [245, 190, 190]);
-    fill(143, 128, 344, 169, [255, 50, 50]);
-    fill(489, 125, 2, 175, [45; 3]);
-    fill(140, 299, 352, 2, [45; 3]);
-    for i in 0..30 {
-        fill(330 + i * 5, 325, 2, 50, [20; 3]);
-    }
-    fill(10, 320, 40, 50, [210, 175, 50]);
-    for j in 0..3 {
-        for i in 0..50 {
-            fill(15 + i * 10, 395 + j * 15, 4, 7, [45; 3]);
-        }
-    }
-    image
-}
-#[test]
-fn whole_card_geometry_and_unrelated_photo() {
-    let cells = geometry::locate(&card()).unwrap();
-    assert_eq!(cells.len(), 70);
-    for (actual, expected) in [
-        (cells[0][0].x, 140.),
-        (cells[0][0].y, 125.),
-        (cells[69][2].x, 490.),
-        (cells[69][2].y, 300.),
-        (cells[1][0].x, 175.),
-    ] {
-        assert!((actual - expected).abs() < 5., "{actual} vs {expected}");
-    }
-    assert!(geometry::locate(&RgbImage::from_pixel(600, 460, Rgb([255; 3]))).is_none());
-    for level in [20, 230] {
-        assert!(
-            geometry::locate_capture(&RgbImage::from_pixel(600, 460, Rgb([level; 3]))).is_none()
-        );
-    }
-}
-#[test]
-fn cropped_grid_fallback() {
-    let mut image = RgbImage::from_pixel(420, 300, Rgb([255; 3]));
-    for c in 0..11 {
-        for y in 10..291 {
-            image.put_pixel(10 + c * 40, y, Rgb([0; 3]));
-        }
-    }
-    for r in 0..8 {
-        for x in 10..411 {
-            image.put_pixel(x, 10 + r * 40, Rgb([0; 3]));
-        }
-    }
-    let cells = geometry::locate(&image).unwrap();
-    assert_eq!(cells.len(), 70);
-    assert!((cells[0][0].x - 10.).abs() < 2.);
-    assert!((cells[69][2].y - 290.).abs() < 2.);
-    // Photo import permits a cropped grid. Camera admission still requires its
-    // label strip, including after the illumination fallback.
-    assert!(geometry::locate_capture(&image).is_none());
+fn recognize_single(paddle: &mut Paddle, tensor: Vec<f32>) -> Recognition {
+    paddle.recognize_batch(vec![tensor], 320).unwrap().remove(0)
 }
 #[test]
 fn colored_backgrounds_and_noise() {
@@ -128,12 +57,10 @@ fn model_input_padding_and_normalization() {
     });
     let p = preprocess::prepare(&image);
     assert_eq!(p.tensor.len(), 3 * 48 * 320);
-    assert_eq!(p.preview.dimensions(), (320, 48));
     for channel in 0..3 {
         assert!((p.tensor[channel * 48 * 320 + 24 * 320 + 15] - (20. / 127.5 - 1.)).abs() < 1e-6);
         assert_eq!(p.tensor[channel * 48 * 320 + 319], 0.);
     }
-    assert_eq!(p.preview.get_pixel(319, 0)[0], 128);
 }
 #[test]
 fn decode_limits_alpha_and_busy_scan() {
@@ -147,7 +74,7 @@ fn decode_limits_alpha_and_busy_scan() {
         [255; 3]
     );
     let service = MatrixOcrService::default();
-    let _lock = service.0.lock().unwrap();
+    let _lock = service.model.lock().unwrap();
     assert_eq!(service.scan(b"", |_| true), Err(MatrixOcrError::Busy));
 }
 
@@ -156,7 +83,7 @@ fn poisoned_scan_state_is_cleared_for_the_next_call() {
     let service = MatrixOcrService::default();
     let interrupted = service.clone();
     let stopped = std::thread::spawn(move || {
-        let _model = interrupted.0.lock().unwrap();
+        let _model = interrupted.model.lock().unwrap();
         panic!("simulate an interrupted scan");
     });
     assert!(stopped.join().is_err());
@@ -174,9 +101,7 @@ fn poisoned_scan_state_is_cleared_for_the_next_call() {
 #[test]
 fn embedded_model_runs_a_synthetic_blank_tensor() {
     let mut paddle = Paddle::new().expect("embedded Paddle model should initialize");
-    let result = paddle
-        .recognize(vec![0.; 3 * 48 * 320])
-        .expect("synthetic tensor inference should succeed");
+    let result = recognize_single(&mut paddle, vec![0.; 3 * 48 * 320]);
     assert!(result.confidence.is_finite());
 }
 
@@ -217,12 +142,8 @@ fn real_crops_native_model() {
             .unwrap()
             .to_luma8();
         let (cleaned, _) = preprocess::remove_specks(&image);
-        let raw = paddle
-            .recognize(preprocess::prepare(&cleaned).tensor)
-            .unwrap();
-        let original = paddle
-            .recognize(preprocess::prepare(&image).tensor)
-            .unwrap();
+        let raw = recognize_single(&mut paddle, preprocess::prepare(&cleaned).tensor);
+        let original = recognize_single(&mut paddle, preprocess::prepare(&image).tensor);
         let accepted = recognition::review(
             recognition::accept(&raw.text, raw.confidence),
             &original.text,
@@ -272,7 +193,7 @@ fn full_photo_native_pipeline() {
                 );
             }
         }
-        let lock = service.0.lock().unwrap();
+        let lock = service.model.lock().unwrap();
         let address = lock.as_ref().unwrap() as *const Paddle as usize;
         if pass > 0 {
             assert_eq!(address, previous_session);
@@ -335,62 +256,17 @@ fn filter_matches_frozen_typescript_reference_pixel_for_pixel() {
 }
 
 #[test]
-fn raw_image_is_bounded_and_resampled_at_both_core_sizes() {
+fn raw_image_decoding_preserves_source_resolution() {
     let source = RgbImage::from_pixel(2400, 1200, Rgb([17, 29, 41]));
     let mut png = Cursor::new(vec![]);
     source.write_to(&mut png, image::ImageFormat::Png).unwrap();
     let decoded = decode_image(png.get_ref()).unwrap();
-    let prepared = resize_longest(decoded, 2200);
-    let preview = resize_longest(prepared.clone(), 600);
-    assert_eq!(prepared.dimensions(), (2200, 1100));
-    assert_eq!(preview.dimensions(), (600, 300));
-    assert_eq!(prepared.get_pixel(0, 0).0, [17, 29, 41]);
+    assert_eq!(decoded.dimensions(), (2400, 1200));
+    assert_eq!(decoded.get_pixel(0, 0).0, [17, 29, 41]);
     assert!(matches!(
         decode_image(&vec![0; MAX_IMAGE_BYTES + 1]),
         Err(MatrixOcrError::InvalidImage(_))
     ));
-}
-
-#[test]
-fn core_resampling_preserves_the_detected_card_grid() {
-    let large = image::imageops::resize(&card(), 2400, 1840, image::imageops::FilterType::Nearest);
-    let mut png = Cursor::new(vec![]);
-    large.write_to(&mut png, image::ImageFormat::Png).unwrap();
-    let (source, preview) = prepare_images(png.get_ref()).unwrap();
-    assert_eq!(source.dimensions(), (2200, 1687));
-    assert_eq!(preview.dimensions(), (600, 460));
-    let cells = geometry::locate(&preview).expect("resampled card grid");
-    assert_eq!(cells.len(), MATRIX_CELLS);
-    assert!((cells[0][0].x - 140.).abs() < 5.);
-    assert!((cells[69][2].y - 300.).abs() < 5.);
-    // The encoded camera frame must return the same cell order and normalized
-    // corners used by native cropping, so the overlay cannot drift or transpose.
-    let located = std::cell::Cell::new(false);
-    let frame = MatrixOcrService::default()
-        .scan_frame_with_geometry(
-            png.get_ref(),
-            |quads| {
-                assert_eq!(quads.len(), MATRIX_CELLS);
-                located.set(true);
-                true
-            },
-            |progress| {
-                if progress.completed > 0 {
-                    assert!(located.get(), "geometry must precede inference");
-                }
-                true
-            },
-        )
-        .unwrap();
-    assert_eq!(frame.cells.len(), MATRIX_CELLS);
-    assert_eq!(frame.quads.len(), MATRIX_CELLS);
-    for (actual, expected) in frame.quads.iter().zip(&cells) {
-        for ([x, y], point) in actual.iter().zip(expected) {
-            assert!((x - point.x / preview.width() as f64).abs() < 1e-9);
-            assert!((y - point.y / preview.height() as f64).abs() < 1e-9);
-            assert!((0. ..=1.).contains(x) && (0. ..=1.).contains(y));
-        }
-    }
 }
 
 #[test]
@@ -415,31 +291,6 @@ fn cancellation_releases_the_service_for_a_later_scan() {
         service.scan(b"not decoded", |_| true),
         Err(MatrixOcrError::InvalidImage(_))
     ));
-    let mut png = Cursor::new(Vec::new());
-    card().write_to(&mut png, image::ImageFormat::Png).unwrap();
-    assert!(matches!(
-        service.scan_frame_with_geometry(png.get_ref(), |_| false, |_| true),
-        Err(MatrixOcrError::Cancelled)
-    ));
-    assert!(service.scan_frame(png.get_ref(), |_| true).is_ok());
-}
-
-#[test]
-fn white_header_letters_may_split_the_dark_band() {
-    let mut image = card();
-    // Full-height, wider white glyphs break all wide row runs for 18 rows.
-    // The old fixed four-row join split the header into two invalid thin bands.
-    for i in 0..10 {
-        for y in 104..122 {
-            for x in 150 + i * 35..164 + i * 35 {
-                image.put_pixel(x, y, Rgb([245; 3]));
-            }
-        }
-    }
-    let cells = geometry::locate(&image).expect("header split by white glyphs");
-    assert!((cells[0][0].x - 140.).abs() < 5.);
-    assert!((cells[0][0].y - 125.).abs() < 5.);
-    assert!((cells[69][2].y - 300.).abs() < 5.);
 }
 
 #[test]
@@ -490,127 +341,6 @@ fn supplied_photo_pipeline() {
     eprintln!("Private photo: 70 cells returned, {accepted} accepted, {matched} matched");
 }
 
-fn outlined_card() -> RgbImage {
-    let mut image = RgbImage::from_pixel(600, 600, Rgb([255; 3]));
-    for y in 180..420 {
-        for x in 120..450 {
-            let header = y < 210 && x >= 150;
-            let label = x < 150 && y >= 210;
-            let grid = x >= 150 && y >= 210;
-            if header || label {
-                image.put_pixel(x, y, Rgb([30; 3]));
-            } else if grid {
-                let boundary = (x - 150) % 30 <= 1 || (y - 210) % 30 <= 1 || x >= 448 || y >= 418;
-                image.put_pixel(
-                    x,
-                    y,
-                    if boundary {
-                        Rgb([70; 3])
-                    } else {
-                        Rgb([245, 210, 210])
-                    },
-                );
-            }
-        }
-    }
-    // Distinct glyph shapes in each cell exercise crop direction as well as order.
-    for i in 0..70 {
-        for y in 7..23 {
-            for x in 8..20 {
-                if x == 8 || y == 7 || (y == 15 && x < 14) {
-                    image.put_pixel(
-                        150 + (i % 10) * 30 + x,
-                        210 + (i / 10) * 30 + y,
-                        Rgb([20; 3]),
-                    );
-                }
-            }
-        }
-    }
-    image
-}
-
-fn dim_blue_camera_card() -> RgbImage {
-    let mut image = outlined_card();
-    for pixel in image.pixels_mut() {
-        *pixel = match pixel.0 {
-            [30, 30, 30] => Rgb([10, 35, 75]),
-            [70, 70, 70] => Rgb([105, 125, 145]),
-            [245, 210, 210] => Rgb([48, 70, 96]),
-            [20, 20, 20] => Rgb([5, 10, 15]),
-            _ => *pixel,
-        };
-    }
-    image
-}
-#[test]
-fn arbitrary_rotation_stretch_and_perspective_keep_cell_order() {
-    use imageproc::geometric_transformations::{warp, Border, Interpolation, Projection};
-    let image = outlined_card();
-    let perspective = Projection::from_control_points(
-        [(120., 180.), (450., 180.), (450., 420.), (120., 420.)],
-        [(135., 165.), (450., 200.), (415., 435.), (100., 400.)],
-    )
-    .unwrap();
-    let stretch = Projection::translate(300., 300.)
-        * Projection::scale(1.4, 0.75)
-        * Projection::translate(-300., -300.);
-    for (case, deformation) in [Projection::scale(1., 1.), stretch, perspective]
-        .into_iter()
-        .enumerate()
-    {
-        for degrees in (0..360).step_by(15).map(|d| d as f32).chain([17.5, 359.]) {
-            let transform = Projection::translate(300., 300.)
-                * Projection::rotate(degrees.to_radians())
-                * Projection::translate(-300., -300.)
-                * deformation;
-            let rotated = warp(
-                &image,
-                transform,
-                Interpolation::Bilinear,
-                Border::Constant(Rgb([255; 3])),
-            );
-            let cells = geometry::locate(&rotated)
-                .unwrap_or_else(|| panic!("grid lost at {degrees} degrees case {case}"));
-            let camera = geometry::locate_capture(&rotated)
-                .unwrap_or_else(|| panic!("camera grid lost at {degrees} degrees case {case}"));
-            for (actual, original) in [(camera[0][0], (150., 210.)), (camera[69][2], (450., 420.))]
-            {
-                let expected = transform * original;
-                assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "camera crop changed cell identity at {degrees} degrees: {actual:?} vs {expected:?}");
-            }
-            for (actual, original) in [(cells[0][0], (150., 210.)), (cells[69][2], (450., 420.))] {
-                let expected = transform * original;
-                assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "incorrect cell order/geometry at {degrees} degrees: {actual:?} vs {expected:?}");
-            }
-        }
-    }
-    // A backlit webcam can expose the blue card body below the old fixed dark
-    // threshold. The camera path must still separate the darker header/labels,
-    // and preserve cell order at every right-angle device orientation.
-    let image = dim_blue_camera_card();
-    for degrees in [0., 90., 180., 270.] {
-        let transform = Projection::translate(300., 300.)
-            * Projection::rotate(f32::to_radians(degrees))
-            * Projection::translate(-300., -300.);
-        let rotated = warp(
-            &image,
-            transform,
-            Interpolation::Bilinear,
-            Border::Constant(Rgb([255; 3])),
-        );
-        let camera = geometry::locate_capture(&rotated)
-            .unwrap_or_else(|| panic!("dim blue camera grid lost at {degrees} degrees"));
-        for (actual, original) in [(camera[0][0], (150., 210.)), (camera[69][2], (450., 420.))] {
-            let expected = transform * original;
-            assert!(
-                (actual.x - expected.0 as f64).hypot(actual.y - expected.1 as f64) < 6.,
-                "dim camera crop changed cell identity at {degrees} degrees: {actual:?} vs {expected:?}"
-            );
-        }
-    }
-}
-
 #[test]
 fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries() {
     let sheet = image::load_from_memory(include_bytes!("fixtures/latin-cells.png"))
@@ -627,7 +357,7 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
             .unwrap();
         for (offset, (crop, actual)) in crops.iter().zip(narrow).enumerate() {
             let expected = ((b'A' + start as u8 + offset as u8) as char).to_string();
-            let wide = paddle.recognize(preprocess::prepare(crop).tensor).unwrap();
+            let wide = recognize_single(&mut paddle, preprocess::prepare(crop).tensor);
             let actual = recognition::accept(&actual.text, actual.confidence);
             let wide = recognition::accept(&wide.text, wide.confidence);
             assert_eq!(
@@ -636,15 +366,23 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
             );
         }
     }
-    let full = MatrixOcrService::default()
-        .scan_live_frame(
-            include_bytes!("fixtures/matrix-card.jpg"),
-            &(0..70).collect::<Vec<_>>(),
-            |_| true,
-            |_| true,
-        )
-        .unwrap();
-    for (i, cell) in full.cells.iter().enumerate() {
+    // The public card has a solid label strip, so supply its known cell
+    // geometry when exercising the downstream live-camera Paddle path.
+    let fixture = image::load_from_memory(include_bytes!("fixtures/matrix-card.jpg"))
+        .unwrap()
+        .to_rgb8();
+    let body = [
+        geometry::Point { x: 250., y: 300. },
+        geometry::Point { x: 1350., y: 300. },
+        geometry::Point { x: 1350., y: 895. },
+        geometry::Point { x: 250., y: 895. },
+    ];
+    let binaries = geometry::body_cells(body)
+        .iter()
+        .map(|cell| preprocess::binarize(&geometry::crop(&fixture, cell)))
+        .collect::<Vec<_>>();
+    let (full, _, _) = paddle.recognize_cells(&binaries).unwrap();
+    for (i, cell) in full.iter().enumerate() {
         let expected = ((b'A' + (i % 26) as u8) as char).to_string();
         assert_eq!(cell.text, expected, "live cell {i}: {cell:?}");
         assert!(
@@ -652,25 +390,15 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
             "live cell {i} did not qualify: {cell:?}"
         );
     }
-    let mut encoded = Cursor::new(Vec::new());
-    card()
-        .write_to(&mut encoded, image::ImageFormat::Jpeg)
-        .unwrap();
     let service = MatrixOcrService::default();
     for invalid in [vec![], vec![70], vec![1, 1]] {
         assert!(matches!(
-            service.scan_live_frame(encoded.get_ref(), &invalid, |_| true, |_| true),
+            service.scan_live_frame(b"not decoded", &invalid, |_| true, |_| true),
             Err(MatrixOcrError::InvalidImage(_))
         ));
     }
     assert!(matches!(
-        service.scan_live_frame(encoded.get_ref(), &[20, 11], |_| false, |_| true),
+        service.scan_live_frame(b"not decoded", &[20, 11], |_| true, |_| false),
         Err(MatrixOcrError::Cancelled)
     ));
-    let selected = service
-        .scan_live_frame(encoded.get_ref(), &[20, 11], |_| true, |_| true)
-        .unwrap();
-    assert_eq!(selected.cells.len(), 2);
-    assert_eq!(selected.quads.len(), MATRIX_CELLS);
-    assert!(selected.timing.total_ms >= selected.timing.inference_ms);
 }

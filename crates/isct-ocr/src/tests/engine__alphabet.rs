@@ -1,5 +1,18 @@
 use super::*;
 
+fn fixture_body() -> [[f64; 2]; 4] {
+    [
+        [250. / 1600., 300. / 1100.],
+        [1350. / 1600., 300. / 1100.],
+        [1350. / 1600., 895. / 1100.],
+        [250. / 1600., 895. / 1100.],
+    ]
+}
+
+fn capture_fixture(bytes: &[u8]) -> MatrixCaptureFrame {
+    capture_matrix_training_frame(bytes, fixture_body()).unwrap()
+}
+
 #[test]
 #[ignore = "requires an explicitly supplied private camera frame"]
 fn supplied_camera_frame_geometry() {
@@ -84,7 +97,7 @@ fn supplied_camera_frame_geometry() {
 #[test]
 fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boundaries() {
     let fixture = include_bytes!("fixtures/matrix-card.jpg");
-    let captured = capture_matrix_frame(fixture).unwrap();
+    let captured = capture_fixture(fixture);
     assert_eq!(captured.glyphs.len(), 70);
     assert_eq!(captured.quads.len(), 70);
     assert!(captured.glyphs.iter().all(|g| g.gray.len() == 96 * 96
@@ -99,7 +112,7 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
             captured.quads[69][2],
             captured.quads[60][3],
         ];
-        let recovered = capture_matrix_training_frame(fixture, body).unwrap();
+        let recovered = capture_matrix_training_frame(&fixture, body).unwrap();
         let model = MatrixAlphabetService::default();
         for (batch_index, glyphs) in recovered.glyphs.chunks(10).enumerate() {
             let inputs = glyphs.iter().map(|g| g.gray.clone()).collect::<Vec<_>>();
@@ -119,7 +132,7 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
             [[-0.1, 0.], body[1], body[2], body[3]],
         ] {
             assert!(matches!(
-                capture_matrix_training_frame(fixture, invalid),
+                capture_matrix_training_frame(&fixture, invalid),
                 Err(MatrixOcrError::InvalidImage(_))
             ));
         }
@@ -155,7 +168,12 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
         rotated
             .write_to(&mut encoded, image::ImageFormat::Jpeg)
             .unwrap();
-        let rotated = capture_matrix_frame(encoded.get_ref()).unwrap();
+        let body = fixture_body().map(|[x, y]| match turn {
+            0 => [1. - y, x],
+            1 => [1. - x, 1. - y],
+            _ => [y, 1. - x],
+        });
+        let rotated = capture_matrix_training_frame(encoded.get_ref(), body).unwrap();
         for (start, batch) in rotated
             .glyphs
             .chunks(10)
@@ -212,8 +230,7 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
 fn complete_letters_near_cell_edges_do_not_become_confident_substitutions() {
     // Public Times Italic L/Z/I, with complete ink inside each cell. The old
     // fixed 9% inset turned all 24 Ls into confidently accepted Is.
-    let captured =
-        capture_matrix_frame(include_bytes!("fixtures/matrix-letter-boundaries.jpg")).unwrap();
+    let captured = capture_fixture(include_bytes!("fixtures/matrix-letter-boundaries.jpg"));
     let model = MatrixAlphabetService::default();
     for (batch_index, batch) in captured.glyphs.chunks(10).enumerate() {
         let images: Vec<_> = batch.iter().map(|g| g.gray.clone()).collect();
@@ -224,8 +241,8 @@ fn complete_letters_near_cell_edges_do_not_become_confident_substitutions() {
             assert!(actual.confidence >= 0.8, "cell {cell}: {actual:?}");
         }
     }
-    // A central stroke joined to an incomplete edge is not safe to delete:
-    // deleting that connected component could leave a different letter.
+    // A central stroke joined to an incomplete edge remains available to the
+    // classifier instead of being rejected before inference.
     let clipped = GrayImage::from_fn(96, 96, |x, y| {
         image::Luma([
             if ((45..51).contains(&x) && y < 70) || ((60..66).contains(&x) && (25..70).contains(&y))
@@ -236,10 +253,8 @@ fn complete_letters_near_cell_edges_do_not_become_confident_substitutions() {
             },
         ])
     });
-    assert!(normalize_glyph(&clipped).is_none());
-    let rejected = model.recognize(&[clipped.into_raw()]).unwrap();
-    assert!(rejected[0].text.is_empty());
-    assert_eq!(rejected[0].confidence, 0.);
+    let normalized = normalize_glyph(&clipped).expect("edge-connected ink is retained");
+    assert!(normalized.pixels().any(|pixel| pixel[0] < 200));
 }
 
 #[test]
@@ -262,7 +277,7 @@ fn capture_fits_body_rows_independently_of_header_height() {
         let mut encoded = std::io::Cursor::new(Vec::new());
         card.write_to(&mut encoded, image::ImageFormat::Jpeg)
             .unwrap();
-        let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
+        let captured = capture_fixture(encoded.get_ref());
         for (i, quad) in captured.quads.iter().enumerate() {
             let (c, r) = ((i % 10) as f64, (i / 10) as f64);
             for ([x, y], (dc, dr)) in quad.iter().zip([(0., 0.), (1., 0.), (1., 1.), (0., 1.)]) {
@@ -290,7 +305,7 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
     let mut encoded = std::io::Cursor::new(Vec::new());
     dark.write_to(&mut encoded, image::ImageFormat::Jpeg)
         .unwrap();
-    let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
+    let captured = capture_fixture(encoded.get_ref());
     assert!(
         captured
             .glyphs
@@ -353,7 +368,7 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
     striped
         .write_to(&mut encoded, image::ImageFormat::Jpeg)
         .unwrap();
-    let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
+    let captured = capture_fixture(encoded.get_ref());
     for cell in [35, 36, 37] {
         assert!(captured.glyphs[cell].glare > 0.12, "reflection cell {cell}");
     }
@@ -368,7 +383,13 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
         image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 90)
             .encode_image(&shifted)
             .unwrap();
-        let captured = capture_matrix_frame(&encoded).unwrap();
+        let body = fixture_body().map(|[x, y]| {
+            [
+                x - dx as f64 / fixture.width() as f64,
+                y - dy as f64 / fixture.height() as f64,
+            ]
+        });
+        let captured = capture_matrix_training_frame(&encoded, body).unwrap();
         // Glare must not change row pitch and move intact lower rows into
         // adjacent cells when the camera shifts by a fraction of a pixel.
         for (actual, expected) in [

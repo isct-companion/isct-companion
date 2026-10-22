@@ -1,4 +1,6 @@
-use super::{geometry, illumination, model_error, normalized_quads, prepare_images};
+use super::{
+    decode_image, geometry, illumination, model_error, normalized_quads, scan_image_locator,
+};
 use crate::{MatrixCaptureFrame, MatrixCaptureGlyph, MatrixOcrError, Recognition};
 use image::{imageops::FilterType, GrayImage, Rgb, RgbImage};
 use imageproc::geometric_transformations::{warp_into, Border, Interpolation, Projection};
@@ -93,12 +95,11 @@ fn normalize_glyph(gray: &GrayImage) -> Option<GrayImage> {
             continue;
         }
         if x0 == 0 || y0 == 0 || x1 == 95 || y1 == 95 {
-            // An edge joined to central ink may be a clipped letter. Removing
-            // that component could manufacture another letter from the rest.
-            if interior >= 8 {
-                return None;
+            // Ignore detached border fragments, but keep edge-connected glyph
+            // pixels in the bounds so a cell-frame contact does not reject it.
+            if interior < 8 {
+                continue;
             }
-            continue;
         }
         let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
         let grid = (w >= 67 && h <= 14 && (y0 < 14 || y1 > 81))
@@ -176,18 +177,18 @@ pub(super) fn rectified_gray(
 }
 pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     let start = std::time::Instant::now();
-    let (image, small) = prepare_images(bytes)?;
+    let image = decode_image(bytes)?;
     let decode_ms = start.elapsed().as_secs_f64() * 1000.;
     let stage = std::time::Instant::now();
-    let cells = geometry::locate_capture(&small).ok_or(MatrixOcrError::GridNotFound)?;
-    let quads = normalized_quads(&cells, &small);
+    let cells = scan_image_locator::locate(&image).ok_or(MatrixOcrError::GridNotFound)?;
+    let quads = normalized_quads(&cells, &image);
     let geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
     capture_quads(&image, quads, decode_ms, geometry_ms, start)
 }
 
 /// Dataset-only recovery using manually verified body corners. This does not
 /// change camera detection or turn a recovered crop into a readable label.
-#[cfg(feature = "training-tools")]
+#[cfg(any(test, feature = "training-tools"))]
 pub fn capture_matrix_training_frame(
     bytes: &[u8],
     body: [[f64; 2]; 4],
@@ -206,7 +207,7 @@ pub fn capture_matrix_training_frame(
         ));
     }
     let start = std::time::Instant::now();
-    let (image, _) = prepare_images(bytes)?;
+    let image = decode_image(bytes)?;
     let decode_ms = start.elapsed().as_secs_f64() * 1000.;
     let corners = body.map(|[x, y]| geometry::Point { x, y });
     let quads = geometry::body_cells(corners)
@@ -341,6 +342,11 @@ pub fn prepare_matrix_alphabet_input(
 }
 
 impl MatrixAlphabetService {
+    pub(super) fn warm_up(&self) -> Result<(), MatrixOcrError> {
+        self.recognize_raw(&[vec![255; SIZE * SIZE]])?;
+        Ok(())
+    }
+
     pub fn recognize(&self, images: &[Vec<u8>]) -> Result<Vec<Recognition>, MatrixOcrError> {
         if images.len() > 10 || images.iter().any(|image| image.len() != SIZE * SIZE) {
             return Err(MatrixOcrError::InvalidImage(
