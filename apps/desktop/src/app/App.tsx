@@ -58,7 +58,6 @@ import { PlanEditor, type PlanDraft } from "../pages/schedule/PlanEditor";
 import { IntensiveEditor } from "../pages/courses/IntensiveEditor";
 
 import {
-  Activity,
   lazy,
   Suspense,
   useEffect,
@@ -89,6 +88,7 @@ import { resolvedTeachingPeriods } from "../lib/timetable-layout";
 
 import { CoursePanel, OfferingPanel } from "../pages/courses/CoursePanel";
 import { PageErrorBoundary } from "./PageErrorBoundary";
+import { KeptPage } from "./KeptPage";
 import { traceRouter } from "./interaction-trace";
 import { DAYS as FINDER_DAYS, type FinderCourse } from "../lib/course-query";
 
@@ -327,7 +327,7 @@ export function WorkspaceApp() {
         if (
           !(await confirmAction(
             t(
-              "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, copy the new setup from this app to replace the school entry in every other authenticator.",
+              "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, show the new setup as a QR code in this app, or copy it, and replace the school entry in every other authenticator.",
             ),
             t("Continue to reset"),
             { title: t("Reset school OTP?") },
@@ -831,9 +831,9 @@ export function WorkspaceApp() {
 
   const keep = (name: Page, node: React.ReactNode) =>
     mountedPages.includes(name) && (
-      <Activity mode={page === name ? "visible" : "hidden"} key={name}>
+      <KeptPage visible={page === name} key={name}>
         <PageErrorBoundary name={name}>{node}</PageErrorBoundary>
-      </Activity>
+      </KeptPage>
     );
   const lecturesPage = (
     <LectureDesk

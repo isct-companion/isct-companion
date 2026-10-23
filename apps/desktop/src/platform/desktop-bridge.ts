@@ -400,6 +400,8 @@ export interface DesktopBridge {
   /** Copies the saved Matrix to the system clipboard without exposing it to the WebView. */
   copySchoolMatrix(): Promise<boolean>;
   copySchoolOtp(setup?: string): Promise<boolean>;
+  /** SVG QR code of the OTP setup, for another authenticator to scan. */
+  schoolOtpQr(setup?: string): Promise<string>;
   testSchoolConnection(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
@@ -669,6 +671,11 @@ export function createTauriDesktopBridge(
       booleanCommand("delete_school_credentials", { profile }),
     copySchoolMatrix: () => booleanCommand("copy_school_matrix"),
     copySchoolOtp: (setup) => booleanCommand("copy_school_otp", { setup }),
+    schoolOtpQr: async (setup) =>
+      requireString(
+        "school_otp_qr",
+        await invokeCommand("school_otp_qr", { setup }),
+      ),
     testSchoolConnection: (profile, credentials) =>
       result("test_school_connection", { profile, credentials }),
     loginSchool: (profile) => result("login_school", { profile, bounds: null }),

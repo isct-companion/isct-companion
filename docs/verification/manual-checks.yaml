@@ -1208,6 +1208,54 @@ checks:
       - apps/desktop/src/styles.css
     verified: null
 
+  - id: DESKTOP-PAGE-OVERLAYS
+    area: desktop
+    title: Popovers and dialogs stay on top and leave with their page
+    persona: narrow-window-keyboard
+    preconditions: |
+      A desktop build with classes on Today and an upcoming exam.
+    steps:
+      - action: |
+          On the timetable page open the ▾ export menu beside Export ICS, then
+          right-click a class on Today's calendar near the window's right and
+          bottom edges.
+        reason: |
+          Page overlays now mount inside the page's own layer, under a main
+          area that clips overflow; a menu cut off at the page edge or not
+          flipping at the window edge is the regression to look for.
+      - action: |
+          Open an exam's editor on Today and click where the navigation rail
+          and the status bar sit.
+        reason: |
+          The dialog's backdrop must cover the rail and the status bar; a rail
+          that stays clickable means the overlay lost its stacking order.
+      - action: |
+          With a menu open press ⌘2, look, then press ⌘1.
+        reason: |
+          The menu must vanish with its page and be there again, still
+          closable, on return; it used to float over the next page unclosable.
+      - action: |
+          Settings → About → Show again, finish the welcome sheet, and on
+          Today switch pages from the rail before pressing Got it.
+        reason: |
+          This is the reported flow: the tip stayed on every page and Got it
+          did nothing until Today came back.
+    observe: |
+      The menus, the dialog backdrop over the rail and status bar, and the
+      page shown after each shortcut.
+    expected: |
+      Menus show whole and flip at the window edge, the backdrop dims the rail
+      and status bar and blocks them, and every overlay hides with its page
+      and returns with it; Got it closes the tip.
+    why_manual: |
+      Clipping and stacking are glance checks on the real WebKit window. The
+      hide-and-return behaviour itself is in tests/e2e/app-shell.test.tsx.
+    covers:
+      - apps/desktop/src/app/KeptPage.tsx
+      - apps/desktop/src/pages/today/CourseFinder.tsx
+      - apps/desktop/src/components/guide.tsx
+    verified: null
+
   - id: DESKTOP-WINDOWS-SNAP-LAYOUT
     area: desktop
     title: Windows Snap keeps the desktop shell and the open LMS reader
@@ -2745,8 +2793,8 @@ checks:
     steps:
       - action: Start signed out with no OTP saved locally, keep アプリに設定してもらう (Let the app set it up) chosen and press Open the school site. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
         reason: Confirms the live server markup and school WebView cookies work together; missing local OTP must not be treated as an unset school registration. The native browser must retain the settings draft and provide a way back. Scripted-host tests cover cancellation but cannot establish these real session and navigation facts.
-      - action: On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Copy the new setup into the other authenticator and verify its code works. Cancel or reject school verification once and confirm no success is reported. Confirm the account card then shows one saved line (codes filled in at sign-in, Copy setup, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect without changing school registration.
-        reason: Only the live school and native vault can establish successful registration and cross-authenticator agreement. People reported not knowing which of four equal buttons to press; the three radio cards with one recommended path, each hint shown only when chosen, need a human read. Offline tests protect promotion and rejection logic.
+      - action: On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Cancel or reject school verification once and confirm no success is reported. Confirm the account card then shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect without changing school registration.
+        reason: Only the live school and native vault can establish successful registration and cross-authenticator agreement, and only a real phone camera and authenticator show that the rendered QR is scannable and labelled. People reported not knowing which of four equal buttons to press; the three radio cards with one recommended path, each hint shown only when chosen, need a human read. Offline tests protect promotion and rejection logic.
       - action: Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
         reason: Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
       - action: Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -2754,7 +2802,7 @@ checks:
       - action: Copy the test OTP setup from the draft, then save it, clear the draft and copy again. Paste each into a local scratch field and compare with the original setup.
         reason: Confirms OS clipboard delivery and vault export without returning the saved secret through the WebView; scripted-host tests only observe the copy intent.
     observe: Settings > School accounts, the camera preview, the input draft, and the OS camera indicator.
-    expected: Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators. The three paths read as one choice with the school path recommended. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+    expected: Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators, and the QR code adds a working entry to any authenticator. The three paths read as one choice with the school path recommended. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
     why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault. Registration and rotation also depend on the live school account and the owner's authenticator.
     covers:
       - apps/desktop/src/components/OtpSetupInput.tsx
@@ -2845,7 +2893,8 @@ checks:
           Open Science Tokyo with no OTP saved. The ワンタイムパスワード section
           is a two-way choice: 認証アプリから shows QR を読み取る and 写真から,
           設定リンク・秘密鍵 shows the field and 貼り付け. With an OTP saved it
-          is one line with a tick and 変更.
+          is one line with a tick and 変更, then a row of 認証アプリに追加 and
+          設定をコピー.
         reason: |
           The longest label lives under 認証アプリから; it must shrink on one
           line rather than widen its tile. The saved line replaces a field
@@ -2866,6 +2915,57 @@ checks:
       OCR, so it shows only two of the Matrix tiles.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+    verified: null
+
+  - id: MOBILE-OTP-AUTHENTICATOR-EXPORT
+    area: native
+    title: A phone hands the saved school OTP to its authenticator app
+    persona: undergraduate-first-term
+    preconditions: |
+      Signed iOS and Android builds on physical phones, each with the Science
+      Tokyo OTP saved, and an authenticator app installed (Google
+      Authenticator, Microsoft Authenticator or iOS Passwords). A second phone
+      without any authenticator, or one where it can be uninstalled, for the
+      failure path.
+    steps:
+      - action: |
+          Open 設定 → 学校アカウント → Science Tokyo and tap 認証アプリに追加.
+          Confirm the authenticator opens with an entry named Science Tokyo and
+          the student ID, add it, and compare its code with the one the
+          desktop or school page accepts.
+        reason: |
+          Which app claims `otpauth://` and how it names the entry are decided
+          by the OS and the installed authenticator; Core tests only prove the
+          link parses back to the same codes.
+      - action: |
+          On the phone without an authenticator, tap 認証アプリに追加.
+        reason: |
+          The no-handler path (`openURL` refusing on iOS,
+          ActivityNotFoundException on Android) only happens on a device with
+          nothing registered for the scheme.
+      - action: |
+          Tap 設定をコピー, paste into a notes field, then check the keyboard
+          clipboard suggestion (Android) or another Apple device's Universal
+          Clipboard (iOS), and paste again after two minutes on iOS.
+        reason: |
+          The copy is marked sensitive on Android and local-only with a
+          two-minute expiry on iOS; both are system clipboard behaviours.
+    observe: The authenticator app, the error line under the buttons, and the
+      pasted text.
+    expected: |
+      The authenticator adds a working Science Tokyo entry; without one, a red
+      line says to copy instead. The copied link pastes once on the phone, is
+      hidden from Android's clipboard preview, never reaches another Apple
+      device, and is gone from the iOS clipboard after two minutes. The
+      warning about the old entry after a school reset shows under the
+      buttons.
+    why_manual: |
+      Needs signed apps on real phones, installed authenticator apps handling
+      `otpauth://`, and the system clipboard.
+    covers:
+      - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - crates/isct-ffi/src/session.rs
     verified: null
 
   - id: DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS
