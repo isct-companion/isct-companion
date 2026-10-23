@@ -1,6 +1,8 @@
 mod alphabet;
-mod contours;
-pub use alphabet::{capture_matrix_frame, MatrixAlphabetService};
+pub use alphabet::{
+    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_keyframe,
+    MatrixAlphabetService,
+};
 #[cfg(feature = "training-tools")]
 pub use alphabet::{
     capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
@@ -8,15 +10,17 @@ pub use alphabet::{
 #[cfg(debug_assertions)]
 mod debug_crops;
 mod geometry;
+mod grid;
 mod illumination;
 mod preprocess;
+mod vendor;
 
 #[cfg(test)]
 #[path = "../tests/engine.rs"]
 mod tests;
 
 use crate::{recognition, MatrixOcrError, OcrProgress, Recognition, MATRIX_CELLS};
-use image::{imageops::FilterType, DynamicImage, ImageDecoder, ImageReader, Rgb, RgbImage};
+use image::{DynamicImage, ImageDecoder, ImageReader, Rgb, RgbImage};
 use ort::{
     session::{builder::GraphOptimizationLevel, Session},
     value::Tensor,
@@ -249,14 +253,14 @@ impl MatrixOcrService {
         }) {
             return Err(MatrixOcrError::Cancelled);
         }
-        let (image, small) = prepare_images(bytes)?;
+        let image = decode_image(bytes)?;
         let mut timing = crate::MatrixFrameTiming {
             decode_ms: start.elapsed().as_secs_f64() * 1000.,
             ..Default::default()
         };
         let stage = Instant::now();
-        let cells = geometry::locate(&small).ok_or(MatrixOcrError::GridNotFound)?;
-        let quads = normalized_quads(&cells, &small);
+        let cells = locate_cells(&image).ok_or(MatrixOcrError::GridNotFound)?;
+        let quads = normalized_quads(&cells, &image);
         timing.geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
         if !geometry(&quads) {
             return Err(MatrixOcrError::Cancelled);
@@ -266,13 +270,7 @@ impl MatrixOcrService {
             let stage = Instant::now();
             let binaries: Vec<_> = chunk
                 .iter()
-                .map(|&i| {
-                    let corners = cells[i].map(|p| geometry::Point {
-                        x: p.x * image.width() as f64 / small.width() as f64,
-                        y: p.y * image.height() as f64 / small.height() as f64,
-                    });
-                    preprocess::binarize(&geometry::crop(&image, &corners))
-                })
+                .map(|&i| preprocess::binarize(&geometry::crop(&image, &cells[i])))
                 .collect();
             timing.preprocess_ms += stage.elapsed().as_secs_f64() * 1000.;
             let stage = Instant::now();
@@ -295,13 +293,7 @@ impl MatrixOcrService {
                 .collect();
             let rescue: Vec<_> = rescue_positions
                 .iter()
-                .map(|&i| {
-                    let corners = cells[chunk[i]].map(|p| geometry::Point {
-                        x: p.x * image.width() as f64 / small.width() as f64,
-                        y: p.y * image.height() as f64 / small.height() as f64,
-                    });
-                    preprocess::binarize(&geometry::crop_at(&image, &corners, 128))
-                })
+                .map(|&i| preprocess::binarize(&geometry::crop_at(&image, &cells[chunk[i]], 128)))
                 .collect();
             timing.preprocess_ms += stage.elapsed().as_secs_f64() * 1000.;
             if let Some(paddle) = model.as_mut() {
@@ -361,9 +353,9 @@ impl MatrixOcrService {
         }) {
             return Err(MatrixOcrError::Cancelled);
         }
-        let (image, small) = prepare_images(image)?;
-        let cells = geometry::locate(&small).ok_or(MatrixOcrError::GridNotFound)?;
-        let quads = normalized_quads(&cells, &small);
+        let image = decode_image(image)?;
+        let cells = locate_cells(&image).ok_or(MatrixOcrError::GridNotFound)?;
+        let quads = normalized_quads(&cells, &image);
         if !geometry(&quads) {
             return Err(MatrixOcrError::Cancelled);
         }
@@ -371,11 +363,7 @@ impl MatrixOcrService {
         #[cfg(debug_assertions)]
         let mut red = vec![];
         for (i, corners) in cells.iter().enumerate() {
-            let corners = corners.map(|p| geometry::Point {
-                x: p.x * image.width() as f64 / small.width() as f64,
-                y: p.y * image.height() as f64 / small.height() as f64,
-            });
-            let binary = preprocess::binarize(&geometry::crop(&image, &corners));
+            let binary = preprocess::binarize(&geometry::crop(&image, corners));
             let prepared = preprocess::prepare(&binary.cleaned);
             let result = if !binary.has_glyph() {
                 Recognition::default()
@@ -433,6 +421,76 @@ impl MatrixOcrService {
     }
 }
 
+/// One still image, detected from scratch: the 70 cell quads, normalized.
+fn locate(image: &RgbImage) -> Option<Vec<[[f64; 2]; 4]>> {
+    let planes = grid::Planes::from_rgb(image)?;
+    let (_, h, _) = grid::detect(&planes)?;
+    let body = grid::normalize(grid::body(&h), &planes);
+    grid::cells(body, 1., 1.)
+}
+
+fn locate_cells(image: &RgbImage) -> Option<Vec<[geometry::Point; 4]>> {
+    let (w, h) = (image.width() as f64, image.height() as f64);
+    Some(
+        locate(image)?
+            .into_iter()
+            .map(|q| q.map(|[x, y]| geometry::Point { x: x * w, y: y * h }))
+            .collect(),
+    )
+}
+
+/// The analysis planes of an encoded image (replay, photos).
+pub fn matrix_analysis_image(bytes: &[u8]) -> Result<crate::MatrixAnalysisImage, MatrixOcrError> {
+    let planes = grid::Planes::from_rgb(&decode_image(bytes)?)
+        .ok_or_else(|| MatrixOcrError::InvalidImage("Image is too small.".into()))?;
+    Ok(crate::MatrixAnalysisImage {
+        width: planes.luma.width(),
+        height: planes.luma.height(),
+        chroma: planes.chroma.clone(),
+        luma: planes.luma.into_raw(),
+    })
+}
+
+/// Camera geometry state for one session: detect, fit and track.
+#[derive(Default)]
+pub struct MatrixTracker(grid::Tracker);
+impl MatrixTracker {
+    /// Analyses the next frame of the session. Frames must arrive in capture
+    /// order; a size change starts over.
+    pub fn track(
+        &mut self,
+        frame: &crate::MatrixAnalysisFrame<'_>,
+    ) -> Result<crate::MatrixTrack, MatrixOcrError> {
+        let start = std::time::Instant::now();
+        let luma = image::GrayImage::from_raw(frame.width, frame.height, frame.luma.to_vec());
+        let planes = luma
+            .filter(|_| frame.chroma.len() == frame.luma.len() && frame.time.is_finite())
+            .and_then(|luma| grid::Planes::new(luma, frame.chroma.to_vec()))
+            .ok_or_else(|| MatrixOcrError::InvalidImage("Invalid analysis planes.".into()))?;
+        let step = self.0.step(&planes, frame.time);
+        let normalize = |q: [[f64; 2]; 4]| grid::normalize(q, &planes);
+        Ok(crate::MatrixTrack {
+            mode: match step.mode {
+                grid::TrackMode::Lost => crate::MatrixTrackMode::Lost,
+                grid::TrackMode::Detected => crate::MatrixTrackMode::Detected,
+                grid::TrackMode::Refitted => crate::MatrixTrackMode::Refitted,
+                grid::TrackMode::Tracked => crate::MatrixTrackMode::Tracked,
+            },
+            body: step.grid.map(|g| normalize(grid::body(&g))),
+            display: step.display.map(normalize),
+            keyframe: step.keyframe,
+            residual: step.fit.as_ref().map(|f| f.residual),
+            reason: step.fit.as_ref().and_then(|f| f.reason),
+            stages: step
+                .stages
+                .iter()
+                .map(|(name, g)| (*name, normalize(grid::body(g))))
+                .collect(),
+            elapsed_ms: start.elapsed().as_secs_f64() * 1000.,
+        })
+    }
+}
+
 fn normalized_quads(cells: &[[geometry::Point; 4]], image: &RgbImage) -> Vec<[[f64; 2]; 4]> {
     cells
         .iter()
@@ -445,23 +503,6 @@ fn normalized_quads(cells: &[[geometry::Point; 4]], image: &RgbImage) -> Vec<[[f
             })
         })
         .collect()
-}
-
-fn prepare_images(bytes: &[u8]) -> Result<(RgbImage, RgbImage), MatrixOcrError> {
-    let image = resize_longest(decode_image(bytes)?, 2200);
-    let preview = resize_longest(image.clone(), 600);
-    Ok((image, preview))
-}
-
-fn resize_longest(image: RgbImage, max: u32) -> RgbImage {
-    let longest = image.width().max(image.height());
-    if longest <= max {
-        return image;
-    }
-    let scale = max as f64 / longest as f64;
-    let width = (image.width() as f64 * scale).round().max(1.) as u32;
-    let height = (image.height() as f64 * scale).round().max(1.) as u32;
-    image::imageops::resize(&image, width, height, FilterType::Triangle)
 }
 
 fn decode_image(bytes: &[u8]) -> Result<RgbImage, MatrixOcrError> {

@@ -1,5 +1,5 @@
 //! Card-specific illumination measurements; morphology/filtering use imageproc.
-use image::{imageops::FilterType, GrayImage, Luma, RgbImage};
+use image::{imageops::FilterType, GrayImage, Luma};
 use imageproc::{
     filter::gaussian_blur_f32,
     morphology::{grayscale_dilate, Mask},
@@ -34,18 +34,6 @@ fn correct(gray: &GrayImage, background: &GrayImage, target: f64, max_gain: f64)
     })
 }
 
-pub(super) fn geometry_image(image: &RgbImage) -> RgbImage {
-    let gray = GrayImage::from_fn(image.width(), image.height(), |x, y| {
-        let p = image.get_pixel(x, y);
-        Luma([(0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64).round() as u8])
-    });
-    let small = image::DynamicImage::ImageLuma8(gray.clone())
-        .thumbnail(160, 160)
-        .to_luma8();
-    let background = gaussian_blur_f32(&grayscale_dilate(&small, &Mask::square(7)), 3.);
-    image::DynamicImage::ImageLuma8(correct(&gray, &background, 220., 6.)).to_rgb8()
-}
-
 pub(super) fn analyze(gray: &GrayImage) -> Illumination {
     // Estimate paper brightness at a lower resolution, excluding narrow ink.
     // The max filter preserves a shadow boundary without treating a letter's
@@ -62,7 +50,9 @@ pub(super) fn analyze(gray: &GrayImage) -> Illumination {
     // substantial change in estimated paper brightness within the same cell.
     let glare = clipped * ((high - low - 20.) / 80.).clamp(0., 1.);
     let corrected = if high < 155. || high - low > 35. {
-        Some(correct(gray, &background, 210., 4.))
+        // A card at 15% exposure needs about 6.5x gain to restore paper.
+        // Admission still measures stroke texture and rejects saturated glare.
+        Some(correct(gray, &background, 210., 8.))
     } else {
         None
     };
