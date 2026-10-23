@@ -1,0 +1,139 @@
+name: iOS release
+
+# Archives the iPhone/iPad app for a version tag and uploads it to TestFlight.
+# Uploading is opt-in: set the repository variable IOS_TESTFLIGHT_ENABLED to
+# true once the secrets in docs/mobile-release.md are in place. Until then the
+# job only checks that the app compiles for a device.
+
+on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ipa:
+    name: Build and upload IPA
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      UPLOAD: ${{ vars.IOS_TESTFLIGHT_ENABLED == 'true' }}
+      TEAM_ID: FB7AL944GK
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: ios-release
+      - name: Use the newest Xcode
+        run: |
+          # The app adopts iOS 26 APIs behind availability checks, so it needs
+          # the iOS 26 SDK.
+          xcode=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+      - name: Build the Core XCFramework (release profile)
+        run: node scripts/bindings/build-ios.mjs
+      - name: Read the version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF" = "refs/tags/v$version" || { echo 'Tag must match package.json version'; exit 1; }
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          # App Store Connect needs a build number that only grows.
+          echo "BUILD_NUMBER=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
+      - name: Generate the Xcode project
+        working-directory: apps/ios
+        run: xcodegen generate
+      - name: Check that the app compiles for a device
+        if: env.UPLOAD != 'true'
+        working-directory: apps/ios
+        run: |
+          xcodebuild -project IsctCompanion.xcodeproj -scheme IsctCompanion -configuration Release \
+            -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build
+      - name: Install the App Store Connect key and distribution certificate
+        if: env.UPLOAD == 'true'
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          IOS_DISTRIBUTION_CERTIFICATE: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.appstoreconnect/private_keys
+          key=~/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key"
+          echo "API_KEY_PATH=$key" >> "$GITHUB_ENV"
+          # Optional: with the Apple Distribution certificate in a keychain,
+          # automatic signing needs the API key only for profiles. Without it,
+          # the key must be allowed to create cloud-managed certificates.
+          if [[ -n "$IOS_DISTRIBUTION_CERTIFICATE" ]]; then
+            keychain="$RUNNER_TEMP/signing.keychain-db"
+            password=$(uuidgen)
+            security create-keychain -p "$password" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$password" "$keychain"
+            echo "$IOS_DISTRIBUTION_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/distribution.p12"
+            security import "$RUNNER_TEMP/distribution.p12" -k "$keychain" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+            security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" > /dev/null
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            rm "$RUNNER_TEMP/distribution.p12"
+          fi
+      - name: Archive and export the IPA
+        if: env.UPLOAD == 'true'
+        working-directory: apps/ios
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          auth=(-allowProvisioningUpdates -authenticationKeyPath "$API_KEY_PATH"
+            -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER")
+          xcodebuild -project IsctCompanion.xcodeproj -scheme IsctCompanion -configuration Release \
+            -destination generic/platform=iOS -archivePath "$RUNNER_TEMP/IsctCompanion.xcarchive" \
+            "${auth[@]}" archive \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/IsctCompanion.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/ipa" "${auth[@]}"
+          mv "$RUNNER_TEMP"/ipa/*.ipa "$RUNNER_TEMP/ipa/IsctCompanion_${VERSION}_${BUILD_NUMBER}.ipa"
+      - name: Upload to TestFlight
+        if: env.UPLOAD == 'true'
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          xcrun altool --upload-app -t ios -f "$RUNNER_TEMP"/ipa/*.ipa \
+            --apiKey "$APPLE_API_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
+      - uses: actions/upload-artifact@v7
+        if: env.UPLOAD == 'true'
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 14
