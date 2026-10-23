@@ -10,6 +10,11 @@ on:
   push:
     tags: ["v[0-9]*.[0-9]*.[0-9]*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Attach the APK to this published release (e.g. v1.1.9); blank builds only
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -51,11 +56,11 @@ jobs:
             sleep $((attempt * 15))
           done
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-          if ! command -v kotlinc >/dev/null; then
-            curl -fL --retry 3 --retry-all-errors https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
-            unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/kotlin"
-            echo "$RUNNER_TEMP/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
-          fi
+          # Always the pinned compiler: the runner image ships a newer kotlinc
+          # whose class metadata the app's Kotlin plugin (2.1) cannot read.
+          curl -fL --retry 3 --retry-all-errors https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
+          unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/kotlin"
+          echo "$RUNNER_TEMP/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: aarch64-linux-android,x86_64-linux-android
@@ -66,10 +71,14 @@ jobs:
       - name: Build the Core AAR (release profile)
         run: node scripts/bindings/build-android.mjs
       - name: Read the version
+        env:
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
         run: |
           version=$(node -p "require('./package.json').version")
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            test "$GITHUB_REF" = "refs/tags/v$version" || { echo 'Tag must match package.json version'; exit 1; }
+          tag="${RELEASE_TAG_INPUT:-${GITHUB_REF#refs/tags/}}"
+          if [[ "$GITHUB_REF" == refs/tags/* || -n "$RELEASE_TAG_INPUT" ]]; then
+            test "$tag" = "v$version" || { echo 'Tag must match package.json version'; exit 1; }
+            echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           fi
           # versionCode must grow with every release: 1.1.8 → 10108.
           IFS=. read -r major minor patch <<< "${version%%-*}"
@@ -105,13 +114,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Attach to the GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.RELEASE_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # The Desktop release workflow creates and publishes the release;
           # wait for it rather than creating a release without its notes.
-          tag="v$VERSION"
+          tag="$RELEASE_TAG"
           for attempt in $(seq 1 90); do
             if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)" == false ]]; then
               gh release upload "$tag" "$RUNNER_TEMP"/apk/*.apk --clobber

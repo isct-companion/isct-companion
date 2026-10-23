@@ -109,12 +109,25 @@ const android = join(
   sdk,
   `platforms/android-${androidCompileSdk}/android.jar`,
 );
+// The app compiles against these classes with its own Kotlin plugin, which
+// rejects metadata more than one minor version newer. Whatever kotlinc the
+// host has (CI runners ship a newer one), emit the app's language version.
+const appKotlin = readFileSync(
+  join(root, "apps/android/build.gradle.kts"),
+  "utf8",
+).match(/id\("org\.jetbrains\.kotlin\.android"\) version "(\d+\.\d+)/)?.[1];
+if (!appKotlin)
+  throw new Error("Missing the Kotlin plugin version in apps/android");
 run("kotlinc", [
   join(generated, "app/isctcompanion/core/isct_ffi.kt"),
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/OperationValue.kt",
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt",
   "-classpath",
   [jna, coroutines, android, annotations].join(":"),
+  "-language-version",
+  appKotlin,
+  "-api-version",
+  appKotlin,
   "-jvm-target",
   "1.8",
   "-d",
