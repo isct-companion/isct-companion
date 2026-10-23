@@ -1,8 +1,12 @@
 package app.isctcompanion.features.settings
 
 import app.isctcompanion.design.t
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -25,8 +29,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.QrCodeScanner
@@ -102,6 +108,17 @@ private fun clipboardText(context: Context): String? =
     context.getSystemService(ClipboardManager::class.java)?.primaryClip
         ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
 
+/** Marked sensitive so the clipboard preview and keyboard suggestions hide
+ * it: the link is the second factor itself. Android 13+ shows its own
+ * "Copied" confirmation. */
+private fun copySensitive(context: Context, text: String) {
+    val clip = ClipData.newPlainText(t("OTP setup"), text)
+    clip.description.extras = android.os.PersistableBundle().apply {
+        putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+    }
+    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(clip)
+}
+
 // OTP
 
 /** The OTP setup, as the desktop's chooser: once saved, one line that says
@@ -112,6 +129,7 @@ private fun clipboardText(context: Context): String? =
 @Composable
 fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
     val context = LocalContext.current
+    val model = LocalModel.current
     val scope = rememberCoroutineScope()
     var changing by remember { mutableStateOf(false) }
     var path by remember { mutableStateOf("export") }
@@ -159,6 +177,34 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
             Text(t("Codes are filled in for you at sign-in."), color = Theme.colors.ink, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("Change")) }
         }
+        // A QR on this screen cannot be scanned by this phone, so the
+        // `otpauth://` link goes straight to the installed authenticator.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SourceChip(t("Add to authenticator"), Icons.Outlined.Key) {
+                scope.launch {
+                    error = null
+                    runCatching { model.otpSetupLink() }
+                        .onSuccess { link ->
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                            } catch (missing: ActivityNotFoundException) {
+                                error = t("No authenticator app on this device can add this setup. Copy it instead.")
+                            }
+                        }
+                        .onFailure { error = AppModel.describe(it) }
+                }
+            }
+            SourceChip(t("Copy setup"), Icons.Outlined.ContentCopy) {
+                scope.launch {
+                    error = null
+                    runCatching { model.otpSetupLink() }
+                        .onSuccess { link -> copySensitive(context, link) }
+                        .onFailure { error = AppModel.describe(it) }
+                }
+            }
+        }
+        Hint(t("If you reset OTP at school, the old school entry in your authenticator no longer works: delete it and add this one."))
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
         return
     }
     Choices(listOf("export" to t("From an authenticator app"), "paste" to t("Setup link or secret")), path) { path = it }

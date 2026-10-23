@@ -122,7 +122,7 @@ fn otp_export_prefers_a_valid_draft_without_mutating_saved_credentials() {
     // The QR export carries a link other authenticators accept: a saved link
     // stays as is, and a bare secret gains an issuer and the account name
     // while still producing the same codes.
-    assert_eq!(otp_setup_uri(saved, "user"), saved);
+    assert_eq!(service.otp_setup_link(None).unwrap(), saved);
     assert!(service.otp_setup_qr(None).unwrap().contains("<svg"));
     assert!(service.otp_setup_qr(Some("123456")).is_err());
     let uri = otp_setup_uri("jbsw y3dp-ehpk3pxp", "user@example");

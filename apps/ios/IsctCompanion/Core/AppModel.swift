@@ -579,6 +579,15 @@ final class AppModel {
         syncHint(.signedIn(profile: profile))
     }
 
+    /// The saved school OTP setup as an `otpauth://` link, read only when the
+    /// person asks to add it to an authenticator or copy it.
+    func otpSetupLink() async throws -> String {
+        guard let session, case let .text(value) = try await session.schoolOtpLink(draft: nil).value() else {
+            throw CancellationError()
+        }
+        return value
+    }
+
     /// Edits `settings.notifications` and replaces the settings object.
     func setNotifications(_ edit: @escaping @MainActor (inout [String: Any]) -> Void) async {
         await updateSettings { settings in

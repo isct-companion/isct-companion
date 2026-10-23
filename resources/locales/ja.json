@@ -1592,5 +1592,9 @@
   "Add to another authenticator": "ほかの認証アプリに追加",
   "OTP setup QR code": "OTP 設定の QR コード",
   "Scan this with any authenticator app. If you reset OTP at school, the old school entry in your other authenticators no longer works: delete it and use this one.": "お使いの認証アプリでこの QR コードを読み取ってください。大学で OTP を再設定した場合、ほかの認証アプリにある大学の古い登録は使えなくなっています。古い登録を削除して、こちらを使ってください。",
-  "Anyone who sees this QR code can generate your verification codes. Close it when you are done.": "この QR コードを見た人は誰でもあなたの確認コードを生成できます。使い終わったらすぐに閉じてください。"
+  "Anyone who sees this QR code can generate your verification codes. Close it when you are done.": "この QR コードを見た人は誰でもあなたの確認コードを生成できます。使い終わったらすぐに閉じてください。",
+  "Add to authenticator": "認証アプリに追加",
+  "If you reset OTP at school, the old school entry in your authenticator no longer works: delete it and add this one.": "大学で OTP を再設定した場合、認証アプリにある大学の古い登録は使えなくなっています。古い登録を削除して、こちらを追加してください。",
+  "No authenticator app on this device can add this setup. Copy it instead.": "この設定を追加できる認証アプリがこの端末にありません。代わりにコピーしてください。",
+  "OTP setup": "OTP 設定"
 }

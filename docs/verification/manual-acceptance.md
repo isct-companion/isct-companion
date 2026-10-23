@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 93 checks must be re-run before the next release.**
+**7 of 94 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**83 checks have never been run or could not be run:**
+**84 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -76,6 +76,7 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-OTP-QR` — never verified
 - `SCHOOL-SIGNIN-TOKYO-VISIBLE` — never verified
 - `IOS-CREDENTIAL-SOURCE-TILES` — never verified
+- `MOBILE-OTP-AUTHENTICATOR-EXPORT` — never verified
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
 - `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
 - `DESKTOP-STORAGE-SPLIT` — never verified
@@ -174,6 +175,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/isct-core/src/school_auth/otp_setup.rs<br>crates/isct-core/src/school_auth/otp_enrollment.rs<br>crates/isct-core/src/school_browser/assets/*.js<br>crates/isct-core/src/school_browser/engine/*.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO-VISIBLE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/school_browser/assets/school-login.js<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/** |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift |
+| `MOBILE-OTP-AUTHENTICATOR-EXPORT` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>crates/isct-ffi/src/session.rs |
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>crates/isct-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
@@ -3414,7 +3416,8 @@ non-accessibility step.
 2. Open Science Tokyo with no OTP saved. The ワンタイムパスワード section
    is a two-way choice: 認証アプリから shows QR を読み取る and 写真から,
    設定リンク・秘密鍵 shows the field and 貼り付け. With an OTP saved it
-   is one line with a tick and 変更.
+   is one line with a tick and 変更, then a row of 認証アプリに追加 and
+   設定をコピー.
    - *Why:* The longest label lives under 認証アプリから; it must shrink on one
      line rather than widen its tile. The saved line replaces a field
      people mistook for a place to type the six-digit code.
@@ -3441,6 +3444,65 @@ OCR, so it shows only two of the Matrix tiles.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+
+**Last recorded** never run
+
+### A phone hands the saved school OTP to its authenticator app (`MOBILE-OTP-AUTHENTICATOR-EXPORT`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Signed iOS and Android builds on physical phones, each with the Science
+Tokyo OTP saved, and an authenticator app installed (Google
+Authenticator, Microsoft Authenticator or iOS Passwords). A second phone
+without any authenticator, or one where it can be uninstalled, for the
+failure path.
+
+**Steps**
+
+1. Open 設定 → 学校アカウント → Science Tokyo and tap 認証アプリに追加.
+   Confirm the authenticator opens with an entry named Science Tokyo and
+   the student ID, add it, and compare its code with the one the
+   desktop or school page accepts.
+   - *Why:* Which app claims `otpauth://` and how it names the entry are decided
+     by the OS and the installed authenticator; Core tests only prove the
+     link parses back to the same codes.
+2. On the phone without an authenticator, tap 認証アプリに追加.
+   - *Why:* The no-handler path (`openURL` refusing on iOS,
+     ActivityNotFoundException on Android) only happens on a device with
+     nothing registered for the scheme.
+3. Tap 設定をコピー, paste into a notes field, then check the keyboard
+   clipboard suggestion (Android) or another Apple device's Universal
+   Clipboard (iOS), and paste again after two minutes on iOS.
+   - *Why:* The copy is marked sensitive on Android and local-only with a
+     two-minute expiry on iOS; both are system clipboard behaviours.
+
+**Where to look**
+
+The authenticator app, the error line under the buttons, and the pasted text.
+
+**Expected**
+
+The authenticator adds a working Science Tokyo entry; without one, a red
+line says to copy instead. The copied link pastes once on the phone, is
+hidden from Android's clipboard preview, never reaches another Apple
+device, and is gone from the iOS clipboard after two minutes. The
+warning about the old entry after a school reset shows under the
+buttons.
+
+**Why this is manual**
+
+Needs signed apps on real phones, installed authenticator apps handling
+`otpauth://`, and the system clipboard.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
+- `crates/isct-ffi/src/session.rs`
 
 **Last recorded** never run
 

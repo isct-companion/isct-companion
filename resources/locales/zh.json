@@ -1592,5 +1592,9 @@
   "Add to another authenticator": "添加到其他验证器",
   "OTP setup QR code": "OTP 配置二维码",
   "Scan this with any authenticator app. If you reset OTP at school, the old school entry in your other authenticators no longer works: delete it and use this one.": "用任意验证器应用扫描此二维码。如果你在学校重新设置过 OTP，其他验证器中学校的旧配置已经失效：请删除旧配置，改用这个。",
-  "Anyone who sees this QR code can generate your verification codes. Close it when you are done.": "任何看到此二维码的人都能生成你的验证码。用完请立即关闭。"
+  "Anyone who sees this QR code can generate your verification codes. Close it when you are done.": "任何看到此二维码的人都能生成你的验证码。用完请立即关闭。",
+  "Add to authenticator": "添加到验证器",
+  "If you reset OTP at school, the old school entry in your authenticator no longer works: delete it and add this one.": "如果你在学校重新设置过 OTP，验证器中学校的旧配置已经失效：请删除旧配置，添加这个新的。",
+  "No authenticator app on this device can add this setup. Copy it instead.": "本设备上没有能添加此配置的验证器应用，请改用复制。",
+  "OTP setup": "OTP 配置"
 }

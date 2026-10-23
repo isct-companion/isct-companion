@@ -806,10 +806,10 @@ impl SchoolAuthService {
         Ok(text)
     }
 
-    /// The same explicit export as an SVG QR code of an `otpauth://` link, so
-    /// any authenticator can scan it. A bare secret gets the school's issuer
-    /// and the saved account name as its label.
-    pub fn otp_setup_qr(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
+    /// The same explicit export as an `otpauth://` link any authenticator
+    /// accepts. A bare secret gets the school's issuer and the saved account
+    /// name as its label. Mobile shells hand it to the OS to open one.
+    pub fn otp_setup_link(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
         let text = self.otp_setup_text(draft)?;
         let account = match self.load(SchoolAuthProfile::Science)? {
             Some(credentials) => credentials.username,
@@ -818,7 +818,12 @@ impl SchoolAuthService {
                 .map(|otp| otp.username)
                 .unwrap_or_default(),
         };
-        let code = qrcode::QrCode::new(otp_setup_uri(&text, &account))
+        Ok(otp_setup_uri(&text, &account))
+    }
+
+    /// `otp_setup_link` as an SVG QR code, for a phone to scan from the desktop.
+    pub fn otp_setup_qr(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
+        let code = qrcode::QrCode::new(self.otp_setup_link(draft)?)
             .map_err(|_| SchoolAuthError::invalid("OTP setup is too long."))?;
         Ok(code
             .render::<qrcode::render::svg::Color>()

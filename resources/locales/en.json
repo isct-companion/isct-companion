@@ -54,5 +54,9 @@
   "Add to another authenticator": "Add to another authenticator",
   "OTP setup QR code": "OTP setup QR code",
   "Scan this with any authenticator app. If you reset OTP at school, the old school entry in your other authenticators no longer works: delete it and use this one.": "Scan this with any authenticator app. If you reset OTP at school, the old school entry in your other authenticators no longer works: delete it and use this one.",
-  "Anyone who sees this QR code can generate your verification codes. Close it when you are done.": "Anyone who sees this QR code can generate your verification codes. Close it when you are done."
+  "Anyone who sees this QR code can generate your verification codes. Close it when you are done.": "Anyone who sees this QR code can generate your verification codes. Close it when you are done.",
+  "Add to authenticator": "Add to authenticator",
+  "If you reset OTP at school, the old school entry in your authenticator no longer works: delete it and add this one.": "If you reset OTP at school, the old school entry in your authenticator no longer works: delete it and add this one.",
+  "No authenticator app on this device can add this setup. Copy it instead.": "No authenticator app on this device can add this setup. Copy it instead.",
+  "OTP setup": "OTP setup"
 }

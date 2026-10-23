@@ -576,6 +576,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         hint(Hint.SignedIn(profile))
     }
 
+    /** The saved school OTP setup as an `otpauth://` link, read only when the
+     * person asks to add it to an authenticator or copy it. */
+    suspend fun otpSetupLink(): String {
+        val session = session ?: throw IllegalStateException(t("This is not available right now."))
+        return (session.schoolOtpLink(null).value() as? OperationResult.Text)?.value
+            ?: throw IllegalStateException(t("This is not available right now."))
+    }
+
     /** Edits `settings.notifications` and replaces the settings object. */
     suspend fun setNotifications(edit: (JSONObject) -> Unit) = updateSettings { settings ->
         val notifications = settings.optJSONObject("notifications") ?: JSONObject()

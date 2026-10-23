@@ -388,6 +388,15 @@ impl Session {
             Ok(OperationResult::Flag { value })
         })
     }
+    /// The saved (or drafted) school OTP setup as an `otpauth://` link for
+    /// the shell to open in an authenticator or copy. Only on explicit request.
+    pub fn school_otp_link(&self, draft: Option<String>) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::Text {
+                value: i.core.auth.otp_setup_link(draft.as_deref())?,
+            })
+        })
+    }
     pub fn delete_credentials(
         &self,
         profile: SchoolAuthProfile,

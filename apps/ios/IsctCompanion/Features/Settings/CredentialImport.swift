@@ -2,6 +2,7 @@ import AVFoundation
 import IsctCore
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 import Vision
 import VisionKit
 
@@ -70,6 +71,9 @@ struct OtpImportField: View {
     @State private var choices: [OtpImportAccount] = []
     @State private var label: String?
     @State private var error: String?
+    @State private var copied = false
+    @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
 
     private enum Path: Hashable { case export, paste }
 
@@ -81,6 +85,18 @@ struct OtpImportField: View {
                     .foregroundStyle(Theme.ok, Theme.ink)
                 Spacer()
                 Button(t("Change")) { changing = true }
+            }
+            // A QR on this screen cannot be scanned by this phone, so the
+            // `otpauth://` link goes straight to the installed authenticator.
+            SourceTiles {
+                Button(t("Add to authenticator"), systemImage: "key.viewfinder") { Task { await addToAuthenticator() } }
+                Button(t(copied ? "Copied" : "Copy setup"), systemImage: "doc.on.doc") { Task { await copySetup() } }
+            }
+            Text(t("If you reset OTP at school, the old school entry in your authenticator no longer works: delete it and add this one."))
+                .font(.footnote)
+                .foregroundStyle(Theme.muted)
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(Theme.danger)
             }
         } else {
             chooser
@@ -199,6 +215,36 @@ struct OtpImportField: View {
             return
         }
         read(payload)
+    }
+
+    private func addToAuthenticator() async {
+        error = nil
+        do {
+            let link = try await model.otpSetupLink()
+            guard let url = URL(string: link) else { return }
+            openURL(url) { accepted in
+                if !accepted { error = t("No authenticator app on this device can add this setup. Copy it instead.") }
+            }
+        } catch {
+            self.error = AppModel.describe(error)
+        }
+    }
+
+    /// Kept off Universal Clipboard and cleared after two minutes: the link
+    /// is the second factor itself.
+    private func copySetup() async {
+        error = nil
+        do {
+            let link = try await model.otpSetupLink()
+            UIPasteboard.general.setItems(
+                [[UTType.utf8PlainText.identifier: link]],
+                options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+            copied = true
+            try? await Task.sleep(for: .seconds(2))
+            copied = false
+        } catch {
+            self.error = AppModel.describe(error)
+        }
     }
 
     private func choose(_ account: OtpImportAccount) {

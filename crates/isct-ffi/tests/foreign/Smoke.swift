@@ -90,7 +90,7 @@ func require(_ condition: Bool, _ detail: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("isct-swift-\(UUID().uuidString)")
         let config = SessionConfig(dataDirectory: directory.appendingPathComponent("data").path, filesDirectory: directory.appendingPathComponent("files").path, initialNetwork: .offline, cloudProviders: [], authorizedCloudProviders: [])
         let vault = MemoryVault()
-        let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, downloads: nil)
+        let session = try await Session.open(config: config, vault: vault, browser: nil, cloud: nil, notifications: nil, downloads: nil, webAuthentication: nil, driveTokens: nil)
         let logs = try exportApplicationLogs(about: "smoke")
         try require(logs.hasPrefix("smoke\n") && logs.contains("Application started"), "Opening a session must install Core's logger")
         let waitingOperation = WaitingOperation()
