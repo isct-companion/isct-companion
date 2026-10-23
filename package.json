@@ -15,6 +15,7 @@
     "test:live": "ISCT_LIVE_SCHOOL_TESTS=1 vitest run --config apps/desktop/tests/vitest.config.ts tests/live",
     "test:types": "./node_modules/.bin/tsc -p apps/desktop/tests/tsconfig.json",
     "verify:manual": "node scripts/checks/manual-acceptance.mjs",
+    "release:bump": "node scripts/release/bump.mjs",
     "format": "yarn workspace @isct/desktop format",
     "design:tokens": "node design/build.mjs",
     "icons:desktop": "node scripts/desktop/generate-desktop-icons.mjs",

@@ -9,16 +9,20 @@ release pipelines remain separate and are not part of this workflow.
 CI uses the Yarn version pinned in `package.json`, enabled through Corepack,
 and installs dependencies with `yarn install --immutable`.
 
-The Desktop release workflow runs on version tag pushes and by manual dispatch. Update the matching versions
-in `package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml`,
-`Cargo.lock` and `apps/desktop/src-tauri/tauri.conf.json`, including its macOS
-`bundleVersion`. Add user-facing notes in `docs/releases/<version>.md`. After review,
+The Desktop release workflow runs on version tag pushes and by manual dispatch.
+`yarn release:bump <version>` moves the version in every place the workflow
+validates (`scripts/release/versions.mjs` lists them) and prints the commits since
+the last tag. Add user-facing notes in `docs/releases/<version>.md`, then run what
+the workflow's verify job runs: `node scripts/desktop/desktop-release.mjs validate`,
+`yarn test`, `yarn test:types` and `cargo test -p isct-core --locked`. After review,
 commit and push the changes, then push a matching version tag:
 
 ```sh
 git tag -a v1.1.3 -m "IsctCompanion 1.1.3"
 git push origin v1.1.3
 ```
+
+Claude Code runs these steps through the `release` skill (`.claude/skills/release`).
 
 Any maintainer with permission to push that tag can start a release. Actions uses
 repository secrets for signing and its scoped `GITHUB_TOKEN` for publication;

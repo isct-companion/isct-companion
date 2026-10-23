@@ -38,6 +38,7 @@ import {
   nativeOAuthEnv,
   readOAuthClients,
 } from "@repo/scripts/lib/oauth-config.mjs";
+import { readVersions } from "@repo/scripts/release/versions.mjs";
 
 /** A bundled module id, as Vite would report it, for a package in node_modules. */
 const bundledModule = (...parts) =>
@@ -330,6 +331,7 @@ describe("desktop update distribution", () => {
         "docs/legal/EULA.ja.md",
         "docs/distribution/README.md",
         "scripts/desktop/desktop-release.mjs",
+        "scripts/release/versions.mjs",
       ]) {
         const dest = path.join(root, name);
         mkdirSync(path.dirname(dest), { recursive: true });
@@ -397,6 +399,74 @@ describe("desktop update distribution", () => {
           existsSync(path.join(root, "artifacts/desktop", target, "LICENSE")),
         ).toBe(true);
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("release version bump", () => {
+  it("moves every place the release validates, refusing a stale or half-bumped version", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "isct-bump-"));
+    const git = (...args) =>
+      spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    try {
+      for (const name of [
+        "package.json",
+        "apps/desktop/package.json",
+        "apps/desktop/src-tauri/tauri.conf.json",
+        "apps/desktop/src-tauri/Cargo.toml",
+        "Cargo.lock",
+        "docs/legal/EULA.md",
+        "docs/legal/EULA.ja.md",
+        "scripts/desktop/desktop-release.mjs",
+        "scripts/release/versions.mjs",
+        "scripts/release/bump.mjs",
+      ]) {
+        const dest = path.join(root, name);
+        mkdirSync(path.dirname(dest), { recursive: true });
+        cpSync(path.join(repositoryRoot, name), dest);
+      }
+      const version = JSON.parse(readRepoFile("package.json")).version;
+      git("init", "-q");
+      git("add", ".");
+      git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x");
+      git("tag", `v${version}`);
+      const bump = (next) =>
+        spawnSync(
+          process.execPath,
+          [path.join(root, "scripts/release/bump.mjs"), next],
+          { encoding: "utf8" },
+        );
+
+      expect(bump(version).stderr).toContain(`not newer than the current`);
+      // 1.1.7 shipped its first commit with Cargo.lock left behind: a place out
+      // of step stops the bump and is named.
+      const lock = path.join(root, "Cargo.lock");
+      const locked = readFileSync(lock, "utf8");
+      writeFileSync(
+        lock,
+        locked.replace(
+          /(name = "isct-companion"\r?\nversion = ")[^"]+/,
+          "$10.0.1",
+        ),
+      );
+      const halfBumped = bump("99.0.0");
+      expect(halfBumped.status).not.toBe(0);
+      expect(halfBumped.stderr).toContain("Cargo.lock");
+      writeFileSync(lock, locked);
+
+      expect(bump("99.0.0").status).toBe(0);
+      expect(new Set(readVersions(root).map((place) => place.version))).toEqual(
+        new Set(["99.0.0"]),
+      );
+      const validate = spawnSync(
+        process.execPath,
+        [path.join(root, "scripts/desktop/desktop-release.mjs"), "validate"],
+        { encoding: "utf8", env: { ...process.env, GITHUB_REF: "" } },
+      );
+      expect(validate.stderr).toBe("");
+      expect(validate.status).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
