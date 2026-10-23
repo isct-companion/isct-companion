@@ -79,24 +79,35 @@ Displayed corners use a One Euro filter; crops use the unsmoothed fit.
 
 | continuous, 300 frames | current Rust | reference, detect each frame | reference, tracking |
 |---|---:|---:|---:|
-| located frames | 177 (59 %) | 219 (73 %) | 250 (83 %) |
-| labelled: missed / wrong ¼ cell / wrong ½ cell | 20 / 15 / 9 | 3 / 0 / 0 | 0 / 4 / 0 |
-| **geometry failure rate** | **30.2 %** | **2.6 %** | **3.4 %** |
-| corner error p50 / p95 (cells) | 0.068 / 2.57 | 0.055 / 0.13 | 0.055 / 0.17 |
-| per-frame cost p50 | 62 ms (incl. 35 ms JPEG decode) | Python, not comparable | 24 ms Python (incl. 20 ms resize) |
-| simulated located boxes / s | 9.1 | — | 21.5 |
-| simulated draw latency p50 / p95 | 100 / 117 ms | — | 33 / 67 ms |
+| located frames | 177 (59 %) | 211 (70 %) | 251 (84 %) |
+| labelled: missed / wrong ¼ cell / wrong ½ cell | 20 / 15 / 9 | 7 / 0 / 0 | 0 / 2 / 0 |
+| **geometry failure rate** | **30.2 %** | **6.0 %** | **1.7 %** |
+| corner error p50 / p95 (cells) | 0.068 / 2.57 | 0.051 / 0.12 | 0.057 / 0.13 |
+| frames tracked / refitted / detected | — | — / — / 211 | 212 / 29 / 10 |
 
 | sampled, 119 frames, every frame independent | current Rust | reference |
 |---|---:|---:|
-| located frames | 44 | 63 |
+| located frames | 44 | 62 |
 | labelled: missed / wrong ¼ cell | 26 / 6 | 11 / 0 |
 | **geometry failure rate** | **71.1 %** | **24.4 %** |
+| corner error p50 / p95 (cells) | 0.091 / 2.90 | 0.047 / 0.14 |
 
-The reference never produced a wrong grid when detecting from scratch; its
-remaining misses are frames where the header leaves the frame or blur removes
-the row steps. Tracking keeps 83 % of continuous frames located, and its four
-¼-cell errors are drift between refits (largest 0.4 cell).
+Detection from scratch never produced a wrong grid. Its misses are frames where
+the header leaves the picture or blur removes the row steps; tracking carries
+the grid through those. The two tracked ¼-cell errors are drift between refits.
+
+Timing: the current pipeline's 62 ms p50 includes 35 ms of JPEG decode. The
+reference is Python and its committed timings were taken with three replays
+running at once (a lone run tracks at 24 ms p50, 20 ms of it resizing); they
+are not a performance target. Timing claims belong to the Rust implementation.
+
+**Row steps need colour.** Sampling row steps in the ink-free gaps between
+letters (instead of through them) took tracking from 3.4 % to 1.7 %. With the
+same code reading the row steps from luminance only (`--gray-only`), every
+labelled frame came out wrong: pink and white rows differ by only ~25 grey
+levels next to thin dark row lines, and the fit settles about half a row off
+while still passing every gate (100 % failure, p50 0.43 cell). The fast
+transport therefore has to keep a colour-difference plane, not luminance alone.
 
 Replay (paths are local):
 

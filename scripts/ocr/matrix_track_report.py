@@ -280,7 +280,7 @@ def main():
         misses = [r["frame"] for r in rows if r["final"] is None and any(r["frame"] in l for l in labels.values())]
         worst = sorted((r for r in rows if r.get("errors")), key=lambda r: -max(r["errors"].values()))
         chosen.update(misses[: args.overlays // 2])
-        chosen.update(r["frame"] for r in worst[: args.overlays - len(chosen)])
+        chosen.update(r["frame"] for r in worst[: max(0, args.overlays - len(chosen))])
         directory = args.out / f"overlays-{name}"
         directory.mkdir(exist_ok=True)
         for r in rows:

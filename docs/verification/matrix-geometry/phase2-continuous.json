@@ -37,74 +37,112 @@
   "ref-detect": {
     "pipeline": "opencv-reference",
     "frames": 300,
-    "located": 219,
-    "localisationRate": 0.73,
-    "processingMsP50": 398.22081249803887,
-    "processingMsP95": 641.2388565506265,
-    "throughputFps": 2.5600912256728368,
+    "located": 211,
+    "localisationRate": 0.7033333333333334,
+    "processingMsP50": 725.9132500003034,
+    "processingMsP95": 1218.7615069015012,
+    "throughputFps": 1.4045770162804674,
     "liveSimulation": {
       "cameraFps": 30,
       "displayHz": 60,
       "transportMs": 0,
-      "processedFps": 2.9,
-      "locatedBoxesPerSecond": 1.9,
-      "drawLatencyMsP50": 483.3333333333325,
-      "drawLatencyMsP95": 884.9999999999983,
-      "boxAgeMsP50": 433.3333333333336,
-      "boxAgeMsP95": 599.9999999999998
+      "processedFps": 1.4,
+      "locatedBoxesPerSecond": 0.9,
+      "drawLatencyMsP50": 1066.6666666666665,
+      "drawLatencyMsP95": 1526.6666666666663,
+      "boxAgeMsP50": 1000.0,
+      "boxAgeMsP95": 1313.3333333333335
     },
     "modes": {
-      "lost": 81,
-      "detect": 219
+      "lost": 89,
+      "detect": 211
     },
     "labels": {
       "sift": {
         "labelledFrames": 116,
-        "missed": 3,
+        "missed": 7,
         "wrongQuarterCell": 0,
         "wrongHalfCell": 0,
-        "geometryFailureRate": 0.02586206896551724,
+        "geometryFailureRate": 0.0603448275862069,
         "wrongAmongLocated": 0.0,
-        "cornerErrorCellsP50": 0.05461309234632193,
-        "cornerErrorCellsP95": 0.12720465277742332
+        "cornerErrorCellsP50": 0.05060627920824579,
+        "cornerErrorCellsP95": 0.12181852792990676
       }
     }
   },
   "ref": {
     "pipeline": "opencv-reference",
     "frames": 300,
-    "located": 250,
-    "localisationRate": 0.8333333333333334,
-    "processingMsP50": 24.035666498093633,
-    "processingMsP95": 268.6071875010386,
-    "throughputFps": 15.04156123787163,
+    "located": 251,
+    "localisationRate": 0.8366666666666667,
+    "processingMsP50": 45.24189600124373,
+    "processingMsP95": 564.3824524002416,
+    "throughputFps": 7.875307439815669,
     "liveSimulation": {
       "cameraFps": 30,
       "displayHz": 60,
       "transportMs": 0,
-      "processedFps": 22.5,
-      "locatedBoxesPerSecond": 21.5,
-      "drawLatencyMsP50": 33.333333333333215,
-      "drawLatencyMsP95": 66.66666666666687,
-      "boxAgeMsP50": 33.333333333333215,
-      "boxAgeMsP95": 66.6666666666665
+      "processedFps": 12.2,
+      "locatedBoxesPerSecond": 11.6,
+      "drawLatencyMsP50": 66.66666666666654,
+      "drawLatencyMsP95": 137.50000000000094,
+      "boxAgeMsP50": 66.66666666666643,
+      "boxAgeMsP95": 133.33333333333397
     },
     "modes": {
-      "lost": 50,
-      "detect": 11,
-      "refit": 26,
-      "track": 213
+      "lost": 49,
+      "detect": 10,
+      "refit": 29,
+      "track": 212
     },
     "labels": {
       "sift": {
         "labelledFrames": 116,
         "missed": 0,
-        "wrongQuarterCell": 4,
+        "wrongQuarterCell": 2,
         "wrongHalfCell": 0,
-        "geometryFailureRate": 0.034482758620689655,
-        "wrongAmongLocated": 0.034482758620689655,
-        "cornerErrorCellsP50": 0.055066339680454233,
-        "cornerErrorCellsP95": 0.16941130937079404
+        "geometryFailureRate": 0.017241379310344827,
+        "wrongAmongLocated": 0.017241379310344827,
+        "cornerErrorCellsP50": 0.0570647499236607,
+        "cornerErrorCellsP95": 0.13039870035298645
+      }
+    }
+  },
+  "ref-gray": {
+    "pipeline": "opencv-reference",
+    "frames": 300,
+    "located": 238,
+    "localisationRate": 0.7933333333333333,
+    "processingMsP50": 72.35339550243225,
+    "processingMsP95": 860.6223166974816,
+    "throughputFps": 5.304240137719097,
+    "liveSimulation": {
+      "cameraFps": 30,
+      "displayHz": 60,
+      "transportMs": 0,
+      "processedFps": 10.4,
+      "locatedBoxesPerSecond": 9.5,
+      "drawLatencyMsP50": 83.33333333333393,
+      "drawLatencyMsP95": 133.33333333333286,
+      "boxAgeMsP50": 66.66666666666687,
+      "boxAgeMsP95": 100.00000000000054
+    },
+    "modes": {
+      "lost": 62,
+      "detect": 8,
+      "track": 218,
+      "refit": 12
+    },
+    "labels": {
+      "sift": {
+        "labelledFrames": 116,
+        "missed": 3,
+        "wrongQuarterCell": 113,
+        "wrongHalfCell": 8,
+        "geometryFailureRate": 1.0,
+        "wrongAmongLocated": 1.0,
+        "cornerErrorCellsP50": 0.4249920074343634,
+        "cornerErrorCellsP95": 0.5279873708133797
       }
     }
   }

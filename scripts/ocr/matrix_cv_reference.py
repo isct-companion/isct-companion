@@ -48,6 +48,7 @@ import numpy as np
 
 COLS, ROWS = 10, 7
 WORK = 960  # long side of the analysed image
+GRAY_ONLY = False  # --gray-only: what a grey-only transport would leave
 
 
 def apply(H, uv):
@@ -68,6 +69,9 @@ class Frame:
         f = small.astype(np.float32)
         self.gray = 0.299 * f[..., 2] + 0.587 * f[..., 1] + 0.114 * f[..., 0]
         self.chroma = f[..., 2] - f[..., 1]  # pink rows are positive
+        if GRAY_ONLY:
+            # Pink rows are darker than white ones in luminance as well.
+            self.chroma = -self.gray
         self.u8 = np.clip(self.gray, 0, 255).astype(np.uint8)
         self.h, self.w = self.gray.shape
 
@@ -142,10 +146,14 @@ def edge_points(frame, H, samples, radius):
 
 def line_specs():
     """Model lines: (name, axis value, is_horizontal, samples)."""
-    across_u = np.arange(0.25, COLS, 0.5)
+    # Sample row steps in the ink-free gaps between letters, never through them.
+    across_u = np.array([0.08] + [c + d for c in range(1, COLS) for d in (-0.07, 0.07)] + [COLS - 0.08])
     specs = [("header-top", -HEADER, True, [(u, -HEADER, 0, 1, "gray", -1) for u in across_u])]
     for j in range(ROWS + 1):
         sign = 1 if j % 2 == 0 else -1  # rows 1, 3, 5, 7 are pink
+        if GRAY_ONLY and j == 0:  # dark header above pink row 1: a luminance rise
+            specs.append(("row-0", 0, True, [(u, 0, 0, 1, "gray", 1) for u in across_u]))
+            continue
         specs.append((f"row-{j}", j, True, [(u, j, 0, 1, "chroma", sign) for u in across_u]))
     rows_v = np.arange(0.25, ROWS, 0.5)
     header_v = np.linspace(-HEADER + 0.2, -0.2, 3)
@@ -268,7 +276,10 @@ def column_gaps(frame, H):
 
 def anchored(frame, H):
     base = anchors(frame, H)
-    others = [anchors(frame, H, du, dv) for du in (-1, 0, 1) for dv in (-1, 0, 1) if du or dv]
+    # Whole-cell shifts catch off-by-one indexing; half-cell shifts catch a grid
+    # locked between the printed boundaries.
+    shifts = [-1, -0.5, 0, 0.5, 1]
+    others = [anchors(frame, H, du, dv) for du in shifts for dv in shifts if du or dv]
     return base, base - max(others)
 
 
@@ -595,13 +606,17 @@ def calibrate(frames, labels):
 
 
 def main():
+    global GRAY_ONLY, WORK
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("frames", type=Path)
     p.add_argument("--calibrate", type=Path, help="labels JSON: print header/label constants")
     p.add_argument("--fps", type=float, default=30)
     p.add_argument("--refit-every", type=int, default=8)
     p.add_argument("--detect-only", action="store_true", help="independent detect+fit on every frame")
+    p.add_argument("--gray-only", action="store_true", help="use luminance for the row steps too")
+    p.add_argument("--work", type=int, default=960, help="long side of the analysed image")
     args = p.parse_args()
+    GRAY_ONLY, WORK = args.gray_only, args.work
     cv2.setNumThreads(1)
     if args.calibrate:
         calibrate(args.frames, json.loads(args.calibrate.read_text()))
