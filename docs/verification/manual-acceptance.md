@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 75 checks must be re-run before the next release.**
+**7 of 76 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**66 checks have never been run or could not be run:**
+**67 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -84,6 +84,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-TODAY-CLASS-STACK` — never verified
 - `MOBILE-UI-LANGUAGE` — never verified
 - `DESKTOP-CALENDAR-NOW-LINE` — never verified
+- `DESKTOP-COURSE-OUTLINE-STILL` — never verified
 - `IOS-COURSE-LESSON-PAGING` — never verified
 - `IOS-COURSE-LESSON-MARK` — never verified
 - `IOS-COURSE-EXAM-LINE` — never verified
@@ -164,6 +165,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx |
+| `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
@@ -1933,15 +1935,12 @@ course on the timetable and its LMS course synced.
 2. Click "Open in browser" under one of them.
    - *Why:* The way out when the frame cannot be used; it must open the same
      page in the system browser.
-3. Read the course page's 開講元 row.
-   - *Why:* It shows the 教務 department of the offering now that no syllabus
-     detail is read.
-4. Set Settings → content language to English, open 教務Web in the app
+3. Set Settings → content language to English, open 教務Web in the app
    and keep browsing it while the course search fills in English titles.
    - *Why:* The English page is read in a detached session of its own. If its
      language switch leaked into the WebView's session, the open 教務
      pages would turn English.
-5. Sign out of TokyoTech (Settings → accounts), clear the school cache
+4. Sign out of TokyoTech (Settings → accounts), clear the school cache
    and open the course search.
    - *Why:* Without a 教務 session there is no catalog; the finder must say so
      instead of "No course catalog is saved yet".
@@ -1954,10 +1953,9 @@ pages in the app while English names arrive; the finder empty state.
 **Expected**
 
 The school's syllabus page in all three places (English page with
-`?hl=en` in English content), a working external link, the 教務
-department as 開講元, English titles in the finder without the visible
-教務 page ever turning English, and "Sign in to 教務 to search courses"
-when signed out.
+`?hl=en` in English content), a working external link, English titles
+in the finder without the visible 教務 page ever turning English, and
+"Sign in to 教務 to search courses" when signed out.
 
 **Why this is manual**
 
@@ -3701,6 +3699,49 @@ the schedule-and-dates unit test.
 
 - `apps/desktop/src/components/timetable/workspace.ts`
 - `apps/desktop/src/pages/today/CalendarView.tsx`
+
+**Last recorded** never run
+
+### The course outline holds still where the app placed it (`DESKTOP-COURSE-OUTLINE-STILL`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app on Lectures › Assignments, with a lesson-paged course
+that has an assignment card inside a lesson.
+
+**Steps**
+
+1. Click that assignment in the list on the left ten times quickly.
+   - *Why:* The first click brings the card into view; later clicks must not
+     move the outline at all. The section gravity used to pull the
+     app-placed outline a few pixels after each click and the next click
+     put it back, which looked like a twitch.
+2. Scroll the outline by hand to just past a lesson's start and let go.
+   - *Why:* Gravity still pulls a scroll the person made; the fix must not
+     switch it off.
+
+**Where to look**
+
+The course outline on the right and its lesson rail.
+
+**Expected**
+
+Repeated clicks leave the card exactly where it is; a hand scroll that
+stops near a lesson boundary still settles onto it.
+
+**Why this is manual**
+
+Scroll positions and the spring after scrolling need real layout,
+which jsdom does not compute; gravityTarget itself is pure and lives in
+lessons.ts.
+
+**Covers**
+
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
 
 **Last recorded** never run
 

@@ -227,8 +227,6 @@ pub enum ScheduleEntry {
     },
 }
 contract!(ClassFormat { pub kinds: Vec<String>, });
-// The 教務 course search's facts about an offering.
-contract!(OfficialListing { pub department: String, });
 contract!(Offering {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     pub year: i32, pub quarters: Vec<Quarter>, pub code: String,
@@ -240,7 +238,6 @@ contract!(Offering {
     pub intensive: bool, pub syllabus_url: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_seen_at: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub missing_since: Option<String>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub kyomu: Option<OfficialListing>,
 });
 
 contract!(IntensiveDay { pub date: String, pub periods: Option<(u8, u8)>, });
@@ -615,7 +612,6 @@ pub fn declarations() -> Vec<String> {
         CalendarException::decl(),
         ScheduleEntry::decl(),
         ClassFormat::decl(),
-        OfficialListing::decl(),
         Offering::decl(),
         IntensiveDay::decl(),
         IntensiveSchedule::decl(),

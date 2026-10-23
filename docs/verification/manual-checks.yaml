@@ -1612,11 +1612,6 @@ checks:
           The way out when the frame cannot be used; it must open the same
           page in the system browser.
       - action: |
-          Read the course page's 開講元 row.
-        reason: |
-          It shows the 教務 department of the offering now that no syllabus
-          detail is read.
-      - action: |
           Set Settings → content language to English, open 教務Web in the app
           and keep browsing it while the course search fills in English titles.
         reason: |
@@ -1634,10 +1629,9 @@ checks:
       pages in the app while English names arrive; the finder empty state.
     expected: |
       The school's syllabus page in all three places (English page with
-      `?hl=en` in English content), a working external link, the 教務
-      department as 開講元, English titles in the finder without the visible
-      教務 page ever turning English, and "Sign in to 教務 to search courses"
-      when signed out.
+      `?hl=en` in English content), a working external link, English titles
+      in the finder without the visible 教務 page ever turning English, and
+      "Sign in to 教務 to search courses" when signed out.
     why_manual: |
       Framing is decided by the live school site, and the English page and the
       detached session need a real 教務 sign-in; the URL and the planner rule
