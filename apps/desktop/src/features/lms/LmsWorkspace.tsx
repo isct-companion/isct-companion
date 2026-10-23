@@ -708,9 +708,9 @@ export function LmsWorkspace({
         const anchor = current.current.anchor;
         const element =
           anchor &&
-          [...host.querySelectorAll<HTMLElement>("[data-reading-section]")].find(
-            (el) => el.dataset.readingSection === anchor.id,
-          );
+          [
+            ...host.querySelectorAll<HTMLElement>("[data-reading-section]"),
+          ].find((el) => el.dataset.readingSection === anchor.id);
         if (element && anchor) {
           const panel = host.getBoundingClientRect();
           const rect = element.getBoundingClientRect();
@@ -876,8 +876,6 @@ export function LmsWorkspace({
                   weekday: "short",
                   hour: "2-digit",
                   minute: "2-digit",
-                  hourCycle: "h23",
-                  timeZone: "Asia/Tokyo",
                 })}
               </time>
             )}
@@ -932,7 +930,6 @@ export function LmsWorkspace({
                   formatJst(due, data.settings.locale, {
                     dateStyle: "medium",
                     timeStyle: "short",
-                    timeZone: "Asia/Tokyo",
                   }) + " JST",
                 url: a.sourceUrl,
                 html: body || a.details || "",
@@ -1301,7 +1298,11 @@ export function LmsWorkspace({
                 <i className="schoolStatusSpinner" aria-hidden="true" />
                 {updatedAt
                   ? `${t("Showing data from {{age}}", {
-                      age: ageText(updatedAt, timelineNow, data.settings.locale),
+                      age: ageText(
+                        updatedAt,
+                        timelineNow,
+                        data.settings.locale,
+                      ),
                     })} · `
                   : null}
                 {progress.total !== null

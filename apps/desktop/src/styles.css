@@ -763,12 +763,6 @@ p {
   overflow: auto;
 }
 
-/* ---------- drawer ---------- */
-.drawerActions {
-  padding: 12px 18px;
-  border-top: 1px solid var(--line);
-}
-
 /* ---------- docked editor ---------- */
 .sheetInner {
   height: 100%;
@@ -2464,6 +2458,18 @@ p {
 .coursePanelBody > dl > dd {
   margin: 0;
 }
+/* Where the course goes next: Lectures for studying, the LMS page. */
+.coursePanelLinks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.coursePanelLinks .officialLink {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 4px 3px 10px;
+}
 .coursePanelFoot {
   display: flex;
   justify-content: flex-end;
@@ -2676,45 +2682,6 @@ p {
 .todaySection {
   padding-top: 16px;
 }
-
-/* Shared course details (Courses panel and Today/Schedule drawer) */
-.courseDetails {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.courseDetailsBody {
-  flex: 1;
-  min-height: 0;
-}
-.courseTabCount {
-  flex-shrink: 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.courseDetailsBody dl {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 8px 12px;
-  padding: 14px 16px 6px;
-  font-size: 13px;
-}
-.courseDetailsBody dt {
-  color: var(--muted);
-}
-.courseDetailsLinks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 6px 16px 14px;
-}
-.courseDetailsLinks .officialLink {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 3px 4px 3px 10px;
-}
 .officialLink {
   display: inline-flex;
   align-items: center;
@@ -2748,48 +2715,6 @@ p {
 .officialLink .officialOutside:hover {
   background: var(--surface-2);
   text-decoration: none;
-}
-.detailsList {
-  padding: 6px 16px 16px;
-  display: grid;
-  gap: 2px;
-}
-.detailsList > header {
-  display: flex;
-  justify-content: space-between;
-  min-height: 26px;
-}
-.detailsList h4 {
-  margin: 10px 0 4px;
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-.detailsRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
-  font-size: 13px;
-}
-.detailsRow > b {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.detailsRow small {
-  color: var(--muted);
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-.detailsRow small.overdue {
-  color: var(--danger);
-}
-.detailsRow small.warning {
-  color: var(--warn);
 }
 .coursePanel {
   display: flex;
@@ -2868,13 +2793,6 @@ p {
   display: inline-flex;
   align-items: center;
   gap: 0;
-}
-.courseExamList {
-  display: grid;
-  gap: 5px;
-}
-.courseExamList small {
-  color: var(--accent);
 }
 /* One schedule workspace: dated week for viewing, quarter pattern for editing. */
 .scheduleTitleRow {

@@ -24,6 +24,7 @@ import {
   type PlanningWeek,
   type WorkspaceOverview,
 } from "../../platform/core-query";
+import { useClock } from "../../platform/use-clock";
 
 /**
  * Timetable on the left, syllabus search on the right. Clicking a course opens
@@ -84,7 +85,7 @@ export function Courses({
   /** The 集中 lane toggles the intensive condition. */
   onIntensive?: (append: boolean) => void;
   intensiveActive?: boolean;
-  /** Refreshes official enrollment and times from 教務Web. */
+  /** Re-reads what the grid is drawn from: LMS quarter grids and 教務 registrations. */
   refreshSchedule?: () => void;
   /** 0–100 while an official pull runs, else null. */
   pullProgress?: PageProgress;
@@ -131,9 +132,10 @@ export function Courses({
     defaultValue: "5",
   });
   // The quarter running now marks today's weekday, which shows the now line.
+  const now = useClock();
   const allColumns = planningColumns(
     planning,
-    term === currentTerm ? tokyoDate(new Date()) : undefined,
+    term === currentTerm ? tokyoDate(new Date(now)) : undefined,
   );
   const columns =
     weekLength === "7"
@@ -357,7 +359,7 @@ export function Courses({
               <WeekTimetable
                 days={columns}
                 onSelect={select}
-                showNow
+                now={now}
                 onSlot={canEdit ? onSlot : undefined}
                 activeSlots={activeSlots}
               />

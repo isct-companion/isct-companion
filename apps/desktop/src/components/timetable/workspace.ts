@@ -1,6 +1,6 @@
 import { dayNames, type Block, type DayColumn } from "./timetable";
 import type { DatedAgenda, PlanningWeek } from "../../platform/core-query";
-import { civilWeekday, tokyoDate } from "../../lib/civil-date";
+import { civilWeekday } from "../../lib/civil-date";
 
 /**
  * Adapt Core's dated schedule read model to the timetable's display shape.
@@ -9,7 +9,7 @@ import { civilWeekday, tokyoDate } from "../../lib/civil-date";
  */
 export function agendaColumns(
   agendas: readonly DatedAgenda[],
-  today: string = tokyoDate(new Date()),
+  today: string,
 ): DayColumn[] {
   return agendas.map((agenda, index) => ({
     label: dayNames[index % dayNames.length],

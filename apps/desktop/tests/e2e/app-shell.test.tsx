@@ -586,7 +586,7 @@ describe("shell navigation", () => {
  * ------------------------------------------------------------------ */
 
 describe("keyboard shortcuts", () => {
-  it("routes ⌘1–5 and Escape, replacing the section and cycling all four drawer tabs", async () => {
+  it("routes ⌘1–5, replacing the section", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture({ courses: [placedCourse] }),
@@ -606,27 +606,6 @@ describe("keyboard shortcuts", () => {
     await click(study);
     expect(window.location.hash).toBe(`#${paths.settings("study")}`);
     expect(router.state.historyAction).toBe("REPLACE");
-
-    await app.go(paths.drawer(paths.home(), placedCourse.id, "overview"));
-    for (const label of ["Materials", "Assignments", "Syllabus", "Overview"]) {
-      const tab = await required(
-        () =>
-          [
-            ...document.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
-          ].find((button) => button.textContent?.includes(label)),
-        `the ${label} drawer tab`,
-      );
-      await click(tab);
-      expect(window.location.hash).toContain(`tab=${label.toLowerCase()}`);
-      expect(router.state.historyAction).toBe("REPLACE");
-    }
-
-    await act(async () => {
-      document.body.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
-    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
 
     for (const [index, target] of [
       paths.home(),
@@ -835,20 +814,31 @@ describe("web-page residency", () => {
       offering("202602421", "CSC.T252", "Placed", { id: "lms-12" }),
       { source: { provider: "lms", externalId: "12" }, url },
     );
-    const workspace = workspaceFixture({ courses: [course] });
+    const workspace = workspaceFixture({
+      courses: [course],
+      planItems: [planItemFor(course)],
+    });
     app = await mountShell(
       shellOptions({
         workspace,
         revision: "rev:explicit",
         queries: { ...shellQueries(), courseDetail: { lmsUrl: url } },
       }),
-      { route: paths.drawer(paths.home(), course.id) },
+      { route: paths.timetable() },
     );
-    const { core } = app;
+    const { core, host } = app;
 
-    // The course drawer renders through a portal on document.body.
+    await click(
+      await required(
+        () => host.querySelector<HTMLButtonElement>(".ttBlock.course"),
+        "the placed course block",
+      ),
+    );
     const link = await required(
-      () => document.querySelector<HTMLButtonElement>(".officialLink button"),
+      () =>
+        host.querySelector<HTMLButtonElement>(
+          ".coursePanel .officialLink button",
+        ),
       "the official LMS link",
     );
     await click(link);
@@ -1903,7 +1893,7 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
   await until(() =>
     expect(hints()).toContainEqual({
       kind: "refresh",
-      scope: { kind: "site", site: "science-lms" },
+      scope: { kind: "timetable" },
     }),
   );
   expect(

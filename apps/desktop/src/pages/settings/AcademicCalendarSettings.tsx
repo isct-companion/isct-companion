@@ -1,4 +1,5 @@
-import { formatJst } from "../../lib/civil-date";
+import { formatJst, tokyoDate } from "../../lib/civil-date";
+import { useClock } from "../../platform/use-clock";
 import { refresh, useSync } from "../../app/useSync";
 import { runsFor } from "../../platform/sync";
 import { notify as appNotify } from "../../app/notify";
@@ -17,7 +18,6 @@ import {
   type CalendarDayView,
   type CalendarOrigin,
 } from "../../platform/core-query";
-import { jstDate } from "../../app/shared";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import { UiButton, UiInput, UiSelect } from "../../components/mantine";
 import { SettingsGroup, SettingsHeader, Status } from "../../components/forms";
@@ -90,6 +90,7 @@ export function AcademicCalendarSettings({
   back: () => void;
 }) {
   const sync = useSync();
+  const now = useClock();
   const locale = data.settings.locale;
   const subscription = useSubscriptionViews().value?.calendar;
   const followedYear =
@@ -115,7 +116,7 @@ export function AcademicCalendarSettings({
   };
   const yearIndex = useScheduleQuery<AcademicYearIndex>({
     kind: "academicYears",
-    date: jstDate(new Date()),
+    date: tokyoDate(new Date(now)),
     selectedYear: year,
   }).value;
   const years = [...new Set(yearIndex?.years ?? [followedYear, year])].sort(
@@ -330,7 +331,7 @@ export function AcademicCalendarSettings({
     </form>
   );
 
-  const today = jstDate(new Date());
+  const today = tokyoDate(new Date(now));
   const past = view.days.filter((day) => day.date < today);
   const days = showPast ? view.days : view.days.slice(past.length);
   const editingKey = (day: CalendarDayView) =>

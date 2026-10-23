@@ -1,21 +1,106 @@
-import type { PageProgress } from "../../platform/sync";
-import { ExternalLink } from "../../components/ExternalLink";
 import { Button, Paper } from "@mantine/core";
+import type { ReactNode } from "react";
+import { openExternalUrl } from "../../components/ExternalLink";
+import { examWhen } from "../../components/exams/ExamCards";
+import { dayNames } from "../../components/timetable/timetable";
 import { t } from "../../i18n";
 import {
   pickLocalized,
+  type ClassGroupChoice,
   type Course,
   type Lang,
   type Workspace,
 } from "../../lib/model";
-import type { FinderCourse } from "../../lib/course-query";
+import { tokyoDate } from "../../lib/civil-date";
+import { DAYS, type FinderCourse } from "../../lib/course-query";
 import type { CourseConflict } from "../../generated/persistence";
+import { notify } from "../../app/notify";
+import { useScheduleQuery, type CourseDetail } from "../../platform/core-query";
+import { useClock } from "../../platform/use-clock";
+import { workspaceActions } from "../../store/workspace";
+import { ClassGroupSwitch } from "./ClassGroupPicker";
 import { SyllabusFrame } from "./syllabus-frame";
-import { CourseDetails } from "./CourseDetails";
 
 /**
- * A course's details, shown over the syllabus search after a timetable click.
- * Removing lives only here, at the bottom, so it always takes two clicks.
+ * The Timetable's planning panel. A timetable course and a search result open
+ * the same frame: the facts that decide a timetable, the syllabus, and the
+ * action that changes the timetable. Studying the course lives in Lectures.
+ */
+function PlanningPanel({
+  title,
+  subtitle,
+  color,
+  close,
+  notice,
+  children,
+  foot,
+}: {
+  title: string;
+  subtitle: string;
+  color?: string;
+  close: () => void;
+  notice?: ReactNode;
+  children: ReactNode;
+  foot?: ReactNode;
+}) {
+  return (
+    <Paper
+      component="aside"
+      className="listCard coursePanel"
+      withBorder
+      shadow="xs"
+      radius="md"
+      style={color ? ({ "--course": color } as React.CSSProperties) : undefined}
+    >
+      <header>
+        <div className="finderTitle">
+          <b>{title}</b>
+          <span>{subtitle}</span>
+        </div>
+        <div className="courseListTools">
+          <button type="button" onClick={close}>
+            {t("Close")}
+          </button>
+        </div>
+      </header>
+      {notice}
+      <div className="coursePanelBody">{children}</div>
+      {foot && <footer className="coursePanelFoot">{foot}</footer>}
+    </Paper>
+  );
+}
+
+/** Opens in the app's Web page; the ↗ next to it opens the system browser. */
+function OfficialLink({
+  url,
+  label,
+  openWeb,
+}: {
+  url: string;
+  label: ReactNode;
+  openWeb: (url: string) => void;
+}) {
+  return (
+    <span className="officialLink">
+      <button type="button" onClick={() => openWeb(url)}>
+        {label}
+      </button>
+      <button
+        type="button"
+        className="officialOutside"
+        title={t("Open in browser")}
+        aria-label={t("Open in browser")}
+        onClick={() => void openExternalUrl(url).catch(() => undefined)}
+      >
+        ↗
+      </button>
+    </span>
+  );
+}
+
+/**
+ * A timetable course. Removing lives only here, at the bottom, so it always
+ * takes two clicks.
  */
 export function CoursePanel({
   course,
@@ -23,10 +108,10 @@ export function CoursePanel({
   readOnly,
   close,
   remove,
+  edit,
   editIntensive,
   openWeb,
-  fetchLms,
-  progress,
+  openLecture,
   conflicts = [],
   openCourse,
   findOtherTimes,
@@ -36,12 +121,12 @@ export function CoursePanel({
   readOnly: boolean;
   close: () => void;
   remove: () => void;
+  edit: () => void;
   editIntensive: () => void;
   /** Opens an official URL in the Web page. */
   openWeb: (url: string) => void;
-  /** Pulls LMS (assignments and materials) without changing the timetable. */
-  fetchLms?: () => void;
-  progress?: PageProgress;
+  /** Opens the course in Lectures, where its materials and work live. */
+  openLecture: () => void;
   /** This course's clashes on the quarter template, from Core. */
   conflicts?: CourseConflict[];
   /** Shows another timetable course in this panel. */
@@ -49,6 +134,23 @@ export function CoursePanel({
   /** Searches the syllabus for this course's other class times. */
   findOtherTimes?: () => void;
 }) {
+  const now = useClock();
+  const detail = useScheduleQuery<CourseDetail>({
+    kind: "courseDetail",
+    courseId: course.id,
+  }).value;
+  const groupChoices = (
+    useScheduleQuery<ClassGroupChoice[]>({
+      kind: "classGroups",
+      today: tokyoDate(new Date(now)),
+    }).value ?? []
+  ).filter((choice) => choice.courses.some((item) => item.id === course.id));
+  const offering = data.offerings.find(
+    (item) => item.id === detail?.offeringId,
+  );
+  const exams = (detail?.exams ?? []).filter(
+    (exam) => exam.kind === "exam" && !exam.hidden,
+  );
   const registered = data.memberships.some(
     (item) =>
       item.courseId === course.id &&
@@ -56,98 +158,140 @@ export function CoursePanel({
       ["registered", "declared", "completed"].includes(item.status) &&
       item.evidence?.provider !== "manual",
   );
-  return (
-    <Paper
-      component="aside"
-      className="listCard coursePanel"
-      withBorder
-      shadow="xs"
-      radius="md"
-      style={{ "--course": course.color } as React.CSSProperties}
-    >
-      <header>
-        <div className="finderTitle">
-          <b>{course.title}</b>
-          <span>
-            {course.code} · {course.termId.replace("-", " ")}
-          </span>
-        </div>
-        <div className="courseListTools">
-          <button type="button" onClick={close}>
-            {t("Close")}
-          </button>
-        </div>
-      </header>
-      {conflicts.length > 0 && (
-        <section
-          className="coursePanelConflict"
-          aria-label={t("Time conflict")}
-        >
-          <b>{t("Time conflict")}</b>
-          <ul>
-            {conflicts.map((conflict) => (
-              <li
-                key={`${conflict.day}-${conflict.startTime}-${conflict.withCourseId ?? conflict.withTitle}`}
+  const notice = conflicts.length > 0 && (
+    <section className="coursePanelConflict" aria-label={t("Time conflict")}>
+      <b>{t("Time conflict")}</b>
+      <ul>
+        {conflicts.map((conflict) => (
+          <li
+            key={`${conflict.day}-${conflict.startTime}-${conflict.withCourseId ?? conflict.withTitle}`}
+          >
+            <span className="num">
+              {DAYS[conflict.day - 1]} {conflict.startTime}–{conflict.endTime}
+            </span>
+            <span>{conflict.withTitle}</span>
+            {conflict.withCourseId && openCourse && (
+              <button
+                type="button"
+                className="textButton"
+                onClick={() => openCourse(conflict.withCourseId!)}
               >
-                <span className="num">
-                  {FINDER_DAYS[conflict.day - 1]} {conflict.startTime}–
-                  {conflict.endTime}
-                </span>
-                <span>{conflict.withTitle}</span>
-                {conflict.withCourseId && openCourse && (
-                  <button
-                    type="button"
-                    className="textButton"
-                    onClick={() => openCourse(conflict.withCourseId!)}
-                  >
-                    {t("Open")}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-          <p>
-            {t(
-              "Keep one: open the other course, or find another time for this one.",
+                {t("Open")}
+              </button>
             )}
-          </p>
-          {!readOnly && findOtherTimes && (
-            <Button size="xs" variant="light" onClick={findOtherTimes}>
-              {t("Find another class time")}
-            </Button>
-          )}
-        </section>
+          </li>
+        ))}
+      </ul>
+      <p>
+        {t(
+          "Keep one: open the other course, or find another time for this one.",
+        )}
+      </p>
+      {!readOnly && findOtherTimes && (
+        <Button size="xs" variant="light" onClick={findOtherTimes}>
+          {t("Find another class time")}
+        </Button>
       )}
-      <CourseDetails
-        key={course.id}
-        course={course}
-        data={data}
-        openWeb={openWeb}
-        fetchLms={fetchLms}
-        progress={progress}
-      />
-      {!readOnly && (
-        <footer className="coursePanelFoot">
-          {!course.meetings.length && (
-            <Button variant="default" onClick={editIntensive}>
-              {t("Intensive dates")}
+    </section>
+  );
+  return (
+    <PlanningPanel
+      title={course.title}
+      subtitle={`${course.code} · ${course.termId.replace("-", " ")}`}
+      color={course.color}
+      close={close}
+      notice={notice}
+      foot={
+        !readOnly && (
+          <>
+            {!course.meetings.length && (
+              <Button variant="default" onClick={editIntensive}>
+                {t("Intensive dates")}
+              </Button>
+            )}
+            <Button variant="default" onClick={edit}>
+              {t("Edit")}
             </Button>
-          )}
-          <Button color="red" variant="light" onClick={remove}>
-            {registered ? t("Remove from local timetable") : t("Remove")}
-          </Button>
-        </footer>
-      )}
-    </Paper>
+            <Button color="red" variant="light" onClick={remove}>
+              {registered ? t("Remove from local timetable") : t("Remove")}
+            </Button>
+          </>
+        )
+      }
+    >
+      <dl>
+        <dt>{t("Schedule")}</dt>
+        <dd>
+          {course.meetings.length
+            ? course.meetings.map((meeting, index) => (
+                <div key={index}>
+                  {meeting.days
+                    .map((day) => t(dayNames[day - 1].slice(0, 3)))
+                    .join(" / ")}{" "}
+                  {meeting.startTime}–{meeting.endTime}
+                  {meeting.room ? ` · ${meeting.room}` : ""}
+                </div>
+              ))
+            : t("集中・時間未定")}
+        </dd>
+        {groupChoices.length > 0 && (
+          <>
+            <dt>{t("Physics group")}</dt>
+            <dd>
+              {groupChoices.map((choice) => (
+                <ClassGroupSwitch
+                  key={choice.semester}
+                  choice={choice}
+                  onChange={(group) =>
+                    void workspaceActions
+                      .setClassGroup(choice.semester, group)
+                      .catch(notify.error)
+                  }
+                />
+              ))}
+            </dd>
+          </>
+        )}
+        <dt>{t("Instructor")}</dt>
+        <dd>{course.instructor || "—"}</dd>
+        <dt>{t("Credits")}</dt>
+        <dd>
+          {course.creditSplit.lecture}-{course.creditSplit.exercise}-
+          {course.creditSplit.lab} ({course.credits})
+        </dd>
+        {offering && (
+          <>
+            <dt>{t("Format")}</dt>
+            <dd>{offering.format.kinds.join(" / ") || "—"}</dd>
+          </>
+        )}
+        {exams.length > 0 && (
+          <>
+            {/* One line each: enough to see a clash while planning; the
+                cards and their editor are in Lectures. */}
+            <dt>{t("Exams")}</dt>
+            <dd>
+              {exams.map((exam) => (
+                <div key={exam.key}>{examWhen(exam)}</div>
+              ))}
+            </dd>
+          </>
+        )}
+      </dl>
+      <div className="coursePanelLinks">
+        <Button size="xs" variant="light" onClick={openLecture}>
+          {t("Open in Lectures")}
+        </Button>
+        {detail?.lmsUrl && (
+          <OfficialLink url={detail.lmsUrl} label="LMS" openWeb={openWeb} />
+        )}
+      </div>
+      <SyllabusFrame url={detail?.syllabusUrl} />
+    </PlanningPanel>
   );
 }
 
-const FINDER_DAYS = ["月", "火", "水", "木", "金", "土", "日"];
-
-/**
- * A syllabus search result, shown over the timetable: what the syllabus says
- * about it, with Add at the bottom.
- */
+/** A syllabus search result, with Add at the bottom. */
 export function OfferingPanel({
   course,
   language,
@@ -169,71 +313,55 @@ export function OfferingPanel({
   const times = course.schedule
     .map((entry) =>
       entry.kind === "weekly" && entry.day && entry.periods
-        ? `${FINDER_DAYS[entry.day - 1]}${entry.periods[0]}-${entry.periods[1]}${entry.room ? ` · ${pickLocalized(entry.room, language)}` : ""}`
+        ? `${DAYS[entry.day - 1]}${entry.periods[0]}-${entry.periods[1]}${entry.room ? ` · ${pickLocalized(entry.room, language)}` : ""}`
         : t("集中・時間未定"),
     )
     .join(" / ");
   return (
-    <Paper
-      component="aside"
-      className="listCard coursePanel"
-      withBorder
-      shadow="xs"
-      radius="md"
+    <PlanningPanel
+      title={pickLocalized(course.title, language)}
+      subtitle={`${course.code} · ${course.quarters.join(" ")}`}
+      close={close}
+      foot={
+        !readOnly && (
+          <>
+            {!placed && replaces.length > 0 && (
+              <span className="coursePanelNote">
+                {t("Replaces")} {replaces.join(", ")}
+              </span>
+            )}
+            <Button
+              disabled={placed}
+              color={replaces.length ? "orange" : undefined}
+              onClick={add}
+            >
+              {placed
+                ? t("On timetable")
+                : replaces.length
+                  ? t("Replace")
+                  : t("Add")}
+            </Button>
+          </>
+        )
+      }
     >
-      <header>
-        <div className="finderTitle">
-          <b>{pickLocalized(course.title, language)}</b>
-          <span>
-            {course.code} · {course.quarters.join(" ")}
-          </span>
-        </div>
-        <div className="courseListTools">
-          <ExternalLink href={course.syllabusUrl}>
-            {t("Syllabus")} ↗
-          </ExternalLink>
-          <button type="button" onClick={close}>
-            {t("Close")}
-          </button>
-        </div>
-      </header>
-      <div className="coursePanelBody">
-        <dl>
-          <dt>{t("Schedule")}</dt>
-          <dd>{times || "—"}</dd>
-          <dt>{t("Instructor")}</dt>
-          <dd>
-            {course.instructors
-              .map((name) => pickLocalized(name, language))
-              .join(" / ") || "—"}
-          </dd>
-          <dt>{t("Credits")}</dt>
-          <dd>
-            {`${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
-          </dd>
-        </dl>
-        <SyllabusFrame url={course.syllabusUrl} />
-      </div>
-      {!readOnly && (
-        <footer className="coursePanelFoot">
-          {!placed && replaces.length > 0 && (
-            <span className="coursePanelNote">
-              {t("Replaces")} {replaces.join(", ")}
-            </span>
-          )}
-          <Button
-            disabled={placed}
-            color={replaces.length ? "orange" : undefined}
-            onClick={add}
-          >
-            {placed
-              ? t("On timetable")
-              : replaces.length
-                ? t("Replace")
-                : t("Add")}
-          </Button>
-        </footer>
-      )}
-    </Paper>
+      <dl>
+        <dt>{t("Schedule")}</dt>
+        <dd>{times || "—"}</dd>
+        <dt>{t("Instructor")}</dt>
+        <dd>
+          {course.instructors
+            .map((name) => pickLocalized(name, language))
+            .join(" / ") || "—"}
+        </dd>
+        <dt>{t("Credits")}</dt>
+        <dd>
+          {`${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
+        </dd>
+        <dt>{t("Format")}</dt>
+        <dd>{course.format.kinds.join(" / ") || "—"}</dd>
+      </dl>
+      <SyllabusFrame url={course.syllabusUrl} />
+    </PlanningPanel>
   );
 }

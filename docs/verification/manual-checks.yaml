@@ -1302,6 +1302,13 @@ checks:
           A list that empties or half-updates means the page stopped reading
           local data while Core reads.
       - action: |
+          On Timetable, press Refresh timetable and watch the footer.
+        reason: |
+          It must read only the LMS course list and the 教務Web pages, with
+          the button's ring following them; a run over every current course
+          means the button is pulling the whole LMS again instead of what the
+          grid is drawn from.
+      - action: |
           Turn Wi-Fi off, press Refresh now, then turn it back on.
         reason: |
           Held work must name its reason ("Waiting for a connection") instead
@@ -1331,7 +1338,49 @@ checks:
       - apps/desktop/src/app/SchoolStatusLine.tsx
       - apps/desktop/src/app/sync-text.ts
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/pages/courses/CoursesPage.tsx
       - apps/desktop/src/components/PullRing.tsx
+      - apps/desktop/src/styles.css
+    verified: null
+
+  - id: DESKTOP-PLANNING-PANEL
+    area: desktop
+    title: A timetable course and a search result open the same planning panel
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build with this quarter's courses on the timetable, signed in
+      to TokyoTech so course search returns results.
+    steps:
+      - action: |
+          On Timetable, click a course block, then click a course search
+          result.
+        reason: |
+          Both must show the same frame: header, schedule, instructor,
+          credits, format and the school's syllabus page below. Two different
+          layouts mean the two panels drifted apart again.
+      - action: |
+          In the course block's panel, look for Materials or Assignments.
+        reason: |
+          They must be gone; studying lives in Lectures. The panel shows exams
+          as one line each and offers Open in Lectures, LMS, Edit and Remove.
+      - action: |
+          Press Open in Lectures, go back, and press Edit.
+        reason: |
+          Open in Lectures must land on that course's page in Lectures; Edit
+          must open the course editor, which this panel is now the only way
+          into for an existing course.
+    observe: |
+      The Timetable side panels, the Lectures page, and the course editor.
+    expected: |
+      One panel layout for both kinds of course, no materials or assignments
+      in it, and both buttons reaching their page.
+    why_manual: |
+      How the panel reads is a glance-level result in the real window
+      (AGENTS.md §5); the wiring (no tabs, Open in Lectures, Edit) is covered
+      in tests/e2e/planner.test.tsx, but whether the two panels look the same
+      and the school's syllabus frame fits only shows on screen.
+    covers:
+      - apps/desktop/src/pages/courses/CoursePanel.tsx
       - apps/desktop/src/styles.css
     verified: null
 
@@ -1639,7 +1688,6 @@ checks:
       glance check (AGENTS.md §5).
     covers:
       - apps/desktop/src/pages/courses/syllabus-frame.tsx
-      - apps/desktop/src/pages/courses/CourseDetails.tsx
       - apps/desktop/src/pages/courses/CoursePanel.tsx
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
@@ -3554,6 +3602,49 @@ checks:
     covers:
       - apps/desktop/src/pages/settings/ResetSettings.tsx
       - apps/desktop/src-tauri/src/commands/reset.rs
+    verified: null
+
+  - id: TODAY-NOW-LINE-NEXT-DAY
+    area: desktop
+    title: The now line moves to the new day's column after the app stays open overnight
+    persona: undergraduate-senior
+    preconditions: |
+      The desktop app open on a weekday of a running quarter, with the Mac
+      allowed to sleep overnight.
+    steps:
+      - action: |
+          In the evening open Today → Week, then switch to Lectures and leave
+          the app running; let the Mac sleep through the night.
+        reason: |
+          A hidden page used to stop its own clock: the week view kept
+          yesterday as "today" while the line read the current time.
+      - action: |
+          The next morning wake the Mac, bring the window forward and go back
+          to Today → Week straight away.
+        reason: |
+          The column must be right on the first frame, not a minute later
+          when a timer catches up.
+      - action: |
+          Open Timetable.
+        reason: |
+          The course timetable marks today's weekday from the same clock and
+          must also show the line in the new day's column.
+    observe: |
+      The red now line and the tinted today column in Today → Week and in
+      Timetable.
+    expected: |
+      Both views tint the new day's column and draw the line at the current
+      time inside it, with nothing left in yesterday's column.
+    why_manual: |
+      It needs a real night: OS sleep and WebView timer throttling cannot be
+      reproduced over the fake host. The clock itself (a fresh minute after a
+      stalled timer, resync on return) is covered by
+      `apps/desktop/tests/unit/schedule-and-dates.test.ts`; this check is what
+      a person sees in the two week views.
+    covers:
+      - apps/desktop/src/pages/today/CalendarView.tsx
+      - apps/desktop/src/pages/courses/CoursesPage.tsx
+      - apps/desktop/src/app/useCoreLifecycle.ts
     verified: null
 
   - id: MOBILE-SETTINGS-RESET

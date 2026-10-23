@@ -16,6 +16,7 @@ import {
   scheduleViewFor,
   textOf,
   typeInto,
+  until,
   watchConsoleErrors,
   workspaceFixture,
   type FakeCore,
@@ -849,7 +850,10 @@ describe("the course planner", () => {
       "the result details panel",
     );
     expect(panel.textContent).toContain("Graph Algorithms");
-    expect(panel.textContent).toContain("Syllabus");
+    // The school's syllabus page is shown inside the panel.
+    expect(
+      panel.querySelector('iframe[title="Official syllabus"]'),
+    ).not.toBeNull();
     // It covers the timetable rather than replacing it.
     expect(host.querySelector(".coursesLeft .ttCard")).not.toBeNull();
   }, 60_000);
@@ -882,9 +886,20 @@ describe("the course planner", () => {
     );
     expect(panel.textContent).toContain("Graph Algorithms");
     expect(panel.textContent).toContain("Remove");
+    // Planning only: materials and assignments are read in Lectures.
+    expect(panel.querySelector('[role="tab"]')).toBeNull();
     // The search stays behind the panel, and a click on a block never removes it.
     expect(host.querySelector(".coursesSide .courseFinder")).not.toBeNull();
     expect(host.querySelector(".ttBlock.course")).not.toBeNull();
+
+    const toLectures = buttonByText(panel, "Open in Lectures");
+    if (!toLectures) throw new Error("the Open in Lectures action is missing");
+    await click(toLectures);
+    await until(() =>
+      expect(window.location.hash).toBe(
+        `#${paths.lectures(eligibleCourse.id)}`,
+      ),
+    );
   }, 60_000);
 });
 
@@ -1182,7 +1197,7 @@ describe("replacing a clashing course", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * The course editor, reached from the lecture drawer.
+ * The course editor, reached from the timetable's course panel.
  * ------------------------------------------------------------------ */
 
 function meetingCourse(meeting: Course["meetings"][number]): Course {
@@ -1216,18 +1231,24 @@ async function openEditorFor(course: Course): Promise<MountedApp> {
       queries: plannerQueries(),
       handle: finderHandler({ courses: [eligible] }),
     },
-    { route: paths.drawer(paths.timetable(), course.id) },
+    { route: paths.timetable() },
   );
-  const drawerEdit = await required(
+  await click(
+    await required(
+      () => mounted.host.querySelector<HTMLButtonElement>(".ttBlock.course"),
+      "the placed course block",
+    ),
+  );
+  const panelEdit = await required(
     () =>
       [
-        ...document.querySelectorAll<HTMLButtonElement>(
-          ".drawerActions button",
+        ...mounted.host.querySelectorAll<HTMLButtonElement>(
+          ".coursePanelFoot button",
         ),
       ].find((button) => (button.textContent ?? "").trim() === "Edit"),
-    "the drawer Edit action",
+    "the panel Edit action",
   );
-  await click(drawerEdit);
+  await click(panelEdit);
   await required(
     () => document.querySelector('[role="combobox"][aria-label="Period"]'),
     "the course editor",
