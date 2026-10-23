@@ -837,7 +837,8 @@ checks:
     persona: undergraduate-first-term
     preconditions: |
       A supported desktop target with OCR, a physical campus card, and a
-      camera or a photo of the card.
+      camera or a photo of the card. For the phone steps: a TestFlight build
+      on an iPhone and a CI-built APK on an arm64 Android phone.
     steps:
       - action: |
           Open the matrix OCR flow and supply a photo of a real card.
@@ -900,6 +901,32 @@ checks:
           in the signed native app; headless tests cannot observe OS resource
           release or the native privacy prompt.
       - action: |
+          On the iPhone, open Settings → school account → Matrix card, choose
+          Scan with camera and allow camera access. Hold the real card in view.
+          The red outline must sit on the card in the drawn picture (not trail
+          behind it while you move), and the 7×10 grid below must fill in while
+          the camera is still live. On completion the screen closes, the camera
+          indicator turns off and the editor shows every cell tinted by
+          confidence. Repeat with the phone in landscape and with the card
+          upside down: the cell order must not change. Then import a photo of
+          the same card with From photo and compare both grids cell by cell.
+          Repeat all of this on the Android phone.
+        reason: |
+          AVFoundation and CameraX capture, sensor rotation, the phone's optics
+          and the camera privacy indicator only exist on a signed app on real
+          hardware. Core tests drive the same session with scripted and decoded
+          frames (photo and YUV agree on one image); the native camera hand-off
+          and the drawn outline need a phone.
+      - action: |
+          On each phone, background the app during a camera scan and return;
+          the scan must have stopped with a message and Scan with camera must
+          start a fresh one. Revoke camera permission in system settings, then
+          choose Scan with camera: the denial message shows, and From photo and
+          Paste still work.
+        reason: |
+          The OS permission prompt, lifecycle interruption and camera release
+          cannot be produced in headless tests.
+      - action: |
           Review the recognised cells and compare them with the card.
         reason: |
           The contract is "no wrong accepted cell", not "most cells right". A
@@ -916,8 +943,17 @@ checks:
       corrected values are what get saved.
     why_manual: |
       Needs a physical card and a camera. Intel Mac builds ship without the
-      OCR runtime, so the target must be chosen deliberately.
+      OCR runtime, so the target must be chosen deliberately. The phone steps
+      need signed iOS and Android builds with camera hardware.
     covers:
+      - crates/isct-ffi/src/matrix.rs
+      - crates/isct-ffi/src/services.rs
+      - apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift
+      - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - apps/android/app/src/main/AndroidManifest.xml
+      - apps/desktop/src-tauri/src/commands/platform.rs
       - crates/isct-ocr/**
       - apps/desktop/src/lib/matrix-ocr.ts
       - crates/isct-core/src/matrix_scan.rs

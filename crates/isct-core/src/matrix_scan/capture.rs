@@ -274,10 +274,11 @@ pub fn read_matrix_photo(
         .filter(|(_, g)| g.glare <= MAX_GLARE && usable(g))
         .collect();
     let mut evidence = vec![CellEvidence::default(); CELLS];
-    if !progress(0, admitted.len()) {
+    // Progress counts settled cells out of 70; rejected cells settle at once.
+    let mut done = CELLS - admitted.len();
+    if !progress(done, CELLS) {
         return Err(MatrixScanError::Ended);
     }
-    let mut done = 0;
     for chunk in admitted.chunks(10) {
         let images: Vec<_> = chunk.iter().map(|(_, g)| g.gray.clone()).collect();
         let readings = recognize(&images)?;
@@ -290,7 +291,7 @@ pub fn read_matrix_photo(
             evidence[*cell].collect(reading, 0, false);
         }
         done += chunk.len();
-        if !progress(done, admitted.len()) {
+        if !progress(done, CELLS) {
             return Err(MatrixScanError::Ended);
         }
     }

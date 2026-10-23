@@ -260,8 +260,9 @@ fn a_photo_is_read_with_the_live_admission_and_evidence_rules() {
         })
         .unwrap();
     assert_eq!(scan.bounds, BODY);
-    assert_eq!(seen[..2], [(0, CELLS), (0, 67)]);
-    assert_eq!(seen.last(), Some(&(67, 67)));
+    // Three rejected cells settle at once; the 67 read ones in batches of ten.
+    assert_eq!(seen[..3], [(0, CELLS), (3, CELLS), (13, CELLS)]);
+    assert_eq!(seen.last(), Some(&(CELLS, CELLS)));
     for (cell, vote) in scan.cells.iter().enumerate() {
         if matches!(cell, 0 | 1 | 2 | 69) {
             assert!(vote.text.is_empty(), "cell {cell} must be left for review");

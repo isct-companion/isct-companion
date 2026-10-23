@@ -247,7 +247,7 @@ impl MatrixCameraDriver {
         encoded: &[u8],
         mut progress: impl FnMut(usize, usize) -> bool,
     ) -> Result<MatrixPhotoScan, MatrixScanError> {
-        // Shells show progress at once; the total narrows to admitted cells.
+        // Shells show progress at once, before the picture is decoded.
         if !progress(0, CELLS) {
             return Err(MatrixScanError::Ended);
         }
