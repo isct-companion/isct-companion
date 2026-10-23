@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 82 checks must be re-run before the next release.**
+**7 of 83 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**73 checks have never been run or could not be run:**
+**74 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -59,6 +59,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-SYLLABUS-IN-APP` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
+- `IOS-TESTFLIGHT-RELEASE` — never verified
 - `RELEASE-INSTALL` — never verified
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
@@ -145,6 +146,7 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
+| `IOS-TESTFLIGHT-RELEASE` | release | Two devices, interrupted work | —<br>not run | .github/workflows/ios-release.yml<br>docs/mobile-release.md |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
@@ -2380,6 +2382,50 @@ Needs Apple credentials and the notarization service.
 - `scripts/desktop/macos-signing.mjs`
 - `.github/workflows/desktop-release.yml`
 - `.github/workflows/apple-signing-check.yml`
+
+**Last recorded** never run
+
+### Existing iOS distribution signing and TestFlight delivery (`IOS-TESTFLIGHT-RELEASE`)
+
+**Area** release · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD, IOS_MOBILE_PROVISION and
+APPLE_API_* repository secrets are configured; IOS_TESTFLIGHT_ENABLED is true.
+
+**Steps**
+
+1. Dispatch the iOS release workflow and inspect the signing, archive,
+   export and upload steps in its Actions log.
+   - *Why:* A compilation-only run cannot validate the supplied signing identity
+     and profile or prove that Apple accepts the signed IPA.
+2. In App Store Connect, wait for the matching version/build to process,
+   assign it to the intended TestFlight group and install it on an iPhone.
+   - *Why:* Upload acceptance is separate from processing and tester availability;
+     installation confirms the delivered build is usable on a real device.
+
+**Where to look**
+
+The iOS release Actions log, matching TestFlight version/build status,
+group assignment and installed version on the iPhone.
+
+**Expected**
+
+The existing Apple Distribution identity and App Store profile sign the
+IPA; Apple processes it and the intended tester can install that build.
+
+**Why this is manual**
+
+Requires private signing materials, App Store Connect access, Apple's
+processing service and an enrolled physical iPhone.
+
+**Covers**
+
+- `.github/workflows/ios-release.yml`
+- `docs/mobile-release.md`
 
 **Last recorded** never run
 

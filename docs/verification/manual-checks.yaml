@@ -2015,6 +2015,40 @@ checks:
       - .github/workflows/apple-signing-check.yml
     verified: null
 
+  - id: IOS-TESTFLIGHT-RELEASE
+    area: release
+    title: Existing iOS distribution signing and TestFlight delivery
+    persona: careless-multidevice
+    preconditions: |
+      The IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD, IOS_MOBILE_PROVISION and
+      APPLE_API_* repository secrets are configured; IOS_TESTFLIGHT_ENABLED is true.
+    steps:
+      - action: |
+          Dispatch the iOS release workflow and inspect the signing, archive,
+          export and upload steps in its Actions log.
+        reason: |
+          A compilation-only run cannot validate the supplied signing identity
+          and profile or prove that Apple accepts the signed IPA.
+      - action: |
+          In App Store Connect, wait for the matching version/build to process,
+          assign it to the intended TestFlight group and install it on an iPhone.
+        reason: |
+          Upload acceptance is separate from processing and tester availability;
+          installation confirms the delivered build is usable on a real device.
+    observe: |
+      The iOS release Actions log, matching TestFlight version/build status,
+      group assignment and installed version on the iPhone.
+    expected: |
+      The existing Apple Distribution identity and App Store profile sign the
+      IPA; Apple processes it and the intended tester can install that build.
+    why_manual: |
+      Requires private signing materials, App Store Connect access, Apple's
+      processing service and an enrolled physical iPhone.
+    covers:
+      - .github/workflows/ios-release.yml
+      - docs/mobile-release.md
+    verified: null
+
   - id: RELEASE-INSTALL
     area: release
     title: Installers on a clean machine of each platform
