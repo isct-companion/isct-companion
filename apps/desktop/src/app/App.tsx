@@ -30,13 +30,11 @@ import {
   useLocation,
   useMatch,
   useParams,
-  useSearchParams,
 } from "react-router";
 import {
   paths,
   routePatterns,
   parseRoute,
-  parseDrawer,
   routeRedirect,
   workspaceRoutes,
 } from "./routes";
@@ -53,7 +51,6 @@ import { Today } from "../pages/today/TodayPage";
 import type { CourseEntry } from "../features/lms/LmsWorkspace";
 import { LectureDesk } from "../pages/lectures/LectureDesk";
 import { Courses } from "../pages/courses/CoursesPage";
-import { CourseDrawer } from "../pages/courses/CourseDrawer";
 import { Web } from "../pages/web/WebPage";
 import { Settings } from "../pages/settings/SettingsPage";
 import { PlanEditor, type PlanDraft } from "../pages/schedule/PlanEditor";
@@ -63,7 +60,6 @@ import {
   Activity,
   lazy,
   Suspense,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -118,7 +114,6 @@ const KYOMU_REGISTRATION =
   "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/PID1_0.aspx";
 const KYOMU_GPA =
   "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx";
-const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
 function sessionStatusLabel(state: SchoolSessionState | undefined) {
   if (state === "active") return t("Signed in");
@@ -259,20 +254,6 @@ export function WorkspaceApp() {
   }, [previewTerm, overview.value?.coursesTerm]);
   const section = (params.section ?? "accounts") as Section;
   const homeView = homeMatch && weekMatch ? "week" : "day";
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { courseId: drawerId, tab: drawerTab } = parseDrawer(searchParams);
-  const closeDrawer = useCallback(() => {
-    if (!searchParams.has("course") && !searchParams.has("tab")) return;
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("course");
-        next.delete("tab");
-        return next;
-      },
-      { state: location.state },
-    );
-  }, [searchParams, setSearchParams, location.state]);
   const [mountedPages, setMountedPages] = useState<Page[]>([page]);
   if (!mountedPages.includes(page)) setMountedPages([...mountedPages, page]);
   const pageRef = useRef<Page>(page);
@@ -500,7 +481,6 @@ export function WorkspaceApp() {
   const schoolRecords = useWorkspace((state) => state.schoolRecords);
   const sync = useSync();
   // Pages only render Core's runs; the planner decides what is read.
-  const lmsProgress = pageProgress(runsFor(sync, ["lms"]));
   const kyomuProgress = pageProgress(runsFor(sync, ["kyomu"]));
   // 教務 pages share one run, so a registrations read shows with the others.
   const timetableProgress = pageProgress(
@@ -540,7 +520,6 @@ export function WorkspaceApp() {
   }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeDrawer();
       if (
         (e.metaKey || e.ctrlKey) &&
         ["1", "2", "3", "4", "5"].includes(e.key)
@@ -553,7 +532,7 @@ export function WorkspaceApp() {
     };
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
-  }, [navigate, closeDrawer]);
+  }, [navigate]);
   const lmsRecordFor = (course: Course) => {
     const records = schoolRecords?.lmsCourses ?? [];
     return (
@@ -670,9 +649,6 @@ export function WorkspaceApp() {
   };
   const currentTerm = workspaceView.currentTerm;
   const todayTerm = workspaceView.todayTerm;
-  const drawerCourse = drawerId
-    ? data.courses.find((c) => c.id === drawerId && !c.deletedAt)
-    : undefined;
   const courseTerm = courseViewTerm ?? workspaceView.coursesTerm;
   const finderTermCourses = workspaceView.courses;
   const pickFinderTime = (key: string, append = false, slot?: string) => {
@@ -765,13 +741,6 @@ export function WorkspaceApp() {
       kind: "deleteCourseBatch",
       courseIds: [course.id],
     });
-  const toggleTimetable = async (course: Course) => {
-    await academicIntent({
-      kind: "setCourseOnTimetable",
-      courseId: course.id,
-      onTimetable: !workspaceView.onTimetableCourseIds.includes(course.id),
-    });
-  };
   const saveEvent = (
     draft: EventDraft,
     term: TermId,
@@ -820,7 +789,6 @@ export function WorkspaceApp() {
   // Refresh buttons ask Core for a scope; progress and failures arrive in
   // the sync snapshot.
   const canSync = syncAvailable() && !readOnly;
-  const fetchLms = () => refresh({ kind: "site", site: "science-lms" });
   const refreshKyomu = () => refresh({ kind: "site", site: "kyomu" });
   /** Opens 教務Web registration with this quarter's timetable as a queue. */
   const openRegistration = async (term: TermId) => {
@@ -843,7 +811,7 @@ export function WorkspaceApp() {
           day,
           slot:
             meeting && day
-              ? `${quarter} ${WEEKDAYS[day - 1]}${Math.min(...meeting.periods)}-${Math.max(...meeting.periods)}`
+              ? `${quarter} ${FINDER_DAYS[day - 1]}${Math.min(...meeting.periods)}-${Math.max(...meeting.periods)}`
               : `${quarter} ${t("集中・時間未定")}`,
         };
       })
@@ -1165,10 +1133,17 @@ export function WorkspaceApp() {
               readOnly={readOnly}
               close={() => setPanelCourseId(null)}
               remove={() => void removeFromTimetable(panelCourse)}
+              edit={() =>
+                setCourseEditor({
+                  course: panelCourse,
+                  term: panelCourse.termId,
+                })
+              }
               editIntensive={() => setIntensiveCourseId(panelCourse.id)}
               openWeb={(url) => openWeb(url)}
-              fetchLms={canSync ? fetchLms : undefined}
-              progress={lmsProgress}
+              openLecture={() =>
+                openLecture(panelCourse.id, { term: panelCourse.termId })
+              }
               conflicts={(cachedTimetable?.planning?.conflicts ?? []).filter(
                 (conflict) => conflict.courseId === panelCourse.id,
               )}
@@ -1327,39 +1302,6 @@ export function WorkspaceApp() {
   );
   const overlays = (
     <>
-      {drawerCourse && (
-        <CourseDrawer
-          course={drawerCourse}
-          data={data}
-          readOnly={readOnly}
-          onTimetable={workspaceView.onTimetableCourseIds.includes(
-            drawerCourse.id,
-          )}
-          initialTab={drawerTab}
-          onTabChange={(tab) =>
-            void navigate(
-              paths.drawer(location.pathname + location.search, drawerId, tab),
-              { replace: true, state: location.state },
-            )
-          }
-          close={() => closeDrawer()}
-          edit={() => {
-            closeDrawer();
-            setCourseEditor({
-              course: drawerCourse,
-              term: drawerCourse.termId,
-            });
-          }}
-          toggle={() => toggleTimetable(drawerCourse)}
-          editIntensive={() => setIntensiveCourseId(drawerCourse.id)}
-          openWeb={(url) => {
-            const from = pageRef.current;
-            openWeb(url, from === "lectures" ? "lectures" : "home");
-          }}
-          fetchLms={canSync ? fetchLms : undefined}
-          progress={lmsProgress}
-        />
-      )}
       {!readOnly && !data.settings.dataNoticeAcknowledgedAt && (
         <DataNotice
           acknowledge={() =>

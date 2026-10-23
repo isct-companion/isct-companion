@@ -7,7 +7,6 @@ import {
   paths,
   routeRedirect,
   workspaceRoutes,
-  type DrawerTab,
 } from "@app/app/routes";
 import { seedWorkspace, type Workspace } from "@app/lib/model";
 import type {
@@ -871,42 +870,10 @@ describe("shared workspace routes", () => {
     });
   });
 
-  it.each<DrawerTab>(["overview", "materials", "assignments", "syllabus"])(
-    "round-trips the %s drawer tab on every page",
-    (tab) => {
-      for (const page of [
-        paths.home("week"),
-        paths.lectures("c", "a"),
-        paths.web(),
-        paths.settings("study"),
-      ]) {
-        const target = paths.drawer(`${page}?other=value`, "课程 /?#", tab);
-        expect(parseRoute(target).drawer).toEqual({
-          courseId: "课程 /?#",
-          tab,
-        });
-        expect(paths.drawer(target, null)).toBe(`${page}?other=value`);
-      }
-    },
-  );
-
-  it("defaults a missing or unrecognised drawer tab to overview", () => {
-    for (const query of ["?course=c", "?course=c&tab=bad", "?course=c&tab="]) {
-      expect(parseRoute(paths.web() + query).drawer).toEqual({
-        courseId: "c",
-        tab: "overview",
-      });
-    }
-    expect(parseRoute(paths.home()).drawer).toEqual({
-      courseId: null,
-      tab: "overview",
-    });
-  });
-
   it("redirects an unknown path to home while keeping the query", () => {
     expect(routeRedirect("/")).toBe(paths.home());
-    expect(routeRedirect("/unknown?course=c&tab=syllabus")).toBe(
-      `${paths.home()}?course=c&tab=syllabus`,
+    expect(routeRedirect("/unknown?q=c&view=week")).toBe(
+      `${paths.home()}?q=c&view=week`,
     );
   });
 
@@ -961,7 +928,7 @@ describe("shared workspace routes", () => {
       const router = createMemoryRouter(
         workspaceRoutes(() => null),
         {
-          initialEntries: [`${initial}?course=c&tab=syllabus`],
+          initialEntries: [`${initial}?q=c&view=week`],
         },
       );
       await new Promise<void>((resolve) => {
@@ -976,7 +943,7 @@ describe("shared workspace routes", () => {
       expect(router.state.location.pathname).toBe(
         initial === "/settings" ? paths.settings("accounts") : paths.home(),
       );
-      expect(router.state.location.search).toBe("?course=c&tab=syllabus");
+      expect(router.state.location.search).toBe("?q=c&view=week");
       expect(router.state.historyAction).toBe("REPLACE");
       router.dispose();
     },

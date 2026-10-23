@@ -1343,6 +1343,47 @@ checks:
       - apps/desktop/src/styles.css
     verified: null
 
+  - id: DESKTOP-PLANNING-PANEL
+    area: desktop
+    title: A timetable course and a search result open the same planning panel
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build with this quarter's courses on the timetable, signed in
+      to TokyoTech so course search returns results.
+    steps:
+      - action: |
+          On Timetable, click a course block, then click a course search
+          result.
+        reason: |
+          Both must show the same frame: header, schedule, instructor,
+          credits, format and the school's syllabus page below. Two different
+          layouts mean the two panels drifted apart again.
+      - action: |
+          In the course block's panel, look for Materials or Assignments.
+        reason: |
+          They must be gone; studying lives in Lectures. The panel shows exams
+          as one line each and offers Open in Lectures, LMS, Edit and Remove.
+      - action: |
+          Press Open in Lectures, go back, and press Edit.
+        reason: |
+          Open in Lectures must land on that course's page in Lectures; Edit
+          must open the course editor, which this panel is now the only way
+          into for an existing course.
+    observe: |
+      The Timetable side panels, the Lectures page, and the course editor.
+    expected: |
+      One panel layout for both kinds of course, no materials or assignments
+      in it, and both buttons reaching their page.
+    why_manual: |
+      How the panel reads is a glance-level result in the real window
+      (AGENTS.md §5); the wiring (no tabs, Open in Lectures, Edit) is covered
+      in tests/e2e/planner.test.tsx, but whether the two panels look the same
+      and the school's syllabus frame fits only shows on screen.
+    covers:
+      - apps/desktop/src/pages/courses/CoursePanel.tsx
+      - apps/desktop/src/styles.css
+    verified: null
+
   - id: DESKTOP-FINDER-CATALOG-DOWNLOAD
     area: desktop
     title: Course search on a year whose catalog is not stored yet
@@ -1647,7 +1688,6 @@ checks:
       glance check (AGENTS.md §5).
     covers:
       - apps/desktop/src/pages/courses/syllabus-frame.tsx
-      - apps/desktop/src/pages/courses/CourseDetails.tsx
       - apps/desktop/src/pages/courses/CoursePanel.tsx
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx

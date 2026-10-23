@@ -1,6 +1,5 @@
 import { createElement, Fragment, type ComponentType } from "react";
 import { matchRoutes, replace, type RouteObject } from "react-router";
-import type { CourseTab } from "../pages/courses/CourseDetails";
 import type { Course } from "../lib/model";
 import type { Page, Section } from "./shared";
 import {
@@ -10,13 +9,6 @@ import {
   type SectionContext,
 } from "../pages/settings/registry";
 
-export type DrawerTab = CourseTab;
-const drawerTabs = new Set<string>([
-  "overview",
-  "materials",
-  "assignments",
-  "syllabus",
-]);
 export const routePatterns = {
   home: "/home",
   timetable: "/timetable",
@@ -44,36 +36,14 @@ export const paths = {
   settings: (section?: Section) =>
     section ? `${routePatterns.settings}/${section}` : routePatterns.settings,
   page: (page: Page) => paths[page](),
-  drawer: (
-    location: string,
-    courseId?: string | null,
-    tab: DrawerTab = "overview",
-  ) => {
-    const [pathname, search = ""] = location.split("?");
-    const params = new URLSearchParams(search);
-    params.delete("course");
-    params.delete("tab");
-    if (courseId) {
-      params.set("course", courseId);
-      params.set("tab", tab);
-    }
-    return pathname + (params.size ? `?${params}` : "");
-  },
 };
 
 const definitions = Object.entries(routePatterns).map(([id, path]) => ({
   id,
   path,
 }));
-export function parseDrawer(params: URLSearchParams) {
-  const value = params.get("tab");
-  return {
-    courseId: params.get("course") || null,
-    tab: (value && drawerTabs.has(value) ? value : "overview") as DrawerTab,
-  };
-}
 export function parseRoute(location: string) {
-  const [pathname, search = ""] = location.replace(/^#/, "").split("?");
+  const [pathname] = location.replace(/^#/, "").split("?");
   const match = matchRoutes(definitions, pathname)?.at(-1);
   const id = match?.route.id;
   const page: Page =
@@ -98,7 +68,6 @@ export function parseRoute(location: string) {
     assignmentId: match?.params.aid,
     examKey: match?.params.examKey,
     examTerm: match?.params.examTerm,
-    drawer: parseDrawer(new URLSearchParams(search)),
   };
 }
 
