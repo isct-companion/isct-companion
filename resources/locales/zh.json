@@ -1265,7 +1265,7 @@
   "Backups older than 30 days are removed only when at least four newer backups exist.": "备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
   "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "云端改动或恢复操作替换本地内容前保存。备份超过 30 天，且已有至少 4 份更新备份时，才会自动清理。",
   "Choose an admission year.": "请选择入学年份。",
-  "Pulls other devices' changes at launch. Changed content is uploaded at most once per hour.": "启动时拉取其他设备的更改。内容有变化时自动上传，两次上传至少间隔 1 小时。",
+  "Pulls other devices' changes when opened and every hour. Changed content is uploaded at most once per hour.": "打开时和每小时拉取其他设备的更改。内容有变化时自动上传，两次上传至少间隔 1 小时。",
   "All assignments": "全部作业",
   "Missed": "漏交",
   "{{count}} earlier, back to the quarter start": "更早的 {{count}} 项（到本学季开始）",

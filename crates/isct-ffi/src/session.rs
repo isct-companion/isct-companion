@@ -67,6 +67,8 @@ pub(crate) struct Inner {
     /// providers only run when the shell installed a `NativeCloud`.
     sync: CloudSync,
     sync_services: CloudServices,
+    /// Drive's sign-in, when the shell installed a Drive port.
+    drive: Option<Arc<DriveAuth>>,
     pub notifications: Option<Arc<dyn NativeNotifications>>,
     pub download_session: Option<Arc<dyn NativeDownloadSession>>,
     pub files: PathBuf,
@@ -230,6 +232,9 @@ impl Session {
 }
 #[uniffi::export]
 impl Session {
+    // One argument per native port keeps every shell's call site explicit
+    // about which ports it installs.
+    #[allow(clippy::too_many_arguments)]
     #[uniffi::constructor]
     pub async fn open(
         config: SessionConfig,
@@ -238,6 +243,8 @@ impl Session {
         cloud: Option<Arc<dyn NativeCloud>>,
         notifications: Option<Arc<dyn NativeNotifications>>,
         downloads: Option<Arc<dyn NativeDownloadSession>>,
+        web_authentication: Option<Arc<dyn NativeWebAuthentication>>,
+        drive_tokens: Option<Arc<dyn NativeDriveTokens>>,
     ) -> Result<Arc<Self>, SdkError> {
         // The first session installs Core's logger for the process; later
         // sessions find it in place, which is not an error.
@@ -264,9 +271,13 @@ impl Session {
                 config,
                 vault,
                 browser,
-                cloud,
-                notifications,
-                downloads,
+                Ports {
+                    cloud,
+                    notifications,
+                    downloads,
+                    web_authentication,
+                    drive_tokens,
+                },
             ))
             .await
             .map_err(isct_core::runtime_tasks::RuntimeTaskError::from)??;
@@ -495,6 +506,8 @@ impl Session {
             })
         })
     }
+    /// Turning Drive on signs in first (a web session on iOS, the account
+    /// prompt on Android); a declined sign-in leaves it off with the reason.
     pub fn set_cloud_enabled(
         &self,
         provider: CloudProvider,
@@ -502,6 +515,29 @@ impl Session {
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
             let (sync, services) = i.cloud()?;
+            if enabled && matches!(provider, CloudProvider::GoogleDrive) {
+                let drive = i
+                    .drive
+                    .as_ref()
+                    .ok_or_else(|| unavailable("Google Drive"))?;
+                if !drive.authorized()? {
+                    if let Err(error) = drive.connect().await {
+                        let reason =
+                            (!matches!(error, SdkError::Cancelled)).then(|| error.to_string());
+                        return Ok(OperationResult::Cloud {
+                            state: project(
+                                sync.provider_result(
+                                    services.clone(),
+                                    project_input(provider)?,
+                                    false,
+                                    reason,
+                                )
+                                .await?,
+                            )?,
+                        });
+                    }
+                }
+            }
             Ok(OperationResult::Cloud {
                 state: project(
                     sync.set_enabled(services.clone(), project_input(provider)?, enabled)
@@ -568,37 +604,72 @@ fn ocr_available() -> bool {
     }
 }
 
+/// The optional native ports a shell passed to `Session::open`.
+struct Ports {
+    cloud: Option<Arc<dyn NativeCloud>>,
+    notifications: Option<Arc<dyn NativeNotifications>>,
+    downloads: Option<Arc<dyn NativeDownloadSession>>,
+    web_authentication: Option<Arc<dyn NativeWebAuthentication>>,
+    drive_tokens: Option<Arc<dyn NativeDriveTokens>>,
+}
+
 async fn initialize(
     config: SessionConfig,
     vault: Arc<dyn NativeVault>,
     browser: Option<Arc<dyn NativeBrowser>>,
-    cloud: Option<Arc<dyn NativeCloud>>,
-    notifications: Option<Arc<dyn NativeNotifications>>,
-    downloads: Option<Arc<dyn NativeDownloadSession>>,
+    ports: Ports,
 ) -> Result<Arc<Inner>, SdkError> {
+    let Ports {
+        cloud,
+        notifications,
+        downloads,
+        web_authentication,
+        drive_tokens,
+    } = ports;
     let data = PathBuf::from(&config.data_directory);
     let files = PathBuf::from(&config.files_directory);
     let backup_directory = data.join("backups");
+    let drive = DriveAuth::new(vault.clone(), web_authentication, drive_tokens)?.map(Arc::new);
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
         downloads: downloads.is_some(),
-        cloud: cloud.is_some(),
+        cloud: cloud.is_some() || drive.is_some(),
         notifications: notifications.is_some(),
         ocr: ocr_available(),
     };
     let initial_network: isct_core::sync_engine::Network = project_input(config.initial_network)?;
     let native_cloud = cloud.clone();
+    let store_drive = drive.clone();
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
         let (store, _) = DataStore::initialize_dir(data.clone())?;
         let auth = Arc::new(SchoolAuthService::with_status_cache(
             Vault(vault),
             data.join("school-credential-status.json"),
         ));
-        let (supported, authorized) = if cloud.is_some() {
-            (config.cloud_providers, config.authorized_cloud_providers)
-        } else {
-            (Vec::new(), Vec::new())
+        // A provider runs only with its store: iCloud needs `NativeCloud`,
+        // Drive a Drive port. Core reads Drive's saved authorization itself.
+        let available = |provider: &CloudProvider| match provider {
+            CloudProvider::Icloud => cloud.is_some(),
+            CloudProvider::GoogleDrive => store_drive.is_some(),
+            CloudProvider::Onedrive => false,
         };
+        let supported = config
+            .cloud_providers
+            .into_iter()
+            .filter(available)
+            .collect::<Vec<_>>();
+        let mut authorized = config
+            .authorized_cloud_providers
+            .into_iter()
+            .filter(|provider| {
+                !matches!(provider, CloudProvider::GoogleDrive) && available(provider)
+            })
+            .collect::<Vec<_>>();
+        if let Some(drive) = &store_drive {
+            if drive.authorized()? {
+                authorized.push(CloudProvider::GoogleDrive);
+            }
+        }
         let sync = CloudSync::new(
             data.join("cloud-sync-state.json"),
             &project_input::<_, Vec<isct_core::cloud_sync::CloudProvider>>(supported)?,
@@ -632,10 +703,12 @@ async fn initialize(
     core.runtime
         .attach_cloud(sync.clone())
         .map_err(runtime_error)?;
-    let transport: Arc<dyn isct_core::cloud_sync::CloudTransport> = match native_cloud {
-        Some(native) => Arc::new(cloud_transport(native)),
-        None => Arc::new(NoCloud),
-    };
+    let transport: Arc<dyn isct_core::cloud_sync::CloudTransport> =
+        if native_cloud.is_some() || drive.is_some() {
+            Arc::new(cloud_stores(native_cloud, drive.clone())?)
+        } else {
+            Arc::new(NoCloud)
+        };
     let sync_services = CloudServices {
         backup: backup.clone(),
         transport,
@@ -654,6 +727,7 @@ async fn initialize(
         backup,
         sync,
         sync_services,
+        drive,
         notifications,
         download_session: downloads,
         files,

@@ -64,16 +64,44 @@ pub fn version(document: &Value) -> Result<String, DataError> {
     crate::data::versioned::content_hash(&contents(&normalized)).map(|hash| format!("v1-{hash}"))
 }
 
+/// The workspace lineage a document belongs to, if it has met a cloud.
+pub fn workspace(document: &Value) -> Option<&str> {
+    document["sync"]["workspaceId"].as_str()
+}
+
+/// Copies from different workspaces were started separately; they are joined
+/// record by record instead of comparing restore generations.
+pub fn joins(a: &Value, b: &Value) -> bool {
+    matches!((workspace(a), workspace(b)), (Some(a), Some(b)) if a != b)
+}
+
 pub fn merge(a: &Value, b: &Value) -> Value {
-    // A restore starts a new generation; rows from the old branch cannot reappear.
-    let (a, b) = match generation(a).cmp(&generation(b)) {
-        Ordering::Less => (b, b),
-        Ordering::Greater => (a, a),
-        Ordering::Equal => (a, b),
+    let (a, b) = if joins(a, b) {
+        // Generations only order restores within one workspace. The joined
+        // copy keeps the first-sorting (oldest UUIDv7) workspace and its
+        // generation, so that workspace's devices see an ordinary merge.
+        if workspace(a) <= workspace(b) {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    } else {
+        // A restore starts a new generation; rows from the old branch cannot reappear.
+        match generation(a).cmp(&generation(b)) {
+            Ordering::Less => (b, b),
+            Ordering::Greater => (a, a),
+            Ordering::Equal => (a, b),
+        }
     };
     let mut merged = a.clone();
     if merged["sync"].is_null() && !b["sync"].is_null() {
         merged["sync"] = b["sync"].clone();
+    }
+    if let (None, Some(id)) = (workspace(&merged), workspace(b)) {
+        let id = Value::String(id.to_owned());
+        if let Some(sync) = merged["sync"].as_object_mut() {
+            sync.insert("workspaceId".into(), id);
+        }
     }
     let mut tables = serde_json::Map::new();
     // This whitelist is also used by backup/import: device state and school

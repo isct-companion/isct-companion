@@ -70,6 +70,8 @@ impl Fixture {
             cloud,
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -765,6 +767,8 @@ async fn callback_errors_keep_their_category_and_last_session_drop_releases_port
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -877,6 +881,8 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
         None,
         None,
         Some(Arc::new(NoCookies)),
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -1091,4 +1097,127 @@ async fn sessions_sharing_one_cloud_record_load_each_others_data() {
 
     mac.finish().await;
     phone.finish().await;
+}
+
+#[derive(Default)]
+struct AccountTokens {
+    decline: std::sync::atomic::AtomicBool,
+    prompts: AtomicU64,
+    signed_out: std::sync::atomic::AtomicBool,
+}
+#[async_trait::async_trait]
+impl crate::ports::NativeDriveTokens for AccountTokens {
+    async fn access_token(&self, scope: String, interactive: bool) -> Result<String, SdkError> {
+        assert_eq!(scope, "https://www.googleapis.com/auth/drive.appdata");
+        if interactive {
+            self.prompts.fetch_add(1, Ordering::SeqCst);
+        }
+        if self.decline.load(Ordering::SeqCst) {
+            return Err(SdkError::Authentication {
+                detail: "consent declined".into(),
+            });
+        }
+        Ok("token".into())
+    }
+    fn sign_out(&self) -> Result<(), SdkError> {
+        self.signed_out.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// Android has no iCloud store, only Drive through the OS account system.
+/// Its session still has cloud sync; a declined sign-in leaves Drive off with
+/// the reason, an accepted one turns it on and is remembered across a
+/// restart without asking the OS again, and turning Drive off signs out.
+#[tokio::test]
+async fn drive_signs_in_through_the_token_port_and_stays_authorized_after_restart() {
+    let root = std::env::temp_dir().join(format!(
+        "isct-sdk-drive-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let vault = Arc::new(Vault::default());
+    let tokens = Arc::new(AccountTokens::default());
+    let open = || {
+        Session::open(
+            SessionConfig {
+                data_directory: root.join("data").to_string_lossy().into(),
+                files_directory: root.join("files").to_string_lossy().into(),
+                initial_network: SyncNetwork::Offline,
+                cloud_providers: vec![CloudProvider::GoogleDrive, CloudProvider::Icloud],
+                authorized_cloud_providers: vec![],
+            },
+            vault.clone(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(tokens.clone()),
+        )
+    };
+    let drive = |state: &SyncState| {
+        let rows = state
+            .providers
+            .iter()
+            .filter(|row| matches!(row.provider, CloudProvider::GoogleDrive))
+            .collect::<Vec<_>>();
+        assert_eq!(state.providers.len(), 1, "iCloud has no store here");
+        (rows[0].enabled, rows[0].error.clone())
+    };
+    let session = open().await.unwrap();
+    assert!(session.capabilities().unwrap().cloud);
+    assert_eq!(
+        drive(&cloud_op(session.cloud_state().unwrap()).await),
+        (false, None)
+    );
+
+    tokens.decline.store(true, Ordering::SeqCst);
+    let declined = cloud_op(
+        session
+            .set_cloud_enabled(CloudProvider::GoogleDrive, true)
+            .unwrap(),
+    )
+    .await;
+    let (enabled, reason) = drive(&declined);
+    assert!(!enabled);
+    assert!(reason.unwrap().contains("consent declined"));
+
+    tokens.decline.store(false, Ordering::SeqCst);
+    let state = cloud_op(
+        session
+            .set_cloud_enabled(CloudProvider::GoogleDrive, true)
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(drive(&state), (true, None));
+    assert_eq!(tokens.prompts.load(Ordering::SeqCst), 2);
+    session.shutdown().await.unwrap();
+    drop(session);
+
+    let session = open().await.unwrap();
+    let state = cloud_op(
+        session
+            .set_cloud_enabled(CloudProvider::GoogleDrive, true)
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(drive(&state), (true, None));
+    assert_eq!(
+        tokens.prompts.load(Ordering::SeqCst),
+        2,
+        "a remembered sign-in does not prompt again"
+    );
+    let state = cloud_op(
+        session
+            .set_cloud_enabled(CloudProvider::GoogleDrive, false)
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(drive(&state), (false, None));
+    assert!(tokens.signed_out.load(Ordering::SeqCst));
+    assert_eq!(vault.load("google-drive".into()).unwrap(), None);
+    session.shutdown().await.unwrap();
+    drop(session);
+    std::fs::remove_dir_all(root).unwrap();
 }

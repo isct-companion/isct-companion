@@ -3,8 +3,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// バックアップ: the desktop's Backup settings on the phone. iCloud carries the
-/// same record the Mac app writes, so either device loads the other's data;
-/// a backup file moves data between any two devices. Core owns every rule
+/// same record the Mac app writes and Google Drive the one every platform
+/// writes, so any device sharing a provider loads the others' data; a backup
+/// file moves data between any two devices. Core owns every rule
 /// (what uploads, how copies merge, what a restore keeps); this renders its
 /// journal and forwards the person's choices.
 struct BackupScreen: View {
@@ -16,7 +17,7 @@ struct BackupScreen: View {
     @State private var notice: String?
 
     private var state: SyncState? { model.cloud }
-    private var icloud: ProviderState? { state?.providers.first { $0.provider == .icloud } }
+    private var providers: [ProviderState] { state?.providers ?? [] }
     private var pending: Bool {
         state?.tasks.contains { $0.deliveries.contains { $0.status != .completed } } ?? false
     }
@@ -83,20 +84,22 @@ struct BackupScreen: View {
 
     @ViewBuilder private var syncSection: some View {
         Section {
-            Toggle(isOn: Binding(
-                get: { icloud?.enabled ?? false },
-                set: { on in run { await model.setCloudEnabled(on) } })
-            ) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("iCloud")
-                    if let detail = providerDetail {
-                        Text(detail).font(.subheadline)
-                            .foregroundStyle(icloud?.error == nil ? Theme.muted : Theme.danger)
+            ForEach(providers, id: \.provider) { provider in
+                Toggle(isOn: Binding(
+                    get: { provider.enabled },
+                    set: { on in run { await model.setCloudEnabled(provider.provider, on) } })
+                ) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Self.name(provider.provider))
+                        if let detail = detail(provider) {
+                            Text(detail).font(.subheadline)
+                                .foregroundStyle(provider.error == nil ? Theme.muted : Theme.danger)
+                        }
                     }
                 }
+                .disabled(locked)
             }
-            .disabled(locked)
-            if icloud?.enabled == true {
+            if providers.contains(where: \.enabled) {
                 Toggle(isOn: Binding(
                     get: { state?.automatic ?? false },
                     set: { on in run { await model.setCloudAutomatic(on) } })
@@ -104,7 +107,7 @@ struct BackupScreen: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t("Sync automatically"))
                         Text(state?.automatic == true
-                            ? t("Pulls other devices' changes at launch. Changed content is uploaded at most once per hour.")
+                            ? t("Pulls other devices' changes when opened and every hour. Changed content is uploaded at most once per hour.")
                             : t("Upload and pull by hand"))
                             .font(.subheadline).foregroundStyle(Theme.muted)
                     }
@@ -129,14 +132,23 @@ struct BackupScreen: View {
         }
     }
 
-    private var providerDetail: String? {
-        guard let icloud, icloud.enabled else { return nil }
-        // The provider's own reason (signed out, another workspace, offline):
-        // without it every failure looks the same.
-        if let error = icloud.error {
+    private static func name(_ provider: CloudProvider) -> String {
+        switch provider {
+        case .icloud: "iCloud"
+        case .googleDrive: "Google Drive"
+        case .onedrive: "OneDrive"
+        }
+    }
+
+    private func detail(_ provider: ProviderState) -> String? {
+        // The provider's own reason (signed out, declined sign-in, offline):
+        // without it every failure looks the same. A declined sign-in leaves
+        // the switch off with its reason.
+        if let error = provider.error {
             return t("Could not update this cloud copy. Your data is saved on this device.") + "\n" + error
         }
-        return icloud.lastSyncedAt.map { t("Synced {{date}}", ["date": Format.due($0)]) }
+        guard provider.enabled else { return nil }
+        return provider.lastSyncedAt.map { t("Synced {{date}}", ["date": Format.due($0)]) }
             ?? t("Waiting for the first sync")
     }
 

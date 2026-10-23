@@ -18,6 +18,9 @@ and formats.
 | `cloud_sync::document` | `parse_cloud_workspace`, `versions`, `merge_and_push` | Cloud envelope, age/minimum-copy history retention and conditional-write conflict retries |
 | `cloud_sync::document::DocumentCloud` | `new(transport, device_name)` | The queue's `CloudTransport` over any `WorkspaceTransport`; every shell shares its parse, history and merge loop |
 | `cloud_sync::document::TaggedWorkspace` | `new(store)` | `WorkspaceTransport` over an `ObjectStore` that only reads and writes bytes with a change tag (CloudKit on macOS and iOS) |
+| `cloud_sync::document::Providers` | `with(provider, store)` | One `WorkspaceTransport` routing each provider to its own store (CloudKit and Drive on Apple devices) |
+| `cloud_sync::google_drive::GoogleDrive` | `new(authorization)`, `read_file`, `write_file` | Drive `appdata` REST for the workspace envelope and the credential file, over a `DriveAuthorization` |
+| `cloud_sync::google_drive::Pkce` | `begin`, `finish`, `authorized` | PKCE sign-in and refresh-token storage in the shell's `SecretVault` (desktop and iOS) |
 | `runtime::CoreRuntime` | `attach_cloud`, `shutdown` | Bootstrap attachment, stop admission and drain owned work |
 
 The native shell supplies paths, OS dialogs, HTTP/CloudKit/OAuth/credential
@@ -32,7 +35,24 @@ bytes if the tag still matches) and goes through `TaggedWorkspace`, which
 pairs each envelope revision with the tag it was read with. The FFI's
 `NativeCloud` is that byte port, so Swift and Kotlin never parse or merge.
 The CloudKit record (container, record type, name, asset key) is named once
-in Core and exported as `cloudkitRecord`. A shell should construct fresh services
+in Core and exported as `cloudkitRecord`.
+
+Google Drive is one Core module for every shell, `cloud_sync::google_drive`.
+It owns the `drive.appdata` REST calls (lookup, sibling files, ETag
+conditional writes, the encrypted credential file) and implements
+`WorkspaceTransport`; a shell only supplies an access token through the
+`DriveAuthorization` port:
+
+| Shell | OAuth client | How the token is obtained |
+|---|---|---|
+| Desktop | Desktop client (with its non-confidential secret) | Core's PKCE flow; the shell opens the browser and runs the loopback listener |
+| iOS / iPadOS | iOS client | Core's PKCE flow; the shell presents `ASWebAuthenticationSession` and returns the callback URL |
+| Android | Android client (package + signing SHA-1) | Google Identity `AuthorizationClient`; the shell returns a short-lived access token, silently after the first consent |
+
+Core's PKCE flow keeps the refresh token in the shell's `SecretVault` under
+the existing `google-drive` account, so a desktop's saved authorization keeps
+working. The FFI exports the port as `NativeDriveAuthorization`, and
+`SessionConfig.cloudProviders` lists Drive on both mobile shells. A shell should construct fresh services
 after changing the notes folder. Core retains no Tauri handles.
 
 The native one-second wake supplies an opportunity to work. Core admits a

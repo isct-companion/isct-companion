@@ -92,6 +92,7 @@ private sealed interface SettingsPage {
     data object AssignmentLeads : SettingsPage
     data object StudyProfile : SettingsPage
     data object DataUpdates : SettingsPage
+    data object Backup : SettingsPage
     data class Reset(val kind: ResetKind) : SettingsPage
 
     /** Where back goes: a page opened from another returns to it. */
@@ -108,6 +109,7 @@ private sealed interface SettingsPage {
                     AssignmentLeads -> "assignment-leads"
                     StudyProfile -> "study-profile"
                     DataUpdates -> "data-updates"
+                    Backup -> "backup"
                     is Reset -> "reset:${it.kind.name}"
                     is Account -> "account:${it.profile.name}:${it.name}"
                 }
@@ -119,6 +121,7 @@ private sealed interface SettingsPage {
                     "assignment-leads" -> AssignmentLeads
                     "study-profile" -> StudyProfile
                     "data-updates" -> DataUpdates
+                    "backup" -> Backup
                     "reset" -> runCatching { Reset(ResetKind.valueOf(parts[1])) }.getOrNull() ?: Root
                     "account" -> runCatching { Account(SchoolAuthProfile.valueOf(parts[1]), parts[2]) }.getOrNull() ?: Root
                     else -> Root
@@ -170,6 +173,10 @@ fun SettingsScreen() {
                 DataUpdatesPage()
             }
 
+            SettingsPage.Backup -> {
+                Bar(t("Backup"), back = { page = SettingsPage.Root })
+                BackupPage()
+            }
             is SettingsPage.Reset -> {
                 val title = if (current.kind == ResetKind.Everything) "settings.reset.full.title" else "settings.reset.caches.title"
                 Bar(t(title), back = { page = SettingsPage.Root })
@@ -225,6 +232,8 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
             NavRow(t("Study profile"), null) { open(SettingsPage.StudyProfile) }
             RowDivider(inset = 16.dp)
             NavRow(t("Data updates"), dataSummary(model.records.settings)) { open(SettingsPage.DataUpdates) }
+            RowDivider(inset = 16.dp)
+            NavRow(t("Backup"), null) { open(SettingsPage.Backup) }
         }
         LanguageCard()
         Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))

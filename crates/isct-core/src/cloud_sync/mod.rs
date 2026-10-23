@@ -1,5 +1,6 @@
 //! Durable cloud synchronization state and queue ownership.
 pub mod document;
+pub mod google_drive;
 mod journal;
 
 use crate::{
@@ -16,16 +17,18 @@ use std::{
     future::Future,
     path::PathBuf,
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(45);
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
 const SNAPSHOT_INTERVAL_SECONDS: i64 = 60 * 60;
+/// Automatic mode asks every provider for other devices' changes at launch,
+/// at most this often while the app stays open, and on a return to front
+/// that comes at least `FOREGROUND_CHECK_SPACING` after the last check.
+const REMOTE_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const FOREGROUND_CHECK_SPACING: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -177,9 +180,15 @@ struct Inner {
     tasks: RuntimeTasks,
     tick_pass: Arc<tokio::sync::Semaphore>,
     next_tick: Mutex<Instant>,
-    /// Set until the first queue pass of this process has asked the clouds
-    /// for other devices' changes (automatic mode only).
-    launch_pull: AtomicBool,
+    remote_check: Mutex<RemoteCheck>,
+}
+
+/// When this process last asked the clouds for other devices' changes, and
+/// whether the shell has reported a return to front since.
+#[derive(Default)]
+struct RemoteCheck {
+    last: Option<Instant>,
+    foreground: bool,
 }
 
 #[derive(Clone)]
@@ -197,7 +206,7 @@ impl CloudSync {
             tasks: RuntimeTasks::default(),
             tick_pass: Arc::new(tokio::sync::Semaphore::new(1)),
             next_tick: Mutex::new(Instant::now()),
-            launch_pull: AtomicBool::new(true),
+            remote_check: Mutex::new(RemoteCheck::default()),
         }));
         if let Err(error) = service.prune_recovery() {
             crate::diagnostics::report("backup-retention", &error);
@@ -350,8 +359,13 @@ impl CloudSync {
             .map_err(CloudSyncError::from)?
     }
 
-    /// Replay pending work after startup or a native lifecycle wake.
+    /// Replay pending work after startup or a native lifecycle wake. A wake
+    /// also makes the next automatic pass check the clouds, at most once
+    /// every five minutes.
     pub async fn resume(&self, services: CloudServices) -> Result<SyncState, CloudSyncError> {
+        if let Ok(mut check) = self.0.remote_check.lock() {
+            check.foreground = true;
+        }
         let service = self.clone();
         self.0
             .tasks
@@ -509,6 +523,13 @@ impl CloudSync {
                 .iter_mut()
                 .find(|row| row.provider == provider)
                 .ok_or_else(|| CloudSyncError::Compatibility("Unsupported sync provider".into()))?;
+            if enabled && !row.enabled {
+                // Turning a provider on is its first copy from this device:
+                // the merged data goes up without waiting out the hour.
+                journal
+                    .uploaded_at
+                    .insert(provider, chrono::DateTime::UNIX_EPOCH.to_rfc3339());
+            }
             row.enabled = enabled;
             row.error = None;
             Ok(())
@@ -572,15 +593,13 @@ impl CloudSync {
         };
         let before = self.state()?;
         // Uploads reconcile only when this device changes something, so
-        // without this a device that is only read never sees another's edits.
-        if self.0.launch_pull.load(Ordering::SeqCst) {
-            if before.automatic {
-                let document = snapshot(&services.backup).await?;
-                self.0
-                    .journal
-                    .change(|journal| journal.enqueue(document, Direction::Pull))?;
-            }
-            self.0.launch_pull.store(false, Ordering::SeqCst);
+        // without this a device that is only read never sees another's edits,
+        // and a device with two providers relays only when it is edited.
+        if before.automatic && self.remote_check_due()? {
+            let document = snapshot(&services.backup).await?;
+            self.0
+                .journal
+                .change(|journal| journal.enqueue(document, Direction::Pull))?;
         }
         let worker = self.clone();
         let worker_services = services.clone();
@@ -610,6 +629,25 @@ impl CloudSync {
         result?;
         settled?;
         Ok(after)
+    }
+
+    fn remote_check_due(&self) -> Result<bool, CloudSyncError> {
+        let mut check = self
+            .0
+            .remote_check
+            .lock()
+            .map_err(|_| CloudSyncError::Storage("Sync clock unavailable".into()))?;
+        let now = Instant::now();
+        let due = check.last.is_none_or(|last| {
+            let elapsed = now.saturating_duration_since(last);
+            elapsed >= REMOTE_CHECK_INTERVAL
+                || (check.foreground && elapsed >= FOREGROUND_CHECK_SPACING)
+        });
+        check.foreground = false;
+        if due {
+            check.last = Some(now);
+        }
+        Ok(due)
     }
 
     async fn run_queue(&self, services: &CloudServices) -> Result<(), CloudSyncError> {
@@ -647,6 +685,7 @@ impl CloudSync {
             })?;
             self.publish(services)?;
             if job.task.direction == Direction::Upload {
+                self.lineage(&mut job.document)?;
                 let providers = self
                     .state()?
                     .providers
@@ -661,9 +700,7 @@ impl CloudSync {
                         )
                         .await
                     {
-                        if self.bind_workspace(&remote).is_ok() {
-                            job.document = cloud_merge::merge(&job.document, &remote);
-                        }
+                        job.document = cloud_merge::merge(&job.document, &remote);
                     }
                 }
                 job.task.version = version(&job.document)?;
@@ -879,8 +916,7 @@ impl CloudSync {
                 CloudSyncError::Interrupted,
             )
             .await?;
-        // Checked before binding: a pull that finds nothing must not give this
-        // device a fresh workspace id that the first real cloud copy then conflicts with.
+        // A pull that finds nothing names no workspace.
         if job.task.direction == Direction::Pull && remote.is_none() {
             return if job.manual {
                 Err(CloudSyncError::Transport(
@@ -890,27 +926,8 @@ impl CloudSync {
                 Ok(None)
             };
         }
-        let remote_id = remote
-            .as_ref()
-            .and_then(|document| document.pointer("/sync/workspaceId"))
-            .and_then(Value::as_str);
-        let workspace_id = self.0.journal.change(|journal| {
-            if let (Some(local), Some(remote)) = (&journal.workspace_id, remote_id) {
-                if local != remote {
-                    return Err(workspace_conflict());
-                }
-            }
-            Ok(journal
-                .workspace_id
-                .get_or_insert_with(|| {
-                    remote_id
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string())
-                })
-                .clone())
-        })?;
         let mut requested = job.document.clone();
-        requested["sync"]["workspaceId"] = json!(workspace_id);
+        self.lineage(&mut requested)?;
         let document = if job.task.direction == Direction::Upload {
             let backup = services.backup.clone();
             let device = blocking(move || backup.device_id().map_err(backup_storage)).await?;
@@ -926,13 +943,23 @@ impl CloudSync {
         };
         // Re-read after every remote await. Applying a stale snapshot must not
         // overwrite local edits made while the provider was in flight.
-        let latest = snapshot(&services.backup).await?;
+        let mut latest = snapshot(&services.backup).await?;
+        // A device that never met a cloud has its own workspace, so its
+        // records join the cloud's instead of yielding to its generation.
+        self.lineage(&mut latest)?;
         let merged = cloud_merge::merge(&latest, &document);
         if cloud_merge::contents(&latest) != cloud_merge::contents(&merged) {
             self.checkpoint(&latest).await?;
         }
         self.apply_document(services, &merged, WorkspaceChangeSource::CloudSync)
             .await?;
+        // A join moves this device to the surviving workspace.
+        if let Some(id) = cloud_merge::workspace(&merged) {
+            self.0.journal.change(|journal| {
+                journal.workspace_id = Some(id.to_owned());
+                Ok(())
+            })?;
+        }
         self.capture_inner(services, false).await?;
         // History is auxiliary metadata. A failed history listing must not
         // turn an already committed cloud write into another upload attempt.
@@ -969,21 +996,29 @@ impl CloudSync {
         }
     }
 
-    fn bind_workspace(&self, document: &Value) -> Result<(), CloudSyncError> {
-        let remote_id = document
-            .pointer("/sync/workspaceId")
-            .and_then(Value::as_str);
-        self.0.journal.change(|journal| {
-            if let (Some(local), Some(remote)) = (&journal.workspace_id, remote_id) {
-                if local != remote {
-                    return Err(workspace_conflict());
+    /// Names the workspace of a document from this device before it meets a
+    /// cloud copy: its own id, else the journal's, else a fresh UUIDv7. The
+    /// journal follows the document, whose id a join may have changed.
+    fn lineage(&self, document: &mut Value) -> Result<(), CloudSyncError> {
+        let own = cloud_merge::workspace(document).map(str::to_owned);
+        let id = self.0.journal.change(|journal| {
+            if own.is_some() {
+                journal.workspace_id.clone_from(&own);
+            }
+            Ok(journal
+                .workspace_id
+                .get_or_insert_with(|| uuid::Uuid::now_v7().to_string())
+                .clone())
+        })?;
+        if own.is_none() {
+            match document["sync"].as_object_mut() {
+                Some(sync) => {
+                    sync.insert("workspaceId".into(), json!(id));
                 }
+                None => document["sync"] = json!({ "workspaceId": id }),
             }
-            if journal.workspace_id.is_none() {
-                journal.workspace_id = remote_id.map(str::to_owned);
-            }
-            Ok(())
-        })
+        }
+        Ok(())
     }
 
     async fn apply_document(
@@ -1209,6 +1244,7 @@ impl CloudSync {
         self.checkpoint(&current).await?;
         let mut restored = cloud_merge::merge(&old, &old);
         restored["sync"] = current["sync"].clone();
+        self.lineage(&mut restored)?;
         let mut generation = cloud_merge::generation(&current).0;
         for provider in self
             .state()?
@@ -1223,7 +1259,6 @@ impl CloudSync {
                 )
                 .await?
             {
-                self.bind_workspace(&remote)?;
                 generation = generation.max(cloud_merge::generation(&remote).0);
             }
         }
@@ -1260,13 +1295,6 @@ fn delivery_mut<'a>(
                 .find(|delivery| delivery.provider == provider)
         })
         .ok_or_else(|| CloudSyncError::Storage("Sync task missing".into()))
-}
-
-fn workspace_conflict() -> CloudSyncError {
-    CloudSyncError::Conflict(
-        "This cloud account contains a different workspace. Disconnect it before continuing."
-            .into(),
-    )
 }
 
 fn storage_error(error: impl ToString) -> CloudSyncError {

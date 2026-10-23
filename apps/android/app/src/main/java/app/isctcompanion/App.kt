@@ -108,6 +108,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val model = (application as IsctApplication).model
         model.browser.attachParking(this)
+        model.drive.attach(this)
         setContent {
             IsctTheme {
                 CompositionLocalProvider(LocalModel provides model) { RootView() }

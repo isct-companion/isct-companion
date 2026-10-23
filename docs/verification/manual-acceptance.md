@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 89 checks must be re-run before the next release.**
+**7 of 92 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**79 checks have never been run or could not be run:**
+**82 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -98,6 +98,9 @@ an unverified area becomes an assumed-good one.
 - `IOS-COURSE-EXAM-LINE` — never verified
 - `IOS-ICLOUD-BACKUP` — never verified
 - `DESKTOP-DEBUG-ICLOUD` — never verified
+- `CLOUD-PROVIDER-COMBINATIONS` — never verified
+- `IOS-DRIVE-SIGNIN` — never verified
+- `ANDROID-DRIVE-SIGNIN` — never verified
 - `IOS-LOG-EXPORT` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
 - `ANDROID-TLS-VERIFIER` — never verified
@@ -192,6 +195,9 @@ an unverified area becomes an assumed-good one.
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
+| `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/mod.rs<br>crates/isct-core/src/data/cloud_merge.rs<br>crates/isct-core/src/data/backup_store.rs |
+| `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/GoogleSignIn.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/project.yml |
+| `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>crates/isct-ffi/src/ports.rs |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
@@ -4541,10 +4547,10 @@ CloudKit database; `codesign -d --entitlements - <app>` on each shows it.
 4. Turn on Sync automatically on both. Add a plan on the Mac and Upload,
    then force-quit the iPhone app and open it again without pressing
    Pull.
-   - *Why:* Automatic mode pulls once per launch; a phone that is only read never
-     uploads, so this is the only way it sees the Mac's edits. The plan
-     missing after the relaunch means the launch pull did not run or read
-     another database.
+   - *Why:* Automatic mode pulls at launch and when the app comes to the front; a
+     phone that is only read never uploads, so this is the only way it
+     sees the Mac's edits. The plan missing after the relaunch means the
+     launch pull did not run or read another database.
 5. Sign out of iCloud on the iPhone (Settings › Apple Account), reopen
    バックアップ, then sign back in.
    - *Why:* The provider line must name the reason under the generic failure
@@ -4638,6 +4644,185 @@ and history survive a build without iCloud is unit-tested in
 - `scripts/desktop/macos-signing.mjs`
 - `scripts/desktop/tauri.mjs`
 - `apps/desktop/src-tauri/build.rs`
+
+**Last recorded** never run
+
+### Devices started apart on iCloud and Drive join and relay through a Mac with both (`CLOUD-PROVIDER-COMBINATIONS`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+One Apple Account and one Google account. A signed Mac app (iCloud and
+Drive), an iPhone app with only iCloud on, and an Android phone with only
+Drive on. Each device starts with its own data: before any device has
+both providers, add a different plan on the iPhone (Upload to iCloud)
+and on the Android phone (Upload to Drive). Import a backup file on the
+Android phone first, so its copy is a restore generation ahead.
+
+**Steps**
+
+1. On the Mac, add a third plan, turn on iCloud and Google Drive in
+   Settings → Backup (Drive through the browser consent), then Upload.
+   - *Why:* The two clouds hold copies with different workspace ids. The old
+     build refused the second provider with "a different workspace"; any
+     error here, or a missing plan, means the copies were not joined.
+2. Pull on the iPhone and on the Android phone.
+   - *Why:* Each must show all three plans. A phone that loses its own plan means
+     the joined copy replaced its data by generation instead of merging.
+3. Turn on Sync automatically on the Mac and leave it open. Add a plan
+   on the iPhone and Upload; do nothing on the Mac for an hour, then
+   Pull on the Android phone.
+   - *Why:* The Mac must relay iCloud's change to Drive from its hourly remote
+     check, with no local edit. The plan missing on Android after the hour
+     means the relay still waits for an edit or a relaunch.
+4. On the Mac turn Drive off, add a plan, Upload, then turn Drive on
+   again.
+   - *Why:* Turning a provider back on must merge its old copy and upload the
+     merged data at once, not wait out the hourly limit or report a
+     conflict.
+
+**Where to look**
+
+The plans on each device, each device's Backup page (provider lines,
+errors) and the version lists of both providers.
+
+**Expected**
+
+No device reports a workspace error; every device ends with every plan;
+the iPhone's plan reaches Android through the Mac within about two hours
+without touching the Mac; re-enabling Drive brings it up to date at once.
+
+**Why this is manual**
+
+It needs real iCloud and Google accounts on three devices and an hour of
+wall-clock time. The join, the generation handling and the relay logic
+are covered by
+`separately_started_workspaces_join_across_providers_and_every_device_converges`
+and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_edit`.
+
+**Covers**
+
+- `crates/isct-core/src/cloud_sync/mod.rs`
+- `crates/isct-core/src/data/cloud_merge.rs`
+- `crates/isct-core/src/data/backup_store.rs`
+
+**Last recorded** never run
+
+### iPhone signs in to Google Drive and syncs with a desktop on Drive (`IOS-DRIVE-SIGNIN`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone build from this branch and a Google account added as a test
+user of the IsctCompanion OAuth consent screen; a Windows or Mac desktop
+app with Drive on and at least one plan uploaded.
+
+**Steps**
+
+1. On the iPhone, 設定 › バックアップ: turn on Google Drive and cancel
+   the Google page.
+   - *Why:* Cancelling must leave the switch off with no error banner. An error
+     or a switch left on means the cancelled session was treated as a
+     failed or successful sign-in.
+2. Turn Google Drive on again and finish the consent, then Pull.
+   - *Why:* The page must return to the app and the desktop's plan arrive. A
+     Google error page ("redirect_uri_mismatch", "invalid_client") means
+     the iOS client ID or its reversed redirect scheme does not match the
+     registered client.
+3. Force-quit the app, reopen it, then Upload after editing a record;
+   Pull on the desktop.
+   - *Why:* The refresh token kept in the Keychain must sign in silently after a
+     relaunch; a second Google page or an authorization error means it
+     was not saved or not refreshed.
+4. Turn Google Drive off, then on again.
+   - *Why:* Off must forget the authorization, so on asks for consent again.
+
+**Where to look**
+
+The Google page, the Drive row on the iPhone's Backup page and the
+records on both devices.
+
+**Expected**
+
+Cancel leaves Drive off quietly; consent connects it and the desktop's
+data arrives; a relaunch stays signed in; off then on asks again.
+
+**Why this is manual**
+
+ASWebAuthenticationSession and Google's consent page need a device and a
+real Google account. The PKCE checks and token storage are covered by
+`callback_answers_only_its_own_authorization` and
+`saved_authorization_is_read_and_disconnect_removes_only_drive`.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/GoogleSignIn.swift`
+- `apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift`
+- `apps/ios/project.yml`
+
+**Last recorded** never run
+
+### Android signs in to Google Drive through the account prompt (`ANDROID-DRIVE-SIGNIN`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An APK built on the Windows machine from this branch, signed with a key
+whose SHA-1 is registered on the IsctCompanion Android OAuth client, on
+a phone with a Google account that is a test user; a desktop app with
+Drive on and at least one plan uploaded.
+
+**Steps**
+
+1. 設定 › バックアップ: turn on Google Drive and decline Google's
+   prompt.
+   - *Why:* The switch must stay off with the reason under it. A crash or a
+     switch left on means the consent result was not read.
+2. Turn it on again, allow the prompt, then Pull.
+   - *Why:* The desktop's plan must arrive. "DEVELOPER_ERROR" or an immediate
+     failure without a prompt means the package name or signing SHA-1 is
+     not on the Android client.
+3. Swipe the app away, reopen it, edit a record and Upload; Pull on the
+   desktop.
+   - *Why:* A relaunch must get a token without showing the prompt again; a
+     prompt or an authorization error means the remembered connection or
+     the silent authorization failed.
+4. Export a backup file to Files and import it again.
+   - *Why:* Android had no backup page before; export and import must go through
+     the system document picker and the import must leave a recovery file.
+
+**Where to look**
+
+Google's prompt, the Drive row and recovery files on the Backup page,
+and the records on both devices.
+
+**Expected**
+
+Decline leaves Drive off with its reason; allow connects it and the
+desktop's data arrives; a relaunch stays connected silently; export and
+import work and the import keeps a recovery file.
+
+**Why this is manual**
+
+Google Identity's authorization needs Play services, a registered signing
+certificate and a real account on a device. The Core side of the token
+port is covered by
+`drive_signs_in_through_the_token_port_and_stays_authorized_after_restart`.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt`
+- `crates/isct-ffi/src/ports.rs`
 
 **Last recorded** never run
 

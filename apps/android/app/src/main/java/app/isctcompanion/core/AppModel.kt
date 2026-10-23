@@ -74,11 +74,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Cells read so far by a running Matrix scan, from Core's `ocr-progress`. */
     var ocrProgress: Int by mutableStateOf(0)
         private set
+    /** Core's cloud journal: providers, unfinished tasks, versions, recovery files. */
+    var cloud: SyncState? by mutableStateOf(null)
+        private set
     /** Bumped whenever Core reports new content, so open screens re-query. */
     var contentRevision: String by mutableStateOf("")
         private set
 
     val browser = SchoolBrowserHost(context)
+    /** Google Drive sign-in; the activity in front attaches its consent screen. */
+    val drive = DriveTokens(context)
     val web = WebRouter(browser, scope, context)
     private var session: Session? = null
     private var revision = ""
@@ -106,12 +111,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         try {
             val data = File(context.filesDir, "core").apply { mkdirs() }
             val files = File(context.filesDir, "files").apply { mkdirs() }
+            // Google Drive is Android's provider; Core reads whether it was
+            // connected and owns every Drive request.
             val config = SessionConfig(
                 dataDirectory = data.absolutePath, filesDirectory = files.absolutePath,
-                initialNetwork = SyncNetwork.UNKNOWN, cloudProviders = emptyList(),
+                initialNetwork = SyncNetwork.UNKNOWN, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
                 authorizedCloudProviders = emptyList(),
             )
-            val session = Session.open(config, KeystoreVault(context), browser, null, null, WebCookieSession())
+            val session = Session.open(
+                config, KeystoreVault(context), browser, null, null, WebCookieSession(), null, drive,
+            )
             this.session = session
             web.session = session
             val stream = session.subscribe()
@@ -119,6 +128,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             refresh()
             refreshAccounts()
             readSync()
+            refreshCloud()
             status = Status.Ready
             watchNetwork()
             watchPowerSaver()
@@ -264,6 +274,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                         .onSuccess { syncSnapshot = it }
                     "school-session", "school-login-status" -> refreshAccounts()
                     "school-web-open" -> web.handleOpenEvent(update.event.payload)
+                    "cloud-sync-state" -> refreshCloud()
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }
                     // No screen here lists finder results; the catalog
@@ -607,6 +618,63 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Starts a live Matrix scan; its seven-second budget starts now. */
     fun beginMatrixCamera(): MatrixCameraSession =
         session?.beginMatrixCamera() ?: throw SdkException.Closed()
+
+    // Backup: the desktop's Backup settings over the same Core journal. Core
+    // decides what uploads, merges and restores.
+
+    suspend fun refreshCloud() {
+        val session = session ?: return
+        (runCatching { session.cloudState().value() }.getOrNull() as? OperationResult.Cloud)
+            ?.let { cloud = it.state }
+    }
+
+    /** Turning Drive on first shows Google's consent; Core keeps it off with
+     * the reason if that fails. */
+    suspend fun setCloudEnabled(provider: CloudProvider, enabled: Boolean) =
+        cloudOperation { it.setCloudEnabled(provider, enabled) }
+
+    suspend fun setCloudAutomatic(automatic: Boolean) = cloudOperation { it.setCloudAutomatic(automatic) }
+
+    suspend fun syncCloud(direction: Direction) {
+        cloudOperation { it.syncCloud(direction) }
+        refresh()
+    }
+
+    /** Restores a cloud version or a local recovery file, on every connected device. */
+    suspend fun restoreCloud(id: String) {
+        cloudOperation { it.restoreCloud(id) }
+        refresh()
+    }
+
+    /** The current workspace as a backup file (the desktop's Export…). */
+    suspend fun exportBackup(): String? {
+        val session = session ?: return null
+        return try {
+            (session.exportBackup().value() as? OperationResult.Text)?.value
+        } catch (error: Exception) {
+            problem = describe(error)
+            null
+        }
+    }
+
+    /** Imports a backup file; Core saves a recovery file first and publishes
+     * the import like any restore. Core rejects anything that is not a backup. */
+    suspend fun importBackup(text: String) {
+        val session = session ?: return
+        session.applyBackup(text).value()
+        refreshCloud()
+        refresh()
+    }
+
+    private suspend fun cloudOperation(start: (Session) -> Operation) {
+        val session = session ?: return
+        try {
+            (start(session).value() as? OperationResult.Cloud)?.let { cloud = it.state }
+        } catch (error: Exception) {
+            problem = describe(error)
+            refreshCloud()
+        }
+    }
 
     /** Settings → Reset: what `request` would remove now, or null when Core
      * cannot tell. */

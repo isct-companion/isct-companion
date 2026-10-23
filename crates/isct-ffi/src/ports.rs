@@ -5,7 +5,10 @@ use crate::{
     SdkError,
 };
 use isct_core::cloud_sync::document::{
-    BoxFuture, DocumentCloud, DocumentError, ObjectStore, StoredObject, TaggedWorkspace,
+    BoxFuture, DocumentCloud, DocumentError, ObjectStore, Providers, StoredObject, TaggedWorkspace,
+};
+use isct_core::cloud_sync::google_drive::{
+    DriveAuthorization, GoogleDrive, OAuthClient, Pkce, SCOPE, VAULT_ACCOUNT,
 };
 use isct_core::{ports as core, school_browser as browser};
 use std::sync::{Arc, Mutex, Weak};
@@ -377,12 +380,6 @@ fn cloud_error(e: SdkError) -> DocumentError {
         other => DocumentError::Transport(other.to_string()),
     }
 }
-pub(crate) fn cloud_transport(
-    native: Arc<dyn NativeCloud>,
-) -> DocumentCloud<TaggedWorkspace<Cloud>> {
-    let name = native.device_name();
-    DocumentCloud::new(TaggedWorkspace::new(Cloud(native)), name)
-}
 impl ObjectStore for Cloud {
     fn read<'a>(
         &'a self,
@@ -418,6 +415,186 @@ impl ObjectStore for Cloud {
             .disconnect(project(p).map_err(cloud_error)?)
             .map_err(cloud_error)
     }
+}
+/// The Google OAuth client an Apple shell signs in with: its registered iOS
+/// client and the redirect that client accepts.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct GoogleClient {
+    pub client_id: String,
+    pub redirect_uri: String,
+}
+/// Presents Google sign-in for Drive in a web authentication session (iOS).
+/// Core starts and checks the PKCE authorization and keeps the token in the
+/// vault; the shell only shows the page.
+#[uniffi::export(rust, foreign)]
+#[async_trait::async_trait]
+pub trait NativeWebAuthentication: Send + Sync {
+    fn google_client(&self) -> GoogleClient;
+    /// Opens `url` and returns the URL the session ended at, whose scheme is
+    /// `callback_scheme`. Fail with `SdkError::Cancelled` if the user closed it.
+    async fn authenticate(&self, url: String, callback_scheme: String) -> Result<String, SdkError>;
+}
+/// Hands out Drive access tokens from the OS account system (Android's
+/// Google Identity authorization), which keeps the grant itself.
+#[uniffi::export(rust, foreign)]
+#[async_trait::async_trait]
+pub trait NativeDriveTokens: Send + Sync {
+    /// A current token for `scope`. With `interactive` false, fail instead of
+    /// showing any UI.
+    async fn access_token(&self, scope: String, interactive: bool) -> Result<String, SdkError>;
+    /// Forgets this app's Drive grant on this device.
+    fn sign_out(&self) -> Result<(), SdkError>;
+}
+/// How this shell authorizes Drive; Core owns the REST calls either way.
+pub(crate) enum DriveAuth {
+    Pkce {
+        pkce: Pkce<Vault>,
+        web: Arc<dyn NativeWebAuthentication>,
+    },
+    Tokens {
+        tokens: Arc<dyn NativeDriveTokens>,
+        /// Records that the user connected, so a restart knows Drive is
+        /// authorized without asking the OS (which may show UI).
+        vault: Vault,
+    },
+}
+const DRIVE_CONNECTED: &str = "connected";
+fn drive_error(e: SdkError) -> DocumentError {
+    DocumentError::Transport(e.to_string())
+}
+impl DriveAuth {
+    pub(crate) fn new(
+        vault: Arc<dyn NativeVault>,
+        web: Option<Arc<dyn NativeWebAuthentication>>,
+        tokens: Option<Arc<dyn NativeDriveTokens>>,
+    ) -> Result<Option<Self>, SdkError> {
+        Ok(match (web, tokens) {
+            (Some(web), _) => {
+                let client = web.google_client();
+                Some(Self::Pkce {
+                    pkce: Pkce::new(
+                        Vault(vault),
+                        OAuthClient {
+                            id: client.client_id,
+                            secret: None,
+                        },
+                    )
+                    .map_err(|e| SdkError::Internal {
+                        detail: e.to_string(),
+                    })?,
+                    web,
+                })
+            }
+            (None, Some(tokens)) => Some(Self::Tokens {
+                tokens,
+                vault: Vault(vault),
+            }),
+            (None, None) => None,
+        })
+    }
+    pub(crate) fn authorized(&self) -> Result<bool, SdkError> {
+        let saved = match self {
+            Self::Pkce { pkce, .. } => pkce.authorized(),
+            Self::Tokens { vault, .. } => core::SecretVault::load(vault, VAULT_ACCOUNT)
+                .map(|saved| saved.as_deref() == Some(DRIVE_CONNECTED))
+                .map_err(|e| DocumentError::Transport(e.to_string())),
+        };
+        saved.map_err(|e| SdkError::Storage {
+            detail: e.to_string(),
+        })
+    }
+    /// The interactive sign-in behind turning Drive on.
+    pub(crate) async fn connect(&self) -> Result<(), SdkError> {
+        match self {
+            Self::Pkce { pkce, web } => {
+                let client = web.google_client();
+                let pending = pkce
+                    .begin(&client.client_id, &client.redirect_uri)
+                    .map_err(|e| SdkError::InvalidInput {
+                        detail: e.to_string(),
+                    })?;
+                let scheme = Url::parse(&client.redirect_uri)
+                    .map_err(|e| SdkError::InvalidInput {
+                        detail: e.to_string(),
+                    })?
+                    .scheme()
+                    .to_owned();
+                let callback = web.authenticate(pending.url.clone(), scheme).await?;
+                pkce.finish(&client.client_id, &pending, &callback)
+                    .await
+                    .map_err(|e| SdkError::Authentication {
+                        detail: e.to_string(),
+                    })
+            }
+            Self::Tokens { tokens, vault } => {
+                tokens.access_token(SCOPE.into(), true).await?;
+                core::SecretVault::store(vault, VAULT_ACCOUNT, DRIVE_CONNECTED).map_err(|e| {
+                    SdkError::Storage {
+                        detail: e.to_string(),
+                    }
+                })
+            }
+        }
+    }
+}
+impl DriveAuthorization for DriveAuth {
+    fn access_token<'a>(&'a self, refresh: bool) -> BoxFuture<'a, String> {
+        match self {
+            Self::Pkce { pkce, .. } => pkce.access_token(refresh),
+            // The OS refreshes its own tokens; a background request never shows UI.
+            Self::Tokens { tokens, .. } => Box::pin(async move {
+                tokens
+                    .access_token(SCOPE.into(), false)
+                    .await
+                    .map_err(drive_error)
+            }),
+        }
+    }
+    fn disconnect(&self) -> Result<(), DocumentError> {
+        match self {
+            Self::Pkce { pkce, .. } => pkce.disconnect(),
+            Self::Tokens { tokens, vault } => {
+                core::SecretVault::delete(vault, VAULT_ACCOUNT)
+                    .map_err(|e| DocumentError::Transport(e.to_string()))?;
+                tokens.sign_out().map_err(drive_error)
+            }
+        }
+    }
+}
+/// Lets the session keep the `DriveAuth` it signs in with while Drive's
+/// store, inside the transport, uses the same one.
+pub(crate) struct SharedDrive(pub Arc<DriveAuth>);
+impl DriveAuthorization for SharedDrive {
+    fn access_token<'a>(&'a self, refresh: bool) -> BoxFuture<'a, String> {
+        self.0.access_token(refresh)
+    }
+    fn disconnect(&self) -> Result<(), DocumentError> {
+        self.0.disconnect()
+    }
+}
+/// The queue's transport over the stores this shell has: CloudKit through
+/// `NativeCloud`, Drive through Core's REST client.
+pub(crate) fn cloud_stores(
+    native: Option<Arc<dyn NativeCloud>>,
+    drive: Option<Arc<DriveAuth>>,
+) -> Result<DocumentCloud<Providers>, SdkError> {
+    let name = native.as_ref().and_then(|native| native.device_name());
+    let mut stores = Providers::default();
+    if let Some(native) = native {
+        stores = stores.with(
+            isct_core::cloud_sync::CloudProvider::Icloud,
+            TaggedWorkspace::new(Cloud(native)),
+        );
+    }
+    if let Some(drive) = drive {
+        stores = stores.with(
+            isct_core::cloud_sync::CloudProvider::GoogleDrive,
+            GoogleDrive::new(SharedDrive(drive)).map_err(|e| SdkError::Internal {
+                detail: e.to_string(),
+            })?,
+        );
+    }
+    Ok(DocumentCloud::new(stores, name))
 }
 /// Stands in when the shell has no cloud store: the journal still owns
 /// imports and recovery points, and no provider can be enabled.
