@@ -17,7 +17,6 @@ export type Section =
   | "about";
 export type { Platform } from "../platform/capabilities";
 
-export { tokyoDate as jstDate } from "../lib/civil-date";
 export const stamp = () => new Date().toISOString();
 /** Tauri errors may be native typed failures or JavaScript Errors. */
 export const errorText = (error: unknown) =>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Paper, Input } from "@mantine/core";
 import { UiButton } from "../../components/mantine";
 import {
@@ -8,6 +8,7 @@ import {
 } from "../../components/timetable/timetable";
 import { agendaColumns } from "../../components/timetable/workspace";
 import { useScheduleQuery, type ScheduleView } from "../../platform/core-query";
+import { useClock } from "../../platform/use-clock";
 import {
   addCivilDays,
   civilWeekday,
@@ -52,13 +53,9 @@ export function CalendarView({
       },
     ];
   };
-  // Re-render each minute so the now line moves and today follows midnight.
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const today = tokyoDate(now);
+  // The today column and the now line come from one clock instant.
+  const now = useClock();
+  const today = tokyoDate(new Date(now));
   const [anchor, setAnchor] = useState<string>();
   const date = anchor ?? today;
   const from = addCivilDays(date, 1 - civilWeekday(date));
@@ -120,7 +117,7 @@ export function CalendarView({
           days={agendaColumns(view.value?.agendas ?? [], today)}
           onSelect={open}
           actionsFor={actionsFor}
-          showNow
+          now={now}
         />
       </Paper>
     </section>

@@ -10,7 +10,8 @@ coverage/
 
 # Local tool and assistant state
 .cache/
-.claude/
+.claude/*
+!.claude/skills/
 .codex/
 .agents/
 *.ses

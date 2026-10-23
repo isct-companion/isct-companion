@@ -10,6 +10,16 @@ import "./exams.css";
 export const examKindLabel = (exam: Pick<ExamView, "kind">) =>
   t(exam.kind === "class" ? "Class in exam week" : "Exam");
 
+/** "2026-12-08 · 10:45–12:25", or the date with "Time not announced". */
+export const examWhen = (
+  exam: Pick<ExamView, "date" | "startTime" | "endTime">,
+) =>
+  `${exam.date} · ${
+    exam.startTime && exam.endTime
+      ? `${exam.startTime}–${exam.endTime}`
+      : t("Time not announced")
+  }`;
+
 export function ExamCards({
   exams,
   courses,
@@ -72,12 +82,7 @@ export function ExamCards({
             {exam.edited ? ` · ${t("Edited")}` : ""}
             {exam.hidden ? ` · ${t("Hidden")}` : ""}
           </small>
-          <time dateTime={exam.date}>
-            {exam.date}
-            {exam.startTime && exam.endTime
-              ? ` · ${exam.startTime}–${exam.endTime}`
-              : ` · ${t("Time not announced")}`}
-          </time>
+          <time dateTime={exam.date}>{examWhen(exam)}</time>
           {exam.room && <small>{exam.room}</small>}
           {exam.notes && <small>{exam.notes}</small>}
         </article>

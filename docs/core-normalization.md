@@ -16,7 +16,7 @@ mobile shells will be rewritten natively.
   `seedWorkspace()` clones it and supplies launch identity, term, and timestamps.
   The built-in tasks and settings are no longer handwritten in TypeScript.
 - `courseDetail` projects ordered material, section, assignment, exam, and
-  offering IDs. CourseDetails resolves those IDs against its snapshot.
+  offering IDs. Shells resolve those IDs against their snapshot.
   Existing `taskView` already supplies Today and LectureDesk with shared
   deadline, submission, and hidden-assignment decisions; it is retained.
 - Finder contracts join the existing ts-rs exporter. Finder rows and suggestions

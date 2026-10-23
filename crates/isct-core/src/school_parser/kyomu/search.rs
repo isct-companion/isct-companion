@@ -7,7 +7,7 @@
 //! Only the paging control is ever posted, never a registration control.
 
 use super::html::{
-    body, by_id, cells, clean, clean_text, closest, disabled, first, group, is, js_number, jwc,
+    by_id, cells, clean, clean_text, closest, disabled, first, group, is, js_number, jwc,
     lines, maintenance_notice, nine_digits, select, table_rows, text_content,
 };
 use super::SchoolParseError;
@@ -141,11 +141,6 @@ pub fn read_search(
     {
         return Err("The course search columns changed.".into());
     }
-    let page_text = clean(&body(&document).map(text_content).unwrap_or_default());
-    let department = regex!(r"推奨\s*\[([^\]]+)\]")
-        .and_then(|pattern| pattern.captures(&page_text))
-        .and_then(|found| found.get(1).map(|value| value.as_str().to_string()))
-        .unwrap_or_default();
     let rows: Vec<ElementRef<'_>> = table_rows(grid)
         .into_iter()
         .filter(|row| first(*row, r#"a[href*="jwc="]"#).is_some())
@@ -178,7 +173,6 @@ pub fn read_search(
             language: &value("開講言語"),
             note: &value("備考"),
             category: &value("科目区分"),
-            department: &department,
             fetched_at,
         })?;
         if cell("曜日・時限").is_none() || !seen.insert(id) {
@@ -336,7 +330,6 @@ struct CourseCells<'a> {
     language: &'a str,
     note: &'a str,
     category: &'a str,
-    department: &'a str,
     fetched_at: &'a str,
 }
 
@@ -444,7 +437,6 @@ fn course_row(row: CourseCells<'_>) -> Result<Value, SchoolParseError> {
         "schedule": schedule,
         "syllabusUrl": crate::catalog::syllabus_url(row.id, "ja"),
         "kyomu": {
-            "department": row.department,
             "group": mark.as_ref().map_or("", |found| group(found, 1)),
             "mark": match mark.as_ref().map(|found| group(found, 2)) {
                 Some("◎") => "required",

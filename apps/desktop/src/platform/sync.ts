@@ -23,6 +23,7 @@ export type SyncScope =
   | { kind: "everything" }
   | { kind: "site"; site: SyncSite }
   | { kind: "course"; lmsCourseId: number }
+  | { kind: "timetable" }
   | { kind: "references" }
   | { kind: "catalog"; year: number };
 

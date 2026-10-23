@@ -8,13 +8,14 @@ import {
   type Workspace,
 } from "../../lib/model";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "../../lib/departments";
+import { tokyoDate } from "../../lib/civil-date";
 import { UiButton, UiSelect } from "../../components/mantine";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
-import { jstDate } from "../../app/shared";
 import {
   useScheduleQuery,
   type AcademicYearIndex,
 } from "../../platform/core-query";
+import { useClock } from "../../platform/use-clock";
 
 type DraftEnrollment = Omit<StudyEnrollment, "admittedTerm"> & {
   admittedTerm: StudyEnrollment["admittedTerm"] | "";
@@ -41,6 +42,7 @@ export function StudyProfileSettings({
   /** Opens the academic calendar; absent where it is not available. */
   openSection?: (section: "calendar") => void;
 }) {
+  const now = useClock();
   const department = departmentById(data.settings.departmentId);
   const admissionYear = data.academicProfile.admissionYear;
   const studyEnrollments = data.academicProfile.studyEnrollments ?? [];
@@ -90,7 +92,7 @@ export function StudyProfileSettings({
   }, [committedKey, dirty, awaitingKey, baselineKey]);
   const yearIndex = useScheduleQuery<AcademicYearIndex>({
     kind: "academicYears",
-    date: jstDate(new Date()),
+    date: tokyoDate(new Date(now)),
     selectedYear: Number(data.selectedTerm.slice(0, 4)),
   }).value;
   const thisYear =

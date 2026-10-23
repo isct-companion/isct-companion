@@ -52,6 +52,20 @@ export function tokyoDate(date: Date): string {
     .join("-");
 }
 
+/** Minutes since midnight in Japan time. */
+export function jstMinutes(date: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: JST,
+    numberingSystem: "latn",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
 /** Display timestamps in the academic zone; malformed legacy values never reach Intl. */
 export function formatTimestamp(
   value: unknown,

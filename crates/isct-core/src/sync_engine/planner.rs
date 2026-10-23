@@ -280,6 +280,14 @@ fn lms_all() -> [Key; 2] {
     ]
 }
 
+/// The timetable grid: LMS quarter grids and 教務 registrations.
+fn timetable_keys() -> Vec<Key> {
+    vec![
+        Key::new(Dataset::LmsEnrolment, "all"),
+        Key::new(Dataset::KyomuPage, "registrations"),
+    ]
+}
+
 fn course_keys(id: u64) -> [Key; 2] {
     [
         Key::new(Dataset::LmsCourse, id.to_string()),
@@ -336,6 +344,7 @@ pub(crate) fn scope_keys(
         } => unscoped(kyomu_keys()),
         Scope::Site { .. } => Vec::new(),
         Scope::Course { lms_course_id } => course_view_keys(*lms_course_id),
+        Scope::Timetable => unscoped(timetable_keys()),
         Scope::References => unscoped(
             inputs
                 .references
@@ -376,14 +385,7 @@ fn view_keys(
             );
             (unscoped(keys), Priority::Visible, Rule::Open)
         }
-        View::Timetable => (
-            unscoped(vec![
-                Key::new(Dataset::LmsEnrolment, "all"),
-                Key::new(Dataset::KyomuPage, "registrations"),
-            ]),
-            Priority::Visible,
-            Rule::Open,
-        ),
+        View::Timetable => (unscoped(timetable_keys()), Priority::Visible, Rule::Open),
         View::Course { lms_course_id } => (
             course_view_keys(*lms_course_id),
             Priority::Interactive,

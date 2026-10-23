@@ -9,6 +9,7 @@ import {
   axisSpan,
   nowPercent,
 } from "../../lib/timetable-layout";
+import { jstMinutes } from "../../lib/civil-date";
 import { useScheduleQuery } from "../../platform/core-query";
 import type { TimetableAxis } from "../../generated/persistence";
 
@@ -89,25 +90,11 @@ function blockHalves(
   }));
 }
 
-/** Minutes since midnight in Japan time. */
-export function jstMinutes(now = new Date()): number {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Tokyo",
-    numberingSystem: "latn",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(now);
-  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
-  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
-  return hour * 60 + minute;
-}
-
 export function WeekTimetable({
   days,
   onSelect,
   selectedId,
-  showNow = false,
+  now,
   onSlot,
   activeSlots,
   actionsFor,
@@ -115,7 +102,9 @@ export function WeekTimetable({
   days: DayColumn[];
   onSelect?: (block: Block) => void;
   selectedId?: string;
-  showNow?: boolean;
+  /** The shell clock (`useClock`); draws the now line in the column marked
+   * today, which the caller derives from the same instant. */
+  now?: string;
   /** Clicking the free area of a teaching slot (day is 1 = Monday); `append` with ⌘/Ctrl. */
   onSlot?: (day: number, from: number, to: number, append: boolean) => void;
   /** Slots to highlight, as `${day}:${from}-${to}`. */
@@ -144,7 +133,7 @@ export function WeekTimetable({
   }).value;
   const rows = axis ? axisRows(axis) : [];
   const nowOffset =
-    showNow && axis ? nowPercent(axis, jstMinutes()) : undefined;
+    now && axis ? nowPercent(axis, jstMinutes(new Date(now))) : undefined;
   return (
     <div
       className={`tt${days.some((column) => column.calendarNotice) ? " hasCalendarNotice" : ""}`}

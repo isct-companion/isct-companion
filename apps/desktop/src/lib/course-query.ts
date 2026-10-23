@@ -15,5 +15,6 @@ export type ConditionType = Condition["type"];
 export type FinderContext = Omit<CoreFinderContext, "recommended"> & {
   recommended: Map<string, CoreFinderContext["recommended"][string]>;
 };
-export const DAYS = ["月", "火", "水", "木", "金", "土"] as const;
+/** Weekday kanji by ISO day (1 = 月), as 教務 and the syllabus write slots. */
+export const DAYS = ["月", "火", "水", "木", "金", "土", "日"] as const;
 export const LOCAL_TYPES = new Set<ConditionType>(["free"]);

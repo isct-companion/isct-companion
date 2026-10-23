@@ -221,8 +221,6 @@ export type ScheduleEntry =
 
 export type ClassFormat = { kinds: Array<string> };
 
-export type OfficialListing = { department: string };
-
 export type Offering = {
   year: number;
   quarters: Array<Quarter>;
@@ -239,7 +237,6 @@ export type Offering = {
   syllabusUrl: string;
   lastSeenAt?: string;
   missingSince?: string;
-  kyomu?: OfficialListing;
   id: string;
   rev: number;
   updatedAt: string;

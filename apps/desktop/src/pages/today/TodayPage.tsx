@@ -1,6 +1,5 @@
 import { ExamCards } from "../../components/exams/ExamCards";
 import { DueChip } from "../../components/DueChip";
-import { formatJst } from "../../lib/civil-date";
 import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
@@ -14,11 +13,15 @@ import {
   type TermId,
   type Workspace,
 } from "../../lib/model";
-import { jstMinutes } from "../../components/timetable/timetable";
-import { jstDate } from "../../app/shared";
 import { CourseFinder } from "./CourseFinder";
 import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
-import { addCivilDays as addDays, civilWeekday } from "../../lib/civil-date";
+import {
+  addCivilDays as addDays,
+  civilWeekday,
+  formatJst,
+  jstMinutes,
+  tokyoDate,
+} from "../../lib/civil-date";
 import {
   useScheduleQuery,
   type ScheduleView,
@@ -77,7 +80,7 @@ export function Today({
   const [allClasses, setAllClasses] = useState(false);
   const nowIso = useClock(active);
   const now = new Date(nowIso);
-  const todayIso = jstDate(now);
+  const todayIso = tokyoDate(now);
   // Schedule can show another day of the week; assignments stay relative to now.
   const [pickedDate, setPickedDate] = useState<string | null>(null);
   // -1 / 1 slides the swapped day in from the side it came from.
@@ -233,14 +236,12 @@ export function Today({
           <p className="todayEyebrow">
             {formatJst(viewDate, data.settings.locale, {
               weekday: "long",
-              timeZone: "Asia/Tokyo",
             })}
           </p>
           <h1>
             {formatJst(viewDate, data.settings.locale, {
               day: "numeric",
               month: "long",
-              timeZone: "Asia/Tokyo",
             })}
           </h1>
         </div>

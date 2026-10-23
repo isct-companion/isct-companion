@@ -22,6 +22,11 @@ import {
 import type { DatedAgenda, PlanningWeek } from "@app/platform/core-query";
 import { DEFAULT_TIMETABLE_AXIS } from "@tests/harness/fixtures";
 import { formatDay } from "@app/pages/settings/subscription-status";
+import {
+  minuteNow,
+  resyncClock,
+  subscribeClock,
+} from "@app/platform/use-clock";
 
 /**
  * Dates, Japan academic quarters, timetable geometry and the day formatting the
@@ -165,6 +170,35 @@ describe("JST timestamp display", () => {
       null,
     ])
       expect(formatTimestamp(invalid, "en-GB")).toBeUndefined();
+  });
+});
+
+describe("shell clock", () => {
+  // The today column once came from a component's own interval, which stopped
+  // while the page was hidden: after a night away the now line sat in
+  // yesterday's column. The clock keeps no copy of the time to go stale.
+  it("reads the new day after a night its timer never ran, and wakes subscribers on resync", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-22T13:10:30Z")); // Thu 22:10 in Tokyo
+    const woke = vi.fn();
+    const stop = subscribeClock(woke);
+    expect(tokyoDate(new Date(minuteNow()))).toBe("2026-10-22");
+
+    vi.setSystemTime(new Date("2026-10-23T00:30:10Z")); // Fri 09:30, no tick
+    expect(woke).not.toHaveBeenCalled();
+    expect(minuteNow()).toBe("2026-10-23T00:30:00.000Z");
+    expect(tokyoDate(new Date(minuteNow()))).toBe("2026-10-23");
+
+    // Coming back to the foreground re-renders at once, then the next minute
+    // boundary wakes subscribers again.
+    resyncClock();
+    expect(woke).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(50_000);
+    expect(woke).toHaveBeenCalledTimes(2);
+
+    // The last subscriber leaving stops the timer.
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
