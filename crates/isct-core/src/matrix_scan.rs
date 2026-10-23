@@ -12,7 +12,11 @@ const HIGH_CONFIDENCE: f64 = 0.8;
 const CELL_WINDOW: usize = 6;
 const MIN_CELL_SAMPLES: usize = 3;
 mod capture;
+mod driver;
+mod vision;
 pub use capture::*;
+pub use driver::*;
+pub use vision::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -120,6 +124,28 @@ pub struct MatrixCaptureMetrics {
     pub tracked_ms: Option<f64>,
     pub frames: usize,
     pub frame_ms: Vec<f64>,
+    #[serde(default)]
+    pub timeline: Vec<MatrixFrameTimeline>,
+}
+/// Webview clock (`performance.now()`, ms) for one frame sent for analysis.
+/// `media_ms` is the video position of the analysed frame. `painted_ms` is
+/// when that frame was drawn with its outline, `painted_media_ms` the video
+/// position of the drawn picture and `live_media_ms` the live video's then.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MatrixFrameTimeline {
+    pub frame_id: u32,
+    pub media_ms: f64,
+    pub captured_ms: f64,
+    pub sent_ms: f64,
+    pub responded_ms: f64,
+    pub sequence: u32,
+    pub bounds_frame_id: Option<u32>,
+    pub painted_ms: Option<f64>,
+    pub painted_media_ms: Option<f64>,
+    #[serde(default)]
+    pub live_media_ms: Option<f64>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -144,6 +170,9 @@ pub enum MatrixScanError {
     Ended,
     #[error("Invalid matrix frame: {0}")]
     InvalidFrame(String),
+    /// A still photo without a readable Matrix, or not an image at all.
+    #[error("{0}")]
+    Unreadable(String),
     #[error("{0}")]
     Backend(String),
 }
@@ -508,6 +537,7 @@ pub fn declarations() -> Vec<String> {
         MatrixScanSnapshot::decl(),
         MatrixScanOutline::decl(),
         MatrixCaptureMetrics::decl(),
+        MatrixFrameTimeline::decl(),
         MatrixCameraPhase::decl(),
         MatrixCameraSnapshot::decl(),
     ]

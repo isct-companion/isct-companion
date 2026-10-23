@@ -7,7 +7,15 @@ description = "Optional matrix-card OCR for IsctCompanion"
 
 [features]
 default = ["onnx"]
-onnx = ["dep:base64", "dep:image", "dep:imageproc", "dep:ort", "dep:serde_json"]
+onnx = [
+    "dep:base64",
+    "dep:image",
+    "dep:imageproc",
+    "dep:nalgebra",
+    "dep:optical-flow-lk",
+    "dep:ort",
+    "dep:serde_json",
+]
 training-tools = ["onnx"]
 
 [[example]]
@@ -18,7 +26,13 @@ required-features = ["training-tools"]
 name = "matrix_dataset"
 required-features = ["training-tools"]
 
+[[example]]
+name = "matrix_track_replay"
+required-features = ["training-tools"]
+
 [dependencies]
+# Core's Matrix capability trait is implemented here (src/vision.rs).
+isct-core = { path = "../isct-core" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
@@ -29,6 +43,10 @@ thiserror = "2"
 base64 = { version = "0.22", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"], optional = true }
 imageproc = { version = "0.27", default-features = false, optional = true }
+# Same version and features imageproc already pulls in: no new crate.
+nalgebra = { version = "0.35", default-features = false, features = ["std"], optional = true }
+# Pyramidal Lucas-Kanade and Shi-Tomasi corners (MIT); depends only on `image`.
+optical-flow-lk = { version = "=0.6.0", optional = true }
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-24"], optional = true }
 serde_json = { version = "1", optional = true }
 
@@ -37,5 +55,3 @@ serde_json = { version = "1", optional = true }
 serde_json = "1"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
-# The replay profiler composes the actual scheduler with OCR; no production edge.
-isct-core = { path = "../isct-core" }

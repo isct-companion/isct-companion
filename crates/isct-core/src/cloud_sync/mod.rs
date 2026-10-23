@@ -16,7 +16,10 @@ use std::{
     future::Future,
     path::PathBuf,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -174,6 +177,9 @@ struct Inner {
     tasks: RuntimeTasks,
     tick_pass: Arc<tokio::sync::Semaphore>,
     next_tick: Mutex<Instant>,
+    /// Set until the first queue pass of this process has asked the clouds
+    /// for other devices' changes (automatic mode only).
+    launch_pull: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -191,6 +197,7 @@ impl CloudSync {
             tasks: RuntimeTasks::default(),
             tick_pass: Arc::new(tokio::sync::Semaphore::new(1)),
             next_tick: Mutex::new(Instant::now()),
+            launch_pull: AtomicBool::new(true),
         }));
         if let Err(error) = service.prune_recovery() {
             crate::diagnostics::report("backup-retention", &error);
@@ -564,6 +571,17 @@ impl CloudSync {
             return self.state();
         };
         let before = self.state()?;
+        // Uploads reconcile only when this device changes something, so
+        // without this a device that is only read never sees another's edits.
+        if self.0.launch_pull.load(Ordering::SeqCst) {
+            if before.automatic {
+                let document = snapshot(&services.backup).await?;
+                self.0
+                    .journal
+                    .change(|journal| journal.enqueue(document, Direction::Pull))?;
+            }
+            self.0.launch_pull.store(false, Ordering::SeqCst);
+        }
         let worker = self.clone();
         let worker_services = services.clone();
         let result =
@@ -686,7 +704,7 @@ impl CloudSync {
                 })?;
                 self.publish(services)?;
                 let outcome = self.deliver(services, &job, delivery.provider).await;
-                if let Ok((document, _)) = &outcome {
+                if let Ok(Some((document, _))) = &outcome {
                     delivered = true;
                     convergence = cloud_merge::merge(&convergence, document);
                 }
@@ -694,7 +712,7 @@ impl CloudSync {
                 if outcome.is_err() {
                     cooling.insert(delivery.provider);
                 }
-                self.record_delivery(&job.task.id, delivery.provider, outcome)?;
+                self.record_delivery(&job.task, delivery.provider, outcome)?;
                 self.publish(services)?;
                 if stopped {
                     return Err(CloudSyncError::Stopped);
@@ -710,6 +728,19 @@ impl CloudSync {
                         .journal
                         .change(|journal| journal.enqueue(latest, Direction::Upload))?;
                 }
+            }
+            // An automatic pull that finds this device ahead of a cloud copy
+            // (edits from a build that could not reach it) queues the upload;
+            // the hourly limit still applies. An explicit Pull never uploads.
+            if delivered
+                && job.task.direction == Direction::Pull
+                && !job.manual
+                && self.state()?.automatic
+            {
+                let latest = snapshot(&services.backup).await?;
+                self.0
+                    .journal
+                    .change(|journal| journal.enqueue(latest, Direction::Upload))?;
             }
         }
         self.0.journal.change(|journal| {
@@ -767,12 +798,15 @@ impl CloudSync {
         })
     }
 
+    /// `Ok(None)`: an automatic pull found no cloud copy, which is not a failure.
     fn record_delivery(
         &self,
-        task: &str,
+        task: &Task,
         provider: CloudProvider,
-        result: Result<(Value, Vec<CloudVersion>), CloudSyncError>,
+        result: Result<Option<(Value, Vec<CloudVersion>)>, CloudSyncError>,
     ) -> Result<(), CloudSyncError> {
+        let direction = task.direction;
+        let task = task.id.as_str();
         match &result {
             Ok(_) => crate::diagnostics::info(
                 "cloud-sync",
@@ -811,9 +845,14 @@ impl CloudSync {
                 .find(|state| state.provider == provider)
                 .ok_or_else(|| CloudSyncError::Storage("Unsupported provider".into()))?;
             match result {
-                Ok((document, versions)) => {
+                Ok(None) => {}
+                Ok(Some((document, versions))) => {
+                    let now = chrono::Utc::now().to_rfc3339();
+                    if direction == Direction::Upload {
+                        journal.uploaded_at.insert(provider, now.clone());
+                    }
                     provider_state.error = None;
-                    provider_state.last_synced_at = Some(chrono::Utc::now().to_rfc3339());
+                    provider_state.last_synced_at = Some(now);
                     provider_state.synced_version = Some(version(&document)?);
                     journal
                         .state
@@ -833,13 +872,24 @@ impl CloudSync {
         services: &CloudServices,
         job: &Job,
         provider: CloudProvider,
-    ) -> Result<(Value, Vec<CloudVersion>), CloudSyncError> {
+    ) -> Result<Option<(Value, Vec<CloudVersion>)>, CloudSyncError> {
         let remote = self
             .remote(
                 services.transport.read_workspace(provider),
                 CloudSyncError::Interrupted,
             )
             .await?;
+        // Checked before binding: a pull that finds nothing must not give this
+        // device a fresh workspace id that the first real cloud copy then conflicts with.
+        if job.task.direction == Direction::Pull && remote.is_none() {
+            return if job.manual {
+                Err(CloudSyncError::Transport(
+                    "No cloud copy exists yet.".into(),
+                ))
+            } else {
+                Ok(None)
+            };
+        }
         let remote_id = remote
             .as_ref()
             .and_then(|document| document.pointer("/sync/workspaceId"))
@@ -903,7 +953,7 @@ impl CloudSync {
                     .collect()
             }
         };
-        Ok((document, versions))
+        Ok(Some((document, versions)))
     }
 
     async fn remote<T>(

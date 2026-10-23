@@ -1,5 +1,3 @@
-#[cfg(all(matrix_ocr, debug_assertions))]
-use crate::lms_files;
 #[cfg(matrix_ocr)]
 use crate::matrix_ocr;
 use crate::require_local_main;
@@ -19,34 +17,38 @@ pub(crate) struct RuntimeCapabilities {
     matrix_ocr: bool,
 }
 
+/// A still photo is read by the same driver as a camera frame.
 #[cfg(matrix_ocr)]
 #[tauri::command]
 pub(crate) async fn recognize_matrix_image(
     webview: tauri::Webview,
-    service: tauri::State<'_, matrix_ocr::MatrixOcrService>,
-    app: tauri::AppHandle,
+    scan: tauri::State<'_, crate::commands::matrix_camera::MatrixScan>,
     image: String,
     on_progress: tauri::ipc::Channel<matrix_ocr::OcrProgress>,
 ) -> Result<Vec<matrix_ocr::Recognition>, String> {
     require_local_main(&webview)?;
-    let service = service.inner().clone();
+    let driver = scan.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(debug_assertions)]
-        let service = service.with_debug_dir(
-            lms_files::debug_dir(&app)
-                .inspect_err(|error| log::error!("Matrix debug directory unavailable: {error}"))
-                .ok(),
-        );
-        #[cfg(not(debug_assertions))]
-        let _ = app;
         // Tauri's JSON transport carries base64; OCR owns the size limit.
         matrix_ocr::check_base64_image_len(image.len()).map_err(|error| error.to_string())?;
         let image = STANDARD
             .decode(image)
             .map_err(|_| "Invalid image encoding".to_string())?;
-        service
-            .scan(&image, |progress| on_progress.send(progress).is_ok())
-            .map_err(|error| error.to_string())
+        let scan = driver
+            .scan_photo(&image, |completed, total| {
+                on_progress
+                    .send(matrix_ocr::OcrProgress { completed, total })
+                    .is_ok()
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(scan
+            .cells
+            .into_iter()
+            .map(|vote| matrix_ocr::Recognition {
+                text: vote.text,
+                confidence: vote.confidence,
+            })
+            .collect())
     })
     .await
     .map_err(|e| format!("Matrix recognition task failed: {e}"))?

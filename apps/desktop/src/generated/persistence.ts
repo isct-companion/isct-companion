@@ -1900,13 +1900,40 @@ export type MatrixCaptureMetrics = {
   trackedMs: number | null;
   frames: number;
   frameMs: Array<number>;
+  timeline: Array<MatrixFrameTimeline>;
+};
+
+export type MatrixFrameTimeline = {
+  frameId: number;
+  mediaMs: number;
+  capturedMs: number;
+  sentMs: number;
+  respondedMs: number;
+  sequence: number;
+  boundsFrameId: number | null;
+  paintedMs: number | null;
+  paintedMediaMs: number | null;
+  liveMediaMs: number | null;
 };
 
 export type MatrixCameraPhase = "capturing" | "processing" | "complete";
 
 export type MatrixCameraSnapshot = {
   phase: MatrixCameraPhase;
+  /**
+   * Increases with every traced or observed frame; older replies are stale.
+   */
+  sequence: number;
   bounds: [MatrixPoint, MatrixPoint, MatrixPoint, MatrixPoint] | null;
+  /**
+   * The camera frame `bounds` were measured on.
+   */
+  boundsFrameId: number | null;
+  /**
+   * Core wants the cells of this tracked frame now (it qualified and the
+   * sampling interval has passed); the shell sends its full resolution.
+   */
+  keyframeFrameId: number | null;
   readyCells: number;
   captureElapsedMs: number;
   timedOut: boolean;

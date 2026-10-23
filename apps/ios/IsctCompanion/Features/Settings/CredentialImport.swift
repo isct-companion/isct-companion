@@ -1,3 +1,4 @@
+import AVFoundation
 import IsctCore
 import PhotosUI
 import SwiftUI
@@ -271,7 +272,7 @@ struct MatrixImportSection: View {
     @State private var cells = Array(repeating: "", count: 70)
     @State private var confidence: [Double?] = Array(repeating: nil, count: 70)
     @State private var editing = false
-    @State private var camera = false
+    @State private var camera: LiveScan?
     @State private var photo: PhotosPickerItem?
     @State private var reading = false
     @State private var note: String?
@@ -285,8 +286,8 @@ struct MatrixImportSection: View {
             }
             SourceTiles {
                 if model.canScanMatrix {
-                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                        Button(t("Take photo"), systemImage: "camera") { camera = true }
+                    if AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil {
+                        Button(t("Scan with camera"), systemImage: "camera.viewfinder") { startCamera() }
                     }
                     PhotosPicker(selection: $photo, matching: .images) {
                         Label(t("From photo"), systemImage: "photo")
@@ -316,12 +317,11 @@ struct MatrixImportSection: View {
                 // Core checks for all 70 letters when the account is saved.
                 matrix = value.joined()
             }
-            .fullScreenCover(isPresented: $camera) {
-                CameraCapture { image in
-                    camera = false
-                    if let image { Task { await scan(image) } }
+            .fullScreenCover(item: $camera) { live in
+                MatrixCameraScreen(session: live.session) { result in
+                    camera = nil
+                    if let result { apply(result) }
                 }
-                .ignoresSafeArea()
             }
             if reading {
                 ProgressView(value: Double(model.ocrProgress), total: 70) {
@@ -369,9 +369,21 @@ struct MatrixImportSection: View {
         await scan(jpeg: jpeg)
     }
 
-    private func scan(_ image: UIImage) async {
-        guard let jpeg = image.jpegData(compressionQuality: 0.95) else { return }
-        await scan(jpeg: jpeg)
+    private func startCamera() {
+        error = nil
+        note = nil
+        do { camera = LiveScan(session: try model.beginMatrixCamera()) } catch {
+            self.error = AppModel.describe(error)
+        }
+    }
+
+    /// The final state of a live scan fills the same draft as a photo.
+    private func apply(_ result: [MatrixCell]) {
+        guard result.count == 70 else { return }
+        cells = result.map(\.text)
+        confidence = result.map(\.confidence)
+        editing = true
+        note = t("Check the coloured cells against your card.")
     }
 
     private func scan(jpeg: Data) async {
@@ -462,31 +474,8 @@ private struct MatrixGrid: View {
     }
 }
 
-/// The system camera for one still photo.
-private struct CameraCapture: UIViewControllerRepresentable {
-    let done: (UIImage?) -> Void
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
-
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let done: (UIImage?) -> Void
-        init(done: @escaping (UIImage?) -> Void) { self.done = done }
-
-        func imagePickerController(
-            _ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-        ) {
-            done(info[.originalImage] as? UIImage)
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
-    }
+/// One live camera session, presented while it runs.
+private struct LiveScan: Identifiable {
+    let id = UUID()
+    let session: MatrixCameraSession
 }

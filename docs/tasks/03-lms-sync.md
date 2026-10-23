@@ -35,7 +35,7 @@ The extractor hard-codes this allowlist and refuses any other method name:
 | `core_calendar_get_calendar_monthly_view` | `{year, month, courseid: 1, categoryid: 0, includenavigation: false, mini: true, day: 1}` | Past deadlines when needed. |
 | `core_course_get_recent_courses` | `{limit}` | Optional ordering. |
 
-Not available (`servicenotavailable`): `core_course_get_contents`, `mod_assign_*`, `mod_resource_*`, `mod_url_*`, `gradereport_*`, `core_enrol_get_users_courses`, `core_webservice_get_site_info`. Grades are not visible to students at all (`grade/report/user` → 無効なユーザです); official grades come from task 4.
+Not available through this AJAX surface (`servicenotavailable`): `core_course_get_contents`, `mod_assign_*`, `mod_resource_*`, `mod_url_*`, `gradereport_*`, `core_enrol_get_users_courses`, `core_webservice_get_site_info`. The separate mobile Web Service token exposes broader REST access: course contents, enrolled courses, assignment deadlines/status/feedback and forum discussions were read successfully on 2026-10-20; see [token feasibility and remaining checks](../lms-token-feasibility.md). The user grade-report page returned 無効なユーザです in the earlier AJAX investigation; individual assignment feedback is available through the token API. Official grades come from task 4.
 
 Category ids seen: 2025 → 2/3/4/5 (1Q–4Q), 6 (他); 2026 → 8/9/10/11, 12 (他). Derive year/quarter from `shortname` (`[2026]`) and the linked offering first; the category map is a fallback.
 
@@ -60,7 +60,13 @@ Fetched when the person opens an item, not during sync.
 | same | `body` classes `cmid-{n}`, `course-{n}` | Identity check before storing. |
 | `mod/folder/view.php?id={cmid}` | `.foldertree a[href*="/pluginfile.php/"]` | File list: name (link text), URL. Files are not downloaded. |
 
-Never use the dashboard timetable block: its filter is a `POST` (`my/index.php`, fields `year`, `quota`) that may store a preference.
+Daily enrolment now reads the default `tttimetable` through the token-backed
+`core_block_get_dashboard_blocks(returncontents=1)` API, reusing Core's HTML
+parser. Absent quarters retain their cached grids. The legacy cookie fallback
+still reads other quarters through `my/index.php` (`year`, `quota`, `search`);
+REST rejects those filter fields, and the school advertises no timetable
+function or mobile handler. Do not change browser preferences to make a token
+request select another quarter. See the 2026-10-22 verification record.
 
 ## Build
 

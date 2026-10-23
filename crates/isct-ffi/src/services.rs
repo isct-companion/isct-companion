@@ -1,7 +1,8 @@
 //! Service adapters share the session's Core, operation scope and platform ports.
+#[cfg(not(feature = "ocr"))]
+use crate::session::unavailable;
 use crate::{
     json::{project, project_input},
-    session::unavailable,
     types::*,
     JsonValue, Operation, OperationResult, SdkError, Session,
 };
@@ -231,7 +232,7 @@ impl Session {
         #[cfg(feature = "ocr")]
         {
             self.blocking(|i| {
-                i.scanner.warm_up().map_err(ocr_error)?;
+                i.matrix.warm_up().map_err(crate::matrix::scan_error)?;
                 Ok(OperationResult::Done)
             })
         }
@@ -248,20 +249,29 @@ impl Session {
                     return Err(SdkError::Cancelled);
                 }
                 tokio::task::spawn_blocking(move || {
-                    let cells = inner
-                        .scanner
-                        .scan(&image, |progress| {
+                    // The same driver as a camera frame: one detector, cut and model.
+                    let scan = inner
+                        .matrix
+                        .scan_photo(&image, |completed, total| {
                             let _ = isct_core::ports::EventSink::emit(
                                 &*inner.events,
                                 isct_core::events::CoreEvent::OcrProgress {
                                     operation_id,
-                                    completed: progress.completed as u64,
-                                    total: progress.total as u64,
+                                    completed: completed as u64,
+                                    total: total as u64,
                                 },
                             );
                             !cancel.is_cancelled()
                         })
-                        .map_err(ocr_error)?;
+                        .map_err(crate::matrix::scan_error)?;
+                    let cells: Vec<_> = scan
+                        .cells
+                        .into_iter()
+                        .map(|vote| isct_ocr::Recognition {
+                            text: vote.text,
+                            confidence: vote.confidence,
+                        })
+                        .collect();
                     Ok(OperationResult::Recognitions {
                         cells: project(cells)?,
                     })
@@ -275,21 +285,5 @@ impl Session {
             let _ = image;
             self.blocking(|_| Err(unavailable("OCR backend")))
         }
-    }
-}
-#[cfg(feature = "ocr")]
-fn ocr_error(e: isct_ocr::MatrixOcrError) -> SdkError {
-    use isct_ocr::MatrixOcrError as E;
-    match e {
-        E::Cancelled => SdkError::Cancelled,
-        E::Unavailable => unavailable("OCR backend"),
-        E::InvalidImage(detail) => SdkError::InvalidInput { detail },
-        E::Busy => SdkError::Busy {
-            detail: e.to_string(),
-        },
-        E::Model(detail) => SdkError::Unavailable { detail },
-        other => SdkError::InvalidInput {
-            detail: other.to_string(),
-        },
     }
 }

@@ -6,6 +6,8 @@
 	<true/>
 	<key>com.apple.application-identifier</key>
 	<string>FB7AL944GK.app.isctcompanion</string>
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>Production</string>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.app.isctcompanion</string>

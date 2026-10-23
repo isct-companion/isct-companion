@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { nativeOAuthEnv } from "../lib/oauth-config.mjs";
-import { macSigningConfig } from "./macos-signing.mjs";
+import {
+  macDevelopmentSigningConfig,
+  macSigningConfig,
+} from "./macos-signing.mjs";
 import { developmentVersion } from "../lib/build-version.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -18,27 +21,40 @@ const version = development
 const shouldSignMac =
   process.platform === "darwin" && Boolean(process.env.APPLE_SIGNING_IDENTITY);
 // A linker-only signature identifies the executable by its Rust target name.
-// UserNotifications then cannot associate the debug .app with its bundle ID.
-// Local bundles need an ad-hoc bundle signature, without distribution-only
-// CloudKit/Keychain entitlements (those require a provisioning profile).
+// UserNotifications then cannot associate the debug .app with its bundle ID,
+// so local debug bundles are always signed. With an Apple Development identity
+// and a team profile for this Mac they get the release entitlements (iCloud
+// works); otherwise an ad-hoc signature without them. `tauri dev` runs a bare
+// executable, which cannot carry a provisioning profile, so it never has iCloud.
 const shouldSignLocalMac =
   process.platform === "darwin" &&
   command.includes("build") &&
   command.includes("--debug") &&
   !shouldSignMac;
+const macDevelopmentConfig = shouldSignLocalMac
+  ? macDevelopmentSigningConfig()
+  : undefined;
+if (shouldSignLocalMac) {
+  console.log(
+    macDevelopmentConfig
+      ? "Debug bundle: signed with your Apple Development profile; iCloud enabled."
+      : "Debug bundle: ad-hoc signed; no Apple Development profile for this Mac, so iCloud is off.",
+  );
+}
 const macConfig = shouldSignMac
   ? macSigningConfig({ required: true })
-  : shouldSignLocalMac
-    ? {
-        bundle: {
-          macOS: {
-            signingIdentity: "-",
-            entitlements: null,
-            hardenedRuntime: false,
+  : (macDevelopmentConfig ??
+    (shouldSignLocalMac
+      ? {
+          bundle: {
+            macOS: {
+              signingIdentity: "-",
+              entitlements: null,
+              hardenedRuntime: false,
+            },
           },
-        },
-      }
-    : undefined;
+        }
+      : undefined));
 // Azure Artifact Signing signs the app binary and the NSIS installer on
 // Windows; without a trusted signature Smart App Control blocks the installer
 // and Controlled folder access blocks writes to Documents. Credentials come
@@ -84,6 +100,9 @@ const child = spawn(
       ...nativeOAuthEnv(),
       // Always set, so a stale exported value cannot reach a release frontend.
       ISCT_APP_VERSION: version ?? packageVersion,
+      // build.rs compiles iCloud into a macOS debug build only when it will be
+      // signed with the entitlements; always set, so a stale value cannot leak.
+      ISCT_APPLE_ENTITLED: shouldSignMac || macDevelopmentConfig ? "1" : "",
       TAURI_APP_PATH: path.join(root, "apps/desktop/src-tauri"),
       TAURI_FRONTEND_PATH: path.join(root, "apps/desktop"),
     },

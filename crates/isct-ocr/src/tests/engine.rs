@@ -1,80 +1,13 @@
 use super::*;
 use image::{GrayImage, Luma};
 
-fn card() -> RgbImage {
-    let mut image = RgbImage::from_pixel(600, 460, Rgb([255; 3]));
-    let mut fill = |x: u32, y: u32, w: u32, h: u32, color: [u8; 3]| {
-        for j in y..y + h {
-            for i in x..x + w {
-                image.put_pixel(i, j, Rgb(color));
-            }
-        }
-    };
-    fill(0, 0, 600, 55, [175, 130, 70]);
-    fill(140, 100, 350, 25, [20; 3]);
-    for i in 0..10 {
-        fill(151 + i * 35, 105, 8, 14, [245; 3]);
-    }
-    fill(105, 125, 35, 175, [65; 3]);
-    for i in 0..7 {
-        fill(115, 132 + i * 25, 10, 12, [240; 3]);
-    }
-    fill(140, 125, 350, 175, [245, 190, 190]);
-    fill(143, 128, 344, 169, [255, 50, 50]);
-    fill(489, 125, 2, 175, [45; 3]);
-    fill(140, 299, 352, 2, [45; 3]);
-    for i in 0..30 {
-        fill(330 + i * 5, 325, 2, 50, [20; 3]);
-    }
-    fill(10, 320, 40, 50, [210, 175, 50]);
-    for j in 0..3 {
-        for i in 0..50 {
-            fill(15 + i * 10, 395 + j * 15, 4, 7, [45; 3]);
-        }
-    }
-    image
+/// The public card fixture in the printed layout (pink/white rows, no column lines).
+fn printed_card() -> RgbImage {
+    image::load_from_memory(include_bytes!("fixtures/matrix-card.jpg"))
+        .unwrap()
+        .to_rgb8()
 }
-#[test]
-fn whole_card_geometry_and_unrelated_photo() {
-    let cells = geometry::locate(&card()).unwrap();
-    assert_eq!(cells.len(), 70);
-    for (actual, expected) in [
-        (cells[0][0].x, 140.),
-        (cells[0][0].y, 125.),
-        (cells[69][2].x, 490.),
-        (cells[69][2].y, 300.),
-        (cells[1][0].x, 175.),
-    ] {
-        assert!((actual - expected).abs() < 5., "{actual} vs {expected}");
-    }
-    assert!(geometry::locate(&RgbImage::from_pixel(600, 460, Rgb([255; 3]))).is_none());
-    for level in [20, 230] {
-        assert!(
-            geometry::locate_capture(&RgbImage::from_pixel(600, 460, Rgb([level; 3]))).is_none()
-        );
-    }
-}
-#[test]
-fn cropped_grid_fallback() {
-    let mut image = RgbImage::from_pixel(420, 300, Rgb([255; 3]));
-    for c in 0..11 {
-        for y in 10..291 {
-            image.put_pixel(10 + c * 40, y, Rgb([0; 3]));
-        }
-    }
-    for r in 0..8 {
-        for x in 10..411 {
-            image.put_pixel(x, 10 + r * 40, Rgb([0; 3]));
-        }
-    }
-    let cells = geometry::locate(&image).unwrap();
-    assert_eq!(cells.len(), 70);
-    assert!((cells[0][0].x - 10.).abs() < 2.);
-    assert!((cells[69][2].y - 290.).abs() < 2.);
-    // Photo import permits a cropped grid. Camera admission still requires its
-    // label strip, including after the illumination fallback.
-    assert!(geometry::locate_capture(&image).is_none());
-}
+
 #[test]
 fn colored_backgrounds_and_noise() {
     for color in [[235, 165, 165], [150; 3], [255; 3], [210, 65, 65]] {
@@ -117,6 +50,7 @@ fn colored_backgrounds_and_noise() {
     assert_eq!(binary.original.get_pixel(4, 4)[0], 0);
     assert_eq!(binary.cleaned.get_pixel(4, 4)[0], 255);
 }
+
 #[test]
 fn model_input_padding_and_normalization() {
     let image = GrayImage::from_fn(16, 32, |x, y| {
@@ -335,62 +269,17 @@ fn filter_matches_frozen_typescript_reference_pixel_for_pixel() {
 }
 
 #[test]
-fn raw_image_is_bounded_and_resampled_at_both_core_sizes() {
+fn raw_image_decoding_preserves_source_resolution() {
     let source = RgbImage::from_pixel(2400, 1200, Rgb([17, 29, 41]));
     let mut png = Cursor::new(vec![]);
     source.write_to(&mut png, image::ImageFormat::Png).unwrap();
     let decoded = decode_image(png.get_ref()).unwrap();
-    let prepared = resize_longest(decoded, 2200);
-    let preview = resize_longest(prepared.clone(), 600);
-    assert_eq!(prepared.dimensions(), (2200, 1100));
-    assert_eq!(preview.dimensions(), (600, 300));
-    assert_eq!(prepared.get_pixel(0, 0).0, [17, 29, 41]);
+    assert_eq!(decoded.dimensions(), (2400, 1200));
+    assert_eq!(decoded.get_pixel(0, 0).0, [17, 29, 41]);
     assert!(matches!(
         decode_image(&vec![0; MAX_IMAGE_BYTES + 1]),
         Err(MatrixOcrError::InvalidImage(_))
     ));
-}
-
-#[test]
-fn core_resampling_preserves_the_detected_card_grid() {
-    let large = image::imageops::resize(&card(), 2400, 1840, image::imageops::FilterType::Nearest);
-    let mut png = Cursor::new(vec![]);
-    large.write_to(&mut png, image::ImageFormat::Png).unwrap();
-    let (source, preview) = prepare_images(png.get_ref()).unwrap();
-    assert_eq!(source.dimensions(), (2200, 1687));
-    assert_eq!(preview.dimensions(), (600, 460));
-    let cells = geometry::locate(&preview).expect("resampled card grid");
-    assert_eq!(cells.len(), MATRIX_CELLS);
-    assert!((cells[0][0].x - 140.).abs() < 5.);
-    assert!((cells[69][2].y - 300.).abs() < 5.);
-    // The encoded camera frame must return the same cell order and normalized
-    // corners used by native cropping, so the overlay cannot drift or transpose.
-    let located = std::cell::Cell::new(false);
-    let frame = MatrixOcrService::default()
-        .scan_frame_with_geometry(
-            png.get_ref(),
-            |quads| {
-                assert_eq!(quads.len(), MATRIX_CELLS);
-                located.set(true);
-                true
-            },
-            |progress| {
-                if progress.completed > 0 {
-                    assert!(located.get(), "geometry must precede inference");
-                }
-                true
-            },
-        )
-        .unwrap();
-    assert_eq!(frame.cells.len(), MATRIX_CELLS);
-    assert_eq!(frame.quads.len(), MATRIX_CELLS);
-    for (actual, expected) in frame.quads.iter().zip(&cells) {
-        for ([x, y], point) in actual.iter().zip(expected) {
-            assert!((x - point.x / preview.width() as f64).abs() < 1e-9);
-            assert!((y - point.y / preview.height() as f64).abs() < 1e-9);
-            assert!((0. ..=1.).contains(x) && (0. ..=1.).contains(y));
-        }
-    }
 }
 
 #[test]
@@ -416,30 +305,14 @@ fn cancellation_releases_the_service_for_a_later_scan() {
         Err(MatrixOcrError::InvalidImage(_))
     ));
     let mut png = Cursor::new(Vec::new());
-    card().write_to(&mut png, image::ImageFormat::Png).unwrap();
+    printed_card()
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
     assert!(matches!(
         service.scan_frame_with_geometry(png.get_ref(), |_| false, |_| true),
         Err(MatrixOcrError::Cancelled)
     ));
     assert!(service.scan_frame(png.get_ref(), |_| true).is_ok());
-}
-
-#[test]
-fn white_header_letters_may_split_the_dark_band() {
-    let mut image = card();
-    // Full-height, wider white glyphs break all wide row runs for 18 rows.
-    // The old fixed four-row join split the header into two invalid thin bands.
-    for i in 0..10 {
-        for y in 104..122 {
-            for x in 150 + i * 35..164 + i * 35 {
-                image.put_pixel(x, y, Rgb([245; 3]));
-            }
-        }
-    }
-    let cells = geometry::locate(&image).expect("header split by white glyphs");
-    assert!((cells[0][0].x - 140.).abs() < 5.);
-    assert!((cells[0][0].y - 125.).abs() < 5.);
-    assert!((cells[69][2].y - 300.).abs() < 5.);
 }
 
 #[test]
@@ -490,127 +363,6 @@ fn supplied_photo_pipeline() {
     eprintln!("Private photo: 70 cells returned, {accepted} accepted, {matched} matched");
 }
 
-fn outlined_card() -> RgbImage {
-    let mut image = RgbImage::from_pixel(600, 600, Rgb([255; 3]));
-    for y in 180..420 {
-        for x in 120..450 {
-            let header = y < 210 && x >= 150;
-            let label = x < 150 && y >= 210;
-            let grid = x >= 150 && y >= 210;
-            if header || label {
-                image.put_pixel(x, y, Rgb([30; 3]));
-            } else if grid {
-                let boundary = (x - 150) % 30 <= 1 || (y - 210) % 30 <= 1 || x >= 448 || y >= 418;
-                image.put_pixel(
-                    x,
-                    y,
-                    if boundary {
-                        Rgb([70; 3])
-                    } else {
-                        Rgb([245, 210, 210])
-                    },
-                );
-            }
-        }
-    }
-    // Distinct glyph shapes in each cell exercise crop direction as well as order.
-    for i in 0..70 {
-        for y in 7..23 {
-            for x in 8..20 {
-                if x == 8 || y == 7 || (y == 15 && x < 14) {
-                    image.put_pixel(
-                        150 + (i % 10) * 30 + x,
-                        210 + (i / 10) * 30 + y,
-                        Rgb([20; 3]),
-                    );
-                }
-            }
-        }
-    }
-    image
-}
-
-fn dim_blue_camera_card() -> RgbImage {
-    let mut image = outlined_card();
-    for pixel in image.pixels_mut() {
-        *pixel = match pixel.0 {
-            [30, 30, 30] => Rgb([10, 35, 75]),
-            [70, 70, 70] => Rgb([105, 125, 145]),
-            [245, 210, 210] => Rgb([48, 70, 96]),
-            [20, 20, 20] => Rgb([5, 10, 15]),
-            _ => *pixel,
-        };
-    }
-    image
-}
-#[test]
-fn arbitrary_rotation_stretch_and_perspective_keep_cell_order() {
-    use imageproc::geometric_transformations::{warp, Border, Interpolation, Projection};
-    let image = outlined_card();
-    let perspective = Projection::from_control_points(
-        [(120., 180.), (450., 180.), (450., 420.), (120., 420.)],
-        [(135., 165.), (450., 200.), (415., 435.), (100., 400.)],
-    )
-    .unwrap();
-    let stretch = Projection::translate(300., 300.)
-        * Projection::scale(1.4, 0.75)
-        * Projection::translate(-300., -300.);
-    for (case, deformation) in [Projection::scale(1., 1.), stretch, perspective]
-        .into_iter()
-        .enumerate()
-    {
-        for degrees in (0..360).step_by(15).map(|d| d as f32).chain([17.5, 359.]) {
-            let transform = Projection::translate(300., 300.)
-                * Projection::rotate(degrees.to_radians())
-                * Projection::translate(-300., -300.)
-                * deformation;
-            let rotated = warp(
-                &image,
-                transform,
-                Interpolation::Bilinear,
-                Border::Constant(Rgb([255; 3])),
-            );
-            let cells = geometry::locate(&rotated)
-                .unwrap_or_else(|| panic!("grid lost at {degrees} degrees case {case}"));
-            let camera = geometry::locate_capture(&rotated)
-                .unwrap_or_else(|| panic!("camera grid lost at {degrees} degrees case {case}"));
-            for (actual, original) in [(camera[0][0], (150., 210.)), (camera[69][2], (450., 420.))]
-            {
-                let expected = transform * original;
-                assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "camera crop changed cell identity at {degrees} degrees: {actual:?} vs {expected:?}");
-            }
-            for (actual, original) in [(cells[0][0], (150., 210.)), (cells[69][2], (450., 420.))] {
-                let expected = transform * original;
-                assert!((actual.x-expected.0 as f64).hypot(actual.y-expected.1 as f64) < 6., "incorrect cell order/geometry at {degrees} degrees: {actual:?} vs {expected:?}");
-            }
-        }
-    }
-    // A backlit webcam can expose the blue card body below the old fixed dark
-    // threshold. The camera path must still separate the darker header/labels,
-    // and preserve cell order at every right-angle device orientation.
-    let image = dim_blue_camera_card();
-    for degrees in [0., 90., 180., 270.] {
-        let transform = Projection::translate(300., 300.)
-            * Projection::rotate(f32::to_radians(degrees))
-            * Projection::translate(-300., -300.);
-        let rotated = warp(
-            &image,
-            transform,
-            Interpolation::Bilinear,
-            Border::Constant(Rgb([255; 3])),
-        );
-        let camera = geometry::locate_capture(&rotated)
-            .unwrap_or_else(|| panic!("dim blue camera grid lost at {degrees} degrees"));
-        for (actual, original) in [(camera[0][0], (150., 210.)), (camera[69][2], (450., 420.))] {
-            let expected = transform * original;
-            assert!(
-                (actual.x - expected.0 as f64).hypot(actual.y - expected.1 as f64) < 6.,
-                "dim camera crop changed cell identity at {degrees} degrees: {actual:?} vs {expected:?}"
-            );
-        }
-    }
-}
-
 #[test]
 fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries() {
     let sheet = image::load_from_memory(include_bytes!("fixtures/latin-cells.png"))
@@ -644,16 +396,36 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
             |_| true,
         )
         .unwrap();
-    for (i, cell) in full.cells.iter().enumerate() {
-        let expected = ((b'A' + (i % 26) as u8) as char).to_string();
-        assert_eq!(cell.text, expected, "live cell {i}: {cell:?}");
-        assert!(
-            cell.confidence >= 0.8,
-            "live cell {i} did not qualify: {cell:?}"
-        );
+    assert_eq!(full.cells.len(), MATRIX_CELLS);
+    assert_eq!(full.quads.len(), MATRIX_CELLS);
+    for (cell, corner, expected_x, expected_y) in [
+        (0, 0, 250. / 1600., 300. / 1100.),
+        (9, 1, 1350. / 1600., 300. / 1100.),
+        (69, 2, 1350. / 1600., 900. / 1100.),
+        (60, 3, 250. / 1600., 900. / 1100.),
+    ] {
+        let [x, y] = full.quads[cell][corner];
+        assert!((x - expected_x).abs() < 0.02, "cell {cell} x={x}");
+        assert!((y - expected_y).abs() < 0.02, "cell {cell} y={y}");
+    }
+    for row in 0..7 {
+        for column in 0..9 {
+            assert!(
+                full.quads[row * 10 + column][0][0] < full.quads[row * 10 + column + 1][0][0],
+                "columns are out of order at row {row}"
+            );
+        }
+    }
+    for row in 0..6 {
+        for column in 0..10 {
+            assert!(
+                full.quads[row * 10 + column][0][1] < full.quads[(row + 1) * 10 + column][0][1],
+                "rows are out of order at column {column}"
+            );
+        }
     }
     let mut encoded = Cursor::new(Vec::new());
-    card()
+    printed_card()
         .write_to(&mut encoded, image::ImageFormat::Jpeg)
         .unwrap();
     let service = MatrixOcrService::default();

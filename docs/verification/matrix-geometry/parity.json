@@ -1,0 +1,38 @@
+{
+  "rust-continuous-detect": {
+    "stage": "final",
+    "both": 186,
+    "onlyA": 20,
+    "onlyB": 8,
+    "neither": 82,
+    "diffCellsP50": 0.028217730061018208,
+    "diffCellsP95": 0.0895513467239229,
+    "within0.05": 158,
+    "within0.1": 179,
+    "over0.25": 1
+  },
+  "rust-continuous": {
+    "stage": "final",
+    "both": 240,
+    "onlyA": 5,
+    "onlyB": 3,
+    "neither": 52,
+    "diffCellsP50": 0.06224479468277448,
+    "diffCellsP95": 0.29641802994645083,
+    "within0.05": 96,
+    "within0.1": 180,
+    "over0.25": 17
+  },
+  "rust-sampled-detect": {
+    "stage": "final",
+    "both": 51,
+    "onlyA": 10,
+    "onlyB": 1,
+    "neither": 57,
+    "diffCellsP50": 0.03259952992459168,
+    "diffCellsP95": 0.06170203668187139,
+    "within0.05": 43,
+    "within0.1": 51,
+    "over0.25": 0
+  }
+}

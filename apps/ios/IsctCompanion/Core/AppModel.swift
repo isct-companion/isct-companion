@@ -633,6 +633,12 @@ final class AppModel {
         return cells
     }
 
+    /// Starts a live Matrix scan; its seven-second budget starts now.
+    func beginMatrixCamera() throws -> MatrixCameraSession {
+        guard let session else { throw SdkError.Closed }
+        return try session.beginMatrixCamera()
+    }
+
     func deleteCredentials(_ profile: SchoolAuthProfile) async {
         guard let session else { return }
         _ = try? await session.deleteCredentials(profile: profile).value()

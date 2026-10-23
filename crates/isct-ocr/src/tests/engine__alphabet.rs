@@ -91,6 +91,47 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
         && g.contrast > 0.
         && g.sharpness > 0.
         && g.source_size > 0.));
+    // Keep black ink on both paper colors, and prevent input whitening from
+    // changing physical glare/admission measurements.
+    for paper in [[245, 205, 205], [240; 3], [130, 110, 100]] {
+        let rgb = RgbImage::from_fn(96, 96, |x, y| {
+            if (38..52).contains(&x) && (20..76).contains(&y) {
+                Rgb([20; 3])
+            } else {
+                Rgb(paper)
+            }
+        });
+        let projected = project_glyph(&rgb, crate::MatrixGlyphProjection::PaperDistance);
+        assert!(projected.get_pixel(30, 30)[0] >= 250);
+        assert!(projected.get_pixel(45, 45)[0] < 55);
+        assert!(prepare_matrix_alphabet_input(projected.as_raw())
+            .unwrap()
+            .is_some());
+    }
+    for projection in [
+        crate::MatrixGlyphProjection::RedChroma,
+        crate::MatrixGlyphProjection::PaperDistance,
+    ] {
+        let color = capture_matrix_frame_configured(
+            fixture,
+            crate::MatrixCaptureConfig {
+                glyph_projection: projection,
+            },
+        )
+        .unwrap();
+        assert_eq!(captured.quads, color.quads);
+        assert!(captured
+            .glyphs
+            .iter()
+            .zip(&color.glyphs)
+            .any(|(a, b)| a.gray != b.gray));
+        for (a, b) in captured.glyphs.iter().zip(color.glyphs) {
+            assert_eq!(
+                (a.contrast, a.sharpness, a.centering, a.glare, a.source_size),
+                (b.contrast, b.sharpness, b.centering, b.glare, b.source_size)
+            );
+        }
+    }
     #[cfg(feature = "training-tools")]
     {
         let body = [
@@ -224,6 +265,15 @@ fn complete_letters_near_cell_edges_do_not_become_confident_substitutions() {
             assert!(actual.confidence >= 0.8, "cell {cell}: {actual:?}");
         }
     }
+    // Public Times New Roman Q, drawn on a 140x100 physical cell with only
+    // two pixels below the descender, then sampled into the 96x96 transport.
+    // An inward crop can erase its tail and produce a confidently wrong O.
+    let q = image::load_from_memory(include_bytes!("fixtures/matrix-q-bottom.png"))
+        .unwrap()
+        .to_luma8();
+    let reading = model.recognize(&[q.into_raw()]).unwrap();
+    assert_eq!(reading[0].text, "Q");
+    assert!(reading[0].confidence >= 0.8, "{:?}", reading[0]);
     // A central stroke joined to an incomplete edge is not safe to delete:
     // deleting that connected component could leave a different letter.
     let clipped = GrayImage::from_fn(96, 96, |x, y| {
@@ -249,7 +299,7 @@ fn capture_fits_body_rows_independently_of_header_height() {
     let fixture = image::load_from_memory(include_bytes!("fixtures/matrix-card.jpg"))
         .unwrap()
         .to_rgb8();
-    let header = image::imageops::crop_imm(&fixture, 250, 215, 1101, 85).to_image();
+    let header = image::imageops::crop_imm(&fixture, 250, 211, 1101, 89).to_image();
     for height in [40, 125] {
         let mut card = fixture.clone();
         for y in 0..300 {
@@ -263,6 +313,21 @@ fn capture_fits_body_rows_independently_of_header_height() {
         card.write_to(&mut encoded, image::ImageFormat::Jpeg)
             .unwrap();
         let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
+        // Alternating labels may locate the body, but must not shift individual
+        // row seams after the single projective transform is established.
+        let body = [
+            captured.quads[0][0],
+            captured.quads[9][1],
+            captured.quads[69][2],
+            captured.quads[60][3],
+        ]
+        .map(|[x, y]| geometry::Point { x, y });
+        let mechanical = geometry::body_cells(body);
+        for (actual, expected) in captured.quads.iter().zip(mechanical) {
+            for ([x, y], p) in actual.iter().zip(expected) {
+                assert!((x - p.x).abs() < 1e-10 && (y - p.y).abs() < 1e-10);
+            }
+        }
         for (i, quad) in captured.quads.iter().enumerate() {
             let (c, r) = ((i % 10) as f64, (i / 10) as f64);
             for ([x, y], (dc, dr)) in quad.iter().zip([(0., 0.), (1., 0.), (1., 1.), (0., 1.)]) {
@@ -339,12 +404,13 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
     });
     assert!(illumination::analyze(&glare).glare > 0.12);
 
-    // A reflection through the fourth row used to yield three confidently
-    // wrong settled letters. Reject those observations before they can vote.
+    // A reflection through a pink row used to yield three confidently wrong
+    // settled letters. Reject those observations before they can vote. (On a
+    // white row a highlight only whitens paper; row 5 is pink on the card.)
     let mut striped = fixture.clone();
     for (_, y, pixel) in striped.enumerate_pixels_mut() {
         let highlight =
-            400. * (-((y as f64 / fixture.height() as f64 - 0.548) / 0.012).powi(2)).exp();
+            400. * (-((y as f64 / fixture.height() as f64 - 0.625) / 0.012).powi(2)).exp();
         for value in &mut pixel.0 {
             *value = (*value as f64 + highlight).min(255.) as u8;
         }
@@ -354,7 +420,7 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
         .write_to(&mut encoded, image::ImageFormat::Jpeg)
         .unwrap();
     let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
-    for cell in [35, 36, 37] {
+    for cell in [45, 46, 47] {
         assert!(captured.glyphs[cell].glare > 0.12, "reflection cell {cell}");
     }
     for (dx, dy) in [(0.4, 0.), (0.8, 0.6), (0., 1.2)] {

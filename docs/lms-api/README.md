@@ -1,95 +1,39 @@
 # Science Tokyo LMS API
 
-[OpenAPI 3.0.3](openapi.yaml) · [Swagger UI](index.html)
+[OpenAPI 3.0.3](openapi.yaml) · [Swagger UI](index.html) ·
+[实测记录](verification.json) · [接入评估](../lms-token-feasibility.md)
 
-How Isct Companion reads the Science Tokyo LMS (Moodle 4.5.10 at
-`https://lms.s.isct.ac.jp/2025`; the `2025` path also serves 2026 courses).
-The client is `crates/isct-core/src/net/moodle/`: one `MoodleClient` with two
-transports behind it.
+这份协议覆盖 IsctCompanion 接入需要、并已在 2026-10-20 验证的 8 个读取函数，
+以及公开配置、官方浏览器授权和资源文件下载。学校服务声明了 470 个函数；
+这里没有把其余函数标为已验证，也不包含提交、上传等写操作的调用协议。
 
-| Transport | Used when | Authenticates with | Reads |
-|---|---|---|---|
-| Token (primary) | always tried first | mobile web-service token in the form body | `webservice/rest/server.php` |
-| Cookie (fallback) | the token path is unavailable | WebView session cookie + `sesskey` | `lib/ajax/service.php` and course/activity HTML |
-
-The custom timetable block (`data-block="tttimetable"`) has no web-service
-function, so it is read from `/2025/my/` (and the `/2025/my/index.php`
-year/quarter POST) with the session cookie on both paths.
-
-To browse the OpenAPI file, from the repository root:
+在仓库根目录启动查看器：
 
 ```sh
 python3 -m http.server 8766 --bind 127.0.0.1 --directory docs/lms-api
 ```
 
-then open `http://127.0.0.1:8766/`. The viewer loads Swagger UI 5.34.0 from
-jsDelivr with subresource integrity, and has "try it out" disabled.
+打开 `http://127.0.0.1:8766/`。查看器从同目录读取 `openapi.yaml`，使用固定版本、
+带完整性校验的 Swagger UI 5.34.0；首次加载需要访问 jsDelivr。也可以将 YAML
+导入自己的 Swagger/OpenAPI 工具。查看器用于阅读，关闭了在线执行和远程校验。
 
-Sources: the Astra probe of 2026-10-20 (native reqwest/rustls requests from a
-real account, no token or course content recorded) and our own probes of the
-same day from the desktop dev app. Where they disagreed, our probe wins; the
-differences are listed at the end.
+## 已验证的原生传输
 
-## Getting a token (verified 2026-10-20)
+- 使用与项目一致的 reqwest 0.12.28、`rustls-tls`，保留证书校验。
+- 使用项目下载客户端现有的
+  `Mozilla/5.0 (compatible; IsctCompanion/0.1)` User-Agent。
+- 不启用 Cookie jar，不发送浏览器 Cookie，也不使用 `sesskey`。
+- REST 使用 POST 表单，关闭自动重定向；token 放在表单中。
+- 默认 curl 标识的请求得到 AWS 网关 403，而上述应用标识能成功。这是本次对照
+  观察，不能据此推定学校完整的网关匹配规则。
 
-No external browser and no custom URL-scheme handler are involved.
+8 个函数均通过了原生 POST，实际响应与文档中的响应模型逐一匹配。模型列出
+接入相关字段并允许额外字段；不是 Moodle 所有权限组合和模块插件的完整类型定义。
 
-1. Generate a fresh, unpredictable `passport` for this launch.
-2. With the LMS session cookie from the school WebView store, and redirects
-   **disabled**, send
+## 真实请求格式
 
-   ```http
-   GET /2025/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<passport>&urlscheme=moodlemobile
-   ```
-
-3. The server answers **302** with
-   `Location: moodlemobile://token=<base64>` directly; no intermediate page.
-   A 302 to `/login/` or to the SSO host means the web session is gone: sign
-   in in the WebView and launch once more.
-4. Decode the base64 into `signature:::token[:::privatetoken]` (our run
-   returned all three parts) and accept it only if
-   `signature == md5(wwwroot + passport)` with `wwwroot =
-   https://lms.s.isct.ac.jp/2025`. This proves the answer belongs to the
-   launch this client started.
-5. Keep only `token`. `privatetoken` is dropped at once; it is not a refresh
-   token and no feature uses it.
-
-Parse the `Location` with a dedicated parser (`net/moodle/token.rs`). A
-generic URL parser treats the token as the URL's host; one probe wrote a
-token into a result file that way.
-
-### Storage and lifetime
-
-- The token is stored only in the OS vault, item `lms-token-science`
-  (`SchoolAuthService::{load,store,delete}_moodle_token`). It is
-  device-only (not synchronized), never written to SQLite, logs, backups or
-  cloud sync, and its `Debug` output is redacted.
-- The vault record names the account it was issued to. A token found for
-  another account is deleted, not used. Forgetting the school account (sign
-  out) deletes it. "Clear school cache" keeps it.
-- Its lifetime is unknown to the client. Upstream Moodle issues permanent
-  tokens valid for the site's `tokenduration` (12 weeks by default), and the
-  launch may return an existing token, so neither its creation time nor its
-  expiry can be inferred. `tool_mobile_forcelogout=0`,
-  `tool_mobile_autologout=0`; `tool_mobile_autologouttime=86400` is the value
-  of a disabled setting, not a TTL. There is no refresh token.
-- Students cannot view or revoke tokens: `/2025/user/managetoken.php` is an
-  empty page for students and none of the 470 service functions revokes one.
-  A leaked token stays valid until it expires or an administrator revokes it.
-- On `invalidtoken` or `webservice_access_exception` (both arrive as HTTP
-  200, see below) the client drops the token, confirms the WebView sign-in
-  through `SignInGate`, launches once more and repeats the call. A token
-  refused again ends the token path for that pull, which then runs on the
-  cookie transport.
-
-## REST calls
-
-One RPC path: `POST /2025/webservice/rest/server.php`, form-encoded, with
-`wstoken`, `wsfunction`, `moodlewsrestformat=json`, and
-`moodlewssettingfilter=true` (text filtered as the web pages show it, which is
-what the AJAX path returns). Arrays are sent as `courseids[0]=…`,
-`courseids[1]=…`; objects as `options[0][name]=…`; booleans as `1`/`0`. Never
-a JSON body or a comma list.
+根地址是 `https://lms.s.isct.ac.jp/2025`；路径中的 2025 也承载当前的 2026 课程。
+Moodle 使用单一路径的 RPC，不存在本文虚构的 `/courses` 或 `/assignments` REST 路由：
 
 ```http
 POST /2025/webservice/rest/server.php HTTP/1.1
@@ -97,117 +41,85 @@ Host: lms.s.isct.ac.jp
 User-Agent: Mozilla/5.0 (compatible; IsctCompanion/0.1)
 Content-Type: application/x-www-form-urlencoded
 
-wstoken=REPLACE_WITH_TOKEN&wsfunction=mod_assign_get_assignments&moodlewsrestformat=json&moodlewssettingfilter=true&courseids%5B0%5D=1001
+wstoken=REPLACE_WITH_TOKEN&wsfunction=mod_assign_get_assignments&moodlewsrestformat=json&courseids%5B0%5D=1001
 ```
 
-- **Errors are HTTP 200** with `{exception, errorcode, message}`. Check this
-  envelope before reading any success shape. `message` and `debuginfo` are
-  never logged; they can echo request values.
-- `warnings` in a success body means the result may be partial: nothing
-  absent from it may be treated as deleted.
-- A non-200 answer (a gateway page) is HTML, not a Moodle error.
-- `Module.id` is the **cmid**; `Module.instance` is the assign/forum/quiz id.
-  `Assignment.id` is the assignid and `Assignment.cmid` the cmid. In a
-  discussion list `discussion` is the discussion id and `id` the first post.
-  Timestamps are seconds; `0` usually means unset.
-- The service also grants **write** functions (submission, `mod_ttws_*`
-  evaluations, …). The app keeps a closed read-only list
-  (`MoodleFunction`); a write cannot be expressed in the client.
+示例中的编号均为合成数据。使用表单编码库编码整个请求：`courseids[0]`、
+`courseids[1]` 是实际字段名，不要把数组编码成逗号字符串，也不发送 JSON 请求体。
+OpenAPI 的 `RpcRequest.oneOf` 和 `wsfunction` discriminator 描述各函数的请求分支；
+响应分支见 `x-moodle-functions` 的 `responseSchema`。
 
-### Functions the app calls
-
-| Function | Purpose | Status |
+| 函数 | 关键输入 | 输出 |
 |---|---|---|
-| `core_webservice_get_site_info` | prove the token, user language | verified |
-| `core_course_get_enrolled_courses_by_timeline_classification` | course list (category name = quarter) | AJAX verified; REST expected (mobile app service) |
-| `core_course_get_contents` | course outline, section/module HTML, file URLs | verified |
-| `core_calendar_get_action_events_by_timesort` | open work, paged by `aftereventid` | verified |
-| `core_calendar_get_action_events_by_course` | open work of one course | listed |
-| `core_calendar_get_calendar_upcoming_view` | upcoming non-action entries | listed |
-| `core_calendar_get_calendar_monthly_view` | past due/close dates (full pull) | listed |
-| `mod_assign_get_assignments` | assignment intro and attachments, assignid | verified |
-| `mod_assign_get_submission_status` | own submission, grading, feedback | verified |
-| `mod_quiz_get_quizzes_by_courses` | quiz id, maximum grade, decimals | listed |
-| `mod_quiz_get_user_attempts` | finished attempts | listed |
-| `mod_quiz_get_user_best_grade` | shown grade | listed |
-| `mod_forum_get_forums_by_courses` | forum intro, forum id | listed |
-| `mod_forum_get_forum_discussions` | announcements (first post) | verified |
-| `mod_page_get_pages_by_courses` | page intro and content | listed |
-| `mod_resource_get_resources_by_courses` | resource intro | listed |
-| `mod_folder_get_folders_by_courses` | folder intro | listed |
-| `mod_url_get_urls_by_courses` | URL intro and external URL | listed |
+| `core_webservice_get_site_info` | 无额外参数 | 本人 userid、站点版本、此服务的能力列表 |
+| `core_enrol_get_users_courses` | 本人 userid | 课程数组；实测 62 门 |
+| `core_block_get_dashboard_blocks` | returncontents=1 | 默认课表区块；2026-3Q 实测与手机数据一致 |
+| `core_course_get_contents` | courseid | 章节、HTML、模块、文件清单 |
+| `mod_assign_get_assignments` | courseids[n] | 作业实例、截止时间、说明、附件 |
+| `mod_assign_get_submission_status` | assignid | 本人的真实提交状态和评分反馈 |
+| `mod_forum_get_forum_discussions` | forumid；可显式传 page/perpage | 讨论及首帖正文 |
+| `core_calendar_get_action_events_by_timesort` | 时间范围、limitnum、aftereventid | 行动事件及分页游标 |
+| `tool_mobile_get_config` | section=mobileapp | 移动端策略键值对 |
 
-"Verified" means a native REST call returned the documented shape on
-2026-10-20. "Listed" means the function is among the 470 the site's
-`core_webservice_get_site_info` reports, but its answer has not been probed
-yet; `SCHOOL-LMS-TOKEN-PULL` in `docs/verification/manual-checks.yaml`
-covers that. `core_courseformat_get_state` is **not** in the mobile service;
-`core_course_get_contents` replaces it. `core_course_check_updates` only
-checks the modules passed in and cannot see new ones, so a course's outline
-is re-read in full on every course read.
+`Module.id` 是 cmid，`Module.instance` 才是 assignid/forumid。
+`Assignment.id` 是 assignid，`Assignment.cmid` 是 cmid。
+讨论列表的 `discussion` 是讨论 ID，`id` 是首帖 ID。
+时间戳以秒为单位；0 通常表示未设置。HTML 通过应用现有的内容处理后再显示。
 
-## Files
+日常刷新现在优先用 token 同步课程列表和 `tttimetable` 默认课表。区块的
+`contents.content` 交给既有 Rust 课表解析器，未返回的历史季度保留缓存。
+区块接口不可用或课表无法解析时，回退到既有 Cookie 读取路径；网络故障按原策略重试。
 
-Take `contents[].fileurl` as returned. The app stores it without credentials
-and without the web-service path (`…/webservice/pluginfile.php/…?token=…` is
-stored as `…/pluginfile.php/…`), so a stored link survives a change of
-transport or token. A download adds the credential of the transport in use:
-`token=` (not `wstoken`) on the `webservice/pluginfile.php` form, or the
-session cookie on the plain form; same origin only.
+跨季度的 `year`、`quota`、`search` 参数会被 REST 拒绝（`invalidparameter`）。
+学校没有公开课表专用服务函数，也未在移动插件列表中提供 `block_tttimetable`。
+既有网页入口是登录后的 `POST /2025/my/index.php`；本次没有新增修改用户偏好的接口。
+完整 Core 的后台实测同步了 62 门课程，Cookie 端口和浏览器导航调用均为 0。
 
-An invalid token on a file request returns **HTTP 200 with JSON**
-(`invalidtoken`), not the file. Check content type, magic bytes and size;
-never trust the status alone. Range requests work (`bytes=0-1023` → 206 with
-`Content-Range: bytes 0-1023/45268`, matching the full file's prefix).
+## 文件下载
 
-## Cookie fallback
+使用 `contents[].fileurl` 的原始路径和参数，在确认同源且路径属于学校文件接口后，
+添加查询参数 `token`。不要把它改成 REST 的 `wstoken`，也不要向其他源转发。
+OpenAPI 的文件路径模板只描述已验证的 `mod_resource` 类型；其他模块使用返回 URL，
+不要自行拼装。HTTP 客户端错误对象中的 URL 也要去掉 token 后才能记录。
 
-- `GET /2025/my/` with the session cookie; `M.cfg.sesskey` and
-  `M.cfg.language` are leaf values of a JSON literal in the page. No sesskey
-  means a sign-in page.
-- `POST /2025/lib/ajax/service.php?sesskey=…&info=<function>` with the JSON
-  batch `[{"index":0,"methodname":…,"args":{…}}]`. Only functions marked
-  `ajax` work there; `core_course_get_contents` and the module getters answer
-  `servicenotavailable`. A non-JSON answer is a sign-in page; `invalidsesskey`
-  fetches a new sesskey once.
-- Structure comes from `core_courseformat_get_state` (a JSON string), and
-  teacher text, activity details, forum posts and submission states from
-  `course/view.php` and `mod/*/view.php` HTML (`school_parser::lms`).
+本次无 Cookie 的原生下载得到：
 
-What the fallback cannot provide compared with the token path: file URLs of
-resources whose page was not read in this pull (the token path gets every
-`fileurl` from the outline; the cookie path reads at most 40 activity pages
-per course and 320 per pull), folder file lists in the body, and section or
-module text when the course page cannot be read. Session-dependent: after an
-app restart the cookie path needs a WebView sign-in first; the token path
-does not (except for the timetable block).
+- 完整请求：HTTP 200、`application/pdf`、45,268 字节，与元数据一致；
+  文件以 `%PDF-` 开头，末尾有 `%%EOF`。
+- Range：`bytes=0-1023` 返回 HTTP 206、`Content-Range: bytes 0-1023/45268`，
+  共 1,024 字节，与完整文件前缀一致。
+- 错误 token：HTTP 200，但正文为包含 `invalidtoken` 的 JSON，不是 PDF。
 
-## Timetable block
+因此，`status == 200` 不能单独证明下载成功。检查内容类型、大小和范围语义；
+根据文件类型校验实际内容。上述检查不代表验证了所有文件类型、超大文件或服务器变更后的行为。
 
-`/2025/my/` shows the selected year and quarter; the block's form posts
-`year`, `quota` and the hidden `search` value to `/2025/my/index.php` (keep
-`search`: without it Moodle ignores year and quota). Two tables: the period
-grid (first row header, first column period 1–12, columns Monday…Sunday) and
-the unscheduled courses. This POST is a read-only filter query and is the only
-POST the cookie path sends besides AJAX reads.
+## Token 生命周期
 
-## Corrections to the Astra notes
+实测 `tool_mobile_forcelogout=0`、`tool_mobile_autologout=0`；
+`tool_mobile_autologouttime=86400` 是关闭状态下的策略值，不能当作 token TTL。
+同一枚 token 跨本次调查的多次原生请求仍然有效，且每次都不携带浏览器 Cookie。
 
-1. Getting a token needs no external browser or URL-scheme handler: one Rust
-   GET of `launch.php` with the LMS cookie returns the 302 directly.
-2. `privatetoken` was returned (three parts). Treat it as optional and never
-   store or log it.
-3. The gateway 403 for a default curl User-Agent did not reproduce from our
-   network: curl's UA, no UA and the app UA all reached Moodle. The app UA
-   is still always sent (reqwest sends none by default).
-4. Public config works as `POST service-nologin.php` with a JSON body and as
-   `GET` with `args=`.
-5. The probed account had 46 courses (Astra's had 62); a count is not a
-   property of the API.
-6. `core_courseformat_get_state` is not in the mobile service.
-7. `core_course_check_updates` cannot detect new modules; structure is re-read
-   with `core_course_get_contents` on every course refresh, and only
-   per-module details may be fetched incrementally.
+Moodle 上游的官方移动端流程使用永久类型 token：新建 token 时不绑定网页登录会话，
+并将到期时间设置为创建时间加站点 `tokenduration`。上游默认是 12 周，但学校可以修改，
+而且授权入口可能返回已有 token。因此，**当前 token 的创建时间和具体到期时间未知**；
+不能从本次取得它的时间推算。正常 API 请求更新 lastaccess，不自动延长 validuntil。
+参见[上游令牌生成实现](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/lib/external/classes/util.php)。
 
-Read-only and account-scoped: confirming any of this needs a real account,
-which is why the checks live in `docs/verification/manual-checks.yaml`.
+本次没有让网页登录会话实际过期，也没有等待 token 自然到期或执行撤销。
+学校修改、补丁和管理员策略仍可能影响生命周期。接入时将到期时间视为未知，
+识别 `invalidtoken`、`webservice_access_exception` 等认证失败后暂停请求，
+保留已缓存数据，并重新走官方浏览器授权；不要无限重试或虚构 refresh_token。
+`privatetoken` 用于其他移动端流程，不是 refresh_token，本次也没有取得它。
+
+## 错误与范围
+
+REST 的无效 token 实测也是 HTTP 200，JSON 带 `exception`、`errorcode`、`message`。
+必须先识别错误 envelope，再按 wsfunction 解析成功数据。网关 403 可能是 HTML；
+与 Moodle 的业务错误分开处理。`warnings` 表示可能只有部分结果，不能在不完整响应后
+删除本地旧数据。未遍历所有课程、权限和错误码。
+
+此移动服务的 token 有写权限，客户端必须单独维护读取函数白名单。学校自定义时间表、
+外部嵌入活动和完整内容一致性尚未验证，不应一次移除现有网页登录和补充读取。
+
+需要真实账户的复核登记为 `SCHOOL-LMS-TOKEN-HTTP`；证据文件不包含 token、
+账号资料或课程正文。应用尚未切换到此协议，生产代码没有变更。

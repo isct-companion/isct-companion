@@ -1,57 +1,177 @@
 openapi: 3.0.3
 info:
   title: Science Tokyo LMS · Read API
-  version: 2026.10.20
-  description: |
-    The parts of the Science Tokyo LMS (Moodle 4.5.10, `/2025`) that Isct
-    Companion reads, as probed on 2026-10-20. Not a mirror of the 470 service
-    functions: only the read functions the app calls, the token launch, the
-    cookie fallback endpoints and file downloads.
+  version: 2026.10.22
+  description: '已在 Science Tokyo LMS /2025 实测的应用接入协议。包含 9 个读取函数、官方浏览器授权入口和资源下载；不是全部 470 个 Moodle 服务函数的镜像。
 
-    REST is a single RPC path selected by `wsfunction`; the request variants
-    are described with `oneOf`. No `/courses`-style routes exist. Response
-    models list the fields the app uses and allow extra fields.
 
-    Native clients send `User-Agent: Mozilla/5.0 (compatible; IsctCompanion/0.1)`,
-    keep TLS verification on and never follow redirects automatically.
+    REST 是单一 RPC 路径，通过 wsfunction 选择函数；这里保留真实路径，以 oneOf 描述不同请求，未虚构 /courses 等路由。响应模型只列接入相关字段，允许额外字段，不保证所有课程和权限组合都返回同样字段。
 
-    HTTP 200 may carry a Moodle error (`errorcode`). The token is not a JWT,
-    has no refresh flow, and its expiry is unknown to the client.
+
+    原生客户端使用项目现有 User-Agent：Mozilla/5.0 (compatible; IsctCompanion/0.1)。实测 curl 默认标识收到网关 403，该标识和 reqwest
+    0.12.28/rustls 可以成功。无需 Cookie，保持 TLS 证书校验，禁用自动跨站重定向。
+
+
+    HTTP 200 可能包含 errorcode；令牌不是 JWT，也没有已验证的 refresh_token 流程。当前账户具体 token 到期时间未知，不能由 Moodle 上游默认值推算。'
   contact:
-    name: Isct Companion integration notes (docs/lms-api/README.md)
+    name: IsctCompanion integration notes
 servers:
 - url: https://lms.s.isct.ac.jp/2025
-  description: Science Tokyo LMS (the 2025 path also serves 2026 courses)
+  description: Science Tokyo LMS（2025 路径也承载 2026 课程）
 tags:
-- name: Token launch
-- name: Read RPC
-- name: Cookie fallback
 - name: Discovery
+- name: Browser authorization
+- name: Read RPC
 - name: Files
 paths:
+  /webservice/rest/server.php:
+    post:
+      tags:
+      - Read RPC
+      operationId: callReadFunction
+      summary: 调用已验证的读取函数
+      description: Content-Type 必须为 application/x-www-form-urlencoded。通过 Request body 的 oneOf 选择函数；参阅
+        Examples 的各函数样例。PHP 数组必须使用 courseids[0]=… 这样的键，不发送 JSON 请求体。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RpcRequest'
+            examples:
+              core_webservice_get_site_info:
+                summary: 认证与能力列表（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: core_webservice_get_site_info
+                  moodlewsrestformat: json
+              core_block_get_dashboard_blocks:
+                summary: 默认课表区块（不需要 Cookie）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: core_block_get_dashboard_blocks
+                  moodlewsrestformat: json
+                  returncontents: 1
+              core_enrol_get_users_courses:
+                summary: 本人课程（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: core_enrol_get_users_courses
+                  moodlewsrestformat: json
+                  userid: 10001
+              core_course_get_contents:
+                summary: 课程章节、活动和文件清单（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: core_course_get_contents
+                  moodlewsrestformat: json
+                  courseid: 1001
+              mod_assign_get_assignments:
+                summary: 作业元数据（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: mod_assign_get_assignments
+                  moodlewsrestformat: json
+                  courseids[0]: 1001
+              mod_assign_get_submission_status:
+                summary: 本人提交与评分反馈（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: mod_assign_get_submission_status
+                  moodlewsrestformat: json
+                  assignid: 2001
+              mod_forum_get_forum_discussions:
+                summary: 论坛讨论和公告正文（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: mod_forum_get_forum_discussions
+                  moodlewsrestformat: json
+                  forumid: 3001
+                  page: 0
+                  perpage: 25
+              core_calendar_get_action_events_by_timesort:
+                summary: 待办时间线（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: core_calendar_get_action_events_by_timesort
+                  moodlewsrestformat: json
+                  timesortfrom: 0
+                  limitnum: 50
+              tool_mobile_get_config:
+                summary: 移动端策略（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: tool_mobile_get_config
+                  moodlewsrestformat: json
+                  section: mobileapp
+      responses:
+        '200':
+          description: 函数对应成功数据，或 MoodleError。响应形状由请求 wsfunction 决定；详见 x-moodle-functions 中的 responseSchema。
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/SiteInfo'
+                - $ref: '#/components/schemas/DashboardBlocks'
+                - $ref: '#/components/schemas/EnrolledCourses'
+                - $ref: '#/components/schemas/CourseContents'
+                - $ref: '#/components/schemas/Assignments'
+                - $ref: '#/components/schemas/SubmissionStatus'
+                - $ref: '#/components/schemas/Discussions'
+                - $ref: '#/components/schemas/ActionEvents'
+                - $ref: '#/components/schemas/MobileConfig'
+                - $ref: '#/components/schemas/MoodleError'
+              examples:
+                invalidtoken:
+                  summary: 错误令牌仍是 HTTP 200（实测）
+                  value:
+                    exception: core\exception\moodle_exception
+                    errorcode: invalidtoken
+                    message: Invalid token - token not found
+        '403': &id001
+          description: 网关或 HTTP 层失败，可能返回 HTML 而非 Moodle JSON；不要直接作为业务响应解析。
+        default: *id001
+  /lib/ajax/service-nologin.php:
+    get:
+      tags:
+      - Discovery
+      operationId: getPublicMobileConfig
+      summary: 获取公开的移动端服务开关
+      security: []
+      parameters:
+      - name: info
+        in: query
+        schema:
+          type: string
+          enum:
+          - tool_mobile_get_public_config
+        required: true
+      - name: args
+        in: query
+        required: true
+        schema:
+          type: string
+        example: '[{"index":0,"methodname":"tool_mobile_get_public_config","args":{}}]'
+        description: JSON 字符串，经 URL 编码后发送；这里只调用这个公开只读函数。
+      responses:
+        '200':
+          description: AJAX envelope，与 REST 成功响应的形状不同。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicEnvelope'
+        default: *id001
   /admin/tool/mobile/launch.php:
     get:
       tags:
-      - Token launch
-      operationId: launchMobileToken
-      summary: Obtain the mobile web-service token with the web session cookie
-      description: |
-        Verified 2026-10-20: a native GET with the LMS session cookie from the
-        school WebView store, redirects disabled, is answered with **302** and
-        `Location: moodlemobile://token=<base64>` directly.
-
-        The base64 decodes to `signature:::token[:::privatetoken]`. Accept it
-        only when `signature == md5(wwwroot + passport)` with
-        `wwwroot = https://lms.s.isct.ac.jp/2025`. Parse the Location with a
-        dedicated parser: a generic URL parser reads the token as the host.
-        Keep only `token`; drop `privatetoken` (not a refresh token). Never log
-        the Location.
-
-        A 302 to `/login/` or to the SSO host means the web session is gone.
-        The launch may return an existing token or create one; students cannot
-        list or revoke tokens.
-      security:
-      - SessionCookie: []
+      - Browser authorization
+      operationId: launchMobileAuthorization
+      summary: 在网页登录上下文获取移动端 token
+      description: 可能复用既有 token 或创建凭证，不是只读数据查询。由原生应用发起并接管自有注册 URL scheme 的回调；用户在学校 SSO 页面完成认证。回调格式为 scheme://token=base64(md5(wwwroot
+        + passport):::wstoken[:::privatetoken])。验证 passport 对应摘要、来源和一次性关联后再接收 token；不要在日志或普通页面中展示回调。privatetoken
+        可能不返回，不是 refresh_token。
+      security: []
       parameters:
       - name: service
         in: query
@@ -65,268 +185,35 @@ paths:
         required: true
         schema:
           type: string
-        description: A fresh unpredictable value per launch; it binds the answer
-          to this launch through the signature.
+        description: 每次授权生成新的不可预测值，并绑定当前待完成的授权；不要使用本次探测的固定值。
       - name: urlscheme
         in: query
         schema:
           type: string
           default: moodlemobile
+        description: 客户端实际注册并能拦截的 scheme；学校可以覆盖。
       responses:
         '302':
-          description: '`moodlemobile://token=…` (token answer) or a sign-in page
-            (session gone). The Location may contain a credential.'
+          description: 进入登录或跳转到自定义 scheme；Location 可能含凭证，不应直接记录。
           headers:
             Location:
               schema:
                 type: string
         '200':
-          description: An intermediate page; the client treats the token path as
-            unavailable and uses the cookie transport.
-        default: &gateway
-          description: Gateway or HTTP-level failure; may be HTML rather than a
-            Moodle error. Not a business response.
-  /webservice/rest/server.php:
-    post:
-      tags:
-      - Read RPC
-      operationId: callReadFunction
-      summary: Call one read-only function
-      description: |
-        `application/x-www-form-urlencoded`. Arrays are sent as
-        `courseids[0]=…`, objects as `options[0][name]=…`, booleans as `1`/`0`.
-        The app also sends `moodlewssettingfilter=true` so text is filtered as
-        the web pages show it.
-
-        Check the error envelope before parsing the success shape: errors,
-        including `invalidtoken`, arrive with HTTP 200. `warnings` in a
-        success body means the result may be partial.
-      security:
-      - FormToken: []
-      requestBody:
-        required: true
-        content:
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/RpcRequest'
-            examples:
-              core_webservice_get_site_info:
-                summary: Prove the token (synthetic)
-                value:
-                  wstoken: REPLACE_WITH_TOKEN
-                  wsfunction: core_webservice_get_site_info
-                  moodlewsrestformat: json
-              core_course_get_contents:
-                summary: Course outline (synthetic)
-                value:
-                  wstoken: REPLACE_WITH_TOKEN
-                  wsfunction: core_course_get_contents
-                  moodlewsrestformat: json
-                  moodlewssettingfilter: 'true'
-                  courseid: 1001
-              mod_assign_get_assignments:
-                summary: Assignments of two courses (synthetic)
-                value:
-                  wstoken: REPLACE_WITH_TOKEN
-                  wsfunction: mod_assign_get_assignments
-                  moodlewsrestformat: json
-                  courseids[0]: 1001
-                  courseids[1]: 1002
-              mod_assign_get_submission_status:
-                summary: Own submission (synthetic)
-                value:
-                  wstoken: REPLACE_WITH_TOKEN
-                  wsfunction: mod_assign_get_submission_status
-                  moodlewsrestformat: json
-                  assignid: 2001
-              core_calendar_get_action_events_by_timesort:
-                summary: Open work, next page (synthetic)
-                value:
-                  wstoken: REPLACE_WITH_TOKEN
-                  wsfunction: core_calendar_get_action_events_by_timesort
-                  moodlewsrestformat: json
-                  timesortfrom: 0
-                  limitnum: 50
-                  aftereventid: 4242
-      responses:
-        '200':
-          description: The function's success data, or a MoodleError. The shape
-            depends on `wsfunction`; see `x-moodle-functions`.
-          content:
-            application/json:
-              schema:
-                anyOf:
-                - $ref: '#/components/schemas/MoodleError'
-                - $ref: '#/components/schemas/SiteInfo'
-                - $ref: '#/components/schemas/TimelineCourses'
-                - $ref: '#/components/schemas/CourseContents'
-                - $ref: '#/components/schemas/ActionEvents'
-                - $ref: '#/components/schemas/Assignments'
-                - $ref: '#/components/schemas/SubmissionStatus'
-                - $ref: '#/components/schemas/Discussions'
-                - $ref: '#/components/schemas/QuizAttempts'
-                - $ref: '#/components/schemas/QuizBestGrade'
-              examples:
-                invalidtoken:
-                  summary: A refused token is still HTTP 200 (measured)
-                  value:
-                    exception: core\exception\moodle_exception
-                    errorcode: invalidtoken
-                    message: Invalid token - token not found
-        '403': *gateway
-        default: *gateway
-  /lib/ajax/service.php:
-    post:
-      tags:
-      - Cookie fallback
-      operationId: callAjaxFunction
-      summary: AJAX call with the session cookie and sesskey (fallback)
-      description: |
-        Used only when the token path is unavailable. `sesskey` comes from
-        `M.cfg.sesskey` on `/my/`. Only functions marked `ajax` answer;
-        `core_course_get_contents` and the module getters answer
-        `servicenotavailable`. A non-JSON body means the session is gone;
-        `invalidsesskey` means fetch a new sesskey.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: sesskey
-        in: query
-        required: true
-        schema:
-          type: string
-      - name: info
-        in: query
-        required: true
-        schema:
-          type: string
-        description: The method name, for server logs.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              maxItems: 1
-              items:
-                type: object
-                properties:
-                  index:
-                    type: integer
-                  methodname:
-                    type: string
-                    enum:
-                    - core_course_get_enrolled_courses_by_timeline_classification
-                    - core_courseformat_get_state
-                    - core_calendar_get_action_events_by_timesort
-                    - core_calendar_get_action_events_by_course
-                    - core_calendar_get_calendar_upcoming_view
-                    - core_calendar_get_calendar_monthly_view
-                  args:
-                    type: object
-                    additionalProperties: true
-                required:
-                - index
-                - methodname
-                - args
-      responses:
-        '200':
-          description: A batch envelope, or a sign-in page (HTML) when the
-            session is gone.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AjaxEnvelope'
-  /my/index.php:
-    post:
-      tags:
-      - Cookie fallback
-      operationId: selectTimetableQuarter
-      summary: Dashboard timetable for another year and quarter
-      description: |
-        The custom timetable block (`data-block="tttimetable"`) has no
-        web-service function and is read with the session cookie on both
-        transports. This read-only filter POST sends exactly the block's three
-        fields. Keep `search`: without it Moodle ignores `year` and `quota`
-        and returns the current quarter.
-      security:
-      - SessionCookie: []
-      requestBody:
-        required: true
-        content:
-          application/x-www-form-urlencoded:
-            schema:
-              type: object
-              properties:
-                year:
-                  type: string
-                  description: The `value` of a `select[name=year]` option.
-                quota:
-                  type: string
-                  description: The `value` of a `select[name=quota]` option (1–4).
-                search:
-                  type: string
-                  description: The hidden `input[name=search]` value, unchanged.
-              required:
-              - year
-              - quota
-              - search
-      responses:
-        '200':
-          description: The dashboard HTML with the selected grid.
+          description: 学校授权/启动页面；此页面的应用链接可能含凭证。
           content:
             text/html:
               schema:
                 type: string
-  /lib/ajax/service-nologin.php:
-    post:
-      tags:
-      - Discovery
-      operationId: getPublicMobileConfig
-      summary: Public mobile-service switches
-      description: Verified both as POST with a JSON body and as GET with
-        `args=`. Measured `enablemobilewebservice=1`, `typeoflogin=2`.
-      security: []
-      parameters:
-      - name: info
-        in: query
-        required: true
-        schema:
-          type: string
-          enum:
-          - tool_mobile_get_public_config
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: array
-              example:
-              - index: 0
-                methodname: tool_mobile_get_public_config
-                args: {}
-      responses:
-        '200':
-          description: AJAX envelope; not the REST shape.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AjaxEnvelope'
-        default: *gateway
+        default: *id001
   /webservice/pluginfile.php/{contextid}/mod_resource/content/{revision}/{filename}:
     get:
       tags:
       - Files
       operationId: downloadResourceFile
-      summary: Download a file listed by the API (Range supported)
-      description: |
-        Use `fileurl` as returned; this template only describes the verified
-        `mod_resource` shape. Keep the URL's parameters and add `token` (not
-        `wstoken`), same origin only. The app stores the credential-free
-        `…/pluginfile.php/…` form and adds the transport's credential when it
-        downloads (token here, or the session cookie on the plain form).
-
-        An invalid token answers HTTP 200 with JSON, not the file: check the
-        content type, magic bytes and size.
+      summary: 下载 API 返回的资源文件（含 Range）
+      description: 此模板只表示已验证的 mod_resource 文件路径；其他 filearea/模块应直接使用 API 给出的 fileurl，不能按此模板猜测路径。filename
+        各路径段正确编码；保留原 URL 的参数并添加 token。实测 PDF 完整下载和 Range 成功。不要只根据 HTTP 200 就认定成功：无效 token 的文件请求也返回了 200，需检查类型和内容。
       security:
       - FileToken: []
       parameters:
@@ -336,12 +223,14 @@ paths:
         schema:
           type: integer
           format: int64
+          minimum: 0
       - name: revision
         in: path
         required: true
         schema:
           type: integer
           format: int64
+          minimum: 0
       - name: filename
         in: path
         required: true
@@ -352,46 +241,46 @@ paths:
         schema:
           type: string
         example: bytes=0-1023
+        description: 已实测单一前缀范围；206 响应必须校验 Content-Range。
       responses:
         '200':
-          description: The whole file (measured 45,268-byte PDF), or a JSON
-            `invalidtoken` error.
+          description: 完整文件，或错误响应（可能为 text/html）；样本为 45,268 字节的 PDF。
           content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
             application/octet-stream:
               schema:
                 type: string
                 format: binary
+            text/html:
+              schema:
+                type: string
             application/json:
               schema:
                 $ref: '#/components/schemas/MoodleError'
         '206':
-          description: 'Partial content; measured `Content-Range: bytes 0-1023/45268`,
-            matching the full file''s prefix.'
+          description: 部分文件。实测 bytes 0-1023/45268，对应 1,024 字节，并与完整文件前缀一致。
           headers:
             Content-Range:
               schema:
                 type: string
+              example: bytes 0-1023/45268
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403': *id001
         '416':
-          description: Range not satisfiable (not measured).
-        default: *gateway
+          description: 范围不可满足；本次未实测。
+        default: *id001
 components:
-  securitySchemes:
-    FormToken:
-      type: apiKey
-      in: query
-      name: wstoken
-      description: Sent as the `wstoken` field of the form body, never in a URL
-        or header. Kept only in the OS vault.
-    FileToken:
-      type: apiKey
-      in: query
-      name: token
-      description: Added only for the LMS origin; logs strip it.
-    SessionCookie:
-      type: apiKey
-      in: cookie
-      name: MoodleSession
-      description: The school WebView's session cookie.
   schemas:
     MoodleError:
       type: object
@@ -400,18 +289,15 @@ components:
           type: string
         errorcode:
           type: string
-          description: '`invalidtoken` and `webservice_access_exception`/`accessexception`:
-            drop the token, sign in, launch again once. `servicenotavailable`: the
-            function is not offered on this path.'
         message:
           type: string
-          description: Never logged; may echo request values.
         debuginfo:
           type: string
           nullable: true
       additionalProperties: true
       required:
       - errorcode
+      description: 业务错误可能仍返回 HTTP 200。先识别 errorcode，再解析成功响应；不要向日志直接复制 message 或 debuginfo。
     Warning:
       type: object
       properties:
@@ -425,13 +311,15 @@ components:
         message:
           type: string
       additionalProperties: true
+      required:
+      - warningcode
+      - message
     FileEntry:
       type: object
       properties:
         type:
           type: string
-          description: '`file`, `url` or `content`; only `file` is downloadable.
-            A URL module''s single `url` entry is its link.'
+          description: file、url 或 content；只有 file 是可下载文件。
         filename:
           type: string
         filepath:
@@ -440,76 +328,94 @@ components:
         filesize:
           type: integer
           format: int64
+          description: 字节数。
         fileurl:
           type: string
+          description: 使用 API 返回的原始 URL；下载时仅向受信任 LMS 主机添加 token。
           format: uri
         mimetype:
           type: string
         timemodified:
           type: integer
           format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        content:
+          type: string
+          description: 内联内容；按 type 和模块类型解释。
       additionalProperties: true
       required:
       - type
       - filename
-    TimelineCourse:
+    Course:
       type: object
       properties:
         id:
           type: integer
           format: int64
-          description: LMS course id; not the official offering number.
-        fullname:
-          type: string
-          description: May hold a Japanese and English title split by " / ".
+          description: LMS course ID，不等于官方教学班编号。
         shortname:
           type: string
-          description: Ends with the academic year, e.g. `[2026]`.
+        fullname:
+          type: string
+          description: 可能包含日英双语标题。
         idnumber:
           type: string
-          description: Often the 9-digit syllabus offering id; not guaranteed.
-        coursecategory:
+          description: 可能是 syllabus offering ID；不要假设始终存在或唯一。
+        category:
+          type: integer
+          format: int64
+        visible:
+          type: integer
+          format: int64
+        hidden:
+          type: boolean
+        summary:
           type: string
-          description: The category name, which is the course's quarter (1–4).
+          description: HTML。
         startdate:
           type: integer
           format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
         enddate:
           type: integer
           format: int64
-        viewurl:
-          type: string
-          format: uri
-        hidden:
-          type: boolean
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        timemodified:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        overviewfiles:
+          type: array
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+              fileurl:
+                type: string
+                format: uri
+              filesize:
+                type: integer
+                format: int64
+              mimetype:
+                type: string
+            additionalProperties: true
       additionalProperties: true
       required:
       - id
+      - shortname
       - fullname
-    TimelineCourses:
-      type: object
-      properties:
-        courses:
-          type: array
-          items:
-            $ref: '#/components/schemas/TimelineCourse'
-        nextoffset:
-          type: integer
-          format: int64
-      additionalProperties: true
-      required:
-      - courses
     Module:
       type: object
       properties:
         id:
           type: integer
           format: int64
-          description: The cmid, as in `mod/*/view.php?id=…`.
+          description: cmid：课程模块 ID，用于 mod/*/view.php?id=…；不是 assignid/forumid。
         instance:
           type: integer
           format: int64
-          description: The activity instance id (assignid, forumid, quizid).
+          description: 该模块实例 ID；assign 模块是 assignid，forum 模块是 forumid。
         modname:
           type: string
         name:
@@ -517,19 +423,27 @@ components:
         url:
           type: string
           format: uri
-          description: Absent for labels.
-        visible:
-          type: integer
         uservisible:
           type: boolean
         description:
           type: string
-          description: Optional HTML shown on the course page (labels, shown
-            descriptions). Untrusted; sanitized before display.
+          description: 可选 HTML，不保证每个模块都返回。
         contents:
           type: array
           items:
             $ref: '#/components/schemas/FileEntry'
+        dates:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              timestamp:
+                type: integer
+                format: int64
+                description: Unix 时间戳，单位为秒；0 通常表示未设置。
+            additionalProperties: true
       additionalProperties: true
       required:
       - id
@@ -545,14 +459,15 @@ components:
         section:
           type: integer
           format: int64
-          description: The section number.
+          description: 章节序号。
         name:
           type: string
         summary:
           type: string
-          description: Section HTML; untrusted.
-        visible:
+          description: 章节 HTML。
+        summaryformat:
           type: integer
+          format: int64
         uservisible:
           type: boolean
         modules:
@@ -564,36 +479,222 @@ components:
       - id
       - name
       - modules
-    CourseContents:
-      type: array
-      description: The sections directly (not a JSON string like
-        `core_courseformat_get_state`).
-      items:
-        $ref: '#/components/schemas/Section'
+    Assignment:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: assignid：mod_assign 实例 ID。
+        cmid:
+          type: integer
+          format: int64
+          description: 课程模块 ID。
+        course:
+          type: integer
+          format: int64
+          description: LMS course ID。
+        name:
+          type: string
+        duedate:
+          type: integer
+          format: int64
+          description: 提交截止时间；0 表示没有设置。
+        allowsubmissionsfromdate:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        cutoffdate:
+          type: integer
+          format: int64
+          description: 停止接收提交的时间；不要与 duedate 混淆。
+        timemodified:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        intro:
+          type: string
+          description: 说明 HTML；本次样本为空，不代表所有作业都为空。
+        introformat:
+          type: integer
+          format: int64
+        introfiles:
+          type: array
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+              fileurl:
+                type: string
+                format: uri
+              filesize:
+                type: integer
+                format: int64
+              mimetype:
+                type: string
+            additionalProperties: true
+      additionalProperties: true
+      required:
+      - id
+      - cmid
+      - name
+      - duedate
+    Submission:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          description: Moodle 提交状态原值；已实测 new 和 submitted，不把未知新值映射为 submitted。
+        attemptnumber:
+          type: integer
+          format: int64
+        timecreated:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        timemodified:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        plugins:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              name:
+                type: string
+            additionalProperties: true
+      additionalProperties: true
+      required:
+      - status
+    SubmissionStatus:
+      type: object
+      properties:
+        lastattempt:
+          type: object
+          properties:
+            submission:
+              $ref: '#/components/schemas/Submission'
+            locked:
+              type: boolean
+            graded:
+              type: boolean
+            canedit:
+              type: boolean
+            cansubmit:
+              type: boolean
+            extensionduedate:
+              type: integer
+              format: int64
+              description: Unix 时间戳，单位为秒；0 通常表示未设置。
+            gradingstatus:
+              type: string
+          additionalProperties: true
+        feedback:
+          type: object
+          properties:
+            gradefordisplay:
+              type: string
+              description: 显示用评分文本；可能包含 HTML。
+            gradeddate:
+              type: integer
+              format: int64
+              description: Unix 时间戳，单位为秒；0 通常表示未设置。
+            grade:
+              type: object
+              properties:
+                grade:
+                  type: string
+                attemptnumber:
+                  type: integer
+                  format: int64
+              additionalProperties: true
+            plugins:
+              type: array
+              items:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  name:
+                    type: string
+                additionalProperties: true
+          additionalProperties: true
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+      additionalProperties: true
+      required:
+      - warnings
+    Discussion:
+      type: object
+      properties:
+        discussion:
+          type: integer
+          format: int64
+          description: 后续读取帖子时使用的 discussionid；不要把顶层 id 当作讨论 ID。
+        id:
+          type: integer
+          format: int64
+          description: 首帖 ID。
+        name:
+          type: string
+        subject:
+          type: string
+        message:
+          type: string
+          description: 首帖正文 HTML。
+        messageformat:
+          type: integer
+          format: int64
+        timemodified:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        numreplies:
+          type: integer
+          format: int64
+        pinned:
+          type: boolean
+        locked:
+          type: boolean
+      additionalProperties: true
+      required:
+      - id
+      - discussion
+      - message
     ActionEvent:
       type: object
       properties:
         id:
           type: integer
           format: int64
+          description: 日历事件 ID。
         name:
-          type: string
-        activityname:
           type: string
         modulename:
           type: string
         instance:
           type: integer
           format: int64
-          description: The app keys work by the cmid in `url` whenever present.
+          description: 日历事件的模块关联值；不要直接作为 assignid；通过 URL/课程模块映射核对。
         eventtype:
           type: string
         timestart:
           type: integer
           format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
         timesort:
           type: integer
           format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
         overdue:
           type: boolean
         course:
@@ -602,6 +703,19 @@ components:
             id:
               type: integer
               format: int64
+            fullname:
+              type: string
+          additionalProperties: true
+        action:
+          type: object
+          properties:
+            name:
+              type: string
+            url:
+              type: string
+              format: uri
+            actionable:
+              type: boolean
           additionalProperties: true
         url:
           type: string
@@ -611,59 +725,62 @@ components:
       - id
       - name
       - timesort
-    ActionEvents:
-      type: object
-      description: Open work only, not the history; submitted work may leave
-        the list. Page with `aftereventid` = previous `lastid` until a short
-        page or a cursor that does not advance.
-      properties:
-        events:
-          type: array
-          items:
-            $ref: '#/components/schemas/ActionEvent'
-        firstid:
-          type: integer
-          format: int64
-        lastid:
-          type: integer
-          format: int64
-      additionalProperties: true
-      required:
-      - events
-    Assignment:
+    SiteInfo:
       type: object
       properties:
-        id:
-          type: integer
-          format: int64
-          description: The assignid.
-        cmid:
-          type: integer
-          format: int64
-        course:
-          type: integer
-          format: int64
-        name:
+        sitename:
           type: string
-        duedate:
-          type: integer
-          format: int64
-          description: 0 when unset.
-        cutoffdate:
-          type: integer
-          format: int64
-          description: When submissions stop; not the due date.
-        intro:
+        siteurl:
           type: string
-        introattachments:
+          format: uri
+        userid:
+          type: integer
+          format: int64
+        release:
+          type: string
+        version:
+          type: string
+        downloadfiles:
+          type: integer
+          format: int64
+          description: 1 表示服务允许文件下载。
+          enum:
+          - 0
+          - 1
+        uploadfiles:
+          type: integer
+          format: int64
+          description: 服务能力信息，不代表客户端被授权执行上传。
+          enum:
+          - 0
+          - 1
+        functions:
           type: array
           items:
-            $ref: '#/components/schemas/FileEntry'
+            type: object
+            properties:
+              name:
+                type: string
+              version:
+                type: string
+            additionalProperties: true
+            required:
+            - name
+            - version
       additionalProperties: true
       required:
-      - id
-      - cmid
-      - name
+      - sitename
+      - siteurl
+      - userid
+      - functions
+    EnrolledCourses:
+      type: array
+      items:
+        $ref: '#/components/schemas/Course'
+    CourseContents:
+      type: array
+      items:
+        $ref: '#/components/schemas/Section'
     Assignments:
       type: object
       properties:
@@ -675,11 +792,18 @@ components:
               id:
                 type: integer
                 format: int64
+              fullname:
+                type: string
+              shortname:
+                type: string
               assignments:
                 type: array
                 items:
                   $ref: '#/components/schemas/Assignment'
             additionalProperties: true
+            required:
+            - id
+            - assignments
         warnings:
           type: array
           items:
@@ -687,95 +811,7 @@ components:
       additionalProperties: true
       required:
       - courses
-    SubmissionStatus:
-      type: object
-      description: |
-        The app reads it as the assignment page showed it: `graded` when
-        `gradingstatus` is `graded` or `released`; `submitted` only for the
-        exact submission status `submitted` (measured `new` and `submitted`;
-        a draft is open); `acceptsSubmission` from `canedit`; the grade from
-        `feedback.gradefordisplay` text. A missing `lastattempt` says nothing.
-      properties:
-        lastattempt:
-          type: object
-          properties:
-            submission:
-              type: object
-              properties:
-                status:
-                  type: string
-              additionalProperties: true
-            teamsubmission:
-              type: object
-              additionalProperties: true
-            gradingstatus:
-              type: string
-            canedit:
-              type: boolean
-            cansubmit:
-              type: boolean
-          additionalProperties: true
-        feedback:
-          type: object
-          properties:
-            gradefordisplay:
-              type: string
-              description: Display text; may hold HTML.
-          additionalProperties: true
-        warnings:
-          type: array
-          items:
-            $ref: '#/components/schemas/Warning'
-      additionalProperties: true
-    QuizAttempts:
-      type: object
-      properties:
-        attempts:
-          type: array
-          items:
-            type: object
-            properties:
-              state:
-                type: string
-                description: '`finished` counts as submitted.'
-            additionalProperties: true
-      additionalProperties: true
-    QuizBestGrade:
-      type: object
-      properties:
-        hasgrade:
-          type: boolean
-        grade:
-          type: number
-      additionalProperties: true
-    Discussion:
-      type: object
-      properties:
-        discussion:
-          type: integer
-          format: int64
-          description: The discussion id (`discuss.php?d=`).
-        id:
-          type: integer
-          format: int64
-          description: The first post's id.
-        subject:
-          type: string
-        message:
-          type: string
-          description: First post HTML.
-        created:
-          type: integer
-          format: int64
-        attachments:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileEntry'
-      additionalProperties: true
-      required:
-      - id
-      - discussion
-      - message
+      - warnings
     Discussions:
       type: object
       properties:
@@ -790,46 +826,75 @@ components:
       additionalProperties: true
       required:
       - discussions
-    SiteInfo:
+      - warnings
+    ActionEvents:
       type: object
       properties:
-        userid:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionEvent'
+        firstid:
           type: integer
           format: int64
-        lang:
-          type: string
-        release:
-          type: string
-          example: 4.5.10+ (Build 20260227)
-        functions:
+        lastid:
+          type: integer
+          format: int64
+      additionalProperties: true
+      required:
+      - events
+    MobileConfig:
+      type: object
+      properties:
+        settings:
           type: array
-          description: 470 entries on 2026-10-20, including write functions.
           items:
             type: object
             properties:
               name:
                 type: string
+              value:
+                type: string
             additionalProperties: true
+            required:
+            - name
+            - value
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
       additionalProperties: true
       required:
-      - userid
-    AjaxEnvelope:
-      type: array
-      items:
-        type: object
-        properties:
-          error:
-            type: boolean
-          data:
-            description: The function's result; `core_courseformat_get_state`
-              returns a JSON string.
-          exception:
-            $ref: '#/components/schemas/MoodleError'
-        additionalProperties: true
-        required:
-        - error
-    RpcRequestBase:
+      - settings
+      - warnings
+    DashboardBlocks:
       type: object
+      required: [blocks, warnings]
+      properties:
+        blocks:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+              contents:
+                type: object
+                properties:
+                  content:
+                    type: string
+                    description: 区块内部 HTML；tttimetable 复用应用既有课表解析器。
+                additionalProperties: true
+            additionalProperties: true
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+      additionalProperties: true
+    GetDashboardBlocksRequest:
+      type: object
+      required: [wstoken, wsfunction, moodlewsrestformat]
       properties:
         wstoken:
           type: string
@@ -837,120 +902,388 @@ components:
           writeOnly: true
         wsfunction:
           type: string
+          enum: [core_block_get_dashboard_blocks]
+        moodlewsrestformat:
+          type: string
+          enum: [json]
+        returncontents:
+          type: integer
+          enum: [0, 1]
+          default: 1
+        userid:
+          type: integer
+          default: 0
+          description: 0 为当前用户。
+        mypage:
+          type: string
+          description: Moodle 首页类型，不是学年或季度筛选。
+      additionalProperties: true
+      description: 返回默认显示的课表；year、quota、search 均不是该函数参数，实测返回 invalidparameter。
+    GetSiteInfoRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - core_webservice_get_site_info
         moodlewsrestformat:
           type: string
           enum:
           - json
-        moodlewssettingfilter:
-          type: string
-          enum:
-          - 'true'
+          default: json
+      additionalProperties: true
       required:
       - wstoken
       - wsfunction
       - moodlewsrestformat
+      description: 先取得当前 userid 和 functions；检查所需函数是否被该 token 的服务提供。
+    GetEnrolledCoursesRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - core_enrol_get_users_courses
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        userid:
+          type: integer
+          format: int64
+          description: 使用 get_site_info 返回的 userid。
+          minimum: 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - userid
+      description: 返回课程数组；本次实测 62 门。
+    GetCourseContentsRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - core_course_get_contents
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        courseid:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - courseid
+      description: 直接返回章节数组，不是 core_courseformat_get_state 的 JSON 字符串。summary 和 description 是不可信 HTML，应经过应用的内容处理。
+    GetAssignmentsRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_assign_get_assignments
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        courseids[0]:
+          type: integer
+          format: int64
+          description: 首个课程 ID；多个课程用 courseids[1]、courseids[2] 等键。
+          minimum: 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      description: 省略 courseids 时会读取已选课程中的作业；建议显式按课程限制范围。duedate 与 cutoffdate 的语义不同。
+    GetSubmissionStatusRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_assign_get_submission_status
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        assignid:
+          type: integer
+          format: int64
+          description: Assignment.id 或 Module.instance，不能传 cmid。
+          minimum: 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - assignid
+      description: 省略 userid 以读取当前用户。lastattempt、submission 和 feedback 均可能缺失，不能把缺失解释为已提交。
+    GetForumDiscussionsRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_forum_get_forum_discussions
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        forumid:
+          type: integer
+          format: int64
+          description: forum 模块的 instance，不是 cmid。
+          minimum: 1
+        page:
+          type: integer
+          format: int64
+          description: 服务默认 -1；分页读取建议显式传 0。
+          minimum: -1
+          default: -1
+        perpage:
+          type: integer
+          format: int64
+          description: 服务默认 0；分页读取建议显式传 25。
+          minimum: 0
+          default: 0
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - forumid
+      description: message 为讨论首帖 HTML；discussion 是讨论 ID，id 是首帖 ID。逐页读取，权限限制可能使结果不完整。
+    GetActionEventsRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - core_calendar_get_action_events_by_timesort
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        timesortfrom:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        limitnum:
+          type: integer
+          format: int64
+          minimum: 1
+          default: 50
+        aftereventid:
+          type: integer
+          format: int64
+          description: 继续分页时使用上一页的 lastid；需防止游标不前进。
+          minimum: 0
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      description: 仅表示行动事件，不是完整作业历史。已提交作业可能不再出现；使用 submission status 判断实际状态。
+    GetMobileConfigRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - tool_mobile_get_config
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        section:
+          type: string
+          enum:
+          - mobileapp
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      description: 自动登出策略不是 token 的到期时间。本次 forcelogout=0、autologout=0、autologouttime=86400；最后一项在自动登出关闭时不生效。
     RpcRequest:
-      description: One variant per function; `x-moodle-functions` lists the
-        app's closed read-only set and each one's arguments.
-      allOf:
-      - $ref: '#/components/schemas/RpcRequestBase'
-      - type: object
+      oneOf:
+      - $ref: '#/components/schemas/GetSiteInfoRequest'
+      - $ref: '#/components/schemas/GetDashboardBlocksRequest'
+      - $ref: '#/components/schemas/GetEnrolledCoursesRequest'
+      - $ref: '#/components/schemas/GetCourseContentsRequest'
+      - $ref: '#/components/schemas/GetAssignmentsRequest'
+      - $ref: '#/components/schemas/GetSubmissionStatusRequest'
+      - $ref: '#/components/schemas/GetForumDiscussionsRequest'
+      - $ref: '#/components/schemas/GetActionEventsRequest'
+      - $ref: '#/components/schemas/GetMobileConfigRequest'
+      discriminator:
+        propertyName: wsfunction
+        mapping:
+          core_webservice_get_site_info: '#/components/schemas/GetSiteInfoRequest'
+          core_block_get_dashboard_blocks: '#/components/schemas/GetDashboardBlocksRequest'
+          core_enrol_get_users_courses: '#/components/schemas/GetEnrolledCoursesRequest'
+          core_course_get_contents: '#/components/schemas/GetCourseContentsRequest'
+          mod_assign_get_assignments: '#/components/schemas/GetAssignmentsRequest'
+          mod_assign_get_submission_status: '#/components/schemas/GetSubmissionStatusRequest'
+          mod_forum_get_forum_discussions: '#/components/schemas/GetForumDiscussionsRequest'
+          core_calendar_get_action_events_by_timesort: '#/components/schemas/GetActionEventsRequest'
+          tool_mobile_get_config: '#/components/schemas/GetMobileConfigRequest'
+    PublicConfig:
+      type: object
+      properties:
+        wwwroot:
+          type: string
+        enablewebservices:
+          type: integer
+          format: int64
+        enablemobilewebservice:
+          type: integer
+          format: int64
+        typeoflogin:
+          type: integer
+          format: int64
+        launchurl:
+          type: string
+        tool_mobile_qrcodetype:
+          type: integer
+          format: int64
+      additionalProperties: true
+      required:
+      - wwwroot
+      - enablewebservices
+      - enablemobilewebservice
+      - typeoflogin
+    PublicEnvelope:
+      type: array
+      items:
+        type: object
         properties:
-          wsfunction:
-            type: string
-            enum:
-            - core_webservice_get_site_info
-            - core_course_get_enrolled_courses_by_timeline_classification
-            - core_course_get_contents
-            - core_calendar_get_action_events_by_timesort
-            - core_calendar_get_action_events_by_course
-            - core_calendar_get_calendar_upcoming_view
-            - core_calendar_get_calendar_monthly_view
-            - mod_assign_get_assignments
-            - mod_assign_get_submission_status
-            - mod_quiz_get_quizzes_by_courses
-            - mod_quiz_get_user_attempts
-            - mod_quiz_get_user_best_grade
-            - mod_forum_get_forums_by_courses
-            - mod_forum_get_forum_discussions
-            - mod_page_get_pages_by_courses
-            - mod_resource_get_resources_by_courses
-            - mod_folder_get_folders_by_courses
-            - mod_url_get_urls_by_courses
+          error:
+            type: boolean
+          data:
+            $ref: '#/components/schemas/PublicConfig'
+          exception:
+            $ref: '#/components/schemas/MoodleError'
         additionalProperties: true
+        required:
+        - error
+  securitySchemes:
+    FileToken:
+      type: apiKey
+      in: query
+      name: token
+      description: 仅向返回 URL 的受信任学校源添加；日志必须去掉 token。
 x-moodle-functions:
+- name: core_block_get_dashboard_blocks
+  summary: 默认课表区块
+  requestSchema: GetDashboardBlocksRequest
+  responseSchema: DashboardBlocks
+  verified: cookie-free native POST and Core sync, 2026-10-22
+  description: 返回 tttimetable 的内部 HTML；本次 2026-3Q 课时和未安排课程与手机逐项一致。其他季度的筛选字段被拒绝。
 - name: core_webservice_get_site_info
-  arguments: none
+  summary: 认证与能力列表
+  requestSchema: GetSiteInfoRequest
   responseSchema: SiteInfo
-  verified: native REST, 2026-10-20
-- name: core_course_get_enrolled_courses_by_timeline_classification
-  arguments: classification=all, limit=0, offset, sort=fullname
-  responseSchema: TimelineCourses
-  verified: AJAX, 2026-10-20 (46 courses); REST expected in the mobile service
+  verified: native POST, 2026-10-20
+  description: 先取得当前 userid 和 functions；检查所需函数是否被该 token 的服务提供。
+- name: core_enrol_get_users_courses
+  summary: 本人课程
+  requestSchema: GetEnrolledCoursesRequest
+  responseSchema: EnrolledCourses
+  verified: native POST, 2026-10-20
+  description: 返回课程数组；本次实测 62 门。
 - name: core_course_get_contents
-  arguments: courseid
+  summary: 课程章节、活动和文件清单
+  requestSchema: GetCourseContentsRequest
   responseSchema: CourseContents
-  verified: native REST, 2026-10-20 (10 sections, modules with fileurl)
-- name: core_calendar_get_action_events_by_timesort
-  arguments: timesortfrom=0, limitnum=50, aftereventid
-  responseSchema: ActionEvents
-  verified: native REST and AJAX, 2026-10-20
-- name: core_calendar_get_action_events_by_course
-  arguments: courseid, timesortfrom=0, limitnum=50, aftereventid
-  responseSchema: ActionEvents
-  verified: listed by site_info
-- name: core_calendar_get_calendar_upcoming_view
-  arguments: courseid=1, categoryid=0
-  responseSchema: '{events: ActionEvent[]}'
-  verified: listed by site_info
-- name: core_calendar_get_calendar_monthly_view
-  arguments: year, month, courseid=1, categoryid=0, day=1
-  responseSchema: '{weeks: [{days: [{events: ActionEvent[]}]}]}'
-  verified: listed by site_info
+  verified: native POST, 2026-10-20
+  description: 直接返回章节数组，不是 core_courseformat_get_state 的 JSON 字符串。summary 和 description 是不可信 HTML，应经过应用的内容处理。
 - name: mod_assign_get_assignments
-  arguments: courseids[n]
+  summary: 作业元数据
+  requestSchema: GetAssignmentsRequest
   responseSchema: Assignments
-  verified: native REST, 2026-10-20
+  verified: native POST, 2026-10-20
+  description: 省略 courseids 时会读取已选课程中的作业；建议显式按课程限制范围。duedate 与 cutoffdate 的语义不同。
 - name: mod_assign_get_submission_status
-  arguments: assignid (Module.instance, never the cmid)
+  summary: 本人提交与评分反馈
+  requestSchema: GetSubmissionStatusRequest
   responseSchema: SubmissionStatus
-  verified: native REST, 2026-10-20
-- name: mod_quiz_get_quizzes_by_courses
-  arguments: courseids[n]
-  responseSchema: '{quizzes: [{id, coursemodule, grade, decimalpoints}]}'
-  verified: listed by site_info
-- name: mod_quiz_get_user_attempts
-  arguments: quizid, status=all, includepreviews=0
-  responseSchema: QuizAttempts
-  verified: listed by site_info
-- name: mod_quiz_get_user_best_grade
-  arguments: quizid
-  responseSchema: QuizBestGrade
-  verified: listed by site_info
-- name: mod_forum_get_forums_by_courses
-  arguments: courseids[n]
-  responseSchema: '[{id, cmid, course, intro}]'
-  verified: listed by site_info
+  verified: native POST, 2026-10-20
+  description: 省略 userid 以读取当前用户。lastattempt、submission 和 feedback 均可能缺失，不能把缺失解释为已提交。
 - name: mod_forum_get_forum_discussions
-  arguments: forumid (Module.instance), sortorder=-1, page=0, perpage
+  summary: 论坛讨论和公告正文
+  requestSchema: GetForumDiscussionsRequest
   responseSchema: Discussions
-  verified: native REST, 2026-10-20
-- name: mod_page_get_pages_by_courses
-  arguments: courseids[n]
-  responseSchema: '{pages: [{coursemodule, intro, content}]}'
-  verified: listed by site_info
-- name: mod_resource_get_resources_by_courses
-  arguments: courseids[n]
-  responseSchema: '{resources: [{coursemodule, intro}]}'
-  verified: listed by site_info
-- name: mod_folder_get_folders_by_courses
-  arguments: courseids[n]
-  responseSchema: '{folders: [{coursemodule, intro}]}'
-  verified: listed by site_info
-- name: mod_url_get_urls_by_courses
-  arguments: courseids[n]
-  responseSchema: '{urls: [{coursemodule, intro, externalurl}]}'
-  verified: listed by site_info
+  verified: native POST, 2026-10-20
+  description: message 为讨论首帖 HTML；discussion 是讨论 ID，id 是首帖 ID。逐页读取，权限限制可能使结果不完整。
+- name: core_calendar_get_action_events_by_timesort
+  summary: 待办时间线
+  requestSchema: GetActionEventsRequest
+  responseSchema: ActionEvents
+  verified: native POST, 2026-10-20
+  description: 仅表示行动事件，不是完整作业历史。已提交作业可能不再出现；使用 submission status 判断实际状态。
+- name: tool_mobile_get_config
+  summary: 移动端策略
+  requestSchema: GetMobileConfigRequest
+  responseSchema: MobileConfig
+  verified: native POST, 2026-10-20
+  description: 自动登出策略不是 token 的到期时间。本次 forcelogout=0、autologout=0、autologouttime=86400；最后一项在自动登出关闭时不生效。
 externalDocs:
-  description: Upstream Moodle implementation (4.5)
+  description: Moodle 上游服务实现
   url: https://github.com/moodle/moodle/tree/MOODLE_405_STABLE

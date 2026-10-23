@@ -28,13 +28,17 @@ def generate(root, fixture, font_path):
         if image.size != (1600, 1100):
             raise ValueError("Expected the repository's public matrix-card.jpg fixture")
         draw = ImageDraw.Draw(image)
-        draw.rectangle((250, 300, 1350, 895), fill=(205,) * 3)
+        # Printed layout: rows alternate pink (1, 3, 5, 7) and white, with no
+        # lines between cells (see matrix_fixture_layout.py).
+        for row in range(7):
+            fill = (236, 168, 169) if row % 2 == 0 else (238, 237, 234)
+            draw.rectangle((250, 300 + row * 85, 1349, 300 + (row + 1) * 85 - 1), fill=fill)
         for cell, letter in enumerate(letters):
             box = font.getbbox(letter)
             width, height = box[2] - box[0], box[3] - box[1]
             left = (110 - width) / 2
             top = (85 - height) / 2 + offset
-            # Keep complete letters clear of the two-pixel grid stroke.
+            # Keep complete letters clear of the cell edges.
             if min(left, top) < 2 or left + width > 108 or top + height > 83:
                 raise ValueError("Font does not fit the probe; use Times Italic at 110 px")
             draw.text(
@@ -42,12 +46,6 @@ def generate(root, fixture, font_path):
                  300 + cell // 10 * 85 + top - box[1]),
                 letter, font=font, fill=(25,) * 3,
             )
-        for column in range(11):
-            x = 250 + column * 110
-            draw.line((x, 300, x, 895), fill=(35,) * 3, width=2)
-        for row in range(8):
-            y = 300 + row * 85
-            draw.line((250, y, 1350, y), fill=(35,) * 3, width=2)
         for frame in range(45):
             image.save(directory / f"capture-{frame:03}.jpg", quality=95)
     (root / "expected.txt").write_text(letters)

@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 81 checks must be re-run before the next release.**
+**7 of 85 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**72 checks have never been run or could not be run:**
+**75 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -40,6 +40,7 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-ONEDRIVE-WRITE` — never verified
 - `CLOUD-RESILIENCE` — never verified
+- `OCR-CAMERA-GEOMETRY` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
@@ -58,6 +59,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-SYLLABUS-IN-APP` — never verified
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
+- `IOS-TESTFLIGHT-RELEASE` — never verified
 - `RELEASE-INSTALL` — never verified
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
@@ -91,6 +93,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-COURSE-LESSON-MARK` — never verified
 - `IOS-COURSE-EXAM-LINE` — never verified
 - `IOS-ICLOUD-BACKUP` — never verified
+- `DESKTOP-DEBUG-ICLOUD` — never verified
 - `IOS-LOG-EXPORT` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
 - `ANDROID-TLS-VERIFIER` — never verified
@@ -107,8 +110,9 @@ an unverified area becomes an assumed-good one.
 | Check | Area | Persona | Result | Covers |
 | --- | --- | --- | --- | --- |
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/school_browser/engine/**<br>crates/isct-core/src/school_service.rs |
+| `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-20 · codex · `07bc592` | docs/tasks/03-lms-sync.md<br>crates/isct-core/src/downloads.rs |
 | `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/lms_ingest.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs<br>crates/isct-core/src/school_parser/lms/pages.rs<br>crates/isct-core/src/net/moodle/reader.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>crates/isct-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
-| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/moodle/token.rs<br>crates/isct-core/src/net/moodle/rest.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/school_auth.rs<br>docs/lms-api/README.md |
+| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/moodle/reader.rs<br>crates/isct-core/src/net/moodle/mapping.rs<br>crates/isct-core/src/net/moodle/token.rs<br>crates/isct-core/src/net/moodle/rest.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/school_auth.rs<br>docs/lms-api/README.md |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-MASTERS-CREDITS` | identity | 修士課程 1年・前期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/kyomu_ingest.rs<br>apps/desktop/src/pages/courses/** |
 | `IDENTITY-DOCTORAL-RULES` | identity | 博士後期課程 | —<br>not run | crates/isct-core/src/study_profile.rs<br>apps/desktop/src/pages/courses/** |
@@ -120,7 +124,8 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
-| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
+| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ffi/src/matrix.rs<br>crates/isct-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
+| `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/isct-ocr/src/engine/grid/**<br>crates/isct-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
@@ -143,6 +148,7 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/isct-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
+| `IOS-TESTFLIGHT-RELEASE` | release | Two devices, interrupted work | —<br>not run | .github/workflows/ios-release.yml<br>docs/mobile-release.md |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/workspaces.rs<br>crates/isct-core/src/school_browser/policy.rs<br>crates/isct-core/src/school_browser/engine.rs<br>crates/isct-core/src/school_browser/submission.rs<br>crates/isct-core/src/school_browser/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
@@ -176,7 +182,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
-| `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs |
+| `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
+| `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
@@ -351,6 +358,80 @@ Recorded in docs/verification/core-consolidation.md.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
 
+### Token-backed native reads and resource bytes (`SCHOOL-LMS-TOKEN-HTTP`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass
+
+**Preconditions**
+
+An authenticated Science Tokyo student account, explicit authorization
+for the official mobile token flow, and a network reaching the LMS.
+Follow docs/lms-api/README.md; never put real credentials in the evidence.
+
+**Steps**
+
+1. Obtain a token through the official browser launch flow. From a
+   cookie-free reqwest client using the app download User-Agent and TLS
+   validation, POST each of the eight documented read functions. Compare
+   response structure with openapi.yaml and sample the current user's
+   actual courses and assignment states.
+   - *Why:* Proves native authentication and PHP form encoding work against the
+     live school service; a signed-in browser or a JSON fixture cannot
+     establish that the token works without browser cookies.
+2. Download a returned resource PDF with the same client. Check its
+   byte count and file markers, then request bytes 0-1023 and compare
+   Content-Range and the downloaded prefix. Repeat API and file reads
+   with an invalid token, recording only status, type and error code.
+   - *Why:* Exposes an HTML or JSON authentication response mistaken for a file,
+     and protects partial-download consumers from accepting the wrong
+     range or treating HTTP 200 alone as proof of success.
+3. Read the mobile logout policies. Record whether token creation and
+   expiry times are actually exposed, and distinguish those facts from
+   upstream defaults. Do not infer a TTL from inactive logout settings.
+   - *Why:* Prevents promising a long-lived token based on the 86400-second
+     disabled policy or assuming the school's token duration is the
+     upstream default. Long-term expiry remains separate from this run.
+4. Using an existing token and no cookies, POST
+   core_block_get_dashboard_blocks with returncontents=1. Feed the
+   tttimetable content to Core's existing timetable parser and compare
+   its day/period and unscheduled-course sets with a successful phone
+   sync. Probe another quarter using the block's filter fields, record
+   API rejection separately, then re-read the default dashboard.
+   - *Why:* A generic block API may expose a school timetable even without a
+     timetable-specific function. Parsing and comparing the real rows
+     distinguishes complete data from a successful empty response;
+     cross-quarter checks prevent promising all-quarter token access
+     from a single default grid.
+
+**Where to look**
+
+Native response statuses, decoded read models, byte and range checks,
+and the sanitized evidence at docs/lms-api/verification.json.
+
+**Expected**
+
+All eight sampled native POST reads succeed without cookies. A real
+PDF and its byte-range prefix match metadata and each other. Invalid
+tokens are rejected in the response body even when HTTP status is 200.
+Any unknown expiry is explicitly recorded, not presented as verified.
+
+**Why this is manual**
+
+Requires live student credentials, explicit token authorization, the
+school's gateway policy and real enrolled-course files. Offline tests
+cannot establish these account-scoped transport or lifecycle facts.
+
+**Covers**
+
+- `docs/tasks/03-lms-sync.md`
+- `crates/isct-core/src/downloads.rs`
+
+**Last recorded** pass · 2026-10-20 · codex · `07bc59244f6bf1b050d4dcb9dd3952ce41074037` · `1.1.3`
+
+Eight native POST reads, complete PDF and Range, invalid-token controls passed. Exact expiry unknown; no natural expiration or revocation test. Supplemental 2026-10-22 probe used cookie-free native curl and the real Core parser; default 2026-3Q matched the phone exactly. Quarter 1/2/4 filter requests returned invalidparameter; the original eight-function and file checks above retain their 2026-10-20 verification date.
+
+Evidence: `docs/lms-api/verification.json`
+
 ### Full LMS pull against a real account (`SCHOOL-LMS-PULL`)
 
 **Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass ⚠
@@ -456,10 +537,14 @@ desktop build with the app log visible.
      the module getters, the calendar views, the timeline course list) are
      listed by the site but their answers were never probed. A silently
      empty mapping looks like "nothing to do" in Today.
-4. Quit and restart the app, then pull the deadlines before opening any
-   school page.
-   - *Why:* The token survives the restart while the web session does not; the
-     pull must not wait for a WebView sign-in except for the timetable.
+4. Quit and restart the app, then pull courses, the default timetable
+   and deadlines before opening any school page. Repeat a background
+   wake with Cookie/browser ports unavailable, and compare cached
+   historical quarters before and after the default-grid update.
+   - *Why:* The token survives independently of the web session. Daily course
+     and timetable reads must reach the dashboard-block API without a
+     WebView sign-in, and a default-grid update must preserve historical
+     quarter data.
 5. Replace the keychain item's token with a random 32-character value and
    pull again.
    - *Why:* A refused token arrives as HTTP 200 with errorcode invalidtoken; the
@@ -494,6 +579,8 @@ parsing and mapping are covered by the net::moodle unit tests.
 **Covers**
 
 - `crates/isct-core/src/net/moodle/mod.rs`
+- `crates/isct-core/src/net/moodle/reader.rs`
+- `crates/isct-core/src/net/moodle/mapping.rs`
 - `crates/isct-core/src/net/moodle/token.rs`
 - `crates/isct-core/src/net/moodle/rest.rs`
 - `crates/isct-core/src/net/moodle/ajax.rs`
@@ -1043,7 +1130,8 @@ Needs OS-level power transitions and a real provider session.
 **Preconditions**
 
 A supported desktop target with OCR, a physical campus card, and a
-camera or a photo of the card.
+camera or a photo of the card. For the phone steps: a TestFlight build
+on an iPhone and a CI-built APK on an arm64 Android phone.
 
 **Steps**
 
@@ -1055,23 +1143,26 @@ camera or a photo of the card.
    and bring the real card toward the camera. Check that one red outline
    follows the Matrix, with no cell boxes or letter overlays. Move the
    card, introduce glare, then briefly hold it steady with labels visible.
-   Observe the per-cell acquisition coverage. The camera must stop as
-   soon as every cell has enough clear candidates, or within eight seconds
-   of the first detected Matrix; waiting before detection does not count.
-   After acquisition, the dialog closes, the camera indicator turns off,
-   and inline processing progress appears. Put the card down and verify
-   results arrive; insufficient votes must be highlighted for review.
+   Observe per-cell recognition progress while the camera remains live.
+   Recognition and acquisition must overlap. The camera stops after all
+   cells pass a fresh confirmation sweep, or seven seconds after starting
+   the session, including time without a detected Matrix. Confirmed cells
+   must reopen when a clear new observation contradicts them.
+   On completion the dialog closes and the camera indicator turns off;
+   insufficient votes must be highlighted for review.
    Repeat with the card rotated 90, 180 and 270 degrees. Each orientation
    must keep the same cell order. If processing produces no readable
    letters, it must show a retryable error without reopening the stopped
    camera or returning to a 70/70 capture loop.
-   Inspect matrix-scan/latest.json under the app cache for separate
-   acquisition/processing times, per-cell candidate and qualified-vote
+   Inspect matrix-scan/latest.json under the app cache for elapsed session
+   time and overlapping OCR busy time, per-cell candidate and qualified-vote
    counts. Use an optimized build and move the framed card continuously:
-   the red outline must update at least 10 times per second (30 preferred).
+   the red outline must update at least 15 times per second (30 preferred).
    Check frameMs and frames/elapsedMs alongside the visible tracking;
    a smoothly interpolated stale outline does not count as a new detection.
-   Compare all 70 letters with the real card.
+   Compare all 70 letters with the real card, including Q tails near row
+   boundaries. Repeat under warm and cool lighting and with faint row
+   colors; weak color contrast must still allow luminance localization.
    - *Why:* OS camera permissions, native WebView video capture, optical focus,
      and the alignment of recognition boxes over a physical card require
      real hardware. Scripted frames cannot validate these surfaces.
@@ -1082,7 +1173,7 @@ camera or a photo of the card.
    bright reflection over the same letters until the deadline and check
    that erased strokes remain marked for review rather than accepted.
    Include a white card background and modest hand movement.
-   After closing each session, inspect core.geometryFrames,
+   After closing each session, inspect core.keyframes,
    core.admissionRejections and core.glareRejections in
    matrix-scan/latest.json, then compare all accepted letters with the card.
    - *Why:* Real camera exposure, sensor noise and specular reflections can differ
@@ -1096,11 +1187,33 @@ camera or a photo of the card.
    - *Why:* Verify the camera indicator switches off and permissions can recover
      in the signed native app; headless tests cannot observe OS resource
      release or the native privacy prompt.
-5. Review the recognised cells and compare them with the card.
+5. On the iPhone, open Settings → school account → Matrix card, choose
+   Scan with camera and allow camera access. Hold the real card in view.
+   The red outline must sit on the card in the drawn picture (not trail
+   behind it while you move), and the 7×10 grid below must fill in while
+   the camera is still live. On completion the screen closes, the camera
+   indicator turns off and the editor shows every cell tinted by
+   confidence. Repeat with the phone in landscape and with the card
+   upside down: the cell order must not change. Then import a photo of
+   the same card with From photo and compare both grids cell by cell.
+   Repeat all of this on the Android phone.
+   - *Why:* AVFoundation and CameraX capture, sensor rotation, the phone's optics
+     and the camera privacy indicator only exist on a signed app on real
+     hardware. Core tests drive the same session with scripted and decoded
+     frames (photo and YUV agree on one image); the native camera hand-off
+     and the drawn outline need a phone.
+6. On each phone, background the app during a camera scan and return;
+   the scan must have stopped with a message and Scan with camera must
+   start a fresh one. Revoke camera permission in system settings, then
+   choose Scan with camera: the denial message shows, and From photo and
+   Paste still work.
+   - *Why:* The OS permission prompt, lifecycle interruption and camera release
+     cannot be produced in headless tests.
+7. Review the recognised cells and compare them with the card.
    - *Why:* The contract is "no wrong accepted cell", not "most cells right". A
      misread cell that is accepted is worse than a rejected one, so the
      comparison has to be cell by cell.
-6. Correct a cell and save.
+8. Correct a cell and save.
    - *Why:* Confirms the manual correction path, which the fixtures never take.
 
 **Where to look**
@@ -1115,10 +1228,19 @@ corrected values are what get saved.
 **Why this is manual**
 
 Needs a physical card and a camera. Intel Mac builds ship without the
-OCR runtime, so the target must be chosen deliberately.
+OCR runtime, so the target must be chosen deliberately. The phone steps
+need signed iOS and Android builds with camera hardware.
 
 **Covers**
 
+- `crates/isct-ffi/src/matrix.rs`
+- `crates/isct-ffi/src/services.rs`
+- `apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift`
+- `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
+- `apps/android/app/src/main/AndroidManifest.xml`
+- `apps/desktop/src-tauri/src/commands/platform.rs`
 - `crates/isct-ocr/**`
 - `apps/desktop/src/lib/matrix-ocr.ts`
 - `crates/isct-core/src/matrix_scan.rs`
@@ -1137,6 +1259,79 @@ OCR runtime, so the target must be chosen deliberately.
 67 expected cells recognised, no wrong accepted cells; private image not committed.
 
 Evidence: `docs/verification/core-consolidation.md#automated-acceptance`
+
+### Camera outline follows the card on the frame it was fitted on (`OCR-CAMERA-GEOMETRY`)
+
+**Area** ocr · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A debug or optimized desktop build with OCR on an Apple Silicon Mac or a
+supported Windows PC, a built-in or USB camera, and a disposable or own
+Matrix card. For the recording step, a new empty local directory.
+
+**Steps**
+
+1. Open Scan with camera and bring the card into view, then move it
+   steadily across the frame, tilt it about 30 degrees and turn it
+   upside down. Watch the red outline against the printed grid.
+   - *Why:* The picture shown is the analysed frame and the outline is fitted on
+     that same frame. A lag here would show the outline trailing the card;
+     an indexing error would put it one row or column off the A-J / 1-7
+     labels, or outline a mirrored grid after the card is turned.
+2. Hold the card still, then move it away until it is lost and bring it
+   back. Also cover the J column with a finger and partly shadow it.
+   - *Why:* Tracking must hand over to detection when the grid is lost and pick
+     it up again within about half a second; a partly covered edge must
+     not produce an outline squeezed onto the visible columns.
+3. Close the session and open matrix-scan/latest.json. Check that
+   core.frames lists every analysed frame (located or not), that
+   capture.timeline pairs each frameId with boundsFrameId equal to it
+   and paintedMediaMs equal to mediaMs, and that core.keyframes is
+   several per second of steady framing.
+   - *Why:* The report separates processing rate (frames per second analysed),
+     localisation rate (located / analysed) and draw latency (painted -
+     captured); a mismatch between boundsFrameId and frameId would mean an
+     old outline was drawn over a newer picture.
+4. Launch a debug build with ISCT_MATRIX_RECORD_DIR set to the empty
+   directory, scan once, then run
+   `cargo run -p isct-ocr --release --features training-tools --example matrix_track_replay -- DIR/SESSION`
+   and `python scripts/ocr/matrix_track_report.py --frames DIR/SESSION --trace app=trace.jsonl --live LATEST_JSON --out REPORT`.
+   - *Why:* The recorded planes replay through the same tracker offline, so a
+     live problem can be reproduced, overlaid stage by stage and compared
+     with the in-app timeline.
+
+**Where to look**
+
+The camera dialog's picture and red outline, matrix-scan/latest.json
+under the app cache, and the replay report's summary.json and overlays.
+
+**Expected**
+
+The outline sits on the grid edges of the card in the picture it is drawn
+on, with the A1 corner at the A/1 labels in every orientation; it follows
+motion at the camera's frame rate without trailing, disappears when the
+grid is lost and returns within about half a second. latest.json shows
+every timeline entry's boundsFrameId equal to its frameId when located,
+and the replay reproduces the session's located frames.
+
+**Why this is manual**
+
+Camera latency, WebView canvas compositing and how the outline looks on a
+moving physical card need a camera and the native app; the geometry and
+tracker themselves are covered by the isct-ocr tests and replays.
+
+**Covers**
+
+- `crates/isct-ocr/src/engine/grid/**`
+- `crates/isct-ocr/src/engine/vendor/**`
+- `apps/desktop/src/platform/matrix-camera.ts`
+- `apps/desktop/src/components/MatrixCamera.tsx`
+- `apps/desktop/src-tauri/src/commands/matrix_camera.rs`
+
+**Last recorded** never run
 
 ### School WebView navigation, popups and download hand-off (`DESKTOP-SCHOOL-WEBVIEW`)
 
@@ -2174,7 +2369,15 @@ A signed build, provisioning, and physical iOS and Android devices.
      for a run without a total, or a sheet whose LMS and 教務Web rows
      disagree with the desktop footer, means the shell stopped following
      Core.
-6. On iOS, open a course from a timetable block, switch to 資料 and open
+6. On an iPhone with a working LMS token, let the LMS browser session
+   expire while retaining the school portal sign-in. Reopen the app
+   and refresh 今日 without first visiting LMS in the ウェブ tab.
+   - *Why:* Token reads can still update assignments while the course list's
+     timetable read needs a fresh Moodle session. Recovery must enter
+     LMS after the portal check; the LMS source must finish without a
+     persistent "Could not update LMS" retry even though other reads
+     succeeded. Real SSO redirects and WebKit cookies need a signed phone.
+7. On iOS, open a course from a timetable block, switch to 資料 and open
    a PDF; then tap the timetable title, pick another quarter's chip and
    a week in the list.
    - *Why:* Files download with the resident web view's sign-in (the cookie
@@ -2182,13 +2385,13 @@ A signed build, provisioning, and physical iOS and Android devices.
      prompt means the port or the folder name drifted. The picker labels
      come from Core's `TimetableYear`; a quarter chip that lands on a
      week outside that quarter means the jump target is wrong.
-7. On an iPad, hold it upright, then turn it to landscape, open 授業 and
+8. On an iPad, hold it upright, then turn it to landscape, open 授業 and
    pick two courses.
    - *Why:* Upright keeps the tab bar with 授業 added; landscape switches to the
      sidebar and the course list beside the course page, by the desktop's
      width rule. A course page that does not change, or a back stack that
      survives choosing another course, means the split lost its owner.
-8. On each device, after a pull, turn two reminder switches on in quick
+9. On each device, after a pull, turn two reminder switches on in quick
    succession, force-quit the app, reopen it and open 設定.
    - *Why:* Each account row's 更新 time comes from Core's school status; a time
      that disappears after the restart means the shell went back to its
@@ -2270,6 +2473,50 @@ Needs Apple credentials and the notarization service.
 - `scripts/desktop/macos-signing.mjs`
 - `.github/workflows/desktop-release.yml`
 - `.github/workflows/apple-signing-check.yml`
+
+**Last recorded** never run
+
+### Existing iOS distribution signing and TestFlight delivery (`IOS-TESTFLIGHT-RELEASE`)
+
+**Area** release · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD, IOS_MOBILE_PROVISION and
+APPLE_API_* repository secrets are configured; IOS_TESTFLIGHT_ENABLED is true.
+
+**Steps**
+
+1. Dispatch the iOS release workflow and inspect the signing, archive,
+   export and upload steps in its Actions log.
+   - *Why:* A compilation-only run cannot validate the supplied signing identity
+     and profile or prove that Apple accepts the signed IPA.
+2. In App Store Connect, wait for the matching version/build to process,
+   assign it to the intended TestFlight group and install it on an iPhone.
+   - *Why:* Upload acceptance is separate from processing and tester availability;
+     installation confirms the delivered build is usable on a real device.
+
+**Where to look**
+
+The iOS release Actions log, matching TestFlight version/build status,
+group assignment and installed version on the iPhone.
+
+**Expected**
+
+The existing Apple Distribution identity and App Store profile sign the
+IPA; Apple processes it and the intended tester can install that build.
+
+**Why this is manual**
+
+Requires private signing materials, App Store Connect access, Apple's
+processing service and an enrolled physical iPhone.
+
+**Covers**
+
+- `.github/workflows/ios-release.yml`
+- `docs/mobile-release.md`
 
 **Last recorded** never run
 
@@ -4041,9 +4288,9 @@ A label read at a glance; the data is Core's CourseDetail.exams.
 **Preconditions**
 
 The released (Developer ID) Mac app and the iPhone app, both signed with
-the team that owns `iCloud.app.isctcompanion`, on one Apple Account. The
-iPhone build carries the Production container environment, so both read
-the same CloudKit database.
+the team that owns `iCloud.app.isctcompanion`, on one Apple Account. Both
+builds carry the Production container environment, so both read the same
+CloudKit database; `codesign -d --entitlements - <app>` on each shows it.
 
 **Steps**
 
@@ -4060,7 +4307,19 @@ the same CloudKit database.
    - *Why:* The second upload must lose CloudKit's conditional save, re-read and
      merge. Losing either edit means a write replaced a record it had not
      read.
-4. On the iPhone, open 以前のバージョン and restore one; then export a
+4. Turn on Sync automatically on both. Add a plan on the Mac and Upload,
+   then force-quit the iPhone app and open it again without pressing
+   Pull.
+   - *Why:* Automatic mode pulls once per launch; a phone that is only read never
+     uploads, so this is the only way it sees the Mac's edits. The plan
+     missing after the relaunch means the launch pull did not run or read
+     another database.
+5. Sign out of iCloud on the iPhone (Settings › Apple Account), reopen
+   バックアップ, then sign back in.
+   - *Why:* The provider line must name the reason under the generic failure
+     text. Only the generic text means the error is being hidden again,
+     which is what made sync failures impossible to tell apart.
+6. On the iPhone, open 以前のバージョン and restore one; then export a
    backup file on the Mac and import it on the phone with 読み込む….
    - *Why:* Restore and import both start a new generation on every device and
      leave a local recovery file; the Mac must follow on its next Pull.
@@ -4072,9 +4331,10 @@ files) and the records themselves on each.
 
 **Expected**
 
-Each device shows the other's changes after a Pull, both concurrent edits
-survive, the version list names both devices, and a restore or import on
-the phone reaches the Mac with a recovery file kept on each.
+Each device shows the other's changes after a Pull, and the phone after a
+relaunch in automatic mode; both concurrent edits survive, a failure names
+its reason, the version list names both devices, and a restore or import
+on the phone reaches the Mac with a recovery file kept on each.
 
 **Why this is manual**
 
@@ -4088,6 +4348,65 @@ merge, tag-conditional write and journal behind it are covered by
 - `apps/ios/IsctCompanion/Core/CloudKitStore.swift`
 - `apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift`
 - `apps/desktop/src-tauri/src/icloud.rs`
+- `apps/desktop/src-tauri/Entitlements.plist`
+- `apps/desktop/src/pages/settings/BackupSettings.tsx`
+
+**Last recorded** never run
+
+### A debug bundle has iCloud exactly when this Mac can sign it (`DESKTOP-DEBUG-ICLOUD`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A Mac whose keychain holds an Apple Development identity of team
+FB7AL944GK and whose Xcode has downloaded that team's Mac profile for
+`app.isctcompanion` listing this Mac (Xcode › Settings › Accounts ›
+Download Manual Profiles).
+
+**Steps**
+
+1. Run `yarn tauri build --debug` and read the line that starts with
+   "Debug bundle:".
+   - *Why:* It must say the bundle is signed with the Apple Development profile.
+     "ad-hoc" on this Mac means the profile or identity was not matched,
+     and the build would have no iCloud.
+2. Open target/debug/bundle/macos/IsctCompanion.app, then Settings →
+   Backup.
+   - *Why:* The iCloud row must be there and sync without a crash. A launch that
+     dies with SIGILL means iCloud was compiled in but the bundle lacks
+     the entitlement, so build.rs and the signing step disagree.
+3. Move the profile out of ~/Library/Developer/Xcode/UserData/Provisioning
+   Profiles, build again, open the bundle, then put the profile back.
+   - *Why:* Without a profile the line must say ad-hoc, Backup must show no
+     iCloud row, and the app must still start: a debug build on a Mac
+     without a developer account stays usable.
+
+**Where to look**
+
+The build output, the Backup page of each bundle, and
+`codesign -d --entitlements - target/debug/bundle/macos/IsctCompanion.app`.
+
+**Expected**
+
+With the profile: signed by the Apple Development identity, entitlements
+include the Production iCloud environment, and iCloud syncs. Without it:
+ad-hoc, no iCloud row, no crash.
+
+**Why this is manual**
+
+It depends on this Mac's keychain identities, its downloaded profiles and
+a real codesign run, none of which exist on CI; that the iCloud switch
+and history survive a build without iCloud is unit-tested in
+`unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_return`.
+
+**Covers**
+
+- `scripts/desktop/macos-signing.mjs`
+- `scripts/desktop/tauri.mjs`
+- `apps/desktop/src-tauri/build.rs`
 
 **Last recorded** never run
 

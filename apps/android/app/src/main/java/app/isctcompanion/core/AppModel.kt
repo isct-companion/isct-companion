@@ -487,6 +487,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (session.scanMatrix(image).value() as? OperationResult.Recognitions)?.cells.orEmpty()
     }
 
+    /** Starts a live Matrix scan; its seven-second budget starts now. */
+    fun beginMatrixCamera(): MatrixCameraSession =
+        session?.beginMatrixCamera() ?: throw SdkException.Closed()
+
     /** Settings → Reset: what `request` would remove now, or null when Core
      * cannot tell. */
     suspend fun resetPreview(request: ResetRequest): ResetSummary? {

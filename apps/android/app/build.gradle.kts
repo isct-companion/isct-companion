@@ -119,6 +119,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.9.1")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.navigation:navigation-compose:2.9.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
+    // Matrix live scanning: YUV frames for Core's camera session.
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
     // OTP QR codes: Google's scanner UI for the camera, ML Kit for screenshots.
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
