@@ -38,6 +38,20 @@ COLORS = {  # BGR, one per stage name; unknown stages cycle through EXTRA.
 EXTRA = [(128, 0, 255), (0, 128, 255), (255, 128, 0)]
 
 
+def load_image(frames, name):
+    """A frame image, or the luma plane of a desktop recording's `.planes` file."""
+    if not name.endswith(".planes"):
+        return cv2.imread(str(frames / name))
+    index = {}
+    for line in (frames / "frames.jsonl").read_text().splitlines():
+        if line.strip():
+            v = json.loads(line)
+            index[v["file"]] = (v["width"], v["height"])
+    w, h = index[name]
+    luma = np.fromfile(frames / name, np.uint8)[: w * h].reshape(h, w)
+    return cv2.cvtColor(luma, cv2.COLOR_GRAY2BGR)
+
+
 def load_trace(path):
     rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
     return rows
@@ -266,7 +280,7 @@ def main():
 
     def size_of(name):
         if name not in sizes:
-            image = cv2.imread(str(args.frames / name))
+            image = load_image(args.frames, name)
             sizes[name] = (image.shape[1], image.shape[0])
         return sizes[name]
 
@@ -285,7 +299,7 @@ def main():
         directory.mkdir(exist_ok=True)
         for r in rows:
             if r["frame"] in chosen:
-                image = cv2.imread(str(args.frames / r["frame"]))
+                image = load_image(args.frames, r["frame"])
                 draw_overlay(image, r, labels, directory / f'{Path(r["frame"]).stem}.png')
         with open(args.out / f"timeline-{name}.jsonl", "w") as f:
             for e in events:

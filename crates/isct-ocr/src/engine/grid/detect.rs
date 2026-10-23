@@ -10,7 +10,6 @@ use imageproc::{
     contours::{find_contours, BorderType},
     geometry::{approximate_polygon_dp, arc_length},
     point::Point,
-    region_labelling::{connected_components, Connectivity},
 };
 
 struct Band {
@@ -21,30 +20,19 @@ struct Band {
     depth: f64,
 }
 
-/// Fill holes (white letters) inside dark regions: background components
-/// that do not reach the image border.
+/// Fill holes (white letters) inside dark regions: background not connected
+/// to the image border. A flood fill from a padded border marks the outside.
 fn fill_holes(mask: &GrayImage) -> GrayImage {
-    let inverse = GrayImage::from_fn(mask.width(), mask.height(), |x, y| {
-        Luma([if mask.get_pixel(x, y)[0] == 0 { 255 } else { 0 }])
-    });
-    let labels = connected_components(&inverse, Connectivity::Four, Luma([0]));
-    let count = labels.as_raw().iter().copied().max().unwrap_or(0) as usize + 1;
-    let mut outside = vec![false; count];
     let (w, h) = (mask.width(), mask.height());
-    for (x, y, label) in labels.enumerate_pixels() {
-        if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
-            outside[label[0] as usize] = true;
-        }
-    }
+    let mut padded = GrayImage::new(w + 2, h + 2);
+    image::imageops::replace(&mut padded, mask, 1, 1);
+    imageproc::drawing::flood_fill_mut(&mut padded, 0, 0, Luma([128]));
     GrayImage::from_fn(w, h, |x, y| {
-        let label = labels.get_pixel(x, y)[0] as usize;
-        Luma([
-            if mask.get_pixel(x, y)[0] != 0 || (label != 0 && !outside[label]) {
-                255
-            } else {
-                0
-            },
-        ])
+        Luma([if padded.get_pixel(x + 1, y + 1)[0] == 128 {
+            0
+        } else {
+            255
+        }])
     })
 }
 
@@ -261,18 +249,24 @@ fn hypotheses(band: &Band) -> Vec<Homography> {
     out
 }
 
+/// Seeds fitted per frame at most: the strongest priors first. Most frames
+/// hold dozens of dark bands; the card's own bands rank near the top.
+const MAX_FITS: usize = 10;
+
 /// The seed and fitted grid with the strongest anchors, if any passes.
 pub(crate) fn detect(planes: &Planes) -> Option<(Homography, Homography, FitInfo)> {
+    let mut seeds: Vec<(f64, Homography, Grow)> = bands(planes)
+        .iter()
+        .flat_map(|band| hypotheses(band).into_iter().map(|h| (band.grow, h)))
+        .map(|(grow, h)| (prior(planes, &h), h, grow))
+        .filter(|(p, _, _)| *p >= 0.2)
+        .collect();
+    seeds.sort_by(|a, b| b.0.total_cmp(&a.0));
     let mut best: Option<(Homography, Homography, FitInfo)> = None;
-    for band in bands(planes) {
-        for seed in hypotheses(&band) {
-            if prior(planes, &seed) < 0.2 {
-                continue;
-            }
-            if let (Some(h), info) = fit(planes, seed, &[0.4, 0.3, 0.2], Some(band.grow)) {
-                if best.as_ref().is_none_or(|b| info.anchor > b.2.anchor) {
-                    best = Some((seed, h, info));
-                }
+    for (_, seed, grow) in seeds.into_iter().take(MAX_FITS) {
+        if let (Some(h), info) = fit(planes, seed, &[0.4, 0.3, 0.2], Some(grow)) {
+            if best.as_ref().is_none_or(|b| info.anchor > b.2.anchor) {
+                best = Some((seed, h, info));
             }
         }
     }

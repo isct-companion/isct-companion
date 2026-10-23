@@ -25,22 +25,35 @@ This crate isolates an optional dependency and its failure handling at the API
 boundary. It runs in the caller's process and does not claim to contain a native
 abort or memory fault; process isolation would require a separate worker.
 
-Desktop camera scanning has two phases. `capture_matrix_frame` decodes and
-locates a frame, rectifies complete 96×96 cells with bilinear interpolation, keeps
-Rec.601 grayscale, and measures contrast, Laplacian sharpness, source resolution
-and whether texture lies inside the glyph instead of on a cropped grid edge.
-It performs no character-model inference and no input binarization. Texture
-quality uses the central 78×78 region to exclude grid borders; this measurement
-window never trims the pixels retained for recognition. Geometry
-localization tries the existing grid/header detector first, then retries with
-locally corrected illumination while preserving its label/grid validation.
-The label bands are measured separately from the 7×10 body. Internal line
-centers calibrate the body bounds before rectification, so a taller/shorter
-header or a thick border cannot shift the letter crops. Contour and header
-fallback paths use the same validated body coordinates.
-Cell quality is measured after bounded local illumination correction so a dim
-but readable glyph can start acquisition without lowering the texture gates.
-The retained candidate remains the original grayscale image.
+Desktop camera scanning has two loops. The fast loop analyses every new video
+frame: `MatrixTracker::track` takes two 960 px planes (Rec.601 luma and
+`R - G + 128`) and returns the grid on that frame. Detection seeds homographies
+from the dark header or label band; the fit measures the printed lines near
+the prediction (the 8 row boundaries as signed pink/white steps, the label and
+body edges as luminance steps), intersects them and fits one homography to
+all intersections (`engine/vendor/opencv_homography.rs`, a port of OpenCV's
+RANSAC `findHomography` with LM refinement). A fit must span both body edges
+from top to bottom rows, stay convex and unmirrored, be well conditioned, beat
+every half- and whole-cell shift on the printed anchors (the indexing check)
+and keep the column gaps clear of ink. Between fits the tracker follows
+Shi-Tomasi corners with pyramidal Lucas-Kanade (`optical-flow-lk`) and a RANSAC
+frame-to-frame homography, refits every 8 frames or when tracking weakens,
+re-detects only when no grid survives, needs a second detection to accept a
+sudden jump, and One-Euro-smooths only the drawn corners. The full design and
+its measurements are in `docs/verification/matrix-geometry.md`.
+
+The slow loop runs only on keyframes: a fresh low-residual fit, requested by
+Core at most every 100 ms. `capture_matrix_keyframe` cuts complete 96×96
+cells from that frame's full-resolution luma with bilinear interpolation, keeps
+Rec.601 grayscale, and measures contrast, Laplacian sharpness, source
+resolution and whether texture lies inside the glyph instead of on a cropped
+grid edge. It performs no character-model inference and no input binarization.
+Texture quality uses the central 78×78 region to exclude grid borders; this
+measurement window never trims the pixels retained for recognition. Cell
+quality is measured after bounded local illumination correction so a dim but
+readable glyph can start acquisition without lowering the texture gates. The
+retained candidate remains the original grayscale image. Still photos
+(`capture_matrix_frame`, `MatrixOcrService`) use the same detector on one frame.
 
 `isct_core::matrix_scan::MatrixCameraScanner` owns the bounded acquisition.
 The first plausible Matrix (at least half its cells have usable texture) starts
@@ -75,16 +88,20 @@ after every candidate is processed. Unsettled cells are marked for review rather
 than presented as settled recognition. Closing/cancelling invalidates the session;
 workers check ownership between batches and ignore stale results.
 
-Desktop requests a 30 fps stream with one capture request in flight. It consumes
-the newest decoded frame, dropping intervening frames without canvas/JPEG work.
-The preview displays only one red outline. Processing has inline progress and
-can continue while the app is in the background after capture has stopped.
-`matrix-scan/latest.json` under the app cache contains acquisition/processing
-times, per-cell candidate/vote counts, weak coverage and shell capture timing;
-`geometryFrames`, `admissionRejections`, and per-cell `glareRejections` distinguish
-missing geometry, a located grid with insufficient texture, and rejected highlights;
-it contains no images or recognized letters. `trackedMs` measures first visible
-outline to camera release, not the later inference completion.
+Desktop requests a 30 fps stream with one frame request in flight. The
+webview draws each new video frame once into a full-resolution canvas, sends
+its 960 px planes as raw bytes over binary IPC (no JPEG or base64), and paints
+that same frame with the outline fitted on it, so the outline never lags the
+picture under it. When Core's snapshot names the frame as a keyframe, its
+full-resolution luma follows; a keyframe superseded by a newer request is
+dropped. Processing has inline progress and can continue while the app is in
+the background after capture has stopped. `matrix-scan/latest.json` under the
+app cache contains acquisition/processing times, per-cell candidate/vote counts,
+weak coverage and shell capture timing; `keyframes`, `admissionRejections`, and
+per-cell `glareRejections` distinguish missing keyframes, a located grid with
+insufficient texture, and rejected highlights; it contains no images or
+recognized letters. `trackedMs` measures first visible outline to camera
+release, not the later inference completion.
 
 Desktop debug builds also log per-frame stage timings and min/median/max
 source-pixel size, contrast, sharpness and centering, without pixels or letters.
@@ -133,30 +150,34 @@ rendered from the system Helvetica font and contains no student data.
 
 ## Geometry replay and capture timeline
 
-Every camera frame carries a webview-assigned id. Core echoes the frame behind
-its outline (`boundsFrameId`) and a `sequence` that orders replies; the webview
-drops a reply older than one it already applied. `matrix-scan/latest.json`
-then holds `core.frames` (each analysed frame: located or not, decode, geometry
-and crop time) and `capture.timeline` (each frame's capture, send, reply and
-the paint of the outline that came from it, plus the video position at both
-ends). These keep processing rate, localisation rate and box-draw latency apart.
+Every camera frame carries a webview-assigned id. Core's `track` echoes the
+frame behind its outline (`boundsFrameId`) and a `sequence` that orders
+replies; the webview drops a reply older than one it already applied.
+`matrix-scan/latest.json` then holds `core.frames` (each tracked frame: located
+or not, analysis time, whether it became a keyframe) and `capture.timeline`
+(each frame's capture, send, reply and paint, with the video position of the
+painted picture and of the live video then). These keep processing rate,
+localisation rate and box-draw latency apart.
 
-A debug build started with `ISCT_MATRIX_RECORD_DIR=/new/local/dir` also saves
-every analysed frame unmodified, with `frames.jsonl` capture times, under a
-per-session folder. Recordings are card images: use a disposable card and keep
-them local. Replay a recording or any ordered frame directory:
+A debug build started with `ISCT_MATRIX_RECORD_DIR=/new/local/dir` also saves,
+per session, every analysed frame's raw planes (`.planes`) and every keyframe's
+full-resolution luma (`.full`), indexed in `frames.jsonl`. Recordings are card
+images: use a disposable card and keep them local. Replay a recording or any
+ordered `*.jpg`/`*.png` directory through the same tracker:
 
 ```sh
-cargo run -p isct-ocr --release --features training-tools --example matrix_track_replay -- FRAMES [--fps 30] > trace.jsonl
-python scripts/ocr/matrix_track_report.py --frames FRAMES --trace current=trace.jsonl \
+cargo run -p isct-ocr --release --features training-tools --example matrix_track_replay -- FRAMES [--fps 30] [--detect-only] > trace.jsonl
+python scripts/ocr/matrix_track_report.py --frames FRAMES --trace app=trace.jsonl \
   [--labels sift=labels.json] [--live latest.json] --out REPORT
 ```
 
-The trace holds every geometry stage's body quad per frame. The report draws
-those stages and the final 11×8 grid over the worst and missed frames, writes
-a latest-frame-only timeline (recorded capture times, measured cost, next
+The trace holds every stage's body quad per frame (seed, fit, track, smoothed).
+The report draws them and the final 11×8 grid over the worst and missed frames,
+writes a latest-frame-only timeline (recorded capture times, measured cost, next
 display refresh) and summarises the three metrics. `matrix_sift_labels.py`
-labels frames independently by SIFT alignment to one measured still photo.
+labels frames independently by SIFT alignment to one measured still photo,
+`matrix_cv_reference.py` is the offline OpenCV reference and
+`matrix_trace_parity.py` compares two traces frame by frame.
 
 ## Candidate alphabet classifier evaluation
 
