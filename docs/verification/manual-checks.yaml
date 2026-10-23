@@ -850,18 +850,19 @@ checks:
           and bring the real card toward the camera. Check that one red outline
           follows the Matrix, with no cell boxes or letter overlays. Move the
           card, introduce glare, then briefly hold it steady with labels visible.
-          Observe the per-cell acquisition coverage. The camera must stop as
-          soon as every cell has enough clear candidates, or within eight seconds
-          of the first detected Matrix; waiting before detection does not count.
-          After acquisition, the dialog closes, the camera indicator turns off,
-          and inline processing progress appears. Put the card down and verify
-          results arrive; insufficient votes must be highlighted for review.
+          Observe per-cell recognition progress while the camera remains live.
+          Recognition and acquisition must overlap. The camera stops after all
+          cells pass a fresh confirmation sweep, or seven seconds after starting
+          the session, including time without a detected Matrix. Confirmed cells
+          must reopen when a clear new observation contradicts them.
+          On completion the dialog closes and the camera indicator turns off;
+          insufficient votes must be highlighted for review.
           Repeat with the card rotated 90, 180 and 270 degrees. Each orientation
           must keep the same cell order. If processing produces no readable
           letters, it must show a retryable error without reopening the stopped
           camera or returning to a 70/70 capture loop.
-          Inspect matrix-scan/latest.json under the app cache for separate
-          acquisition/processing times, per-cell candidate and qualified-vote
+          Inspect matrix-scan/latest.json under the app cache for elapsed session
+          time and overlapping OCR busy time, per-cell candidate and qualified-vote
           counts. Use an optimized build and move the framed card continuously:
           the red outline must update at least 10 times per second (30 preferred).
           Check frameMs and frames/elapsedMs alongside the visible tracking;

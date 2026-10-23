@@ -443,7 +443,7 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
     };
     // The two measured outside edges are retained as independent metadata.
     // Only the matrix body quadrilateral determines the 70 cell selections.
-    let cells = refine_grid_cells(&gray, &winner.body);
+    let cells = geometry::body_cells(winner.body);
     Some(LocatedGrid {
         cells,
         edges: winner.edges,
@@ -548,7 +548,6 @@ fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
     let (candidate, turn, line_thickness, top_seam_in_header) = candidates
         .into_iter()
         .max_by(|a, b| a.0.score.total_cmp(&b.0.score))?;
-    let rotated = image_for_turn(image, turn);
     let mut body = candidate.body;
     // When the black header touches the first horizontal seam, its center is
     // the candidate top. Move half the measured seam thickness to its outer
@@ -560,7 +559,7 @@ fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
     };
     body[0].y -= top_correction;
     body[1].y -= top_correction;
-    let cells = refine_grid_cells(&rotated, &body)
+    let cells = geometry::body_cells(body)
         .into_iter()
         .map(|cell| cell.map(|point| unrotate_quarter(point, turn, image.dimensions())))
         .collect();
@@ -575,15 +574,6 @@ fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
             |point| unrotate_quarter(point, turn, image.dimensions()),
         ),
     })
-}
-
-fn image_for_turn(image: &GrayImage, turn: usize) -> GrayImage {
-    match turn {
-        0 => image.clone(),
-        1 => image::imageops::rotate90(image),
-        2 => image::imageops::rotate180(image),
-        _ => image::imageops::rotate270(image),
-    }
 }
 
 fn unrotate_quarter(point: geometry::Point, turn: usize, original: (u32, u32)) -> geometry::Point {
@@ -1767,76 +1757,6 @@ fn grid_support(image: &GrayImage, body: &[geometry::Point; 4]) -> (f64, f64) {
         vertical as f64 / (COLS - 1) as f64,
         horizontal as f64 / (ROWS - 1) as f64,
     )
-}
-
-fn refine_grid_cells(image: &GrayImage, body: &[geometry::Point; 4]) -> Vec<[geometry::Point; 4]> {
-    let rows = label_row_offsets(image, body);
-    let points: Vec<_> = (0..=ROWS)
-        .map(|row| {
-            (0..=COLS)
-                .map(|column| {
-                    geometry::project(
-                        body,
-                        column as f64 / COLS as f64,
-                        row as f64 / ROWS as f64 + rows[row],
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    let mut cells = Vec::with_capacity(ROWS * COLS);
-    for row in 0..ROWS {
-        for column in 0..COLS {
-            cells.push([
-                points[row][column],
-                points[row][column + 1],
-                points[row + 1][column + 1],
-                points[row + 1][column],
-            ]);
-        }
-    }
-    cells
-}
-
-/// Row seams follow the alternating grayscale bands in the left label strip.
-/// Sampling beside the numeral strokes makes row positioning independent of
-/// internal horizontal grid-line contrast.
-fn label_row_offsets(image: &GrayImage, body: &[geometry::Point; 4]) -> [f64; ROWS + 1] {
-    let mut offsets = [0.; ROWS + 1];
-    for (line, offset) in offsets.iter_mut().enumerate().take(ROWS).skip(1) {
-        let expected_direction = if line % 2 == 1 { 1. } else { -1. };
-        let nominal = line as f64 / ROWS as f64;
-        let delta = 0.14 / ROWS as f64;
-        let mut best_score = f64::NEG_INFINITY;
-        let mut best_offset = 0.;
-        for step in -24..=24 {
-            let candidate_offset = step as f64 * 0.01 / ROWS as f64;
-            let seam = nominal + candidate_offset;
-            let before = label_strip_tone(image, body, seam - delta);
-            let after = label_strip_tone(image, body, seam + delta);
-            let (Some(before), Some(after)) = (before, after) else {
-                continue;
-            };
-            let score = expected_direction * (after - before);
-            if score > best_score {
-                best_score = score;
-                best_offset = candidate_offset;
-            }
-        }
-        // Keep the body geometry seam if the label strip has no clear transition.
-        if best_score >= 8. {
-            *offset = best_offset;
-        }
-    }
-    offsets
-}
-
-fn label_strip_tone(image: &GrayImage, body: &[geometry::Point; 4], v: f64) -> Option<f64> {
-    let values = [0.08, 0.18, 0.28, 0.72, 0.82, 0.92]
-        .into_iter()
-        .filter_map(|fraction| sample(image, geometry::project(body, -fraction / COLS as f64, v)))
-        .collect::<Vec<_>>();
-    (values.len() >= 4).then(|| median(values))
 }
 
 fn line_is_dark(

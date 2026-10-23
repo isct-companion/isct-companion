@@ -1253,8 +1253,6 @@
   "Find another class time": "別の時間を探す",
   "Show the first conflict": "最初の重複を表示",
   "Conflicts: {{count}}": "重複 {{count}} 件",
-  "Bring your card closer until the Matrix is framed. Capture ends when every cell has enough clear images, or after eight seconds.": "Matrix が枠に収まるようカードを近づけてください。全マスの鮮明な画像がそろうと撮影が終わります。最長 8 秒です。",
-  "Capturing Matrix… {{count}}/70 cells ready.": "Matrix を撮影中… {{count}}/70 マスの画像がそろいました。",
   "Processing Matrix… You can put your card down.": "Matrix を認識中… カードを下ろして大丈夫です。",
   "Matrix processing progress": "Matrix の認識状況",
   "Look for an export QR code in your authenticator. If it cannot export, reset App Authentication in the school account settings.": "認証アプリにエクスポート用QRコードがあるか確認してください。対応していない場合は、大学のアカウント設定で App Authentication を再設定できます。",
@@ -1564,5 +1562,7 @@
   "Import an exported TOTP QR code, setup link or Secret key using the controls here. If your authenticator cannot export, Help me set up can reset the school registration.": "認証アプリからエクスポートした TOTP の QR コード、設定リンク、Secret key を読み込めます。エクスポートできない場合は「設定を手伝って」から再登録できます。",
   "Manual imports need the setup link or Secret key, not the changing six-digit code. Press Connect to save a manual import.": "手動で読み込むのは設定リンクまたは Secret key です。変化する6桁のコードではありません。読み込み後は「接続」で保存します。",
   "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, copy the new setup from this app to replace the school entry in every other authenticator.": "学校で App Authentication は登録済みです。リセットしますか？古い OTP は使えなくなります。自動設定の完了後、このアプリから新しい設定をコピーして、ほかのすべての認証アプリの学校の登録を更新してください。",
-  "School OTP is configured and saved.": "学校の OTP を設定して保存しました。"
+  "School OTP is configured and saved.": "学校の OTP を設定して保存しました。",
+  "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.": "Matrix を枠内に収め、動かさずに保持してください。全セルの確認後、または開始から7秒以内に終了します。",
+  "Recognizing Matrix… {{count}}/70 cells confirmed.": "Matrix を認識中… {{count}}/70 セル確認済み。"
 }

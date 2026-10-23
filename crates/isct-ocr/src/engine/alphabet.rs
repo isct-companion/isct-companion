@@ -123,10 +123,14 @@ fn normalize_glyph(gray: &GrayImage) -> Option<GrayImage> {
         image::imageops::crop_imm(gray, left, top, right - left + 1, bottom - top + 1).to_image();
     // Training spans roughly 59–91 px glyph heights. Keep this common view
     // inside that range, with room for antialiasing around thin serif strokes.
-    let scale = (76. / glyph.height() as f64).min(80. / glyph.width() as f64);
+    // The transport patch uses square sampling coordinates. Restore the measured
+    // 2:1 body / 10x7 grid metric before fitting the glyph into the model canvas.
+    // Keeping all 96 vertical samples also preserves a Q tail near the grid.
+    let physical_width = glyph.width() as f64 * 1.4;
+    let scale = (76. / glyph.height() as f64).min(80. / physical_width);
     let glyph = image::imageops::resize(
         &glyph,
-        (glyph.width() as f64 * scale).round() as u32,
+        (physical_width * scale).round() as u32,
         (glyph.height() as f64 * scale).round() as u32,
         FilterType::Triangle,
     );

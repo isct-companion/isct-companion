@@ -1,25 +1,20 @@
-//! Bounded camera acquisition followed by offline per-cell voting.
+//! Bounded streaming acquisition and per-cell microbatch dispatch.
 #![cfg_attr(
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
 use super::*;
-
 const GRAY_PIXELS: usize = 96 * 96;
-const CAPTURE_LIMIT: Duration = Duration::from_secs(8);
+const CAPTURE_LIMIT: Duration = Duration::from_secs(7);
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
-// Three qualified votes are needed; retain room for weak model observations.
-const CAPTURE_TARGET: usize = 5;
+const CANDIDATE_TTL: Duration = Duration::from_millis(700);
+const AUDIT_INTERVAL: Duration = Duration::from_millis(500);
+const POOL_LIMIT: usize = 2;
 const MIN_CONTRAST: f64 = 12.;
-// A 720p camera can leave a Matrix cell only 12–13 source pixels tall. The
-// 96px rectification lowers its Laplacian score even when the glyph remains
-// readable, so these gates reject blur without requiring a higher-resolution
-// camera than the native shell provides.
 const MIN_SHARPNESS: f64 = 10.;
 const MIN_SOURCE_SIZE: f64 = 10.;
 const MIN_CENTERING: f64 = 0.5;
 const MAX_GLARE: f64 = 0.12;
-
 /// Image capabilities report measurements; core decides admission and retention.
 pub struct MatrixCaptureGlyph {
     pub gray: Vec<u8>,
@@ -70,54 +65,114 @@ pub struct MatrixCameraDiagnostics {
     pub admission_rejections: usize,
     pub glare_rejections: Vec<usize>,
 }
+
+#[derive(Clone)]
 pub struct MatrixCameraBatch {
+    owner: String,
     revision: usize,
     pub cells: Vec<usize>,
     pub images: Vec<Vec<u8>>,
 }
 struct Candidate {
     quality: f64,
+    captured: Instant,
     gray: Vec<u8>,
 }
+struct Lease {
+    batch: MatrixCameraBatch,
+    captured: Vec<Instant>,
+    dispatched: Instant,
+}
 struct Acquisition {
-    phase: MatrixCameraPhase,
-    first_matrix: Option<Instant>,
-    sealed_at: Option<Instant>,
-    finished_at: Option<Instant>,
+    started: Instant,
+    limit: Duration,
+    finished: Option<Instant>,
     last_observation: Option<Instant>,
+    last_geometry: Option<Instant>,
+    processing_time: Duration,
     last_samples: Vec<Option<Instant>>,
+    last_dispatch: Vec<Option<Instant>>,
     pools: Vec<Vec<Candidate>>,
-    counts: Vec<usize>,
     bounds: Option<[MatrixPoint; 4]>,
+    admitted: bool,
     timed_out: bool,
-    work: VecDeque<(usize, Vec<u8>)>,
-    total: usize,
+    lease: Option<Lease>,
+    completed: usize,
     revision: usize,
     evidence: Vec<CellEvidence>,
+    verifying_since: Option<Instant>,
+    verified: Vec<bool>,
     geometry_frames: usize,
     admission_rejections: usize,
     glare_rejections: Vec<usize>,
 }
-impl Default for Acquisition {
-    fn default() -> Self {
+impl Acquisition {
+    fn new(started: Instant, limit: Duration) -> Self {
         Self {
-            phase: MatrixCameraPhase::Capturing,
-            first_matrix: None,
-            sealed_at: None,
-            finished_at: None,
+            started,
+            limit,
+            finished: None,
             last_observation: None,
+            last_geometry: None,
+            processing_time: Duration::ZERO,
             last_samples: vec![None; CELLS],
+            last_dispatch: vec![None; CELLS],
             pools: (0..CELLS).map(|_| Vec::new()).collect(),
-            counts: vec![0; CELLS],
             bounds: None,
+            admitted: false,
             timed_out: false,
-            work: VecDeque::new(),
-            total: 0,
+            lease: None,
+            completed: 0,
             revision: 0,
             evidence: vec![CellEvidence::default(); CELLS],
+            verifying_since: None,
+            verified: vec![false; CELLS],
             geometry_frames: 0,
             admission_rejections: 0,
             glare_rejections: vec![0; CELLS],
+        }
+    }
+    fn expire(&mut self, now: Instant) {
+        if self.finished.is_none() && now.saturating_duration_since(self.started) >= self.limit {
+            self.timed_out = true;
+            self.finish(self.started + self.limit);
+        }
+        for pool in &mut self.pools {
+            pool.retain(|c| now.saturating_duration_since(c.captured) <= CANDIDATE_TTL);
+        }
+    }
+    fn finish(&mut self, now: Instant) {
+        self.finished = Some(now);
+        if let Some(lease) = self.lease.take() {
+            self.processing_time += now.saturating_duration_since(lease.dispatched);
+        }
+        self.pools.iter_mut().for_each(Vec::clear);
+    }
+    fn snapshot(&self, now: Instant) -> MatrixCameraSnapshot {
+        let cells: Vec<_> = self.evidence.iter().map(CellEvidence::vote).collect();
+        MatrixCameraSnapshot {
+            phase: if self.finished.is_some() {
+                MatrixCameraPhase::Complete
+            } else {
+                MatrixCameraPhase::Capturing
+            },
+            bounds: self
+                .last_geometry
+                .filter(|&last| now.saturating_duration_since(last) < Duration::from_millis(300))
+                .and(self.bounds),
+            ready_cells: cells.iter().filter(|v| v.stable).count(),
+            capture_elapsed_ms: self
+                .finished
+                .unwrap_or(now)
+                .saturating_duration_since(self.started)
+                .as_secs_f64()
+                * 1000.,
+            timed_out: self.timed_out,
+            completed_samples: self.completed,
+            total_samples: self.completed
+                + self.pools.iter().map(Vec::len).sum::<usize>()
+                + self.lease.as_ref().map_or(0, |l| l.batch.cells.len()),
+            cells,
         }
     }
 }
@@ -127,8 +182,12 @@ pub struct MatrixCameraScanner {
 }
 impl MatrixCameraScanner {
     pub fn begin(&mut self) -> String {
+        self.begin_at(Instant::now(), CAPTURE_LIMIT)
+    }
+    /// Explicit clock and budget let replay use the same dispatcher as the app.
+    pub fn begin_at(&mut self, now: Instant, limit: Duration) -> String {
         let id = uuid::Uuid::new_v4().to_string();
-        self.active = Some((id.clone(), Acquisition::default()));
+        self.active = Some((id.clone(), Acquisition::new(now, limit.min(CAPTURE_LIMIT))));
         id
     }
     pub fn is_active(&self, id: &str) -> bool {
@@ -145,41 +204,40 @@ impl MatrixCameraScanner {
         self.active
             .as_ref()
             .filter(|(current, _)| current == id)
-            .map(|(_, session)| session)
+            .map(|(_, s)| s)
             .ok_or(MatrixScanError::Ended)
     }
     fn session_mut(&mut self, id: &str) -> Result<&mut Acquisition, MatrixScanError> {
         self.active
             .as_mut()
             .filter(|(current, _)| current == id)
-            .map(|(_, session)| session)
+            .map(|(_, s)| s)
             .ok_or(MatrixScanError::Ended)
     }
-    /// `None` is a periodic wakeup or a frame without a located Matrix.
-    /// The deadline starts at the first plausible Matrix, never at camera open.
+    /// Periodic wakeups (`None`) advance the deadline even without any geometry.
     pub fn observe(
         &mut self,
         id: &str,
         frame: Option<MatrixCaptureFrame>,
         now: Instant,
     ) -> Result<MatrixCameraSnapshot, MatrixScanError> {
-        let session = self.session_mut(id)?;
-        if session.phase != MatrixCameraPhase::Capturing {
-            return Ok(session.snapshot(now));
+        let s = self.session_mut(id)?;
+        if s.finished.is_some() {
+            return Ok(s.snapshot(now));
         }
-        if session.last_observation.is_some_and(|last| now < last) {
+        if now < s.started || s.last_observation.is_some_and(|last| now < last) {
             return Err(MatrixScanError::InvalidFrame(
                 "Capture time moved backwards.".into(),
             ));
         }
-        if let Some(frame) = &frame {
-            outline(&frame.quads)?;
-            if frame.glyphs.len() != CELLS
-                || frame.glyphs.iter().any(|g| {
+        if let Some(f) = &frame {
+            outline(&f.quads)?;
+            if f.glyphs.len() != CELLS
+                || f.glyphs.iter().any(|g| {
                     g.gray.len() != GRAY_PIXELS
                         || !(0. ..=1.).contains(&g.centering)
                         || !(0. ..=1.).contains(&g.glare)
-                        || [g.contrast, g.sharpness, g.source_size, g.centering]
+                        || [g.contrast, g.sharpness, g.source_size]
                             .iter()
                             .any(|v| !v.is_finite() || *v < 0.)
                 })
@@ -189,80 +247,111 @@ impl MatrixCameraScanner {
                 ));
             }
         }
-        session.last_observation = Some(now);
-        if session
-            .first_matrix
-            .is_some_and(|first| now.duration_since(first) >= CAPTURE_LIMIT)
-        {
-            session.timed_out = true;
-            session.seal(now);
-            return Ok(session.snapshot(now));
+        s.last_observation = Some(now);
+        s.expire(now);
+        if s.finished.is_some() {
+            return Ok(s.snapshot(now));
         }
         if let Some(frame) = frame {
-            session.geometry_frames += 1;
+            s.geometry_frames += 1;
             let usable = |g: &MatrixCaptureGlyph| {
                 g.contrast >= MIN_CONTRAST
                     && g.sharpness >= MIN_SHARPNESS
                     && g.source_size >= MIN_SOURCE_SIZE
                     && g.centering >= MIN_CENTERING
             };
-            // Empty backgrounds can resemble a grid. Confirm character texture
-            // before starting the clock; later admission is independent per cell.
-            if session.first_matrix.is_none()
-                && frame.glyphs.iter().filter(|g| usable(g)).count() < CELLS / 2
-            {
-                session.admission_rejections += 1;
-                return Ok(session.snapshot(now));
+            if !s.admitted && frame.glyphs.iter().filter(|g| usable(g)).count() < CELLS / 2 {
+                s.admission_rejections += 1;
+                return Ok(s.snapshot(now));
             }
-            session.first_matrix.get_or_insert(now);
-            session.bounds = Some(outline(&frame.quads)?.bounds);
-            for (i, glyph) in frame.glyphs.into_iter().enumerate() {
-                if glyph.glare > MAX_GLARE {
-                    session.glare_rejections[i] += 1;
+            s.admitted = true;
+            s.bounds = Some(outline(&frame.quads)?.bounds);
+            s.last_geometry = Some(now);
+            for (i, g) in frame.glyphs.into_iter().enumerate() {
+                if g.glare > MAX_GLARE {
+                    s.glare_rejections[i] += 1;
                     continue;
                 }
-                if !usable(&glyph)
-                    || session.last_samples[i]
-                        .is_some_and(|last| now.duration_since(last) < SAMPLE_INTERVAL)
+                if !usable(&g)
+                    || s.last_samples[i]
+                        .is_some_and(|last| now.saturating_duration_since(last) < SAMPLE_INTERVAL)
                 {
                     continue;
                 }
-                session.last_samples[i] = Some(now);
-                let pool = &mut session.pools[i];
+                s.last_samples[i] = Some(now);
+                let pool = &mut s.pools[i];
                 pool.push(Candidate {
-                    // A cropped grid edge is sharp but belongs outside the
-                    // glyph's center. Prefer centered texture over such edges.
-                    quality: glyph.sharpness.sqrt() * glyph.centering.powi(4) * (1. - glyph.glare),
-                    gray: glyph.gray,
+                    quality: g.sharpness.sqrt() * g.centering.powi(4) * (1. - g.glare),
+                    captured: now,
+                    gray: g.gray,
                 });
-                pool.sort_by(|a, b| b.quality.total_cmp(&a.quality));
-                pool.truncate(CELL_WINDOW);
-                session.counts[i] = pool.len();
+                pool.sort_by(|a, b| {
+                    b.quality
+                        .total_cmp(&a.quality)
+                        .then(b.captured.cmp(&a.captured))
+                });
+                pool.truncate(POOL_LIMIT);
             }
-            if session.counts.iter().all(|&count| count >= CAPTURE_TARGET) {
-                session.seal(now);
-            }
-        } else {
-            session.bounds = None;
         }
-        Ok(session.snapshot(now))
+        Ok(s.snapshot(now))
     }
-    pub fn batch(&self, id: &str) -> Result<Option<MatrixCameraBatch>, MatrixScanError> {
-        let session = self.session(id)?;
-        if session.phase == MatrixCameraPhase::Capturing {
-            return Err(MatrixScanError::InvalidFrame(
-                "Capture is not finished.".into(),
-            ));
-        }
-        if session.phase != MatrixCameraPhase::Processing || session.work.is_empty() {
+    /// Reserves one batch. A second consumer cannot process the same observations.
+    pub fn batch(
+        &mut self,
+        id: &str,
+        now: Instant,
+    ) -> Result<Option<MatrixCameraBatch>, MatrixScanError> {
+        let s = self.session_mut(id)?;
+        s.expire(now);
+        if s.finished.is_some() || s.lease.is_some() {
             return Ok(None);
         }
-        let (cells, images) = session.work.iter().take(10).cloned().unzip();
-        Ok(Some(MatrixCameraBatch {
-            revision: session.revision,
-            cells,
+        let mut eligible: Vec<_> = (0..CELLS)
+            .filter(|&i| {
+                !s.pools[i].is_empty()
+                    && (!s.evidence[i].vote().stable
+                        || s.verifying_since
+                            .is_some_and(|start| !s.verified[i] && s.pools[i][0].captured >= start)
+                        || s.last_dispatch[i].is_none_or(|last| {
+                            now.saturating_duration_since(last) >= AUDIT_INTERVAL
+                        }))
+            })
+            .collect();
+        eligible.sort_by_key(|&i| {
+            (
+                s.evidence[i].vote().stable,
+                s.evidence[i].attempts,
+                s.last_dispatch[i],
+                i,
+            )
+        });
+        eligible.truncate(10);
+        if eligible.is_empty() {
+            return Ok(None);
+        }
+        let mut images = Vec::new();
+        let mut captured = Vec::new();
+        for &i in &eligible {
+            let candidate = s.pools[i].remove(0);
+            captured.push(candidate.captured);
+            images.push(candidate.gray);
+            // Older observations must never arrive after a newer one for a cell.
+            s.pools[i].retain(|c| c.captured > candidate.captured);
+            s.last_dispatch[i] = Some(now);
+        }
+        s.revision += 1;
+        let batch = MatrixCameraBatch {
+            owner: id.into(),
+            revision: s.revision,
+            cells: eligible,
             images,
-        }))
+        };
+        s.lease = Some(Lease {
+            batch: batch.clone(),
+            captured,
+            dispatched: now,
+        });
+        Ok(Some(batch))
     }
     pub fn apply(
         &mut self,
@@ -271,115 +360,86 @@ impl MatrixCameraScanner {
         readings: Vec<MatrixReading>,
         now: Instant,
     ) -> Result<MatrixCameraSnapshot, MatrixScanError> {
-        let session = self.session_mut(id)?;
-        if session.phase != MatrixCameraPhase::Processing || batch.revision != session.revision {
+        let s = self.session_mut(id)?;
+        if batch.owner != id {
+            return Err(MatrixScanError::Ended);
+        }
+        s.expire(now);
+        // Results finishing after the deadline never change the frozen outcome.
+        if s.finished.is_some() {
+            return Ok(s.snapshot(now));
+        }
+        let Some(lease) = &s.lease else {
+            return Err(MatrixScanError::Ended);
+        };
+        if batch.revision != lease.batch.revision {
             return Err(MatrixScanError::Ended);
         }
         if readings.len() != batch.cells.len()
-            || batch.cells.is_empty()
             || readings.iter().any(|r| !valid_reading(r))
-            || session.work.len().min(10) != batch.cells.len()
-            || batch.images.len() != batch.cells.len()
-            || session
-                .work
-                .iter()
-                .take(10)
-                .zip(batch.cells.iter().zip(&batch.images))
-                .any(|((index, image), (actual, gray))| index != actual || image != gray)
+            || batch.cells != lease.batch.cells
+            || batch.images != lease.batch.images
         {
             return Err(MatrixScanError::InvalidFrame(
                 "Candidate batch was modified.".into(),
             ));
         }
-        for (&cell, reading) in batch.cells.iter().zip(readings) {
-            // Offline samples have no chronological "new card" event. All
-            // candidates contribute to one weighted vote, regardless of order.
-            session.evidence[cell].collect(reading, session.revision, false);
-            session.work.pop_front();
+        let captured = lease.captured.clone();
+        s.processing_time += now.saturating_duration_since(lease.dispatched);
+        s.lease = None;
+        for ((&cell, reading), captured) in batch.cells.iter().zip(readings).zip(captured) {
+            let before = s.evidence[cell].vote();
+            let confirms = reading.confidence >= HIGH_CONFIDENCE && reading.text == before.text;
+            s.evidence[cell].collect(reading, s.revision, true);
+            let after = s.evidence[cell].vote();
+            if before.stable && (!after.stable || before.text != after.text) {
+                s.verifying_since = None;
+                s.verified.fill(false);
+            }
+            if s.verifying_since.is_some_and(|start| captured >= start) && after.stable && confirms
+            {
+                s.verified[cell] = true;
+            }
+            s.completed += 1;
         }
-        session.revision += 1;
-        if session.work.is_empty() {
-            session.phase = MatrixCameraPhase::Complete;
-            session.finished_at = Some(now);
+        if s.evidence.iter().all(|e| e.vote().stable) {
+            if s.verifying_since.is_none() {
+                s.verifying_since = Some(now);
+                s.verified.fill(false);
+                // Require a fresh observation of every cell after consensus.
+                s.pools.iter_mut().for_each(Vec::clear);
+            } else if s.verified.iter().all(|&v| v) {
+                s.finish(now);
+            }
         }
-        Ok(session.snapshot(now))
+        Ok(s.snapshot(now))
     }
     pub fn diagnostics(
         &self,
         id: &str,
         now: Instant,
     ) -> Result<MatrixCameraDiagnostics, MatrixScanError> {
-        let session = self.session(id)?;
-        let snapshot = session.snapshot(now);
+        let s = self.session(id)?;
+        let snapshot = s.snapshot(now);
         Ok(MatrixCameraDiagnostics {
             phase: snapshot.phase,
             capture_elapsed_ms: snapshot.capture_elapsed_ms,
-            processing_ms: session.sealed_at.map_or(0., |start| {
-                session
-                    .finished_at
-                    .unwrap_or(now)
-                    .saturating_duration_since(start)
-                    .as_secs_f64()
-                    * 1000.
-            }),
-            timed_out: session.timed_out,
-            candidates: session.counts.clone(),
-            qualified_samples: session.evidence.iter().map(|e| e.samples.len()).collect(),
-            stable_cells: snapshot.cells.iter().filter(|c| c.stable).count(),
-            completed_samples: snapshot.completed_samples,
-            total_samples: session.total,
-            geometry_frames: session.geometry_frames,
-            admission_rejections: session.admission_rejections,
-            glare_rejections: session.glare_rejections.clone(),
+            processing_ms: (s.processing_time
+                + s.lease.as_ref().map_or(Duration::ZERO, |l| {
+                    now.saturating_duration_since(l.dispatched)
+                }))
+            .as_secs_f64()
+                * 1000.,
+            timed_out: s.timed_out,
+            candidates: s.pools.iter().map(Vec::len).collect(),
+            qualified_samples: s.evidence.iter().map(|e| e.samples.len()).collect(),
+            stable_cells: snapshot.ready_cells,
+            completed_samples: s.completed,
+            total_samples: snapshot.total_samples,
+            geometry_frames: s.geometry_frames,
+            admission_rejections: s.admission_rejections,
+            glare_rejections: s.glare_rejections.clone(),
         })
-    }
-}
-impl Acquisition {
-    fn seal(&mut self, now: Instant) {
-        self.sealed_at = Some(now);
-        // Round-robin keeps progress distributed across cells.
-        for _ in 0..CELL_WINDOW {
-            for (cell, pool) in self.pools.iter_mut().enumerate() {
-                if !pool.is_empty() {
-                    self.work.push_back((cell, pool.remove(0).gray));
-                }
-            }
-        }
-        self.total = self.work.len();
-        self.phase = if self.total == 0 {
-            MatrixCameraPhase::Complete
-        } else {
-            MatrixCameraPhase::Processing
-        };
-        if self.total == 0 {
-            self.finished_at = Some(now);
-        }
-    }
-    fn snapshot(&self, now: Instant) -> MatrixCameraSnapshot {
-        MatrixCameraSnapshot {
-            phase: self.phase,
-            bounds: self.bounds,
-            ready_cells: self
-                .counts
-                .iter()
-                .filter(|&&count| count >= CAPTURE_TARGET)
-                .count(),
-            capture_elapsed_ms: self.first_matrix.map_or(0., |start| {
-                self.sealed_at
-                    .unwrap_or(now)
-                    .saturating_duration_since(start)
-                    .as_secs_f64()
-                    * 1000.
-            }),
-            timed_out: self.timed_out,
-            completed_samples: self.total - self.work.len(),
-            total_samples: self.total,
-            cells: if self.phase == MatrixCameraPhase::Capturing {
-                vec![]
-            } else {
-                self.evidence.iter().map(CellEvidence::vote).collect()
-            },
-        }
     }
 }
 #[cfg(test)]

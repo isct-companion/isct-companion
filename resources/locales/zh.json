@@ -1253,8 +1253,6 @@
   "Find another class time": "找其他上课时间",
   "Show the first conflict": "查看第一个冲突",
   "Conflicts: {{count}}": "{{count}} 个时间冲突",
-  "Bring your card closer until the Matrix is framed. Capture ends when every cell has enough clear images, or after eight seconds.": "请将卡片靠近镜头，使 Matrix 进入边框。每格清晰画面足够后自动结束采集，最长等待 8 秒。",
-  "Capturing Matrix… {{count}}/70 cells ready.": "正在采集 Matrix… {{count}}/70 格画面已备齐。",
   "Processing Matrix… You can put your card down.": "正在识别 Matrix… 可以放下卡片了。",
   "Matrix processing progress": "Matrix 识别进度",
   "Look for an export QR code in your authenticator. If it cannot export, reset App Authentication in the school account settings.": "查看验证器是否提供导出二维码；如果不能导出，可以到学校账号设置中重新设置 App Authentication。",
@@ -1564,5 +1562,7 @@
   "Import an exported TOTP QR code, setup link or Secret key using the controls here. If your authenticator cannot export, Help me set up can reset the school registration.": "使用这里的按钮导入验证器导出的 TOTP 二维码、设置链接或 Secret key。若验证器不支持导出，可通过「帮我设置」重新注册。",
   "Manual imports need the setup link or Secret key, not the changing six-digit code. Press Connect to save a manual import.": "手动导入需要设置链接或 Secret key，不是不断变化的六位验证码。导入后点击「连接」保存。",
   "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, copy the new setup from this app to replace the school entry in every other authenticator.": "学校已设置 App Authentication，是否重置？旧 OTP 将立即失效。自动设置完成后，请从本应用复制新配置，替换其他所有验证器中的学校旧配置。",
-  "School OTP is configured and saved.": "学校 OTP 已设置并保存。"
+  "School OTP is configured and saved.": "学校 OTP 已设置并保存。",
+  "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.": "请保持 Matrix 在框内并尽量拿稳。全部格子确认后完成识别，最多用时七秒。",
+  "Recognizing Matrix… {{count}}/70 cells confirmed.": "正在识别 Matrix… 已确认 {{count}}/70 格。"
 }

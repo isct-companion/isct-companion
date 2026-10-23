@@ -224,6 +224,15 @@ fn complete_letters_near_cell_edges_do_not_become_confident_substitutions() {
             assert!(actual.confidence >= 0.8, "cell {cell}: {actual:?}");
         }
     }
+    // Public Times New Roman Q, drawn on a 140x100 physical cell with only
+    // two pixels below the descender, then sampled into the 96x96 transport.
+    // An inward crop can erase its tail and produce a confidently wrong O.
+    let q = image::load_from_memory(include_bytes!("fixtures/matrix-q-bottom.png"))
+        .unwrap()
+        .to_luma8();
+    let reading = model.recognize(&[q.into_raw()]).unwrap();
+    assert_eq!(reading[0].text, "Q");
+    assert!(reading[0].confidence >= 0.8, "{:?}", reading[0]);
     // A central stroke joined to an incomplete edge is not safe to delete:
     // deleting that connected component could leave a different letter.
     let clipped = GrayImage::from_fn(96, 96, |x, y| {
@@ -263,6 +272,21 @@ fn capture_fits_body_rows_independently_of_header_height() {
         card.write_to(&mut encoded, image::ImageFormat::Jpeg)
             .unwrap();
         let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
+        // Alternating labels may locate the body, but must not shift individual
+        // row seams after the single projective transform is established.
+        let body = [
+            captured.quads[0][0],
+            captured.quads[9][1],
+            captured.quads[69][2],
+            captured.quads[60][3],
+        ]
+        .map(|[x, y]| geometry::Point { x, y });
+        let mechanical = geometry::body_cells(body);
+        for (actual, expected) in captured.quads.iter().zip(mechanical) {
+            for ([x, y], p) in actual.iter().zip(expected) {
+                assert!((x - p.x).abs() < 1e-10 && (y - p.y).abs() < 1e-10);
+            }
+        }
         for (i, quad) in captured.quads.iter().enumerate() {
             let (c, r) = ((i % 10) as f64, (i / 10) as f64);
             for ([x, y], (dc, dr)) in quad.iter().zip([(0., 0.), (1., 0.), (1., 1.), (0., 1.)]) {

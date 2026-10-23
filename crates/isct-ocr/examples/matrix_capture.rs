@@ -1,41 +1,31 @@
-//! Replay recorded frames through the actual bounded acquisition and offline OCR.
+//! Real-time diagnostic camera/file replay through the production streaming scanner.
 #[cfg(matrix_ocr)]
-use isct_core::matrix_scan::{
-    MatrixCameraPhase, MatrixCameraScanner, MatrixCaptureFrame, MatrixCaptureGlyph, MatrixPoint,
-    MatrixReading,
-};
-#[cfg(matrix_ocr)]
-use std::{
-    error::Error,
-    path::PathBuf,
-    time::{Duration, Instant},
-};
-#[cfg(matrix_ocr)]
-fn main() -> Result<(), Box<dyn Error>> {
-    let directory = PathBuf::from(
-        std::env::args()
-            .nth(1)
-            .ok_or("Pass recorded frame directory")?,
-    );
-    let expected =
-        std::fs::read_to_string(std::env::args().nth(2).ok_or("Pass expected text file")?)?
-            .chars()
-            .filter(|c| c.is_ascii_uppercase())
-            .collect::<String>();
-    if expected.len() != 70 {
-        return Err("Expected exactly 70 letters".into());
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use isct_core::matrix_scan::{
+        MatrixCameraPhase, MatrixCameraScanner, MatrixCaptureFrame, MatrixCaptureGlyph,
+        MatrixPoint, MatrixReading,
+    };
+    use std::{
+        path::PathBuf,
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
+    };
+    let args: Vec<_> = std::env::args().collect();
+    let directory = PathBuf::from(args.get(1).ok_or("frame directory required")?);
+    let expected = std::fs::read_to_string(args.get(2).ok_or("expected text required")?)?
+        .split_whitespace()
+        .collect::<String>();
+    if expected.len() != 70 || !expected.bytes().all(|c| c.is_ascii_uppercase()) {
+        return Err("expected 70 uppercase letters".into());
     }
-    let fps = std::env::args()
-        .nth(3)
-        .unwrap_or_else(|| "5".into())
-        .parse::<f64>()?;
+    let fps = args.get(3).map_or(Ok(5.), |s| s.parse::<f64>())?;
     if !fps.is_finite() || fps <= 0. {
-        return Err("Invalid capture frequency".into());
+        return Err("invalid FPS".into());
     }
-    let live = std::env::args().nth(4).as_deref() == Some("live");
+    let live = args.get(4).is_some_and(|s| s == "live");
     let mut frames = std::fs::read_dir(&directory)?
         .filter_map(Result::ok)
-        .map(|entry| entry.path())
+        .map(|e| e.path())
         .filter(|p| {
             p.file_name()
                 .is_some_and(|n| n.to_string_lossy().starts_with("capture-"))
@@ -44,169 +34,167 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect::<Vec<_>>();
     frames.sort();
     if frames.is_empty() && !live {
-        return Err("No capture-*.jpg frames".into());
+        return Err("no capture-*.jpg frames".into());
     }
-    let mut scanner = MatrixCameraScanner::default();
-    let id = scanner.begin();
+    let scanner = Arc::new(Mutex::new(MatrixCameraScanner::default()));
     let base = Instant::now();
-    let mut capture_ms = vec![];
-    let mut sealed = None;
-    let mut first_matrix_index = None;
-    let mut first_geometry_index = None;
-    let mut geometry_frames = 0usize;
-    let mut sealed_index = None;
-    let mut index = 0usize;
-    let mut modified = None;
-    eprintln!("READY: waiting for Matrix frames");
-    loop {
-        let now = if live {
-            Instant::now()
-        } else {
-            base + Duration::from_secs_f64(index as f64 / fps)
-        };
-        let path = if live {
-            let snapshot = scanner.observe(&id, None, now)?;
-            if snapshot.phase != MatrixCameraPhase::Capturing {
-                sealed = Some((snapshot, now));
-                break;
-            }
-            if base.elapsed() > Duration::from_secs(75) {
-                return Err("No Matrix within diagnostic lifetime".into());
-            }
-            let path = directory.join("latest.jpg");
-            let stamp = std::fs::metadata(&path)
-                .ok()
-                .and_then(|m| m.modified().ok());
-            if stamp.is_none() || stamp == modified {
-                std::thread::sleep(Duration::from_millis(20));
-                continue;
-            }
-            modified = stamp;
-            path
-        } else {
-            let Some(path) = frames.get(index) else {
-                break;
-            };
-            path.clone()
-        };
-        let stage = Instant::now();
-        let frame = match isct_ocr::capture_matrix_frame(&std::fs::read(path)?) {
-            Ok(frame) => Some(MatrixCaptureFrame {
-                quads: frame
-                    .quads
-                    .into_iter()
-                    .map(|q| q.map(|[x, y]| MatrixPoint { x, y }))
-                    .collect(),
-                glyphs: frame
-                    .glyphs
-                    .into_iter()
-                    .map(|g| MatrixCaptureGlyph {
-                        gray: g.gray,
-                        contrast: g.contrast,
-                        sharpness: g.sharpness,
-                        source_size: g.source_size,
-                        centering: g.centering,
-                        glare: g.glare,
-                    })
-                    .collect(),
-            }),
-            Err(isct_ocr::MatrixOcrError::GridNotFound) => None,
-            Err(error) => return Err(error.into()),
-        };
-        capture_ms.push(stage.elapsed().as_secs_f64() * 1000.);
-        if frame.is_some() {
-            first_geometry_index.get_or_insert(index);
-            geometry_frames += 1;
-        }
-        let snapshot = scanner.observe(&id, frame, now)?;
-        if snapshot.bounds.is_some() {
-            first_matrix_index.get_or_insert(index);
-        }
-        if snapshot.phase != MatrixCameraPhase::Capturing {
-            sealed_index = Some(index);
-            sealed = Some((snapshot, now));
-            break;
-        }
-        index += 1;
-    }
-    let Some((captured, now)) = sealed else {
-        // A missed card is an evaluation outcome, not a crashed replay. Keep it
-        // in the denominator and distinguish geometry from core admission.
-        println!(
-            "{}",
-            serde_json::json!({
-                "outcome": if first_geometry_index.is_none() { "noGeometry" }
-                    else if first_matrix_index.is_none() { "notAdmitted" }
-                    else { "recordingTooShort" },
-                "frames": capture_ms.len(), "geometryFrames": geometry_frames,
-                "firstGeometryIndex": first_geometry_index,
-                "firstMatrixIndex": first_matrix_index,
-                "correct": 0, "stableCells": 0, "wrongStableCells": [],
-                "diagnostics": scanner.diagnostics(&id, base + Duration::from_secs_f64(index as f64 / fps))?,
-            })
-        );
-        return Ok(());
-    };
-    eprintln!(
-        "CAPTURE_DONE: {} ms; {} ready cells",
-        captured.capture_elapsed_ms, captured.ready_cells
-    );
+    let id = scanner
+        .lock()
+        .map_err(|_| "scanner poisoned")?
+        .begin_at(base, Duration::from_secs(7));
     let model = isct_ocr::MatrixAlphabetService::default();
-    let stage = Instant::now();
-    let mut seen = vec![0usize; 70];
-    let mut blank_reads = vec![0usize; 70];
-    let mut weak_reads = vec![0usize; 70];
-    let mut wrong_qualified_reads = vec![0usize; 70];
-    while let Some(batch) = scanner.batch(&id)? {
-        if let Some(directory) = std::env::var_os("MATRIX_CAPTURE_DUMP") {
-            let directory = PathBuf::from(directory);
-            std::fs::create_dir_all(&directory)?;
-            for (&cell, pixels) in batch.cells.iter().zip(&batch.images) {
-                image::GrayImage::from_raw(96, 96, pixels.clone())
-                    .ok_or("Invalid gray size")?
-                    .save(directory.join(format!("cell-{cell:02}-{}.png", seen[cell])))?;
-                seen[cell] += 1;
+    let shared = scanner.clone();
+    let worker_id = id.clone();
+    let worker = std::thread::spawn(move || -> Result<_, String> {
+        let execute = || -> Result<_, String> {
+            loop {
+                let state = shared
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .observe(&worker_id, None, Instant::now())
+                    .map_err(|e| e.to_string())?;
+                if state.phase == MatrixCameraPhase::Complete {
+                    return Ok(state);
+                }
+                let batch = shared
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .batch(&worker_id, Instant::now())
+                    .map_err(|e| e.to_string())?;
+                if let Some(batch) = batch {
+                    let readings = model
+                        .recognize(&batch.images)
+                        .map_err(|e| e.to_string())?
+                        .into_iter()
+                        .map(|r| MatrixReading {
+                            text: r.text,
+                            confidence: r.confidence,
+                        })
+                        .collect();
+                    shared
+                        .lock()
+                        .map_err(|e| e.to_string())?
+                        .apply(&worker_id, &batch, readings, Instant::now())
+                        .map_err(|e| e.to_string())?;
+                } else {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+        };
+        let result = execute();
+        if result.is_err() {
+            if let Ok(mut s) = shared.lock() {
+                s.stop(&worker_id);
             }
         }
-        let recognized = model.recognize(&batch.images)?;
-        for (&cell, reading) in batch.cells.iter().zip(&recognized) {
-            if reading.text.is_empty() {
-                blank_reads[cell] += 1;
-            } else if reading.confidence < 0.8 {
-                weak_reads[cell] += 1;
-            } else if reading.text.as_bytes() != [expected.as_bytes()[cell]] {
-                wrong_qualified_reads[cell] += 1;
+        result
+    });
+    let mut timings = vec![];
+    let mut last = None;
+    let mut modified = None;
+    let mut geometry_frames = 0;
+    let producer = (|| -> Result<(), Box<dyn std::error::Error>> {
+        loop {
+            if !scanner
+                .lock()
+                .map_err(|_| "scanner poisoned")?
+                .is_active(&id)
+            {
+                break;
             }
+            let state = scanner.lock().map_err(|_| "scanner poisoned")?.observe(
+                &id,
+                None,
+                Instant::now(),
+            )?;
+            if state.phase == MatrixCameraPhase::Complete {
+                break;
+            }
+            let path = if live {
+                let path = directory.join("latest.jpg");
+                let stamp = std::fs::metadata(&path)
+                    .ok()
+                    .and_then(|m| m.modified().ok());
+                if stamp.is_none() || stamp == modified {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                modified = stamp;
+                path
+            } else {
+                let index = (base.elapsed().as_secs_f64() * fps).floor() as usize;
+                if last == Some(index) || index >= frames.len() {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                last = Some(index);
+                frames[index].clone()
+            };
+            let stage = Instant::now();
+            let frame = match isct_ocr::capture_matrix_frame(&std::fs::read(path)?) {
+                Ok(f) => {
+                    geometry_frames += 1;
+                    Some(MatrixCaptureFrame {
+                        quads: f
+                            .quads
+                            .into_iter()
+                            .map(|q| q.map(|[x, y]| MatrixPoint { x, y }))
+                            .collect(),
+                        glyphs: f
+                            .glyphs
+                            .into_iter()
+                            .map(|g| MatrixCaptureGlyph {
+                                gray: g.gray,
+                                contrast: g.contrast,
+                                sharpness: g.sharpness,
+                                source_size: g.source_size,
+                                centering: g.centering,
+                                glare: g.glare,
+                            })
+                            .collect(),
+                    })
+                }
+                Err(isct_ocr::MatrixOcrError::GridNotFound) => None,
+                Err(e) => return Err(e.into()),
+            };
+            timings.push(stage.elapsed().as_secs_f64() * 1000.);
+            scanner
+                .lock()
+                .map_err(|_| "scanner poisoned")?
+                .observe(&id, frame, Instant::now())?;
         }
-        let readings = recognized
-            .into_iter()
-            .map(|r| MatrixReading {
-                text: r.text,
-                confidence: r.confidence,
-            })
-            .collect();
-        scanner.apply(&id, &batch, readings, now + stage.elapsed())?;
+        Ok(())
+    })();
+    if producer.is_err() {
+        scanner.lock().map_err(|_| "scanner poisoned")?.stop(&id);
     }
-    let processing_ms = stage.elapsed().as_secs_f64() * 1000.;
-    let result = scanner.observe(&id, None, now + stage.elapsed())?;
-    let wrong = result
+    let joined = worker.join().map_err(|_| "OCR worker panicked")?;
+    producer?;
+    let result = joined?;
+    let wrong: Vec<_> = result
         .cells
         .iter()
         .zip(expected.bytes())
         .enumerate()
-        .filter(|(_, (actual, wanted))| actual.text.as_bytes() != [*wanted])
+        .filter(|(_, (v, w))| v.text.as_bytes() != [*w])
         .map(|(i, _)| i)
-        .collect::<Vec<_>>();
-    capture_ms.sort_by(f64::total_cmp);
-    let median = capture_ms.get(capture_ms.len() / 2).copied().unwrap_or(0.);
+        .collect();
+    timings.sort_by(f64::total_cmp);
+    let diagnostics = scanner
+        .lock()
+        .map_err(|_| "scanner poisoned")?
+        .diagnostics(&id, Instant::now())?;
     println!(
         "{}",
-        serde_json::json!({"outcome":"processed","frames":capture_ms.len(),"geometryFrames":geometry_frames,"firstGeometryIndex":first_geometry_index,"live":live,"captureMs":captured.capture_elapsed_ms,"firstMatrixIndex":first_matrix_index,"sealedIndex":sealed_index,"timedOut":captured.timed_out,"readyCells":captured.ready_cells,"retainedCandidates":captured.total_samples,"captureFrameMsMedian":median,"processingMs":processing_ms,"correct":70-wrong.len(),"wrongStableCells":wrong.iter().filter(|&&i|result.cells[i].stable).copied().collect::<Vec<_>>(),"wrongCells":wrong,"stableCells":result.cells.iter().filter(|c|c.stable).count(),"blankReads":blank_reads,"weakReads":weak_reads,"wrongQualifiedReads":wrong_qualified_reads,"diagnostics":scanner.diagnostics(&id,now+stage.elapsed())?})
+        serde_json::json!({"outcome":"processed","live":live,"frames":timings.len(),"geometryFrames":geometry_frames,
+        "captureMs":result.capture_elapsed_ms,"processingMs":diagnostics.processing_ms,"timedOut":result.timed_out,"readyCells":result.ready_cells,
+        "captureFrameMsMedian":timings.get(timings.len()/2),"correct":70-wrong.len(),"wrongCells":wrong,
+        "wrongStableCells":wrong.iter().filter(|&&i|result.cells[i].stable).collect::<Vec<_>>(),"stableCells":result.ready_cells,"diagnostics":diagnostics})
     );
     Ok(())
 }
-
 #[cfg(not(matrix_ocr))]
 fn main() {
-    eprintln!("Matrix OCR runtime is unavailable for this target/build.");
+    eprintln!("Matrix OCR unavailable for this target");
+    std::process::exit(1);
 }

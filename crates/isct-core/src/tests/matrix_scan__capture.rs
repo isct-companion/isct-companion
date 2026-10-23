@@ -28,232 +28,188 @@ fn frame(usable: impl Fn(usize) -> bool, marker: u8) -> MatrixCaptureFrame {
             .collect(),
     }
 }
-#[test]
-fn independent_coverage_stops_capture_without_running_recognition() {
-    let mut scanner = MatrixCameraScanner::default();
-    let id = scanner.begin();
-    let now = Instant::now();
-    scanner.observe(&id, None, now).unwrap();
-    // Camera-open time and false background grids do not start the eight seconds.
-    let later = now + Duration::from_secs(100);
-    assert_eq!(
-        scanner
-            .observe(&id, Some(frame(|_| false, 0)), later)
-            .unwrap()
-            .capture_elapsed_ms,
-        0.
-    );
-    for round in 0..10 {
-        let sample = later + Duration::from_millis(round * 100);
-        let snapshot = scanner
-            .observe(
-                &id,
-                Some(frame(|i| (i < 35) == (round % 2 == 0), round as u8)),
-                sample,
-            )
-            .unwrap();
-        assert_eq!(
-            snapshot.phase,
-            if round == 9 {
-                MatrixCameraPhase::Processing
-            } else {
-                MatrixCameraPhase::Capturing
-            }
-        );
-    }
-    let report = scanner
-        .diagnostics(&id, later + Duration::from_secs(1))
-        .unwrap();
-    assert_eq!(report.candidates, vec![5; CELLS]);
-    assert!(report.qualified_samples.iter().all(|&n| n == 0));
-    assert_eq!(report.capture_elapsed_ms, 900.);
-    assert!(!report.timed_out);
-}
-#[test]
-fn deadline_is_from_first_matrix_even_when_frames_stop_or_remain_incomplete() {
-    let mut scanner = MatrixCameraScanner::default();
-    let id = scanner.begin();
-    let now = Instant::now();
-    scanner
-        .observe(&id, Some(frame(|i| i != 69, 1)), now)
-        .unwrap();
-    scanner
-        .observe(
-            &id,
-            Some(frame(|i| i != 69, 2)),
-            now + Duration::from_millis(100),
-        )
-        .unwrap();
-    let before = scanner
-        .observe(&id, None, now + CAPTURE_LIMIT - Duration::from_millis(1))
-        .unwrap();
-    assert_eq!(before.phase, MatrixCameraPhase::Capturing);
-    let timeout = scanner.observe(&id, None, now + CAPTURE_LIMIT).unwrap();
-    assert_eq!(timeout.phase, MatrixCameraPhase::Processing);
-    assert!(timeout.timed_out);
-    assert_eq!(timeout.ready_cells, 0);
-    assert_eq!(timeout.total_samples, 138);
-    assert_eq!(timeout.capture_elapsed_ms, 8000.);
-    let frozen = scanner
-        .observe(&id, Some(frame(|_| true, 3)), now + Duration::from_secs(20))
-        .unwrap();
-    assert_eq!(frozen.total_samples, 138);
-    assert_eq!(frozen.capture_elapsed_ms, 8000.);
-}
-#[test]
-fn bounded_distinct_candidates_vote_offline_without_order_dependent_reopening() {
-    let mut scanner = MatrixCameraScanner::default();
-    let id = scanner.begin();
-    let now = Instant::now();
-    for round in 0..14 {
-        let time = now + Duration::from_millis(round * 100);
-        scanner
-            .observe(
-                &id,
-                Some(frame(|i| i != 69 || round >= 9, round as u8)),
-                time,
-            )
-            .unwrap();
-        // A duplicate wakeup never contributes a second sample at this instant.
-        scanner
-            .observe(
-                &id,
-                Some(frame(|i| i != 69 || round >= 9, round as u8)),
-                time,
-            )
-            .unwrap();
-    }
-    let report = scanner
-        .diagnostics(&id, now + Duration::from_secs(2))
-        .unwrap();
-    assert_eq!(&report.candidates[..69], &[6; 69]);
-    assert_eq!(report.candidates[69], 5);
-    let mut seen = vec![0; CELLS];
-    let mut last = None;
-    while let Some(mut batch) = scanner.batch(&id).unwrap() {
-        if seen.iter().all(|&n| n == 0) {
-            batch.cells[0] = CELLS;
-            assert!(scanner
-                .apply(&id, &batch, vec![], now + Duration::from_secs(2))
-                .is_err());
-            batch = scanner.batch(&id).unwrap().unwrap();
-        }
-        let readings = batch
-            .cells
-            .iter()
-            .map(|&i| {
-                seen[i] += 1;
-                MatrixReading {
-                    text: if i == 0 && seen[i] > 3 { "B" } else { "A" }.into(),
-                    confidence: if i == 69 && seen[i] < 5 { 0.79 } else { 0.8 },
-                }
-            })
-            .collect();
-        let result = scanner
-            .apply(&id, &batch, readings, now + Duration::from_secs(2))
-            .unwrap();
-        assert!(matches!(
-            scanner.apply(&id, &batch, vec![], now + Duration::from_secs(2)),
-            Err(MatrixScanError::Ended)
-        ));
-        last = Some(result);
-    }
-    let result = last.unwrap();
-    assert_eq!(result.phase, MatrixCameraPhase::Complete);
-    assert!(!result.cells[0].stable); // 3 A versus 3 B must remain a tie.
-    assert!(result.cells[1..69]
+
+fn read(batch: &MatrixCameraBatch, text: &str) -> Vec<MatrixReading> {
+    batch
+        .cells
         .iter()
-        .all(|c| c.stable && c.text == "A"));
-    assert!(!result.cells[69].stable); // weak candidates do not become votes.
-    let next = scanner.begin();
-    scanner.stop(&id);
-    assert!(scanner.is_active(&next));
-    assert!(scanner.batch(&id).is_err());
-    scanner.stop(&next);
-    assert!(scanner.batch(&next).is_err());
+        .map(|_| MatrixReading {
+            text: text.into(),
+            confidence: 0.99,
+        })
+        .collect()
 }
 #[test]
-fn invalid_capture_does_not_advance_clock_or_fill_candidates() {
-    let mut scanner = MatrixCameraScanner::default();
-    let id = scanner.begin();
+fn streaming_batches_are_exclusive_fair_and_keep_capture_open() {
     let now = Instant::now();
-    let mut invalid = frame(|_| true, 0);
-    invalid.glyphs[0].gray.pop();
-    assert!(scanner.observe(&id, Some(invalid), now).is_err());
-    let mut invalid = frame(|_| true, 0);
-    invalid.glyphs[0].glare = f64::NAN;
-    assert!(scanner.observe(&id, Some(invalid), now).is_err());
-    let mut invalid = frame(|_| true, 0);
-    invalid.glyphs[0].sharpness = f64::NAN;
-    assert!(scanner.observe(&id, Some(invalid), now).is_err());
+    let mut scanner = MatrixCameraScanner::default();
+    let id = scanner.begin_at(now, CAPTURE_LIMIT);
+    scanner.observe(&id, Some(frame(|_| true, 1)), now).unwrap();
+    let batch = scanner.batch(&id, now).unwrap().unwrap();
+    assert_eq!(batch.cells, (0..10).collect::<Vec<_>>());
+    assert!(scanner.batch(&id, now).unwrap().is_none());
+    // A producer is free to replace queued candidates while OCR owns its batch.
+    for i in 1..5 {
+        scanner
+            .observe(
+                &id,
+                Some(frame(|_| true, i)),
+                now + Duration::from_millis(i as u64 * 100),
+            )
+            .unwrap();
+    }
+    let at = now + Duration::from_millis(400);
+    let snapshot = scanner.apply(&id, &batch, read(&batch, "A"), at).unwrap();
+    assert_eq!(snapshot.phase, MatrixCameraPhase::Capturing);
+    assert_eq!(snapshot.cells[0].text, "A");
+    assert_eq!(
+        scanner.batch(&id, at).unwrap().unwrap().cells,
+        (10..20).collect::<Vec<_>>()
+    );
     assert!(scanner
-        .diagnostics(&id, now)
+        .diagnostics(&id, at)
         .unwrap()
         .candidates
         .iter()
-        .all(|&n| n == 0));
-    for (sharpness, source_size) in [(9., 20.), (100., 9.)] {
-        let mut low_quality = frame(|_| true, 0);
-        for glyph in &mut low_quality.glyphs {
-            glyph.sharpness = sharpness;
-            glyph.source_size = source_size;
-        }
-        assert_eq!(
-            scanner
-                .observe(&id, Some(low_quality), now + Duration::from_millis(500))
-                .unwrap()
-                .capture_elapsed_ms,
-            0.
-        );
-    }
-    let mut camera_resolution_boundary = frame(|_| true, 0);
-    for glyph in &mut camera_resolution_boundary.glyphs {
-        glyph.sharpness = 10.;
-        glyph.source_size = 10.;
-    }
-    scanner
-        .observe(
-            &id,
-            Some(camera_resolution_boundary),
-            now + Duration::from_secs(1),
-        )
-        .unwrap();
-    assert!(scanner.observe(&id, Some(frame(|_| true, 0)), now).is_err());
+        .all(|&n| n <= POOL_LIMIT));
 }
-
 #[test]
-fn glare_waits_for_clear_cells_without_preventing_first_matrix_admission() {
-    let mut scanner = MatrixCameraScanner::default();
-    let id = scanner.begin();
+fn session_deadline_freezes_results_even_without_geometry_or_with_inflight_ocr() {
     let now = Instant::now();
-    for round in 0..7 {
-        let mut sample = frame(|_| true, round);
-        if round < 2 {
-            sample.glyphs[0].glare = 0.5;
-        }
-        let state = scanner
-            .observe(
-                &id,
-                Some(sample),
-                now + Duration::from_millis(round as u64 * 100),
-            )
+    let mut s = MatrixCameraScanner::default();
+    let id = s.begin_at(now, Duration::from_secs(6));
+    s.observe(&id, Some(frame(|_| true, 1)), now).unwrap();
+    let batch = s.batch(&id, now).unwrap().unwrap();
+    let at = now + Duration::from_secs(6);
+    let result = s.apply(&id, &batch, read(&batch, "A"), at).unwrap();
+    assert!(result.timed_out);
+    assert_eq!(result.phase, MatrixCameraPhase::Complete);
+    assert_eq!(result.completed_samples, 0);
+    assert_eq!(result.capture_elapsed_ms, 6000.);
+    assert_eq!(
+        s.observe(&id, None, at + CAPTURE_LIMIT)
+            .unwrap()
+            .capture_elapsed_ms,
+        6000.
+    );
+    let empty = s.begin_at(now, CAPTURE_LIMIT);
+    assert!(
+        s.observe(&empty, None, now + CAPTURE_LIMIT)
+            .unwrap()
+            .timed_out
+    );
+    assert!(s.apply(&empty, &batch, read(&batch, "A"), now).is_err());
+}
+#[test]
+fn candidates_expire_and_tampered_or_replayed_batches_are_rejected() {
+    let now = Instant::now();
+    let mut s = MatrixCameraScanner::default();
+    let id = s.begin_at(now, CAPTURE_LIMIT);
+    s.observe(&id, Some(frame(|_| true, 1)), now).unwrap();
+    let batch = s.batch(&id, now).unwrap().unwrap();
+    let mut changed = batch.clone();
+    changed.images[0][0] ^= 1;
+    assert!(s.apply(&id, &changed, read(&changed, "A"), now).is_err());
+    s.apply(&id, &batch, read(&batch, "A"), now).unwrap();
+    assert!(s.apply(&id, &batch, read(&batch, "A"), now).is_err());
+    assert!(s
+        .batch(&id, now + CANDIDATE_TTL + Duration::from_millis(1))
+        .unwrap()
+        .is_none());
+}
+#[test]
+fn consensus_needs_fresh_confirmation_and_contradiction_reopens_it() {
+    let now = Instant::now();
+    let mut s = MatrixCameraScanner::default();
+    let id = s.begin_at(now, CAPTURE_LIMIT);
+    for round in 0..3 {
+        let at = now + Duration::from_millis(round * 100);
+        s.observe(&id, Some(frame(|_| true, round as u8)), at)
             .unwrap();
-        assert!(state.bounds.is_some());
-        assert_eq!(
-            state.phase,
-            if round < 6 {
-                MatrixCameraPhase::Capturing
-            } else {
-                MatrixCameraPhase::Processing
-            }
-        );
+        for _ in 0..7 {
+            let b = s.batch(&id, at).unwrap().unwrap();
+            s.apply(&id, &b, read(&b, "A"), at).unwrap();
+        }
     }
-    let report = scanner
-        .diagnostics(&id, now + Duration::from_secs(1))
+    assert_eq!(
+        s.observe(&id, None, now + Duration::from_millis(250))
+            .unwrap()
+            .ready_cells,
+        CELLS
+    );
+    assert!(s
+        .batch(&id, now + Duration::from_millis(250))
+        .unwrap()
+        .is_none());
+    let at = now + Duration::from_millis(300);
+    s.observe(&id, Some(frame(|_| true, 4)), at).unwrap();
+    let b = s.batch(&id, at).unwrap().unwrap();
+    let result = s.apply(&id, &b, read(&b, "B"), at).unwrap();
+    assert_eq!(result.ready_cells, 60);
+    assert_eq!(result.phase, MatrixCameraPhase::Capturing);
+    assert_eq!(result.cells[0].text, "B");
+    // Restore a consistent stream and require a full fresh pass to complete.
+    for round in 4..20 {
+        let at = now + Duration::from_millis(round * 100);
+        s.observe(&id, Some(frame(|_| true, round as u8)), at)
+            .unwrap();
+        while let Some(b) = s.batch(&id, at).unwrap() {
+            let result = s.apply(&id, &b, read(&b, "A"), at).unwrap();
+            if result.phase == MatrixCameraPhase::Complete {
+                assert!(!result.timed_out);
+                assert_eq!(result.ready_cells, CELLS);
+                assert!(result.cells.iter().all(|v| v.text == "A"));
+                return;
+            }
+        }
+    }
+    panic!("consistent observations did not complete verification");
+}
+#[test]
+fn invalid_frames_quality_thresholds_and_glare_keep_independent_admission() {
+    let now = Instant::now();
+    let mut s = MatrixCameraScanner::default();
+    let id = s.begin_at(now, CAPTURE_LIMIT);
+    for invalid in 0..3 {
+        let mut f = frame(|_| true, 1);
+        match invalid {
+            0 => {
+                f.glyphs[0].gray.pop();
+            }
+            1 => f.glyphs[0].glare = f64::NAN,
+            _ => f.glyphs[0].sharpness = f64::NAN,
+        }
+        assert!(s.observe(&id, Some(f), now).is_err());
+    }
+    s.observe(&id, Some(frame(|_| false, 1)), now).unwrap();
+    assert!(s.batch(&id, now).unwrap().is_none());
+    let mut f = frame(|_| true, 2);
+    f.glyphs[0].glare = 0.9;
+    f.glyphs[1].source_size = 9.;
+    f.glyphs[2].sharpness = 9.;
+    f.glyphs[3].source_size = 10.;
+    f.glyphs[3].sharpness = 10.;
+    s.observe(&id, Some(f), now + SAMPLE_INTERVAL).unwrap();
+    let b = s.batch(&id, now + SAMPLE_INTERVAL).unwrap().unwrap();
+    assert_eq!(b.cells[0], 3);
+    assert_eq!(
+        s.diagnostics(&id, now + SAMPLE_INTERVAL)
+            .unwrap()
+            .glare_rejections[0],
+        1
+    );
+    assert!(s.observe(&id, None, now).is_err());
+    s.apply(&id, &b, read(&b, "A"), now + SAMPLE_INTERVAL)
         .unwrap();
-    assert_eq!(report.candidates[0], 5);
-    assert_eq!(report.glare_rejections[0], 2);
-    assert_eq!(report.geometry_frames, 7);
-    assert_eq!(report.admission_rejections, 0);
-    assert_eq!(report.capture_elapsed_ms, 600.);
+    s.observe(&id, Some(frame(|_| true, 3)), now + SAMPLE_INTERVAL * 2)
+        .unwrap();
+    let recovered = s.batch(&id, now + SAMPLE_INTERVAL * 2).unwrap().unwrap();
+    assert_eq!(&recovered.cells[..3], &[0, 1, 2]);
+    assert!(s
+        .observe(&id, None, now + Duration::from_millis(600))
+        .unwrap()
+        .bounds
+        .is_none());
+    s.stop(&id);
+    assert!(s.batch(&id, now).is_err());
 }

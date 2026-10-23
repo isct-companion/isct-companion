@@ -78,7 +78,7 @@ export function MatrixCamera({
         <Stack gap="sm">
           <Text size="sm">
             {t(
-              "Bring your card closer until the Matrix is framed. Capture ends when every cell has enough clear images, or after eight seconds.",
+              "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.",
             )}
           </Text>
           <CameraPreview ref={setVideo} className="matrixCameraPreview">
@@ -103,7 +103,7 @@ export function MatrixCamera({
           ) : (
             <Text size="sm" role="status">
               {outline
-                ? t("Capturing Matrix… {{count}}/70 cells ready.", {
+                ? t("Recognizing Matrix… {{count}}/70 cells confirmed.", {
                     count: readyCells,
                   })
                 : t("Point the camera at the Matrix on your card.")}

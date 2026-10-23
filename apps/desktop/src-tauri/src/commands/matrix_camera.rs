@@ -238,24 +238,43 @@ pub(crate) async fn process_matrix_camera(
             .inner()
             .clone();
         tauri::async_runtime::spawn_blocking(move || {
-            while let Some(batch) = scanner.with(|s| s.batch(&session_id))?? {
-                let readings = alphabet
-                    .recognize(&batch.images)
-                    .map_err(backend)?
-                    .into_iter()
-                    .map(|r| MatrixReading {
-                        text: r.text,
-                        confidence: r.confidence,
-                    })
-                    .collect();
-                let snapshot =
-                    scanner.with(|s| s.apply(&session_id, &batch, readings, Instant::now()))??;
-                if on_progress.send(snapshot).is_err() {
-                    scanner.with(|s| s.stop(&session_id))?;
-                    return Err(MatrixScanError::Ended);
+            let result = (|| {
+                loop {
+                    let current =
+                        scanner.with(|s| s.observe(&session_id, None, Instant::now()))??;
+                    if current.phase == MatrixCameraPhase::Complete {
+                        return Ok(current);
+                    }
+                    let Some(batch) = scanner.with(|s| s.batch(&session_id, Instant::now()))??
+                    else {
+                        // This worker owns the consumer until completion/cancellation. The
+                        // session deadline bounds this wait; no lock is held while waiting.
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        continue;
+                    };
+                    let readings = alphabet
+                        .recognize(&batch.images)
+                        .map_err(backend)?
+                        .into_iter()
+                        .map(|r| MatrixReading {
+                            text: r.text,
+                            confidence: r.confidence,
+                        })
+                        .collect();
+                    let snapshot = scanner
+                        .with(|s| s.apply(&session_id, &batch, readings, Instant::now()))??;
+                    if snapshot.phase == MatrixCameraPhase::Complete {
+                        return Ok(snapshot);
+                    }
+                    on_progress
+                        .send(snapshot)
+                        .map_err(|_| MatrixScanError::Ended)?;
                 }
+            })();
+            if result.is_err() {
+                scanner.with(|s| s.stop(&session_id))?;
             }
-            scanner.with(|s| s.observe(&session_id, None, Instant::now()))?
+            result
         })
         .await
         .map_err(backend)?

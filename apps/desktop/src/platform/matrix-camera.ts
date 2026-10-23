@@ -154,24 +154,19 @@ export function openMatrixCamera(
         return false;
       }
       onSnapshot(snapshot);
-      const onProgress = new Channel<MatrixCameraSnapshot>();
-      onProgress.onmessage = (progress) => {
-        // Complete through the command result, after its worker releases state.
-        if (!disposed && progress.phase === "processing") onSnapshot(progress);
-      };
-      const result = await invoke<MatrixCameraSnapshot>(
-        "process_matrix_camera",
-        {
-          sessionId: id,
-          onProgress,
-        },
-      );
-      if (!disposed) {
-        dispose();
-        onSnapshot(result);
-      }
       return false;
     };
+    // One consumer starts with acquisition and independently reports consensus.
+    const onProgress = new Channel<MatrixCameraSnapshot>();
+    onProgress.onmessage = (snapshot) => {
+      void receive(snapshot);
+    };
+    void invoke<MatrixCameraSnapshot>("process_matrix_camera", {
+      sessionId: id,
+      onProgress,
+    })
+      .then(receive)
+      .catch(fail);
     const frame = async () => {
       if (disposed) return;
       const started = performance.now();
@@ -213,8 +208,7 @@ export function openMatrixCamera(
           const wake = () => {
             // WebKit and WebView2 can queue the video callback at the same time
             // as the fallback timer. Only one may start the next native frame;
-            // two concurrent captures can both seal the session and start two
-            // processing loops for the same Matrix.
+            // two concurrent captures would submit out-of-order observations.
             if (woken || disposed) return;
             woken = true;
             clearTimeout(timer);

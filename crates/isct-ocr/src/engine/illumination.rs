@@ -50,7 +50,9 @@ pub(super) fn analyze(gray: &GrayImage) -> Illumination {
     // substantial change in estimated paper brightness within the same cell.
     let glare = clipped * ((high - low - 20.) / 80.).clamp(0., 1.);
     let corrected = if high < 155. || high - low > 35. {
-        Some(correct(gray, &background, 210., 4.))
+        // A card at 15% exposure needs about 6.5x gain to restore paper.
+        // Admission still measures stroke texture and rejects saturated glare.
+        Some(correct(gray, &background, 210., 8.))
     } else {
         None
     };
