@@ -245,8 +245,12 @@ impl MatrixCameraDriver {
     pub fn scan_photo(
         &self,
         encoded: &[u8],
-        progress: impl FnMut(usize, usize) -> bool,
+        mut progress: impl FnMut(usize, usize) -> bool,
     ) -> Result<MatrixPhotoScan, MatrixScanError> {
+        // Shells show progress at once; the total narrows to admitted cells.
+        if !progress(0, CELLS) {
+            return Err(MatrixScanError::Ended);
+        }
         let picture = self.vision.decode(encoded)?;
         let track = self.vision.tracker().track(picture.planes(), 0.)?;
         let body = track.body.ok_or_else(|| {
