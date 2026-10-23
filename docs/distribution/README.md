@@ -27,9 +27,9 @@ is ongoing.
 
 ## License and data
 
-The app is proprietary and free for personal use under [LICENSE](LICENSE).
-[日本語版](LICENSE.ja.md) governs when the translations differ. Third-party
-software keeps its own licenses; notices are bundled in the app.
+The app is free software under the GNU GPL v3 or later ([LICENSE](LICENSE)),
+with the additional terms in [NOTICE.md](NOTICE.md) ([日本語](NOTICE.ja.md)).
+Third-party software keeps its own licenses; notices are bundled in the app.
 
 Workspace data stays on your device. Optional backup uses your own Google
 Drive or OneDrive account. School access uses your own school account. Verify

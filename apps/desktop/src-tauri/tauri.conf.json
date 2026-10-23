@@ -41,10 +41,11 @@
       "../../../crates/isct-ocr/models/paddle/PADDLE-LICENSE",
       "../../../crates/isct-ocr/models/paddle/ONNX-RUNTIME-LICENSE",
       "../../../crates/isct-ocr/models/paddle/ONNX-THIRD-PARTY-NOTICES.txt",
-      "../../../docs/legal/EULA.md",
-      "../../../docs/legal/EULA.ja.md"
+      "../../../LICENSE",
+      "../../../docs/legal/NOTICE.md",
+      "../../../docs/legal/NOTICE.ja.md"
     ],
-    "licenseFile": "../../../docs/legal/EULA.md",
+    "licenseFile": "../../../LICENSE",
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

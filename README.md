@@ -58,8 +58,10 @@ links the Rust Core contract, native SDK, data imports and release workflow.
 Maintainers can publish a reviewed version by pushing a matching version tag;
 [release instructions](docs/desktop-release.md) cover signing, checks and review builds.
 
-IsctCompanion is an independent project. Use and distribution are governed by the
-[English EULA](docs/legal/EULA.md) and [日本語利用規約](docs/legal/EULA.ja.md).
+IsctCompanion is an independent project, licensed under the
+[GNU GPL v3 or later](LICENSE) with the additional terms in
+[docs/legal/NOTICE.md](docs/legal/NOTICE.md) ([日本語](docs/legal/NOTICE.ja.md)):
+app-store distribution is allowed, and modified versions must use another name.
 
 ## Acknowledgements
 
