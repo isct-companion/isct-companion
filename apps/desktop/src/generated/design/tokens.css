@@ -24,6 +24,7 @@
   --course-tint-fill: 22%; /** Something that occupies time: a timetable block */
   --course-tint-soft: 10%; /** Emphasis on a row: the current or next class */
   --course-tint-ink: 40%; /** Text on a fill: the course colour mixed into ink */
+  --course-tint-hero: 30%; /** Peak of the 'now' gradient (the current or next class, tonight's deadline): the top-leading corner, fading to the surface */
   --radius-chip: 6px; /** Deadline chip, timetable block */
   --radius-control: 10px; /** Buttons, inputs, segmented controls */
   --radius-surface: 12px; /** Rows, cards, emphasised rows */

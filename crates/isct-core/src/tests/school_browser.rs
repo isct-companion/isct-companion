@@ -219,6 +219,90 @@ fn engine() -> (
     engine_with_auth(Arc::new(SchoolAuthService::new(EmptyVault)))
 }
 
+// Native WebViews have no headless mode; drive their real Core coordinator
+// through page callbacks. A live portal must not finish HTTP session recovery
+// before the target service has established its own session cookie.
+#[tokio::test]
+async fn transport_sign_in_waits_for_service_after_portal_and_rejects_login_forms() {
+    for (profile, site, portal, entry, landing, hop) in [
+        (
+            SchoolAuthProfile::Science,
+            SchoolSite::ScienceLms,
+            "https://isct.ex-tic.com/idm/user/portal/",
+            crate::lms_session::LMS_HOME,
+            crate::lms_session::LMS_HOME,
+            "https://lms.s.isct.ac.jp/2025/auth/saml2/login.php",
+        ),
+        (
+            SchoolAuthProfile::TokyoTech,
+            SchoolSite::Kyomu,
+            SchoolSite::TokyoPortal.start_url(),
+            SchoolSite::Kyomu.start_url(),
+            "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/Index.aspx",
+            SchoolSite::Kyomu.start_url(),
+        ),
+    ] {
+        for accepted in [true, false] {
+            let (engine, browser, _, _) = engine();
+            let recovery = {
+                let engine = engine.clone();
+                tokio::spawn(async move { engine.ensure_transport_session(profile).await })
+            };
+            let portal_navigation = browser.navigation(0).await;
+            browser.listener().page_loaded(PageLoaded {
+                page: PageId {
+                    browser: portal_navigation.browser,
+                    sequence: 1,
+                },
+                cause: None,
+                url: Url::parse(portal).unwrap(),
+            });
+            let service_navigation = browser.navigation(1).await;
+            assert_eq!(service_navigation.browser.site, site);
+            assert!(
+                matches!(&service_navigation.command, BrowserAction::Navigate(url) if url.as_str() == entry)
+            );
+            assert!(
+                !recovery.is_finished(),
+                "portal authentication is not a service session"
+            );
+            browser.listener().page_loaded(PageLoaded {
+                page: PageId {
+                    browser: service_navigation.browser,
+                    sequence: 1,
+                },
+                cause: None,
+                url: Url::parse(hop).unwrap(),
+            });
+            tokio::task::yield_now().await;
+            assert!(
+                !recovery.is_finished(),
+                "an SSO hop is not the service landing page"
+            );
+            browser.listener().page_loaded(PageLoaded {
+                page: PageId {
+                    browser: service_navigation.browser,
+                    sequence: 2,
+                },
+                cause: None,
+                url: Url::parse(if accepted {
+                    landing
+                } else {
+                    match profile {
+                        SchoolAuthProfile::Science => "https://isct.ex-tic.com/auth/session",
+                        SchoolAuthProfile::TokyoTech => {
+                            "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login"
+                        }
+                    }
+                })
+                .unwrap(),
+            });
+            assert_eq!(recovery.await.unwrap().unwrap(), accepted);
+            engine.shutdown().await;
+        }
+    }
+}
+
 #[tokio::test]
 async fn otp_setup_uses_visible_manual_login_then_continues_to_settings_without_saved_otp() {
     for auth in [

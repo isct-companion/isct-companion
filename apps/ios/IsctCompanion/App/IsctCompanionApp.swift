@@ -6,6 +6,8 @@ struct IsctCompanionApp: App {
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() { Guide.configure() }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -86,6 +88,8 @@ final class Navigator {
     var paths: [AppTab: NavigationPath] = [:]
     /// The course open beside the list in the split 授業.
     var lecture: String?
+    /// The quarter 時間割 shows, for its tab's calendar export.
+    var timetableTerm: String?
 
     /// Pushes onto the current page, for actions that cannot be a
     /// NavigationLink (menu items, buttons).
@@ -99,6 +103,9 @@ struct RootView: View {
     @Environment(WebRouter.self) private var web
     @State private var navigator = Navigator()
     @State private var sitePress = SitePickerPress()
+    @State private var exportPress = TabItemPress<CalendarExportPick>()
+    @State private var calendarFile: QuarterCalendarFile?
+    @State private var exportError: String?
     @Namespace private var zoom
 
     var body: some View {
@@ -125,6 +132,16 @@ struct RootView: View {
                 }
                 .environment(navigator)
                 .environment(\.courseZoom, zoom)
+                .welcomeSheet {
+                    navigator.tab = .today
+                    navigator.push(SettingsRoute.account(.science))
+                }
+                .sheet(item: $calendarFile) { file in
+                    ShareSheet(url: file.url).presentationDetents([.medium, .large])
+                }
+                .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+                    Button("OK", role: .cancel) {}
+                }
             }
         }
     }
@@ -146,7 +163,22 @@ struct RootView: View {
                 }
                 .frame(width: 0, height: 0)
             }
-            SitePickerPanel(press: sitePress) { pickSite($0) }
+            // Long-pressing 時間割 offers the shown quarter as a calendar file.
+            .background {
+                TabBarLongPress(index: Layout.tabs.firstIndex(of: .timetable) ?? 0) { event in
+                    guard exportTerm != nil else { return }
+                    if let choice = exportPress.handle(event) { export(choice) }
+                }
+                .frame(width: 0, height: 0)
+            }
+            TabPressPanel(press: sitePress, pick: pickSite) { highlighted, report, pick in
+                SitePickerRows(highlighted: highlighted, report: report, pick: pick)
+            }
+            TabPressPanel(press: exportPress, pick: export) { highlighted, report, pick in
+                if let term = exportTerm {
+                    CalendarExportRows(term: term, highlighted: highlighted, report: report, pick: pick)
+                }
+            }
         }
         // A page the tab bar lacks falls back to 今日.
         .onAppear { if !Layout.tabs.contains(navigator.tab) { navigator.tab = .today } }
@@ -163,6 +195,22 @@ struct RootView: View {
         web.perform(choice)
     }
 
+    /// The quarter the timetable shows, or this quarter before it is opened.
+    private var exportTerm: String? {
+        navigator.timetableTerm ?? model.today?.term
+    }
+
+    private func export(_ pick: CalendarExportPick) {
+        guard let term = exportTerm else { return }
+        Task {
+            do {
+                calendarFile = try await QuarterCalendarFile.write(model: model, term: term, pick: pick)
+            } catch {
+                exportError = t("Export failed: {{reason}}", ["reason": AppModel.describe(error)])
+            }
+        }
+    }
+
     /// iPad, wide: the desktop's sidebar and one page beside it.
     private var split: some View {
         NavigationSplitView {
@@ -170,6 +218,9 @@ struct RootView: View {
                 if tab == .web {
                     Label(tab.title, systemImage: tab.symbol)
                         .contextMenu { SitePickerRows { pickSite($0) } }
+                } else if tab == .timetable, let term = exportTerm {
+                    Label(tab.title, systemImage: tab.symbol)
+                        .contextMenu { CalendarExportRows(term: term) { export($0) } }
                 } else {
                     Label(tab.title, systemImage: tab.symbol)
                 }
@@ -198,7 +249,7 @@ struct RootView: View {
         case .today: stack(.today) { TodayScreen() }
         case .timetable: stack(.timetable) { TimetableScreen() }
         case .lectures: stack(.lectures) { LecturesScreen() }
-        case .web: WebTabScreen()
+        case .web: stack(.web) { WebTabScreen() }
         case .settings: stack(.settings) { SettingsScreen() }
         }
     }

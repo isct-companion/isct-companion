@@ -17,7 +17,8 @@
       "$description": "Share of the course colour mixed into the surface.",
       "fill": { "$value": 0.22, "$description": "Something that occupies time: a timetable block" },
       "soft": { "$value": 0.1, "$description": "Emphasis on a row: the current or next class" },
-      "ink": { "$value": 0.4, "$description": "Text on a fill: the course colour mixed into ink" }
+      "ink": { "$value": 0.4, "$description": "Text on a fill: the course colour mixed into ink" },
+      "hero": { "$value": 0.3, "$description": "Peak of the 'now' gradient (the current or next class, tonight's deadline): the top-leading corner, fading to the surface" }
     }
   }
 }

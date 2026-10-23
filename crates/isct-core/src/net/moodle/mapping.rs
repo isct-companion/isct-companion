@@ -1,6 +1,6 @@
 //! Pure mapping from Moodle results to the raw per-key shapes that
 //! `school_parser::lms` validates. No I/O.
-use crate::school_parser::lms::{id_of, is_lms_origin, LMS_PATH, LMS_WWWROOT};
+use crate::school_parser::lms::{id_of, is_lms_origin, read_timetable, LMS_PATH, LMS_WWWROOT};
 use chrono::{Datelike, FixedOffset, NaiveDate};
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
@@ -10,6 +10,20 @@ use url::Url;
 /// Every activity kind whose details a course read fills in.
 pub(crate) const DETAIL_MODULES: [&str; 6] =
     ["resource", "folder", "url", "page", "forum", "assign"];
+
+/// The generic block API returns the block's inner HTML. Reuse the same
+/// school-specific parser as the cookie reader; no separate timetable rules.
+pub(super) fn dashboard_timetable(value: &Value) -> Option<Value> {
+    let blocks = value.get("blocks")?.as_array()?;
+    let block = blocks.iter().find(|block| {
+        block.get("name").and_then(Value::as_str) == Some("tttimetable")
+            && block.get("visible").and_then(Value::as_bool) != Some(false)
+    })?;
+    let content = block.get("contents")?.get("content")?.as_str()?;
+    let html = format!("<section data-block=\"tttimetable\">{content}</section>");
+    let url = Url::parse(&format!("{LMS_WWWROOT}/my/")).ok()?;
+    read_timetable(&html, &url)
+}
 
 /// A copy of `value` with only `keys`, as the extractor kept its records.
 pub(crate) fn pick(value: &Value, keys: &[&str]) -> Value {

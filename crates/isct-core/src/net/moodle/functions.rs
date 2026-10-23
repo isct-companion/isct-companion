@@ -9,6 +9,7 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum MoodleFunction {
     SiteInfo,
+    DashboardBlocks,
     EnrolledCoursesByTimeline,
     CourseContents,
     /// AJAX only: the mobile service does not include it, so the token
@@ -34,6 +35,7 @@ impl MoodleFunction {
     pub const fn name(self) -> &'static str {
         match self {
             Self::SiteInfo => "core_webservice_get_site_info",
+            Self::DashboardBlocks => "core_block_get_dashboard_blocks",
             Self::EnrolledCoursesByTimeline => {
                 "core_course_get_enrolled_courses_by_timeline_classification"
             }

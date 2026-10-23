@@ -323,9 +323,13 @@ private struct CurrentClassHero: View {
         let progress = min(max(now.timeIntervalSince(starts) / total, 0), 1)
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(([item.occurrence.kind == .exam ? t("Exam in progress") : t("In class"), Format.periods(item.periods), item.occurrence.room] as [String?]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                // The first room only, so the line never wraps; every room is
+                // on the course page.
+                Text(([item.occurrence.kind == .exam ? t("Exam in progress") : t("In class"), Format.periods(item.periods), BlockText.firstRoom(item.occurrence.room)] as [String?]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 Spacer()
                 Text(t("Until {{time}}", ["time": item.occurrence.endTime]))
                     .font(.subheadline.weight(.semibold).monospacedDigit())

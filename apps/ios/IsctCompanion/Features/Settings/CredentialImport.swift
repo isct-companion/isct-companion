@@ -55,47 +55,41 @@ private struct TileLabel: LabelStyle {
 
 // MARK: OTP
 
-/// The OTP setup field with three sources: the camera, a screenshot (the
-/// authenticator's export QR on this same phone), or pasted text.
+/// The OTP setup, as the desktop's chooser: once saved, one line that says
+/// codes fill themselves in; otherwise a choice between an authenticator's
+/// export QR (camera or a screenshot on this phone) and a pasted setup.
+/// Registering with the school is the desktop's job, so it is pointed to.
 struct OtpImportField: View {
     let saved: Bool
     @Binding var setup: String
+    @State private var changing = false
+    @State private var path = Path.export
     @State private var scanning = false
     @State private var photo: PhotosPickerItem?
     @State private var choices: [OtpImportAccount] = []
     @State private var label: String?
     @State private var error: String?
 
+    private enum Path: Hashable { case export, paste }
+
     var body: some View {
-        TextField(saved ? t("Saved (enter only to change)") : t("TOTP secret or otpauth:// link"), text: $setup)
-            .textContentType(nil)
-            .keyboardType(.asciiCapable)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .privacySensitive()
-            .onChange(of: setup) { _, _ in label = nil }
-        SourceTiles {
-            if DataScannerViewController.isSupported {
-                Button(t("Scan QR"), systemImage: "qrcode.viewfinder") { scanning = true }
+        if saved && !changing && setup.isEmpty {
+            HStack {
+                Label(t("Codes are filled in for you at sign-in."), systemImage: "checkmark.circle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(Theme.ok, Theme.ink)
+                Spacer()
+                Button(t("Change")) { changing = true }
             }
-            PhotosPicker(selection: $photo, matching: .images) {
-                Label(t("From photo"), systemImage: "photo")
-            }
-            Button(t("Paste"), systemImage: "doc.on.clipboard") {
-                if let text = UIPasteboard.general.string { read(text) } else { error = t("The clipboard is empty.") }
-            }
+        } else {
+            chooser
         }
-        if let label {
-            Text(t("Read “{{label}}”. Save to use it.", ["label": label]))
-                .font(.footnote)
-                .foregroundStyle(Theme.ok)
-        }
-        if let error {
-            Text(error).font(.footnote).foregroundStyle(Theme.danger)
-        }
-        Text(t("In Google Authenticator, choose Transfer accounts → Export, select only your school account, and load a screenshot of the QR code with From photo."))
-            .font(.footnote)
-            .foregroundStyle(Theme.muted)
+    }
+
+    /// The camera, photo and account pickers, attached to one row only: in a
+    /// Form every view is its own row, and a sheet on each would compete.
+    private func presenters<V: View>(_ row: V) -> some View {
+        row
             .sheet(isPresented: $scanning) {
                 QRScanner { payload in
                     scanning = false
@@ -114,6 +108,62 @@ struct OtpImportField: View {
                 }
                 Button(t("Cancel"), role: .cancel) { choices = [] }
             }
+    }
+
+    @ViewBuilder
+    private var chooser: some View {
+        presenters(
+            Picker(t("Source"), selection: $path) {
+                Text(t("From an authenticator app")).tag(Path.export)
+                Text(t("Setup link or secret")).tag(Path.paste)
+            }
+            .pickerStyle(.segmented)
+        )
+        switch path {
+        case .export:
+            SourceTiles {
+                if DataScannerViewController.isSupported {
+                    Button(t("Scan QR"), systemImage: "qrcode.viewfinder") { scanning = true }
+                }
+                PhotosPicker(selection: $photo, matching: .images) {
+                    Label(t("From photo"), systemImage: "photo")
+                }
+            }
+            Text(t("Google Authenticator: Transfer accounts → Export accounts, select only the school account."))
+                .font(.footnote)
+                .foregroundStyle(Theme.muted)
+        case .paste:
+            TextField(t("otpauth://… or secret key"), text: $setup)
+                .textContentType(nil)
+                .keyboardType(.asciiCapable)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .privacySensitive()
+                .onChange(of: setup) { _, _ in label = nil }
+            SourceTiles {
+                Button(t("Paste"), systemImage: "doc.on.clipboard") {
+                    if let text = UIPasteboard.general.string { read(text) } else { error = t("The clipboard is empty.") }
+                }
+            }
+            Text(t("Not the six-digit code that changes every 30 seconds."))
+                .font(.footnote)
+                .foregroundStyle(Theme.muted)
+        }
+        if let label {
+            Text(t("Read “{{label}}”. Save to use it.", ["label": label]))
+                .font(.footnote)
+                .foregroundStyle(Theme.ok)
+        }
+        if let error {
+            Text(error).font(.footnote).foregroundStyle(Theme.danger)
+        }
+        if !saved {
+            Text(t("Not registered yet? The desktop app registers with the school for you."))
+                .font(.footnote)
+                .foregroundStyle(Theme.muted)
+        } else if setup.isEmpty {
+            Button(t("Keep the saved setup")) { changing = false }
+        }
     }
 
     private func read(_ payload: String) {

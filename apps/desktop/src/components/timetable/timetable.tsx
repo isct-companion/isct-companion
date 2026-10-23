@@ -3,6 +3,7 @@ import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
 import { useState } from "react";
 import { Menu } from "@mantine/core";
+import { GuideTip } from "../guide";
 import {
   axisPosition,
   axisRows,
@@ -141,22 +142,40 @@ export function WeekTimetable({
     >
       <div className="ttGrid" role="grid" aria-label={t("Weekly timetable")}>
         <div className="ttCorner" />
-        {days.map((column) => (
-          <div
-            className={`ttHead${column.isToday ? " today" : ""}${column.noClasses ? " noClasses" : ""}`}
-            key={column.label}
-          >
-            <b>{t(column.label.slice(0, 3))}</b>
-            {column.date && (
-              <small>{column.date.slice(5).replace("-", "/")}</small>
-            )}
-            {column.calendarNotice && (
-              <span className="ttCalendarNotice" title={column.calendarNotice}>
-                {column.calendarNotice}
-              </span>
-            )}
-          </div>
-        ))}
+        {days.map((column, index) => {
+          const head = (
+            <div
+              className={`ttHead${column.isToday ? " today" : ""}${column.noClasses ? " noClasses" : ""}`}
+              key={column.label}
+            >
+              <b>{t(column.label.slice(0, 3))}</b>
+              {column.date && (
+                <small>{column.date.slice(5).replace("-", "/")}</small>
+              )}
+              {column.calendarNotice && (
+                <span
+                  className="ttCalendarNotice"
+                  title={column.calendarNotice}
+                >
+                  {column.calendarNotice}
+                </span>
+              )}
+            </div>
+          );
+          // The right-click marks are invisible until someone is told.
+          return index === 0 && actionsFor ? (
+            <GuideTip
+              key={column.label}
+              id="timetable-marks"
+              text="Right-click a class to mark it as an exam or cancelled."
+              when={days.some((day) => day.blocks.length > 0)}
+            >
+              {head}
+            </GuideTip>
+          ) : (
+            head
+          );
+        })}
         <div className="ttAxis">
           {rows.map((period) => {
             const position = period;

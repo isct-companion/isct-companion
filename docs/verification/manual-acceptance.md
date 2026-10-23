@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 78 checks must be re-run before the next release.**
+**7 of 81 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**69 checks have never been run or could not be run:**
+**72 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -77,6 +77,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
 - `DESKTOP-STORAGE-SPLIT` — never verified
 - `IOS-TIMETABLE-WEEK-AND-MARKS` — never verified
+- `IOS-NATIVE-CHROME` — never verified
 - `IOS-TODAY-EXAMS` — never verified
 - `IOS-ASSIGNMENT-ROWS` — never verified
 - `IOS-WEB-TAB-PICKER` — never verified
@@ -98,6 +99,8 @@ an unverified area becomes an assumed-good one.
 - `TODAY-NOW-LINE-NEXT-DAY` — never verified
 - `MOBILE-SETTINGS-RESET` — never verified
 - `MOBILE-BACKGROUND-SYNC` — never verified
+- `GUIDE-FIRST-RUN` — never verified
+- `VISUAL-NOW-GRADIENT` — never verified
 
 ## Status
 
@@ -122,7 +125,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
-| `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/agent/** |
+| `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/isct-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
@@ -159,7 +162,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>crates/isct-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
-| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift |
+| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
+| `IOS-NATIVE-CHROME` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
 | `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -181,6 +185,8 @@ an unverified area becomes an assumed-good one.
 | `TODAY-NOW-LINE-NEXT-DAY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
 | `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt |
 | `MOBILE-BACKGROUND-SYNC` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt |
+| `GUIDE-FIRST-RUN` | desktop | International student | —<br>not run | apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/ios/IsctCompanion/Design/Guide.swift |
+| `VISUAL-NOW-GRADIENT` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/course.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift |
 
 ## Personas
 
@@ -1329,10 +1335,13 @@ A built desktop app and a real MCP client.
 
 **Steps**
 
-1. Enable AI agent access, copy the token, and point the client at
-   http://127.0.0.1:47832/mcp.
+1. Enable AI agent access, choose the client under Connect an agent,
+   copy its setup and paste it unchanged (Claude Code: run it; Codex:
+   ~/.codex/config.toml; Claude Desktop or Cursor: their JSON file).
    - *Why:* Initialization and the tool list are negotiated by the client, not
      by our tests; a real client is the only way to see that handshake.
+     People could not get from a bare URL and token to a working client,
+     so the copied text must work without editing.
 2. Read today and the schedule through the client and compare with the
    app window.
    - *Why:* The point of the endpoint is parity with the UI. A read that differs
@@ -1361,6 +1370,7 @@ mode holds needs the built app.
 **Covers**
 
 - `apps/desktop/src-tauri/src/agent_server.rs`
+- `apps/desktop/src/pages/settings/AgentSettings.tsx`
 - `crates/isct-core/src/agent/**`
 
 **Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
@@ -2965,10 +2975,10 @@ A packaged desktop app, a physical camera, and a disposable test TOTP QR on anot
 
 **Steps**
 
-1. Start signed out with no OTP saved locally and press Help me set up. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
+1. Start signed out with no OTP saved locally, keep アプリに設定してもらう (Let the app set it up) chosen and press Open the school site. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
    - *Why:* Confirms the live server markup and school WebView cookies work together; missing local OTP must not be treated as an unset school registration. The native browser must retain the settings draft and provide a way back. Scripted-host tests cover cancellation but cannot establish these real session and navigation facts.
-2. On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Copy the new setup into the other authenticator and verify its code works. Cancel or reject school verification once and confirm no success is reported. Open the question-mark help and confirm instructions appear there without a long inline block. For an existing exported setup, import only the school account and press Connect without changing school registration.
-   - *Why:* Only the live school and native vault can establish successful registration and cross-authenticator agreement. The visible form and question-mark layout need human inspection; offline tests protect promotion and rejection logic.
+2. On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Copy the new setup into the other authenticator and verify its code works. Cancel or reject school verification once and confirm no success is reported. Confirm the account card then shows one saved line (codes filled in at sign-in, Copy setup, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect without changing school registration.
+   - *Why:* Only the live school and native vault can establish successful registration and cross-authenticator agreement. People reported not knowing which of four equal buttons to press; the three radio cards with one recommended path, each hint shown only when chosen, need a human read. Offline tests protect promotion and rejection logic.
 3. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
    - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
 4. Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -2982,7 +2992,7 @@ Settings > School accounts, the camera preview, the input draft, and the OS came
 
 **Expected**
 
-Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators. Help stays in the question-mark popover. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators. The three paths read as one choice with the school path recommended. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
 
 **Why this is manual**
 
@@ -3084,10 +3094,13 @@ non-accessibility step.
    - *Why:* Four sources is the widest row. The old bordered buttons sized to
      their labels, so large text wrapped them vertically and left the
      paste button a different shape from the rest.
-2. Open Science Tokyo and look at the ワンタイムパスワード row:
-   QR を読み取る, 写真から, 貼り付け.
-   - *Why:* The longest label lives here; it must shrink on one line rather than
-     widen its tile.
+2. Open Science Tokyo with no OTP saved. The ワンタイムパスワード section
+   is a two-way choice: 認証アプリから shows QR を読み取る and 写真から,
+   設定リンク・秘密鍵 shows the field and 貼り付け. With an OTP saved it
+   is one line with a tick and 変更.
+   - *Why:* The longest label lives under 認証アプリから; it must shrink on one
+     line rather than widen its tile. The saved line replaces a field
+     people mistook for a place to type the six-digit code.
 3. Copy any text, tap 貼り付け in either row and answer the system paste
    prompt.
    - *Why:* The tile reads the clipboard itself instead of using PasteButton, so
@@ -3312,15 +3325,16 @@ between the first period's start and the last period's end (Tokyo time).
 **Steps**
 
 1. Open 時間割 and read the title block: the quarter and week label is
-   an accent capsule with a calendar symbol, the date range has no icon
-   after it, and tapping either opens the week picker.
-   - *Why:* The capsule is the only cue that the title opens the picker; the
-     chevron that used to follow the range jumped sideways whenever the
-     range changed digit count.
-2. Step forward twice with › and back with 今日.
-   - *Why:* The range figures must roll in place without moving anything beside
-     them; 今日 is dimmed on the current week and active elsewhere, so a
-     dimmed 今日 on another week or an active one on this week is wrong.
+   an accent capsule with a calendar symbol on its own row, on one
+   line, and tapping it or the date range opens the week picker.
+   - *Why:* The capsule used to share a column with the range and a share
+     button, so it wrapped onto two lines; on its own row it may take the
+     full width.
+2. Swipe the grid left twice, then tap 今日.
+   - *Why:* Swiping is now the only way to step weeks; the range figures must
+     roll in place. 今日 is dimmed on the current week and active
+     elsewhere, so a dimmed 今日 on another week or an active one on this
+     week is wrong.
 3. Find a two-period class with a long English title and one whose
    room field lists several rooms.
    - *Why:* The title fills the block's height instead of stopping at three
@@ -3336,6 +3350,15 @@ between the first period's start and the last period's end (Tokyo time).
    - *Why:* The red now line with its dot sits at the current time and moves
      every half minute; outside the axis, and on weekends when the grid
      shows the coming week, there is no line by design.
+6. Swipe quickly through the next three weeks and back.
+   - *Why:* One read covers four weeks either side, so each step draws its
+     blocks with the header; blocks that arrive after the date range
+     changed mean the window cache was skipped.
+7. Long-press the 時間割 tab, slide to 授業のみ and lift; save the file
+   to Files, then open it from Files.
+   - *Why:* The .ics is Core's quarterIcs for the shown week's quarter, as the
+     desktop's ICSを書き出す. Calendar must offer to add this quarter's
+     classes with their rooms; another quarter or an empty file is wrong.
 
 **Where to look**
 
@@ -3356,8 +3379,69 @@ and the desktop `nowPercent` unit tests.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift`
+- `apps/ios/IsctCompanion/Design/TabItemPress.swift`
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
 - `apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift`
 - `apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift`
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+
+**Last recorded** never run
+
+### iPhone Web bars, Settings rows and the Today headers look like system iOS (`IOS-NATIVE-CHROME`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app signed in, opened during a class whose room field lists
+several rooms.
+
+**Steps**
+
+1. On 今日, read the in-class line and the 課題 header.
+   - *Why:* The in-class line names one room on one line, and 課題 stays on one
+     line beside the quarter note and すべて表示; a header broken as
+     "課/題" or "Assign-ments" is the old size.
+2. Open ウェブ, tap the site name in the navigation bar and pick another
+   site; then use ‹ ›, the … menu and pull down on the page.
+   - *Why:* The title menu switches sites like the long press on the tab; ‹ ›
+     step the page history, … reloads, shares, opens Safari and sets the
+     text size, and a pull reloads. A bare page with no bar is the old
+     layout.
+3. From a course, open its LMS page.
+   - *Why:* The pushed page has the system back button with the page title and
+     a bottom toolbar (‹ › share Safari) instead of floating capsules.
+4. Open 設定 and scroll to the end.
+   - *Why:* Rows carry icon tiles as in the system Settings, but only in the
+     app's roles: campus blue for preferences, green for data updates,
+     amber and red for リセット and 通知, grey for utilities. A purple,
+     teal or brown tile is a system colour leaking back. アプリのログ is
+     one row with a menu, and リセット is the last group.
+
+**Where to look**
+
+The 今日, ウェブ and 設定 tabs on the device.
+
+**Expected**
+
+Each screen reads as described, with no wrapped headers and no custom
+floating bars on web pages.
+
+**Why this is manual**
+
+Visual chrome a person confirms at a glance on a phone; the reload and
+history intents are Core's school browser commands, already covered by
+its tests.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Today/TodayScreen.swift`
+- `apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Design/Theme.swift`
 
 **Last recorded** never run
 
@@ -4429,5 +4513,112 @@ tests; this check is the shell wiring of the OS schedulers.
 
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt`
+
+**Last recorded** never run
+
+### Welcome sheet and one-time tips on desktop and iPhone (`GUIDE-FIRST-RUN`)
+
+**Area** desktop · **Persona** International student · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app and the iPhone app from the same commit, signed in with
+at least one class this week and one course with LMS lessons. On each,
+press Settings → About → Show welcome and tips again (iPhone: then
+relaunch the app, so TipKit forgets the tips it has shown).
+
+**Steps**
+
+1. On desktop, read the welcome sheet, choose English as the app
+   language and English as the course and syllabus language, then
+   press Later or Done.
+   - *Why:* Users reported not knowing the course language was separate from the
+     app language. The sheet must switch its own text at once, and Today's
+     course names must follow the second choice, not the first.
+2. Press the AI assistant row in a second run of the sheet.
+   - *Why:* It is the one path to Settings → AI agent access from the first
+     window; landing anywhere else hides MCP again.
+3. Open Home → Week, then a course in Lectures.
+   - *Why:* The right-click tip must point at the first day header of a week
+     that has classes, and the lesson tip at the lesson number rail.
+     A tip over empty space, both at once, or one that returns after
+     Got it is the failure.
+4. On the iPhone, close the welcome sheet, then visit 時間割, a course
+   page, 今日's assignments and ウェブ.
+   - *Why:* Each TipKit tip shows once beside its gesture (long press a block,
+     long press a lesson chip, swipe a row, switch sites) and none shows
+     while the sheet is still open.
+
+**Where to look**
+
+The welcome sheet, Today, the week grid and the Lectures rail on desktop; the sheet and the four pages on the iPhone.
+
+**Expected**
+
+Each platform shows the sheet once, applies both languages live, and
+each tip appears once next to the control it names, never stacked and
+never again after it is dismissed.
+
+**Why this is manual**
+
+Where a popover lands and whether it covers the thing it explains is read
+at a glance; TipKit's display rules run only in the native shell. The
+sheet's language switching and its once-per-device rule are covered by
+the app-shell e2e suite.
+
+**Covers**
+
+- `apps/desktop/src/components/guide.tsx`
+- `apps/desktop/src/components/timetable/timetable.tsx`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/ios/IsctCompanion/Design/Guide.swift`
+
+**Last recorded** never run
+
+### The 'now' gradient reads the same on desktop Today and the iPhone hero card (`VISUAL-NOW-GRADIENT`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Desktop and iPhone from the same commit, opened during or just before a
+class.
+
+**Steps**
+
+1. Put the desktop Today agenda and the iPhone 今日 side by side, in
+   light and then dark appearance.
+   - *Why:* The highlighted row on desktop and the hero card on the phone are the
+     same signal (design/README.md): the course tint peaking at the top
+     leading corner and fading to the surface, with a hairline in the
+     tint. A flat block, a different hue, or a gradient that turns muddy
+     in dark mode means the token or the CSS mix drifted.
+2. Look over the rest of each Today page.
+   - *Why:* Only the class or deadline happening now carries the gradient; rows,
+     cards and blocks stay flat.
+
+**Where to look**
+
+Desktop Home → Today agenda; iPhone 今日.
+
+**Expected**
+
+Both surfaces show the same course colour as a soft corner gradient in
+both appearances, and nothing else on either page is graded.
+
+**Why this is manual**
+
+A colour judgement across two devices, read at a glance; the value is
+one token generated for both shells.
+
+**Covers**
+
+- `design/tokens/course.json`
+- `apps/desktop/src/styles.css`
+- `apps/ios/IsctCompanion/Design/Polish.swift`
 
 **Last recorded** never run

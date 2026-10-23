@@ -582,14 +582,12 @@ fn evaluate(
     }
 }
 
-/// 教務 reads only with the cookie session of a foreground app; LMS reads
-/// that need the dashboard cookie wait too unless the person asked.
+/// 教務 and LMS content reads that may need browser pages wait for the
+/// foreground unless requested. Enrolment now reads its dashboard over token.
 fn needs_foreground(dataset: Dataset, priority: Priority) -> bool {
     match dataset {
         Dataset::KyomuPage | Dataset::CatalogOfficial => true,
-        Dataset::LmsEnrolment | Dataset::LmsCourse | Dataset::LmsHistory => {
-            priority < Priority::Interactive
-        }
+        Dataset::LmsCourse | Dataset::LmsHistory => priority < Priority::Interactive,
         _ => false,
     }
 }

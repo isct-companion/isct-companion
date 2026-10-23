@@ -1,0 +1,31 @@
+.welcomeSheet .welcomeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.welcomeLink {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-surface);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.welcomeLink:hover {
+  border-color: var(--line-strong);
+}
+.welcomeLink b {
+  font-size: calc(13px * var(--text, 1));
+}
+.welcomeLink span {
+  color: var(--accent);
+  font-size: calc(12px * var(--text, 1));
+}
+.guideTip {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}

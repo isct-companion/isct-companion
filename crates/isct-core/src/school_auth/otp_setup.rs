@@ -19,7 +19,7 @@ pub struct SchoolOtpSetup {
 #[derive(Debug, thiserror::Error, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum OtpSetupError {
-    #[error("Sign in to the school account settings, then try Help me set up again.")]
+    #[error("Sign in to the school account settings, then open the school site again.")]
     SignInRequired,
     #[error("The school OTP settings page could not be recognized.")]
     UnexpectedPage,

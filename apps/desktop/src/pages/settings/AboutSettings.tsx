@@ -5,6 +5,7 @@ import {
   Toggle,
 } from "../../components/forms";
 import { UiButton } from "../../components/mantine";
+import { useResetGuide } from "../../components/guide";
 import { desktopBridge } from "../../app/native";
 import { lastInstallText, useAppUpdate } from "../../app/useDesktopUpdates";
 import { workspaceStore } from "../../store/workspace";
@@ -19,6 +20,7 @@ export function AboutSettings({
   update: (f: (d: Workspace) => Workspace) => void;
 }) {
   const { status, pending, check } = useAppUpdate();
+  const resetGuide = useResetGuide();
   const labels = {
     idle: "Check for updates",
     unpublished: "No stable release has been published yet",
@@ -125,6 +127,11 @@ export function AboutSettings({
             )}
           </>
         )}
+        <Row id="guide" title="Show welcome and tips again">
+          <UiButton className="button small" onClick={resetGuide}>
+            {t("Show again")}
+          </UiButton>
+        </Row>
       </SettingsGroup>
     </>
   );
