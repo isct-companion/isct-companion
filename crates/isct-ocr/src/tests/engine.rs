@@ -1,53 +1,11 @@
 use super::*;
 use image::{GrayImage, Luma};
 
-fn alternating_matrix() -> RgbImage {
-    let mut image = RgbImage::from_pixel(800, 620, Rgb([255; 3]));
-    for y in 190..540 {
-        for x in 200..700 {
-            image.put_pixel(x, y, Rgb([245, 205, 205]));
-        }
-    }
-    for x in 200..700 {
-        for thickness in 0..2 {
-            image.put_pixel(x, 190 + thickness, Rgb([40; 3]));
-            image.put_pixel(x, 538 + thickness, Rgb([40; 3]));
-        }
-    }
-    for y in 190..540 {
-        for thickness in 0..2 {
-            image.put_pixel(200 + thickness, y, Rgb([40; 3]));
-            image.put_pixel(698 + thickness, y, Rgb([40; 3]));
-        }
-    }
-    for column in 1..10 {
-        for y in 190..540 {
-            for thickness in 0..2 {
-                image.put_pixel(200 + column * 50 + thickness, y, Rgb([40; 3]));
-            }
-        }
-    }
-    for row in 1..7 {
-        for x in 200..700 {
-            for thickness in 0..2 {
-                image.put_pixel(x, 190 + row * 50 + thickness, Rgb([40; 3]));
-            }
-        }
-    }
-    for y in 140..188 {
-        for x in 200..700 {
-            image.put_pixel(x, y, Rgb([25; 3]));
-        }
-    }
-    for row in 0..7 {
-        let color = if row % 2 == 0 { 55 } else { 145 };
-        for y in 190 + row * 50..190 + (row + 1) * 50 {
-            for x in 150..200 {
-                image.put_pixel(x, y, Rgb([color; 3]));
-            }
-        }
-    }
-    image
+/// The public card fixture in the printed layout (pink/white rows, no column lines).
+fn printed_card() -> RgbImage {
+    image::load_from_memory(include_bytes!("fixtures/matrix-card.jpg"))
+        .unwrap()
+        .to_rgb8()
 }
 
 #[test]
@@ -91,141 +49,6 @@ fn colored_backgrounds_and_noise() {
     let binary = preprocess::binarize(&crop);
     assert_eq!(binary.original.get_pixel(4, 4)[0], 0);
     assert_eq!(binary.cleaned.get_pixel(4, 4)[0], 255);
-}
-
-#[test]
-fn grayscale_localizer_finds_cells_from_alternating_labels_and_dark_header() {
-    use imageproc::geometric_transformations::{warp, Border, Interpolation, Projection};
-    let identity = Projection::translate(0., 0.);
-    let shear = Projection::from_matrix([1., 0., 0., 0.08, 1., -16., 0., 0., 1.]).unwrap();
-    let theta = 18_f32.to_radians();
-    let (sin, cos) = theta.sin_cos();
-    let rotation = Projection::from_matrix([
-        0.75 * cos,
-        -0.75 * sin,
-        180.,
-        0.75 * sin,
-        0.75 * cos,
-        -20.,
-        0.,
-        0.,
-        1.,
-    ])
-    .unwrap();
-    for (name, foreground, brightness, transform) in [
-        ("plain", false, 0, identity),
-        ("white header letters", true, 0, identity),
-        ("bright labels", true, 75, identity),
-        ("nonorthogonal header", true, 0, shear),
-        ("rotated and sheared", true, 0, shear.and_then(rotation)),
-    ] {
-        let mut source = alternating_matrix();
-        if foreground {
-            // Keep the grid lighter than the dark-label component threshold,
-            // as on printed cards, so it does not join all seven labels.
-            for pixel in source.pixels_mut() {
-                if pixel.0 == [40; 3] {
-                    pixel.0 = [130; 3];
-                }
-            }
-            // Deliberately put white strokes at the old per-column center probes.
-            for column in 0..10 {
-                for x in 215 + column * 50..235 + column * 50 {
-                    for y in 149..179 {
-                        source.put_pixel(x, y, Rgb([245; 3]));
-                    }
-                }
-            }
-            for row in [0, 2, 4, 6] {
-                for x in 170..180 {
-                    for y in 202 + row * 50..228 + row * 50 {
-                        source.put_pixel(x, y, Rgb([245; 3]));
-                    }
-                }
-            }
-        }
-        for pixel in source.pixels_mut() {
-            for channel in &mut pixel.0 {
-                *channel = channel.saturating_add(brightness);
-            }
-        }
-        let image = warp(
-            &source,
-            transform,
-            Interpolation::Bilinear,
-            Border::Constant(Rgb([255; 3])),
-        );
-        let cells = scan_image_locator::locate(&image).unwrap_or_else(|| panic!("{name}: no grid"));
-        assert_eq!(cells.len(), MATRIX_CELLS);
-        for (index, cell) in cells.iter().enumerate() {
-            let (column, row) = (index % 10, index / 10);
-            for (actual, (dx, dy)) in cell.iter().zip([(0, 0), (1, 0), (1, 1), (0, 1)]) {
-                let expected = transform
-                    * (
-                        (200 + (column + dx) * 50) as f32,
-                        (190 + (row + dy) * 50) as f32,
-                    );
-                let error = (actual.x - expected.0 as f64).hypot(actual.y - expected.1 as f64);
-                assert!(error < 10., "{name}: cell {index} corner error {error:.1}");
-            }
-        }
-    }
-    let large = image::imageops::resize(
-        &alternating_matrix(),
-        1600,
-        1240,
-        image::imageops::FilterType::Triangle,
-    );
-    let cells = scan_image_locator::locate(&large).unwrap();
-    let previous = Some(
-        [cells[0][0], cells[9][1], cells[69][2], cells[60][3]].map(|p| [p.x / 1600., p.y / 1240.]),
-    );
-    for hint in [
-        previous,
-        Some([[0.01, 0.01], [0.15, 0.01], [0.15, 0.1], [0.01, 0.1]]),
-        Some([[f64::NAN, 0.]; 4]),
-    ] {
-        let measured =
-            scan_image_locator::locate_near(&large, hint, crate::MatrixLocatorConfig::default())
-                .unwrap();
-        for (a, b) in cells.iter().zip(measured) {
-            for (a, b) in a.iter().zip(b) {
-                assert!(
-                    (a.x - b.x).hypot(a.y - b.y) < 12.,
-                    "ROI must reacquire the current grid"
-                );
-            }
-        }
-    }
-    let blank = RgbImage::from_pixel(1600, 1240, Rgb([255; 3]));
-    assert!(scan_image_locator::locate_near(
-        &blank,
-        previous,
-        crate::MatrixLocatorConfig::default()
-    )
-    .is_none());
-    for config in [
-        crate::MatrixLocatorConfig {
-            gray_weights: [0; 3],
-            ..Default::default()
-        },
-        crate::MatrixLocatorConfig {
-            search_max_side: u32::MAX,
-            ..Default::default()
-        },
-    ] {
-        assert!(matches!(
-            capture_matrix_frame_configured(
-                &[],
-                None,
-                crate::MatrixCaptureConfig {
-                    locator: config,
-                    ..Default::default()
-                }
-            ),
-            Err(MatrixOcrError::InvalidImage(_))
-        ));
-    }
 }
 
 #[test]
@@ -482,7 +305,7 @@ fn cancellation_releases_the_service_for_a_later_scan() {
         Err(MatrixOcrError::InvalidImage(_))
     ));
     let mut png = Cursor::new(Vec::new());
-    alternating_matrix()
+    printed_card()
         .write_to(&mut png, image::ImageFormat::Png)
         .unwrap();
     assert!(matches!(
@@ -602,7 +425,7 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
         }
     }
     let mut encoded = Cursor::new(Vec::new());
-    alternating_matrix()
+    printed_card()
         .write_to(&mut encoded, image::ImageFormat::Jpeg)
         .unwrap();
     let service = MatrixOcrService::default();
@@ -622,41 +445,4 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
     assert_eq!(selected.cells.len(), 2);
     assert_eq!(selected.quads.len(), MATRIX_CELLS);
     assert!(selected.timing.total_ms >= selected.timing.inference_ms);
-}
-
-#[test]
-fn color_refinement_uses_all_rows_and_rejects_monochrome() {
-    let mut image = alternating_matrix();
-    for row in [1, 3, 5] {
-        for y in 192 + row * 50..188 + (row + 1) * 50 {
-            for x in 202..698 {
-                if image.get_pixel(x, y).0 == [245, 205, 205] {
-                    image.put_pixel(x, y, Rgb([245; 3]));
-                }
-            }
-        }
-    }
-    let expected = [
-        geometry::Point { x: 200., y: 190. },
-        geometry::Point { x: 700., y: 190. },
-        geometry::Point { x: 700., y: 540. },
-        geometry::Point { x: 200., y: 540. },
-    ];
-    let coarse = expected.map(|p| geometry::Point {
-        x: p.x + 2.,
-        y: p.y - 3.,
-    });
-    let refined = color_refinement::refine(&image, coarse, [2, -1, -1]).unwrap();
-    for (p, q) in refined.into_iter().zip(expected) {
-        assert!(
-            (p.x - q.x).hypot(p.y - q.y) < 4.,
-            "color boundaries must preserve the full grid: {p:?}"
-        );
-    }
-    let gray = RgbImage::from_fn(image.width(), image.height(), |x, y| {
-        let p = image.get_pixel(x, y);
-        Rgb([p[1]; 3])
-    });
-    assert!(color_refinement::refine(&gray, coarse, [2, -1, -1]).is_none());
-    assert!(color_refinement::refine(&alternating_matrix(), coarse, [2, -1, -1]).is_none());
 }

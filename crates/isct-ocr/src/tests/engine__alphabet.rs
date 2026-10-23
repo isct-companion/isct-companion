@@ -114,10 +114,8 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
     ] {
         let color = capture_matrix_frame_configured(
             fixture,
-            None,
             crate::MatrixCaptureConfig {
                 glyph_projection: projection,
-                ..Default::default()
             },
         )
         .unwrap();
@@ -301,7 +299,7 @@ fn capture_fits_body_rows_independently_of_header_height() {
     let fixture = image::load_from_memory(include_bytes!("fixtures/matrix-card.jpg"))
         .unwrap()
         .to_rgb8();
-    let header = image::imageops::crop_imm(&fixture, 250, 215, 1101, 85).to_image();
+    let header = image::imageops::crop_imm(&fixture, 250, 211, 1101, 89).to_image();
     for height in [40, 125] {
         let mut card = fixture.clone();
         for y in 0..300 {
@@ -406,12 +404,13 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
     });
     assert!(illumination::analyze(&glare).glare > 0.12);
 
-    // A reflection through the fourth row used to yield three confidently
-    // wrong settled letters. Reject those observations before they can vote.
+    // A reflection through a pink row used to yield three confidently wrong
+    // settled letters. Reject those observations before they can vote. (On a
+    // white row a highlight only whitens paper; row 5 is pink on the card.)
     let mut striped = fixture.clone();
     for (_, y, pixel) in striped.enumerate_pixels_mut() {
         let highlight =
-            400. * (-((y as f64 / fixture.height() as f64 - 0.548) / 0.012).powi(2)).exp();
+            400. * (-((y as f64 / fixture.height() as f64 - 0.625) / 0.012).powi(2)).exp();
         for value in &mut pixel.0 {
             *value = (*value as f64 + highlight).min(255.) as u8;
         }
@@ -421,7 +420,7 @@ fn illumination_recovers_dim_admission_and_distinguishes_glare_from_white_paper(
         .write_to(&mut encoded, image::ImageFormat::Jpeg)
         .unwrap();
     let captured = capture_matrix_frame(encoded.get_ref()).unwrap();
-    for cell in [35, 36, 37] {
+    for cell in [45, 46, 47] {
         assert!(captured.glyphs[cell].glare > 0.12, "reflection cell {cell}");
     }
     for (dx, dy) in [(0.4, 0.), (0.8, 0.6), (0., 1.2)] {

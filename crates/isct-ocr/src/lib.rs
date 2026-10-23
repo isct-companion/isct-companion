@@ -24,30 +24,6 @@ use thiserror::Error;
 
 pub const MATRIX_CELLS: usize = 70;
 
-/// Linear RGB projection plus an optional red-opponent term for locator studies.
-/// This affects geometry only; original RGB pixels remain the OCR source.
-#[derive(Clone, Copy, Debug)]
-pub struct MatrixLocatorConfig {
-    pub search_max_side: u32,
-    pub color_refinement: bool,
-    /// Zero-sum opponent-color weights; positive weights set normalization.
-    pub color_weights: [i16; 3],
-    pub gray_weights: [u16; 3],
-    /// Q8 gain applied to max(R - (G + B) / 2, 0).
-    pub red_chroma_weight: u16,
-}
-impl Default for MatrixLocatorConfig {
-    fn default() -> Self {
-        Self {
-            search_max_side: 640,
-            color_refinement: true,
-            color_weights: [2, -1, -1],
-            gray_weights: [19595, 38470, 7471],
-            red_chroma_weight: 0,
-        }
-    }
-}
-
 /// Projection of the original RGB cell into the alphabet model's one channel.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum MatrixGlyphProjection {
@@ -61,8 +37,68 @@ pub enum MatrixGlyphProjection {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MatrixCaptureConfig {
-    pub locator: MatrixLocatorConfig,
     pub glyph_projection: MatrixGlyphProjection,
+}
+
+/// One camera frame for the geometry loop: two row-major planes of one byte
+/// per pixel, Rec.601 luma and `clamp(R - G + 128, 0, 255)`. The R-G plane
+/// carries the pink/white row boundaries, which luma alone does not place
+/// reliably. `time` is the capture time in seconds, increasing.
+pub struct MatrixAnalysisFrame<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub luma: &'a [u8],
+    pub chroma: &'a [u8],
+    pub time: f64,
+}
+/// Owned analysis planes, e.g. of a decoded photo or recorded frame.
+pub struct MatrixAnalysisImage {
+    pub width: u32,
+    pub height: u32,
+    pub luma: Vec<u8>,
+    pub chroma: Vec<u8>,
+}
+impl MatrixAnalysisImage {
+    pub fn frame(&self, time: f64) -> MatrixAnalysisFrame<'_> {
+        MatrixAnalysisFrame {
+            width: self.width,
+            height: self.height,
+            luma: &self.luma,
+            chroma: &self.chroma,
+            time,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MatrixTrackMode {
+    /// No grid on this frame.
+    Lost,
+    /// Found from scratch and fitted.
+    Detected,
+    /// Refitted to the printed lines from the tracked prediction.
+    Refitted,
+    /// Followed from the previous frame by optical flow.
+    Tracked,
+}
+/// The geometry of one analysed frame, in that frame's normalized coordinates.
+pub struct MatrixTrack {
+    pub mode: MatrixTrackMode,
+    /// Body corners (A1 top-left, clockwise) as measured, for cropping.
+    pub body: Option<[[f64; 2]; 4]>,
+    /// Smoothed body corners, for drawing only.
+    pub display: Option<[[f64; 2]; 4]>,
+    /// The grid was fitted on this frame with a low residual: cells may be
+    /// cut from the full-resolution version of exactly this frame.
+    pub keyframe: bool,
+    /// Reprojection residual of this frame's fit, in cells.
+    pub residual: Option<f64>,
+    /// Gate that rejected this frame's fit, if one ran and failed.
+    pub reason: Option<&'static str>,
+    /// Body corners of each stage that ran (seed, fit, track), for replay.
+    pub stages: Vec<(&'static str, [[f64; 2]; 4])>,
+    pub elapsed_ms: f64,
 }
 
 /// One frame's readings and normalized cell corners (top-left clockwise).
@@ -98,13 +134,6 @@ pub struct MatrixCaptureFrame {
     pub quads: Vec<[[f64; 2]; 4]>,
     pub glyphs: Vec<MatrixCaptureGlyph>,
     pub timing: MatrixFrameTiming,
-}
-/// Replay diagnostics: named body corners from every geometry stage that ran,
-/// normalized and top-left clockwise, beside the ordinary capture result.
-#[cfg(feature = "training-tools")]
-pub struct MatrixGeometryTrace {
-    pub stages: Vec<(&'static str, [[f64; 2]; 4])>,
-    pub frame: Result<MatrixCaptureFrame, MatrixOcrError>,
 }
 
 /// Compile-time backend availability; model initialization remains lazy.
@@ -156,13 +185,12 @@ pub enum MatrixOcrError {
 
 #[cfg(matrix_ocr)]
 pub use engine::{
-    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_frame_near,
-    MatrixAlphabetService, MatrixOcrService,
+    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_keyframe,
+    matrix_analysis_image, MatrixAlphabetService, MatrixOcrService, MatrixTracker,
 };
 #[cfg(all(matrix_ocr, feature = "training-tools"))]
 pub use engine::{
-    capture_matrix_training_frame, prepare_matrix_alphabet_input, trace_matrix_frame,
-    MatrixAlphabetInput,
+    capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
 };
 
 #[cfg(not(matrix_ocr))]
@@ -170,19 +198,36 @@ pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixO
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
-pub fn capture_matrix_frame_near(
+pub fn capture_matrix_frame_configured(
     _bytes: &[u8],
-    _previous: Option<[[f64; 2]; 4]>,
+    _config: MatrixCaptureConfig,
 ) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
-pub fn capture_matrix_frame_configured(
-    _bytes: &[u8],
-    _previous: Option<[[f64; 2]; 4]>,
-    _config: MatrixCaptureConfig,
+pub fn capture_matrix_keyframe(
+    _luma: &[u8],
+    _width: u32,
+    _height: u32,
+    _body: [[f64; 2]; 4],
 ) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+pub fn matrix_analysis_image(_bytes: &[u8]) -> Result<MatrixAnalysisImage, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+#[derive(Default)]
+pub struct MatrixTracker(());
+#[cfg(not(matrix_ocr))]
+impl MatrixTracker {
+    pub fn track(
+        &mut self,
+        _frame: &MatrixAnalysisFrame<'_>,
+    ) -> Result<MatrixTrack, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
 }
 // The stubs keep a private field like the ONNX types, so callers build both
 // with `default()`; a unit struct would invite `Type` literals that only

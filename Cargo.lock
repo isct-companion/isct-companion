@@ -2561,6 +2561,8 @@ dependencies = [
  "image",
  "imageproc",
  "isct-core",
+ "nalgebra",
+ "optical-flow-lk",
  "ort",
  "serde",
  "serde_json",
@@ -3486,6 +3488,15 @@ name = "openssl-probe"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
+
+[[package]]
+name = "optical-flow-lk"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1d02d8ae60340ba0c14a364bda0dd9ba93f44fbde171cc0a6e233515f1f5297"
+dependencies = [
+ "image",
+]
 
 [[package]]
 name = "option-ext"

@@ -1,6 +1,4 @@
-use super::{
-    decode_image, geometry, illumination, model_error, normalized_quads, scan_image_locator,
-};
+use super::{decode_image, geometry, illumination, model_error};
 use crate::{MatrixCaptureFrame, MatrixCaptureGlyph, MatrixOcrError, Recognition};
 use image::{imageops::FilterType, GrayImage, Rgb, RgbImage};
 use imageproc::geometric_transformations::{warp_into, Border, Interpolation, Projection};
@@ -214,96 +212,89 @@ pub(super) fn project_glyph(crop: &RgbImage, mode: crate::MatrixGlyphProjection)
         image::Luma([value.round().clamp(0., 255.) as u8])
     })
 }
+/// Luma cell crop with the same pixel-centre convention as `rectified_rgb`.
+fn rectified_luma(image: &GrayImage, quad: [[f64; 2]; 4]) -> Result<GrayImage, MatrixOcrError> {
+    let corners = quad.map(|[x, y]| geometry::Point {
+        x: x * image.width() as f64,
+        y: y * image.height() as f64,
+    });
+    let destination = [(0f32, 0f32), (95., 0.), (95., 95.), (0., 95.)];
+    let source = destination.map(|(x, y)| {
+        let p = geometry::project(
+            &corners,
+            (x as f64 + 0.5) / SIZE as f64,
+            (y as f64 + 0.5) / SIZE as f64,
+        );
+        ((p.x - 0.5) as f32, (p.y - 0.5) as f32)
+    });
+    let projection =
+        Projection::from_control_points(source, destination).ok_or(MatrixOcrError::GridNotFound)?;
+    let mut crop = GrayImage::new(SIZE as u32, SIZE as u32);
+    warp_into(
+        image,
+        projection,
+        Interpolation::Bilinear,
+        Border::Constant(image::Luma([255])),
+        &mut crop,
+    );
+    Ok(crop)
+}
+
+/// Where the 70 cells are cut from: an RGB photo (with an optional model
+/// input projection for studies) or a camera keyframe's luma plane.
+enum CellSource<'a> {
+    Rgb(&'a RgbImage, crate::MatrixGlyphProjection),
+    Luma(&'a GrayImage),
+}
+
 pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
-    capture_matrix_frame_near(bytes, None)
+    capture_matrix_frame_configured(bytes, crate::MatrixCaptureConfig::default())
 }
 
-/// Previous body coordinates are a search hint only, in normalized image space.
-/// Session freshness and ownership are decided by Core, not this image adapter.
-pub fn capture_matrix_frame_near(
-    bytes: &[u8],
-    previous: Option<[[f64; 2]; 4]>,
-) -> Result<MatrixCaptureFrame, MatrixOcrError> {
-    capture_matrix_frame_configured(bytes, previous, crate::MatrixCaptureConfig::default())
-}
-
+/// Locates the grid in one still image (no tracking) and cuts its cells.
 pub fn capture_matrix_frame_configured(
     bytes: &[u8],
-    previous: Option<[[f64; 2]; 4]>,
     config: crate::MatrixCaptureConfig,
 ) -> Result<MatrixCaptureFrame, MatrixOcrError> {
-    capture_traced(bytes, previous, config, None)
-}
-
-/// Replay-only: also returns each locator stage's normalized body corners.
-#[cfg(feature = "training-tools")]
-pub fn trace_matrix_frame(
-    bytes: &[u8],
-    previous: Option<[[f64; 2]; 4]>,
-) -> crate::MatrixGeometryTrace {
-    let mut stages = Vec::new();
-    let frame = capture_traced(
-        bytes,
-        previous,
-        crate::MatrixCaptureConfig::default(),
-        Some(&mut stages),
-    );
-    crate::MatrixGeometryTrace { stages, frame }
-}
-
-type StageTrace<'a> = Option<&'a mut Vec<(&'static str, [[f64; 2]; 4])>>;
-fn capture_traced(
-    bytes: &[u8],
-    previous: Option<[[f64; 2]; 4]>,
-    config: crate::MatrixCaptureConfig,
-    trace: StageTrace<'_>,
-) -> Result<MatrixCaptureFrame, MatrixOcrError> {
-    let locator = config.locator;
-    if !(128..=1024).contains(&locator.search_max_side)
-        || locator.gray_weights.iter().all(|&v| v == 0)
-        || locator.red_chroma_weight > 1024
-        || locator.color_weights.iter().map(|&v| v as i32).sum::<i32>() != 0
-        || !locator.color_weights.iter().any(|&v| v > 0)
-        || locator
-            .color_weights
-            .iter()
-            .any(|&v| !(-256..=256).contains(&v))
-    {
-        return Err(MatrixOcrError::InvalidImage(
-            "Invalid locator projection or search size.".into(),
-        ));
-    }
     let start = std::time::Instant::now();
     let image = decode_image(bytes)?;
     let decode_ms = start.elapsed().as_secs_f64() * 1000.;
     let stage = std::time::Instant::now();
-    let mut stages = scan_image_locator::LocateStages::default();
-    let cells = scan_image_locator::locate_near_traced(&image, previous, locator, &mut stages);
-    if let Some(trace) = trace {
-        let normalize = |q: [geometry::Point; 4]| {
-            q.map(|p| [p.x / image.width() as f64, p.y / image.height() as f64])
-        };
-        for (name, quad) in [
-            ("coarse", stages.coarse),
-            ("color", stages.color),
-            ("luma", stages.luma),
-        ] {
-            if let Some(quad) = quad {
-                trace.push((name, normalize(quad)));
-            }
-        }
-    }
-    let cells = cells.ok_or(MatrixOcrError::GridNotFound)?;
-    let quads = normalized_quads(&cells, &image);
+    let quads = super::locate(&image).ok_or(MatrixOcrError::GridNotFound)?;
     let geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
     capture_quads(
-        &image,
+        CellSource::Rgb(&image, config.glyph_projection),
         quads,
-        config.glyph_projection,
         decode_ms,
         geometry_ms,
         start,
     )
+}
+
+/// Cuts and measures the 70 cells of a tracked keyframe from its
+/// full-resolution luma plane; `body` is the grid the tracker fitted on
+/// that same frame (normalized, A1 top-left, clockwise).
+pub fn capture_matrix_keyframe(
+    luma: &[u8],
+    width: u32,
+    height: u32,
+    body: [[f64; 2]; 4],
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    let start = std::time::Instant::now();
+    if body
+        .iter()
+        .flatten()
+        .any(|v| !v.is_finite() || !(0. ..=1.).contains(v))
+    {
+        return Err(MatrixOcrError::InvalidImage(
+            "Invalid keyframe grid.".into(),
+        ));
+    }
+    let image = GrayImage::from_raw(width, height, luma.to_vec())
+        .filter(|_| width >= 32 && height >= 32 && (width as u64 * height as u64) <= 40_000_000)
+        .ok_or_else(|| MatrixOcrError::InvalidImage("Invalid keyframe plane.".into()))?;
+    let quads = super::grid::cells(body, 1., 1.).ok_or(MatrixOcrError::GridNotFound)?;
+    capture_quads(CellSource::Luma(&image), quads, 0., 0., start)
 }
 
 /// Dataset-only recovery using manually verified body corners. This does not
@@ -335,9 +326,8 @@ pub fn capture_matrix_training_frame(
         .map(|quad| quad.map(|p| [p.x, p.y]))
         .collect();
     capture_quads(
-        &image,
+        CellSource::Rgb(&image, crate::MatrixGlyphProjection::Luma),
         quads,
-        crate::MatrixGlyphProjection::Luma,
         decode_ms,
         0.,
         start,
@@ -345,24 +335,34 @@ pub fn capture_matrix_training_frame(
 }
 
 fn capture_quads(
-    image: &RgbImage,
+    source: CellSource<'_>,
     quads: Vec<[[f64; 2]; 4]>,
-    projection: crate::MatrixGlyphProjection,
     decode_ms: f64,
     geometry_ms: f64,
     start: std::time::Instant,
 ) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     let stage = std::time::Instant::now();
+    let (width, height) = match source {
+        CellSource::Rgb(image, _) => (image.width() as f64, image.height() as f64),
+        CellSource::Luma(image) => (image.width() as f64, image.height() as f64),
+    };
     let patches = quads
         .iter()
-        .map(|&quad| {
-            let rgb = rectified_rgb(image, quad)?;
-            let gray = project_glyph(&rgb, crate::MatrixGlyphProjection::Luma);
-            let light = illumination::analyze(&gray);
-            // Physical admission stays in luminance for a controlled ablation.
-            let projected = (!matches!(projection, crate::MatrixGlyphProjection::Luma))
-                .then(|| project_glyph(&rgb, projection));
-            Ok((gray, light, projected))
+        .map(|&quad| match source {
+            CellSource::Rgb(image, projection) => {
+                let rgb = rectified_rgb(image, quad)?;
+                let gray = project_glyph(&rgb, crate::MatrixGlyphProjection::Luma);
+                let light = illumination::analyze(&gray);
+                // Physical admission stays in luminance for a controlled ablation.
+                let projected = (!matches!(projection, crate::MatrixGlyphProjection::Luma))
+                    .then(|| project_glyph(&rgb, projection));
+                Ok((gray, light, projected))
+            }
+            CellSource::Luma(image) => {
+                let gray = rectified_luma(image, quad)?;
+                let light = illumination::analyze(&gray);
+                Ok((gray, light, None))
+            }
         })
         .collect::<Result<Vec<_>, MatrixOcrError>>()?;
     let mut paper: Vec<_> = patches.iter().map(|(_, light, _)| light.paper).collect();
@@ -412,9 +412,8 @@ fn capture_quads(
                 .map(|(x, y)| (laplacian.get_pixel(x, y)[0] as f64).powi(2))
                 .sum::<f64>()
                 / 900.;
-            let distance = |a: [f64; 2], b: [f64; 2]| {
-                ((a[0] - b[0]) * image.width() as f64).hypot((a[1] - b[1]) * image.height() as f64)
-            };
+            let distance =
+                |a: [f64; 2], b: [f64; 2]| ((a[0] - b[0]) * width).hypot((a[1] - b[1]) * height);
             let source_size = (0..4)
                 .map(|i| distance(quad[i], quad[(i + 1) % 4]))
                 .fold(f64::INFINITY, f64::min);

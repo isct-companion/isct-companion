@@ -221,9 +221,8 @@ pub(crate) async fn capture_matrix_camera_frame(
             record_frame(&session_id, frame_id, captured_ms, &bytes);
             #[cfg(not(debug_assertions))]
             let _ = captured_ms;
-            let previous = current.bounds.map(|q| q.map(|p| [p.x, p.y]));
             let received = Instant::now();
-            let captured = isct_ocr::capture_matrix_frame_near(&bytes, previous);
+            let captured = isct_ocr::capture_matrix_frame(&bytes);
             #[cfg(debug_assertions)]
             if let Ok(frame) = &captured {
                 log_frame_quality(frame);

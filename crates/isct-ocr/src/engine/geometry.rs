@@ -6,34 +6,6 @@ pub struct Point {
     pub y: f64,
 }
 
-fn median(mut values: Vec<f64>) -> f64 {
-    values.sort_by(f64::total_cmp);
-    values[values.len() / 2]
-}
-
-pub(super) fn fit(points: &[Point]) -> impl Fn(f64) -> f64 {
-    let mut slopes = Vec::new();
-    for (index, first) in points.iter().enumerate() {
-        for second in &points[index + 1..] {
-            if (second.x - first.x).abs() > 10. {
-                slopes.push((second.y - first.y) / (second.x - first.x));
-            }
-        }
-    }
-    let slope = if slopes.is_empty() {
-        0.
-    } else {
-        median(slopes)
-    };
-    let offset = median(
-        points
-            .iter()
-            .map(|point| point.y - slope * point.x)
-            .collect(),
-    );
-    move |x| offset + slope * x
-}
-
 // Match JavaScript Math.round, including negative half values.
 fn round(value: f64) -> f64 {
     (value + 0.5).floor()
@@ -59,6 +31,7 @@ pub fn project(corners: &[Point; 4], u: f64, v: f64) -> Point {
     }
 }
 
+#[cfg(any(test, feature = "training-tools"))]
 pub(super) fn body_cells(corners: [Point; 4]) -> Vec<[Point; 4]> {
     (0..70)
         .map(|index| {

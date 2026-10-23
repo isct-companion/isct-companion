@@ -69,6 +69,12 @@ class Frame:
         f = small.astype(np.float32)
         self.gray = 0.299 * f[..., 2] + 0.587 * f[..., 1] + 0.114 * f[..., 0]
         self.chroma = f[..., 2] - f[..., 1]  # pink rows are positive
+        # Exposure: lift a dim frame so its bright paper reaches about 220.
+        p98 = float(np.percentile(self.gray, 98))
+        if p98 < 200:
+            gain = min(220 / max(p98, 1), 6)
+            self.gray = np.minimum(self.gray * gain, 255)
+            self.chroma = self.chroma * gain
         if GRAY_ONLY:
             # Pink rows are darker than white ones in luminance as well.
             self.chroma = -self.gray
@@ -99,9 +105,21 @@ W = 0.12  # half-width (cells) of the step derivative
 
 
 def peak(response, offsets):
-    """Arg-max with parabolic sub-sample refinement."""
+    """Peak of a step response. A sharp edge gives a flat top as wide as the
+    derivative window, so take the middle of the contiguous run within 5 % of
+    the maximum; a single-sample peak gets parabolic refinement."""
     k = int(np.argmax(response))
     value = response[k]
+    lo = hi = k
+    while lo > 0 and response[lo - 1] >= value - 0.05 * abs(value):
+        lo -= 1
+    while hi + 1 < len(response) and response[hi + 1] >= value - 0.05 * abs(value):
+        hi += 1
+    if hi > lo:
+        # A flat top cut off by the search window has no reliable middle.
+        if lo == 0 or hi == len(response) - 1:
+            return 0.0, -np.inf
+        return (offsets[lo] + offsets[hi]) / 2, value
     shift = offsets[k]
     if 0 < k < len(response) - 1:
         a, b, c = response[k - 1], response[k], response[k + 1]
@@ -207,7 +225,9 @@ def measure(frame, H, radius, max_v=ROWS, max_u=COLS):
     cp = cell_px(H)
     fitted = {}
     for name, value, horizontal, samples in line_specs():
-        if (horizontal and value > max_v) or (not horizontal and value > max_u):
+        # The header top seeds detection and anchors the indexing, but its
+        # height varies with print and scan more than the body lines.
+        if name == "header-top" or (horizontal and value > max_v) or (not horizontal and value > max_u):
             continue
         samples = [x for x in samples if x[1] <= max_v and x[0] <= max_u]
         found = edge_points(frame, H, samples, radius)
@@ -309,7 +329,11 @@ def fit(frame, H, radii=(0.4, 0.3, 0.2), grow=None):
             "lines": len(fitted)}
     # Inliers must span the grid: both body edges and rows at top and bottom.
     rows_seen = {int(m[1]) for m in model[keep]}
-    if (keep.sum() < 8 or keep.mean() < 0.6 or len(vertical) < 2 or len(horizontal) < 5
+
+    def edge_spans(edges):
+        rows = [m[1] for m in model[keep] if m[0] in edges]
+        return len(rows) >= 4 and min(rows) <= 1 and max(rows) >= ROWS - 1
+    if (not edge_spans({COLS}) or not edge_spans({0, -LABELS}) or keep.sum() < 8 or keep.mean() < 0.6 or len(vertical) < 2 or len(horizontal) < 5
             or not ({"body-left", "labels-left"} & vertical) or "body-right" not in vertical
             or min(rows_seen) > 1 or max(rows_seen) < ROWS - 1):
         info["reason"] = "inlier coverage"
@@ -335,8 +359,14 @@ def fit(frame, H, radii=(0.4, 0.3, 0.2), grow=None):
 
 def geometry_reject(frame, H):
     b = body_of(H)
-    if not cv2.isContourConvex(b.astype(np.float32)):
-        return "non-convex"
+    # Convex and clockwise on screen (y down): never mirrored. Rows are
+    # symmetric top to bottom, so a reflected fit passes the other checks.
+    def cross(i):
+        (p, q, r) = b[i], b[(i + 1) % 4], b[(i + 2) % 4]
+        return (q[0] - p[0]) * (r[1] - q[1]) - (q[1] - p[1]) * (r[0] - q[0])
+    cross = [cross(i) for i in range(4)]
+    if min(cross) <= 0:
+        return "non-convex or mirrored"
     if (b < 0).any() or (b[:, 0] >= frame.w).any() or (b[:, 1] >= frame.h).any():
         return "clipped"
     # Homography conditioning in normalized coordinates: model unit box -> image unit box.

@@ -48,10 +48,10 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--target", type=Path, default=None)
     parser.add_argument("--skip-build", action="store_true")
-    parser.add_argument("--variants", nargs="+", choices=["luma-refinement", "color-refinement", "red-chroma-input", "paper-distance-input"], default=["luma-refinement", "color-refinement", "red-chroma-input", "paper-distance-input"])
+    parser.add_argument("--variants", nargs="+", choices=["luma-input", "red-chroma-input", "paper-distance-input"], default=["luma-input", "red-chroma-input", "paper-distance-input"])
     args = parser.parse_args()
-    if any(v.endswith("-input") for v in args.variants) and "color-refinement" not in args.variants:
-        parser.error("input comparisons require color-refinement as the paired baseline")
+    if any(v != "luma-input" for v in args.variants) and "luma-input" not in args.variants:
+        parser.error("input comparisons require luma-input as the paired baseline")
     root = Path(__file__).resolve().parents[2]
     target = (args.target or root / "target").resolve()
     expected = "".join(args.expected.read_text().split())
@@ -59,15 +59,14 @@ def main():
         parser.error("expected file must contain exactly 70 A-Z letters")
     args.out.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, CARGO_TARGET_DIR=str(target))
-    for key in ("MATRIX_GRAY", "MATRIX_SEARCH_SIZE", "MATRIX_COLOR_REFINE", "MATRIX_GLYPH", "MATRIX_HINTS"):
+    for key in ("MATRIX_GLYPH", "MATRIX_HINTS"):
         env.pop(key, None)
     if not args.skip_build:
         subprocess.run(["cargo", "build", "-p", "isct-ocr", "--example", "matrix_locator_bench", "--features", "training-tools", "--locked"], cwd=root, env=env, check=True)
     variants = {
-        "luma-refinement": {"MATRIX_GLYPH": "luma"},
-        "color-refinement": {"MATRIX_COLOR_REFINE": "1", "MATRIX_GLYPH": "luma"},
-        "red-chroma-input": {"MATRIX_COLOR_REFINE": "1", "MATRIX_GLYPH": "red-chroma"},
-        "paper-distance-input": {"MATRIX_COLOR_REFINE": "1", "MATRIX_GLYPH": "paper-distance"},
+        "luma-input": {"MATRIX_GLYPH": "luma"},
+        "red-chroma-input": {"MATRIX_GLYPH": "red-chroma"},
+        "paper-distance-input": {"MATRIX_GLYPH": "paper-distance"},
     }
     all_rows, results = {}, {}
     for name in args.variants:
@@ -75,14 +74,14 @@ def main():
         print(f"Running {name}", flush=True)
         path = args.out / f"{name}.jsonl"
         with path.open("w") as output:
-            subprocess.run([str(target / "debug/examples/matrix_locator_bench"), str(args.frames.resolve()), "--ocr", "--track"], cwd=root, env={**env, **settings}, stdout=output, check=True)
+            subprocess.run([str(target / "debug/examples/matrix_locator_bench"), str(args.frames.resolve()), "--ocr"], cwd=root, env={**env, **settings}, stdout=output, check=True)
         rows = [json.loads(line) for line in path.read_text().splitlines()]
         all_rows[name] = rows
         results[name] = summarize(rows, expected)
         print(json.dumps(results[name]), flush=True)
     geometry = lambda rows: [(r["frame"], r.get("quads")) for r in rows]
     for name in ("red-chroma-input", "paper-distance-input"):
-        if name in all_rows and geometry(all_rows[name]) != geometry(all_rows["color-refinement"]):
+        if name in all_rows and geometry(all_rows[name]) != geometry(all_rows["luma-input"]):
             raise RuntimeError(f"Geometry changed in paired comparison: {name}")
     report = {
         "scope": "Single video, per-frame raw model matches; missed detections count as zero. No Core admission/votes/session deadlines. Pink/white split assumes alternating pink first row.",
@@ -92,8 +91,8 @@ def main():
     (args.out / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     names = list(results)
     fig, axes = plt.subplots(1, 3, figsize=(13, 4), layout="constrained")
-    label_map = dict(zip(variants, ["Luma refine", "Color refine", "+ Red chroma", "+ Paper distance"]))
-    color_map = dict(zip(variants, ["#8a96a6", "#376fcb", "#d98861", "#499c82"]))
+    label_map = dict(zip(variants, ["Luma", "Red chroma", "Paper distance"]))
+    color_map = dict(zip(variants, ["#376fcb", "#d98861", "#499c82"]))
     labels = [label_map[n] for n in names]
     colors = [color_map[n] for n in names]
     for ax, key, title in zip(axes, ["exact_frames", "correct_characters", "capture_p50_ms"], ["Exact 70/70 frames (all frames)", "Correct characters (all frames)", "Capture p50 (ms; excludes OCR)"]):

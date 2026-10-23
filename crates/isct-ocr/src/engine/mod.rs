@@ -1,20 +1,19 @@
 mod alphabet;
 pub use alphabet::{
-    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_frame_near,
+    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_keyframe,
     MatrixAlphabetService,
 };
 #[cfg(feature = "training-tools")]
 pub use alphabet::{
-    capture_matrix_training_frame, prepare_matrix_alphabet_input, trace_matrix_frame,
-    MatrixAlphabetInput,
+    capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
 };
-mod color_refinement;
 #[cfg(debug_assertions)]
 mod debug_crops;
 mod geometry;
+mod grid;
 mod illumination;
 mod preprocess;
-mod scan_image_locator;
+mod vendor;
 
 #[cfg(test)]
 #[path = "../tests/engine.rs"]
@@ -260,7 +259,7 @@ impl MatrixOcrService {
             ..Default::default()
         };
         let stage = Instant::now();
-        let cells = scan_image_locator::locate(&image).ok_or(MatrixOcrError::GridNotFound)?;
+        let cells = locate_cells(&image).ok_or(MatrixOcrError::GridNotFound)?;
         let quads = normalized_quads(&cells, &image);
         timing.geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
         if !geometry(&quads) {
@@ -355,7 +354,7 @@ impl MatrixOcrService {
             return Err(MatrixOcrError::Cancelled);
         }
         let image = decode_image(image)?;
-        let cells = scan_image_locator::locate(&image).ok_or(MatrixOcrError::GridNotFound)?;
+        let cells = locate_cells(&image).ok_or(MatrixOcrError::GridNotFound)?;
         let quads = normalized_quads(&cells, &image);
         if !geometry(&quads) {
             return Err(MatrixOcrError::Cancelled);
@@ -418,6 +417,76 @@ impl MatrixOcrService {
         Ok(crate::MatrixFrame {
             cells: results,
             quads,
+        })
+    }
+}
+
+/// One still image, detected from scratch: the 70 cell quads, normalized.
+fn locate(image: &RgbImage) -> Option<Vec<[[f64; 2]; 4]>> {
+    let planes = grid::Planes::from_rgb(image)?;
+    let (_, h, _) = grid::detect(&planes)?;
+    let body = grid::normalize(grid::body(&h), &planes);
+    grid::cells(body, 1., 1.)
+}
+
+fn locate_cells(image: &RgbImage) -> Option<Vec<[geometry::Point; 4]>> {
+    let (w, h) = (image.width() as f64, image.height() as f64);
+    Some(
+        locate(image)?
+            .into_iter()
+            .map(|q| q.map(|[x, y]| geometry::Point { x: x * w, y: y * h }))
+            .collect(),
+    )
+}
+
+/// The analysis planes of an encoded image (replay, photos).
+pub fn matrix_analysis_image(bytes: &[u8]) -> Result<crate::MatrixAnalysisImage, MatrixOcrError> {
+    let planes = grid::Planes::from_rgb(&decode_image(bytes)?)
+        .ok_or_else(|| MatrixOcrError::InvalidImage("Image is too small.".into()))?;
+    Ok(crate::MatrixAnalysisImage {
+        width: planes.luma.width(),
+        height: planes.luma.height(),
+        chroma: planes.chroma.clone(),
+        luma: planes.luma.into_raw(),
+    })
+}
+
+/// Camera geometry state for one session: detect, fit and track.
+#[derive(Default)]
+pub struct MatrixTracker(grid::Tracker);
+impl MatrixTracker {
+    /// Analyses the next frame of the session. Frames must arrive in capture
+    /// order; a size change starts over.
+    pub fn track(
+        &mut self,
+        frame: &crate::MatrixAnalysisFrame<'_>,
+    ) -> Result<crate::MatrixTrack, MatrixOcrError> {
+        let start = std::time::Instant::now();
+        let luma = image::GrayImage::from_raw(frame.width, frame.height, frame.luma.to_vec());
+        let planes = luma
+            .filter(|_| frame.chroma.len() == frame.luma.len() && frame.time.is_finite())
+            .and_then(|luma| grid::Planes::new(luma, frame.chroma.to_vec()))
+            .ok_or_else(|| MatrixOcrError::InvalidImage("Invalid analysis planes.".into()))?;
+        let step = self.0.step(&planes, frame.time);
+        let normalize = |q: [[f64; 2]; 4]| grid::normalize(q, &planes);
+        Ok(crate::MatrixTrack {
+            mode: match step.mode {
+                grid::TrackMode::Lost => crate::MatrixTrackMode::Lost,
+                grid::TrackMode::Detected => crate::MatrixTrackMode::Detected,
+                grid::TrackMode::Refitted => crate::MatrixTrackMode::Refitted,
+                grid::TrackMode::Tracked => crate::MatrixTrackMode::Tracked,
+            },
+            body: step.grid.map(|g| normalize(grid::body(&g))),
+            display: step.display.map(normalize),
+            keyframe: step.keyframe,
+            residual: step.fit.as_ref().map(|f| f.residual),
+            reason: step.fit.as_ref().and_then(|f| f.reason),
+            stages: step
+                .stages
+                .iter()
+                .map(|(name, g)| (*name, normalize(grid::body(g))))
+                .collect(),
+            elapsed_ms: start.elapsed().as_secs_f64() * 1000.,
         })
     }
 }
