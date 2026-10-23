@@ -202,7 +202,7 @@ export function BackupSettings({
             title="Sync automatically"
             hint={
               sync?.automatic
-                ? "Only changed content is uploaded, at most once per hour."
+                ? "Pulls other devices' changes at launch. Changed content is uploaded at most once per hour."
                 : "Upload and pull by hand"
             }
           >
@@ -219,13 +219,17 @@ export function BackupSettings({
             id={item.provider === "google-drive" ? "cloud" : "icloud"}
             title={providerName[item.provider]}
             hint={
-              item.error ? (
+              !item.enabled ? undefined : item.error ? (
                 <span>
                   <span className="danger">
                     {t(
                       "Could not update this cloud copy. Your data is saved on this device.",
                     )}
                   </span>
+                  <br />
+                  {/* The provider's own reason (signed out, another workspace,
+                      offline): without it every failure looks the same. */}
+                  {item.error}
                   {item.lastSyncedAt && (
                     <>
                       <br />
@@ -235,7 +239,7 @@ export function BackupSettings({
                     </>
                   )}
                 </span>
-              ) : !item.enabled ? undefined : item.lastSyncedAt ? (
+              ) : item.lastSyncedAt ? (
                 t("Synced {{date}}", { date: when(item.lastSyncedAt) })
               ) : (
                 t("Waiting for the first sync")

@@ -44,7 +44,7 @@ unsafe fn is_missing(error: *mut NSError) -> bool {
     error.as_ref().is_some_and(|error| error.code() == 11)
 }
 
-#[cfg_attr(all(target_os = "macos", debug_assertions), allow(dead_code))]
+#[cfg_attr(not(icloud), allow(dead_code))]
 fn account_request() -> oneshot::Receiver<Result<(), String>> {
     let container =
         unsafe { CKContainer::containerWithIdentifier(&NSString::from_str(CONTAINER_ID)) };
@@ -74,13 +74,13 @@ fn account_request() -> oneshot::Receiver<Result<(), String>> {
     rx
 }
 
-// Every public entry point checks the account first. macOS debug builds
-// (`tauri dev`) are unsigned and lack the iCloud container entitlement, and
-// CloudKit traps (SIGILL) instead of returning an error, so they never touch it.
+// Every public entry point checks the account first. A build without the
+// iCloud container entitlement (see build.rs) never touches CloudKit, which
+// traps (SIGILL) there instead of returning an error.
 pub async fn account_available() -> Result<(), String> {
-    #[cfg(all(target_os = "macos", debug_assertions))]
-    return Err("iCloud is unavailable in macOS debug builds.".into());
-    #[cfg(not(all(target_os = "macos", debug_assertions)))]
+    #[cfg(not(icloud))]
+    return Err("iCloud needs a build signed with the iCloud entitlement.".into());
+    #[cfg(icloud)]
     account_request()
         .await
         .map_err(|_| "iCloud account check did not complete.".to_string())?

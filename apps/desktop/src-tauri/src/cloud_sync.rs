@@ -50,10 +50,7 @@ impl CloudSync {
     pub fn new(legacy: PathBuf, authorized: &[CloudProvider]) -> Result<Self, String> {
         let supported = [
             CloudProvider::GoogleDrive,
-            #[cfg(all(
-                target_vendor = "apple",
-                not(all(target_os = "macos", debug_assertions))
-            ))]
+            #[cfg(icloud)]
             CloudProvider::Icloud,
         ];
         isct_core::cloud_sync::CloudSync::new(legacy, &supported, authorized)

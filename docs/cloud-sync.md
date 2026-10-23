@@ -21,8 +21,9 @@ The Backup settings page has an **Auto** switch, off by default, and separate
   Pending upload snapshots are merged with the shared record/tombstone merge;
   completed provider receipts remain tied to their original snapshots. A provider
   receives a new automatic upload only when content differs from its confirmed
-  version and at least one hour has passed since its last successful sync. The
-  first copy can upload immediately. Manual Upload bypasses the hour limit.
+  version and at least one hour has passed since its last confirmed upload to
+  it (a pull does not restart the hour). The first copy can upload
+  immediately. Manual Upload bypasses the hour limit.
   Five-second local comparisons detect external MCP writes; idle passes do not
   poll the cloud or create unchanged snapshots. Restart preserves the hour limit.
 - A failed delivery keeps its retry budget and cooldown when pending snapshots
@@ -32,7 +33,12 @@ The Backup settings page has an **Auto** switch, off by default, and separate
 - Opening/resuming the app resumes unfinished operations in either mode. Turning
   Auto off prevents new automatic operations; it does not revoke submitted work.
 - Auto is change-triggered, not a real-time remote subscription. Another device's
-  changes arrive on Pull or the next local change's reconciliation.
+  changes arrive on Pull, the next local change's reconciliation, or the one
+  pull Auto makes at each launch: a device that is only read (a phone opened to
+  look at the timetable) never uploads, so it would otherwise never see them.
+  A launch pull that finds no cloud copy is not a failure and binds no
+  workspace; one that finds this device ahead queues an upload under the hour
+  limit. An explicit Pull never uploads.
 - Exit captures pending changes durably and exits without waiting for a network
   round trip. The next launch resumes work. The OS need not grant background time.
 - Disabling a provider disconnects only it and cancels its unfinished deliveries.
@@ -192,10 +198,22 @@ receipts remain successful even if listing historical versions fails; that failu
 is logged while the previously known history remains available. Network failures
 still retain the durable work rather than pretending the cloud accepted it.
 
-macOS debug binaries exclude iCloud from their supported providers because they
-cannot call CloudKit without the signed container entitlement. Unsupported delivery
-entries are removed on journal open; other provider deliveries and local recovery
-files survive. A signed binary adds its supported provider again.
+A binary without the iCloud container entitlement cannot call CloudKit (it traps
+instead of failing), so iCloud is compiled out of it with the `icloud` cfg that
+`build.rs` sets. Release builds and `tauri build --debug` on a Mac with an Apple
+Development identity and a team profile listing it are signed with
+`Entitlements.plist` and keep iCloud; `tauri dev` (a bare executable that cannot
+carry a profile) and ad-hoc debug bundles do not. Both macOS and iOS ask for the
+Production container environment, so every build reads the same database.
+
+The debug and release builds share one data directory. Opening the journal
+parks an unsupported provider's row and history instead of deleting them, so the
+build that has it finds its switch, acknowledgement and history unchanged. Only
+its unfinished deliveries are dropped; other providers' deliveries and local
+recovery files survive.
+
+A provider's failure is shown with the provider's own reason under the generic
+text (signed out, a different workspace, offline), and only while it is on.
 
 Application logs are a separate, session-local bounded stream (2,000 entries,
 2,048 characters per message) and never enter workspace sync or backups. Native

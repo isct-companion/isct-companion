@@ -67,3 +67,4 @@ bindings/kotlin/artifacts/
 
 # Local encrypted updater signing key and public companion file
 .update/
+.project/run/

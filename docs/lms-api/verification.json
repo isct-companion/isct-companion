@@ -1,0 +1,276 @@
+{
+  "observedAt": "2026-10-20T05:27:46Z",
+  "client": {
+    "library": "reqwest",
+    "version": "0.12.28",
+    "tls": "rustls; certificate verification enabled",
+    "cookieJar": false,
+    "redirects": "disabled",
+    "userAgent": "Mozilla/5.0 (compatible; IsctCompanion/0.1)"
+  },
+  "scope": "Sampled read API and resource file transport; not a full content or lifetime audit.",
+  "checks": [
+    {
+      "check": "native_post",
+      "cookie_jar": false,
+      "errorcode": null,
+      "function_count": 470,
+      "http": 200,
+      "release": "4.5.10+ (Build: 20260227)",
+      "tls": "rustls certificate verification enabled"
+    },
+    {
+      "check": "native_function",
+      "errorcode": null,
+      "function": "core_enrol_get_users_courses",
+      "http": 200
+    },
+    {
+      "check": "native_function",
+      "errorcode": null,
+      "function": "core_course_get_contents",
+      "http": 200
+    },
+    {
+      "check": "native_function",
+      "errorcode": null,
+      "function": "mod_assign_get_assignments",
+      "http": 200
+    },
+    {
+      "check": "native_function",
+      "errorcode": null,
+      "function": "mod_assign_get_submission_status",
+      "http": 200
+    },
+    {
+      "check": "native_function",
+      "errorcode": null,
+      "function": "core_calendar_get_action_events_by_timesort",
+      "http": 200
+    },
+    {
+      "check": "native_function",
+      "errorcode": null,
+      "function": "mod_forum_get_forum_discussions",
+      "http": 200
+    },
+    {
+      "check": "invalid_token",
+      "errorcode": "invalidtoken",
+      "http": 200
+    },
+    {
+      "check": "lifetime_settings",
+      "errorcode": null,
+      "http": 200,
+      "settings": [
+        {
+          "name": "tool_mobile_forcelogout",
+          "value": "0"
+        },
+        {
+          "name": "tool_mobile_autologout",
+          "value": "0"
+        },
+        {
+          "name": "tool_mobile_autologouttime",
+          "value": "86400"
+        }
+      ]
+    },
+    {
+      "bytes": 45268,
+      "check": "file_full",
+      "content_type": "application/pdf",
+      "expected_bytes": 45268,
+      "http": 200,
+      "length_matches": true,
+      "pdf_eof": true,
+      "pdf_magic": true,
+      "sha256": "a3d736675c3a71ec3022159f79972fb057d1dd1d5deb4319efd1f56cecacac67"
+    },
+    {
+      "bytes": 1024,
+      "check": "file_range",
+      "content_range": "bytes 0-1023/45268",
+      "http": 206,
+      "matches_full_prefix": true
+    },
+    {
+      "check": "file_invalid_token",
+      "content_type": "application/json; charset=utf-8",
+      "http": 200,
+      "invalidtoken_marker": true,
+      "pdf_magic": false
+    }
+  ],
+  "tokenExpiry": {
+    "exactExpiryKnown": false,
+    "creationTimeKnown": false,
+    "naturalExpirationObserved": false,
+    "revocationTested": false,
+    "browserSessionExpirationTested": false,
+    "upstreamDefaultWeeks": 12,
+    "schoolDurationKnown": false
+  },
+  "dashboardTimetableTokenProbe": {
+    "cookies_sent": false,
+    "transport": "curl POST; token in body; redirects disabled; no cookie jar",
+    "site_info": {
+      "http": 200,
+      "errorcode": null,
+      "warning_count": 0,
+      "relevant_functions": [
+        "core_block_get_course_blocks",
+        "core_block_get_dashboard_blocks"
+      ]
+    },
+    "default_dashboard": {
+      "http": 200,
+      "errorcode": null,
+      "warning_count": 0,
+      "timetable_returned": true,
+      "content_chars": 24835,
+      "parsed_by_app_core": true,
+      "year": 2026,
+      "quarter": "3",
+      "slot_count": 18,
+      "scheduled_courses": 5,
+      "unscheduled_courses": 2,
+      "year_options": [
+        [
+          "1",
+          "2025"
+        ],
+        [
+          "7",
+          "2026"
+        ]
+      ],
+      "quarter_options": [
+        [
+          "1",
+          "1"
+        ],
+        [
+          "2",
+          "2"
+        ],
+        [
+          "3",
+          "3"
+        ],
+        [
+          "4",
+          "4"
+        ]
+      ]
+    },
+    "quarter_probes": [
+      {
+        "http": 200,
+        "errorcode": "invalidparameter",
+        "warning_count": 0,
+        "requested_year": 2026,
+        "requested_quarter": 1,
+        "requested_term_returned": false
+      },
+      {
+        "http": 200,
+        "errorcode": "invalidparameter",
+        "warning_count": 0,
+        "requested_year": 2026,
+        "requested_quarter": 2,
+        "requested_term_returned": false
+      },
+      {
+        "http": 200,
+        "errorcode": "invalidparameter",
+        "warning_count": 0,
+        "requested_year": 2026,
+        "requested_quarter": 4,
+        "requested_term_returned": false
+      }
+    ],
+    "default_after_probes": {
+      "http": 200,
+      "errorcode": null,
+      "warning_count": 0,
+      "timetable_returned": true,
+      "content_chars": 24835,
+      "parsed_by_app_core": true,
+      "year": 2026,
+      "quarter": "3",
+      "slot_count": 18,
+      "scheduled_courses": 5,
+      "unscheduled_courses": 2,
+      "year_options": [
+        [
+          "1",
+          "2025"
+        ],
+        [
+          "7",
+          "2026"
+        ]
+      ],
+      "quarter_options": [
+        [
+          "1",
+          "1"
+        ],
+        [
+          "2",
+          "2"
+        ],
+        [
+          "3",
+          "3"
+        ],
+        [
+          "4",
+          "4"
+        ]
+      ]
+    },
+    "observedAt": "2026-10-22T04:44:02.863479+00:00",
+    "phone_comparison": {
+      "term": "2026-3Q",
+      "slot_set_matches_phone": true,
+      "expected_slots": 18,
+      "token_slots": 18,
+      "unscheduled_set_matches_phone": true,
+      "expected_unscheduled": 2,
+      "token_unscheduled": 2,
+      "phone_last_enrolment_sync": "2026-10-22T04:22:08.523847+00:00"
+    },
+    "scope": "Existing desktop token; default dashboard quarter only. Cross-quarter year/quota/search form fields were rejected. App transport was not changed."
+  },
+  "coreTokenIntegration": {
+    "background": true,
+    "browser_navigation_calls": 0,
+    "cookie_port_calls": 0,
+    "course_count": 62,
+    "live_core_enrolment_committed": true,
+    "token_dashboard_logged": true,
+    "observedAt": "2026-10-22T05:09:58.142894+00:00",
+    "scope": "Actual Core facade, planner, reqwest, reader, validation and database ingestion in an isolated local workspace; existing token; no browser/cookie access.",
+    "crossQuarterDiscovery": {
+      "timetable_function_advertised": false,
+      "timetable_mobile_plugin_advertised": false,
+      "mobile_plugins": [
+        "mod_ltifmane",
+        "mod_subsection"
+      ],
+      "web_form_method": "POST",
+      "web_form_path": "/2025/my/index.php",
+      "web_form_fields": [
+        "year",
+        "quota",
+        "search"
+      ],
+      "autologin_tested": false
+    }
+  }
+}

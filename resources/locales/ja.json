@@ -1265,7 +1265,7 @@
   "Backups older than 30 days are removed only when at least four newer backups exist.": "30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。",
   "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.": "クラウドの変更や復元で端末の内容を置き換える前に保存します。30日を超え、かつ新しいバックアップが4件以上ある場合のみ自動削除します。",
   "Choose an admission year.": "入学年度を選択してください。",
-  "Only changed content is uploaded, at most once per hour.": "変更がある場合のみ自動アップロードします。間隔は1時間以上です。",
+  "Pulls other devices' changes at launch. Changed content is uploaded at most once per hour.": "起動時に他の端末の変更を取り込みます。変更のアップロードは1時間に1回までです。",
   "All assignments": "すべての課題",
   "Missed": "提出漏れ",
   "{{count}} earlier, back to the quarter start": "さらに前の {{count}} 件（クォーター開始まで）",

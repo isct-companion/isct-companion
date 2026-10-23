@@ -234,6 +234,84 @@ checks:
       notes: Recorded in docs/verification/core-consolidation.md.
       evidence: docs/verification/core-consolidation.md#live-macos-acceptance
 
+  - id: SCHOOL-LMS-TOKEN-HTTP
+    area: school
+    title: Token-backed native reads and resource bytes
+    persona: undergraduate-senior
+    preconditions: |
+      An authenticated Science Tokyo student account, explicit authorization
+      for the official mobile token flow, and a network reaching the LMS.
+      Follow docs/lms-api/README.md; never put real credentials in the evidence.
+    steps:
+      - action: |
+          Obtain a token through the official browser launch flow. From a
+          cookie-free reqwest client using the app download User-Agent and TLS
+          validation, POST each of the eight documented read functions. Compare
+          response structure with openapi.yaml and sample the current user's
+          actual courses and assignment states.
+        reason: |
+          Proves native authentication and PHP form encoding work against the
+          live school service; a signed-in browser or a JSON fixture cannot
+          establish that the token works without browser cookies.
+      - action: |
+          Download a returned resource PDF with the same client. Check its
+          byte count and file markers, then request bytes 0-1023 and compare
+          Content-Range and the downloaded prefix. Repeat API and file reads
+          with an invalid token, recording only status, type and error code.
+        reason: |
+          Exposes an HTML or JSON authentication response mistaken for a file,
+          and protects partial-download consumers from accepting the wrong
+          range or treating HTTP 200 alone as proof of success.
+      - action: |
+          Read the mobile logout policies. Record whether token creation and
+          expiry times are actually exposed, and distinguish those facts from
+          upstream defaults. Do not infer a TTL from inactive logout settings.
+        reason: |
+          Prevents promising a long-lived token based on the 86400-second
+          disabled policy or assuming the school's token duration is the
+          upstream default. Long-term expiry remains separate from this run.
+      - action: |
+          Using an existing token and no cookies, POST
+          core_block_get_dashboard_blocks with returncontents=1. Feed the
+          tttimetable content to Core's existing timetable parser and compare
+          its day/period and unscheduled-course sets with a successful phone
+          sync. Probe another quarter using the block's filter fields, record
+          API rejection separately, then re-read the default dashboard.
+        reason: |
+          A generic block API may expose a school timetable even without a
+          timetable-specific function. Parsing and comparing the real rows
+          distinguishes complete data from a successful empty response;
+          cross-quarter checks prevent promising all-quarter token access
+          from a single default grid.
+    observe: |
+      Native response statuses, decoded read models, byte and range checks,
+      and the sanitized evidence at docs/lms-api/verification.json.
+    expected: |
+      All eight sampled native POST reads succeed without cookies. A real
+      PDF and its byte-range prefix match metadata and each other. Invalid
+      tokens are rejected in the response body even when HTTP status is 200.
+      Any unknown expiry is explicitly recorded, not presented as verified.
+    why_manual: |
+      Requires live student credentials, explicit token authorization, the
+      school's gateway policy and real enrolled-course files. Offline tests
+      cannot establish these account-scoped transport or lifecycle facts.
+    covers:
+      - docs/tasks/03-lms-sync.md
+      - crates/isct-core/src/downloads.rs
+    verified:
+      version: 1.1.3
+      date: 2026-10-20
+      commit: 07bc59244f6bf1b050d4dcb9dd3952ce41074037
+      by: codex
+      result: pass
+      notes: Eight native POST reads, complete PDF and Range, invalid-token controls
+        passed. Exact expiry unknown; no natural expiration or revocation test.
+        Supplemental 2026-10-22 probe used cookie-free native curl and the real
+        Core parser; default 2026-3Q matched the phone exactly. Quarter 1/2/4
+        filter requests returned invalidparameter; the original eight-function
+        and file checks above retain their 2026-10-20 verification date.
+      evidence: docs/lms-api/verification.json
+
   - id: SCHOOL-LMS-PULL
     area: school
     title: Full LMS pull against a real account
@@ -338,11 +416,15 @@ checks:
           listed by the site but their answers were never probed. A silently
           empty mapping looks like "nothing to do" in Today.
       - action: |
-          Quit and restart the app, then pull the deadlines before opening any
-          school page.
+          Quit and restart the app, then pull courses, the default timetable
+          and deadlines before opening any school page. Repeat a background
+          wake with Cookie/browser ports unavailable, and compare cached
+          historical quarters before and after the default-grid update.
         reason: |
-          The token survives the restart while the web session does not; the
-          pull must not wait for a WebView sign-in except for the timetable.
+          The token survives independently of the web session. Daily course
+          and timetable reads must reach the dashboard-block API without a
+          WebView sign-in, and a default-grid update must preserve historical
+          quarter data.
       - action: |
           Replace the keychain item's token with a random 32-character value and
           pull again.
@@ -373,6 +455,8 @@ checks:
       parsing and mapping are covered by the net::moodle unit tests.
     covers:
       - crates/isct-core/src/net/moodle/mod.rs
+      - crates/isct-core/src/net/moodle/reader.rs
+      - crates/isct-core/src/net/moodle/mapping.rs
       - crates/isct-core/src/net/moodle/token.rs
       - crates/isct-core/src/net/moodle/rest.rs
       - crates/isct-core/src/net/moodle/ajax.rs
@@ -1925,6 +2009,16 @@ checks:
           for a run without a total, or a sheet whose LMS and 教務Web rows
           disagree with the desktop footer, means the shell stopped following
           Core.
+      - action: |
+          On an iPhone with a working LMS token, let the LMS browser session
+          expire while retaining the school portal sign-in. Reopen the app
+          and refresh 今日 without first visiting LMS in the ウェブ tab.
+        reason: |
+          Token reads can still update assignments while the course list's
+          timetable read needs a fresh Moodle session. Recovery must enter
+          LMS after the portal check; the LMS source must finish without a
+          persistent "Could not update LMS" retry even though other reads
+          succeeded. Real SSO redirects and WebKit cookies need a signed phone.
       - action: |
           On iOS, open a course from a timetable block, switch to 資料 and open
           a PDF; then tap the timetable title, pick another quarter's chip and
@@ -3539,9 +3633,9 @@ checks:
     persona: careless-multidevice
     preconditions: |
       The released (Developer ID) Mac app and the iPhone app, both signed with
-      the team that owns `iCloud.app.isctcompanion`, on one Apple Account. The
-      iPhone build carries the Production container environment, so both read
-      the same CloudKit database.
+      the team that owns `iCloud.app.isctcompanion`, on one Apple Account. Both
+      builds carry the Production container environment, so both read the same
+      CloudKit database; `codesign -d --entitlements - <app>` on each shows it.
     steps:
       - action: |
           On the Mac, Settings → Backup: turn on iCloud and Upload. On the
@@ -3563,6 +3657,22 @@ checks:
           merge. Losing either edit means a write replaced a record it had not
           read.
       - action: |
+          Turn on Sync automatically on both. Add a plan on the Mac and Upload,
+          then force-quit the iPhone app and open it again without pressing
+          Pull.
+        reason: |
+          Automatic mode pulls once per launch; a phone that is only read never
+          uploads, so this is the only way it sees the Mac's edits. The plan
+          missing after the relaunch means the launch pull did not run or read
+          another database.
+      - action: |
+          Sign out of iCloud on the iPhone (Settings › Apple Account), reopen
+          バックアップ, then sign back in.
+        reason: |
+          The provider line must name the reason under the generic failure
+          text. Only the generic text means the error is being hidden again,
+          which is what made sync failures impossible to tell apart.
+      - action: |
           On the iPhone, open 以前のバージョン and restore one; then export a
           backup file on the Mac and import it on the phone with 読み込む….
         reason: |
@@ -3572,9 +3682,10 @@ checks:
       The Backup pages on both devices (provider line, versions, recovery
       files) and the records themselves on each.
     expected: |
-      Each device shows the other's changes after a Pull, both concurrent edits
-      survive, the version list names both devices, and a restore or import on
-      the phone reaches the Mac with a recovery file kept on each.
+      Each device shows the other's changes after a Pull, and the phone after a
+      relaunch in automatic mode; both concurrent edits survive, a failure names
+      its reason, the version list names both devices, and a restore or import
+      on the phone reaches the Mac with a recovery file kept on each.
     why_manual: |
       CloudKit needs a signed build, an iCloud account and a device; the
       merge, tag-conditional write and journal behind it are covered by
@@ -3584,6 +3695,57 @@ checks:
       - apps/ios/IsctCompanion/Core/CloudKitStore.swift
       - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
       - apps/desktop/src-tauri/src/icloud.rs
+      - apps/desktop/src-tauri/Entitlements.plist
+      - apps/desktop/src/pages/settings/BackupSettings.tsx
+    verified: null
+
+  - id: DESKTOP-DEBUG-ICLOUD
+    area: cloud
+    title: A debug bundle has iCloud exactly when this Mac can sign it
+    persona: careless-multidevice
+    preconditions: |
+      A Mac whose keychain holds an Apple Development identity of team
+      FB7AL944GK and whose Xcode has downloaded that team's Mac profile for
+      `app.isctcompanion` listing this Mac (Xcode › Settings › Accounts ›
+      Download Manual Profiles).
+    steps:
+      - action: |
+          Run `yarn tauri build --debug` and read the line that starts with
+          "Debug bundle:".
+        reason: |
+          It must say the bundle is signed with the Apple Development profile.
+          "ad-hoc" on this Mac means the profile or identity was not matched,
+          and the build would have no iCloud.
+      - action: |
+          Open target/debug/bundle/macos/IsctCompanion.app, then Settings →
+          Backup.
+        reason: |
+          The iCloud row must be there and sync without a crash. A launch that
+          dies with SIGILL means iCloud was compiled in but the bundle lacks
+          the entitlement, so build.rs and the signing step disagree.
+      - action: |
+          Move the profile out of ~/Library/Developer/Xcode/UserData/Provisioning
+          Profiles, build again, open the bundle, then put the profile back.
+        reason: |
+          Without a profile the line must say ad-hoc, Backup must show no
+          iCloud row, and the app must still start: a debug build on a Mac
+          without a developer account stays usable.
+    observe: |
+      The build output, the Backup page of each bundle, and
+      `codesign -d --entitlements - target/debug/bundle/macos/IsctCompanion.app`.
+    expected: |
+      With the profile: signed by the Apple Development identity, entitlements
+      include the Production iCloud environment, and iCloud syncs. Without it:
+      ad-hoc, no iCloud row, no crash.
+    why_manual: |
+      It depends on this Mac's keychain identities, its downloaded profiles and
+      a real codesign run, none of which exist on CI; that the iCloud switch
+      and history survive a build without iCloud is unit-tested in
+      `unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_return`.
+    covers:
+      - scripts/desktop/macos-signing.mjs
+      - scripts/desktop/tauri.mjs
+      - apps/desktop/src-tauri/build.rs
     verified: null
 
   - id: IOS-LOG-EXPORT

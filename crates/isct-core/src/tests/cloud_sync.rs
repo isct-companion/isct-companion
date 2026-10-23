@@ -54,6 +54,14 @@ fn manual_is_quiet_auto_queues_each_save_and_pull_does_not_echo() {
     journal.state.providers[0].last_synced_at =
         Some((now - chrono::Duration::hours(1)).to_rfc3339());
     assert!(journal.upload_due(CloudProvider::GoogleDrive, now));
+    // A pull a minute ago must not postpone an upload that is an hour old.
+    journal.state.providers[0].last_synced_at =
+        Some((now - chrono::Duration::seconds(60)).to_rfc3339());
+    journal.uploaded_at.insert(
+        CloudProvider::GoogleDrive,
+        (now - chrono::Duration::hours(1)).to_rfc3339(),
+    );
+    assert!(journal.upload_due(CloudProvider::GoogleDrive, now));
 }
 
 #[test]
@@ -134,23 +142,64 @@ fn unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_retu
     store
         .change(|journal| journal.enqueue(document(1), Direction::Upload))
         .unwrap();
+    // The person turned iCloud off after it had synced once.
+    let synced = "2026-10-20T09:00:00+00:00".to_string();
+    store
+        .change(|journal| {
+            let icloud = journal
+                .state
+                .providers
+                .iter_mut()
+                .find(|row| row.provider == CloudProvider::Icloud)
+                .unwrap();
+            icloud.enabled = false;
+            icloud.last_synced_at = Some(synced.clone());
+            journal.state.versions.push(CloudVersion {
+                id: "icloud:1".into(),
+                provider: CloudProvider::Icloud,
+                saved_at: synced.clone(),
+                device: "mac".into(),
+                version: version(&document(1)).unwrap(),
+            });
+            Ok(())
+        })
+        .unwrap();
     drop(store);
     let debug = JournalStore::open(legacy.clone(), &[CloudProvider::GoogleDrive], &[]).unwrap();
     let state = debug.read(Journal::public_state).unwrap();
     assert_eq!(state.providers.len(), 1);
+    assert!(state.versions.is_empty());
     assert_eq!(state.tasks[0].deliveries.len(), 1);
     assert_eq!(
         state.tasks[0].deliveries[0].provider,
         CloudProvider::GoogleDrive
     );
     drop(debug);
-    let release = JournalStore::open(legacy, &providers, &providers).unwrap();
+    let release = JournalStore::open(legacy.clone(), &providers, &providers).unwrap();
     let state = release.read(Journal::public_state).unwrap();
-    assert!(state
+    let icloud = state
+        .providers
+        .iter()
+        .find(|provider| provider.provider == CloudProvider::Icloud)
+        .unwrap();
+    assert!(
+        !icloud.enabled,
+        "a build without iCloud must not turn it back on for the build with it"
+    );
+    assert_eq!(icloud.last_synced_at, Some(synced));
+    assert_eq!(state.versions.len(), 1);
+    assert_eq!(state.tasks[0].deliveries.len(), 1);
+    drop(release);
+    // A provider no journal has seen still starts with its default.
+    let _ = std::fs::remove_dir_all(legacy.parent().unwrap());
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    let fresh = JournalStore::open(legacy, &providers, &[]).unwrap();
+    assert!(fresh
+        .read(Journal::public_state)
+        .unwrap()
         .providers
         .iter()
         .any(|provider| provider.provider == CloudProvider::Icloud && provider.enabled));
-    assert_eq!(state.tasks[0].deliveries.len(), 1);
 }
 
 #[test]
@@ -491,15 +540,19 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
     assert_eq!(
         fixture.transport.pushes.load(Ordering::SeqCst),
         1,
-        "restart must preserve the hour limit"
+        "restart must preserve the hour limit, even after its launch pull"
     );
+    assert_eq!(fixture.transport.reads.load(Ordering::SeqCst), reads + 1);
+    let reads = reads + 1;
     fixture
         .sync
         .0
         .journal
         .change(|journal| {
-            journal.state.providers[0].last_synced_at =
-                Some((chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339());
+            journal.uploaded_at.insert(
+                CloudProvider::GoogleDrive,
+                (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339(),
+            );
             Ok(())
         })
         .unwrap();
@@ -534,8 +587,10 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
         .0
         .journal
         .change(|journal| {
-            journal.state.providers[0].last_synced_at =
-                Some((chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339());
+            journal.uploaded_at.insert(
+                CloudProvider::GoogleDrive,
+                (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339(),
+            );
             Ok(())
         })
         .unwrap();
@@ -551,7 +606,9 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
         .0
         .journal
         .change(|journal| {
-            journal.state.providers[0].last_synced_at = Some(chrono::Utc::now().to_rfc3339());
+            journal
+                .uploaded_at
+                .insert(CloudProvider::GoogleDrive, chrono::Utc::now().to_rfc3339());
             Ok(())
         })
         .unwrap();
@@ -564,6 +621,72 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
         .unwrap();
     assert_eq!(fixture.transport.pushes.load(Ordering::SeqCst), 3);
     fixture.sync.shutdown().await;
+}
+
+/// A device that only reads (a phone opened to check the timetable) never
+/// uploads, so without a launch pull it would never see the Mac's edits.
+#[tokio::test]
+async fn automatic_launch_pulls_other_devices_changes_once_and_manual_launch_does_not() {
+    let mac = Fixture::new("launch-mac");
+    let automatic = |fixture: &Fixture| {
+        fixture
+            .sync
+            .0
+            .journal
+            .change(|journal| {
+                journal.state.automatic = true;
+                Ok(())
+            })
+            .unwrap()
+    };
+    let mut phone = Fixture::new("launch-phone");
+    phone.transport = mac.transport.clone();
+    automatic(&phone);
+    // No cloud copy yet: quiet, and no workspace id the Mac's copy would then conflict with.
+    let state = phone.sync.resume(phone.services()).await.unwrap();
+    assert!(state.providers[0].error.is_none());
+    assert!(phone
+        .sync
+        .0
+        .journal
+        .read(|journal| journal.workspace_id.clone())
+        .unwrap()
+        .is_none());
+
+    mac.add_plan("from mac");
+    mac.sync
+        .sync(mac.services(), Direction::Upload)
+        .await
+        .unwrap();
+    phone.sync.resume(phone.services()).await.unwrap();
+    assert!(
+        phone.store.user_rows("plans").unwrap().is_empty(),
+        "only the first pass of a launch pulls"
+    );
+
+    phone.sync.shutdown().await;
+    phone.sync = CloudSync::new(
+        phone.root.join("cloud.json"),
+        &[CloudProvider::GoogleDrive],
+        &[CloudProvider::GoogleDrive],
+    )
+    .unwrap();
+    let pushes = mac.transport.pushes.load(Ordering::SeqCst);
+    phone.sync.resume(phone.services()).await.unwrap();
+    assert_eq!(phone.store.user_rows("plans").unwrap().len(), 1);
+    assert_eq!(
+        mac.transport.pushes.load(Ordering::SeqCst),
+        pushes,
+        "a pull that leaves this device level with the cloud uploads nothing"
+    );
+
+    let mut manual = Fixture::new("launch-manual");
+    manual.transport = mac.transport.clone();
+    manual.sync.resume(manual.services()).await.unwrap();
+    assert!(manual.store.user_rows("plans").unwrap().is_empty());
+    phone.sync.shutdown().await;
+    mac.sync.shutdown().await;
+    manual.sync.shutdown().await;
 }
 
 #[tokio::test]

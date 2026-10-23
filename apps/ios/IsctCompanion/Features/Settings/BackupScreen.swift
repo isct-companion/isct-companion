@@ -104,7 +104,7 @@ struct BackupScreen: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t("Sync automatically"))
                         Text(state?.automatic == true
-                            ? t("Only changed content is uploaded, at most once per hour.")
+                            ? t("Pulls other devices' changes at launch. Changed content is uploaded at most once per hour.")
                             : t("Upload and pull by hand"))
                             .font(.subheadline).foregroundStyle(Theme.muted)
                     }
@@ -131,8 +131,10 @@ struct BackupScreen: View {
 
     private var providerDetail: String? {
         guard let icloud, icloud.enabled else { return nil }
-        if icloud.error != nil {
-            return t("Could not update this cloud copy. Your data is saved on this device.")
+        // The provider's own reason (signed out, another workspace, offline):
+        // without it every failure looks the same.
+        if let error = icloud.error {
+            return t("Could not update this cloud copy. Your data is saved on this device.") + "\n" + error
         }
         return icloud.lastSyncedAt.map { t("Synced {{date}}", ["date": Format.due($0)]) }
             ?? t("Waiting for the first sync")

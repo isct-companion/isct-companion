@@ -1,12 +1,12 @@
 use super::{
-    CloudProvider, CloudSyncError, Delivery, DeliveryStatus, Direction, ProviderState, SyncState,
-    Task,
+    CloudProvider, CloudSyncError, CloudVersion, Delivery, DeliveryStatus, Direction,
+    ProviderState, SyncState, Task,
 };
 use crate::data::cloud_merge;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{path::PathBuf, sync::Mutex};
+use std::{collections::HashMap, path::PathBuf, sync::Mutex};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub(super) struct Job {
@@ -28,6 +28,16 @@ pub(super) struct Journal {
     pub(super) workspace_id: Option<String>,
     #[serde(default)]
     pub(super) pending_apply: Option<Value>,
+    /// Rows and history of providers this binary cannot run. An unsigned macOS
+    /// debug build has no iCloud but shares the journal with the signed app.
+    #[serde(default)]
+    pub(super) parked_providers: Vec<ProviderState>,
+    #[serde(default)]
+    pub(super) parked_versions: Vec<CloudVersion>,
+    /// Last confirmed upload per provider. The hourly automatic-upload limit
+    /// counts from here, so a pull does not postpone the next upload.
+    #[serde(default)]
+    pub(super) uploaded_at: HashMap<CloudProvider, String>,
 }
 
 impl Journal {
@@ -194,11 +204,17 @@ impl Journal {
         provider: CloudProvider,
         now: chrono::DateTime<chrono::Utc>,
     ) -> bool {
-        self.state
-            .providers
-            .iter()
-            .find(|row| row.provider == provider)
-            .and_then(|row| row.last_synced_at.as_deref())
+        // Journals from before `uploaded_at` only know the last sync of any kind.
+        self.uploaded_at
+            .get(&provider)
+            .map(String::as_str)
+            .or_else(|| {
+                self.state
+                    .providers
+                    .iter()
+                    .find(|row| row.provider == provider)
+                    .and_then(|row| row.last_synced_at.as_deref())
+            })
             .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
             .is_none_or(|last| {
                 now.signed_duration_since(last).num_seconds() >= super::SNAPSHOT_INTERVAL_SECONDS
@@ -215,6 +231,43 @@ impl Journal {
                 }
             }
         }
+    }
+
+    /// Moves rows and history between the live state and the parked lists, so
+    /// a build without a provider neither shows it nor forgets it: the build
+    /// that has it again finds its switch, acknowledgement and history unchanged.
+    fn park(&mut self, supported: &[CloudProvider]) {
+        for row in std::mem::take(&mut self.parked_providers) {
+            if !supported.contains(&row.provider) {
+                self.parked_providers.push(row);
+            } else if !self
+                .state
+                .providers
+                .iter()
+                .any(|r| r.provider == row.provider)
+            {
+                self.state.providers.push(row);
+            }
+        }
+        for version in std::mem::take(&mut self.parked_versions) {
+            if !supported.contains(&version.provider) {
+                self.parked_versions.push(version);
+            } else if !self.state.versions.contains(&version) {
+                self.state.versions.push(version);
+            }
+        }
+        let (rows, parked): (Vec<_>, Vec<_>) = std::mem::take(&mut self.state.providers)
+            .into_iter()
+            .partition(|row| supported.contains(&row.provider));
+        self.state.providers = rows;
+        self.parked_providers
+            .retain(|row| !parked.iter().any(|p| p.provider == row.provider));
+        self.parked_providers.extend(parked);
+        let (versions, parked): (Vec<_>, Vec<_>) = std::mem::take(&mut self.state.versions)
+            .into_iter()
+            .partition(|version| supported.contains(&version.provider));
+        self.state.versions = versions;
+        self.parked_versions.extend(parked);
     }
 
     pub(super) fn public_state(&self) -> SyncState {
@@ -275,16 +328,9 @@ impl JournalStore {
             }
         };
         journal.recover();
-        journal
-            .state
-            .providers
-            .retain(|provider| supported.contains(&provider.provider));
+        journal.park(supported);
         // A provider absent from this binary cannot execute. Drop only its
         // transport deliveries, preserving documents/recovery files and other receipts.
-        journal
-            .state
-            .versions
-            .retain(|version| supported.contains(&version.provider));
         for job in &mut journal.jobs {
             job.task
                 .deliveries
