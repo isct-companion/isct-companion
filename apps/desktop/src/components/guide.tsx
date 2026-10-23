@@ -92,10 +92,13 @@ export function WelcomeSheet({
   settings,
   update,
   connected,
+  held = false,
   openAccounts,
   openAgents,
 }: {
   settings: Workspace["settings"];
+  /** Another first-run dialog (the data notice) comes first. */
+  held?: boolean;
   update: (f: (d: Workspace) => Workspace) => void;
   connected: boolean;
   openAccounts: () => void;
@@ -113,7 +116,7 @@ export function WelcomeSheet({
     });
   return (
     <Modal
-      opened={guide.welcome !== true}
+      opened={guide.welcome !== true && !held}
       onClose={close}
       title={t("Welcome to IsctCompanion")}
       centered

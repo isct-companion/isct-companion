@@ -1514,8 +1514,10 @@ describe("First school connection", () => {
   });
 
   it("greets a first launch with both language choices, applies them live and stays closed", async () => {
+    const workspace = workspaceFixture();
+    delete workspace.settings.dataNoticeAcknowledgedAt;
     const options = shellOptions({
-      workspace: workspaceFixture(),
+      workspace,
       apply: (intent, core) => {
         if (intent.kind === "replaceSettings")
           core.publish(
@@ -1528,6 +1530,24 @@ describe("First school connection", () => {
       },
     });
     app = await mountShell(options, { route: paths.home(), guide: true });
+    // The data notice comes first; the welcome sheet waits behind it.
+    const notice = await until(() => {
+      const dialogs = [
+        ...document.querySelectorAll<HTMLElement>('[role="dialog"]'),
+      ];
+      expect(dialogs.map((dialog) => dialog.textContent).join()).toContain(
+        "Before you rely on this data",
+      );
+      expect(dialogs.map((dialog) => dialog.textContent).join()).not.toContain(
+        "Welcome to IsctCompanion",
+      );
+      return dialogs[0];
+    });
+    await click(
+      [...notice.querySelectorAll("button")].find(
+        (button) => button.textContent === "I understand",
+      ),
+    );
     const sheet = await until(() => {
       const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
       expect(dialog?.textContent).toContain("Welcome to IsctCompanion");

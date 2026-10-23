@@ -1306,9 +1306,8 @@ export function WorkspaceApp() {
       <WelcomeSheet
         settings={data.settings}
         update={update}
-        connected={
-          scienceSession === "active" || tokyoTechSession === "active"
-        }
+        connected={scienceSession === "active" || tokyoTechSession === "active"}
+        held={!readOnly && !data.settings.dataNoticeAcknowledgedAt}
         openAccounts={() => void navigate(paths.settings("accounts"))}
         openAgents={() => void navigate(paths.settings("agent"))}
       />
