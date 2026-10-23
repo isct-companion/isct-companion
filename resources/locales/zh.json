@@ -1240,8 +1240,6 @@
   "Find another class time": "找其他上课时间",
   "Show the first conflict": "查看第一个冲突",
   "Conflicts: {{count}}": "{{count}} 个时间冲突",
-  "Bring your card closer until the Matrix is framed. Capture ends when every cell has enough clear images, or after eight seconds.": "请将卡片靠近镜头，使 Matrix 进入边框。每格清晰画面足够后自动结束采集，最长等待 8 秒。",
-  "Capturing Matrix… {{count}}/70 cells ready.": "正在采集 Matrix… {{count}}/70 格画面已备齐。",
   "Processing Matrix… You can put your card down.": "正在识别 Matrix… 可以放下卡片了。",
   "Matrix processing progress": "Matrix 识别进度",
   "Look for an export QR code in your authenticator. If it cannot export, reset App Authentication in the school account settings.": "查看验证器是否提供导出二维码；如果不能导出，可以到学校账号设置中重新设置 App Authentication。",
@@ -1587,5 +1585,7 @@
   "Setup link or secret": "设置链接或密钥",
   "Not registered yet? The desktop app registers with the school for you.": "还没注册？桌面版应用可以替你完成学校注册。",
   "Swipe to change weeks": "左右滑动切换周",
-  "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "长按课程可标记为考试或停课，长按“课表”标签可导出本学期。"
+  "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "长按课程可标记为考试或停课，长按“课表”标签可导出本学期。",
+  "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.": "请保持 Matrix 在框内并尽量拿稳。全部格子确认后完成识别，最多用时七秒。",
+  "Recognizing Matrix… {{count}}/70 cells confirmed.": "正在识别 Matrix… 已确认 {{count}}/70 格。"
 }

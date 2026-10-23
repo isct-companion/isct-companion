@@ -1240,8 +1240,6 @@
   "Find another class time": "別の時間を探す",
   "Show the first conflict": "最初の重複を表示",
   "Conflicts: {{count}}": "重複 {{count}} 件",
-  "Bring your card closer until the Matrix is framed. Capture ends when every cell has enough clear images, or after eight seconds.": "Matrix が枠に収まるようカードを近づけてください。全マスの鮮明な画像がそろうと撮影が終わります。最長 8 秒です。",
-  "Capturing Matrix… {{count}}/70 cells ready.": "Matrix を撮影中… {{count}}/70 マスの画像がそろいました。",
   "Processing Matrix… You can put your card down.": "Matrix を認識中… カードを下ろして大丈夫です。",
   "Matrix processing progress": "Matrix の認識状況",
   "Look for an export QR code in your authenticator. If it cannot export, reset App Authentication in the school account settings.": "認証アプリにエクスポート用QRコードがあるか確認してください。対応していない場合は、大学のアカウント設定で App Authentication を再設定できます。",
@@ -1587,5 +1585,7 @@
   "Setup link or secret": "設定リンク・秘密鍵",
   "Not registered yet? The desktop app registers with the school for you.": "まだ登録していない場合は、デスクトップアプリが大学への登録を代わりに行います。",
   "Swipe to change weeks": "左右にスワイプで週を切り替え",
-  "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "授業を長押しすると試験や休講にでき、時間割タブを長押しするとこのクォーターを書き出せます。"
+  "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "授業を長押しすると試験や休講にでき、時間割タブを長押しするとこのクォーターを書き出せます。",
+  "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.": "Matrix を枠内に収め、動かさずに保持してください。全セルの確認後、または開始から7秒以内に終了します。",
+  "Recognizing Matrix… {{count}}/70 cells confirmed.": "Matrix を認識中… {{count}}/70 セル確認済み。"
 }

@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 81 checks must be re-run before the next release.**
+**7 of 82 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**72 checks have never been run or could not be run:**
+**73 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -40,6 +40,7 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-ONEDRIVE-WRITE` — never verified
 - `CLOUD-RESILIENCE` — never verified
+- `OCR-CAMERA-GEOMETRY` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
@@ -121,6 +122,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
+| `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/isct-ocr/src/engine/grid/**<br>crates/isct-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
@@ -1055,23 +1057,26 @@ camera or a photo of the card.
    and bring the real card toward the camera. Check that one red outline
    follows the Matrix, with no cell boxes or letter overlays. Move the
    card, introduce glare, then briefly hold it steady with labels visible.
-   Observe the per-cell acquisition coverage. The camera must stop as
-   soon as every cell has enough clear candidates, or within eight seconds
-   of the first detected Matrix; waiting before detection does not count.
-   After acquisition, the dialog closes, the camera indicator turns off,
-   and inline processing progress appears. Put the card down and verify
-   results arrive; insufficient votes must be highlighted for review.
+   Observe per-cell recognition progress while the camera remains live.
+   Recognition and acquisition must overlap. The camera stops after all
+   cells pass a fresh confirmation sweep, or seven seconds after starting
+   the session, including time without a detected Matrix. Confirmed cells
+   must reopen when a clear new observation contradicts them.
+   On completion the dialog closes and the camera indicator turns off;
+   insufficient votes must be highlighted for review.
    Repeat with the card rotated 90, 180 and 270 degrees. Each orientation
    must keep the same cell order. If processing produces no readable
    letters, it must show a retryable error without reopening the stopped
    camera or returning to a 70/70 capture loop.
-   Inspect matrix-scan/latest.json under the app cache for separate
-   acquisition/processing times, per-cell candidate and qualified-vote
+   Inspect matrix-scan/latest.json under the app cache for elapsed session
+   time and overlapping OCR busy time, per-cell candidate and qualified-vote
    counts. Use an optimized build and move the framed card continuously:
-   the red outline must update at least 10 times per second (30 preferred).
+   the red outline must update at least 15 times per second (30 preferred).
    Check frameMs and frames/elapsedMs alongside the visible tracking;
    a smoothly interpolated stale outline does not count as a new detection.
-   Compare all 70 letters with the real card.
+   Compare all 70 letters with the real card, including Q tails near row
+   boundaries. Repeat under warm and cool lighting and with faint row
+   colors; weak color contrast must still allow luminance localization.
    - *Why:* OS camera permissions, native WebView video capture, optical focus,
      and the alignment of recognition boxes over a physical card require
      real hardware. Scripted frames cannot validate these surfaces.
@@ -1082,7 +1087,7 @@ camera or a photo of the card.
    bright reflection over the same letters until the deadline and check
    that erased strokes remain marked for review rather than accepted.
    Include a white card background and modest hand movement.
-   After closing each session, inspect core.geometryFrames,
+   After closing each session, inspect core.keyframes,
    core.admissionRejections and core.glareRejections in
    matrix-scan/latest.json, then compare all accepted letters with the card.
    - *Why:* Real camera exposure, sensor noise and specular reflections can differ
@@ -1137,6 +1142,79 @@ OCR runtime, so the target must be chosen deliberately.
 67 expected cells recognised, no wrong accepted cells; private image not committed.
 
 Evidence: `docs/verification/core-consolidation.md#automated-acceptance`
+
+### Camera outline follows the card on the frame it was fitted on (`OCR-CAMERA-GEOMETRY`)
+
+**Area** ocr · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A debug or optimized desktop build with OCR on an Apple Silicon Mac or a
+supported Windows PC, a built-in or USB camera, and a disposable or own
+Matrix card. For the recording step, a new empty local directory.
+
+**Steps**
+
+1. Open Scan with camera and bring the card into view, then move it
+   steadily across the frame, tilt it about 30 degrees and turn it
+   upside down. Watch the red outline against the printed grid.
+   - *Why:* The picture shown is the analysed frame and the outline is fitted on
+     that same frame. A lag here would show the outline trailing the card;
+     an indexing error would put it one row or column off the A-J / 1-7
+     labels, or outline a mirrored grid after the card is turned.
+2. Hold the card still, then move it away until it is lost and bring it
+   back. Also cover the J column with a finger and partly shadow it.
+   - *Why:* Tracking must hand over to detection when the grid is lost and pick
+     it up again within about half a second; a partly covered edge must
+     not produce an outline squeezed onto the visible columns.
+3. Close the session and open matrix-scan/latest.json. Check that
+   core.frames lists every analysed frame (located or not), that
+   capture.timeline pairs each frameId with boundsFrameId equal to it
+   and paintedMediaMs equal to mediaMs, and that core.keyframes is
+   several per second of steady framing.
+   - *Why:* The report separates processing rate (frames per second analysed),
+     localisation rate (located / analysed) and draw latency (painted -
+     captured); a mismatch between boundsFrameId and frameId would mean an
+     old outline was drawn over a newer picture.
+4. Launch a debug build with ISCT_MATRIX_RECORD_DIR set to the empty
+   directory, scan once, then run
+   `cargo run -p isct-ocr --release --features training-tools --example matrix_track_replay -- DIR/SESSION`
+   and `python scripts/ocr/matrix_track_report.py --frames DIR/SESSION --trace app=trace.jsonl --live LATEST_JSON --out REPORT`.
+   - *Why:* The recorded planes replay through the same tracker offline, so a
+     live problem can be reproduced, overlaid stage by stage and compared
+     with the in-app timeline.
+
+**Where to look**
+
+The camera dialog's picture and red outline, matrix-scan/latest.json
+under the app cache, and the replay report's summary.json and overlays.
+
+**Expected**
+
+The outline sits on the grid edges of the card in the picture it is drawn
+on, with the A1 corner at the A/1 labels in every orientation; it follows
+motion at the camera's frame rate without trailing, disappears when the
+grid is lost and returns within about half a second. latest.json shows
+every timeline entry's boundsFrameId equal to its frameId when located,
+and the replay reproduces the session's located frames.
+
+**Why this is manual**
+
+Camera latency, WebView canvas compositing and how the outline looks on a
+moving physical card need a camera and the native app; the geometry and
+tracker themselves are covered by the isct-ocr tests and replays.
+
+**Covers**
+
+- `crates/isct-ocr/src/engine/grid/**`
+- `crates/isct-ocr/src/engine/vendor/**`
+- `apps/desktop/src/platform/matrix-camera.ts`
+- `apps/desktop/src/components/MatrixCamera.tsx`
+- `apps/desktop/src-tauri/src/commands/matrix_camera.rs`
+
+**Last recorded** never run
 
 ### School WebView navigation, popups and download hand-off (`DESKTOP-SCHOOL-WEBVIEW`)
 

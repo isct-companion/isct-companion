@@ -24,6 +24,83 @@ use thiserror::Error;
 
 pub const MATRIX_CELLS: usize = 70;
 
+/// Projection of the original RGB cell into the alphabet model's one channel.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum MatrixGlyphProjection {
+    #[default]
+    Luma,
+    /// Diagnostic red-opponent projection; neutral paper loses ink contrast.
+    RedChroma,
+    /// RGB distance below the cell's upper-quartile paper color.
+    PaperDistance,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MatrixCaptureConfig {
+    pub glyph_projection: MatrixGlyphProjection,
+}
+
+/// One camera frame for the geometry loop: two row-major planes of one byte
+/// per pixel, Rec.601 luma and `clamp(R - G + 128, 0, 255)`. The R-G plane
+/// carries the pink/white row boundaries, which luma alone does not place
+/// reliably. `time` is the capture time in seconds, increasing.
+pub struct MatrixAnalysisFrame<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub luma: &'a [u8],
+    pub chroma: &'a [u8],
+    pub time: f64,
+}
+/// Owned analysis planes, e.g. of a decoded photo or recorded frame.
+pub struct MatrixAnalysisImage {
+    pub width: u32,
+    pub height: u32,
+    pub luma: Vec<u8>,
+    pub chroma: Vec<u8>,
+}
+impl MatrixAnalysisImage {
+    pub fn frame(&self, time: f64) -> MatrixAnalysisFrame<'_> {
+        MatrixAnalysisFrame {
+            width: self.width,
+            height: self.height,
+            luma: &self.luma,
+            chroma: &self.chroma,
+            time,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MatrixTrackMode {
+    /// No grid on this frame.
+    Lost,
+    /// Found from scratch and fitted.
+    Detected,
+    /// Refitted to the printed lines from the tracked prediction.
+    Refitted,
+    /// Followed from the previous frame by optical flow.
+    Tracked,
+}
+/// The geometry of one analysed frame, in that frame's normalized coordinates.
+pub struct MatrixTrack {
+    pub mode: MatrixTrackMode,
+    /// Body corners (A1 top-left, clockwise) as measured, for cropping.
+    pub body: Option<[[f64; 2]; 4]>,
+    /// Smoothed body corners, for drawing only.
+    pub display: Option<[[f64; 2]; 4]>,
+    /// The grid was fitted on this frame with a low residual: cells may be
+    /// cut from the full-resolution version of exactly this frame.
+    pub keyframe: bool,
+    /// Reprojection residual of this frame's fit, in cells.
+    pub residual: Option<f64>,
+    /// Gate that rejected this frame's fit, if one ran and failed.
+    pub reason: Option<&'static str>,
+    /// Body corners of each stage that ran (seed, fit, track), for replay.
+    pub stages: Vec<(&'static str, [[f64; 2]; 4])>,
+    pub elapsed_ms: f64,
+}
+
 /// One frame's readings and normalized cell corners (top-left clockwise).
 pub struct MatrixFrame {
     pub cells: Vec<Recognition>,
@@ -107,7 +184,10 @@ pub enum MatrixOcrError {
 }
 
 #[cfg(matrix_ocr)]
-pub use engine::{capture_matrix_frame, MatrixAlphabetService, MatrixOcrService};
+pub use engine::{
+    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_keyframe,
+    matrix_analysis_image, MatrixAlphabetService, MatrixOcrService, MatrixTracker,
+};
 #[cfg(all(matrix_ocr, feature = "training-tools"))]
 pub use engine::{
     capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
@@ -116,6 +196,38 @@ pub use engine::{
 #[cfg(not(matrix_ocr))]
 pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+pub fn capture_matrix_frame_configured(
+    _bytes: &[u8],
+    _config: MatrixCaptureConfig,
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+pub fn capture_matrix_keyframe(
+    _luma: &[u8],
+    _width: u32,
+    _height: u32,
+    _body: [[f64; 2]; 4],
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+pub fn matrix_analysis_image(_bytes: &[u8]) -> Result<MatrixAnalysisImage, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+#[derive(Default)]
+pub struct MatrixTracker(());
+#[cfg(not(matrix_ocr))]
+impl MatrixTracker {
+    pub fn track(
+        &mut self,
+        _frame: &MatrixAnalysisFrame<'_>,
+    ) -> Result<MatrixTrack, MatrixOcrError> {
+        Err(MatrixOcrError::Unavailable)
+    }
 }
 // The stubs keep a private field like the ONNX types, so callers build both
 // with `default()`; a unit struct would invite `Type` literals that only
