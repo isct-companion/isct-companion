@@ -31,6 +31,8 @@ name = "matrix_track_replay"
 required-features = ["training-tools"]
 
 [dependencies]
+# Core's Matrix capability trait is implemented here (src/vision.rs).
+isct-core = { path = "../isct-core" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
@@ -53,5 +55,3 @@ serde_json = { version = "1", optional = true }
 serde_json = "1"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
-# The replay profiler composes the actual scheduler with OCR; no production edge.
-isct-core = { path = "../isct-core" }

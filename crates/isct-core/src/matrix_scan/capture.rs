@@ -219,6 +219,84 @@ impl Acquisition {
         }
     }
 }
+fn validate(
+    quads: &[[MatrixPoint; 4]],
+    glyphs: &[MatrixCaptureGlyph],
+) -> Result<(), MatrixScanError> {
+    outline(quads)?;
+    if glyphs.len() != CELLS
+        || glyphs.iter().any(|g| {
+            g.gray.len() != GRAY_PIXELS
+                || !(0. ..=1.).contains(&g.centering)
+                || !(0. ..=1.).contains(&g.glare)
+                || [g.contrast, g.sharpness, g.source_size]
+                    .iter()
+                    .any(|v| !v.is_finite() || *v < 0.)
+        })
+    {
+        return Err(MatrixScanError::InvalidFrame(
+            "Expected 70 measured grayscale glyphs.".into(),
+        ));
+    }
+    Ok(())
+}
+fn usable(g: &MatrixCaptureGlyph) -> bool {
+    g.contrast >= MIN_CONTRAST
+        && g.sharpness >= MIN_SHARPNESS
+        && g.source_size >= MIN_SOURCE_SIZE
+        && g.centering >= MIN_CENTERING
+}
+/// Empty backgrounds can resemble a grid: a first frame needs character
+/// texture in half of its cells before anything it shows counts.
+fn admits(glyphs: &[MatrixCaptureGlyph]) -> bool {
+    glyphs.iter().filter(|g| usable(g)).count() >= CELLS / 2
+}
+/// A still photo is one keyframe of a session that never sees a second:
+/// the same validation, admission, glare gate and evidence vote as a live
+/// frame. Rejected cells stay blank for review; one reading cannot become
+/// `stable`, so every photo cell is checked against the card.
+pub fn read_matrix_photo(
+    cut: MatrixCut,
+    mut recognize: impl FnMut(&[Vec<u8>]) -> Result<Vec<MatrixReading>, MatrixScanError>,
+    mut progress: impl FnMut(usize, usize) -> bool,
+) -> Result<Vec<MatrixVote>, MatrixScanError> {
+    validate(&cut.quads, &cut.glyphs)?;
+    if !admits(&cut.glyphs) {
+        return Err(MatrixScanError::Unreadable(
+            "The letters are too small or blurred. Take a closer, focused photo of the grid."
+                .into(),
+        ));
+    }
+    let admitted: Vec<_> = cut
+        .glyphs
+        .into_iter()
+        .enumerate()
+        .filter(|(_, g)| g.glare <= MAX_GLARE && usable(g))
+        .collect();
+    let mut evidence = vec![CellEvidence::default(); CELLS];
+    // Progress counts settled cells out of 70; rejected cells settle at once.
+    let mut done = CELLS - admitted.len();
+    if !progress(done, CELLS) {
+        return Err(MatrixScanError::Ended);
+    }
+    for chunk in admitted.chunks(10) {
+        let images: Vec<_> = chunk.iter().map(|(_, g)| g.gray.clone()).collect();
+        let readings = recognize(&images)?;
+        if readings.len() != chunk.len() || readings.iter().any(|r| !valid_reading(r)) {
+            return Err(MatrixScanError::Backend(
+                "The recognizer returned an invalid batch.".into(),
+            ));
+        }
+        for ((cell, _), reading) in chunk.iter().zip(readings) {
+            evidence[*cell].collect(reading, 0, false);
+        }
+        done += chunk.len();
+        if !progress(done, CELLS) {
+            return Err(MatrixScanError::Ended);
+        }
+    }
+    Ok(evidence.iter().map(CellEvidence::vote).collect())
+}
 #[derive(Default)]
 pub struct MatrixCameraScanner {
     active: Option<(String, Acquisition)>,
@@ -274,21 +352,7 @@ impl MatrixCameraScanner {
             ));
         }
         if let Some(f) = &frame {
-            outline(&f.quads)?;
-            if f.glyphs.len() != CELLS
-                || f.glyphs.iter().any(|g| {
-                    g.gray.len() != GRAY_PIXELS
-                        || !(0. ..=1.).contains(&g.centering)
-                        || !(0. ..=1.).contains(&g.glare)
-                        || [g.contrast, g.sharpness, g.source_size]
-                            .iter()
-                            .any(|v| !v.is_finite() || *v < 0.)
-                })
-            {
-                return Err(MatrixScanError::InvalidFrame(
-                    "Expected 70 measured grayscale glyphs.".into(),
-                ));
-            }
+            validate(&f.quads, &f.glyphs)?;
         }
         s.last_observation = Some(now);
         s.expire(now);
@@ -308,13 +372,7 @@ impl MatrixCameraScanner {
             {
                 trace.keyframe = true;
             }
-            let usable = |g: &MatrixCaptureGlyph| {
-                g.contrast >= MIN_CONTRAST
-                    && g.sharpness >= MIN_SHARPNESS
-                    && g.source_size >= MIN_SOURCE_SIZE
-                    && g.centering >= MIN_CENTERING
-            };
-            if !s.admitted && frame.glyphs.iter().filter(|g| usable(g)).count() < CELLS / 2 {
+            if !s.admitted && !admits(&frame.glyphs) {
                 s.admission_rejections += 1;
                 return Ok(s.snapshot(now));
             }

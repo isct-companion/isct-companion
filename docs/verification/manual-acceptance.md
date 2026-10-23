@@ -121,7 +121,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
-| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
+| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ffi/src/matrix.rs<br>crates/isct-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/isct-ocr/src/engine/grid/**<br>crates/isct-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
@@ -1045,7 +1045,8 @@ Needs OS-level power transitions and a real provider session.
 **Preconditions**
 
 A supported desktop target with OCR, a physical campus card, and a
-camera or a photo of the card.
+camera or a photo of the card. For the phone steps: a TestFlight build
+on an iPhone and a CI-built APK on an arm64 Android phone.
 
 **Steps**
 
@@ -1101,11 +1102,33 @@ camera or a photo of the card.
    - *Why:* Verify the camera indicator switches off and permissions can recover
      in the signed native app; headless tests cannot observe OS resource
      release or the native privacy prompt.
-5. Review the recognised cells and compare them with the card.
+5. On the iPhone, open Settings → school account → Matrix card, choose
+   Scan with camera and allow camera access. Hold the real card in view.
+   The red outline must sit on the card in the drawn picture (not trail
+   behind it while you move), and the 7×10 grid below must fill in while
+   the camera is still live. On completion the screen closes, the camera
+   indicator turns off and the editor shows every cell tinted by
+   confidence. Repeat with the phone in landscape and with the card
+   upside down: the cell order must not change. Then import a photo of
+   the same card with From photo and compare both grids cell by cell.
+   Repeat all of this on the Android phone.
+   - *Why:* AVFoundation and CameraX capture, sensor rotation, the phone's optics
+     and the camera privacy indicator only exist on a signed app on real
+     hardware. Core tests drive the same session with scripted and decoded
+     frames (photo and YUV agree on one image); the native camera hand-off
+     and the drawn outline need a phone.
+6. On each phone, background the app during a camera scan and return;
+   the scan must have stopped with a message and Scan with camera must
+   start a fresh one. Revoke camera permission in system settings, then
+   choose Scan with camera: the denial message shows, and From photo and
+   Paste still work.
+   - *Why:* The OS permission prompt, lifecycle interruption and camera release
+     cannot be produced in headless tests.
+7. Review the recognised cells and compare them with the card.
    - *Why:* The contract is "no wrong accepted cell", not "most cells right". A
      misread cell that is accepted is worse than a rejected one, so the
      comparison has to be cell by cell.
-6. Correct a cell and save.
+8. Correct a cell and save.
    - *Why:* Confirms the manual correction path, which the fixtures never take.
 
 **Where to look**
@@ -1120,10 +1143,19 @@ corrected values are what get saved.
 **Why this is manual**
 
 Needs a physical card and a camera. Intel Mac builds ship without the
-OCR runtime, so the target must be chosen deliberately.
+OCR runtime, so the target must be chosen deliberately. The phone steps
+need signed iOS and Android builds with camera hardware.
 
 **Covers**
 
+- `crates/isct-ffi/src/matrix.rs`
+- `crates/isct-ffi/src/services.rs`
+- `apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift`
+- `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
+- `apps/android/app/src/main/AndroidManifest.xml`
+- `apps/desktop/src-tauri/src/commands/platform.rs`
 - `crates/isct-ocr/**`
 - `apps/desktop/src/lib/matrix-ocr.ts`
 - `crates/isct-core/src/matrix_scan.rs`

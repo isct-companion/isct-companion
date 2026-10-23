@@ -73,8 +73,9 @@ pub(crate) struct Inner {
     backup_directory: PathBuf,
     capabilities: Capabilities,
     browser_shutdown_error: Option<Arc<Mutex<Option<SdkError>>>>,
+    /// The Matrix driver every photo and camera scan goes through.
     #[cfg(feature = "ocr")]
-    pub scanner: isct_ocr::MatrixOcrService,
+    pub matrix: Arc<isct_core::matrix_scan::MatrixCameraDriver>,
 }
 impl Inner {
     /// The journal and its providers, when the shell installed a cloud store.
@@ -660,7 +661,9 @@ async fn initialize(
         capabilities,
         browser_shutdown_error,
         #[cfg(feature = "ocr")]
-        scanner: isct_ocr::MatrixOcrService::default(),
+        matrix: Arc::new(isct_core::matrix_scan::MatrixCameraDriver::new(
+            isct_ocr::matrix_vision(),
+        )),
     });
     inner.core.start(&Handle::current())?;
     Ok(inner)

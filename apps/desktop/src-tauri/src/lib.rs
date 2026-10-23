@@ -192,8 +192,7 @@ pub fn run() {
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
-        .manage(commands::matrix_camera::CameraScanner::default())
-        .manage(isct_ocr::MatrixAlphabetService::default())
+        .manage(commands::matrix_camera::MatrixScan::default())
         .manage(lms_downloader::SessionView::default())
         .manage(desktop_updates::DesktopUpdates::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
@@ -206,8 +205,6 @@ pub fn run() {
                 app.exit(0);
             }
         });
-    #[cfg(matrix_ocr)]
-    let builder = builder.manage(matrix_ocr::MatrixOcrService::default());
     builder
         .invoke_handler(tauri::generate_handler![
             commands::platform::check_app_update,

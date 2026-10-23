@@ -62,9 +62,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
+import app.isctcompanion.core.MatrixCameraSession
 import app.isctcompanion.core.MatrixConfidence
 import app.isctcompanion.core.OtpImportAccount
 import app.isctcompanion.core.OtpImportException
@@ -80,7 +80,6 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import java.io.ByteArrayOutputStream
-import java.io.File
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -300,13 +299,21 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
         }
     }
 
-    val shot = remember { File(context.cacheDir, "matrix/card.jpg") }
-    val shotUri = remember {
-        shot.parentFile?.mkdirs()
-        FileProvider.getUriForFile(context, "${context.packageName}.files", shot)
-    }
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
-        if (taken) scan(shotUri)
+    var live by remember { mutableStateOf<MatrixCameraSession?>(null) }
+    live?.let { session ->
+        MatrixCameraDialog(session) { result ->
+            live = null
+            // The final state of a live scan fills the same draft as a photo.
+            if (result != null && result.size == 70) {
+                result.forEachIndexed { index, cell ->
+                    cells[index] = cell.text
+                    confidence[index] = cell.confidence
+                }
+                publish()
+                editing = true
+                note = t("Check the coloured cells against your card.")
+            }
+        }
     }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let(::scan)
@@ -317,7 +324,13 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (canScan) {
-            SourceChip(t("Take photo"), Icons.Outlined.PhotoCamera, enabled = !reading) { camera.launch(shotUri) }
+            SourceChip(t("Scan with camera"), Icons.Outlined.PhotoCamera, enabled = !reading) {
+                error = null
+                note = null
+                runCatching { model.beginMatrixCamera() }
+                    .onSuccess { live = it }
+                    .onFailure { error = AppModel.describe(it) }
+            }
             SourceChip(t("From photo"), Icons.Outlined.Image, enabled = !reading) {
                 photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }

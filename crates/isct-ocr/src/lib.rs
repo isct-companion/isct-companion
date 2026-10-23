@@ -12,6 +12,8 @@
 )]
 
 mod recognition;
+mod vision;
+pub use vision::matrix_vision;
 
 #[cfg(matrix_ocr)]
 mod engine;
@@ -186,7 +188,8 @@ pub enum MatrixOcrError {
 #[cfg(matrix_ocr)]
 pub use engine::{
     capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_keyframe,
-    matrix_analysis_image, MatrixAlphabetService, MatrixOcrService, MatrixTracker,
+    matrix_analysis_image, matrix_picture, matrix_picture_from_yuv, MatrixAlphabetService,
+    MatrixOcrService, MatrixTracker,
 };
 #[cfg(all(matrix_ocr, feature = "training-tools"))]
 pub use engine::{
@@ -211,6 +214,18 @@ pub fn capture_matrix_keyframe(
     _height: u32,
     _body: [[f64; 2]; 4],
 ) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+pub fn matrix_picture(
+    _bytes: &[u8],
+) -> Result<isct_core::matrix_scan::MatrixPicture, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+pub fn matrix_picture_from_yuv(
+    _frame: &isct_core::matrix_scan::MatrixYuvFrame<'_>,
+) -> Result<isct_core::matrix_scan::MatrixPicture, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
 #[cfg(not(matrix_ocr))]
