@@ -205,8 +205,6 @@ export function CourseDetails({
                 <>
                   <dt>{t("Format")}</dt>
                   <dd>{offering.format.kinds.join(" / ") || "—"}</dd>
-                  <dt>{t("Offered by")}</dt>
-                  <dd>{offering.kyomu?.department || "—"}</dd>
                 </>
               )}
               {exams.length > 0 && (
