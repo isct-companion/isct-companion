@@ -9,7 +9,7 @@ fn english_names_from_the_english_page_survive_japanese_rereads() {
         "schedule":[{"kind":"weekly","day":1,"periods":[3,4],"room":{"ja":"M-B07"}}],
         "academicUnit":{},"intensive":false,
         "syllabusUrl":crate::catalog::syllabus_url("202602431", "ja"),"fetchedAt":{},
-        "kyomu":{"department":"情報工学系","group":"C","mark":"recommended","fetchedAt":"2026-10-16T00:00:00Z"}});
+        "kyomu":{"group":"C","mark":"recommended","fetchedAt":"2026-10-16T00:00:00Z"}});
     let english = json!({"id":"202602431","year":2026,"title":{"en":"Object-Oriented Programming"},
         "instructors":[{"en":"Yamada Taro"},{"en":"Suzuki Hanako"}]});
     let unknown =

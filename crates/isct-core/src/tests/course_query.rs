@@ -3,7 +3,7 @@ fn eligibility_offering(id: &str, code: &str) -> Value {
     json!({
         "id":id, "year":2026, "code":code, "quarters":["3Q"],
         "unitCode":"342300", "title":{"en":code}, "format":{"kinds":[]},
-        "kyomu":{"department":"情報工学系","group":"A","mark":"recommended"}
+        "kyomu":{"group":"A","mark":"recommended"}
     })
 }
 
@@ -352,8 +352,13 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
         request(json!(["400", "研究関連科目"]), "400"),
     )
     .unwrap();
-    assert!(view.context.recommended.is_empty());
-    // Official form choices match the stored row locally, with no guide marks.
+    // Only the row's own 教務 mark recommends, with no department chosen; the
+    // subscription's code never does.
+    assert_eq!(
+        view.context.recommended.keys().collect::<Vec<_>>(),
+        vec!["CSC.T401"]
+    );
+    // Official form choices match the stored row locally.
     assert_eq!(view.rows.len(), 1);
     workspace["kyomuSearchOptions"].as_array_mut().unwrap().extend([
         json!({"id":"graduate_level","value":"live-600","label":"600","family":"level"}),
@@ -384,7 +389,7 @@ fn official_filters_come_from_the_form_and_never_require_subscription_recommenda
     assert!(!view.suggestions.iter().any(
         |s| matches!(s, Suggestion::Condition{condition,..} if condition.r#type == "official-level")
     ));
-    assert!(view.context.recommended.is_empty());
+    assert!(!view.context.recommended.contains_key("FAKE.T400"));
     // A word that also names a department narrows the rows by text while it
     // is typed, and the department is still offered as a condition.
     let physics = json!({"id":"physics","year":2026,"code":"PHY.Q201","quarters":["3Q"],

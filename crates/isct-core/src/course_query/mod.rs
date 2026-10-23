@@ -1193,7 +1193,6 @@ pub struct FinderCatalog {
 }
 struct GuideRow {
     year: Option<u64>,
-    department: Option<String>,
     code: Option<String>,
     group: String,
     mark: Option<String>,
@@ -1209,10 +1208,6 @@ impl FinderCatalog {
                 }
                 Some(GuideRow {
                     year: r["year"].as_u64(),
-                    department: r
-                        .pointer("/kyomu/department")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
                     code: r.get("code").and_then(Value::as_str).map(str::to_string),
                     group: group.into(),
                     mark: r
@@ -1259,19 +1254,11 @@ impl FinderPersonal {
         term: &str,
     ) -> Result<Self, FinderError> {
         let planned = crate::study_profile::PlannedTerm::new(workspace, term);
-        let selected_department = workspace
-            .pointer("/settings/departmentId")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let department_name = department_name_ja(selected_department)?;
+        // 教務 marks each row for the signed-in student's own affiliation.
         let recommended = catalog
             .guide
             .iter()
-            .filter(|r| {
-                r.year == Some(u64::from(year))
-                    && department_name.is_some()
-                    && r.department == department_name
-            })
+            .filter(|r| r.year == Some(u64::from(year)))
             .filter(|r| {
                 planned.eligibility_of_code(r.code.as_deref()).status
                     != CourseEligibilityStatus::Ineligible

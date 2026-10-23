@@ -1612,11 +1612,6 @@ checks:
           The way out when the frame cannot be used; it must open the same
           page in the system browser.
       - action: |
-          Read the course page's 開講元 row.
-        reason: |
-          It shows the 教務 department of the offering now that no syllabus
-          detail is read.
-      - action: |
           Set Settings → content language to English, open 教務Web in the app
           and keep browsing it while the course search fills in English titles.
         reason: |
@@ -1634,10 +1629,9 @@ checks:
       pages in the app while English names arrive; the finder empty state.
     expected: |
       The school's syllabus page in all three places (English page with
-      `?hl=en` in English content), a working external link, the 教務
-      department as 開講元, English titles in the finder without the visible
-      教務 page ever turning English, and "Sign in to 教務 to search courses"
-      when signed out.
+      `?hl=en` in English content), a working external link, English titles
+      in the finder without the visible 教務 page ever turning English, and
+      "Sign in to 教務 to search courses" when signed out.
     why_manual: |
       Framing is decided by the live school site, and the English page and the
       detached session need a real 教務 sign-in; the URL and the planner rule
@@ -3126,6 +3120,36 @@ checks:
     covers:
       - apps/desktop/src/components/timetable/workspace.ts
       - apps/desktop/src/pages/today/CalendarView.tsx
+    verified: null
+
+  - id: DESKTOP-COURSE-OUTLINE-STILL
+    area: desktop
+    title: The course outline holds still where the app placed it
+    persona: undergraduate-senior
+    preconditions: |
+      The desktop app on Lectures › Assignments, with a lesson-paged course
+      that has an assignment card inside a lesson.
+    steps:
+      - action: Click that assignment in the list on the left ten times quickly.
+        reason: |
+          The first click brings the card into view; later clicks must not
+          move the outline at all. The section gravity used to pull the
+          app-placed outline a few pixels after each click and the next click
+          put it back, which looked like a twitch.
+      - action: Scroll the outline by hand to just past a lesson's start and let go.
+        reason: |
+          Gravity still pulls a scroll the person made; the fix must not
+          switch it off.
+    observe: The course outline on the right and its lesson rail.
+    expected: |
+      Repeated clicks leave the card exactly where it is; a hand scroll that
+      stops near a lesson boundary still settles onto it.
+    why_manual: |
+      Scroll positions and the spring after scrolling need real layout,
+      which jsdom does not compute; gravityTarget itself is pure and lives in
+      lessons.ts.
+    covers:
+      - apps/desktop/src/features/lms/LmsWorkspace.tsx
     verified: null
 
   - id: IOS-COURSE-LESSON-PAGING

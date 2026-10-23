@@ -193,24 +193,17 @@ type Offering = {
   year: number;
   quarters: Quarter[]; // "3～4Q" → ["3Q","4Q"]
   code: string; // "LAH.T209"
-  classCode?: string; // "53" from LAE.E213-53, 【1】 → "1"
   unitCode?: string; // 6-digit 開講元/科目区分 code from the syllabus path ("0-907-0-110100-0" → 110100 = 文系教養科目; "0-904-342300-0-0" → 342300 = 情報工学系). 教務Web uses the same category codes (resultUnit_{code}).
   title: Localized;
   instructors: Localized[];
   instructionLanguage: "ja" | "en" | "ja-en" | "other";
   format: {
     kinds: ("lecture" | "exercise" | "experiment")[]; // 講義 / 演習 / 実験等
-    delivery?: "face-to-face" | "livestream" | "blended" | "other"; // 対面型 / ライブ型 / ブレンド型 / その他
   };
-  media: Localized; // "-" in every sampled page; kept raw
-  classLabel?: string; // クラス: "E", "A2", "C11", … ("-" → absent)
   credits: Credits;
   schedule: ScheduleEntry[]; // [] when "-"
-  academicUnit: Localized; // 開講元
   intensive: boolean; // 集中講義等
   syllabusUrl: string; // canonical, without hl
-  sourceUpdated?: string; // ISO date parsed from "Mar 5, 2026" / "2026/03/05"
-  fetchedAt: Partial<Record<Lang, string>>;
 };
 
 /** Full syllabus text, one row per language. Sections share `key` across languages. */

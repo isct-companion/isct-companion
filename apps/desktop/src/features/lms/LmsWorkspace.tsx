@@ -431,7 +431,7 @@ export function LmsWorkspace({
             ? '[data-page="activities"]'
             : `[data-page="${id}"]`,
         ) ?? null);
-  const goLesson = (id: number, smooth = true) => {
+  const goLesson = (id: number) => {
     const host = outline.current;
     const target = pageElement(id);
     setPage(id);
@@ -441,10 +441,12 @@ export function LmsWorkspace({
     const state = pull.current;
     state.turning = target.offsetTop;
     state.motion?.cancel();
-    if (!smooth) {
-      host.scrollTop = target.offsetTop;
-      return;
-    }
+    // Only where the spring arrives counts as placed: a jump the person
+    // interrupts rests where they stopped it, and gravity pulls as usual.
+    state.placed = Math.min(
+      target.offsetTop,
+      Math.max(0, host.scrollHeight - host.clientHeight),
+    );
     state.motion = springScroll(host, target.offsetTop, {
       onDone: () => {
         state.turning = null;
@@ -463,11 +465,45 @@ export function LmsWorkspace({
     turning: null as number | null,
     rest: 0,
     motion: null as SpringScroll | null,
+    placed: null as number | null,
   });
+  // Where the app itself puts the outline (arriving, revealing an assignment,
+  // restoring the reading position) is where the person asked to be, so
+  // gravity pulls only an outline the person scrolled. Every programmatic
+  // placement of the outline goes through here.
+  const placeOutline = (apply: (host: HTMLDivElement) => void) => {
+    const host = outline.current;
+    if (!host) return;
+    const state = pull.current;
+    state.motion?.cancel();
+    clearTimeout(state.rest);
+    apply(host);
+    state.placed = host.scrollTop;
+  };
+  // An assignment already in full view stays where it is, so asking for it
+  // again never moves the outline.
+  const revealAssignment = (id: string) =>
+    placeOutline((host) => {
+      const card = host.querySelector<HTMLElement>(
+        `[data-assignment="${CSS.escape(id)}"]`,
+      );
+      if (!card) return;
+      const view = host.getBoundingClientRect();
+      const box = card.getBoundingClientRect();
+      if (box.height > 0 && box.top >= view.top && box.bottom <= view.bottom)
+        return;
+      card.scrollIntoView?.({
+        block: box.height > view.height ? "start" : "center",
+      });
+    });
   const pageRef = useRef(shownId);
   pageRef.current = shownId;
   const settleInto = (host: HTMLDivElement) => {
-    if (!paged || pull.current.turning != null) return;
+    const state = pull.current;
+    if (!paged || state.turning != null) return;
+    if (state.placed != null && Math.abs(host.scrollTop - state.placed) < 1)
+      return;
+    state.placed = null;
     const boundaries = [...host.querySelectorAll<HTMLElement>("[data-page]")]
       .slice(1)
       .map((element) => element.offsetTop);
@@ -478,7 +514,6 @@ export function LmsWorkspace({
       host.scrollHeight,
     );
     if (target == null) return;
-    const state = pull.current;
     state.motion?.cancel();
     state.motion = springScroll(host, target, {
       onDone: () => (state.motion = null),
@@ -619,11 +654,7 @@ export function LmsWorkspace({
   );
   const openAssignment = useCallback((a: Assignment) => {
     setViewing(false);
-    requestAnimationFrame(() =>
-      outline.current
-        ?.querySelector(`[data-assignment="${CSS.escape(a.id)}"]`)
-        ?.scrollIntoView?.({ block: "center" }),
-    );
+    requestAnimationFrame(() => revealAssignment(a.id));
   }, []);
   const openLink = useCallback(
     (url: string, title: string, anchor?: Element) => {
@@ -651,8 +682,11 @@ export function LmsWorkspace({
         (s) => s.id === source?.sectionId || s.number === source?.sectionNumber,
       );
       if (section) {
+        const key = `section:${section.id}`;
         setExpanded((previous) =>
-          previous.filter((id) => id !== `section:${section.id}`),
+          previous.includes(key)
+            ? previous.filter((id) => id !== key)
+            : previous,
         );
         if (lessons.some((l) => l.id === section.id)) {
           setFocusLesson(section.id);
@@ -663,43 +697,37 @@ export function LmsWorkspace({
       setOpenDetails((list) =>
         list.includes(assignment.id) ? list : [...list, assignment.id],
       );
-      openAssignment(assignment);
+      setViewing(false);
     }
     // No date→section association exists in the current importer. Resume the
     // real reading position rather than guessing the lesson from the week.
     const frame = requestAnimationFrame(() => {
       positionedRequest.current = entry.request;
-      if (outline.current) {
+      if (assignment) return revealAssignment(assignment.id);
+      placeOutline((host) => {
         const anchor = current.current.anchor;
         const element =
           anchor &&
-          [
-            ...outline.current.querySelectorAll<HTMLElement>(
-              "[data-reading-section]",
-            ),
-          ].find((el) => el.dataset.readingSection === anchor.id);
-        if (!assignment && element && anchor) {
-          const panel = outline.current.getBoundingClientRect();
+          [...host.querySelectorAll<HTMLElement>("[data-reading-section]")].find(
+            (el) => el.dataset.readingSection === anchor.id,
+          );
+        if (element && anchor) {
+          const panel = host.getBoundingClientRect();
           const rect = element.getBoundingClientRect();
-          outline.current.scrollTop +=
+          host.scrollTop +=
             rect.top -
             panel.top +
             rect.height * anchor.ratio -
             panel.height / 2;
-        } else if (!assignment && lessons.length && at) {
+        } else if (lessons.length && at) {
           // Arriving at a lesson course opens the page the course is at.
-          const page = outline.current.querySelector<HTMLElement>(
+          const page = host.querySelector<HTMLElement>(
             `[data-page="${at.id}"]`,
           );
-          outline.current.scrollTop = page?.offsetTop ?? 0;
+          host.scrollTop = page?.offsetTop ?? 0;
           setPage(at.id);
-        } else
-          outline.current.scrollTop = assignment ? 0 : current.current.scroll;
-      }
-      if (assignment)
-        outline.current
-          ?.querySelector(`[data-assignment="${CSS.escape(assignment.id)}"]`)
-          ?.scrollIntoView?.({ block: "nearest" });
+        } else host.scrollTop = current.current.scroll;
+      });
     });
     return () => cancelAnimationFrame(frame);
     // Explicit entrance only; refreshing content must never jump the reader.
@@ -759,10 +787,11 @@ export function LmsWorkspace({
     if (!element) return;
     const panel = host.getBoundingClientRect();
     const rect = element.getBoundingClientRect();
-    if (panel.height > 0 && rect.height > 0) {
-      host.scrollTop +=
-        rect.top - panel.top + rect.height * anchor.ratio - panel.height / 2;
-    }
+    if (panel.height > 0 && rect.height > 0)
+      placeOutline(() => {
+        host.scrollTop +=
+          rect.top - panel.top + rect.height * anchor.ratio - panel.height / 2;
+      });
   }, [Boolean(opened)]);
   const material =
     opened?.kind === "material"
