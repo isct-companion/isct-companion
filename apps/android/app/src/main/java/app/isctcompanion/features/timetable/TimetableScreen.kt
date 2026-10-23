@@ -28,8 +28,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +49,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -60,11 +64,10 @@ import app.isctcompanion.core.OccurrenceKind
 import app.isctcompanion.core.ScheduleView
 import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TeachingPeriod
+import app.isctcompanion.core.TimetableYear
 import app.isctcompanion.core.TodayPhase
 import app.isctcompanion.design.Format
-import app.isctcompanion.design.PageSubtitle
-import app.isctcompanion.design.TabPage
-import androidx.compose.material3.IconButton
+import app.isctcompanion.design.GuideTip
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.courseColor
 import app.isctcompanion.design.tabular
@@ -87,28 +90,27 @@ fun TimetableScreen() {
     val offset by animateFloatAsState(drag, label = "week drag")
     LaunchedEffect(Unit) { model.open(SyncView.Timetable) }
     LaunchedEffect(monday, model.contentRevision) { week = model.week(monday) }
+    var year by remember { mutableStateOf<TimetableYear?>(null) }
+    LaunchedEffect(monday, model.contentRevision) {
+        val number = model.academicYear(monday) ?: return@LaunchedEffect
+        if (year?.year != number || year?.quarters?.isEmpty() == true) model.timetableYear(number)?.let { year = it }
+    }
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
 
-    TabPage(
-        t("Timetable"),
-        actions = {
-            IconButton(onClick = { monday = monday.minusWeeks(1) }) {
-                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, t("Previous week"))
-            }
-            IconButton(onClick = { monday = monday.plusWeeks(1) }) {
-                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, t("Next week"))
-            }
-        },
-    ) {
+    // As on iOS: weeks change by swiping the grid; the header is the week
+    // chip on its own row, then the date range and 今日.
     Column(
         Modifier
             .fillMaxSize()
+            .background(Theme.colors.bg)
+            .windowInsetsPadding(WindowInsets.statusBars)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp)
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PageSubtitle(subtitle(monday, model.today?.term, model.today?.teachingWeek))
+        Header(monday, chip(year, monday)) { monday = thisWeek() }
+        GuideTip("timetable-marks", "Swipe to change weeks")
         Grid(
             monday, week, model.periods,
             Modifier
@@ -134,18 +136,57 @@ fun TimetableScreen() {
                 },
         )
     }
+}
+
+@Composable
+private fun Header(monday: LocalDate, chip: String, toToday: () -> Unit) {
+    Column(Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.clip(CircleShape).background(Theme.colors.accentSoft).padding(horizontal = 10.dp, vertical = 5.dp),
+        ) {
+            Icon(Icons.Outlined.CalendarMonth, null, tint = Theme.colors.accent, modifier = Modifier.size(16.dp))
+            Text(
+                chip, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.accent,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val friday = monday.plusDays(4)
+            Text(
+                "${monday.monthValue}/${monday.dayOfMonth} – ${friday.monthValue}/${friday.dayOfMonth}",
+                style = MaterialTheme.typography.headlineLarge.tabular(), fontWeight = FontWeight.Bold, color = Theme.colors.ink,
+                maxLines = 1, modifier = Modifier.weight(1f),
+            )
+            // 今日 rests while this week is shown, which doubles as "you are here".
+            val atThisWeek = monday == thisWeek()
+            FilledTonalButton(
+                onClick = toToday, enabled = !atThisWeek,
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = Theme.colors.accentSoft, contentColor = Theme.colors.accent,
+                    disabledContainerColor = Theme.colors.accentSoft.copy(alpha = 0.35f),
+                    disabledContentColor = Theme.colors.accent.copy(alpha = 0.35f),
+                ),
+                modifier = Modifier.semantics { contentDescription = t("Back to this week") },
+            ) { Text(t("Today"), fontWeight = FontWeight.SemiBold) }
+        }
     }
 }
 
-private fun subtitle(monday: LocalDate, term: String?, teachingWeek: UInt?): String {
-    val friday = monday.plusDays(4)
-    val range = "${monday.monthValue}/${monday.dayOfMonth} – ${friday.monthValue}/${friday.dayOfMonth}"
-    term ?: return range
-    if (monday == monday(Format.today()) && teachingWeek != null) {
-        return "${t("{{quarter}} week {{week}}", "quarter" to Format.quarter(term), "week" to teachingWeek)} · $range"
+/** "2026年度 · 3Q 第 2 週", from Core's week list; between quarters, 休み. */
+private fun chip(year: TimetableYear?, monday: LocalDate): String {
+    year ?: return t("Timetable")
+    val label = year.weeks.firstOrNull { it.monday == Format.civil(monday) }?.let { week ->
+        if (year.quarters.isEmpty()) return@let null
+        val term = week.term ?: return@let t("Break between quarters")
+        val name = listOfNotNull(Format.quarter(term), week.week?.let { t("Week {{week}}", "week" to it) }).joinToString(" ")
+        if (week.exams) "$name · ${t("Exams")}" else name
     }
-    return "${Format.quarter(term)} · $range"
+    return listOfNotNull(t("AY {{year}}", "year" to year.year), label).joinToString(" · ")
 }
+
+private fun thisWeek() = monday(Format.today())
 
 /** Saturday and Sunday look ahead to the coming week. */
 fun monday(date: LocalDate): LocalDate = when (date.dayOfWeek) {

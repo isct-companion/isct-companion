@@ -97,6 +97,7 @@ import app.isctcompanion.design.SyncSpinner
 import app.isctcompanion.design.TagChip
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.courseColor
+import app.isctcompanion.design.nowGradient
 import app.isctcompanion.design.tabular
 import java.time.Instant
 import kotlinx.coroutines.delay
@@ -328,8 +329,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             .background(Theme.colors.surface),
     ) {
         Hero(
-            tint.copy(alpha = Theme.tintSoft),
-            Modifier.fillMaxHeight(),
+            Modifier.fillMaxHeight().nowGradient(tint, Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel)),
             onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it) } },
         ) {
             HeroLine(listOfNotNull(if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
@@ -362,18 +362,17 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
 
 // Heroes
 
+/** A hero card; [surface] is its background, the 'now' gradient for a class. */
 @Composable
 private fun Hero(
-    fill: Color,
-    modifier: Modifier = Modifier,
+    surface: Modifier,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     Column(
-        modifier
+        surface
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusPanel))
-            .background(fill)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -403,7 +402,10 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
     val progress = ((now.toEpochMilli() - starts.toEpochMilli()).toFloat() / total).coerceIn(0f, 1f)
     val navigator = LocalNavigator.current
     val id = item.occurrence.courseId
-    Hero(tint.copy(alpha = Theme.tintSoft), onClick = id?.let { { navigator.openCourse(it) } }) {
+    Hero(
+        Modifier.nowGradient(tint, Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel)),
+        onClick = id?.let { { navigator.openCourse(it) } },
+    ) {
         HeroLine(
             listOfNotNull(t("In class"), Format.periods(item.periods), item.occurrence.room)
                 .filter { it.isNotEmpty() }.joinToString(" · "),
@@ -441,7 +443,7 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
 @Composable
 private fun TonightHero(item: DeadlineItem, now: Instant) {
     val navigator = LocalNavigator.current
-    Hero(Theme.colors.dangerSoft) {
+    Hero(Modifier.background(Theme.colors.dangerSoft, RoundedCornerShape(Theme.radiusPanel))) {
         HeroLine(t("Due tonight"), Theme.colors.danger) { DeadlineChip(item, now) }
         Text(
             Format.date(item.dueAt)?.let(Format::time) ?: Format.due(item.dueAt, now), fontSize = bigFigure, fontWeight = FontWeight.Bold,
