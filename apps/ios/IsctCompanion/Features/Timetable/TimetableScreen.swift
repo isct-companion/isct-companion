@@ -84,8 +84,12 @@ struct TimetableScreen: View {
             } label: {
                 VStack(alignment: .leading, spacing: 6) {
                     // A chip, so the line reads as the way into the week picker.
+                    // One line at its own width: beside the share button and
+                    // the stepper, the column is narrower than the chip wants.
                     Label(subtitle, systemImage: "calendar")
                         .font(.footnote.weight(.semibold))
+                        .lineLimit(1)
+                        .fixedSize()
                         .foregroundStyle(Theme.accent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
