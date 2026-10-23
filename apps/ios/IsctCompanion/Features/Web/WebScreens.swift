@@ -1,5 +1,6 @@
 import IsctCore
 import SwiftUI
+import TipKit
 import WebKit
 
 /// Hosts a site's resident WKWebView while on screen and parks it afterwards,
@@ -82,6 +83,11 @@ struct WebTabScreen: View {
             if let error = web.error {
                 ProblemNote(text: error).padding(.top, 12).frame(maxHeight: .infinity, alignment: .top)
             }
+            // The one thing drawn over the page, once: how to reach the
+            // other sites.
+            TipView(WebSitesTip())
+                .padding(12)
+                .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .background(Theme.bg)
         .onAppear {

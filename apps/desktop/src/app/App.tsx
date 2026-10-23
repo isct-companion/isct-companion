@@ -3,6 +3,7 @@ import { formatJst } from "../lib/civil-date";
 import { CalendarView } from "../pages/today/CalendarView";
 import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
+import { WelcomeSheet } from "../components/guide";
 import { useMediaQuery } from "@mantine/hooks";
 import { refresh, syncAvailable, useOpenHint, useSync } from "./useSync";
 import { pageProgress, runsFor } from "../platform/sync";
@@ -1302,6 +1303,15 @@ export function WorkspaceApp() {
   );
   const overlays = (
     <>
+      <WelcomeSheet
+        settings={data.settings}
+        update={update}
+        connected={
+          scienceSession === "active" || tokyoTechSession === "active"
+        }
+        openAccounts={() => void navigate(paths.settings("accounts"))}
+        openAgents={() => void navigate(paths.settings("agent"))}
+      />
       {!readOnly && !data.settings.dataNoticeAcknowledgedAt && (
         <DataNotice
           acknowledge={() =>

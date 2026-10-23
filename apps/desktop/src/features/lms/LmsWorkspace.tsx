@@ -1,4 +1,5 @@
 import { ExamCards } from "../../components/exams/ExamCards";
+import { GuideTip } from "../../components/guide";
 import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
 import { useElementSize } from "@mantine/hooks";
@@ -1328,55 +1329,60 @@ export function LmsWorkspace({
       </header>
       <div className="lmsWorkspaceTools">
         {lessons.length > 0 && !query.trim() && (
-          <nav className="lmsLessonRail" aria-label={t("Lessons")} ref={rail}>
-            <span
-              className="lmsRailIndicator"
-              ref={railIndicator}
-              aria-hidden="true"
-            />
-            {pinned.map((section) => (
-              <button
-                type="button"
-                key={section.id}
-                className={`lmsRailTab${paged && shownId === section.id ? " current" : ""}`}
-                aria-current={
-                  paged && shownId === section.id ? "step" : undefined
-                }
-                title={section.title}
-                onClick={() => goLesson(section.id)}
-              >
-                {section.title}
-              </button>
-            ))}
-            {hasActivities && (
-              <button
-                type="button"
-                className={`lmsRailTab${paged && shownId === ACTIVITIES ? " current" : ""}`}
-                aria-current={
-                  paged && shownId === ACTIVITIES ? "step" : undefined
-                }
-                onClick={() => goLesson(ACTIVITIES)}
-              >
-                {t("Activities")}
-              </button>
-            )}
-            {(pinned.length > 0 || hasActivities) && (
-              <span className="lmsRailDivider" aria-hidden="true" />
-            )}
-            {lessons.map((l, index) => (
-              <button
-                type="button"
-                key={l.id}
-                className={`${atIndex >= 0 && index <= atIndex ? "held" : ""}${l.id === lessonId && paged ? " current" : ""}${pendingIn(l.id).length ? " due" : ""}`}
-                aria-current={l.id === lessonId && paged ? "step" : undefined}
-                title={sections.find((x) => x.id === l.id)?.title}
-                onClick={() => goLesson(l.id)}
-                onDoubleClick={() => markThisClass(l.id)}
-              >
-                {labels[index]}
-              </button>
-            ))}
-          </nav>
+          <GuideTip
+            id="lesson-mark"
+            text="Double-click a lesson number to mark it as the lesson of today's class."
+          >
+            <nav className="lmsLessonRail" aria-label={t("Lessons")} ref={rail}>
+              <span
+                className="lmsRailIndicator"
+                ref={railIndicator}
+                aria-hidden="true"
+              />
+              {pinned.map((section) => (
+                <button
+                  type="button"
+                  key={section.id}
+                  className={`lmsRailTab${paged && shownId === section.id ? " current" : ""}`}
+                  aria-current={
+                    paged && shownId === section.id ? "step" : undefined
+                  }
+                  title={section.title}
+                  onClick={() => goLesson(section.id)}
+                >
+                  {section.title}
+                </button>
+              ))}
+              {hasActivities && (
+                <button
+                  type="button"
+                  className={`lmsRailTab${paged && shownId === ACTIVITIES ? " current" : ""}`}
+                  aria-current={
+                    paged && shownId === ACTIVITIES ? "step" : undefined
+                  }
+                  onClick={() => goLesson(ACTIVITIES)}
+                >
+                  {t("Activities")}
+                </button>
+              )}
+              {(pinned.length > 0 || hasActivities) && (
+                <span className="lmsRailDivider" aria-hidden="true" />
+              )}
+              {lessons.map((l, index) => (
+                <button
+                  type="button"
+                  key={l.id}
+                  className={`${atIndex >= 0 && index <= atIndex ? "held" : ""}${l.id === lessonId && paged ? " current" : ""}${pendingIn(l.id).length ? " due" : ""}`}
+                  aria-current={l.id === lessonId && paged ? "step" : undefined}
+                  title={sections.find((x) => x.id === l.id)?.title}
+                  onClick={() => goLesson(l.id)}
+                  onDoubleClick={() => markThisClass(l.id)}
+                >
+                  {labels[index]}
+                </button>
+              ))}
+            </nav>
+          </GuideTip>
         )}
       </div>
       <div className="lmsWorkspaceBody" ref={workspaceSize.ref}>

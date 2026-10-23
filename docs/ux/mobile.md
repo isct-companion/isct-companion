@@ -69,7 +69,8 @@ that repaints system chrome reads as a web page pretending to be an app.
   above are built once under `Design/` and carry the app's finish: numeric
   text transitions on countdowns, sensory feedback on swipe actions, symbol
   effects on the sync ring, zoom transitions from a block or card into its
-  course, mesh-gradient course tints on the hero card, Liquid Glass on our own
+  course, mesh-gradient course tints on the hero card (the shared 'now'
+  gradient, `design/README.md`), Liquid Glass on our own
   floating controls (iOS 26, a material below). Pow supplies the few
   celebratory effects the platform lacks. Everything respects Reduce Motion.
   iOS 18 is the minimum.
@@ -170,7 +171,13 @@ The title area shows the date and the day status (normal teaching day,
 holiday, make-up day). The connection state is silent when healthy (see
 [Sync feedback](#sync-feedback)).
 
-First launch has no onboarding screen: Today opens empty with one sign-in card.
+First launch shows one welcome sheet, as desktop does: the app language,
+the course and syllabus language (people did not know they could differ), and
+one button to the school account; closing it leaves Today with its sign-in
+card. After that, TipKit shows a one-time tip beside each gesture nobody can
+see (long press a timetable block or lesson chip, swipe an assignment, switch
+web sites). Settings › About › Show welcome and tips again brings both back;
+TipKit forgets shown tips at the next launch.
 
 ### Timetable
 

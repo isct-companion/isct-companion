@@ -6,6 +6,8 @@ struct IsctCompanionApp: App {
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() { Guide.configure() }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -125,6 +127,10 @@ struct RootView: View {
                 }
                 .environment(navigator)
                 .environment(\.courseZoom, zoom)
+                .welcomeSheet {
+                    navigator.tab = .today
+                    navigator.push(SettingsRoute.account(.science))
+                }
             }
         }
     }

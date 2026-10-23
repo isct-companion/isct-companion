@@ -25,6 +25,8 @@ enum Theme {
     /// Course colour strengths: a block that occupies time, and row emphasis.
     static let tintFill = IsctTokens.courseTintFill
     static let tintSoft = IsctTokens.courseTintSoft
+    /// Peak of the 'now' gradient (`CourseMesh`, desktop's focus row).
+    static let tintHero = IsctTokens.courseTintHero
 
     private static func adaptive(_ light: Color, _ dark: Color) -> Color {
         let light = UIColor(light)

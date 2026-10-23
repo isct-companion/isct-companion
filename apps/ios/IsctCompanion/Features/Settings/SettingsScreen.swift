@@ -101,6 +101,7 @@ struct SettingsScreen: View {
             }
             Section {
                 LabeledContent("IsctCompanion", value: Self.version)
+                Button(t("Show welcome and tips again")) { Guide.showAgain() }
             } header: {
                 Text(t("About"))
             } footer: {

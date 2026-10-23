@@ -1,5 +1,6 @@
 import IsctCore
 import SwiftUI
+import TipKit
 
 /// 時間割: a dated week. Blocks come from Core's `ScheduleView` for
 /// Monday–Friday, whatever quarter the week is in; the title opens a picker
@@ -30,6 +31,7 @@ struct TimetableScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            TipView(TimetableMarkTip())
             grid
                 .frame(maxHeight: .infinity, alignment: .top)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { gridHeight = $0 }

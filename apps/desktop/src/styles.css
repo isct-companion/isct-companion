@@ -1533,11 +1533,18 @@ p {
   padding-left: 12px;
   border-bottom-color: transparent;
   border-radius: var(--radius-surface);
-  background: color-mix(
-    in srgb,
-    var(--course) var(--course-tint-soft),
-    var(--surface)
-  );
+  /* The 'now' gradient the phone's hero card uses (design/README.md):
+     the course tint peaks at the top-leading corner and fades to the
+     surface, with a hairline in the tint. */
+  background:
+    radial-gradient(
+      140% 180% at 0% 0%,
+      color-mix(in srgb, var(--course) var(--course-tint-hero), transparent),
+      transparent 72%
+    ),
+    var(--surface);
+  box-shadow: inset 0 0 0 0.5px
+    color-mix(in srgb, var(--course) var(--course-tint-fill), transparent);
 }
 .agendaState {
   color: var(--muted);

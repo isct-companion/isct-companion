@@ -245,7 +245,7 @@ function shellOptions(
  */
 async function mountShell(
   options: FakeCoreOptions,
-  appOptions?: { route?: string; strict?: boolean },
+  appOptions?: { route?: string; strict?: boolean; guide?: boolean },
 ): Promise<MountedApp> {
   installFakeCore(options);
   await act(async () => {
@@ -1511,6 +1511,52 @@ describe("First school connection", () => {
         "Science Tokyo Portal",
       ),
     );
+  });
+
+  it("greets a first launch with both language choices, applies them live and stays closed", async () => {
+    const options = shellOptions({
+      workspace: workspaceFixture(),
+      apply: (intent, core) => {
+        if (intent.kind === "replaceSettings")
+          core.publish(
+            {
+              ...core.workspace,
+              settings: intent.settings as Workspace["settings"],
+            },
+            "revision:welcome-language",
+          );
+      },
+    });
+    app = await mountShell(options, { route: paths.home(), guide: true });
+    const sheet = await until(() => {
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+      expect(dialog?.textContent).toContain("Welcome to IsctCompanion");
+      return dialog!;
+    });
+    // The school-content language is offered beside the UI language.
+    expect(sheet.textContent).toContain("Course and syllabus language");
+    const japanese = [...sheet.querySelectorAll("label")].find(
+      (label) => label.textContent === "日本語",
+    );
+    await click(japanese);
+    await until(() => expect(app!.core.workspace.settings.locale).toBe("ja"));
+    await until(() =>
+      expect(sheet.textContent).toContain("IsctCompanion へようこそ"),
+    );
+    expect(app.core.workspace.settings.contentLanguage ?? "auto").toBe("auto");
+
+    const later = [...sheet.querySelectorAll("button")].find(
+      (button) => button.textContent === "あとで",
+    );
+    await click(later);
+    await until(() =>
+      expect(
+        document.querySelector('[role="dialog"]')?.textContent ?? "",
+      ).not.toContain("IsctCompanion へようこそ"),
+    );
+    // The next window on this device opens straight to the page.
+    const stored = localStorage.getItem("isct-companion-guide");
+    expect(JSON.parse(stored ?? "{}")).toMatchObject({ welcome: true });
   });
 
   it("keeps the setup prompt out of an existing timetable", async () => {
