@@ -232,6 +232,32 @@ pub fn capture_matrix_frame_configured(
     previous: Option<[[f64; 2]; 4]>,
     config: crate::MatrixCaptureConfig,
 ) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    capture_traced(bytes, previous, config, None)
+}
+
+/// Replay-only: also returns each locator stage's normalized body corners.
+#[cfg(feature = "training-tools")]
+pub fn trace_matrix_frame(
+    bytes: &[u8],
+    previous: Option<[[f64; 2]; 4]>,
+) -> crate::MatrixGeometryTrace {
+    let mut stages = Vec::new();
+    let frame = capture_traced(
+        bytes,
+        previous,
+        crate::MatrixCaptureConfig::default(),
+        Some(&mut stages),
+    );
+    crate::MatrixGeometryTrace { stages, frame }
+}
+
+type StageTrace<'a> = Option<&'a mut Vec<(&'static str, [[f64; 2]; 4])>>;
+fn capture_traced(
+    bytes: &[u8],
+    previous: Option<[[f64; 2]; 4]>,
+    config: crate::MatrixCaptureConfig,
+    trace: StageTrace<'_>,
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     let locator = config.locator;
     if !(128..=1024).contains(&locator.search_max_side)
         || locator.gray_weights.iter().all(|&v| v == 0)
@@ -251,8 +277,23 @@ pub fn capture_matrix_frame_configured(
     let image = decode_image(bytes)?;
     let decode_ms = start.elapsed().as_secs_f64() * 1000.;
     let stage = std::time::Instant::now();
-    let cells = scan_image_locator::locate_near(&image, previous, locator)
-        .ok_or(MatrixOcrError::GridNotFound)?;
+    let mut stages = scan_image_locator::LocateStages::default();
+    let cells = scan_image_locator::locate_near_traced(&image, previous, locator, &mut stages);
+    if let Some(trace) = trace {
+        let normalize = |q: [geometry::Point; 4]| {
+            q.map(|p| [p.x / image.width() as f64, p.y / image.height() as f64])
+        };
+        for (name, quad) in [
+            ("coarse", stages.coarse),
+            ("color", stages.color),
+            ("luma", stages.luma),
+        ] {
+            if let Some(quad) = quad {
+                trace.push((name, normalize(quad)));
+            }
+        }
+    }
+    let cells = cells.ok_or(MatrixOcrError::GridNotFound)?;
     let quads = normalized_quads(&cells, &image);
     let geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
     capture_quads(

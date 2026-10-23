@@ -18,6 +18,10 @@ required-features = ["training-tools"]
 name = "matrix_dataset"
 required-features = ["training-tools"]
 
+[[example]]
+name = "matrix_track_replay"
+required-features = ["training-tools"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"

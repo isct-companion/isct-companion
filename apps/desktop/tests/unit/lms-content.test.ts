@@ -22,6 +22,7 @@ import {
   fileFamily,
   previewKind,
 } from "@app/features/lms/file-types";
+import type { MatrixCaptureMetrics } from "@app/generated/persistence";
 import { textLanguage } from "@app/features/lms/TextDocument";
 import {
   courseLessons,
@@ -1000,6 +1001,8 @@ describe("Live Matrix camera ownership", () => {
     const { video, draw, advance } = cameraSurface(async () => stream);
     const capturing = {
       phase: "capturing",
+      sequence: 1,
+      boundsFrameId: 0,
       bounds: [
         { x: 0.1, y: 0.2 },
         { x: 0.9, y: 0.2 },
@@ -1058,6 +1061,7 @@ describe("Live Matrix camera ownership", () => {
     expect(core.commands("capture_matrix_camera_frame")[0].args).toMatchObject({
       sessionId: "camera-1",
       image: "Y2FtZXJh",
+      frameId: 0,
     });
     expect(onSnapshot).not.toHaveBeenCalled();
     deliver(capturing);
@@ -1097,6 +1101,18 @@ describe("Live Matrix camera ownership", () => {
     };
     expect(metrics.frames).toBe(3);
     expect(metrics.frameMs).toHaveLength(3);
+    // Each reply is paired with its frame and the frame its outline came from.
+    expect(
+      (metrics as unknown as MatrixCaptureMetrics).timeline.map((e) => [
+        e.frameId,
+        e.boundsFrameId,
+        e.sentMs >= e.capturedMs && e.respondedMs >= e.sentMs,
+      ]),
+    ).toEqual([
+      [0, 0, true],
+      [1, 0, true],
+      [2, 0, true],
+    ]);
     expect(metrics.elapsedMs).toBeGreaterThanOrEqual(metrics.trackedMs);
     expect(metrics.trackedMs).toBeGreaterThanOrEqual(0);
     const calls = onSnapshot.mock.calls.length;

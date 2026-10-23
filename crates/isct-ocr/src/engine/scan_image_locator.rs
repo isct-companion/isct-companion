@@ -333,12 +333,45 @@ pub(super) fn locate(image: &RgbImage) -> Option<Vec<[geometry::Point; 4]>> {
     })
 }
 
+/// Body corners measured by each stage of one locate call, for replay overlays.
+#[derive(Clone, Copy, Default)]
+pub(super) struct LocateStages {
+    pub(super) coarse: Option<[geometry::Point; 4]>,
+    pub(super) color: Option<[geometry::Point; 4]>,
+    pub(super) luma: Option<[geometry::Point; 4]>,
+}
+impl LocateStages {
+    fn shift(&mut self, dx: f64, dy: f64) {
+        for stage in [&mut self.coarse, &mut self.color, &mut self.luma] {
+            *stage = stage.map(|q| {
+                q.map(|p| geometry::Point {
+                    x: p.x + dx,
+                    y: p.y + dy,
+                })
+            });
+        }
+    }
+}
+fn body(cells: &[[geometry::Point; 4]]) -> [geometry::Point; 4] {
+    [cells[0][0], cells[9][1], cells[69][2], cells[60][3]]
+}
+
 /// A previous measurement only narrows search. Every frame must independently
 /// pass the header/label checks; a miss immediately reacquires the whole frame.
+#[cfg(test)]
 pub(super) fn locate_near(
     image: &RgbImage,
     previous: Option<[[f64; 2]; 4]>,
     config: crate::MatrixLocatorConfig,
+) -> Option<Vec<[geometry::Point; 4]>> {
+    locate_near_traced(image, previous, config, &mut LocateStages::default())
+}
+
+pub(super) fn locate_near_traced(
+    image: &RgbImage,
+    previous: Option<[[f64; 2]; 4]>,
+    config: crate::MatrixLocatorConfig,
+    stages: &mut LocateStages,
 ) -> Option<Vec<[geometry::Point; 4]>> {
     if let Some(previous) = previous.filter(|q| {
         q.iter()
@@ -379,7 +412,11 @@ pub(super) fn locate_near(
                     .max(128.) as u32,
                 ..config
             };
-            if let Some(grid) = locate_configured(&crop, local_config) {
+            let mut local = LocateStages::default();
+            let grid = locate_configured(&crop, local_config, &mut local);
+            local.shift(left as f64, top as f64);
+            *stages = local;
+            if let Some(grid) = grid {
                 return Some(
                     grid.cells
                         .into_iter()
@@ -394,13 +431,22 @@ pub(super) fn locate_near(
             }
         }
     }
-    locate_configured(image, config).map(|grid| grid.cells)
+    *stages = LocateStages::default();
+    locate_configured(image, config, stages).map(|grid| grid.cells)
 }
 
 pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
-    locate_configured(image, crate::MatrixLocatorConfig::default())
+    locate_configured(
+        image,
+        crate::MatrixLocatorConfig::default(),
+        &mut LocateStages::default(),
+    )
 }
-fn locate_configured(image: &RgbImage, config: crate::MatrixLocatorConfig) -> Option<LocatedGrid> {
+fn locate_configured(
+    image: &RgbImage,
+    config: crate::MatrixLocatorConfig,
+    stages: &mut LocateStages,
+) -> Option<LocatedGrid> {
     let gray = grayscale(image, config);
     let factor = (config.search_max_side as f64 / image.width().max(image.height()) as f64).min(1.);
     let small = image::imageops::resize(
@@ -416,14 +462,12 @@ fn locate_configured(image: &RgbImage, config: crate::MatrixLocatorConfig) -> Op
     };
     grid.cells = grid.cells.into_iter().map(|q| q.map(map)).collect();
     grid.edges = map_edges(grid.edges, map);
+    stages.coarse = Some(body(&grid.cells));
     if config.color_refinement {
-        let body = [
-            grid.cells[0][0],
-            grid.cells[9][1],
-            grid.cells[69][2],
-            grid.cells[60][3],
-        ];
-        if let Some(body) = super::color_refinement::refine(image, body, config.color_weights) {
+        if let Some(body) =
+            super::color_refinement::refine(image, body(&grid.cells), config.color_weights)
+        {
+            stages.color = Some(body);
             grid.cells = geometry::body_cells(body);
             grid.edges.body_top = Some([body[0], body[1]]);
             grid.edges.body_left = Some([body[0], body[3]]);
@@ -451,6 +495,7 @@ fn locate_configured(image: &RgbImage, config: crate::MatrixLocatorConfig) -> Op
                     .zip(b)
                     .all(|(&a, &b)| point_distance(a, b) < radius)
             }) {
+                stages.luma = Some(body(&refined.cells));
                 return Some(refined);
             }
         }

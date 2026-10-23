@@ -5,7 +5,8 @@ pub use alphabet::{
 };
 #[cfg(feature = "training-tools")]
 pub use alphabet::{
-    capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
+    capture_matrix_training_frame, prepare_matrix_alphabet_input, trace_matrix_frame,
+    MatrixAlphabetInput,
 };
 mod color_refinement;
 #[cfg(debug_assertions)]

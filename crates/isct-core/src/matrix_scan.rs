@@ -120,6 +120,25 @@ pub struct MatrixCaptureMetrics {
     pub tracked_ms: Option<f64>,
     pub frames: usize,
     pub frame_ms: Vec<f64>,
+    #[serde(default)]
+    pub timeline: Vec<MatrixFrameTimeline>,
+}
+/// Webview clock (`performance.now()`, ms) for one frame sent for analysis.
+/// `media_ms` is the video position of the analysed frame; `painted_*` are
+/// taken in the animation frame after the reply's outline was applied.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MatrixFrameTimeline {
+    pub frame_id: u32,
+    pub media_ms: f64,
+    pub captured_ms: f64,
+    pub sent_ms: f64,
+    pub responded_ms: f64,
+    pub sequence: u32,
+    pub bounds_frame_id: Option<u32>,
+    pub painted_ms: Option<f64>,
+    pub painted_media_ms: Option<f64>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -508,6 +527,7 @@ pub fn declarations() -> Vec<String> {
         MatrixScanSnapshot::decl(),
         MatrixScanOutline::decl(),
         MatrixCaptureMetrics::decl(),
+        MatrixFrameTimeline::decl(),
         MatrixCameraPhase::decl(),
         MatrixCameraSnapshot::decl(),
     ]

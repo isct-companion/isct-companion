@@ -1,7 +1,8 @@
 //! Desktop camera transport. Core owns acquisition, its deadline and offline votes.
 #[cfg(matrix_ocr)]
 use isct_core::matrix_scan::{
-    MatrixCameraPhase, MatrixCaptureFrame, MatrixCaptureGlyph, MatrixPoint, MatrixReading,
+    MatrixCameraPhase, MatrixCaptureFrame, MatrixCaptureGlyph, MatrixFrameTrace, MatrixPoint,
+    MatrixReading,
 };
 use isct_core::matrix_scan::{
     MatrixCameraScanner, MatrixCameraSnapshot, MatrixCaptureMetrics, MatrixScanError,
@@ -109,6 +110,39 @@ fn save_anonymous_samples(frame: &isct_ocr::MatrixCaptureFrame) {
         Err(error) => log::error!("[matrix-camera] anonymous sample export failed: {error}"),
     }
 }
+/// Explicit local opt-in for replay: `ISCT_MATRIX_RECORD_DIR` makes a debug
+/// build save every analysed camera frame of a session, unmodified, with its
+/// webview capture time. Use a disposable card; recordings are card images.
+#[cfg(all(matrix_ocr, debug_assertions))]
+fn record_frame(session_id: &str, frame_id: u32, captured_ms: f64, bytes: &[u8]) {
+    use std::io::Write;
+    let Some(root) = std::env::var_os("ISCT_MATRIX_RECORD_DIR") else {
+        return;
+    };
+    let save = || -> std::io::Result<()> {
+        let directory = std::path::PathBuf::from(root).join(session_id);
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&directory)?;
+        let file = format!("{frame_id:06}.jpg");
+        std::fs::write(directory.join(&file), bytes)?;
+        let line =
+            serde_json::json!({"file": file, "frameId": frame_id, "capturedMs": captured_ms});
+        let mut index = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(directory.join("frames.jsonl"))?;
+        writeln!(index, "{line}")
+    };
+    if let Err(error) = save() {
+        log::error!("[matrix-camera] frame recording failed: {error}");
+    }
+}
 #[tauri::command]
 pub(crate) fn begin_matrix_camera(
     webview: tauri::Webview,
@@ -166,6 +200,8 @@ pub(crate) async fn capture_matrix_camera_frame(
     scanner: State<'_, CameraScanner>,
     session_id: String,
     image: String,
+    frame_id: u32,
+    captured_ms: f64,
 ) -> Result<MatrixCameraSnapshot, MatrixScanError> {
     crate::require_local_main(&webview).map_err(backend)?;
     let scanner = scanner.inner().clone();
@@ -181,15 +217,37 @@ pub(crate) async fn capture_matrix_camera_frame(
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(image)
                 .map_err(backend)?;
+            #[cfg(debug_assertions)]
+            record_frame(&session_id, frame_id, captured_ms, &bytes);
+            #[cfg(not(debug_assertions))]
+            let _ = captured_ms;
             let previous = current.bounds.map(|q| q.map(|p| [p.x, p.y]));
+            let received = Instant::now();
             let captured = isct_ocr::capture_matrix_frame_near(&bytes, previous);
             #[cfg(debug_assertions)]
             if let Ok(frame) = &captured {
                 log_frame_quality(frame);
                 save_anonymous_samples(frame);
             }
+            let timing = captured.as_ref().ok().map(|f| f.timing.clone());
+            scanner.with(|s| {
+                s.trace(
+                    &session_id,
+                    MatrixFrameTrace {
+                        frame_id,
+                        located: timing.is_some(),
+                        analysis_ms: received.elapsed().as_secs_f64() * 1000.,
+                        decode_ms: timing.as_ref().map(|t| t.decode_ms),
+                        geometry_ms: timing.as_ref().map(|t| t.geometry_ms),
+                        crop_ms: timing.as_ref().map(|t| t.preprocess_ms),
+                        observed_ms: 0.,
+                    },
+                    Instant::now(),
+                )
+            })??;
             let frame = match captured {
                 Ok(frame) => Some(MatrixCaptureFrame {
+                    frame_id,
                     quads: frame
                         .quads
                         .into_iter()
@@ -218,7 +276,7 @@ pub(crate) async fn capture_matrix_camera_frame(
     }
     #[cfg(not(matrix_ocr))]
     {
-        let _ = (scanner, session_id, image);
+        let _ = (scanner, session_id, image, frame_id, captured_ms);
         Err(backend(isct_ocr::MatrixOcrError::Unavailable))
     }
 }

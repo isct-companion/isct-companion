@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   MatrixCameraSnapshot,
   MatrixCaptureMetrics,
+  MatrixFrameTimeline,
 } from "../generated/persistence";
 import { t } from "../i18n";
 
@@ -30,8 +31,13 @@ function cameraError(error: unknown): Error {
   return new Error(String(error));
 }
 
+/** Frames kept in the capture timeline of one session (about 20 s at 30 fps). */
+const TIMELINE_LIMIT = 600;
+
 /** Owns camera resources and one in-flight frame. Consensus belongs to core.
- * Cleanup also handles permission/IPC promises that resolve after unmount. */
+ * Cleanup also handles permission/IPC promises that resolve after unmount.
+ * Every analysed frame gets an id; the timeline pairs its capture, IPC reply
+ * and the paint of the outline Core measured on it (see matrix_track_report). */
 export function openMatrixCamera(
   video: HTMLVideoElement,
   onSnapshot: (snapshot: MatrixCameraSnapshot) => void,
@@ -51,7 +57,10 @@ export function openMatrixCamera(
     trackedMs: null,
     frames: 0,
     frameMs: [],
+    timeline: [],
   };
+  let nextFrameId = 0;
+  let lastSequence = -1;
   const stopSession = (id: string) => {
     void invoke("stop_matrix_camera", { sessionId: id, capture }).catch(() => {
       // A shutting-down native host may already have dropped the session.
@@ -139,11 +148,23 @@ export function openMatrixCamera(
       video.readyState >= 2 &&
       video.videoWidth > 0 &&
       video.currentTime !== lastTime;
-    const receive = async (snapshot: MatrixCameraSnapshot) => {
+    const painted = (entry: MatrixFrameTimeline) =>
+      requestAnimationFrame(() => {
+        entry.paintedMs = performance.now();
+        entry.paintedMediaMs = video.currentTime * 1000;
+      });
+    const receive = async (
+      snapshot: MatrixCameraSnapshot,
+      entry?: MatrixFrameTimeline,
+    ) => {
       if (disposed) return false;
       if (snapshot.bounds) firstOutlineAt ??= performance.now();
       if (snapshot.phase === "capturing") {
+        // An older reply must not replace an outline from a newer frame.
+        if (snapshot.sequence < lastSequence) return true;
+        lastSequence = snapshot.sequence;
         onSnapshot(snapshot);
+        if (entry) painted(entry);
         return true;
       }
       processing = true;
@@ -172,6 +193,7 @@ export function openMatrixCamera(
       const started = performance.now();
       try {
         let snapshot: MatrixCameraSnapshot;
+        let entry: MatrixFrameTimeline | undefined;
         if (hasNewFrame()) {
           lastTime = video.currentTime;
           const scale = Math.min(
@@ -181,15 +203,33 @@ export function openMatrixCamera(
           canvas.width = Math.round(video.videoWidth * scale);
           canvas.height = Math.round(video.videoHeight * scale);
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const frameId = nextFrameId++;
+          const capturedMs = performance.now();
           const image = canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
+          const sentMs = performance.now();
           snapshot = await invoke<MatrixCameraSnapshot>(
             "capture_matrix_camera_frame",
             {
               sessionId: id,
               image,
+              frameId,
+              capturedMs,
             },
           );
           if (disposed) return;
+          entry = {
+            frameId,
+            mediaMs: lastTime * 1000,
+            capturedMs,
+            sentMs,
+            respondedMs: performance.now(),
+            sequence: snapshot.sequence,
+            boundsFrameId: snapshot.boundsFrameId,
+            paintedMs: null,
+            paintedMediaMs: null,
+          };
+          if (capture.timeline.length < TIMELINE_LIMIT)
+            capture.timeline.push(entry);
           capture.frames += 1;
           capture.frameMs.push(performance.now() - started);
           if (capture.frameMs.length > 128) capture.frameMs.shift();
@@ -199,7 +239,7 @@ export function openMatrixCamera(
             sessionId: id,
           });
         }
-        if (!(await receive(snapshot))) return;
+        if (!(await receive(snapshot, entry))) return;
         if (hasNewFrame()) {
           timer = setTimeout(() => void frame(), 0);
         } else {

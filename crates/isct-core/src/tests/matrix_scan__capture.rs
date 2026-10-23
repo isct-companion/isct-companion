@@ -1,6 +1,7 @@
 use super::*;
 fn frame(usable: impl Fn(usize) -> bool, marker: u8) -> MatrixCaptureFrame {
     MatrixCaptureFrame {
+        frame_id: marker.into(),
         quads: (0..CELLS)
             .map(|i| {
                 let x = (i % 10) as f64 / 10.;
@@ -212,4 +213,39 @@ fn invalid_frames_quality_thresholds_and_glare_keep_independent_admission() {
         .is_none());
     s.stop(&id);
     assert!(s.batch(&id, now).is_err());
+}
+#[test]
+fn snapshots_name_the_frame_behind_their_bounds_and_traces_keep_misses() {
+    let now = Instant::now();
+    let mut scanner = MatrixCameraScanner::default();
+    let id = scanner.begin_at(now, CAPTURE_LIMIT);
+    let trace = |frame_id, located| MatrixFrameTrace {
+        frame_id,
+        located,
+        analysis_ms: 40.,
+        ..Default::default()
+    };
+    let miss = scanner.trace(&id, trace(1, false), now).unwrap();
+    assert_eq!((miss.sequence, miss.bounds_frame_id), (1, None));
+    let at = now + Duration::from_millis(10);
+    scanner.trace(&id, trace(2, true), at).unwrap();
+    let hit = scanner.observe(&id, Some(frame(|_| true, 2)), at).unwrap();
+    assert_eq!((hit.sequence, hit.bounds_frame_id), (3, Some(2)));
+    assert!(hit.bounds.is_some());
+    // Bounds leave the display window together with the frame that made them.
+    let stale = scanner
+        .observe(&id, None, now + Duration::from_millis(400))
+        .unwrap();
+    assert!(stale.bounds.is_none() && stale.bounds_frame_id.is_none());
+    assert_eq!(stale.sequence, 3, "wakeups are not frames");
+    let report = scanner
+        .diagnostics(&id, now + Duration::from_millis(400))
+        .unwrap();
+    let frames: Vec<_> = report
+        .frames
+        .iter()
+        .map(|f| (f.frame_id, f.located))
+        .collect();
+    assert_eq!(frames, [(1, false), (2, true)]);
+    assert_eq!(report.frames[1].observed_ms, 10.);
 }

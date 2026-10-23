@@ -131,6 +131,33 @@ Replay timing excludes camera/IPC overhead; physical focus, framing and live
 acquisition remain manual check `OCR-CAMPUS-CARD`. The Latin glyph fixture is
 rendered from the system Helvetica font and contains no student data.
 
+## Geometry replay and capture timeline
+
+Every camera frame carries a webview-assigned id. Core echoes the frame behind
+its outline (`boundsFrameId`) and a `sequence` that orders replies; the webview
+drops a reply older than one it already applied. `matrix-scan/latest.json`
+then holds `core.frames` (each analysed frame: located or not, decode, geometry
+and crop time) and `capture.timeline` (each frame's capture, send, reply and
+the paint of the outline that came from it, plus the video position at both
+ends). These keep processing rate, localisation rate and box-draw latency apart.
+
+A debug build started with `ISCT_MATRIX_RECORD_DIR=/new/local/dir` also saves
+every analysed frame unmodified, with `frames.jsonl` capture times, under a
+per-session folder. Recordings are card images: use a disposable card and keep
+them local. Replay a recording or any ordered frame directory:
+
+```sh
+cargo run -p isct-ocr --release --features training-tools --example matrix_track_replay -- FRAMES [--fps 30] > trace.jsonl
+python scripts/ocr/matrix_track_report.py --frames FRAMES --trace current=trace.jsonl \
+  [--labels sift=labels.json] [--live latest.json] --out REPORT
+```
+
+The trace holds every geometry stage's body quad per frame. The report draws
+those stages and the final 11×8 grid over the worst and missed frames, writes
+a latest-frame-only timeline (recorded capture times, measured cost, next
+display refresh) and summarises the three metrics. `matrix_sift_labels.py`
+labels frames independently by SIFT alignment to one measured still photo.
+
 ## Candidate alphabet classifier evaluation
 
 The reproducible lighting replay and its baseline are documented in

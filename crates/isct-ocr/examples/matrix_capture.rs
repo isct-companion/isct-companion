@@ -135,6 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(f) => {
                     geometry_frames += 1;
                     Some(MatrixCaptureFrame {
+                        frame_id: geometry_frames as u32,
                         quads: f
                             .quads
                             .into_iter()

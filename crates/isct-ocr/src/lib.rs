@@ -99,6 +99,13 @@ pub struct MatrixCaptureFrame {
     pub glyphs: Vec<MatrixCaptureGlyph>,
     pub timing: MatrixFrameTiming,
 }
+/// Replay diagnostics: named body corners from every geometry stage that ran,
+/// normalized and top-left clockwise, beside the ordinary capture result.
+#[cfg(feature = "training-tools")]
+pub struct MatrixGeometryTrace {
+    pub stages: Vec<(&'static str, [[f64; 2]; 4])>,
+    pub frame: Result<MatrixCaptureFrame, MatrixOcrError>,
+}
 
 /// Compile-time backend availability; model initialization remains lazy.
 pub const fn available() -> bool {
@@ -154,7 +161,8 @@ pub use engine::{
 };
 #[cfg(all(matrix_ocr, feature = "training-tools"))]
 pub use engine::{
-    capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
+    capture_matrix_training_frame, prepare_matrix_alphabet_input, trace_matrix_frame,
+    MatrixAlphabetInput,
 };
 
 #[cfg(not(matrix_ocr))]

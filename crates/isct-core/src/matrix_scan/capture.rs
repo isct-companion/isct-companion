@@ -15,6 +15,7 @@ const MIN_SHARPNESS: f64 = 10.;
 const MIN_SOURCE_SIZE: f64 = 10.;
 const MIN_CENTERING: f64 = 0.5;
 const MAX_GLARE: f64 = 0.12;
+const TRACE_LIMIT: usize = 1024;
 /// Image capabilities report measurements; core decides admission and retention.
 pub struct MatrixCaptureGlyph {
     pub gray: Vec<u8>,
@@ -25,8 +26,23 @@ pub struct MatrixCaptureGlyph {
     pub glare: f64,
 }
 pub struct MatrixCaptureFrame {
+    /// Shell-assigned camera frame id, echoed in snapshots beside its bounds.
+    pub frame_id: u32,
     pub quads: Vec<[MatrixPoint; 4]>,
     pub glyphs: Vec<MatrixCaptureGlyph>,
+}
+/// One analysed camera frame, located or not. Durations come from the image
+/// adapter; `observed_ms` is Core's session clock when the trace arrived.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixFrameTrace {
+    pub frame_id: u32,
+    pub located: bool,
+    pub analysis_ms: f64,
+    pub decode_ms: Option<f64>,
+    pub geometry_ms: Option<f64>,
+    pub crop_ms: Option<f64>,
+    pub observed_ms: f64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +57,11 @@ pub enum MatrixCameraPhase {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MatrixCameraSnapshot {
     pub phase: MatrixCameraPhase,
+    /// Increases with every traced or observed frame; older replies are stale.
+    pub sequence: u32,
     pub bounds: Option<[MatrixPoint; 4]>,
+    /// The camera frame `bounds` were measured on.
+    pub bounds_frame_id: Option<u32>,
     pub ready_cells: usize,
     pub capture_elapsed_ms: f64,
     pub timed_out: bool,
@@ -64,6 +84,7 @@ pub struct MatrixCameraDiagnostics {
     pub geometry_frames: usize,
     pub admission_rejections: usize,
     pub glare_rejections: Vec<usize>,
+    pub frames: Vec<MatrixFrameTrace>,
 }
 
 #[derive(Clone)]
@@ -93,7 +114,9 @@ struct Acquisition {
     last_samples: Vec<Option<Instant>>,
     last_dispatch: Vec<Option<Instant>>,
     pools: Vec<Vec<Candidate>>,
-    bounds: Option<[MatrixPoint; 4]>,
+    bounds: Option<([MatrixPoint; 4], u32)>,
+    sequence: u32,
+    traces: Vec<MatrixFrameTrace>,
     admitted: bool,
     timed_out: bool,
     lease: Option<Lease>,
@@ -119,6 +142,8 @@ impl Acquisition {
             last_dispatch: vec![None; CELLS],
             pools: (0..CELLS).map(|_| Vec::new()).collect(),
             bounds: None,
+            sequence: 0,
+            traces: Vec::new(),
             admitted: false,
             timed_out: false,
             lease: None,
@@ -148,6 +173,11 @@ impl Acquisition {
         }
         self.pools.iter_mut().for_each(Vec::clear);
     }
+    fn fresh_bounds(&self, now: Instant) -> Option<([MatrixPoint; 4], u32)> {
+        self.last_geometry
+            .filter(|&last| now.saturating_duration_since(last) < Duration::from_millis(300))
+            .and(self.bounds)
+    }
     fn snapshot(&self, now: Instant) -> MatrixCameraSnapshot {
         let cells: Vec<_> = self.evidence.iter().map(CellEvidence::vote).collect();
         MatrixCameraSnapshot {
@@ -156,10 +186,9 @@ impl Acquisition {
             } else {
                 MatrixCameraPhase::Capturing
             },
-            bounds: self
-                .last_geometry
-                .filter(|&last| now.saturating_duration_since(last) < Duration::from_millis(300))
-                .and(self.bounds),
+            sequence: self.sequence,
+            bounds: self.fresh_bounds(now).map(|(b, _)| b),
+            bounds_frame_id: self.fresh_bounds(now).map(|(_, f)| f),
             ready_cells: cells.iter().filter(|v| v.stable).count(),
             capture_elapsed_ms: self
                 .finished
@@ -253,6 +282,7 @@ impl MatrixCameraScanner {
             return Ok(s.snapshot(now));
         }
         if let Some(frame) = frame {
+            s.sequence += 1;
             s.geometry_frames += 1;
             let usable = |g: &MatrixCaptureGlyph| {
                 g.contrast >= MIN_CONTRAST
@@ -265,7 +295,7 @@ impl MatrixCameraScanner {
                 return Ok(s.snapshot(now));
             }
             s.admitted = true;
-            s.bounds = Some(outline(&frame.quads)?.bounds);
+            s.bounds = Some((outline(&frame.quads)?.bounds, frame.frame_id));
             s.last_geometry = Some(now);
             for (i, g) in frame.glyphs.into_iter().enumerate() {
                 if g.glare > MAX_GLARE {
@@ -291,6 +321,23 @@ impl MatrixCameraScanner {
                         .then(b.captured.cmp(&a.captured))
                 });
                 pool.truncate(POOL_LIMIT);
+            }
+        }
+        Ok(s.snapshot(now))
+    }
+    /// Records one analysed frame for diagnostics, whether or not it was located.
+    pub fn trace(
+        &mut self,
+        id: &str,
+        mut trace: MatrixFrameTrace,
+        now: Instant,
+    ) -> Result<MatrixCameraSnapshot, MatrixScanError> {
+        let s = self.session_mut(id)?;
+        if s.finished.is_none() {
+            s.sequence += 1;
+            trace.observed_ms = now.saturating_duration_since(s.started).as_secs_f64() * 1000.;
+            if s.traces.len() < TRACE_LIMIT {
+                s.traces.push(trace);
             }
         }
         Ok(s.snapshot(now))
@@ -439,6 +486,7 @@ impl MatrixCameraScanner {
             geometry_frames: s.geometry_frames,
             admission_rejections: s.admission_rejections,
             glare_rejections: s.glare_rejections.clone(),
+            frames: s.traces.clone(),
         })
     }
 }

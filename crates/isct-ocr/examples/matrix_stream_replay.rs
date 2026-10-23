@@ -94,7 +94,11 @@ mod replay {
                 glare: q[4],
             })
             .collect();
-        Some(MatrixCaptureFrame { quads, glyphs })
+        Some(MatrixCaptureFrame {
+            frame_id: offset as u32,
+            quads,
+            glyphs,
+        })
     }
     fn run(directory: &Path) -> Result<(), Box<dyn Error>> {
         let manifest: Manifest =
