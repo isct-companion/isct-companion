@@ -1,0 +1,73 @@
+{
+  "before": {
+    "pipeline": "rust-current",
+    "frames": 119,
+    "located": 44,
+    "localisationRate": 0.3697478991596639,
+    "processingMsP50": 61.498834,
+    "processingMsP95": 92.403625,
+    "throughputFps": 15.47569631983631,
+    "liveSimulation": {
+      "cameraFps": 30,
+      "displayHz": 60,
+      "transportMs": 0,
+      "processedFps": 2.015810276679842,
+      "locatedBoxesPerSecond": 0.7453416149068324,
+      "drawLatencyMsP50": 83.33333333333259,
+      "drawLatencyMsP95": 100.00000000000142,
+      "boxAgeMsP50": 0.0,
+      "boxAgeMsP95": 0.0
+    },
+    "modes": {
+      "detect": 119
+    },
+    "labels": {
+      "sift": {
+        "labelledFrames": 45,
+        "missed": 26,
+        "wrongQuarterCell": 6,
+        "wrongHalfCell": 3,
+        "geometryFailureRate": 0.7111111111111111,
+        "wrongAmongLocated": 0.3157894736842105,
+        "cornerErrorCellsP50": 0.09090717141509248,
+        "cornerErrorCellsP95": 2.8987102481948255
+      }
+    }
+  },
+  "ref": {
+    "pipeline": "opencv-reference",
+    "frames": 119,
+    "located": 63,
+    "localisationRate": 0.5294117647058824,
+    "processingMsP50": 374.57279200316407,
+    "processingMsP95": 723.7740286000189,
+    "throughputFps": 2.6118197945524932,
+    "liveSimulation": {
+      "cameraFps": 30,
+      "displayHz": 60,
+      "transportMs": 0,
+      "processedFps": 1.9988706945228685,
+      "locatedBoxesPerSecond": 1.0502540937323546,
+      "drawLatencyMsP50": 483.33333333333337,
+      "drawLatencyMsP95": 766.6666666666666,
+      "boxAgeMsP50": 0.0,
+      "boxAgeMsP95": 500.0
+    },
+    "modes": {
+      "detect": 63,
+      "lost": 56
+    },
+    "labels": {
+      "sift": {
+        "labelledFrames": 45,
+        "missed": 11,
+        "wrongQuarterCell": 0,
+        "wrongHalfCell": 0,
+        "geometryFailureRate": 0.24444444444444444,
+        "wrongAmongLocated": 0.0,
+        "cornerErrorCellsP50": 0.05410861053083353,
+        "cornerErrorCellsP95": 0.13622211732725228
+      }
+    }
+  }
+}

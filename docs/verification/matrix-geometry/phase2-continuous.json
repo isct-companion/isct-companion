@@ -1,0 +1,111 @@
+{
+  "before": {
+    "pipeline": "rust-current",
+    "frames": 300,
+    "located": 177,
+    "localisationRate": 0.59,
+    "processingMsP50": 61.619811999999996,
+    "processingMsP95": 85.07618930000002,
+    "throughputFps": 15.573174043024354,
+    "liveSimulation": {
+      "cameraFps": 30,
+      "displayHz": 60,
+      "transportMs": 0,
+      "processedFps": 15.9,
+      "locatedBoxesPerSecond": 9.1,
+      "drawLatencyMsP50": 99.99999999999964,
+      "drawLatencyMsP95": 116.66666666666714,
+      "boxAgeMsP50": 66.66666666666731,
+      "boxAgeMsP95": 100.00000000000054
+    },
+    "modes": {
+      "detect": 300
+    },
+    "labels": {
+      "sift": {
+        "labelledFrames": 116,
+        "missed": 20,
+        "wrongQuarterCell": 15,
+        "wrongHalfCell": 9,
+        "geometryFailureRate": 0.3017241379310345,
+        "wrongAmongLocated": 0.15625,
+        "cornerErrorCellsP50": 0.06827176334035874,
+        "cornerErrorCellsP95": 2.572519623570169
+      }
+    }
+  },
+  "ref-detect": {
+    "pipeline": "opencv-reference",
+    "frames": 300,
+    "located": 219,
+    "localisationRate": 0.73,
+    "processingMsP50": 398.22081249803887,
+    "processingMsP95": 641.2388565506265,
+    "throughputFps": 2.5600912256728368,
+    "liveSimulation": {
+      "cameraFps": 30,
+      "displayHz": 60,
+      "transportMs": 0,
+      "processedFps": 2.9,
+      "locatedBoxesPerSecond": 1.9,
+      "drawLatencyMsP50": 483.3333333333325,
+      "drawLatencyMsP95": 884.9999999999983,
+      "boxAgeMsP50": 433.3333333333336,
+      "boxAgeMsP95": 599.9999999999998
+    },
+    "modes": {
+      "lost": 81,
+      "detect": 219
+    },
+    "labels": {
+      "sift": {
+        "labelledFrames": 116,
+        "missed": 3,
+        "wrongQuarterCell": 0,
+        "wrongHalfCell": 0,
+        "geometryFailureRate": 0.02586206896551724,
+        "wrongAmongLocated": 0.0,
+        "cornerErrorCellsP50": 0.05461309234632193,
+        "cornerErrorCellsP95": 0.12720465277742332
+      }
+    }
+  },
+  "ref": {
+    "pipeline": "opencv-reference",
+    "frames": 300,
+    "located": 250,
+    "localisationRate": 0.8333333333333334,
+    "processingMsP50": 24.035666498093633,
+    "processingMsP95": 268.6071875010386,
+    "throughputFps": 15.04156123787163,
+    "liveSimulation": {
+      "cameraFps": 30,
+      "displayHz": 60,
+      "transportMs": 0,
+      "processedFps": 22.5,
+      "locatedBoxesPerSecond": 21.5,
+      "drawLatencyMsP50": 33.333333333333215,
+      "drawLatencyMsP95": 66.66666666666687,
+      "boxAgeMsP50": 33.333333333333215,
+      "boxAgeMsP95": 66.6666666666665
+    },
+    "modes": {
+      "lost": 50,
+      "detect": 11,
+      "refit": 26,
+      "track": 213
+    },
+    "labels": {
+      "sift": {
+        "labelledFrames": 116,
+        "missed": 0,
+        "wrongQuarterCell": 4,
+        "wrongHalfCell": 0,
+        "geometryFailureRate": 0.034482758620689655,
+        "wrongAmongLocated": 0.034482758620689655,
+        "cornerErrorCellsP50": 0.055066339680454233,
+        "cornerErrorCellsP95": 0.16941130937079404
+      }
+    }
+  }
+}
