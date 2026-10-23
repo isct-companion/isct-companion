@@ -116,7 +116,21 @@ jobs:
           echo "BUILD_NUMBER=$(date -u +%Y%m%d%H%M)" >> "$GITHUB_ENV"
       - name: Generate the Xcode project
         working-directory: apps/ios
-        run: xcodegen generate
+        run: |
+          if [[ "$UPLOAD" == 'true' ]]; then
+            # Profile settings belong only to the app, never Swift package resource bundles.
+            ruby -ryaml -rjson -e '
+              spec = YAML.load_file("project.yml")
+              settings = spec.fetch("targets").fetch("IsctCompanion").fetch("settings").fetch("base")
+              settings.merge!("DEVELOPMENT_TEAM" => ENV.fetch("TEAM_ID"),
+                "CODE_SIGN_STYLE" => "Manual", "CODE_SIGN_IDENTITY" => ENV.fetch("SIGNING_IDENTITY"),
+                "PROVISIONING_PROFILE_SPECIFIER" => ENV.fetch("PROFILE_UUID"))
+              File.write("project-ci.json", JSON.pretty_generate(spec))
+            '
+            xcodegen generate --spec project-ci.json
+          else
+            xcodegen generate
+          fi
       - name: Check that the app compiles for a device
         if: env.UPLOAD != 'true'
         working-directory: apps/ios
@@ -130,8 +144,7 @@ jobs:
           set -euo pipefail
           xcodebuild -project IsctCompanion.xcodeproj -scheme IsctCompanion -configuration Release \
             -destination generic/platform=iOS -archivePath "$RUNNER_TEMP/IsctCompanion.xcarchive" \
-            archive DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            archive \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
