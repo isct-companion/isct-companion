@@ -1,8 +1,10 @@
 # Agent access
 
-IsctCompanion includes a local Streamable HTTP MCP server. Enable Developer
-options in Settings, then open AI agent access and enable Allow local agents.
-Register the URL shown there as an HTTP MCP server:
+IsctCompanion includes a local Streamable HTTP MCP server. Open Settings →
+AI agent access and enable Allow local agents. Under Connect an agent, pick
+Claude Code, Codex, Claude Desktop or Cursor and copy the ready-made setup
+(the token is masked on screen and copied whole). Any other client registers
+the URL shown there as an HTTP MCP server:
 
 ```text
 http://127.0.0.1:47832/mcp

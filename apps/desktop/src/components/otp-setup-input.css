@@ -14,3 +14,74 @@
 .otpSetupRow > :last-child {
   flex-shrink: 0;
 }
+.otpSaved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+}
+.otpSaved > span {
+  color: var(--ok);
+  font-weight: 700;
+}
+.otpSaved > p {
+  flex: 1;
+  min-width: 0;
+}
+.otpPaths {
+  display: grid;
+  gap: 6px;
+}
+.otpPath {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.otpPath[data-selected] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
+}
+.otpPathHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(13px * var(--text, 1));
+  text-align: left;
+  cursor: pointer;
+}
+.otpPathHead > i {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+}
+.otpPath[data-selected] .otpPathHead > i {
+  border: 4px solid var(--accent);
+}
+.otpRecommended {
+  padding: 1px 6px;
+  border-radius: var(--radius-chip);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: calc(10.5px * var(--text, 1));
+  font-weight: 600;
+}
+.otpPathBody {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 0 10px 10px 32px;
+}
+.otpPathBody .otpSetupRow {
+  width: 100%;
+}
+.otpKeep {
+  justify-self: start;
+}

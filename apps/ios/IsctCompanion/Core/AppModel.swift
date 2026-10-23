@@ -382,21 +382,48 @@ final class AppModel {
         syncSnapshot = snapshot
     }
 
+    /// The week from `monday`, read with `weekReach` weeks on either side in
+    /// one query, so stepping or swiping through nearby weeks draws at once.
     func week(starting monday: Date) async -> ScheduleView? {
+        let key = Self.civil(monday)
+        if let cached = weeks[key] { return cached }
         guard let session, let term = today?.term else { return nil }
-        let from = Self.civil(monday)
-        let to = Self.civil(Calendar.tokyo.date(byAdding: .day, value: 4, to: monday) ?? monday)
-        let query = WorkspaceQuery.scheduleView(term: term, from: from, to: to, includePersonal: false)
+        let calendar = Calendar.tokyo
+        let first = calendar.date(byAdding: .day, value: -7 * Self.weekReach, to: monday) ?? monday
+        let last = calendar.date(byAdding: .day, value: 7 * Self.weekReach + 4, to: monday) ?? monday
+        let query = WorkspaceQuery.scheduleView(
+            term: term, from: Self.civil(first), to: Self.civil(last), includePersonal: false)
         guard case let .schedule(result)? = try? await session.scheduleQuery(queries: [query]).value(),
             case let .scheduleView(view)? = result.values.first
         else { return nil }
-        weeks[from] = view
-        return view
+        for offset in -Self.weekReach...Self.weekReach {
+            guard let start = calendar.date(byAdding: .day, value: 7 * offset, to: monday) else { continue }
+            let from = Self.civil(start)
+            let to = Self.civil(calendar.date(byAdding: .day, value: 4, to: start) ?? start)
+            var slice = view
+            // Civil dates compare as text.
+            slice.agendas = view.agendas.filter { $0.date >= from && $0.date <= to }
+            weeks[from] = slice
+        }
+        return weeks[key]
     }
+
+    /// Weeks read on either side of the one asked for.
+    private static let weekReach = 4
 
     /// Weeks already read this revision, by Monday, so the timetable draws
     /// them at once; a new revision re-reads them.
     private(set) var weeks: [String: ScheduleView] = [:]
+
+    /// A quarter as an iCalendar file, written by Core as the desktop's export.
+    func quarterIcs(term: String, scope: CalendarExportScope) async throws -> String {
+        guard let session else { throw SdkError.Unavailable(detail: "quarter calendar") }
+        let query = WorkspaceQuery.quarterIcs(term: term, scope: scope, generatedAt: Self.timestamp(Date()))
+        guard case let .schedule(result) = try await session.scheduleQuery(queries: [query]).value(),
+            case let .quarterIcs(text)? = result.values.first
+        else { throw SdkError.Unavailable(detail: "quarter calendar") }
+        return text
+    }
 
     /// Reads this week and its axis ahead of the timetable being opened.
     private func prefetchTimetable() async {

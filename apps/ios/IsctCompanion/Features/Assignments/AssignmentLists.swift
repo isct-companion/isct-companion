@@ -1,5 +1,6 @@
 import IsctCore
 import SwiftUI
+import TipKit
 
 /// 今日's 課題: what is left to do this quarter, in the groups of Core's task
 /// timeline (`AssignmentBoard.today`), as sections of 今日's list so the rows
@@ -16,17 +17,27 @@ struct TodayAssignmentSections: View {
                     Text(t("No unsubmitted assignments"))
                         .foregroundStyle(Theme.muted)
                         .listRowBackground(Color.clear)
+                } else {
+                    TipView(AssignmentSwipeTip())
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                 }
             } header: {
+                // One line on the narrowest phone: the title never wraps, the
+                // quarter note gives way first.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(t("Assignments")).font(.title2.bold()).foregroundStyle(Theme.ink)
+                    Text(t("Assignments")).font(.title3.bold()).foregroundStyle(Theme.ink)
+                        .lineLimit(1)
+                        .fixedSize()
                     Text(t("{{quarter}} · Unsubmitted only", ["quarter": Format.quarter(board.term)]))
                         .font(.footnote)
                         .foregroundStyle(Theme.muted)
-                    Spacer()
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
                     NavigationLink(value: AssignmentRecordRoute()) {
                         Text(t("See all")).font(.subheadline.weight(.semibold))
                     }
+                    .fixedSize()
                 }
                 .textCase(nil)
                 .padding(.top, 8)

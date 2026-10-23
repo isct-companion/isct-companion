@@ -56,12 +56,28 @@ android {
         // The Core SDK's floor (docs/core-ffi.md).
         minSdk = 34
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // Release builds take both from the tag (.github/workflows/android-release.yml).
+        versionCode = providers.gradleProperty("appVersionCode").orNull?.toInt() ?: 1
+        versionName = providers.gradleProperty("appVersionName").orNull ?: "1.0.0"
+    }
+
+    // The release key lives only in CI secrets; without it, release builds
+    // stay unsigned and the workflow ships the debug-signed APK instead.
+    val releaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").get()
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

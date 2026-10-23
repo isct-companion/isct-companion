@@ -396,13 +396,18 @@ fn held_reasons_follow_the_shell_facts() {
         held(&inputs, &saver, &calendar),
         Some(Some(Held::PowerSaver))
     );
-    // 教務 reads only in the foreground; token reads of deadlines do not.
+    // 教務 reads only in the foreground; token deadlines and the token
+    // dashboard/enrolment read can finish without a resident web session.
     let background = with(&|facts| facts.foreground = false);
     assert_eq!(
         held(&inputs, &background, &grades),
         Some(Some(Held::Background))
     );
     assert_eq!(held(&inputs, &background, &deadlines), Some(None));
+    assert_eq!(
+        held(&inputs, &background, &key(Dataset::LmsEnrolment, "all")),
+        Some(None)
+    );
     // A paused host holds its keys only.
     let paused = with(&|facts| {
         facts

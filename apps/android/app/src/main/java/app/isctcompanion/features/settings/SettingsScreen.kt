@@ -50,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +69,7 @@ import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
+import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.CredentialAvailability
 import app.isctcompanion.core.CredentialSummary
@@ -77,6 +79,7 @@ import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolSessionState
 import app.isctcompanion.core.exportApplicationLogs
 import app.isctcompanion.design.Card
+import app.isctcompanion.design.Guide
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.SyncSources
@@ -122,6 +125,13 @@ private sealed interface SettingsPage {
 @Composable
 fun SettingsScreen() {
     var page by rememberSaveable(stateSaver = SettingsPage.Saver) { mutableStateOf<SettingsPage>(SettingsPage.Root) }
+    // The welcome sheet's "Connect school accounts" lands on the account page.
+    val navigator = LocalNavigator.current
+    LaunchedEffect(navigator.settingsAccount) {
+        val profile = navigator.settingsAccount ?: return@LaunchedEffect
+        navigator.settingsAccount = null
+        page = SettingsPage.Account(profile, accountName(profile))
+    }
     BackHandler(page != SettingsPage.Root) { page = SettingsPage.Root }
     Column(Modifier.fillMaxSize().background(Theme.colors.bg).imePadding()) {
         when (val current = page) {
@@ -174,12 +184,14 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
     Page {
         SectionLabel(t("School accounts"))
         Card {
-            AccountRow("Science Tokyo", model.credentials?.science, model.sessions?.science) {
-                open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, "Science Tokyo"))
+            val science = accountName(SchoolAuthProfile.SCIENCE)
+            AccountRow(science, model.credentials?.science, model.sessions?.science) {
+                open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, science))
             }
             RowDivider(inset = 36.dp)
-            AccountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech) {
-                open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, t("Tokyo Tech (former)")))
+            val tokyoTech = accountName(SchoolAuthProfile.TOKYO_TECH)
+            AccountRow(tokyoTech, model.credentials?.tokyoTech, model.sessions?.tokyoTech) {
+                open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech))
             }
         }
         val sources = model.syncSnapshot?.sources.orEmpty()
@@ -206,15 +218,22 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))
         LogsCard()
         ResetCard(open)
-        Card(Modifier.padding(top = 16.dp)) {
+        Spacer(Modifier.height(8.dp))
+        SectionLabel(t("About"))
+        Card {
             Row(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
                 Text(version.orEmpty(), color = Theme.colors.muted)
             }
+            RowDivider(inset = 16.dp)
+            ActionRow(t("Show welcome and tips again")) { Guide.reset() }
         }
     }
 }
+
+private fun accountName(profile: SchoolAuthProfile) =
+    if (profile == SchoolAuthProfile.SCIENCE) "Science Tokyo" else t("Tokyo Tech (former)")
 
 /** The desktop's Reset group: each row opens its confirmation page. */
 @Composable
@@ -528,7 +547,7 @@ private fun LanguageCard() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Choices(options: List<Pair<String, String>>, selected: String, choose: (String) -> Unit) {
+internal fun Choices(options: List<Pair<String, String>>, selected: String, choose: (String) -> Unit) {
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         options.forEachIndexed { index, (value, label) ->
             SegmentedButton(

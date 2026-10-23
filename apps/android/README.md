@@ -46,6 +46,9 @@ Core changes: UniFFI checks signatures when the library loads.
   them with the desktop app.
 - Reminders are exact alarms once the person allows exact alarms in system
   settings; otherwise Android may deliver them up to 10 minutes late.
+- First-run tips (`design/Guide.kt`, modelled on desktop's `guide.tsx`) cover
+  the week swipe and assignment swipes only: there are no timetable marks,
+  lesson chips, quarter export or hidden site picker here.
 
 ## Verified
 

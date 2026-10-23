@@ -6,6 +6,45 @@ const WS_FILE: &str =
 const FILE: &str =
     "https://lms.s.isct.ac.jp/2025/pluginfile.php/9/mod_resource/content/2/notes.pdf";
 
+// A generic block response must feed the existing timetable trust boundary,
+// rather than silently committing an empty grid when a block is missing.
+#[test]
+fn dashboard_block_uses_the_school_grid_parser_and_rejects_missing_content() {
+    let html = concat!(
+        r#"<select name="year"><option value="7" selected>2026</option></select>"#,
+        r#"<select name="quota"><option selected>3</option></select>"#,
+        "<table><tr><th>Period</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th></tr>",
+        r#"<tr><th>1</th><td><a href="/2025/course/view.php?id=42">Course</a></td><td></td><td></td><td></td><td></td></tr></table>"#,
+        r#"<table><tr><td><a href="/2025/course/view.php?id=99">Unscheduled</a></td></tr></table>"#,
+    );
+    let response = json!({"blocks":[
+        {"name":"html","contents":{"content":html}},
+        {"name":"tttimetable","visible":true,"contents":{"content":html}}
+    ]});
+    let grid = dashboard_timetable(&response).unwrap();
+    assert_eq!(grid["slots"], json!([{"courseId":42,"day":1,"period":1}]));
+    let enrolled = crate::school_parser::lms::validate_enrolment(json!({
+        "courses":[{"id":42},{"id":99}], "timetables":[grid]
+    }))
+    .unwrap();
+    assert_eq!(enrolled.timetables[0].term, "2026-3Q");
+    assert_eq!(enrolled.timetables[0].unscheduled, [99]);
+    assert_eq!(
+        enrolled.timetables[0].meetings[&42],
+        [json!({"day":1,"periods":[1,1]})]
+    );
+    for invalid in [
+        json!({"blocks":[]}),
+        json!({"blocks":[response["blocks"][0].clone()]}),
+        json!({"blocks":[{"name":"tttimetable"}]}),
+        json!({"blocks":[{"name":"tttimetable","contents":{"content":null}}]}),
+        json!({"blocks":[{"name":"tttimetable","contents":{"content":"<table></table>"}}]}),
+        json!({"blocks":[{"name":"tttimetable","visible":false,"contents":{"content":html}}]}),
+    ] {
+        assert!(dashboard_timetable(&invalid).is_none(), "{invalid}");
+    }
+}
+
 #[test]
 fn file_links_are_stored_without_web_service_path_or_credential() {
     assert_eq!(

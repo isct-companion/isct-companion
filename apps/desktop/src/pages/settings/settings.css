@@ -423,3 +423,30 @@ button.calendarDay.open {
 }
 .diagnosticLogMeta { display: block; color: var(--muted); font-size: 11px; }
 .diagnosticLogRow[data-level="ERROR"] > :last-child { color: var(--danger); }
+.agentSetup {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.agentSetup > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--text));
+}
+.agentSnippet {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+.agentSnippet pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  font-size: calc(12px * var(--text));
+  line-height: 1.5;
+}

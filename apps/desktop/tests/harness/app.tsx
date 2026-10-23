@@ -22,6 +22,8 @@ type AppProps = { router?: AppRouter };
 export type AppOptions = {
   route?: string;
   strict?: boolean;
+  /** Keep first-run guidance (welcome sheet, tips); suites skip it by default. */
+  guide?: boolean;
 };
 
 export type MountedApp = Mounted & {
@@ -34,6 +36,7 @@ export type MountedApp = Mounted & {
 let shell: Promise<typeof import("@app/app/App")> | undefined;
 let routerModule: Promise<typeof import("react-router")> | undefined;
 let pathsModule: Promise<typeof import("@app/app/routes")> | undefined;
+let guideModule: Promise<typeof import("@app/components/guide")> | undefined;
 
 /**
  * Installs the scripted host and adopts its snapshot without mounting the shell.
@@ -63,17 +66,24 @@ export async function mountApp(
   shell ??= import("@app/app/App");
   routerModule ??= import("react-router");
   pathsModule ??= import("@app/app/routes");
+  guideModule ??= import("@app/components/guide");
   const [
     { default: App, WorkspaceApp },
     { createHashRouter: buildRouter },
     { paths, workspaceRoutes },
-  ] = await Promise.all([shell, routerModule, pathsModule]);
+    { GUIDE_KEY, TIPS },
+  ] = await Promise.all([shell, routerModule, pathsModule, guideModule]);
 
   await adoptSnapshot();
 
   // The app is browser-stateful; a suite must not inherit the previous one.
   localStorage.clear();
   sessionStorage.clear();
+  if (!app.guide)
+    localStorage.setItem(
+      GUIDE_KEY,
+      JSON.stringify({ welcome: true, tips: [...TIPS] }),
+    );
   window.location.hash = app.route ?? paths.home();
 
   const router = buildRouter(workspaceRoutes(WorkspaceApp));

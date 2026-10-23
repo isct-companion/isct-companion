@@ -66,6 +66,7 @@ import app.isctcompanion.core.DeadlineItem
 import app.isctcompanion.design.DeadlineLink
 import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.Format
+import app.isctcompanion.design.GuideTip
 import app.isctcompanion.design.PageSubtitle
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.ProblemBanner
@@ -98,6 +99,11 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
         }
     }
     val today = board.today
+    if (!today.isEmpty()) {
+        item(key = "assignments-tip") {
+            GuideTip("assignment-swipe", "Pin or hide", "Swipe right to pin an assignment, left to hide it.", Modifier.padding(top = 8.dp))
+        }
+    }
     group(t("Pinned"), today.pinned, now, Format.OverdueStyle.Elapsed)
     group(t("This week"), today.dueThisWeek, now, Format.OverdueStyle.Elapsed)
     group(t("Next week and later"), today.later, now, Format.OverdueStyle.Elapsed)

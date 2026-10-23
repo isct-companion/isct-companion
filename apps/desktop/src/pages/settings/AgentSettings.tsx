@@ -3,6 +3,7 @@ import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../app/native";
 import type { AgentConnection } from "../../platform/desktop-bridge";
+import { SegmentedControl } from "@mantine/core";
 import { UiButton } from "../../components/mantine";
 import {
   Row,
@@ -82,7 +83,7 @@ export function AgentSettings({
           footer={
             connection?.state === "listening"
               ? t(
-                  "Add this URL as a Streamable HTTP MCP server. Use the access token for Bearer authentication and keep IsctCompanion open.",
+                  "Pick your assistant below and paste its setup, or add the URL as a Streamable HTTP server with the token as Bearer authentication. Keep IsctCompanion open.",
                 )
               : undefined
           }
@@ -106,6 +107,11 @@ export function AgentSettings({
                   {t("Copy token")}
                 </UiButton>
               </Row>
+              <AgentSetup
+                url={connection.url}
+                token={connection.token}
+                copy={copy}
+              />
             </>
           ) : (
             <p
@@ -141,5 +147,104 @@ export function AgentSettings({
         </SettingsGroup>
       )}
     </>
+  );
+}
+
+type AgentClient = "claude-code" | "codex" | "claude-desktop" | "cursor";
+
+const SERVER = "isct-companion";
+
+/**
+ * What to paste into each common MCP client. Each client spells a Streamable
+ * HTTP server with a Bearer token differently; Claude Desktop has no HTTP
+ * transport for local servers, so it goes through `mcp-remote`.
+ */
+export function agentSetup(client: AgentClient, url: string, token: string) {
+  const bearer = `Bearer ${token}`;
+  switch (client) {
+    case "claude-code":
+      return {
+        where: "Run in a terminal.",
+        text: `claude mcp add --transport http ${SERVER} ${url} --header "Authorization: ${bearer}"`,
+      };
+    case "codex":
+      return {
+        where: "Add to ~/.codex/config.toml.",
+        text: `[mcp_servers.${SERVER}]\nurl = "${url}"\nhttp_headers = { Authorization = "${bearer}" }`,
+      };
+    case "claude-desktop":
+      return {
+        where:
+          "Add to claude_desktop_config.json (Settings → Developer → Edit Config), then restart Claude. Needs Node.js.",
+        text: JSON.stringify(
+          {
+            mcpServers: {
+              [SERVER]: {
+                command: "npx",
+                args: [
+                  "-y",
+                  "mcp-remote",
+                  url,
+                  "--header",
+                  "Authorization:${AUTH}",
+                ],
+                env: { AUTH: bearer },
+              },
+            },
+          },
+          null,
+          2,
+        ),
+      };
+    case "cursor":
+      return {
+        where: "Add to ~/.cursor/mcp.json.",
+        text: JSON.stringify(
+          {
+            mcpServers: {
+              [SERVER]: { url, headers: { Authorization: bearer } },
+            },
+          },
+          null,
+          2,
+        ),
+      };
+  }
+}
+
+/** Ready-to-paste setup per client; the token shows masked but copies whole. */
+function AgentSetup({
+  url,
+  token,
+  copy,
+}: {
+  url: string;
+  token: string;
+  copy: (value: string) => void;
+}) {
+  const [client, setClient] = useState<AgentClient>("claude-code");
+  const setup = agentSetup(client, url, token);
+  const shown = agentSetup(client, url, "•".repeat(8));
+  return (
+    <div className="agentSetup">
+      <SegmentedControl
+        size="xs"
+        value={client}
+        onChange={(value) => setClient(value as AgentClient)}
+        data={[
+          { value: "claude-code", label: "Claude Code" },
+          { value: "codex", label: "Codex" },
+          { value: "claude-desktop", label: "Claude Desktop" },
+          { value: "cursor", label: "Cursor" },
+        ]}
+      />
+      <p>{t(setup.where)}</p>
+      <div className="agentSnippet">
+        <pre>{shown.text}</pre>
+        <UiButton className="button small" onClick={() => copy(setup.text)}>
+          {t("Copy")}
+        </UiButton>
+      </div>
+    </div>
   );
 }

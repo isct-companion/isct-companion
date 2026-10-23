@@ -330,6 +330,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   },
   {
     section: "about",
+    id: "guide",
+    title: "Show welcome and tips again",
+    terms: "tutorial onboarding help hints guide チュートリアル ヒント 教程 提示",
+  },
+  {
+    section: "about",
     id: "version",
     title: "Version",
     terms: "about info バージョン 情報",

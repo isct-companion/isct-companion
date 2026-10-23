@@ -1,5 +1,6 @@
 import IsctCore
 import SwiftUI
+import TipKit
 import WebKit
 
 /// Hosts a site's resident WKWebView while on screen and parks it afterwards,
@@ -13,6 +14,8 @@ private struct ResidentWebView: UIViewRepresentable {
     let host: SchoolBrowserHost
     /// Changes when Core created a view, so the container attaches it.
     let revision: Int
+    /// Pull to refresh, as in Safari; Core reloads the page.
+    var refresh: (() -> Void)?
 
     func makeUIView(context: Context) -> Container {
         let container = Container(host: host)
@@ -22,6 +25,7 @@ private struct ResidentWebView: UIViewRepresentable {
 
     func updateUIView(_ container: Container, context: Context) {
         container.site = site
+        container.refresh = refresh
         container.claim()
     }
 
@@ -32,6 +36,17 @@ private struct ResidentWebView: UIViewRepresentable {
     final class Container: UIView {
         let host: SchoolBrowserHost
         var site: SchoolSite?
+        var refresh: (() -> Void)?
+        /// One per container: the resident view carries it while held here.
+        private lazy var refreshControl: UIRefreshControl = {
+            let control = UIRefreshControl()
+            control.addAction(UIAction { [weak self, weak control] _ in
+                self?.refresh?()
+                // The page shows its own progress; the spinner only answers the pull.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { control?.endRefreshing() }
+            }, for: .valueChanged)
+            return control
+        }()
 
         init(host: SchoolBrowserHost) {
             self.host = host
@@ -55,40 +70,104 @@ private struct ResidentWebView: UIViewRepresentable {
             guard let webView = host.webView(for: site), webView.superview !== self else { return }
             webView.frame = bounds
             webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            if refresh != nil { webView.scrollView.refreshControl = refreshControl }
             addSubview(webView)
         }
 
         /// Returns whatever view it holds to the parking window.
         func release() {
-            for case let held as WKWebView in subviews { host.park(held) }
+            for case let held as WKWebView in subviews {
+                if held.scrollView.refreshControl === refreshControl { held.scrollView.refreshControl = nil }
+                host.park(held)
+            }
         }
     }
 }
 
-/// ウェブ tab: one resident view per site, nearly full screen. Sites are
-/// switched by long-pressing the tab (`SitePickerPanel`); back and forward are
-/// WebKit's edge swipes and tapping the tab again returns the site home.
+/// ウェブ tab: one resident view per site under a standard navigation bar.
+/// The title is the site and its menu switches sites (long-pressing the tab
+/// does too); back and forward sit leading, page actions in the trailing
+/// menu, and a pull reloads. Tapping the tab again returns the site home.
 struct WebTabScreen: View {
     @Environment(WebRouter.self) private var web
 
     var body: some View {
-        ZStack {
-            // Ends at the tab bar: before iOS 26 the bar turns transparent over a
-            // web page and the page's text would run under the tab labels.
-            ResidentWebView(site: web.tabSite, host: web.browser, revision: web.attachRevision)
+        // Read so a navigation (which retitles the page) refreshes the actions.
+        _ = web.titles[web.tabSite]
+        return ZStack {
+            ResidentWebView(site: web.tabSite, host: web.browser, revision: web.attachRevision) {
+                web.reload(web.tabSite)
+            }
             if web.loading == web.tabSite && web.browser.webView(for: web.tabSite) == nil {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let error = web.error {
                 ProblemNote(text: error).padding(.top, 12).frame(maxHeight: .infinity, alignment: .top)
             }
+            // The one thing drawn over the page, once: how to reach the
+            // other sites.
+            TipView(WebSitesTip())
+                .padding(12)
+                .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .background(Theme.bg)
+        .navigationTitle(WebRouter.name(web.tabSite))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleMenu {
+            ForEach(WebRouter.tabSites, id: \.self) { site in
+                Button {
+                    web.choose(site)
+                } label: {
+                    if site == web.tabSite {
+                        Label(WebRouter.name(site), systemImage: "checkmark")
+                    } else {
+                        Text(WebRouter.name(site))
+                    }
+                }
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarLeading) {
+                Button { web.back(web.tabSite) } label: { Image(systemName: "chevron.backward") }
+                    .accessibilityLabel(t("Previous page"))
+                Button { web.forward(web.tabSite) } label: { Image(systemName: "chevron.forward") }
+                    .accessibilityLabel(t("Next page"))
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                PageActions(site: web.tabSite)
+            }
+        }
         .onAppear {
             web.showTab(web.tabSite)
             web.setVisible(web.tabSite)
         }
         .onDisappear { web.setVisible(nil) }
+    }
+}
+
+/// The page menu both web screens share: reload, share, Safari and text size.
+private struct PageActions: View {
+    let site: SchoolSite
+    @Environment(WebRouter.self) private var web
+    @AppStorage(SchoolBrowserHost.textScaleKey) private var textScale = 115
+
+    var body: some View {
+        Menu {
+            Button(t("Reload"), systemImage: "arrow.clockwise") { web.reload(site) }
+            if let url = web.browser.webView(for: site)?.url {
+                ShareLink(item: url) { Label(t("Share"), systemImage: "square.and.arrow.up") }
+                Link(destination: url) { Label(t("Open in browser"), systemImage: "safari") }
+            }
+            Picker(selection: $textScale) {
+                ForEach(SchoolBrowserHost.textScales, id: \.self) { Text(verbatim: "\($0)%").tag($0) }
+            } label: {
+                Label(t("Text size"), systemImage: "textformat.size")
+            }
+            .pickerStyle(.menu)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .onChange(of: textScale) { _, percent in web.browser.setTextScale(percent) }
     }
 }
 
@@ -135,232 +214,58 @@ struct SitePickerRows: View {
     }
 
     private func row(_ choice: SitePick, _ title: String, icon: String?) -> some View {
-        Button {
-            pick(choice)
-        } label: {
-            if let icon {
-                Label(title, systemImage: icon)
-            } else {
-                Text(title)
-            }
-        }
-        .buttonStyle(SitePickerRowStyle(highlighted: highlighted == choice))
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-            report?(choice, frame)
-        }
+        TabPressRow(choice: choice, title: title, icon: icon, highlighted: highlighted, report: report, pick: pick)
     }
 }
 
-/// A panel row: title leading, symbol trailing, filled while under the finger
-/// or pressed.
-private struct SitePickerRowStyle: ButtonStyle {
-    let highlighted: Bool
+/// The ウェブ tab item's long press (`TabItemPress`).
+typealias SitePickerPress = TabItemPress<SitePick>
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .labelStyle(TrailingIconLabelStyle())
-            .font(.body)
-            .foregroundStyle(Theme.ink)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                highlighted || configuration.isPressed ? Theme.line.opacity(0.9) : .clear,
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .contentShape(Rectangle())
-    }
-}
-
-private struct TrailingIconLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack {
-            configuration.title
-            Spacer(minLength: 12)
-            configuration.icon.foregroundStyle(Theme.accent)
-        }
-    }
-}
-
-/// The long-press state of the ウェブ tab item, fed by `TabBarLongPress` and
-/// drawn by `SitePickerPanel` in the root.
-@MainActor
-@Observable
-final class SitePickerPress {
-    /// The pressed item's frame (window coordinates) while the panel is up.
-    private(set) var anchor: CGRect?
-    /// Where the finger is while it stays down; nil once lifted.
-    private(set) var finger: CGPoint?
-    /// The finger left the item, so lifting away from a row dismisses.
-    private var moved = false
-    /// Bumped when the panel opens, for the haptic.
-    private(set) var opened = 0
-    /// The panel rows' frames (window coordinates).
-    @ObservationIgnored var rows: [SitePick: CGRect] = [:]
-
-    var isOpen: Bool { anchor != nil }
-
-    /// The row under the finger.
-    var highlighted: SitePick? {
-        guard let finger else { return nil }
-        return rows.first { $0.value.contains(finger) }?.key
-    }
-
-    /// Feeds one tab-bar event; returns the row chosen by lifting on it.
-    func handle(_ event: TabBarLongPress.Event) -> SitePick? {
-        switch event {
-        case let .began(item, at):
-            rows = [:]
-            anchor = item
-            finger = at
-            moved = false
-            opened += 1
-        case let .changed(point):
-            finger = point
-            if let anchor, !anchor.insetBy(dx: -8, dy: -8).contains(point) { moved = true }
-        case let .ended(point):
-            finger = point
-            let chosen = highlighted
-            finger = nil
-            // Lifting on the item leaves the panel open for a tap.
-            if chosen != nil || moved { dismiss() }
-            return chosen
-        case .cancelled:
-            finger = nil
-            dismiss()
-        }
-        return nil
-    }
-
-    func dismiss() {
-        anchor = nil
-        finger = nil
-    }
-}
-
-/// The glass panel raised above the ウェブ tab item by a long press.
-struct SitePickerPanel: View {
-    let press: SitePickerPress
-    let pick: (SitePick) -> Void
-
-    private static let width: CGFloat = 240
-
-    var body: some View {
-        GeometryReader { proxy in
-            if let anchor = press.anchor {
-                let origin = proxy.frame(in: .global).origin
-                let half = Self.width / 2
-                let x = min(max(anchor.midX - origin.x, half + 12), proxy.size.width - half - 12)
-                ZStack(alignment: .topLeading) {
-                    Color.black.opacity(0.08)
-                        .contentShape(Rectangle())
-                        .onTapGesture { withAnimation(.snappy) { press.dismiss() } }
-                    VStack(spacing: 0) {
-                        SitePickerRows(highlighted: press.highlighted, report: { press.rows[$0] = $1 }) { choice in
-                            withAnimation(.snappy) { press.dismiss() }
-                            pick(choice)
-                        }
-                    }
-                    .padding(6)
-                    .frame(width: Self.width)
-                    .floatingGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .transition(.scale(scale: 0.85, anchor: .bottom).combined(with: .opacity))
-                    // Bottom edge 10 pt above the tab item, centred on it.
-                    .frame(height: max(0, anchor.minY - origin.y - 10), alignment: .bottom)
-                    .offset(x: x - half)
-                }
-            }
-        }
-        .ignoresSafeArea()
-        .animation(.snappy, value: press.isOpen)
-        .sensoryFeedback(.impact(weight: .medium), trigger: press.opened)
-        .sensoryFeedback(.selection, trigger: press.highlighted)
-    }
-}
-
-/// A school page pushed from a course or assignment; back returns to it.
+/// A school page pushed from a course or assignment, with the system back
+/// button and title; back, forward, share and Safari sit in the bottom
+/// toolbar as in Safari, and a pull reloads.
 struct WebPageScreen: View {
     let page: WebRouter.PushedPage
     @Environment(WebRouter.self) private var web
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack {
-            ResidentWebView(site: page.site, host: web.browser, revision: web.attachRevision)
-                .ignoresSafeArea()
+        _ = web.titles[page.site]
+        return ZStack {
+            ResidentWebView(site: page.site, host: web.browser, revision: web.attachRevision) {
+                web.reload(page.site)
+            }
             if let error = web.error {
                 ProblemNote(text: error)
             }
         }
-        .safeAreaInset(edge: .top) { topBar }
-        .safeAreaInset(edge: .bottom) { bottomBar }
-        .toolbar(.hidden, for: .navigationBar)
+        .background(Theme.bg)
+        .navigationTitle(page.title)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                PageActions(site: page.site)
+            }
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button { web.back(page.site) } label: { Image(systemName: "chevron.backward") }
+                    .accessibilityLabel(t("Previous page"))
+                Spacer()
+                Button { web.forward(page.site) } label: { Image(systemName: "chevron.forward") }
+                    .accessibilityLabel(t("Next page"))
+                Spacer()
+                if let url = web.browser.webView(for: page.site)?.url {
+                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
+                    Spacer()
+                    Link(destination: url) { Image(systemName: "safari") }
+                        .accessibilityLabel(t("Open in browser"))
+                }
+            }
+        }
         .onAppear {
             web.open(page.site, target: page.target)
             web.setVisible(page.site)
         }
         .onDisappear { web.setVisible(nil) }
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 8) {
-            circle("chevron.left", label: t("Back")) { dismiss() }
-            VStack(spacing: 0) {
-                Text(page.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Label(WebRouter.name(page.site), systemImage: "lock.fill")
-                    .font(.caption2)
-                    .foregroundStyle(Theme.muted)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
-            Button {
-                web.browser.cycleTextScale()
-            } label: {
-                Text(t("Aa"))
-                    .font(.subheadline.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
-            }
-            .accessibilityLabel(t("Text size"))
-        }
-        .foregroundStyle(Theme.ink)
-        .padding(.horizontal, 12)
-        .padding(.top, 4)
-    }
-
-    private var bottomBar: some View {
-        HStack {
-            Button { web.back(page.site) } label: { Image(systemName: "chevron.left") }
-                .accessibilityLabel(t("Previous page"))
-            Spacer()
-            Button { web.forward(page.site) } label: { Image(systemName: "chevron.right") }
-                .accessibilityLabel(t("Next page"))
-            Spacer()
-            if let url = web.browser.webView(for: page.site)?.url {
-                ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
-                Spacer()
-                Link(destination: url) { Image(systemName: "safari") }
-                    .accessibilityLabel(t("Open in browser"))
-            }
-        }
-        .font(.title3)
-        .foregroundStyle(Theme.accent)
-        .padding(.horizontal, 28)
-        .padding(.vertical, 14)
-        .background(.regularMaterial, in: Capsule())
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
-    }
-
-    private func circle(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.body.weight(.semibold))
-                .frame(width: 40, height: 40)
-                .background(.regularMaterial, in: Circle())
-        }
-        .accessibilityLabel(label)
     }
 }
 

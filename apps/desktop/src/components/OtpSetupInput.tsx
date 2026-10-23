@@ -1,18 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ActionIcon,
   Alert,
   Button,
   FileButton,
   Group,
   Input,
   Modal,
-  Popover,
-  SegmentedControl,
   Stack,
   Text,
   TextInput,
-  Tooltip,
 } from "@mantine/core";
 import { t } from "../i18n";
 import { useTimeout } from "@mantine/hooks";
@@ -26,93 +22,55 @@ import {
 import { QrCamera } from "./QrCamera";
 import "./otp-setup-input.css";
 
-function OtpHelp({
-  disabled,
-  openSchoolSettings,
+type OtpPathId = "school" | "export" | "paste";
+
+/**
+ * One way to give the app the school's OTP setup. The three are mutually
+ * exclusive, so they read as radio cards; only the chosen one shows its
+ * controls.
+ */
+function OtpPath({
+  value,
+  current,
+  onSelect,
+  title,
+  hint,
+  recommended,
+  children,
 }: {
-  disabled: boolean;
-  openSchoolSettings: (url: string, setupOtp?: boolean) => void;
+  value: OtpPathId;
+  current: OtpPathId;
+  onSelect: (value: OtpPathId) => void;
+  title: string;
+  hint: string;
+  recommended?: boolean;
+  children: React.ReactNode;
 }) {
-  const [opened, setOpened] = useState(false);
-  const [source, setSource] = useState("new");
+  const selected = value === current;
   return (
-    <Popover
-      opened={opened}
-      onChange={setOpened}
-      width={340}
-      position="bottom-start"
-      withinPortal
-    >
-      <Popover.Target>
-        <Tooltip disabled={opened} label={t("How do I find the QR code?")}>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="sm"
-            aria-label={t("How do I find the QR code?")}
-            aria-expanded={opened}
-            onClick={() => setOpened((value) => !value)}
-          >
-            ?
-          </ActionIcon>
-        </Tooltip>
-      </Popover.Target>
-      <Popover.Dropdown>
-        <Stack gap="sm">
-          <Text size="sm" fw={600}>
-            {t("Automatic school verification codes")}
-          </Text>
-          <SegmentedControl
-            value={source}
-            onChange={setSource}
-            data={[
-              { value: "new", label: t("School setup") },
-              { value: "google", label: "Google" },
-              { value: "other", label: t("Microsoft / other") },
-            ]}
-          />
-          <Text size="sm">
-            {source === "google"
-              ? t(
-                  "In Google Authenticator, open Transfer accounts → Export accounts. Select only your school account, then scan its QR code here.",
-                )
-              : source === "other"
-                ? t(
-                    "Import an exported TOTP QR code, setup link or Secret key using the controls here. If your authenticator cannot export, Help me set up can reset the school registration.",
-                  )
-                : t(
-                    "Help me set up opens the school website. Sign in manually if needed; the app then reads the new OTP setup, submits its verification code, and saves it after the school confirms registration.",
-                  )}
-          </Text>
-          {source === "new" && (
-            <Text size="xs" c="dimmed">
-              {t(
-                "An existing registration requires reset confirmation. After a reset, replace the school entry in every other authenticator using the new setup saved in this app.",
-              )}
-            </Text>
-          )}
-          <Button
-            size="xs"
-            variant="light"
-            disabled={disabled || !desktopBridge}
-            onClick={() => {
-              setOpened(false);
-              openSchoolSettings(
-                "https://isct.ex-tic.com/idm/user/mfa_setting/",
-                true,
-              );
-            }}
-          >
-            {t("Help me set up")}
-          </Button>
+    <div className="otpPath" data-selected={selected || undefined}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        className="otpPathHead"
+        onClick={() => onSelect(value)}
+      >
+        <i aria-hidden="true" />
+        <b>{title}</b>
+        {recommended && (
+          <span className="otpRecommended">{t("Recommended")}</span>
+        )}
+      </button>
+      {selected && (
+        <div className="otpPathBody">
           <Text size="xs" c="dimmed">
-            {t(
-              "Manual imports need the setup link or Secret key, not the changing six-digit code. Press Connect to save a manual import.",
-            )}
+            {hint}
           </Text>
-        </Stack>
-      </Popover.Dropdown>
-    </Popover>
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -152,6 +110,10 @@ export function OtpSetupInput({
   const [accounts, setAccounts] = useState<OtpImportAccount[]>([]);
   const [error, setError] = useState("");
   const [label, setLabel] = useState("");
+  const [changing, setChanging] = useState(false);
+  const [path, setPath] = useState<OtpPathId>("school");
+  // A newly saved setup closes the chooser again.
+  useEffect(() => setChanging(false), [saved]);
   const generation = useRef(0);
   const resetImage = useRef<(() => void) | null>(null);
   useEffect(
@@ -166,6 +128,8 @@ export function OtpSetupInput({
   }, [camera, reading, onScanState]);
   const choose = (account: OtpImportAccount) => {
     onChange(account.setup);
+    // What was read lands in the paste field, so it can be checked or copied.
+    setPath("paste");
     setLabel(account.label || account.issuer);
     setAccounts([]);
     setError("");
@@ -202,89 +166,148 @@ export function OtpSetupInput({
       if (current === generation.current) setReading(false);
     }
   };
+  const choosing = !saved || changing || Boolean(value.trim());
+  const busy = disabled || reading || camera;
+  const copyButton = (
+    <Button
+      variant="default"
+      size="xs"
+      aria-label={t("Copy OTP setup")}
+      disabled={busy || (!value.trim() && !saved) || !desktopBridge}
+      onClick={() => void copy()}
+    >
+      {t(copied ? "Copied" : "Copy setup")}
+    </Button>
+  );
   return (
     <Input.Wrapper
       className="otpSetupField"
-      label={
-        <Group gap={5}>
-          <span>{t("Automatic school verification codes")}</span>
-          <OtpHelp
-            disabled={disabled || reading || camera}
-            openSchoolSettings={openSchoolSettings}
-          />
-        </Group>
-      }
+      label={t("Automatic school verification codes")}
       id="school-otp-setup"
     >
-      <div className="otpSetupRow">
-        <TextInput
-          id="school-otp-setup"
-          type="password"
-          aria-label={t("Automatic school verification codes")}
-          value={value}
-          autoCapitalize="none"
-          autoComplete="off"
-          spellCheck={false}
-          disabled={disabled || reading}
-          placeholder={saved ? "••••••••" : t("Paste a setup link or secret")}
-          onChange={(event) => {
-            onChange(event.target.value);
-            setLabel("");
-            setError("");
-          }}
-        />
-        <Button.Group aria-label={t("Import authenticator QR code")}>
+      {!choosing ? (
+        <div className="otpSaved" role="status">
+          <span aria-hidden="true">✓</span>
+          <Text size="sm">{t("Codes are filled in for you at sign-in.")}</Text>
+          {copyButton}
           <Button
-            disabled={disabled || reading || camera || !desktopBridge}
-            onClick={() =>
-              openSchoolSettings(
-                "https://isct.ex-tic.com/idm/user/mfa_setting/",
-                true,
-              )
-            }
+            variant="subtle"
+            size="xs"
+            disabled={busy}
+            onClick={() => setChanging(true)}
           >
-            {t("Help me set up")}
+            {t("Change")}
           </Button>
-          <Button
-            variant="default"
-            aria-label={t("Copy OTP setup")}
-            disabled={
-              disabled ||
-              reading ||
-              camera ||
-              (!value.trim() && !saved) ||
-              !desktopBridge
-            }
-            onClick={() => void copy()}
-          >
-            {t(copied ? "Copied" : "Copy")}
-          </Button>
-          <Button
-            variant="default"
-            disabled={disabled || reading || camera}
-            onClick={() => setCamera(true)}
-          >
-            {t("Scan QR")}
-          </Button>
-          <FileButton
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(file) => {
-              if (file) void load(file);
-            }}
-          >
-            {(props) => (
-              <Button
-                {...props}
-                variant="default"
-                disabled={disabled || reading || camera}
-                loading={reading}
-              >
-                {t("Select image")}
-              </Button>
+        </div>
+      ) : (
+        <div className="otpPaths" role="radiogroup">
+          <OtpPath
+            value="school"
+            current={path}
+            onSelect={setPath}
+            title={t("Let the app set it up")}
+            recommended
+            hint={t(
+              "Opens the school site. Sign in if asked; the app registers itself and saves the setup.",
             )}
-          </FileButton>
-        </Button.Group>
-      </div>
+          >
+            <Button
+              size="xs"
+              disabled={busy || !desktopBridge}
+              onClick={() =>
+                openSchoolSettings(
+                  "https://isct.ex-tic.com/idm/user/mfa_setting/",
+                  true,
+                )
+              }
+            >
+              {t("Open the school site")}
+            </Button>
+            <Text size="xs" c="dimmed">
+              {t(
+                "Already registered elsewhere? The school asks to reset it; then update your other authenticators.",
+              )}
+            </Text>
+          </OtpPath>
+          <OtpPath
+            value="export"
+            current={path}
+            onSelect={setPath}
+            title={t("From an authenticator app")}
+            hint={t(
+              "Google Authenticator: Transfer accounts → Export accounts, select only the school account.",
+            )}
+          >
+            <Group gap="xs">
+              <Button
+                size="xs"
+                variant="default"
+                disabled={busy}
+                onClick={() => setCamera(true)}
+              >
+                {t("Scan QR")}
+              </Button>
+              <FileButton
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(file) => {
+                  if (file) void load(file);
+                }}
+              >
+                {(props) => (
+                  <Button
+                    {...props}
+                    size="xs"
+                    variant="default"
+                    disabled={busy}
+                    loading={reading}
+                  >
+                    {t("Select image")}
+                  </Button>
+                )}
+              </FileButton>
+            </Group>
+          </OtpPath>
+          <OtpPath
+            value="paste"
+            current={path}
+            onSelect={setPath}
+            title={t("Paste a setup link or secret")}
+            hint={t("Not the six-digit code that changes every 30 seconds.")}
+          >
+            <div className="otpSetupRow">
+              <TextInput
+                id="school-otp-setup"
+                type="password"
+                size="xs"
+                aria-label={t("Automatic school verification codes")}
+                value={value}
+                autoCapitalize="none"
+                autoComplete="off"
+                spellCheck={false}
+                disabled={disabled || reading}
+                placeholder={t("otpauth://… or secret key")}
+                onChange={(event) => {
+                  onChange(event.target.value);
+                  setLabel("");
+                  setError("");
+                }}
+              />
+              {copyButton}
+            </div>
+          </OtpPath>
+          {saved && changing && !value.trim() && (
+            <Button
+              variant="subtle"
+              size="xs"
+              color="gray"
+              className="otpKeep"
+              onClick={() => setChanging(false)}
+            >
+              {t("Keep the saved setup")}
+            </Button>
+          )}
+        </div>
+      )}
       {label && (
         <Text size="xs" c="dimmed">
           {t("Read {{account}}. Connect to save this setup.", {

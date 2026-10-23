@@ -1,5 +1,6 @@
 import IsctCore
 import SwiftUI
+import TipKit
 
 /// The course page as the desktop Lecture Desk lays it out: the course, then
 /// its lessons (t("General"), 1, 2, …) one at a time, each with its own text (授業
@@ -298,6 +299,7 @@ private struct LessonChips: View {
             .onAppear { proxy.scrollTo(selection, anchor: .center) }
             .onChange(of: selection) { withAnimation(.snappy) { proxy.scrollTo(selection, anchor: .center) } }
         }
+        .popoverTip(LessonMarkTip(), arrowEdge: .top)
     }
 
     private func chip(_ lesson: LessonContent) -> some View {

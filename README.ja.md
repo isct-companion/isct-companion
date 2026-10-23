@@ -55,7 +55,7 @@ macOS のリリース版は署名・公証済みです。Windows 版は現在未
 [ドキュメント一覧](docs/README.md) に Core API、ネイティブ SDK、取得処理、配布手順をまとめています。
 レビュー済みのバージョンは、一致するバージョンタグの push で配布できます。[リリース手順](docs/desktop-release.md) を参照してください。
 
-IsctCompanion は独立したプロジェクトです。利用・配布には [日本語利用規約](docs/legal/EULA.ja.md) と [English EULA](docs/legal/EULA.md) が適用されます。
+IsctCompanion は独立したプロジェクトで、[GNU GPL v3 以降](LICENSE) と [追加条項](docs/legal/NOTICE.ja.md)（[English](docs/legal/NOTICE.md)）の下で公開しています。アプリストアでの配布を認め、改変版には別の名称を求めます。
 
 ## 謝辞
 

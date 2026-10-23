@@ -299,7 +299,7 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
         expect(notes).toContain(
           `IsctCompanion ${tag.slice(1)} desktop release`,
         );
-        expect(notes).toContain("desktop installers only");
+        expect(notes).toContain("Android APK is attached by the Android release workflow");
         expect(notes).toContain("Reviewed release notes for this version.");
         // Each platform states its own signing, so a signed Mac build never
         // claims the same for an unsigned Windows installer.
@@ -327,8 +327,9 @@ describe("desktop update distribution", () => {
         "apps/desktop/src-tauri/tauri.conf.json",
         "apps/desktop/src-tauri/Cargo.toml",
         "Cargo.lock",
-        "docs/legal/EULA.md",
-        "docs/legal/EULA.ja.md",
+        "LICENSE",
+        "docs/legal/NOTICE.md",
+        "docs/legal/NOTICE.ja.md",
         "docs/distribution/README.md",
         "scripts/desktop/desktop-release.mjs",
         "scripts/release/versions.mjs",
@@ -417,8 +418,9 @@ describe("release version bump", () => {
         "apps/desktop/src-tauri/tauri.conf.json",
         "apps/desktop/src-tauri/Cargo.toml",
         "Cargo.lock",
-        "docs/legal/EULA.md",
-        "docs/legal/EULA.ja.md",
+        "LICENSE",
+        "docs/legal/NOTICE.md",
+        "docs/legal/NOTICE.ja.md",
         "scripts/desktop/desktop-release.mjs",
         "scripts/release/versions.mjs",
         "scripts/release/bump.mjs",

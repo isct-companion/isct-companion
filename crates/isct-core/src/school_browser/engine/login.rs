@@ -282,17 +282,21 @@ impl SchoolBrowserEngine {
         );
     }
 
-    /// 教務Web starts its ASP.NET session only from its entry page, through
-    /// the GetAccess sign-on; Rust cannot follow that hop itself. The hidden
-    /// 教務 view opens the entry page, so the shared cookie store holds a
-    /// fresh session for `net::kyomu`. `false`: it landed on a sign-in page.
-    pub(crate) async fn enter_kyomu(&self) -> Result<bool, SchoolBrowserError> {
+    /// Portal authentication alone does not create the application's cookie:
+    /// the resident LMS/教務 view must finish its SSO hop before HTTP retries.
+    pub(crate) async fn ensure_transport_session(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<bool, SchoolBrowserError> {
+        if !self.ensure_session(profile).await? {
+            return Ok(false);
+        }
         loop {
             self.wait_until_hidden_without_context().await?;
             let lane = self.acquire_lane().await?;
-            let result = self.enter_kyomu_once().await;
+            let result = self.enter_service_once(profile).await;
             drop(lane);
-            log::info!(target: "isct_core::school_browser", "kyomu entry result={result:?}");
+            log::info!(target: "isct_core::school_browser", "service entry profile={profile:?} result={result:?}");
             match result {
                 Err(SchoolBrowserError::Preempted) => continue,
                 result => return result,
@@ -300,9 +304,15 @@ impl SchoolBrowserEngine {
         }
     }
 
-    async fn enter_kyomu_once(&self) -> Result<bool, SchoolBrowserError> {
-        let site = SchoolSite::Kyomu;
-        let url = safe_url(KYOMU_ENTRY)?;
+    async fn enter_service_once(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<bool, SchoolBrowserError> {
+        let (site, entry) = match profile {
+            SchoolAuthProfile::Science => (SchoolSite::ScienceLms, crate::lms_session::LMS_HOME),
+            SchoolAuthProfile::TokyoTech => (SchoolSite::Kyomu, KYOMU_ENTRY),
+        };
+        let url = safe_url(entry)?;
         let mut traces = self.hidden_traces()?;
         let browser = self.ensure_browser(site, url.clone())?;
         let baseline = {
@@ -317,16 +327,26 @@ impl SchoolBrowserEngine {
             })
             .unwrap_or_default()
         };
-        self.dispatch(browser, BrowserAction::Navigate(url))?;
+        self.dispatch(browser, BrowserAction::Navigate(url.clone()))?;
         tokio::time::timeout(SESSION_TIMEOUT, async {
             loop {
                 match traces.recv().await {
                     Ok(Trace::Loaded(event))
                         if event.page.browser == browser && event.page.sequence > baseline =>
                     {
-                        if event.url.host_str() == Some(crate::school_parser::kyomu::HOST)
-                            && event.url.path().starts_with(KYOMU_STUDENT)
-                        {
+                        let ready = match profile {
+                            SchoolAuthProfile::Science => {
+                                crate::school_parser::lms::is_lms_origin(&event.url)
+                                    && (event.url.path() == url.path()
+                                        || event.url.path().strip_suffix("index.php")
+                                            == Some(url.path()))
+                            }
+                            SchoolAuthProfile::TokyoTech => {
+                                event.url.host_str() == Some(crate::school_parser::kyomu::HOST)
+                                    && event.url.path().starts_with(KYOMU_STUDENT)
+                            }
+                        };
+                        if ready {
                             return Ok(true);
                         }
                         // Sign-on hops in between (GetAccess, form posts)
@@ -345,7 +365,7 @@ impl SchoolBrowserEngine {
             }
         })
         .await
-        .map_err(|_| SchoolBrowserError::Timeout("教務Web did not open in time.".into()))?
+        .map_err(|_| SchoolBrowserError::Timeout(format!("{site:?} did not open in time.")))?
     }
 
     pub(super) async fn ensure_session_once(

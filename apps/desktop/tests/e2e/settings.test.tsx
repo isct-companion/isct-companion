@@ -256,7 +256,7 @@ describe("School accounts", () => {
         },
       });
       const start = async () => {
-        await clickButton(account(mounted, "science"), "Help me set up");
+        await clickButton(account(mounted, "science"), "Open the school site");
         await wait(() =>
           expect(
             mounted.core.commands("resolve_school_url").at(-1)?.args,
@@ -359,6 +359,13 @@ describe("School accounts", () => {
           setup: undefined,
         }),
       );
+      // A saved setup shows as one line; replacing it opens the chooser.
+      expect(science.textContent).toContain(
+        "Codes are filled in for you at sign-in.",
+      );
+      expect(science.querySelector('input[type="file"]')).toBeNull();
+      await clickButton(science, "Change");
+      await clickButton(science, "From an authenticator app");
       await scanFile(science, PNG());
       await wait(() =>
         expect(document.body.textContent).toContain(
@@ -403,6 +410,10 @@ describe("School accounts", () => {
           }),
       );
       const mounted = await mountAccounts();
+      await clickButton(
+        account(mounted, "science"),
+        "From an authenticator app",
+      );
       await clickButton(account(mounted, "science"), "Scan QR");
       await wait(() => expect(qrVideo).toHaveBeenCalled());
       const close = document.querySelector<HTMLButtonElement>(
@@ -976,6 +987,10 @@ describe("Matrix scan and paste", () => {
         matrixCard(mounted).querySelector('input[type="file"]'),
       ).toBeNull();
       // QR reading is independent of native Matrix OCR availability.
+      await clickButton(
+        account(mounted, "science"),
+        "From an authenticator app",
+      );
       expect(
         account(mounted, "science").querySelector('input[type="file"]'),
       ).not.toBeNull();
@@ -1997,6 +2012,33 @@ describe("Agent access", () => {
       await click(copyToken);
       await wait(() => expect(copy).toHaveBeenCalledTimes(1));
       expect(copy).toHaveBeenCalledWith(token);
+
+      // Each client's setup shows the token masked and copies it whole.
+      const snippet = () => pane.querySelector(".agentSnippet")!;
+      expect(snippet().textContent).toContain(
+        "claude mcp add --transport http",
+      );
+      await click(buttonIn(snippet(), "Copy"));
+      await wait(() =>
+        expect(copy).toHaveBeenLastCalledWith(
+          `claude mcp add --transport http isct-companion ${url} --header "Authorization: Bearer ${token}"`,
+        ),
+      );
+      await click(
+        [...pane.querySelectorAll("label")].find(
+          (label) => label.textContent === "Codex",
+        )!,
+      );
+      await wait(() =>
+        expect(snippet().textContent).toContain("[mcp_servers.isct-companion]"),
+      );
+      await click(buttonIn(snippet(), "Copy"));
+      await wait(() =>
+        expect(copy).toHaveBeenLastCalledWith(
+          expect.stringContaining(`Authorization = "Bearer ${token}"`),
+        ),
+      );
+      expect(document.body.innerHTML).not.toContain(token);
     },
     TIMEOUT,
   );

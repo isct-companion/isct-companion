@@ -32,11 +32,11 @@ function validate() {
     !existsSync(path.join(root, "docs/releases", `${version}.md`))
   )
     throw new Error("Add versioned release notes before pushing a release tag");
-  for (const file of ["docs/legal/EULA.md", "docs/legal/EULA.ja.md"])
+  for (const file of ["docs/legal/NOTICE.md", "docs/legal/NOTICE.ja.md"])
     if (
       /\[licensor|\[YYYY|\[contact|\[Confirm|［|<!--\s*DRAFT/i.test(read(file))
     )
-      throw new Error(`Unfinished EULA: ${file}`);
+      throw new Error(`Unfinished notice: ${file}`);
 }
 
 validate();
@@ -87,8 +87,9 @@ if (process.argv[2] === "collect") {
   }
   for (const [source, destination] of [
     ["docs/distribution/README.md", "README.md"],
-    ["docs/legal/EULA.md", "LICENSE"],
-    ["docs/legal/EULA.ja.md", "LICENSE.ja.md"],
+    ["LICENSE", "LICENSE"],
+    ["docs/legal/NOTICE.md", "NOTICE.md"],
+    ["docs/legal/NOTICE.ja.md", "NOTICE.ja.md"],
     ["apps/desktop/dist/THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-NOTICES.txt"],
   ])
     copyFileSync(path.join(root, source), path.join(output, destination));

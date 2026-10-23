@@ -27,4 +27,7 @@ A maintainer reviews the changes and updates all version fields before pushing a
 The [desktop release workflow](docs/desktop-release.md) verifies the source, builds installers,
 uses repository signing secrets and publishes a complete GitHub Release. Contributors need no local signing keys to submit a pull request.
 
-Project use and distribution follow the [EULA](docs/legal/EULA.md). Third-party components retain their own licenses.
+IsctCompanion is licensed under the [GNU GPL v3 or later](LICENSE) with the additional terms in
+[docs/legal/NOTICE.md](docs/legal/NOTICE.md). By submitting a contribution you license it under the same
+terms, including the app-store permission, so the project can keep shipping on app stores.
+Third-party components retain their own licenses.

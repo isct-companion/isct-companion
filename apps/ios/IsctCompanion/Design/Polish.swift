@@ -3,9 +3,18 @@ import SwiftUI
 // The finish the content components share (docs/ux/mobile.md, Look). Built
 // on SwiftUI's own animation APIs, so Reduce Motion and Dynamic Type apply.
 
-/// The course colour as a soft mesh: the hero card's surface.
+/// The course colour as a soft mesh: the hero card's surface. This is the
+/// 'now' gradient desktop draws on Today's current or next class: it peaks
+/// at `Theme.tintHero` in the top-leading corner and fades to the surface.
 struct CourseMesh: View {
     let tint: Color
+
+    /// Each point's share of the peak, top-leading to bottom-trailing.
+    private static let falloff: [Double] = [
+        1, 0.6, 0.3,
+        0.67, 0.37, 0.17,
+        0.37, 0.17, 0.07,
+    ]
 
     var body: some View {
         MeshGradient(
@@ -15,11 +24,7 @@ struct CourseMesh: View {
                 [0, 0.5], [0.62, 0.42], [1, 0.5],
                 [0, 1], [0.5, 1], [1, 1],
             ],
-            colors: [
-                tint.opacity(0.30), tint.opacity(0.18), tint.opacity(0.09),
-                tint.opacity(0.20), tint.opacity(0.11), tint.opacity(0.05),
-                tint.opacity(0.11), tint.opacity(0.05), tint.opacity(0.02),
-            ]
+            colors: Self.falloff.map { tint.opacity(Theme.tintHero * $0) }
         )
         .background(Theme.surface)
     }
@@ -32,7 +37,7 @@ extension View {
         return padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background { CourseMesh(tint: tint).clipShape(shape) }
-            .overlay { shape.strokeBorder(tint.opacity(0.22), lineWidth: 0.5) }
+            .overlay { shape.strokeBorder(tint.opacity(Theme.tintFill), lineWidth: 0.5) }
     }
 
     /// Figures that count (minutes left, the ring's percentage) roll instead

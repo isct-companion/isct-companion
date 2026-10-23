@@ -375,6 +375,22 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull() as? WorkspaceQueryResult.ScheduleView)?.v1
     }
 
+    /** The academic year (April–March) a date belongs to. */
+    suspend fun academicYear(date: LocalDate): Int? {
+        val session = session ?: return null
+        val query = WorkspaceQuery.AcademicYears(Format.civil(date), 0)
+        val result = runCatching { session.scheduleQuery(listOf(query)).value() }.getOrNull()
+        return ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull() as? WorkspaceQueryResult.AcademicYears)
+            ?.v1?.currentYear
+    }
+
+    /** Every week of an academic year with its quarter, for the week chip. */
+    suspend fun timetableYear(year: Int): TimetableYear? {
+        val session = session ?: return null
+        val result = runCatching { session.scheduleQuery(listOf(WorkspaceQuery.TimetableYear(year))).value() }.getOrNull()
+        return ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull() as? WorkspaceQueryResult.TimetableYear)?.v1
+    }
+
     suspend fun courseDetail(id: String): CourseDetail? {
         val session = session ?: return null
         val result = runCatching { session.scheduleQuery(listOf(WorkspaceQuery.CourseDetail(id))).value() }.getOrNull()
