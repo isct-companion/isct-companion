@@ -1585,5 +1585,7 @@
   "Tap the title, or long-press the Web tab, to switch school sites.": "点按标题或长按“网页”标签，即可切换学校网站。",
   "Source": "来源",
   "Setup link or secret": "设置链接或密钥",
-  "Not registered yet? The desktop app registers with the school for you.": "还没注册？桌面版应用可以替你完成学校注册。"
+  "Not registered yet? The desktop app registers with the school for you.": "还没注册？桌面版应用可以替你完成学校注册。",
+  "Swipe to change weeks": "左右滑动切换周",
+  "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "长按课程可标记为考试或停课，长按“课表”标签可导出本学期。"
 }

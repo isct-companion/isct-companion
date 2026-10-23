@@ -2808,18 +2808,19 @@ checks:
     steps:
       - action: |
           Open 時間割 and read the title block: the quarter and week label is
-          an accent capsule with a calendar symbol, the date range has no icon
-          after it, and tapping either opens the week picker.
+          an accent capsule with a calendar symbol on its own row, on one
+          line, and tapping it or the date range opens the week picker.
         reason: |
-          The capsule is the only cue that the title opens the picker; the
-          chevron that used to follow the range jumped sideways whenever the
-          range changed digit count.
+          The capsule used to share a column with the range and a share
+          button, so it wrapped onto two lines; on its own row it may take the
+          full width.
       - action: |
-          Step forward twice with › and back with 今日.
+          Swipe the grid left twice, then tap 今日.
         reason: |
-          The range figures must roll in place without moving anything beside
-          them; 今日 is dimmed on the current week and active elsewhere, so a
-          dimmed 今日 on another week or an active one on this week is wrong.
+          Swiping is now the only way to step weeks; the range figures must
+          roll in place. 今日 is dimmed on the current week and active
+          elsewhere, so a dimmed 今日 on another week or an active one on this
+          week is wrong.
       - action: |
           Find a two-period class with a long English title and one whose
           room field lists several rooms.
@@ -2841,6 +2842,19 @@ checks:
           The red now line with its dot sits at the current time and moves
           every half minute; outside the axis, and on weekends when the grid
           shows the coming week, there is no line by design.
+      - action: |
+          Swipe quickly through the next three weeks and back.
+        reason: |
+          One read covers four weeks either side, so each step draws its
+          blocks with the header; blocks that arrive after the date range
+          changed mean the window cache was skipped.
+      - action: |
+          Long-press the 時間割 tab, slide to 授業のみ and lift; save the file
+          to Files, then open it from Files.
+        reason: |
+          The .ics is Core's quarterIcs for the shown week's quarter, as the
+          desktop's ICSを書き出す. Calendar must offer to add this quarter's
+          classes with their rooms; another quarter or an empty file is wrong.
     observe: The 時間割 tab on the device.
     expected: |
       The header reads and steps as described, blocks use their height, marks
@@ -2852,8 +2866,62 @@ checks:
       and the desktop `nowPercent` unit tests.
     covers:
       - apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift
+      - apps/ios/IsctCompanion/Design/TabItemPress.swift
+      - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
       - apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift
       - apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift
+      - apps/ios/IsctCompanion/Core/AppModel.swift
+    verified: null
+
+  - id: IOS-NATIVE-CHROME
+    area: native
+    title: iPhone Web bars, Settings rows and the Today headers look like system iOS
+    persona: undergraduate-first-term
+    preconditions: |
+      The iPhone app signed in, opened during a class whose room field lists
+      several rooms.
+    steps:
+      - action: |
+          On 今日, read the in-class line and the 課題 header.
+        reason: |
+          The in-class line names one room on one line, and 課題 stays on one
+          line beside the quarter note and すべて表示; a header broken as
+          "課/題" or "Assign-ments" is the old size.
+      - action: |
+          Open ウェブ, tap the site name in the navigation bar and pick another
+          site; then use ‹ ›, the … menu and pull down on the page.
+        reason: |
+          The title menu switches sites like the long press on the tab; ‹ ›
+          step the page history, … reloads, shares, opens Safari and sets the
+          text size, and a pull reloads. A bare page with no bar is the old
+          layout.
+      - action: |
+          From a course, open its LMS page.
+        reason: |
+          The pushed page has the system back button with the page title and
+          a bottom toolbar (‹ › share Safari) instead of floating capsules.
+      - action: |
+          Open 設定 and scroll to the end.
+        reason: |
+          Rows carry icon tiles as in the system Settings, but only in the
+          app's roles: campus blue for preferences, green for data updates,
+          amber and red for リセット and 通知, grey for utilities. A purple,
+          teal or brown tile is a system colour leaking back. アプリのログ is
+          one row with a menu, and リセット is the last group.
+    observe: The 今日, ウェブ and 設定 tabs on the device.
+    expected: |
+      Each screen reads as described, with no wrapped headers and no custom
+      floating bars on web pages.
+    why_manual: |
+      Visual chrome a person confirms at a glance on a phone; the reload and
+      history intents are Core's school browser commands, already covered by
+      its tests.
+    covers:
+      - apps/ios/IsctCompanion/Features/Today/TodayScreen.swift
+      - apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift
+      - apps/ios/IsctCompanion/Features/Web/WebScreens.swift
+      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Design/Theme.swift
     verified: null
 
   - id: IOS-TODAY-EXAMS

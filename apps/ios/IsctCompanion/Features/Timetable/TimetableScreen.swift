@@ -9,6 +9,7 @@ import TipKit
 /// stay on desktop.
 struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(Navigator.self) private var navigator
     @State private var monday = TimetableScreen.monday(of: Date())
     @State private var week: ScheduleView?
     @State private var year: TimetableYear?
@@ -43,10 +44,16 @@ struct TimetableScreen: View {
         .padding(.bottom, 8)
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
+        .onChange(of: shownTerm, initial: true) { _, term in navigator.timetableTerm = term }
         .onAppear {
             model.syncHint(.open(view: .timetable))
             if axis == nil { axis = model.lastTimetableAxis }
             if week == nil { week = model.weeks[AppModel.civil(monday)] }
+        }
+        // A week read with its neighbours draws at once; the task below
+        // still checks it against the current revision.
+        .onChange(of: monday) { _, next in
+            if let cached = model.weeks[AppModel.civil(next)] { week = cached }
         }
         .task(id: "\(monday.timeIntervalSince1970)-\(model.contentRevision)") {
             // A newer revision cancels this read: its empty answer must not
@@ -77,23 +84,31 @@ struct TimetableScreen: View {
 
     // MARK: Header
 
+    /// The week chip on its own row, free to take the full width; below it
+    /// the date range and 今日. Weeks change by swiping the grid; the quarter's
+    /// calendar export is a long press on the 時間割 tab.
     private var header: some View {
-        HStack(alignment: .bottom) {
+        VStack(alignment: .leading, spacing: 6) {
             Button {
                 showsPicker = true
             } label: {
-                VStack(alignment: .leading, spacing: 6) {
-                    // A chip, so the line reads as the way into the week picker.
-                    // One line at its own width: beside the share button and
-                    // the stepper, the column is narrower than the chip wants.
-                    Label(subtitle, systemImage: "calendar")
-                        .font(.footnote.weight(.semibold))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Theme.accentSoft, in: Capsule())
+                // A chip, so the line reads as the way into the week picker.
+                Label(subtitle, systemImage: "calendar")
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Theme.accentSoft, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityHint(t("Choose a week"))
+            HStack(alignment: .center) {
+                Button {
+                    showsPicker = true
+                } label: {
                     Text(range)
                         .font(.largeTitle.bold().monospacedDigit())
                         .foregroundStyle(Theme.ink)
@@ -101,11 +116,10 @@ struct TimetableScreen: View {
                         .minimumScaleFactor(0.7)
                         .countingFigure(monday, down: false)
                 }
+                .buttonStyle(.plain)
+                Spacer(minLength: 8)
+                todayButton
             }
-            .buttonStyle(.plain)
-            .accessibilityHint(t("Choose a week"))
-            Spacer(minLength: 8)
-            weekStepper
         }
         .padding(.top, 12)
         .padding(.horizontal, 4)
@@ -128,40 +142,29 @@ struct TimetableScreen: View {
         return "\(parts.month ?? 0)/\(parts.day ?? 0)"
     }
 
-    /// ‹ · 今日 · › in one capsule; 今日 rests while this week is shown.
-    private var weekStepper: some View {
-        let thisWeek = TimetableScreen.monday(of: Date())
-        let atThisWeek = monday == thisWeek
-        return HStack(spacing: 0) {
-            stepperSegment(label: t("Previous week")) { shift(-1) } content: {
-                Image(systemName: "chevron.left").font(.body.weight(.semibold)).frame(width: 40)
-            }
-            stepperSegment(label: t("Back to this week")) {
-                withAnimation(.snappy) { monday = thisWeek }
-            } content: {
-                Text(t("Today")).font(.subheadline.weight(.semibold)).padding(.horizontal, 6)
-            }
-            .disabled(atThisWeek)
-            .opacity(atThisWeek ? 0.35 : 1)
-            stepperSegment(label: t("Next week")) { shift(1) } content: {
-                Image(systemName: "chevron.right").font(.body.weight(.semibold)).frame(width: 40)
-            }
-        }
-        .foregroundStyle(Theme.accent)
-        .frame(height: 44)
-        .background(Theme.accentSoft, in: Capsule())
+    /// The shown week's quarter, or this quarter between quarters.
+    private var shownTerm: String? {
+        year?.weeks.first { $0.monday == AppModel.civil(monday) }?.term ?? week?.term
     }
 
-    private func stepperSegment<Content: View>(
-        label: String, action: @escaping () -> Void, @ViewBuilder content: () -> Content
-    ) -> some View {
-        Button(action: action) {
-            content()
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
+    /// 今日 rests while this week is shown, which doubles as "you are here".
+    private var todayButton: some View {
+        let thisWeek = TimetableScreen.monday(of: Date())
+        let atThisWeek = monday == thisWeek
+        return Button {
+            withAnimation(.snappy) { monday = thisWeek }
+        } label: {
+            Text(t("Today"))
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 16)
+                .frame(height: 40)
+                .background(Theme.accentSoft, in: Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label)
+        .foregroundStyle(Theme.accent)
+        .disabled(atThisWeek)
+        .opacity(atThisWeek ? 0.35 : 1)
+        .accessibilityLabel(t("Back to this week"))
     }
 
     private func shift(_ weeks: Int) {
@@ -368,6 +371,63 @@ struct TimetableScreen: View {
         let offset = weekday == 1 ? 1 : weekday == 7 ? 2 : 2 - weekday
         return calendar.date(byAdding: .day, value: offset, to: start) ?? start
     }
+}
+
+/// What the 時間割 tab's long press offers: the shown quarter as an .ics.
+enum CalendarExportPick: Hashable {
+    case courses, coursesAndPlans
+
+    var scope: CalendarExportScope { self == .courses ? .courses : .coursesAndPlans }
+}
+
+/// The export panel's rows; the iPad sidebar row shows the same in a menu.
+struct CalendarExportRows: View {
+    let term: String
+    var highlighted: CalendarExportPick?
+    var report: ((CalendarExportPick, CGRect) -> Void)?
+    let pick: (CalendarExportPick) -> Void
+
+    var body: some View {
+        Text(t("Export ICS") + " · " + Format.quarter(term))
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Theme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+        TabPressRow(choice: CalendarExportPick.courses, title: t("Courses only"), icon: "calendar",
+                    highlighted: highlighted, report: report, pick: pick)
+        TabPressRow(choice: CalendarExportPick.coursesAndPlans, title: t("Courses + personal plans"),
+                    icon: "calendar.badge.plus", highlighted: highlighted, report: report, pick: pick)
+    }
+}
+
+/// A quarter's calendar, written by Core as the desktop's ICSを書き出す, in a
+/// temporary file for the share sheet (Files, AirDrop, Mail; opened from
+/// Files it adds to Calendar).
+struct QuarterCalendarFile: Identifiable {
+    let url: URL
+    var id: URL { url }
+
+    static func write(model: AppModel, term: String, pick: CalendarExportPick) async throws -> Self {
+        let text = try await model.quarterIcs(term: term, scope: pick.scope)
+        let suffix = pick == .coursesAndPlans ? "-with-plans" : ""
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("IsctCompanion-\(term)\(suffix).ics")
+        try Data(text.utf8).write(to: url, options: .atomic)
+        return Self(url: url)
+    }
+}
+
+/// The system share sheet for a file, presented from the root.
+struct ShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// One rule after each teaching block (1–2, 3–4, …), never inside one, so a

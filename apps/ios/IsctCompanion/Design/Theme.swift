@@ -69,7 +69,7 @@ struct SectionLabel: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         Text(text)
-            .font(.footnote.weight(.semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(Theme.muted)
             .padding(.horizontal, 16)
             .padding(.top, 8)

@@ -121,11 +121,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         }
     }
 
-    /// Cycles 100 → 115 → 130 % on every resident page.
-    @MainActor func cycleTextScale() {
-        setTextScale(textScale >= 130 ? 100 : textScale + 15)
-    }
-
     @MainActor private func create(_ id: BrowserId, _ initialUrl: String) {
         if views[id.site]?.id == id { return }
         if let previous = views.removeValue(forKey: id.site) {

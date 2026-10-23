@@ -1585,5 +1585,7 @@
   "Tap the title, or long-press the Web tab, to switch school sites.": "タイトルをタップするか、ウェブタブを長押しすると、大学のサイトを切り替えられます。",
   "Source": "読み込み元",
   "Setup link or secret": "設定リンク・秘密鍵",
-  "Not registered yet? The desktop app registers with the school for you.": "まだ登録していない場合は、デスクトップアプリが大学への登録を代わりに行います。"
+  "Not registered yet? The desktop app registers with the school for you.": "まだ登録していない場合は、デスクトップアプリが大学への登録を代わりに行います。",
+  "Swipe to change weeks": "左右にスワイプで週を切り替え",
+  "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "授業を長押しすると試験や休講にでき、時間割タブを長押しするとこのクォーターを書き出せます。"
 }

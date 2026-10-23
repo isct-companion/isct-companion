@@ -182,12 +182,16 @@ TipKit forgets shown tips at the next launch.
 ### Timetable
 
 - A dated week, not a quarter: the title is the date range with
-  "2026 年度 · 3Q 第 2 週" above it as an accent capsule, the cue that the
-  title block opens the picker; horizontal swipe between weeks. Core's
-  `ScheduleView` covers any range and every term in it. Nothing sits to the
-  right of the range figures, so they can roll without pushing a control.
-- Week stepping is one segmented capsule on the right: ‹ · 今日 · ›. 今日 is
-  dimmed on the current week, which doubles as "you are here".
+  "2026 年度 · 3Q 第 2 週" above it as an accent capsule on its own row, free
+  to take the full width (it never shares a column with the range), the cue
+  that the title block opens the picker. Core's `ScheduleView` covers any
+  range and every term in it.
+- Weeks change by horizontal swipe on the grid; the only button is 今日 beside
+  the range, dimmed on the current week, which doubles as "you are here". A
+  one-time tip says so.
+- Long press on the 時間割 tab exports the shown quarter as an .ics (courses
+  only, or with personal plans) through the share sheet, the same panel as the
+  ウェブ tab's site picker; the iPad sidebar row offers it as a context menu.
 - Tapping the title opens the time picker: 1Q–4Q chips for the academic year
   (a chip jumps to that quarter's first teaching week, which is how a student
   shows someone their courses), and a month calendar whose weeks are labelled
@@ -284,6 +288,7 @@ used.
 | Long press on a timetable block | Mark: exam, cancelled, normal class |
 | Long press on a lesson chip | Mark this lesson as the class's lesson |
 | Long press on the ウェブ tab | Site picker; slide to a row and lift |
+| Long press on the 時間割 tab | Export the shown quarter as .ics; slide to a row and lift |
 | Horizontal swipe on content | Change week (timetable), change lesson (course page); drags from the leading 24 pt are the system back gesture |
 | Row swipe | Row actions (assignment: right pin, left hide; hide needs a tap) |
 | Pull down | Manual pull |

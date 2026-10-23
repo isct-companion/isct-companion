@@ -32,9 +32,9 @@ enum Guide {
 }
 
 struct TimetableMarkTip: Tip {
-    var title: Text { Text(t("Mark a class")) }
-    var message: Text? { Text(t("Long-press a class to mark it as an exam or cancelled.")) }
-    var image: Image? { Image(systemName: "hand.tap") }
+    var title: Text { Text(t("Swipe to change weeks")) }
+    var message: Text? { Text(t("Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.")) }
+    var image: Image? { Image(systemName: "hand.draw") }
     var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
 }
 

@@ -65,47 +65,67 @@ struct SettingsScreen: View {
             }
             Section {
                 NavigationLink(value: SettingsRoute.notifications) {
-                    row(t("Notifications"), notificationSummary, icon: "bell")
+                    row(t("Notifications"), notificationSummary, icon: "bell.fill", tint: Theme.danger)
                 }
                 NavigationLink(value: SettingsRoute.studyProfile) {
-                    row(t("Study profile"), nil, icon: "graduationcap")
+                    row(t("Study profile"), nil, icon: "graduationcap.fill", tint: Theme.accent)
                 }
                 NavigationLink(value: SettingsRoute.dataUpdates) {
-                    row(t("Data updates"), dataSummary, icon: "arrow.triangle.2.circlepath")
+                    row(t("Data updates"), dataSummary, icon: "arrow.triangle.2.circlepath", tint: Theme.ok)
                 }
                 NavigationLink(value: SettingsRoute.backup) {
-                    row(t("Backup"), backupSummary, icon: "icloud")
+                    row(t("Backup"), backupSummary, icon: "icloud.fill", tint: Theme.accent)
                 }
             }
             LanguageSection()
             Section(t("Web")) {
-                Picker(t("Text size"), selection: $textScale) {
+                Picker(selection: $textScale) {
                     ForEach(SchoolBrowserHost.textScales, id: \.self) { Text("\($0)%").tag($0) }
+                } label: {
+                    Label { Text(t("Text size")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
                 }
-                Picker(t("First site"), selection: $firstSite) {
+                Picker(selection: $firstSite) {
                     ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
+                } label: {
+                    Label { Text(t("First site")) } icon: { SettingsIcon(symbol: "globe", tint: Theme.accent) }
                 }
-            }
-            Section(t("settings.reset.group")) {
-                NavigationLink(value: SettingsRoute.reset(.schoolCaches)) {
-                    row(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), icon: "arrow.counterclockwise")
-                }
-                NavigationLink(value: SettingsRoute.reset(.everything)) {
-                    row(t("settings.reset.full.title"), t("settings.reset.full.hint"), icon: "exclamationmark.arrow.triangle.2.circlepath")
-                        .foregroundStyle(Theme.danger)
-                }
-            }
-            Section(t("Application logs")) {
-                Button(t("Save to file")) { saveLogs() }
-                Button(t("Copy")) { copyLogs() }
             }
             Section {
-                LabeledContent("IsctCompanion", value: Self.version)
-                Button(t("Show welcome and tips again")) { Guide.showAgain() }
+                LabeledContent {
+                    Text(Self.version)
+                } label: {
+                    Label { Text("IsctCompanion") } icon: { SettingsIcon(symbol: "info", tint: Theme.muted) }
+                }
+                Button {
+                    Guide.showAgain()
+                } label: {
+                    Label { Text(t("Show welcome and tips again")).foregroundStyle(Theme.ink) } icon: {
+                        SettingsIcon(symbol: "lightbulb", tint: Theme.muted)
+                    }
+                }
+                // One row for both log actions, as a menu.
+                Menu {
+                    Button(t("Save to file"), systemImage: "square.and.arrow.down") { saveLogs() }
+                    Button(t("Copy"), systemImage: "doc.on.doc") { copyLogs() }
+                } label: {
+                    Label { Text(t("Application logs")).foregroundStyle(Theme.ink) } icon: {
+                        SettingsIcon(symbol: "doc.text", tint: Theme.muted)
+                    }
+                }
             } header: {
                 Text(t("About"))
             } footer: {
                 Text(t("Calendar editing, course folders and developer settings are in the desktop app."))
+            }
+            // Destructive rows last, as in the system Settings.
+            Section(t("settings.reset.group")) {
+                NavigationLink(value: SettingsRoute.reset(.schoolCaches)) {
+                    row(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), icon: "arrow.counterclockwise", tint: Theme.warn)
+                }
+                NavigationLink(value: SettingsRoute.reset(.everything)) {
+                    row(t("settings.reset.full.title"), t("settings.reset.full.hint"), icon: "exclamationmark.arrow.triangle.2.circlepath", tint: Theme.danger)
+                        .foregroundStyle(Theme.danger)
+                }
             }
         }
         .navigationTitle(t("Settings"))
@@ -153,14 +173,14 @@ struct SettingsScreen: View {
         }
     }
 
-    private func row(_ title: String, _ detail: String?, icon: String) -> some View {
+    private func row(_ title: String, _ detail: String?, icon: String, tint: Color) -> some View {
         Label {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                 if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted) }
             }
         } icon: {
-            Image(systemName: icon)
+            SettingsIcon(symbol: icon, tint: tint)
         }
     }
 
@@ -213,6 +233,22 @@ struct SettingsScreen: View {
                 Text(state.0).font(.subheadline).foregroundStyle(Theme.muted)
             }
         }
+    }
+}
+
+/// The system Settings' row icon: a white symbol on a rounded square in a
+/// token role, never a system rainbow colour: accent for preferences, ok for
+/// data, warn and danger for caution, muted for utilities.
+private struct SettingsIcon: View {
+    let symbol: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 29, height: 29)
+            .background(tint.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 
@@ -306,15 +342,19 @@ private struct LanguageSection: View {
 
     var body: some View {
         Section {
-            Picker(t("Language"), selection: binding("locale", default: "en")) {
+            Picker(selection: binding("locale", default: "en")) {
                 Text(verbatim: "English").tag("en")
                 Text(verbatim: "日本語").tag("ja")
                 Text(verbatim: "中文").tag("zh")
+            } label: {
+                Label { Text(t("Language")) } icon: { SettingsIcon(symbol: "character.bubble", tint: Theme.accent) }
             }
-            Picker(t("School content language"), selection: binding("contentLanguage", default: "auto")) {
+            Picker(selection: binding("contentLanguage", default: "auto")) {
                 Text(t("Automatic")).tag("auto")
                 Text(verbatim: "English").tag("en")
                 Text(verbatim: "日本語").tag("ja")
+            } label: {
+                Label { Text(t("School content language")) } icon: { SettingsIcon(symbol: "text.book.closed", tint: Theme.accent) }
             }
         } footer: {
             Text(t("Course names, rooms and syllabus text. Automatic uses the menu language."))

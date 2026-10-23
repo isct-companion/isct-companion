@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 80 checks must be re-run before the next release.**
+**7 of 81 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**71 checks have never been run or could not be run:**
+**72 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -77,6 +77,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
 - `DESKTOP-STORAGE-SPLIT` — never verified
 - `IOS-TIMETABLE-WEEK-AND-MARKS` — never verified
+- `IOS-NATIVE-CHROME` — never verified
 - `IOS-TODAY-EXAMS` — never verified
 - `IOS-ASSIGNMENT-ROWS` — never verified
 - `IOS-WEB-TAB-PICKER` — never verified
@@ -161,7 +162,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>crates/isct-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
-| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift |
+| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
+| `IOS-NATIVE-CHROME` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
 | `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -3323,15 +3325,16 @@ between the first period's start and the last period's end (Tokyo time).
 **Steps**
 
 1. Open 時間割 and read the title block: the quarter and week label is
-   an accent capsule with a calendar symbol, the date range has no icon
-   after it, and tapping either opens the week picker.
-   - *Why:* The capsule is the only cue that the title opens the picker; the
-     chevron that used to follow the range jumped sideways whenever the
-     range changed digit count.
-2. Step forward twice with › and back with 今日.
-   - *Why:* The range figures must roll in place without moving anything beside
-     them; 今日 is dimmed on the current week and active elsewhere, so a
-     dimmed 今日 on another week or an active one on this week is wrong.
+   an accent capsule with a calendar symbol on its own row, on one
+   line, and tapping it or the date range opens the week picker.
+   - *Why:* The capsule used to share a column with the range and a share
+     button, so it wrapped onto two lines; on its own row it may take the
+     full width.
+2. Swipe the grid left twice, then tap 今日.
+   - *Why:* Swiping is now the only way to step weeks; the range figures must
+     roll in place. 今日 is dimmed on the current week and active
+     elsewhere, so a dimmed 今日 on another week or an active one on this
+     week is wrong.
 3. Find a two-period class with a long English title and one whose
    room field lists several rooms.
    - *Why:* The title fills the block's height instead of stopping at three
@@ -3347,6 +3350,15 @@ between the first period's start and the last period's end (Tokyo time).
    - *Why:* The red now line with its dot sits at the current time and moves
      every half minute; outside the axis, and on weekends when the grid
      shows the coming week, there is no line by design.
+6. Swipe quickly through the next three weeks and back.
+   - *Why:* One read covers four weeks either side, so each step draws its
+     blocks with the header; blocks that arrive after the date range
+     changed mean the window cache was skipped.
+7. Long-press the 時間割 tab, slide to 授業のみ and lift; save the file
+   to Files, then open it from Files.
+   - *Why:* The .ics is Core's quarterIcs for the shown week's quarter, as the
+     desktop's ICSを書き出す. Calendar must offer to add this quarter's
+     classes with their rooms; another quarter or an empty file is wrong.
 
 **Where to look**
 
@@ -3367,8 +3379,69 @@ and the desktop `nowPercent` unit tests.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift`
+- `apps/ios/IsctCompanion/Design/TabItemPress.swift`
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
 - `apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift`
 - `apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift`
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+
+**Last recorded** never run
+
+### iPhone Web bars, Settings rows and the Today headers look like system iOS (`IOS-NATIVE-CHROME`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPhone app signed in, opened during a class whose room field lists
+several rooms.
+
+**Steps**
+
+1. On 今日, read the in-class line and the 課題 header.
+   - *Why:* The in-class line names one room on one line, and 課題 stays on one
+     line beside the quarter note and すべて表示; a header broken as
+     "課/題" or "Assign-ments" is the old size.
+2. Open ウェブ, tap the site name in the navigation bar and pick another
+   site; then use ‹ ›, the … menu and pull down on the page.
+   - *Why:* The title menu switches sites like the long press on the tab; ‹ ›
+     step the page history, … reloads, shares, opens Safari and sets the
+     text size, and a pull reloads. A bare page with no bar is the old
+     layout.
+3. From a course, open its LMS page.
+   - *Why:* The pushed page has the system back button with the page title and
+     a bottom toolbar (‹ › share Safari) instead of floating capsules.
+4. Open 設定 and scroll to the end.
+   - *Why:* Rows carry icon tiles as in the system Settings, but only in the
+     app's roles: campus blue for preferences, green for data updates,
+     amber and red for リセット and 通知, grey for utilities. A purple,
+     teal or brown tile is a system colour leaking back. アプリのログ is
+     one row with a menu, and リセット is the last group.
+
+**Where to look**
+
+The 今日, ウェブ and 設定 tabs on the device.
+
+**Expected**
+
+Each screen reads as described, with no wrapped headers and no custom
+floating bars on web pages.
+
+**Why this is manual**
+
+Visual chrome a person confirms at a glance on a phone; the reload and
+history intents are Core's school browser commands, already covered by
+its tests.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Today/TodayScreen.swift`
+- `apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Design/Theme.swift`
 
 **Last recorded** never run
 
