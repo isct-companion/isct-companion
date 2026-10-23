@@ -24,6 +24,47 @@ use thiserror::Error;
 
 pub const MATRIX_CELLS: usize = 70;
 
+/// Linear RGB projection plus an optional red-opponent term for locator studies.
+/// This affects geometry only; original RGB pixels remain the OCR source.
+#[derive(Clone, Copy, Debug)]
+pub struct MatrixLocatorConfig {
+    pub search_max_side: u32,
+    pub color_refinement: bool,
+    /// Zero-sum opponent-color weights; positive weights set normalization.
+    pub color_weights: [i16; 3],
+    pub gray_weights: [u16; 3],
+    /// Q8 gain applied to max(R - (G + B) / 2, 0).
+    pub red_chroma_weight: u16,
+}
+impl Default for MatrixLocatorConfig {
+    fn default() -> Self {
+        Self {
+            search_max_side: 640,
+            color_refinement: true,
+            color_weights: [2, -1, -1],
+            gray_weights: [19595, 38470, 7471],
+            red_chroma_weight: 0,
+        }
+    }
+}
+
+/// Projection of the original RGB cell into the alphabet model's one channel.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum MatrixGlyphProjection {
+    #[default]
+    Luma,
+    /// Diagnostic red-opponent projection; neutral paper loses ink contrast.
+    RedChroma,
+    /// RGB distance below the cell's upper-quartile paper color.
+    PaperDistance,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MatrixCaptureConfig {
+    pub locator: MatrixLocatorConfig,
+    pub glyph_projection: MatrixGlyphProjection,
+}
+
 /// One frame's readings and normalized cell corners (top-left clockwise).
 pub struct MatrixFrame {
     pub cells: Vec<Recognition>,
@@ -107,7 +148,10 @@ pub enum MatrixOcrError {
 }
 
 #[cfg(matrix_ocr)]
-pub use engine::{capture_matrix_frame, MatrixAlphabetService, MatrixOcrService};
+pub use engine::{
+    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_frame_near,
+    MatrixAlphabetService, MatrixOcrService,
+};
 #[cfg(all(matrix_ocr, feature = "training-tools"))]
 pub use engine::{
     capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
@@ -115,6 +159,21 @@ pub use engine::{
 
 #[cfg(not(matrix_ocr))]
 pub fn capture_matrix_frame(_bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+pub fn capture_matrix_frame_near(
+    _bytes: &[u8],
+    _previous: Option<[[f64; 2]; 4]>,
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    Err(MatrixOcrError::Unavailable)
+}
+#[cfg(not(matrix_ocr))]
+pub fn capture_matrix_frame_configured(
+    _bytes: &[u8],
+    _previous: Option<[[f64; 2]; 4]>,
+    _config: MatrixCaptureConfig,
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
     Err(MatrixOcrError::Unavailable)
 }
 // The stubs keep a private field like the ONNX types, so callers build both

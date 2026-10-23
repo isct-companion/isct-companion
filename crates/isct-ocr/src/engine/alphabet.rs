@@ -145,10 +145,7 @@ fn normalize_glyph(gray: &GrayImage) -> Option<GrayImage> {
 }
 
 /// Pixel-center convention and grayscale coefficients match PIL/TorchVision.
-pub(super) fn rectified_gray(
-    image: &RgbImage,
-    quad: [[f64; 2]; 4],
-) -> Result<GrayImage, MatrixOcrError> {
+fn rectified_rgb(image: &RgbImage, quad: [[f64; 2]; 4]) -> Result<RgbImage, MatrixOcrError> {
     let corners = quad.map(|[x, y]| geometry::Point {
         x: x * image.width() as f64,
         y: y * image.height() as f64,
@@ -172,23 +169,100 @@ pub(super) fn rectified_gray(
         Border::Constant(Rgb([255; 3])),
         &mut crop,
     );
-    // image::grayscale uses Rec.709, while training uses Rec.601.
-    Ok(GrayImage::from_fn(SIZE as u32, SIZE as u32, |x, y| {
+    Ok(crop)
+}
+
+pub(super) fn project_glyph(crop: &RgbImage, mode: crate::MatrixGlyphProjection) -> GrayImage {
+    use crate::MatrixGlyphProjection;
+    // Custom paper-color distance is template preprocessing; warp and image
+    // operations remain in image/imageproc. Estimate paper away from grid ink.
+    let mut channels: [Vec<u8>; 3] = std::array::from_fn(|_| Vec::new());
+    if !matches!(mode, MatrixGlyphProjection::Luma) {
+        for y in 9..crop.height().saturating_sub(9) {
+            for x in 9..crop.width().saturating_sub(9) {
+                for (c, values) in channels.iter_mut().enumerate() {
+                    values.push(crop.get_pixel(x, y)[c]);
+                }
+            }
+        }
+    }
+    let paper: [f64; 3] = channels.map(|mut values| {
+        values.sort_unstable();
+        values.get(values.len() * 3 / 4).copied().unwrap_or(255) as f64
+    });
+    let norm = paper.iter().map(|v| v * v).sum::<f64>().sqrt().max(1.);
+    let red_paper = (paper[0] - (paper[1] + paper[2]) / 2.).max(4.);
+    GrayImage::from_fn(crop.width(), crop.height(), |x, y| {
         let p = crop.get_pixel(x, y);
-        image::Luma([
-            ((19595 * p[0] as u32 + 38470 * p[1] as u32 + 7471 * p[2] as u32 + 32768) >> 16) as u8,
-        ])
-    }))
+        let value = match mode {
+            // Match training's PIL/TorchVision Rec.601, not image's Rec.709.
+            MatrixGlyphProjection::Luma => {
+                ((19595 * p[0] as u32 + 38470 * p[1] as u32 + 7471 * p[2] as u32 + 32768) >> 16)
+                    as f64
+            }
+            MatrixGlyphProjection::RedChroma => {
+                255. * (p[0] as f64 - (p[1] as f64 + p[2] as f64) / 2.) / red_paper
+            }
+            MatrixGlyphProjection::PaperDistance => {
+                let distance = (0..3)
+                    .map(|c| (paper[c] - p[c] as f64).max(0.).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                255. * (1. - distance / norm)
+            }
+        };
+        image::Luma([value.round().clamp(0., 255.) as u8])
+    })
 }
 pub fn capture_matrix_frame(bytes: &[u8]) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    capture_matrix_frame_near(bytes, None)
+}
+
+/// Previous body coordinates are a search hint only, in normalized image space.
+/// Session freshness and ownership are decided by Core, not this image adapter.
+pub fn capture_matrix_frame_near(
+    bytes: &[u8],
+    previous: Option<[[f64; 2]; 4]>,
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    capture_matrix_frame_configured(bytes, previous, crate::MatrixCaptureConfig::default())
+}
+
+pub fn capture_matrix_frame_configured(
+    bytes: &[u8],
+    previous: Option<[[f64; 2]; 4]>,
+    config: crate::MatrixCaptureConfig,
+) -> Result<MatrixCaptureFrame, MatrixOcrError> {
+    let locator = config.locator;
+    if !(128..=1024).contains(&locator.search_max_side)
+        || locator.gray_weights.iter().all(|&v| v == 0)
+        || locator.red_chroma_weight > 1024
+        || locator.color_weights.iter().map(|&v| v as i32).sum::<i32>() != 0
+        || !locator.color_weights.iter().any(|&v| v > 0)
+        || locator
+            .color_weights
+            .iter()
+            .any(|&v| !(-256..=256).contains(&v))
+    {
+        return Err(MatrixOcrError::InvalidImage(
+            "Invalid locator projection or search size.".into(),
+        ));
+    }
     let start = std::time::Instant::now();
     let image = decode_image(bytes)?;
     let decode_ms = start.elapsed().as_secs_f64() * 1000.;
     let stage = std::time::Instant::now();
-    let cells = scan_image_locator::locate(&image).ok_or(MatrixOcrError::GridNotFound)?;
+    let cells = scan_image_locator::locate_near(&image, previous, locator)
+        .ok_or(MatrixOcrError::GridNotFound)?;
     let quads = normalized_quads(&cells, &image);
     let geometry_ms = stage.elapsed().as_secs_f64() * 1000.;
-    capture_quads(&image, quads, decode_ms, geometry_ms, start)
+    capture_quads(
+        &image,
+        quads,
+        config.glyph_projection,
+        decode_ms,
+        geometry_ms,
+        start,
+    )
 }
 
 /// Dataset-only recovery using manually verified body corners. This does not
@@ -219,12 +293,20 @@ pub fn capture_matrix_training_frame(
         .into_iter()
         .map(|quad| quad.map(|p| [p.x, p.y]))
         .collect();
-    capture_quads(&image, quads, decode_ms, 0., start)
+    capture_quads(
+        &image,
+        quads,
+        crate::MatrixGlyphProjection::Luma,
+        decode_ms,
+        0.,
+        start,
+    )
 }
 
 fn capture_quads(
     image: &RgbImage,
     quads: Vec<[[f64; 2]; 4]>,
+    projection: crate::MatrixGlyphProjection,
     decode_ms: f64,
     geometry_ms: f64,
     start: std::time::Instant,
@@ -233,12 +315,16 @@ fn capture_quads(
     let patches = quads
         .iter()
         .map(|&quad| {
-            let gray = rectified_gray(image, quad)?;
+            let rgb = rectified_rgb(image, quad)?;
+            let gray = project_glyph(&rgb, crate::MatrixGlyphProjection::Luma);
             let light = illumination::analyze(&gray);
-            Ok((gray, light))
+            // Physical admission stays in luminance for a controlled ablation.
+            let projected = (!matches!(projection, crate::MatrixGlyphProjection::Luma))
+                .then(|| project_glyph(&rgb, projection));
+            Ok((gray, light, projected))
         })
         .collect::<Result<Vec<_>, MatrixOcrError>>()?;
-    let mut paper: Vec<_> = patches.iter().map(|(_, light)| light.paper).collect();
+    let mut paper: Vec<_> = patches.iter().map(|(_, light, _)| light.paper).collect();
     paper.sort_by(f64::total_cmp);
     // The upper quartile preserves well-lit cells on a partly shadowed card,
     // while isolated saturated rows/columns stand out against normal paper.
@@ -246,7 +332,7 @@ fn capture_quads(
     let glyphs = patches
         .into_iter()
         .zip(&quads)
-        .map(|((gray, light), &quad)| {
+        .map(|((gray, light, projected), &quad)| {
             // Ignore grid edges when measuring texture, but retain the entire
             // cell for recognition: a fixed inset can turn a complete L into I.
             let interior =
@@ -292,7 +378,7 @@ fn capture_quads(
                 .map(|i| distance(quad[i], quad[(i + 1) % 4]))
                 .fold(f64::INFINITY, f64::min);
             Ok(MatrixCaptureGlyph {
-                gray: gray.into_raw(),
+                gray: projected.unwrap_or(gray).into_raw(),
                 contrast,
                 sharpness,
                 source_size,

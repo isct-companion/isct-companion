@@ -2,11 +2,12 @@
 //!
 //! Coarse position and angle come from the alternating left label strip.
 //! Header, A1 paper and internal grid features then rank the matching body.
-//! Both paths preserve source resolution while measuring the same grid features.
+//! Small-image search and bounded local refinement share the same grid checks.
+//! OCR samples the original image after mapping the measured boundaries back.
 use super::geometry;
 use image::{GrayImage, Luma, RgbImage};
 use imageproc::{
-    geometric_transformations::{rotate_about_center_no_crop, Border, Interpolation},
+    geometric_transformations::{Border, Interpolation},
     region_labelling::{connected_components, Connectivity},
 };
 
@@ -48,6 +49,7 @@ pub(super) struct AnchorEdges {
 pub(super) struct LocatedGrid {
     pub(super) cells: Vec<[geometry::Point; 4]>,
     pub(super) edges: AnchorEdges,
+    seed: Option<Stripe>,
 }
 
 #[derive(Clone, Copy)]
@@ -112,7 +114,7 @@ fn stripe_candidates(image: &GrayImage) -> Vec<Stripe> {
     stripes.sort_by(|a, b| b.score.total_cmp(&a.score));
     let mut distinct: Vec<Stripe> = Vec::new();
     for stripe in stripes {
-        let radius = 3.;
+        let radius = (point_distance(stripe.top, stripe.bottom) / 30.).max(3.);
         if distinct.iter().any(|s| {
             point_distance(s.top, stripe.top) < radius
                 && point_distance(s.bottom, stripe.bottom) < radius
@@ -331,29 +333,206 @@ pub(super) fn locate(image: &RgbImage) -> Option<Vec<[geometry::Point; 4]>> {
     })
 }
 
+/// A previous measurement only narrows search. Every frame must independently
+/// pass the header/label checks; a miss immediately reacquires the whole frame.
+pub(super) fn locate_near(
+    image: &RgbImage,
+    previous: Option<[[f64; 2]; 4]>,
+    config: crate::MatrixLocatorConfig,
+) -> Option<Vec<[geometry::Point; 4]>> {
+    if let Some(previous) = previous.filter(|q| {
+        q.iter()
+            .flatten()
+            .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+    }) {
+        let body = previous.map(|[x, y]| geometry::Point {
+            x: x * image.width() as f64,
+            y: y * image.height() as f64,
+        });
+        let margin = point_distance(body[0], body[3]).max(point_distance(body[1], body[2])) * 0.45;
+        let left = (body.iter().map(|p| p.x).fold(f64::INFINITY, f64::min) - margin)
+            .floor()
+            .max(0.) as u32;
+        let top = (body.iter().map(|p| p.y).fold(f64::INFINITY, f64::min) - margin)
+            .floor()
+            .max(0.) as u32;
+        let right = (body.iter().map(|p| p.x).fold(0., f64::max) + margin)
+            .ceil()
+            .min(image.width() as f64) as u32;
+        let bottom = (body.iter().map(|p| p.y).fold(0., f64::max) + margin)
+            .ceil()
+            .min(image.height() as f64) as u32;
+        if right > left + 32
+            && bottom > top + 32
+            && (right - left) as u64 * ((bottom - top) as u64)
+                < image.width() as u64 * image.height() as u64 * 4 / 5
+        {
+            let crop =
+                image::imageops::crop_imm(image, left, top, right - left, bottom - top).to_image();
+            // Preserve full-frame pixel density: a narrower search must not
+            // silently zoom the grid back up to the full search resolution.
+            let local_config = crate::MatrixLocatorConfig {
+                search_max_side: (config.search_max_side as f64
+                    * crop.width().max(crop.height()) as f64
+                    / image.width().max(image.height()) as f64)
+                    .round()
+                    .max(128.) as u32,
+                ..config
+            };
+            if let Some(grid) = locate_configured(&crop, local_config) {
+                return Some(
+                    grid.cells
+                        .into_iter()
+                        .map(|q| {
+                            q.map(|p| geometry::Point {
+                                x: p.x + left as f64,
+                                y: p.y + top as f64,
+                            })
+                        })
+                        .collect(),
+                );
+            }
+        }
+    }
+    locate_configured(image, config).map(|grid| grid.cells)
+}
+
 pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
+    locate_configured(image, crate::MatrixLocatorConfig::default())
+}
+fn locate_configured(image: &RgbImage, config: crate::MatrixLocatorConfig) -> Option<LocatedGrid> {
+    let gray = grayscale(image, config);
+    let factor = (config.search_max_side as f64 / image.width().max(image.height()) as f64).min(1.);
+    let small = image::imageops::resize(
+        &gray,
+        (gray.width() as f64 * factor).round() as u32,
+        (gray.height() as f64 * factor).round() as u32,
+        image::imageops::FilterType::Triangle,
+    );
+    let mut grid = locate_gray(&small, None)?;
+    let map = |p: geometry::Point| geometry::Point {
+        x: (p.x + 0.5) * gray.width() as f64 / small.width() as f64 - 0.5,
+        y: (p.y + 0.5) * gray.height() as f64 / small.height() as f64 - 0.5,
+    };
+    grid.cells = grid.cells.into_iter().map(|q| q.map(map)).collect();
+    grid.edges = map_edges(grid.edges, map);
+    if config.color_refinement {
+        let body = [
+            grid.cells[0][0],
+            grid.cells[9][1],
+            grid.cells[69][2],
+            grid.cells[60][3],
+        ];
+        if let Some(body) = super::color_refinement::refine(image, body, config.color_weights) {
+            grid.cells = geometry::body_cells(body);
+            grid.edges.body_top = Some([body[0], body[1]]);
+            grid.edges.body_left = Some([body[0], body[3]]);
+            return Some(grid);
+        }
+    }
+    if factor == 1. {
+        return Some(grid);
+    }
+    if let Some(seed) = grid.seed {
+        let seed = Stripe {
+            top: map(seed.top),
+            first: map(seed.first),
+            middle: map(seed.middle),
+            bottom: map(seed.bottom),
+            dark_heights: seed.dark_heights.map(|h| h / factor),
+            score: seed.score,
+        };
+        // Refine only the selected strip using original pixels. No second global
+        // search, and no loss of character detail from the small search image.
+        if let Some(refined) = locate_gray(&gray, Some(vec![seed])) {
+            let radius = point_distance(seed.top, seed.bottom) / 6. * 0.4;
+            if grid.cells.iter().zip(&refined.cells).all(|(a, b)| {
+                a.iter()
+                    .zip(b)
+                    .all(|(&a, &b)| point_distance(a, b) < radius)
+            }) {
+                return Some(refined);
+            }
+        }
+    }
+    Some(grid)
+}
+fn locate_gray(image: &GrayImage, seeds: Option<Vec<Stripe>>) -> Option<LocatedGrid> {
     if image.width() < 32 || image.height() < 32 {
         return None;
     }
     // Keep the grayscale image at source resolution. Measured body boundaries
     // determine cell selection; reference edges accompany the cells.
-    let gray = grayscale(image);
+    let gray = image;
     // Start from the alternating left label strip. Its fitted axis determines
     // orientation even when the photo is tilted or quarter-turned.
-    let stripes = stripe_candidates(&gray);
+    let refining = seeds.is_some();
+    let stripes = seeds.unwrap_or_else(|| stripe_candidates(gray));
     if stripes.is_empty() {
-        return locate_from_gray_grid(&gray);
+        return if refining {
+            None
+        } else {
+            locate_from_gray_grid(gray)
+        };
     }
     let mut candidates = Vec::new();
     for stripe in stripes {
-        let theta = (stripe.bottom.x - stripe.top.x).atan2(stripe.bottom.y - stripe.top.y) as f32;
-        let raw = rotate_to_axis(&gray, theta);
-        let upright_top = rotate_point(stripe.top, theta, gray.dimensions(), raw.dimensions());
-        let upright_first = rotate_point(stripe.first, theta, gray.dimensions(), raw.dimensions());
-        let upright_middle =
-            rotate_point(stripe.middle, theta, gray.dimensions(), raw.dimensions());
-        let upright_bottom =
-            rotate_point(stripe.bottom, theta, gray.dimensions(), raw.dimensions());
+        let pitch = point_distance(stripe.top, stripe.bottom) / 6.;
+        let down = geometry::Point {
+            x: (stripe.bottom.x - stripe.top.x) / (6. * pitch),
+            y: (stripe.bottom.y - stripe.top.y) / (6. * pitch),
+        };
+        let right = geometry::Point {
+            x: down.y,
+            y: -down.x,
+        };
+        // Bound refinement work by cell pitch, independently of camera resolution.
+        // Original pixels are sampled directly; character crops stay full resolution.
+        let density = (40. / pitch).min(1.);
+        let origin = geometry::Point {
+            x: 2.5 * pitch * density,
+            y: 3.5 * pitch * density,
+        };
+        let to_patch = |p: geometry::Point| geometry::Point {
+            x: ((p.x - stripe.top.x) * right.x + (p.y - stripe.top.y) * right.y) * density
+                + origin.x,
+            y: ((p.x - stripe.top.x) * down.x + (p.y - stripe.top.y) * down.y) * density + origin.y,
+        };
+        let from_patch = |p: geometry::Point| geometry::Point {
+            x: stripe.top.x + ((p.x - origin.x) * right.x + (p.y - origin.y) * down.x) / density,
+            y: stripe.top.y + ((p.x - origin.x) * right.y + (p.y - origin.y) * down.y) / density,
+        };
+        let Some(projection) = imageproc::geometric_transformations::Projection::from_matrix([
+            (right.x * density) as f32,
+            (right.y * density) as f32,
+            (origin.x - (stripe.top.x * right.x + stripe.top.y * right.y) * density) as f32,
+            (down.x * density) as f32,
+            (down.y * density) as f32,
+            (origin.y - (stripe.top.x * down.x + stripe.top.y * down.y) * density) as f32,
+            0.,
+            0.,
+            1.,
+        ]) else {
+            continue;
+        };
+        // Only rectify the candidate's header/label neighborhood, not the whole frame.
+        // The fixed grid supplies a conservative search extent; measured edges still
+        // determine the returned body. imageproc supplies the affine resampler.
+        let mut raw = GrayImage::new(
+            (pitch * density * 23.).ceil() as u32,
+            (pitch * density * 13.).ceil() as u32,
+        );
+        imageproc::geometric_transformations::warp_into(
+            gray,
+            projection,
+            Interpolation::Bilinear,
+            Border::Constant(Luma([255])),
+            &mut raw,
+        );
+        let upright_top = to_patch(stripe.top);
+        let upright_first = to_patch(stripe.first);
+        let upright_middle = to_patch(stripe.middle);
+        let upright_bottom = to_patch(stripe.bottom);
         let pitch = (upright_first.y - upright_top.y) * 0.5;
         let nearby = |band: &Band| {
             (band.left - upright_top.x).abs() < pitch * 1.5
@@ -408,9 +587,12 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
         };
         let centers = [upright_top, upright_first, upright_middle, upright_bottom].map(correct);
         for band in bands.into_iter().filter(nearby) {
-            let Some((body, contrast, edges)) =
-                segment_body(probe, band, centers, stripe.dark_heights)
-            else {
+            let Some((body, contrast, edges)) = segment_body(
+                probe,
+                band,
+                centers,
+                stripe.dark_heights.map(|h| h * density),
+            ) else {
                 continue;
             };
             let body = body.map(uncorrect);
@@ -426,20 +608,20 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
             }
             if let Some(mut candidate) = score_candidate(&raw, body, edges) {
                 candidate.score += contrast / 100.;
-                candidate.body = candidate
-                    .body
-                    .map(|p| unrotate_point(p, theta, gray.dimensions(), raw.dimensions()));
-                candidate.edges = map_edges(candidate.edges, |p| {
-                    unrotate_point(p, theta, gray.dimensions(), raw.dimensions())
-                });
-                candidates.push(candidate);
+                candidate.body = candidate.body.map(from_patch);
+                candidate.edges = map_edges(candidate.edges, from_patch);
+                candidates.push((candidate, stripe));
             }
         }
     }
 
-    candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
-    let Some(winner) = candidates.into_iter().next() else {
-        return locate_from_gray_grid(&gray);
+    candidates.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
+    let Some((winner, seed)) = candidates.into_iter().next() else {
+        return if refining {
+            None
+        } else {
+            locate_from_gray_grid(gray)
+        };
     };
     // The two measured outside edges are retained as independent metadata.
     // Only the matrix body quadrilateral determines the 70 cell selections.
@@ -447,6 +629,7 @@ pub(super) fn locate_with_edges(image: &RgbImage) -> Option<LocatedGrid> {
     Some(LocatedGrid {
         cells,
         edges: winner.edges,
+        seed: Some(seed),
     })
 }
 
@@ -564,6 +747,7 @@ fn locate_from_gray_grid(image: &GrayImage) -> Option<LocatedGrid> {
         .map(|cell| cell.map(|point| unrotate_quarter(point, turn, image.dimensions())))
         .collect();
     Some(LocatedGrid {
+        seed: None,
         cells,
         edges: map_edges(
             AnchorEdges {
@@ -1458,49 +1642,14 @@ fn stripe_matches_body(
         && (body[3].y - bottom.y - bottom_pitch * 0.5).abs() < bottom_pitch * 0.7
 }
 
-fn rotate_to_axis(image: &GrayImage, theta: f32) -> GrayImage {
-    if theta.abs() < 0.005 {
-        return image.clone();
-    }
-    rotate_about_center_no_crop(
-        image,
-        theta,
-        Interpolation::Bilinear,
-        Border::Constant(Luma([255])),
-    )
-}
-
-fn rotate_point(
-    point: geometry::Point,
-    theta: f32,
-    source: (u32, u32),
-    destination: (u32, u32),
-) -> geometry::Point {
-    let (sine, cosine) = (theta as f64).sin_cos();
-    let x = point.x - source.0 as f64 * 0.5;
-    let y = point.y - source.1 as f64 * 0.5;
-    geometry::Point {
-        x: cosine * x - sine * y + destination.0 as f64 * 0.5,
-        y: sine * x + cosine * y + destination.1 as f64 * 0.5,
-    }
-}
-
-fn unrotate_point(
-    point: geometry::Point,
-    theta: f32,
-    source: (u32, u32),
-    destination: (u32, u32),
-) -> geometry::Point {
-    rotate_point(point, -theta, destination, source)
-}
-
-fn grayscale(image: &RgbImage) -> GrayImage {
+fn grayscale(image: &RgbImage, config: crate::MatrixLocatorConfig) -> GrayImage {
+    let weights = config.gray_weights.map(u32::from);
+    let sum = weights.iter().sum::<u32>().max(1);
     GrayImage::from_fn(image.width(), image.height(), |x, y| {
-        let pixel = image.get_pixel(x, y);
-        Luma([
-            ((19595 * pixel[0] as u32 + 38470 * pixel[1] as u32 + 7471 * pixel[2] as u32 + 32768)
-                >> 16) as u8,
-        ])
+        let [r, g, b] = image.get_pixel(x, y).0.map(u32::from);
+        let luma = (r * weights[0] + g * weights[1] + b * weights[2] + sum / 2) / sum;
+        let chroma = (2 * r).saturating_sub(g + b) * config.red_chroma_weight as u32 / 512;
+        Luma([luma.saturating_sub(chroma) as u8])
     })
 }
 

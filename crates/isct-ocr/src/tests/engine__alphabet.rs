@@ -91,6 +91,49 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
         && g.contrast > 0.
         && g.sharpness > 0.
         && g.source_size > 0.));
+    // Keep black ink on both paper colors, and prevent input whitening from
+    // changing physical glare/admission measurements.
+    for paper in [[245, 205, 205], [240; 3], [130, 110, 100]] {
+        let rgb = RgbImage::from_fn(96, 96, |x, y| {
+            if (38..52).contains(&x) && (20..76).contains(&y) {
+                Rgb([20; 3])
+            } else {
+                Rgb(paper)
+            }
+        });
+        let projected = project_glyph(&rgb, crate::MatrixGlyphProjection::PaperDistance);
+        assert!(projected.get_pixel(30, 30)[0] >= 250);
+        assert!(projected.get_pixel(45, 45)[0] < 55);
+        assert!(prepare_matrix_alphabet_input(projected.as_raw())
+            .unwrap()
+            .is_some());
+    }
+    for projection in [
+        crate::MatrixGlyphProjection::RedChroma,
+        crate::MatrixGlyphProjection::PaperDistance,
+    ] {
+        let color = capture_matrix_frame_configured(
+            fixture,
+            None,
+            crate::MatrixCaptureConfig {
+                glyph_projection: projection,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(captured.quads, color.quads);
+        assert!(captured
+            .glyphs
+            .iter()
+            .zip(&color.glyphs)
+            .any(|(a, b)| a.gray != b.gray));
+        for (a, b) in captured.glyphs.iter().zip(color.glyphs) {
+            assert_eq!(
+                (a.contrast, a.sharpness, a.centering, a.glare, a.source_size),
+                (b.contrast, b.sharpness, b.centering, b.glare, b.source_size)
+            );
+        }
+    }
     #[cfg(feature = "training-tools")]
     {
         let body = [

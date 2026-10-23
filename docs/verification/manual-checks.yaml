@@ -864,10 +864,12 @@ checks:
           Inspect matrix-scan/latest.json under the app cache for elapsed session
           time and overlapping OCR busy time, per-cell candidate and qualified-vote
           counts. Use an optimized build and move the framed card continuously:
-          the red outline must update at least 10 times per second (30 preferred).
+          the red outline must update at least 15 times per second (30 preferred).
           Check frameMs and frames/elapsedMs alongside the visible tracking;
           a smoothly interpolated stale outline does not count as a new detection.
-          Compare all 70 letters with the real card.
+          Compare all 70 letters with the real card, including Q tails near row
+          boundaries. Repeat under warm and cool lighting and with faint row
+          colors; weak color contrast must still allow luminance localization.
         reason: |
           OS camera permissions, native WebView video capture, optical focus,
           and the alignment of recognition boxes over a physical card require

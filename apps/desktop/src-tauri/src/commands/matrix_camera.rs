@@ -181,7 +181,8 @@ pub(crate) async fn capture_matrix_camera_frame(
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(image)
                 .map_err(backend)?;
-            let captured = isct_ocr::capture_matrix_frame(&bytes);
+            let previous = current.bounds.map(|q| q.map(|p| [p.x, p.y]));
+            let captured = isct_ocr::capture_matrix_frame_near(&bytes, previous);
             #[cfg(debug_assertions)]
             if let Ok(frame) = &captured {
                 log_frame_quality(frame);

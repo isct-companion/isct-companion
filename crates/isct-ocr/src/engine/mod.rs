@@ -1,9 +1,13 @@
 mod alphabet;
-pub use alphabet::{capture_matrix_frame, MatrixAlphabetService};
+pub use alphabet::{
+    capture_matrix_frame, capture_matrix_frame_configured, capture_matrix_frame_near,
+    MatrixAlphabetService,
+};
 #[cfg(feature = "training-tools")]
 pub use alphabet::{
     capture_matrix_training_frame, prepare_matrix_alphabet_input, MatrixAlphabetInput,
 };
+mod color_refinement;
 #[cfg(debug_assertions)]
 mod debug_crops;
 mod geometry;

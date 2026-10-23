@@ -170,7 +170,62 @@ fn grayscale_localizer_finds_cells_from_alternating_labels_and_dark_header() {
             }
         }
     }
-    assert!(scan_image_locator::locate(&RgbImage::from_pixel(800, 620, Rgb([255; 3]))).is_none());
+    let large = image::imageops::resize(
+        &alternating_matrix(),
+        1600,
+        1240,
+        image::imageops::FilterType::Triangle,
+    );
+    let cells = scan_image_locator::locate(&large).unwrap();
+    let previous = Some(
+        [cells[0][0], cells[9][1], cells[69][2], cells[60][3]].map(|p| [p.x / 1600., p.y / 1240.]),
+    );
+    for hint in [
+        previous,
+        Some([[0.01, 0.01], [0.15, 0.01], [0.15, 0.1], [0.01, 0.1]]),
+        Some([[f64::NAN, 0.]; 4]),
+    ] {
+        let measured =
+            scan_image_locator::locate_near(&large, hint, crate::MatrixLocatorConfig::default())
+                .unwrap();
+        for (a, b) in cells.iter().zip(measured) {
+            for (a, b) in a.iter().zip(b) {
+                assert!(
+                    (a.x - b.x).hypot(a.y - b.y) < 12.,
+                    "ROI must reacquire the current grid"
+                );
+            }
+        }
+    }
+    let blank = RgbImage::from_pixel(1600, 1240, Rgb([255; 3]));
+    assert!(scan_image_locator::locate_near(
+        &blank,
+        previous,
+        crate::MatrixLocatorConfig::default()
+    )
+    .is_none());
+    for config in [
+        crate::MatrixLocatorConfig {
+            gray_weights: [0; 3],
+            ..Default::default()
+        },
+        crate::MatrixLocatorConfig {
+            search_max_side: u32::MAX,
+            ..Default::default()
+        },
+    ] {
+        assert!(matches!(
+            capture_matrix_frame_configured(
+                &[],
+                None,
+                crate::MatrixCaptureConfig {
+                    locator: config,
+                    ..Default::default()
+                }
+            ),
+            Err(MatrixOcrError::InvalidImage(_))
+        ));
+    }
 }
 
 #[test]
@@ -567,4 +622,41 @@ fn narrow_batches_preserve_latin_cell_text_order_and_live_selection_boundaries()
     assert_eq!(selected.cells.len(), 2);
     assert_eq!(selected.quads.len(), MATRIX_CELLS);
     assert!(selected.timing.total_ms >= selected.timing.inference_ms);
+}
+
+#[test]
+fn color_refinement_uses_all_rows_and_rejects_monochrome() {
+    let mut image = alternating_matrix();
+    for row in [1, 3, 5] {
+        for y in 192 + row * 50..188 + (row + 1) * 50 {
+            for x in 202..698 {
+                if image.get_pixel(x, y).0 == [245, 205, 205] {
+                    image.put_pixel(x, y, Rgb([245; 3]));
+                }
+            }
+        }
+    }
+    let expected = [
+        geometry::Point { x: 200., y: 190. },
+        geometry::Point { x: 700., y: 190. },
+        geometry::Point { x: 700., y: 540. },
+        geometry::Point { x: 200., y: 540. },
+    ];
+    let coarse = expected.map(|p| geometry::Point {
+        x: p.x + 2.,
+        y: p.y - 3.,
+    });
+    let refined = color_refinement::refine(&image, coarse, [2, -1, -1]).unwrap();
+    for (p, q) in refined.into_iter().zip(expected) {
+        assert!(
+            (p.x - q.x).hypot(p.y - q.y) < 4.,
+            "color boundaries must preserve the full grid: {p:?}"
+        );
+    }
+    let gray = RgbImage::from_fn(image.width(), image.height(), |x, y| {
+        let p = image.get_pixel(x, y);
+        Rgb([p[1]; 3])
+    });
+    assert!(color_refinement::refine(&gray, coarse, [2, -1, -1]).is_none());
+    assert!(color_refinement::refine(&alternating_matrix(), coarse, [2, -1, -1]).is_none());
 }
