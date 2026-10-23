@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 85 checks must be re-run before the next release.**
+**7 of 92 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**75 checks have never been run or could not be run:**
+**82 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -86,6 +86,10 @@ an unverified area becomes an assumed-good one.
 - `IOS-SETTINGS-PAGES` — never verified
 - `IOS-TODAY-CLASS-STACK` — never verified
 - `ANDROID-TODAY-CLASS-STACK` — never verified
+- `ANDROID-TIMETABLE-WEEK-AND-MARKS` — never verified
+- `ANDROID-COURSE-LESSONS` — never verified
+- `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
+- `ANDROID-SETTINGS-PAGES` — never verified
 - `MOBILE-UI-LANGUAGE` — never verified
 - `DESKTOP-CALENDAR-NOW-LINE` — never verified
 - `DESKTOP-COURSE-OUTLINE-STILL` — never verified
@@ -94,6 +98,9 @@ an unverified area becomes an assumed-good one.
 - `IOS-COURSE-EXAM-LINE` — never verified
 - `IOS-ICLOUD-BACKUP` — never verified
 - `DESKTOP-DEBUG-ICLOUD` — never verified
+- `CLOUD-PROVIDER-COMBINATIONS` — never verified
+- `IOS-DRIVE-SIGNIN` — never verified
+- `ANDROID-DRIVE-SIGNIN` — never verified
 - `IOS-LOG-EXPORT` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
 - `ANDROID-TLS-VERIFIER` — never verified
@@ -175,7 +182,11 @@ an unverified area becomes an assumed-good one.
 | `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
-| `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
+| `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
+| `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
+| `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx |
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
@@ -184,6 +195,9 @@ an unverified area becomes an assumed-good one.
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
+| `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/mod.rs<br>crates/isct-core/src/data/cloud_merge.rs<br>crates/isct-core/src/data/backup_store.rs |
+| `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/GoogleSignIn.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/project.yml |
+| `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>crates/isct-ffi/src/ports.rs |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
@@ -3967,9 +3981,12 @@ week and open assignments in the current quarter.
 
 **Steps**
 
-1. Read the navigation bar.
-   - *Why:* Four destinations, 今日 · 時間割 · ウェブ · 設定, with 設定 last; 設定
-     is a page in its own tab, no longer a sheet from 今日.
+1. Read the navigation bar on a phone, then on a tablet or a window at
+   least 600 dp wide.
+   - *Why:* Four destinations on a phone, 今日 · 時間割 · ウェブ · 設定, with 設定
+     last; 設定 is a page in its own tab, no longer a sheet from 今日. A
+     wide window adds 授業 after 時間割, as on iPad, listing the quarter's
+     courses; 授業 on a phone means the width rule is wrong.
 2. Swipe up and down on the class card, and past either end of the
    stack.
    - *Why:* Each swipe turns one card with a haptic and the counter follows;
@@ -3997,7 +4014,227 @@ Core's today and board read models, covered by their tests.
 - `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+
+**Last recorded** never run
+
+### Android timetable fits Core's axis, picks weeks, marks sessions and exports the quarter (`ANDROID-TIMETABLE-WEEK-AND-MARKS`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app with the current quarter pulled, opened on a weekday
+between the first period's start and the last period's end (Tokyo time).
+
+**Steps**
+
+1. Open 時間割 and look at the grid without scrolling.
+   - *Why:* Rows come from Core's timetable axis and share the height the screen
+     leaves, so the whole week fits; the lunch band is shaded and half a
+     row. A grid that scrolls or a full-height lunch row means the shell
+     still uses its own period table.
+2. Tap the week chip, step a year back and forward, tap a quarter chip,
+   then a week row.
+   - *Why:* The sheet lists Core's TimetableYear weeks under their months with
+     each week's quarter label; a quarter chip jumps to that quarter's
+     first week. A week that lands elsewhere means the jump target is
+     wrong.
+3. Long press a class and choose 試験にする, then 休講にする, then
+   通常の授業に戻す, reopening the menu each time.
+   - *Why:* Each choice is Core's MarkSession and must redraw at once: a warn
+     border with 試験 before the room, then a faded struck-through title
+     with 休講, then the plain block; the tick follows the state. Planned
+     blocks offer no menu.
+4. Look at today's column during a teaching hour.
+   - *Why:* The red now line sits at the current time and moves every half
+     minute; outside the axis there is no line by design.
+5. Tap the share button in the header, choose 授業のみ, send the file to
+   Google Calendar or Files and open it.
+   - *Why:* The .ics is Core's quarterIcs for the shown week's quarter, as the
+     desktop's ICSを書き出す; another quarter or an empty file is wrong.
+
+**Where to look**
+
+The 時間割 tab on the device or emulator.
+
+**Expected**
+
+The week fits, the picker labels and jumps as Core says, marks redraw at
+once, the now line tracks the clock and the shared .ics holds this
+quarter's classes.
+
+**Why this is manual**
+
+Layout, the long-press menu, the moving line and the share sheet are
+read at a glance on a device; the axis maths and calendar export are
+covered by Core's timing and ICS tests.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt`
+- `apps/android/app/src/main/res/xml/file_paths.xml`
+
+**Last recorded** never run
+
+### Android course page pages lessons, marks one for the class and opens files through Core (`ANDROID-COURSE-LESSONS`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app signed in to Science Tokyo with LMS content pulled for a
+course that has class meetings, at least three numbered lessons, a PDF,
+an assignment set in a lesson and an exam on the exam timetable; the
+desktop app on the same workspace.
+
+**Steps**
+
+1. Open the course from 時間割 and read the header.
+   - *Why:* Code · day and periods · room, one orange 試験 line per visible exam
+     (struck through when cancelled), and LMS / シラバス chips that open the
+     in-app pages.
+2. Swipe the lesson page left and right, then tap a lesson chip.
+   - *Why:* One lesson per page with its 授業計画 text, items and assignments;
+     the chip row follows the page, and the dot marks Core's current
+     lesson, distinct from the chosen chip.
+3. Long press another chip and choose "この回を M/D の授業にする", then
+   open the course on the desktop Lecture Desk.
+   - *Why:* The mark is Core's RecordLesson on CourseContent.classAt, so M/D is
+     the class it attaches to; the dot moves and the desktop rail shows
+     the same lesson. Without class meetings the menu does not open.
+4. Tap the PDF, then expand the lesson's assignment and tap 提出.
+   - *Why:* Core downloads the file with the LMS session and a viewer app opens
+     it; a sign-in failure says so instead of opening a browser. The
+     assignment shows its LMS text in place and 提出 opens the submission
+     page inside the app.
+5. On 今日 tap an assignment row, then long press it.
+   - *Why:* A tap opens the assignment page (course, text, files, 提出); the
+     menu offers コースを開く, LMSで提出, pin and hide.
+
+**Where to look**
+
+The course and assignment pages, the viewer app, and the desktop lesson rail.
+
+**Expected**
+
+Lessons page as one piece, the mark agrees with the desktop, files open
+in a viewer through Core and assignments open in the app.
+
+**Why this is manual**
+
+Needs a signed-in LMS session, a real file download and the desktop for
+the cross-device mark; paging and menus are judged on a device. Core's
+lesson rule is covered by `course_content_follows_the_desktop_lecture_desk`.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Components.kt`
+- `apps/android/app/src/main/AndroidManifest.xml`
+
+**Last recorded** never run
+
+### Android Today lists upcoming exams and shows the school connection (`ANDROID-TODAY-EXAMS-AND-STATUS`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app with an exam linked to a course within the next 14 days
+(or a class marked 試験にする for tomorrow), signed in to Science Tokyo.
+
+**Steps**
+
+1. Read 今日 below the class stack.
+   - *Why:* A 試験 card lists Core's upcomingExams (date · periods or time ·
+     room); it is absent with no exams, and a row opens its course.
+2. Pull to refresh and watch the title bar, then tap the indicator.
+   - *Why:* A ring while a counted run reads, a spinner otherwise, a check for a
+     moment when it finishes; the sheet lists each source's last update
+     and the runs underway, as on iOS. An indicator that never clears
+     means the shell keeps its own busy state.
+3. Turn on airplane mode and pull; then, back online, save a wrong
+   Science Tokyo password in 設定 and pull.
+   - *Why:* A held read shows its reason in the sheet; a sign-in that Core
+     needs shows the red banner with サインイン, which opens the account
+     page.
+
+**Where to look**
+
+今日 and the school connection sheet on the device.
+
+**Expected**
+
+The exam card follows Core, the indicator and sheet name what Core
+reads, and the banner leads to sign-in when Core needs it.
+
+**Why this is manual**
+
+Needs a real school session and network changes; what is due and why is
+Core's sync snapshot, covered by its planner tests.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
+
+**Last recorded** never run
+
+### Android settings pages keep their values and share the desktop's keys (`ANDROID-SETTINGS-PAGES`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app and the desktop app on the same workspace.
+
+**Steps**
+
+1. In 設定 › 通知 turn on 試験の前 with a lead and pick two assignment
+   reminder times; reopen the page and relaunch the app.
+   - *Why:* Values survive; the keys are the desktop's (exams, examLeadMinutes,
+     assignmentLeadMinutes), so the desktop's Notifications page shows
+     the same choices for the same workspace.
+2. Set 学習プロフィール (department, admission year, degree).
+   - *Why:* The department is settings.departmentId and the rest Core's
+     SetStudyProfile; a degree picked before the year asks for the year.
+3. In データ更新 toggle モバイル通信でも更新, read the last update times
+   and tap 今すぐ更新.
+   - *Why:* The toggle is settings.subscriptionRefresh.allowCellular, which
+     Core reads for pulls; the times are Core's source status.
+
+**Where to look**
+
+設定 and its pages on the device, and the desktop settings.
+
+**Expected**
+
+Every page reloads what was saved and the keys match the desktop's.
+
+**Why this is manual**
+
+Needs a device and the desktop app on the same workspace; the settings
+object is covered by Core's workspace tests.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
 
 **Last recorded** never run
 
@@ -4310,10 +4547,10 @@ CloudKit database; `codesign -d --entitlements - <app>` on each shows it.
 4. Turn on Sync automatically on both. Add a plan on the Mac and Upload,
    then force-quit the iPhone app and open it again without pressing
    Pull.
-   - *Why:* Automatic mode pulls once per launch; a phone that is only read never
-     uploads, so this is the only way it sees the Mac's edits. The plan
-     missing after the relaunch means the launch pull did not run or read
-     another database.
+   - *Why:* Automatic mode pulls at launch and when the app comes to the front; a
+     phone that is only read never uploads, so this is the only way it
+     sees the Mac's edits. The plan missing after the relaunch means the
+     launch pull did not run or read another database.
 5. Sign out of iCloud on the iPhone (Settings › Apple Account), reopen
    バックアップ, then sign back in.
    - *Why:* The provider line must name the reason under the generic failure
@@ -4407,6 +4644,185 @@ and history survive a build without iCloud is unit-tested in
 - `scripts/desktop/macos-signing.mjs`
 - `scripts/desktop/tauri.mjs`
 - `apps/desktop/src-tauri/build.rs`
+
+**Last recorded** never run
+
+### Devices started apart on iCloud and Drive join and relay through a Mac with both (`CLOUD-PROVIDER-COMBINATIONS`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+One Apple Account and one Google account. A signed Mac app (iCloud and
+Drive), an iPhone app with only iCloud on, and an Android phone with only
+Drive on. Each device starts with its own data: before any device has
+both providers, add a different plan on the iPhone (Upload to iCloud)
+and on the Android phone (Upload to Drive). Import a backup file on the
+Android phone first, so its copy is a restore generation ahead.
+
+**Steps**
+
+1. On the Mac, add a third plan, turn on iCloud and Google Drive in
+   Settings → Backup (Drive through the browser consent), then Upload.
+   - *Why:* The two clouds hold copies with different workspace ids. The old
+     build refused the second provider with "a different workspace"; any
+     error here, or a missing plan, means the copies were not joined.
+2. Pull on the iPhone and on the Android phone.
+   - *Why:* Each must show all three plans. A phone that loses its own plan means
+     the joined copy replaced its data by generation instead of merging.
+3. Turn on Sync automatically on the Mac and leave it open. Add a plan
+   on the iPhone and Upload; do nothing on the Mac for an hour, then
+   Pull on the Android phone.
+   - *Why:* The Mac must relay iCloud's change to Drive from its hourly remote
+     check, with no local edit. The plan missing on Android after the hour
+     means the relay still waits for an edit or a relaunch.
+4. On the Mac turn Drive off, add a plan, Upload, then turn Drive on
+   again.
+   - *Why:* Turning a provider back on must merge its old copy and upload the
+     merged data at once, not wait out the hourly limit or report a
+     conflict.
+
+**Where to look**
+
+The plans on each device, each device's Backup page (provider lines,
+errors) and the version lists of both providers.
+
+**Expected**
+
+No device reports a workspace error; every device ends with every plan;
+the iPhone's plan reaches Android through the Mac within about two hours
+without touching the Mac; re-enabling Drive brings it up to date at once.
+
+**Why this is manual**
+
+It needs real iCloud and Google accounts on three devices and an hour of
+wall-clock time. The join, the generation handling and the relay logic
+are covered by
+`separately_started_workspaces_join_across_providers_and_every_device_converges`
+and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_edit`.
+
+**Covers**
+
+- `crates/isct-core/src/cloud_sync/mod.rs`
+- `crates/isct-core/src/data/cloud_merge.rs`
+- `crates/isct-core/src/data/backup_store.rs`
+
+**Last recorded** never run
+
+### iPhone signs in to Google Drive and syncs with a desktop on Drive (`IOS-DRIVE-SIGNIN`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone build from this branch and a Google account added as a test
+user of the IsctCompanion OAuth consent screen; a Windows or Mac desktop
+app with Drive on and at least one plan uploaded.
+
+**Steps**
+
+1. On the iPhone, 設定 › バックアップ: turn on Google Drive and cancel
+   the Google page.
+   - *Why:* Cancelling must leave the switch off with no error banner. An error
+     or a switch left on means the cancelled session was treated as a
+     failed or successful sign-in.
+2. Turn Google Drive on again and finish the consent, then Pull.
+   - *Why:* The page must return to the app and the desktop's plan arrive. A
+     Google error page ("redirect_uri_mismatch", "invalid_client") means
+     the iOS client ID or its reversed redirect scheme does not match the
+     registered client.
+3. Force-quit the app, reopen it, then Upload after editing a record;
+   Pull on the desktop.
+   - *Why:* The refresh token kept in the Keychain must sign in silently after a
+     relaunch; a second Google page or an authorization error means it
+     was not saved or not refreshed.
+4. Turn Google Drive off, then on again.
+   - *Why:* Off must forget the authorization, so on asks for consent again.
+
+**Where to look**
+
+The Google page, the Drive row on the iPhone's Backup page and the
+records on both devices.
+
+**Expected**
+
+Cancel leaves Drive off quietly; consent connects it and the desktop's
+data arrives; a relaunch stays signed in; off then on asks again.
+
+**Why this is manual**
+
+ASWebAuthenticationSession and Google's consent page need a device and a
+real Google account. The PKCE checks and token storage are covered by
+`callback_answers_only_its_own_authorization` and
+`saved_authorization_is_read_and_disconnect_removes_only_drive`.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/GoogleSignIn.swift`
+- `apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift`
+- `apps/ios/project.yml`
+
+**Last recorded** never run
+
+### Android signs in to Google Drive through the account prompt (`ANDROID-DRIVE-SIGNIN`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An APK built on the Windows machine from this branch, signed with a key
+whose SHA-1 is registered on the IsctCompanion Android OAuth client, on
+a phone with a Google account that is a test user; a desktop app with
+Drive on and at least one plan uploaded.
+
+**Steps**
+
+1. 設定 › バックアップ: turn on Google Drive and decline Google's
+   prompt.
+   - *Why:* The switch must stay off with the reason under it. A crash or a
+     switch left on means the consent result was not read.
+2. Turn it on again, allow the prompt, then Pull.
+   - *Why:* The desktop's plan must arrive. "DEVELOPER_ERROR" or an immediate
+     failure without a prompt means the package name or signing SHA-1 is
+     not on the Android client.
+3. Swipe the app away, reopen it, edit a record and Upload; Pull on the
+   desktop.
+   - *Why:* A relaunch must get a token without showing the prompt again; a
+     prompt or an authorization error means the remembered connection or
+     the silent authorization failed.
+4. Export a backup file to Files and import it again.
+   - *Why:* Android had no backup page before; export and import must go through
+     the system document picker and the import must leave a recovery file.
+
+**Where to look**
+
+Google's prompt, the Drive row and recovery files on the Backup page,
+and the records on both devices.
+
+**Expected**
+
+Decline leaves Drive off with its reason; allow connects it and the
+desktop's data arrives; a relaunch stays connected silently; export and
+import work and the import keeps a recovery file.
+
+**Why this is manual**
+
+Google Identity's authorization needs Play services, a registered signing
+certificate and a real account on a device. The Core side of the token
+port is covered by
+`drive_signs_in_through_the_token_port_and_stays_authorized_after_restart`.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt`
+- `crates/isct-ffi/src/ports.rs`
 
 **Last recorded** never run
 

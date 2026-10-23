@@ -30,6 +30,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>IsctGoogleClientID</key>
+	<string>$(ISCT_GOOGLE_IOS_CLIENT_ID)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>認証アプリの QR コードやマトリクス表を読み取るためにカメラを使います。</string>
 	<key>NSPhotoLibraryUsageDescription</key>

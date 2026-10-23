@@ -33,6 +33,17 @@ fn restore_generation_prevents_stale_device_resurrection() {
         contents(&merge(&restored, &simultaneous)),
         contents(&merge(&simultaneous, &restored))
     );
+    // A restore in one workspace says nothing about another workspace's
+    // records: they are joined, under the first-sorting id and its generation.
+    let mut separate = old.clone();
+    separate["sync"] = json!({"workspaceId":"b"});
+    let mut restored = restored.clone();
+    restored["sync"]["workspaceId"] = json!("a");
+    let joined = merge(&separate, &restored);
+    assert_eq!(joined, merge(&restored, &separate));
+    assert_eq!(joined["sync"], restored["sync"]);
+    assert_eq!(joined["tables"]["plans"].as_array().unwrap().len(), 1);
+    assert_eq!(joined["localNotes"].as_array().unwrap().len(), 1);
 }
 #[test]
 fn edits_deletes_and_ties_converge() {

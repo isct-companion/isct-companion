@@ -31,8 +31,6 @@ pub enum DocumentError {
     InvalidJson,
     #[error("Cloud workspace format is invalid or unsupported.")]
     InvalidFormat,
-    #[error("This cloud account contains a different workspace.")]
-    DifferentWorkspace,
     #[error("Cloud copy changed; retrying sync.")]
     Conflict,
     #[error("Cloud copy keeps changing; sync will retry automatically.")]
@@ -95,6 +93,55 @@ pub trait WorkspaceTransport: Send + Sync {
     ) -> BoxFuture<'a, ()>;
 
     fn disconnect(&self, provider: CloudProvider) -> Result<(), DocumentError>;
+}
+
+/// One `WorkspaceTransport` over a separate store per provider, for a shell
+/// that has several (CloudKit and Drive on Apple devices).
+#[derive(Default)]
+pub struct Providers(Vec<(CloudProvider, Box<dyn WorkspaceTransport>)>);
+
+impl Providers {
+    pub fn with(
+        mut self,
+        provider: CloudProvider,
+        store: impl WorkspaceTransport + 'static,
+    ) -> Self {
+        self.0.push((provider, Box::new(store)));
+        self
+    }
+
+    fn store(&self, provider: CloudProvider) -> Result<&dyn WorkspaceTransport, DocumentError> {
+        self.0
+            .iter()
+            .find(|(candidate, _)| *candidate == provider)
+            .map(|(_, store)| store.as_ref())
+            .ok_or_else(|| DocumentError::Transport("This cloud provider is not available.".into()))
+    }
+}
+
+impl WorkspaceTransport for Providers {
+    fn read<'a>(&'a self, provider: CloudProvider) -> BoxFuture<'a, Option<CloudWorkspaceFile>> {
+        match self.store(provider) {
+            Ok(store) => store.read(provider),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
+    }
+
+    fn write<'a>(
+        &'a self,
+        provider: CloudProvider,
+        file: &'a CloudWorkspaceFile,
+        expected_revision: Option<u64>,
+    ) -> BoxFuture<'a, ()> {
+        match self.store(provider) {
+            Ok(store) => store.write(provider, file, expected_revision),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
+    }
+
+    fn disconnect(&self, provider: CloudProvider) -> Result<(), DocumentError> {
+        self.store(provider)?.disconnect(provider)
+    }
 }
 
 /// The queue's `CloudTransport` over any workspace transport, so every shell
@@ -340,21 +387,8 @@ pub async fn merge_and_push<T: WorkspaceTransport + ?Sized>(
 ) -> Result<Value, DocumentError> {
     for _ in 0..3 {
         let remote = transport.read(provider).await?;
-        if let Some(remote) = &remote {
-            if let (Some(local_id), Some(remote_id)) = (
-                document
-                    .pointer("/sync/workspaceId")
-                    .and_then(Value::as_str),
-                remote
-                    .document
-                    .pointer("/sync/workspaceId")
-                    .and_then(Value::as_str),
-            ) {
-                if local_id != remote_id {
-                    return Err(DocumentError::DifferentWorkspace);
-                }
-            }
-        }
+        // A copy from another workspace is joined, not rejected: the merge
+        // keeps both sides' records under the older workspace id.
         let merged = remote
             .as_ref()
             .map(|remote| cloud_merge::merge(document, &remote.merged_document()))

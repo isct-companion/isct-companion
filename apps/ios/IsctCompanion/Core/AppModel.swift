@@ -95,23 +95,25 @@ final class AppModel {
             for directory in [data, files] {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             }
-            // iCloud is the phone's provider, as on the Mac; the account is the
-            // device's, so it needs no separate sign-in.
+            // iCloud uses the device's account, so it needs no separate sign-in;
+            // Google Drive signs in through `GoogleSignIn`, and Core reads its
+            // saved authorization itself.
             #if ISCT_NO_ICLOUD
             // Personal-team builds carry no iCloud entitlement, and CKContainer
             // traps without it.
             let cloud: NativeCloud? = nil
-            let providers: [CloudProvider] = []
+            let icloud: [CloudProvider] = []
             #else
             let cloud: NativeCloud? = CloudKitStore()
-            let providers: [CloudProvider] = [.icloud]
+            let icloud: [CloudProvider] = [.icloud]
             #endif
             let config = SessionConfig(
                 dataDirectory: data.path, filesDirectory: files.path, initialNetwork: .unknown,
-                cloudProviders: providers, authorizedCloudProviders: providers)
+                cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: cloud,
-                notifications: nil, downloads: WebCookieSession())
+                notifications: nil, downloads: WebCookieSession(),
+                webAuthentication: GoogleSignIn(), driveTokens: nil)
             self.session = session
             web.session = session
             let stream = try session.subscribe()
@@ -703,7 +705,7 @@ extension Calendar {
 
 // MARK: - Backup
 
-/// The desktop's Backup settings over the same Core journal: iCloud on or off,
+/// The desktop's Backup settings over the same Core journal: iCloud and Drive on or off,
 /// automatic or by-hand sync, earlier versions, local recovery files and a
 /// backup file. Core decides what uploads, merges and restores.
 extension AppModel {
@@ -714,8 +716,10 @@ extension AppModel {
         }
     }
 
-    func setCloudEnabled(_ enabled: Bool) async {
-        await cloudOperation { try $0.setCloudEnabled(provider: .icloud, enabled: enabled) }
+    /// Turning Drive on first shows Google's sign-in; Core keeps it off with
+    /// the reason if the sign-in fails.
+    func setCloudEnabled(_ provider: CloudProvider, _ enabled: Bool) async {
+        await cloudOperation { try $0.setCloudEnabled(provider: provider, enabled: enabled) }
     }
 
     func setCloudAutomatic(_ automatic: Bool) async {

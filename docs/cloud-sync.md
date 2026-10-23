@@ -33,12 +33,16 @@ The Backup settings page has an **Auto** switch, off by default, and separate
 - Opening/resuming the app resumes unfinished operations in either mode. Turning
   Auto off prevents new automatic operations; it does not revoke submitted work.
 - Auto is change-triggered, not a real-time remote subscription. Another device's
-  changes arrive on Pull, the next local change's reconciliation, or the one
-  pull Auto makes at each launch: a device that is only read (a phone opened to
-  look at the timetable) never uploads, so it would otherwise never see them.
-  A launch pull that finds no cloud copy is not a failure and binds no
-  workspace; one that finds this device ahead queues an upload under the hour
-  limit. An explicit Pull never uploads.
+  changes arrive on Pull, the next local change's reconciliation, or a remote
+  check. Auto makes a remote check (a pull from every enabled provider) at
+  launch, when the shell reports the app came to the front, and at most once
+  an hour while the app stays open. Without it a device that is only read (a
+  phone opened to look at the timetable) never uploads, so it would never see
+  other devices' changes, and a device with two providers would relay only
+  when it is edited or relaunched. A check that finds no cloud copy is not a
+  failure. A check that finds this device or another provider behind the
+  merged content queues an upload to each lagging provider under the hour
+  limit (a first copy uploads at once). An explicit Pull never uploads.
 - Exit captures pending changes durably and exits without waiting for a network
   round trip. The next launch resumes work. The OS need not grant background time.
 - Disabling a provider disconnects only it and cancels its unfinished deliveries.
@@ -46,21 +50,85 @@ The Backup settings page has an **Auto** switch, off by default, and separate
 
 ## Platform and account boundaries
 
-| Platform | Available providers | Recommended common channel |
-| --- | --- | --- |
-| macOS / iOS / iPadOS | iCloud enabled by default; optional Drive | iCloud for Apple-only use |
-| Windows / Android / Linux | Drive after connecting | Google Drive |
-| Mixed platforms | Drive on every device; optional iCloud on Apple | Google Drive |
+| Platform | Available providers |
+| --- | --- |
+| macOS (signed) / iOS / iPadOS | iCloud (on by default) and Google Drive |
+| macOS (unsigned debug) / Windows / Linux / Android | Google Drive |
 
-An Apple device connected to both services can relay changes between them;
-iCloud and Drive do not communicate independently. Provider support is compiled
-with Rust cfg flags. No user-agent platform detection is used.
+Provider support is compiled with Rust cfg flags and per-platform shells. No
+user-agent platform detection is used. Every device may turn each of its
+providers on or off at any time, in any order; no combination is rejected.
 
-OAuth credentials remain independent, device-local vault entries. Cloud content
-carries a `sync.workspaceId`. The first identified cloud workspace binds the
-installation; a different workspace is rejected before merging or uploading.
-Cloud errors do not clear another provider's token or acknowledgement. The
-shared cross-platform channel, Drive, is serviced first. Reads/writes have bounded
+## Provider combinations
+
+A device's providers are none, iCloud only, Drive only, or both. Each device
+reads and writes every provider it has on, and merges what it reads record by
+record, so any device that shares a provider with another sees its changes.
+
+| This device | Behaviour |
+| --- | --- |
+| None | Local only. Recovery points, file export and import still work. |
+| iCloud only | Syncs with every device on the same Apple ID that has iCloud on. |
+| Drive only | Syncs with every device on the same Google account that has Drive on. |
+| Both | Reads and writes both, and relays: a change that arrives from one is uploaded to the other. |
+
+Across devices, changes reach every device that is connected to the others
+through shared providers, directly or through a device with both. A device
+with both relays on its remote checks (launch, coming to the front, hourly
+while open), so a change made on an iCloud-only iPhone reaches a Drive-only
+Android phone when a Mac with both next checks, and arrives within about
+two hours in the worst case (one hourly check, one hourly upload). Two
+groups that share no provider and have no device with both (an iCloud-only
+iPhone and a Drive-only Android phone, nothing else) cannot see each other;
+turning Drive on for the iPhone joins them. iCloud and Drive never talk to
+each other directly.
+
+Changing providers later:
+
+- Turning a provider on merges its cloud copy, if any, with this device's
+  data; nothing on either side is dropped. In Auto the merged data is
+  uploaded to it at once (it is a first copy for that provider); in manual
+  mode the next Upload does it.
+- Turning a provider off stops using it and cancels its unfinished uploads.
+  Its cloud copy stays; turning it on again later merges again, and edits and
+  deletions made meanwhile on other providers win by the ordinary record rules.
+- Moving from one provider to the other is: turn the new one on, wait for it
+  to show up to date, turn the old one off.
+
+### Workspace identity
+
+Cloud content and the local sync metadata carry a `sync.workspaceId`. It names
+a lineage of restore generations, not an account or a device: restore
+generations (see Recovery) are compared only between copies of the same
+workspace id. A device gets its id from the first cloud copy it reads, or a
+fresh UUIDv7 when it first uploads to an empty cloud.
+
+Two copies with different workspace ids come from data started separately
+(iCloud on the Mac and Drive on the Android phone before either knew the
+other, or a phone used offline and connected later). They are joined, not
+rejected: every record from both is kept, with the ordinary revision and
+tombstone rules deciding each record that both contain. The joined copy keeps
+the workspace id that sorts first (UUIDv7 ids sort by creation time, so the
+older workspace keeps its name) together with that workspace's restore
+generation. Devices on the older workspace see an ordinary merge; devices on
+the newer one adopt the older id and generation the next time they read the
+joined copy, merging their local records into it rather than being replaced.
+The join is written to every provider of the device that made it, and each
+other device repeats the same join when it meets a copy with the other id, so
+all devices end on the same id.
+
+The id never kept different people's data apart: a fresh device already
+adopted whatever account it was signed into. The account boundary is the
+provider account (Apple ID, Google account) on a single-user installation.
+A join is recoverable the same way as any merge: a local recovery point is
+saved before the join changes local data, and each provider's cloud history
+keeps its copy from before the join. A restore applies to its own lineage; a
+device that has not synced since a join still contributes its records once
+when it reconnects, like any device joining a workspace.
+
+OAuth credentials remain independent, device-local vault entries. Cloud errors
+do not clear another provider's token or acknowledgement. The shared
+cross-platform channel, Drive, is serviced first. Reads/writes have bounded
 timeouts; an unavailable provider retains its own retry state.
 
 ## Versions and merge priority
@@ -184,6 +252,11 @@ passwords never enter workspace snapshots or task payloads.
 Unit tests exercise durable restart, immutable saved source changes, separate
 provider acknowledgements, content-version normalization, revision ordering with
 clock skew, restore generations, and SQLite replacement rejecting stale uploads.
+Devices on shared in-memory clouds behind the real merge-and-push loop cover
+joining separately started workspaces across iCloud and Drive (including a
+never-synced device and a generation difference) and relaying on the hourly
+remote check. The FFI suite covers Drive sign-in through the Android token
+port; the PKCE redirect checks are unit-tested in Core.
 Frontend tests exercise the switch, separate directions, partial completion,
 and mobile single-tap/directional actions. Real provider authentication,
 network loss during a native upload, and phone sleep/resume still require signed
@@ -213,7 +286,7 @@ its unfinished deliveries are dropped; other providers' deliveries and local
 recovery files survive.
 
 A provider's failure is shown with the provider's own reason under the generic
-text (signed out, a different workspace, offline), and only while it is on.
+text (signed out, offline), and only while it is on.
 
 Application logs are a separate, session-local bounded stream (2,000 entries,
 2,048 characters per message) and never enter workspace sync or backups. Native

@@ -202,7 +202,7 @@ export function BackupSettings({
             title="Sync automatically"
             hint={
               sync?.automatic
-                ? "Pulls other devices' changes at launch. Changed content is uploaded at most once per hour."
+                ? "Pulls other devices' changes when opened and every hour. Changed content is uploaded at most once per hour."
                 : "Upload and pull by hand"
             }
           >

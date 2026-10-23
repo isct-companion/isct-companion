@@ -27,6 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let bytes = std::fs::read(&path)?;
         let start = Instant::now();
         let name = path.file_name().ok_or("missing name")?.to_string_lossy();
+        // Only the training-tools build reads the hint (--direct-hints).
+        #[cfg_attr(not(feature = "training-tools"), allow(unused_variables))]
         let hint = hints.get(name.as_ref()).copied();
         #[cfg(feature = "training-tools")]
         let direct = std::env::args().any(|a| a == "--direct-hints");

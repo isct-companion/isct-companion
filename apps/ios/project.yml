@@ -54,6 +54,10 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSCameraUsageDescription: 認証アプリの QR コードやマトリクス表を読み取るためにカメラを使います。
         NSPhotoLibraryUsageDescription: QR コードやマトリクス表の写真を読み込むために使います。
+        # Google Drive sign-in (GoogleSignIn.swift): the iOS client registered in
+        # config/oauth-clients.yaml. Client IDs are public; a tooling test keeps
+        # this in step with that file.
+        IsctGoogleClientID: $(ISCT_GOOGLE_IOS_CLIENT_ID)
     entitlements:
       path: IsctCompanion/IsctCompanion.entitlements
       properties:
@@ -79,3 +83,4 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ENABLE_PREVIEWS: true
         CODE_SIGN_STYLE: Automatic
+        ISCT_GOOGLE_IOS_CLIENT_ID: 681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv.apps.googleusercontent.com

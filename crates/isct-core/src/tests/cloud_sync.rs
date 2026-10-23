@@ -226,30 +226,6 @@ fn failed_sqlite_commit_does_not_change_memory() {
     std::fs::remove_dir_all(legacy.parent().unwrap()).unwrap();
 }
 
-#[test]
-fn binding_rejects_a_different_workspace_without_replacing_the_first_id() {
-    let fixture = Fixture::new("workspace-conflict");
-    fixture
-        .sync
-        .bind_workspace(&json!({"sync":{"workspaceId":"first"}}))
-        .unwrap();
-    let error = fixture
-        .sync
-        .bind_workspace(&json!({"sync":{"workspaceId":"other"}}))
-        .unwrap_err();
-    assert!(matches!(error, CloudSyncError::Conflict(_)));
-    assert_eq!(
-        fixture
-            .sync
-            .0
-            .journal
-            .read(|journal| journal.workspace_id.clone())
-            .unwrap()
-            .as_deref(),
-        Some("first")
-    );
-}
-
 struct FakeTransport {
     remote: Mutex<Option<Value>>,
     fail_push: AtomicBool,
@@ -376,11 +352,72 @@ impl crate::data::CommitObserver for FakeObserver {
     }
 }
 
+/// Every provider's workspace envelope in memory, behind the real
+/// `DocumentCloud` merge-and-push loop, so devices with different provider
+/// sets can share clouds the way real ones do.
+#[derive(Default)]
+struct MemoryClouds(Mutex<std::collections::HashMap<CloudProvider, document::CloudWorkspaceFile>>);
+
+impl document::WorkspaceTransport for MemoryClouds {
+    fn read<'a>(
+        &'a self,
+        provider: CloudProvider,
+    ) -> document::BoxFuture<'a, Option<document::CloudWorkspaceFile>> {
+        Box::pin(async move { Ok(self.0.lock().unwrap().get(&provider).cloned()) })
+    }
+
+    fn write<'a>(
+        &'a self,
+        provider: CloudProvider,
+        file: &'a document::CloudWorkspaceFile,
+        expected_revision: Option<u64>,
+    ) -> document::BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let mut clouds = self.0.lock().unwrap();
+            if clouds.get(&provider).map(|file| file.revision) != expected_revision {
+                return Err(document::DocumentError::Conflict);
+            }
+            clouds.insert(provider, file.clone());
+            Ok(())
+        })
+    }
+
+    fn disconnect(&self, _provider: CloudProvider) -> Result<(), document::DocumentError> {
+        Ok(())
+    }
+}
+
+impl MemoryClouds {
+    fn document(&self, provider: CloudProvider) -> Value {
+        self.0.lock().unwrap()[&provider].document.clone()
+    }
+
+    fn titles(&self, provider: CloudProvider) -> Vec<String> {
+        titles(
+            self.document(provider)["tables"]["plans"]
+                .as_array()
+                .unwrap(),
+        )
+    }
+}
+
+fn titles(rows: &[Value]) -> Vec<String> {
+    let mut titles = rows
+        .iter()
+        .filter(|row| row["deletedAt"].is_null())
+        .map(|row| row["title"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    titles.sort();
+    titles
+}
+
 struct Fixture {
     root: PathBuf,
     store: DataStore,
     sync: CloudSync,
     transport: Arc<FakeTransport>,
+    /// Replaces `transport` for devices on shared `MemoryClouds`.
+    clouds: Option<Arc<dyn CloudTransport>>,
     observer: Arc<FakeObserver>,
     backup: BackupService,
     notes: Notes,
@@ -389,6 +426,20 @@ struct Fixture {
 
 impl Fixture {
     fn new(name: &str) -> Self {
+        Self::with(name, &[CloudProvider::GoogleDrive], None)
+    }
+
+    /// A device with these providers on, sharing `clouds` with other devices.
+    fn on(name: &str, providers: &[CloudProvider], clouds: &Arc<MemoryClouds>) -> Self {
+        let transport = document::DocumentCloud::new(MemoryCloudsRef(clouds.clone()), None);
+        Self::with(name, providers, Some(Arc::new(transport)))
+    }
+
+    fn with(
+        name: &str,
+        providers: &[CloudProvider],
+        clouds: Option<Arc<dyn CloudTransport>>,
+    ) -> Self {
         let root = temporary(name);
         std::fs::create_dir_all(&root).unwrap();
         let store = DataStore::initialize_dir(root.clone()).unwrap().0;
@@ -397,17 +448,13 @@ impl Fixture {
         let note_store = NoteStore::default();
         let notes = note_store.at(root.join("notes"));
         let backup = BackupService::new(store.clone(), notes.clone());
-        let sync = CloudSync::new(
-            root.join("cloud.json"),
-            &[CloudProvider::GoogleDrive],
-            &[CloudProvider::GoogleDrive],
-        )
-        .unwrap();
+        let sync = CloudSync::new(root.join("cloud.json"), providers, providers).unwrap();
         Self {
             root,
             store,
             sync,
             transport: Arc::new(FakeTransport::default()),
+            clouds,
             observer,
             backup,
             notes,
@@ -418,7 +465,10 @@ impl Fixture {
     fn services(&self) -> CloudServices {
         CloudServices {
             backup: self.backup.clone(),
-            transport: self.transport.clone(),
+            transport: self
+                .clouds
+                .clone()
+                .unwrap_or_else(|| self.transport.clone()),
             events: self.observer.clone(),
         }
     }
@@ -435,6 +485,74 @@ impl Fixture {
                 }),
             )
             .unwrap();
+    }
+
+    fn titles(&self) -> Vec<String> {
+        titles(&self.store.user_rows("plans").unwrap())
+    }
+
+    fn workspace(&self) -> Option<String> {
+        self.sync
+            .0
+            .journal
+            .read(|journal| journal.workspace_id.clone())
+            .unwrap()
+    }
+
+    fn automatic(&self) {
+        self.sync
+            .0
+            .journal
+            .change(|journal| {
+                journal.state.automatic = true;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// Moves this process's last remote check and each provider's last
+    /// upload back by `hours`, as if the app had stayed open that long.
+    fn age(&self, check_hours: u64, upload_hours: i64) {
+        self.sync.0.remote_check.lock().unwrap().last =
+            Instant::now().checked_sub(Duration::from_secs(check_hours * 3600));
+        self.sync
+            .0
+            .journal
+            .change(|journal| {
+                for provider in journal.state.providers.iter().map(|row| row.provider) {
+                    journal.uploaded_at.insert(
+                        provider,
+                        (chrono::Utc::now() - chrono::Duration::hours(upload_hours)).to_rfc3339(),
+                    );
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+}
+
+/// `DocumentCloud` owns its transport; devices share the clouds through this.
+struct MemoryCloudsRef(Arc<MemoryClouds>);
+
+impl document::WorkspaceTransport for MemoryCloudsRef {
+    fn read<'a>(
+        &'a self,
+        provider: CloudProvider,
+    ) -> document::BoxFuture<'a, Option<document::CloudWorkspaceFile>> {
+        self.0.read(provider)
+    }
+
+    fn write<'a>(
+        &'a self,
+        provider: CloudProvider,
+        file: &'a document::CloudWorkspaceFile,
+        expected_revision: Option<u64>,
+    ) -> document::BoxFuture<'a, ()> {
+        self.0.write(provider, file, expected_revision)
+    }
+
+    fn disconnect(&self, provider: CloudProvider) -> Result<(), document::DocumentError> {
+        self.0.disconnect(provider)
     }
 }
 
@@ -728,12 +846,18 @@ async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
         1,
         "new saves must not bypass the provider cooldown"
     );
-    let pending = waiting
-        .tasks
-        .iter()
-        .flat_map(|task| &task.deliveries)
-        .filter(|delivery| delivery.status == DeliveryStatus::Pending)
-        .collect::<Vec<_>>();
+    let pending = |direction| {
+        waiting
+            .tasks
+            .iter()
+            .filter(|task| task.direction == direction)
+            .flat_map(|task| &task.deliveries)
+            .filter(|delivery| delivery.status == DeliveryStatus::Pending)
+            .collect::<Vec<_>>()
+    };
+    // Turning Auto on queues a remote check; it waits out the same cooldown.
+    assert_eq!(pending(Direction::Pull).len(), 1);
+    let pending = pending(Direction::Upload);
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].attempts, 1);
     assert_eq!(pending[0].retry_at, failed.tasks[0].deliveries[0].retry_at);
@@ -1167,4 +1291,154 @@ async fn idle_pass_neither_rewrites_the_journal_nor_publishes() {
         })
         .unwrap();
     assert_ne!(stored(), "sentinel");
+}
+
+/// iCloud on the iPhone and Drive on the Android phone were started apart, so
+/// their copies carry different workspace ids, and Android's backup import
+/// put it a restore generation ahead. A Mac with both providers must join them
+/// instead of rejecting either; every device then ends on one workspace with
+/// every record, including a never-synced tablet that brings its own data.
+#[tokio::test]
+async fn separately_started_workspaces_join_across_providers_and_every_device_converges() {
+    use CloudProvider::{GoogleDrive as Drive, Icloud};
+    let clouds = Arc::new(MemoryClouds::default());
+    let android = Fixture::on("join-android", &[Drive], &clouds);
+    android.add_plan("android");
+    let imported = android.backup.snapshot().unwrap();
+    android
+        .sync
+        .restore_document(android.services(), imported)
+        .await
+        .unwrap();
+    let iphone = Fixture::on("join-iphone", &[Icloud], &clouds);
+    iphone.add_plan("iphone");
+    iphone
+        .sync
+        .sync(iphone.services(), Direction::Upload)
+        .await
+        .unwrap();
+    let older = android.workspace().unwrap();
+    let newer = iphone.workspace().unwrap();
+    assert!(older < newer, "UUIDv7 workspace ids sort by creation");
+    assert_eq!(cloud_merge::generation(&clouds.document(Drive)).0, 1);
+    assert_eq!(cloud_merge::generation(&clouds.document(Icloud)).0, 0);
+
+    let mac = Fixture::on("join-mac", &[Drive, Icloud], &clouds);
+    mac.add_plan("mac");
+    let state = mac
+        .sync
+        .sync(mac.services(), Direction::Upload)
+        .await
+        .unwrap();
+    assert!(state.providers.iter().all(|row| row.error.is_none()));
+    let all = ["android", "iphone", "mac"].map(String::from).to_vec();
+    assert_eq!(mac.titles(), all);
+    for provider in [Drive, Icloud] {
+        assert_eq!(clouds.titles(provider), all, "{provider:?}");
+        let joined = clouds.document(provider);
+        assert_eq!(cloud_merge::workspace(&joined), Some(older.as_str()));
+        assert_eq!(
+            cloud_merge::generation(&joined).0,
+            1,
+            "the older workspace keeps its generation, so the newer one's records survive it"
+        );
+    }
+    assert_eq!(mac.workspace().as_deref(), Some(older.as_str()));
+
+    let tablet = Fixture::on("join-tablet", &[Drive], &clouds);
+    tablet.add_plan("tablet");
+    for device in [&iphone, &android, &tablet] {
+        device
+            .sync
+            .sync(device.services(), Direction::Pull)
+            .await
+            .unwrap();
+        assert_eq!(device.workspace().as_deref(), Some(older.as_str()));
+    }
+    assert_eq!(iphone.titles(), all);
+    assert_eq!(android.titles(), all);
+    assert_eq!(
+        tablet.titles(),
+        ["android", "iphone", "mac", "tablet"].map(String::from),
+        "a device that never met the cloud joins it rather than yielding to its generation"
+    );
+    assert!(
+        !tablet.sync.state().unwrap().recovery_points.is_empty(),
+        "a join that changes local data saves a recovery point first"
+    );
+    for device in [android, iphone, mac, tablet] {
+        device.sync.shutdown().await;
+    }
+}
+
+/// A Mac with both providers stays open while the iPhone writes to iCloud.
+/// Without a local edit on the Mac, its hourly remote check must still bring
+/// the change to the Drive-only Android phone, within the hourly upload limit.
+#[tokio::test]
+async fn a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_edit() {
+    use CloudProvider::{GoogleDrive as Drive, Icloud};
+    let clouds = Arc::new(MemoryClouds::default());
+    let mac = Fixture::on("relay-mac", &[Drive, Icloud], &clouds);
+    mac.automatic();
+    mac.add_plan("mac");
+    mac.sync
+        .sync(mac.services(), Direction::Upload)
+        .await
+        .unwrap();
+    let iphone = Fixture::on("relay-iphone", &[Icloud], &clouds);
+    iphone
+        .sync
+        .sync(iphone.services(), Direction::Pull)
+        .await
+        .unwrap();
+    iphone.add_plan("iphone");
+    iphone
+        .sync
+        .sync(iphone.services(), Direction::Upload)
+        .await
+        .unwrap();
+    assert_eq!(clouds.titles(Drive), ["mac"]);
+
+    // Coming to the front within five minutes of the last check reads nothing.
+    mac.sync.resume(mac.services()).await.unwrap();
+    assert_eq!(mac.titles(), ["mac"]);
+
+    // An hour on, the check pulls iCloud's change. Drive took an upload ten
+    // minutes ago, so the relay waits for the hour instead of skipping it.
+    mac.age(2, 0);
+    mac.sync
+        .0
+        .journal
+        .change(|journal| {
+            journal.uploaded_at.insert(
+                Drive,
+                (chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339(),
+            );
+            Ok(())
+        })
+        .unwrap();
+    // The pass a periodic `tick` runs, without the shell's front signal.
+    mac.sync.resume_inner(&mac.services()).await.unwrap();
+    assert_eq!(mac.titles(), ["iphone", "mac"]);
+    assert_eq!(clouds.titles(Drive), ["mac"]);
+    assert!(mac.sync.state().unwrap().tasks.iter().any(|task| {
+        task.direction == Direction::Upload
+            && task.deliveries.iter().any(|delivery| {
+                delivery.provider == Drive && delivery.status == DeliveryStatus::Pending
+            })
+    }));
+
+    mac.age(0, 2);
+    mac.sync.resume(mac.services()).await.unwrap();
+    assert_eq!(clouds.titles(Drive), ["iphone", "mac"]);
+    let android = Fixture::on("relay-android", &[Drive], &clouds);
+    android
+        .sync
+        .sync(android.services(), Direction::Pull)
+        .await
+        .unwrap();
+    assert_eq!(android.titles(), ["iphone", "mac"]);
+    for device in [android, iphone, mac] {
+        device.sync.shutdown().await;
+    }
 }

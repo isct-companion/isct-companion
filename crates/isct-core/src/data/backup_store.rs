@@ -42,10 +42,13 @@ impl DataStore {
     ) -> Result<(), DataError> {
         self.write(Some(source), |transaction| {
         let local_meta = json!({"sync":read_setting(transaction, "cloudSyncMetadata")?});
-        if cloud_merge::generation(remote) < cloud_merge::generation(&local_meta) {
+        // A copy from another workspace is joined record by record; its
+        // generation says nothing about restores in this one.
+        let joined = cloud_merge::joins(remote, &local_meta);
+        if !joined && cloud_merge::generation(remote) < cloud_merge::generation(&local_meta) {
             return Ok(());
         }
-        if cloud_merge::generation(remote) > cloud_merge::generation(&local_meta) {
+        if !joined && cloud_merge::generation(remote) > cloud_merge::generation(&local_meta) {
             for table in USER_BACKUP_TABLES {
                 transaction
                     .execute(&format!("DELETE FROM {table}"), [])
