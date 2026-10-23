@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 77 checks must be re-run before the next release.**
+**7 of 78 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**68 checks have never been run or could not be run:**
+**69 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -47,6 +47,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-LOG-EXPORT` — never verified
 - `DESKTOP-PULL-STRESS` — never verified
 - `DESKTOP-SYNC-STATUS` — never verified
+- `DESKTOP-PLANNING-PANEL` — never verified
 - `DESKTOP-FINDER-CATALOG-DOWNLOAD` — never verified
 - `DESKTOP-FINDER-COMMIT` — never verified
 - `DESKTOP-FINDER-SLOT-HIGHLIGHT` — never verified
@@ -125,7 +126,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
-| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
+| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
+| `DESKTOP-PLANNING-PANEL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/facade.rs |
 | `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-SLOT-HIGHLIGHT` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
@@ -133,7 +135,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-FINDER-IME-PINYIN` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-ADD-SAVING` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
 | `DESKTOP-FINDER-ADD-WHILE-TYPING` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/read_models.rs<br>crates/isct-core/src/course_query/mod.rs |
-| `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CourseDetails.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs |
+| `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs |
 | `NATIVE-IOS-SIMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/swift/**<br>scripts/bindings/build-ios.mjs |
 | `NATIVE-ANDROID-EMULATOR` | native | Narrow window, keyboard only | pass ⚠<br>2026-10-15 · human · `7fdf1b6` | crates/isct-ffi/**<br>bindings/kotlin/**<br>scripts/bindings/build-android.mjs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/isct-ffi/** |
@@ -1553,11 +1555,16 @@ has already been read once.
      updating this course k / n", then switch the whole course at once.
      A list that empties or half-updates means the page stopped reading
      local data while Core reads.
-3. Turn Wi-Fi off, press Refresh now, then turn it back on.
+3. On Timetable, press Refresh timetable and watch the footer.
+   - *Why:* It must read only the LMS course list and the 教務Web pages, with
+     the button's ring following them; a run over every current course
+     means the button is pulling the whole LMS again instead of what the
+     grid is drawn from.
+4. Turn Wi-Fi off, press Refresh now, then turn it back on.
    - *Why:* Held work must name its reason ("Waiting for a connection") instead
      of spinning, and must start by itself once the network hint reaches
      Core.
-4. With 教務Web under maintenance or blocked by a firewall rule,
+5. With 教務Web under maintenance or blocked by a firewall rule,
    refresh, then press Retry beside the failed dataset.
    - *Why:* A failure must name the dataset, the reason and when Core retries,
      and Retry must start only that dataset; a generic "Refresh failed"
@@ -1587,7 +1594,57 @@ real school failure only exist against the live services.
 - `apps/desktop/src/app/SchoolStatusLine.tsx`
 - `apps/desktop/src/app/sync-text.ts`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/pages/courses/CoursesPage.tsx`
 - `apps/desktop/src/components/PullRing.tsx`
+- `apps/desktop/src/styles.css`
+
+**Last recorded** never run
+
+### A timetable course and a search result open the same planning panel (`DESKTOP-PLANNING-PANEL`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build with this quarter's courses on the timetable, signed in
+to TokyoTech so course search returns results.
+
+**Steps**
+
+1. On Timetable, click a course block, then click a course search
+   result.
+   - *Why:* Both must show the same frame: header, schedule, instructor,
+     credits, format and the school's syllabus page below. Two different
+     layouts mean the two panels drifted apart again.
+2. In the course block's panel, look for Materials or Assignments.
+   - *Why:* They must be gone; studying lives in Lectures. The panel shows exams
+     as one line each and offers Open in Lectures, LMS, Edit and Remove.
+3. Press Open in Lectures, go back, and press Edit.
+   - *Why:* Open in Lectures must land on that course's page in Lectures; Edit
+     must open the course editor, which this panel is now the only way
+     into for an existing course.
+
+**Where to look**
+
+The Timetable side panels, the Lectures page, and the course editor.
+
+**Expected**
+
+One panel layout for both kinds of course, no materials or assignments
+in it, and both buttons reaching their page.
+
+**Why this is manual**
+
+How the panel reads is a glance-level result in the real window
+(AGENTS.md §5); the wiring (no tabs, Open in Lectures, Edit) is covered
+in tests/e2e/planner.test.tsx, but whether the two panels look the same
+and the school's syllabus frame fits only shows on screen.
+
+**Covers**
+
+- `apps/desktop/src/pages/courses/CoursePanel.tsx`
 - `apps/desktop/src/styles.css`
 
 **Last recorded** never run
@@ -1969,7 +2026,6 @@ glance check (AGENTS.md §5).
 **Covers**
 
 - `apps/desktop/src/pages/courses/syllabus-frame.tsx`
-- `apps/desktop/src/pages/courses/CourseDetails.tsx`
 - `apps/desktop/src/pages/courses/CoursePanel.tsx`
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`

@@ -850,7 +850,10 @@ describe("the course planner", () => {
       "the result details panel",
     );
     expect(panel.textContent).toContain("Graph Algorithms");
-    expect(panel.textContent).toContain("Syllabus");
+    // The school's syllabus page is shown inside the panel.
+    expect(
+      panel.querySelector('iframe[title="Official syllabus"]'),
+    ).not.toBeNull();
     // It covers the timetable rather than replacing it.
     expect(host.querySelector(".coursesLeft .ttCard")).not.toBeNull();
   }, 60_000);
