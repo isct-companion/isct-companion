@@ -42,20 +42,27 @@ gh variable set IOS_TESTFLIGHT_ENABLED --body true
 
 Until then the job only checks that the app compiles for a device.
 
-The workflow signs with Xcode's automatic signing for team `FB7AL944GK` and
-reuses the App Store Connect API key the desktop notarization already reads
-(`APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `APPLE_API_PRIVATE_KEY`). The key needs
-the App Manager role (or Admin) to manage profiles and upload builds.
+The workflow uses manual signing for team `FB7AL944GK` and bundle ID
+`app.isctcompanion`, using the existing repository secrets:
 
-Optionally add the Apple Distribution certificate, so signing does not depend
-on cloud-managed certificates (which need an Admin key). Export it from
-Keychain Access as a `.p12` (*Apple Distribution: Zean Miao (FB7AL944GK)*,
-certificate and private key), then:
+| Secret | Content |
+|---|---|
+| `IOS_CERTIFICATE` | Base64 Apple Distribution `.p12`, including its private key |
+| `IOS_CERTIFICATE_PASSWORD` | Password for that `.p12` |
+| `IOS_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the app |
+| `APPLE_API_KEY_ID` | App Store Connect API key ID |
+| `APPLE_API_ISSUER` | API issuer ID |
+| `APPLE_API_PRIVATE_KEY` | Raw `.p8` private key used to upload builds |
 
-```bash
-base64 -i distribution.p12 | gh secret set IOS_DISTRIBUTION_CERTIFICATE
-gh secret set IOS_DISTRIBUTION_CERTIFICATE_PASSWORD
-```
+The job fails before building if a secret is missing, the profile has expired
+or belongs to another app/team, or the certificate does not match the profile.
+It installs the supplied certificate and profile, then explicitly selects them
+for both archive and export. It does not create cloud-managed certificates or
+refresh profiles. Renew the existing secrets when their signing materials expire.
+
+After upload, wait for Apple to process the build. Assign it to a TestFlight
+group (or enable automatic distribution for an internal group); external testing
+also requires Beta App Review. Check `IOS-TESTFLIGHT-RELEASE` in the manual checks.
 
 Build numbers are the UTC time of the run (`YYYYMMDDHHMM`), so each upload is
 newer than the last. The marketing version is the release version.
