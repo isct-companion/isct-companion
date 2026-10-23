@@ -1541,7 +1541,7 @@
   "Paste the Secret key or setup link here, not the changing six-digit code. Importing fills a draft; Connect saves it after you finish school verification.": "ここには変化する6桁コードではなく Secret key または設定リンクを入力します。読み込んだ内容は下書きです。大学側の認証を完了してから「接続」で保存してください。",
   "1. Press Help me set up to open the school sign-in page. Sign in manually using an available method. After sign-in, the app continues to OTP settings and checks whether registration or a reset is needed.": "1. 「設定を手伝う」で大学のログインページを開き、利用できる方法で手動ログインしてください。ログイン後は自動で OTP 設定に進み、新規登録か再設定かを確認します。",
   "Could not finish OTP setup. Check the school page and try again.": "OTP の設定を完了できませんでした。学校のページを確認して再試行してください。",
-  "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, copy the new setup from this app to replace the school entry in every other authenticator.": "学校で App Authentication は登録済みです。リセットしますか？古い OTP は使えなくなります。自動設定の完了後、このアプリから新しい設定をコピーして、ほかのすべての認証アプリの学校の登録を更新してください。",
+  "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, show the new setup as a QR code in this app, or copy it, and replace the school entry in every other authenticator.": "学校で App Authentication は登録済みです。リセットしますか？古い OTP は使えなくなります。自動設定の完了後、このアプリで新しい設定の QR コードを表示するかコピーして、ほかのすべての認証アプリの学校の登録を更新してください。",
   "School OTP is configured and saved.": "学校の OTP を設定して保存しました。",
   "Open in Lectures": "講義で開く",
   "Got it": "了解",
@@ -1587,5 +1587,10 @@
   "Swipe to change weeks": "左右にスワイプで週を切り替え",
   "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "授業を長押しすると試験や休講にでき、時間割タブを長押しするとこのクォーターを書き出せます。",
   "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.": "Matrix を枠内に収め、動かさずに保持してください。全セルの確認後、または開始から7秒以内に終了します。",
-  "Recognizing Matrix… {{count}}/70 cells confirmed.": "Matrix を認識中… {{count}}/70 セル確認済み。"
+  "Recognizing Matrix… {{count}}/70 cells confirmed.": "Matrix を認識中… {{count}}/70 セル確認済み。",
+  "Show QR code": "QR コードを表示",
+  "Add to another authenticator": "ほかの認証アプリに追加",
+  "OTP setup QR code": "OTP 設定の QR コード",
+  "Scan this with any authenticator app. If you reset OTP at school, the old school entry in your other authenticators no longer works: delete it and use this one.": "お使いの認証アプリでこの QR コードを読み取ってください。大学で OTP を再設定した場合、ほかの認証アプリにある大学の古い登録は使えなくなっています。古い登録を削除して、こちらを使ってください。",
+  "Anyone who sees this QR code can generate your verification codes. Close it when you are done.": "この QR コードを見た人は誰でもあなたの確認コードを生成できます。使い終わったらすぐに閉じてください。"
 }

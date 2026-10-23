@@ -118,6 +118,19 @@ fn otp_export_prefers_a_valid_draft_without_mutating_saved_credentials() {
             .otp_secret,
         saved
     );
+
+    // The QR export carries a link other authenticators accept: a saved link
+    // stays as is, and a bare secret gains an issuer and the account name
+    // while still producing the same codes.
+    assert_eq!(otp_setup_uri(saved, "user"), saved);
+    assert!(service.otp_setup_qr(None).unwrap().contains("<svg"));
+    assert!(service.otp_setup_qr(Some("123456")).is_err());
+    let uri = otp_setup_uri("jbsw y3dp-ehpk3pxp", "user@example");
+    let imported = crate::school_auth::import_otp(&uri).unwrap();
+    assert_eq!(imported.len(), 1);
+    assert_eq!(imported[0].issuer, "Science Tokyo");
+    assert_eq!(imported[0].label, "Science Tokyo:user@example");
+    assert_eq!(otp_at(&uri, 59).unwrap(), otp_at(draft, 59).unwrap());
 }
 
 // Protects durable enrollment without a saved password, and prevents a

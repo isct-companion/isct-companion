@@ -105,6 +105,17 @@ export function OtpSetupInput({
       setError(t(reason instanceof Error ? reason.message : String(reason)));
     }
   };
+  // The SVG holds the secret, so it lives only while the dialog is open.
+  const [qr, setQr] = useState("");
+  const showQr = async () => {
+    setError("");
+    try {
+      if (!desktopBridge) throw new Error(t("Copy failed"));
+      setQr(await desktopBridge.schoolOtpQr(value.trim() || undefined));
+    } catch (reason) {
+      setError(t(reason instanceof Error ? reason.message : String(reason)));
+    }
+  };
   const [camera, setCamera] = useState(false);
   const [reading, setReading] = useState(false);
   const [accounts, setAccounts] = useState<OtpImportAccount[]>([]);
@@ -179,6 +190,19 @@ export function OtpSetupInput({
       {t(copied ? "Copied" : "Copy setup")}
     </Button>
   );
+  const exportButtons = (
+    <Group gap={6} wrap="nowrap">
+      {copyButton}
+      <Button
+        variant="default"
+        size="xs"
+        disabled={busy || (!value.trim() && !saved) || !desktopBridge}
+        onClick={() => void showQr()}
+      >
+        {t("Show QR code")}
+      </Button>
+    </Group>
+  );
   return (
     <Input.Wrapper
       className="otpSetupField"
@@ -189,7 +213,7 @@ export function OtpSetupInput({
         <div className="otpSaved" role="status">
           <span aria-hidden="true">✓</span>
           <Text size="sm">{t("Codes are filled in for you at sign-in.")}</Text>
-          {copyButton}
+          {exportButtons}
           <Button
             variant="subtle"
             size="xs"
@@ -292,7 +316,7 @@ export function OtpSetupInput({
                   setError("");
                 }}
               />
-              {copyButton}
+              {exportButtons}
             </div>
           </OtpPath>
           {saved && changing && !value.trim() && (
@@ -328,6 +352,32 @@ export function OtpSetupInput({
             void load(raw);
           }}
         />
+      )}
+      {qr && (
+        <Modal
+          opened
+          centered
+          onClose={() => setQr("")}
+          title={t("Add to another authenticator")}
+        >
+          <Stack gap="sm" align="center">
+            <img
+              className="otpQr"
+              alt={t("OTP setup QR code")}
+              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(qr)}`}
+            />
+            <Text size="sm">
+              {t(
+                "Scan this with any authenticator app. If you reset OTP at school, the old school entry in your other authenticators no longer works: delete it and use this one.",
+              )}
+            </Text>
+            <Text size="xs" c="dimmed">
+              {t(
+                "Anyone who sees this QR code can generate your verification codes. Close it when you are done.",
+              )}
+            </Text>
+          </Stack>
+        </Modal>
       )}
       {!!accounts.length && (
         <Modal

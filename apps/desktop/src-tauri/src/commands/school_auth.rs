@@ -132,6 +132,21 @@ pub(crate) async fn copy_school_otp(
     Ok(true)
 }
 
+/// The same export as a QR code. The WebView receives only the SVG, and
+/// only while the user has the QR dialog open.
+#[tauri::command]
+pub(crate) async fn school_otp_qr(
+    webview: tauri::Webview,
+    auth: tauri::State<'_, Arc<SchoolAuthService>>,
+    setup: Option<String>,
+) -> Result<String, String> {
+    require_local_main(&webview)?;
+    with_credentials(auth.inner().clone(), move |auth| {
+        auth.otp_setup_qr(setup.as_deref())
+    })
+    .await
+}
+
 /// Copies the saved Matrix directly from the vault to the system clipboard,
 /// so the plaintext never passes through the WebView.
 #[tauri::command]

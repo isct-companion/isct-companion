@@ -1541,7 +1541,7 @@
   "Paste the Secret key or setup link here, not the changing six-digit code. Importing fills a draft; Connect saves it after you finish school verification.": "这里填写 Secret key 或设置链接，不是不断变化的六位验证码。导入后仅填入草稿；完成学校验证后，点击「连接」保存。",
   "1. Press Help me set up to open the school sign-in page. Sign in manually using an available method. After sign-in, the app continues to OTP settings and checks whether registration or a reset is needed.": "1. 点击「帮我设置」打开学校登录页，使用可用方式手动登录。登录成功后，应用会自动进入 OTP 设置，检查是首次注册还是需要重新设置。",
   "Could not finish OTP setup. Check the school page and try again.": "未能完成 OTP 设置，请查看学校页面后重试。",
-  "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, copy the new setup from this app to replace the school entry in every other authenticator.": "学校已设置 App Authentication，是否重置？旧 OTP 将立即失效。自动设置完成后，请从本应用复制新配置，替换其他所有验证器中的学校旧配置。",
+  "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, show the new setup as a QR code in this app, or copy it, and replace the school entry in every other authenticator.": "学校已设置 App Authentication，是否重置？旧 OTP 将立即失效。自动设置完成后，请在本应用中显示新配置的二维码或复制新配置，替换其他所有验证器中的学校旧配置。",
   "School OTP is configured and saved.": "学校 OTP 已设置并保存。",
   "Open in Lectures": "在课程中打开",
   "Got it": "知道了",
@@ -1587,5 +1587,10 @@
   "Swipe to change weeks": "左右滑动切换周",
   "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "长按课程可标记为考试或停课，长按“课表”标签可导出本学期。",
   "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.": "请保持 Matrix 在框内并尽量拿稳。全部格子确认后完成识别，最多用时七秒。",
-  "Recognizing Matrix… {{count}}/70 cells confirmed.": "正在识别 Matrix… 已确认 {{count}}/70 格。"
+  "Recognizing Matrix… {{count}}/70 cells confirmed.": "正在识别 Matrix… 已确认 {{count}}/70 格。",
+  "Show QR code": "显示二维码",
+  "Add to another authenticator": "添加到其他验证器",
+  "OTP setup QR code": "OTP 配置二维码",
+  "Scan this with any authenticator app. If you reset OTP at school, the old school entry in your other authenticators no longer works: delete it and use this one.": "用任意验证器应用扫描此二维码。如果你在学校重新设置过 OTP，其他验证器中学校的旧配置已经失效：请删除旧配置，改用这个。",
+  "Anyone who sees this QR code can generate your verification codes. Close it when you are done.": "任何看到此二维码的人都能生成你的验证码。用完请立即关闭。"
 }

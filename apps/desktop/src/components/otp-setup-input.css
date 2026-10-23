@@ -85,3 +85,9 @@
 .otpKeep {
   justify-self: start;
 }
+/* QR codes scan best dark on light, so it keeps its white quiet zone in dark mode too. */
+.otpQr {
+  width: 240px;
+  height: 240px;
+  background: #fff;
+}

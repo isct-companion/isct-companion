@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 92 checks must be re-run before the next release.**
+**7 of 93 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**82 checks have never been run or could not be run:**
+**83 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -42,6 +42,7 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-RESILIENCE` — never verified
 - `OCR-CAMERA-GEOMETRY` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
+- `DESKTOP-PAGE-OVERLAYS` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
@@ -135,6 +136,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/isct-ocr/src/engine/grid/**<br>crates/isct-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
+| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/isct-core/src/agent/** |
@@ -1439,6 +1441,60 @@ Depends on real window sizing, real focus and real keyboard events.
 - `apps/desktop/src/app/App.tsx`
 - `apps/desktop/src/app/routes.ts`
 - `apps/desktop/src/styles.css`
+
+**Last recorded** never run
+
+### Popovers and dialogs stay on top and leave with their page (`DESKTOP-PAGE-OVERLAYS`)
+
+**Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build with classes on Today and an upcoming exam.
+
+**Steps**
+
+1. On the timetable page open the ▾ export menu beside Export ICS, then
+   right-click a class on Today's calendar near the window's right and
+   bottom edges.
+   - *Why:* Page overlays now mount inside the page's own layer, under a main
+     area that clips overflow; a menu cut off at the page edge or not
+     flipping at the window edge is the regression to look for.
+2. Open an exam's editor on Today and click where the navigation rail
+   and the status bar sit.
+   - *Why:* The dialog's backdrop must cover the rail and the status bar; a rail
+     that stays clickable means the overlay lost its stacking order.
+3. With a menu open press ⌘2, look, then press ⌘1.
+   - *Why:* The menu must vanish with its page and be there again, still
+     closable, on return; it used to float over the next page unclosable.
+4. Settings → About → Show again, finish the welcome sheet, and on
+   Today switch pages from the rail before pressing Got it.
+   - *Why:* This is the reported flow: the tip stayed on every page and Got it
+     did nothing until Today came back.
+
+**Where to look**
+
+The menus, the dialog backdrop over the rail and status bar, and the
+page shown after each shortcut.
+
+**Expected**
+
+Menus show whole and flip at the window edge, the backdrop dims the rail
+and status bar and blocks them, and every overlay hides with its page
+and returns with it; Got it closes the tip.
+
+**Why this is manual**
+
+Clipping and stacking are glance checks on the real WebKit window. The
+hide-and-return behaviour itself is in tests/e2e/app-shell.test.tsx.
+
+**Covers**
+
+- `apps/desktop/src/app/KeptPage.tsx`
+- `apps/desktop/src/pages/today/CourseFinder.tsx`
+- `apps/desktop/src/components/guide.tsx`
 
 **Last recorded** never run
 
@@ -3238,8 +3294,8 @@ A packaged desktop app, a physical camera, and a disposable test TOTP QR on anot
 
 1. Start signed out with no OTP saved locally, keep アプリに設定してもらう (Let the app set it up) chosen and press Open the school site. Complete sign-in manually in the visible school browser using an available method; confirm saved App OTP does not take over. After login, confirm the browser automatically continues to OTP settings without returning to click again. For Unset, confirm App Authentication Settings opens; for Already Set, cancel the reset dialog once, then retry and continue, checking the warning about updating every authenticator. Exit the web page mid-login once and confirm no later redirect or reset dialog appears. Do not remove a real registration just to inspect the flow.
    - *Why:* Confirms the live server markup and school WebView cookies work together; missing local OTP must not be treated as an unset school registration. The native browser must retain the settings draft and provide a way back. Scripted-host tests cover cancellation but cannot establish these real session and navigation facts.
-2. On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Copy the new setup into the other authenticator and verify its code works. Cancel or reject school verification once and confirm no success is reported. Confirm the account card then shows one saved line (codes filled in at sign-in, Copy setup, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect without changing school registration.
-   - *Why:* Only the live school and native vault can establish successful registration and cross-authenticator agreement. People reported not knowing which of four equal buttons to press; the three radio cards with one recommended path, each hint shown only when chosen, need a human read. Offline tests protect promotion and rejection logic.
+2. On an authorized test account, let the visible school browser read the new setup, fill Token and submit Setup automatically. Confirm it returns to Settings with a success message and a saved OTP without pressing Connect. Press Show QR code, scan it with another authenticator app on a phone, confirm the entry reads Science Tokyo with the account name and its code works, then close the dialog. Cancel or reject school verification once and confirm no success is reported. Confirm the account card then shows one saved line (codes filled in at sign-in, Copy setup, Show QR code, Change) instead of the chooser. Press Change, pick From an authenticator app, import only the school account from an existing export and press Connect without changing school registration.
+   - *Why:* Only the live school and native vault can establish successful registration and cross-authenticator agreement, and only a real phone camera and authenticator show that the rendered QR is scannable and labelled. People reported not knowing which of four equal buttons to press; the three radio cards with one recommended path, each hint shown only when chosen, need a human read. Offline tests protect promotion and rejection logic.
 3. Open school accounts, scan the test QR with the camera, deny access once, then allow access and retry.
    - *Why:* Native WebView camera permission and recovery cannot be supplied by headless DOM tests.
 4. Move the QR into and out of view, then close the dialog and background the app during a second scan.
@@ -3253,7 +3309,7 @@ Settings > School accounts, the camera preview, the input draft, and the OS came
 
 **Expected**
 
-Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators. The three paths read as one choice with the school path recommended. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
+Automatic enrollment saves only after school registration succeeds and returns to Settings; reset requires confirmation and replacement in other authenticators, and the QR code adds a working entry to any authenticator. The three paths read as one choice with the school path recommended. Clear scans fill the draft, permission errors offer image import, and closing or backgrounding stops the camera without changing saved credentials.
 
 **Why this is manual**
 

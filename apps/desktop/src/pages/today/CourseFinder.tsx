@@ -9,6 +9,7 @@ import {
 } from "../../lib/model";
 import { t } from "../../i18n";
 import { useScheduleQuery } from "../../platform/core-query";
+import { usePageLayer } from "../../app/KeptPage";
 import type { LectureSearch } from "../../generated/persistence";
 
 const termLabel = (term: string) => term.replace("-", " · ");
@@ -32,6 +33,7 @@ export function CourseFinder({
   const [cursor, setCursor] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   // The sidebar clips overflow, so the list is portaled and placed by the input.
+  const layer = usePageLayer();
   const [place, setPlace] = useState<React.CSSProperties>();
   useLayoutEffect(() => {
     if (!expanded) return;
@@ -164,7 +166,7 @@ export function CourseFinder({
             ))}
             {!flat.length && <p>{t("No matching courses")}</p>}
           </div>,
-          document.body,
+          layer,
         )}
     </div>
   );

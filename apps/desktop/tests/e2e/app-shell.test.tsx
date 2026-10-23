@@ -475,6 +475,70 @@ describe("shell navigation", () => {
     expect(term.value).toBe("2026 2Q");
   }, 20_000);
 
+  it("hides an open menu with its page and brings it back still working", async () => {
+    // Overlays used to portal to body, where Activity cannot hide them: an
+    // open menu stayed over the next page and, with its effects disconnected,
+    // could not close until its page returned.
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture({
+          courses: [placedCourse],
+          planItems: [planItemFor(placedCourse)],
+        }),
+        revision: "rev:overlay",
+      }),
+      { route: paths.timetable() },
+    );
+    const shortcut = (key: string) =>
+      act(async () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key, metaKey: true, cancelable: true }),
+        );
+      });
+    // Mantine keeps a closing dropdown hidden itself, so only ancestors say
+    // whether the page took it away.
+    const hiddenWithPage = (node: Element) => {
+      for (let el = node.parentElement; el; el = el.parentElement)
+        if (el.style.display === "none") return true;
+      return false;
+    };
+
+    await click(
+      await required(
+        () =>
+          app!.host.querySelector<HTMLButtonElement>(
+            '[aria-label="Calendar export options"]',
+          ),
+        "the export options menu",
+      ),
+    );
+    const menu = await required(
+      () => document.querySelector('[role="menu"]'),
+      "the open menu",
+    );
+    expect(hiddenWithPage(menu)).toBe(false);
+
+    await shortcut("1");
+    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+    expect(menu.isConnected).toBe(true);
+    expect(hiddenWithPage(menu)).toBe(true);
+
+    await shortcut("2");
+    await until(() =>
+      expect(window.location.hash).toBe(`#${paths.timetable()}`),
+    );
+    expect(hiddenWithPage(menu)).toBe(false);
+    // Its effects are back, so it closes like any open menu.
+    await act(async () => {
+      menu.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await until(() =>
+      expect(document.querySelector('[role="menu"]')).toBeNull(),
+    );
+  }, 20_000);
+
   it("blocks Back while the Web page owns the native view and restores the URL when hiding fails", async () => {
     let hideFails = false;
     app = await mountShell(

@@ -189,6 +189,12 @@ p {
   padding: 0 0 52px;
   padding-inline-start: var(--app-shell-navbar-offset, 0rem);
 }
+/* A retained page's overlay layer (app/KeptPage.tsx) takes no space; its
+   popovers and modals position themselves against the viewport. */
+.pageLayerHost,
+.pageLayer {
+  display: contents;
+}
 .page {
   flex: 1;
   min-width: 0;

@@ -806,6 +806,26 @@ impl SchoolAuthService {
         Ok(text)
     }
 
+    /// The same explicit export as an SVG QR code of an `otpauth://` link, so
+    /// any authenticator can scan it. A bare secret gets the school's issuer
+    /// and the saved account name as its label.
+    pub fn otp_setup_qr(&self, draft: Option<&str>) -> Result<String, SchoolAuthError> {
+        let text = self.otp_setup_text(draft)?;
+        let account = match self.load(SchoolAuthProfile::Science)? {
+            Some(credentials) => credentials.username,
+            None => self
+                .enrollment_otp()?
+                .map(|otp| otp.username)
+                .unwrap_or_default(),
+        };
+        let code = qrcode::QrCode::new(otp_setup_uri(&text, &account))
+            .map_err(|_| SchoolAuthError::invalid("OTP setup is too long."))?;
+        Ok(code
+            .render::<qrcode::render::svg::Color>()
+            .min_dimensions(240, 240)
+            .build())
+    }
+
     pub fn matrix_text(&self) -> Result<String, SchoolAuthError> {
         let credentials = self.load(SchoolAuthProfile::TokyoTech)?.ok_or_else(|| {
             SchoolAuthError::invalid("Save the Tokyo Tech Matrix before copying it.")
@@ -915,6 +935,25 @@ fn otp_config(raw: &str) -> Result<OtpConfig, SchoolAuthError> {
         period,
         algorithm,
     })
+}
+
+const OTP_ISSUER: &str = "Science Tokyo";
+
+/// An `otpauth://` setup link passes through unchanged; a bare secret uses
+/// the TOTP defaults `otp_config` assumes for it.
+fn otp_setup_uri(setup: &str, account: &str) -> String {
+    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+    if setup.starts_with("otpauth://") {
+        return setup.to_string();
+    }
+    let issuer = utf8_percent_encode(OTP_ISSUER, NON_ALPHANUMERIC);
+    let label = if account.is_empty() {
+        issuer.to_string()
+    } else {
+        format!("{issuer}:{}", utf8_percent_encode(account, NON_ALPHANUMERIC))
+    };
+    let secret = setup.replace([' ', '-', '='], "").to_ascii_uppercase();
+    format!("otpauth://totp/{label}?secret={secret}&issuer={issuer}")
 }
 
 fn otp_at(raw: &str, timestamp: u64) -> Result<String, SchoolAuthError> {
