@@ -71,7 +71,7 @@ pub enum Hint {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum View {
     Today,
     Assignments,
@@ -88,11 +88,13 @@ pub enum View {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum Scope {
     Everything,
     Site { site: SchoolSite },
     Course { lms_course_id: u64 },
+    /// What the timetable grid is drawn from, the keys of `View::Timetable`.
+    Timetable,
     References,
     Catalog { year: u16 },
 }

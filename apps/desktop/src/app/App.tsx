@@ -502,6 +502,10 @@ export function WorkspaceApp() {
   // Pages only render Core's runs; the planner decides what is read.
   const lmsProgress = pageProgress(runsFor(sync, ["lms"]));
   const kyomuProgress = pageProgress(runsFor(sync, ["kyomu"]));
+  // 教務 pages share one run, so a registrations read shows with the others.
+  const timetableProgress = pageProgress(
+    runsFor(sync, ["lms.enrolment", "kyomu.page"]),
+  );
   useCoreLifecycle();
   const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
   /** After a pull settles the timetable, ask once for the physics group of
@@ -1213,8 +1217,10 @@ export function WorkspaceApp() {
         onIntensive={(append) => pickFinderTime("集中", append)}
         intensiveActive={finder.keys.includes("集中")}
         addTerm={() => setTermDialog(true)}
-        refreshSchedule={canSync ? fetchLms : undefined}
-        pullProgress={lmsProgress}
+        refreshSchedule={
+          canSync ? () => refresh({ kind: "timetable" }) : undefined
+        }
+        pullProgress={timetableProgress}
         register={
           desktopBridge?.setKyomuGuide
             ? (term) => void openRegistration(term)

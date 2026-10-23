@@ -1903,7 +1903,7 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
   await until(() =>
     expect(hints()).toContainEqual({
       kind: "refresh",
-      scope: { kind: "site", site: "science-lms" },
+      scope: { kind: "timetable" },
     }),
   );
   expect(

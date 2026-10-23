@@ -685,8 +685,9 @@ fn snapshot_wire_names_match_the_shell_contract() {
     assert_eq!(wire["runs"][0]["priority"], "interactive");
     assert_eq!(wire["runs"][0]["held"]["kind"], "host-paused");
     assert_eq!(wire["runs"][0]["failure"]["keysFailed"], 1);
+    // The shapes `apps/desktop/src/platform/sync.ts` sends.
     let hint: Hint = serde_json::from_value(serde_json::json!({
-        "kind": "open", "view": {"kind": "course", "lms_course_id": 12345}
+        "kind": "open", "view": {"kind": "course", "lmsCourseId": 12345}
     }))
     .unwrap();
     assert_eq!(
@@ -697,6 +698,22 @@ fn snapshot_wire_names_match_the_shell_contract() {
             }
         }
     );
+    let hint: Hint = serde_json::from_value(serde_json::json!({
+        "kind": "refresh", "scope": {"kind": "course", "lmsCourseId": 12345}
+    }))
+    .unwrap();
+    assert_eq!(
+        hint,
+        Hint::Refresh {
+            scope: Scope::Course {
+                lms_course_id: 12345
+            }
+        }
+    );
+    let hint: Hint =
+        serde_json::from_value(serde_json::json!({"kind": "refresh", "scope": {"kind": "timetable"}}))
+            .unwrap();
+    assert_eq!(hint, Hint::Refresh { scope: Scope::Timetable });
     let event = crate::events::CoreEvent::SyncSnapshot(snapshot);
     assert_eq!(event.name(), "sync-snapshot");
     assert_eq!(event.payload(), wire);

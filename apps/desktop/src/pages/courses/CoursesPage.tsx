@@ -85,7 +85,7 @@ export function Courses({
   /** The 集中 lane toggles the intensive condition. */
   onIntensive?: (append: boolean) => void;
   intensiveActive?: boolean;
-  /** Refreshes official enrollment and times from 教務Web. */
+  /** Re-reads what the grid is drawn from: LMS quarter grids and 教務 registrations. */
   refreshSchedule?: () => void;
   /** 0–100 while an official pull runs, else null. */
   pullProgress?: PageProgress;

@@ -1302,6 +1302,13 @@ checks:
           A list that empties or half-updates means the page stopped reading
           local data while Core reads.
       - action: |
+          On Timetable, press Refresh timetable and watch the footer.
+        reason: |
+          It must read only the LMS course list and the 教務Web pages, with
+          the button's ring following them; a run over every current course
+          means the button is pulling the whole LMS again instead of what the
+          grid is drawn from.
+      - action: |
           Turn Wi-Fi off, press Refresh now, then turn it back on.
         reason: |
           Held work must name its reason ("Waiting for a connection") instead
@@ -1331,6 +1338,7 @@ checks:
       - apps/desktop/src/app/SchoolStatusLine.tsx
       - apps/desktop/src/app/sync-text.ts
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/pages/courses/CoursesPage.tsx
       - apps/desktop/src/components/PullRing.tsx
       - apps/desktop/src/styles.css
     verified: null
