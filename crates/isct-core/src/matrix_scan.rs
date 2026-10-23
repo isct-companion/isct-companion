@@ -12,7 +12,11 @@ const HIGH_CONFIDENCE: f64 = 0.8;
 const CELL_WINDOW: usize = 6;
 const MIN_CELL_SAMPLES: usize = 3;
 mod capture;
+mod driver;
+mod vision;
 pub use capture::*;
+pub use driver::*;
+pub use vision::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -166,6 +170,9 @@ pub enum MatrixScanError {
     Ended,
     #[error("Invalid matrix frame: {0}")]
     InvalidFrame(String),
+    /// A still photo without a readable Matrix, or not an image at all.
+    #[error("{0}")]
+    Unreadable(String),
     #[error("{0}")]
     Backend(String),
 }

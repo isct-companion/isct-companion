@@ -72,10 +72,6 @@ pub(crate) fn display_root(path: &Path) -> String {
     #[cfg(not(windows))]
     value.into_owned()
 }
-#[cfg(all(matrix_ocr, debug_assertions))]
-pub(crate) fn debug_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    storage::storage_dir(&root(app)?.0, &["debug"]).map_err(|error| error.to_string())
-}
 pub(crate) fn materials(app: &AppHandle) -> Result<CourseMaterials, String> {
     let session = Some(crate::lms_downloader::session(app));
     Ok(CourseMaterials::new(

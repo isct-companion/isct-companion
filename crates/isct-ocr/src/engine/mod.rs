@@ -12,6 +12,8 @@ mod debug_crops;
 mod geometry;
 mod grid;
 mod illumination;
+mod picture;
+pub use picture::{matrix_picture, matrix_picture_from_yuv};
 mod preprocess;
 mod vendor;
 
