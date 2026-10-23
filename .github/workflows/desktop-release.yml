@@ -275,7 +275,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir public-files release-assets
-          cp installers/desktop-aarch64-apple-darwin/{README.md,LICENSE,LICENSE.ja.md} public-files/
+          cp installers/desktop-aarch64-apple-darwin/{README.md,LICENSE,NOTICE.md,NOTICE.ja.md} public-files/
           version=$(cat installers/desktop-aarch64-apple-darwin/VERSION)
           mac_status=$(cat installers/desktop-aarch64-apple-darwin/MACOS_SIGNING_STATUS 2>/dev/null || echo unsigned)
           intel_status=$(cat installers/desktop-x86_64-apple-darwin/MACOS_SIGNING_STATUS 2>/dev/null || echo unsigned)
@@ -287,7 +287,8 @@ jobs:
             dir="installers/desktop-$target"
             test "$(cat "$dir/VERSION")" = "$version"
             diff --strip-trailing-cr public-files/LICENSE "$dir/LICENSE"
-            diff --strip-trailing-cr public-files/LICENSE.ja.md "$dir/LICENSE.ja.md"
+            diff --strip-trailing-cr public-files/NOTICE.md "$dir/NOTICE.md"
+            diff --strip-trailing-cr public-files/NOTICE.ja.md "$dir/NOTICE.ja.md"
             if [[ "$target" == *apple* ]]; then
               cp "$dir"/*.dmg release-assets/
             else
@@ -338,7 +339,7 @@ jobs:
           if [[ -f "$notes" ]]; then
             cat "$notes" >> release-notes.md
           fi
-          printf '\nThis release includes desktop installers only. Mobile will be published separately when ready.\n\n' >> release-notes.md
+          printf '\nThe Android APK is attached by the Android release workflow when its build finishes. iPhone and iPad builds are distributed through TestFlight.\n\n' >> release-notes.md
           echo 'Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.' >> release-notes.md
           echo 'Read the license documents bundled with the app before installing. Third-party notices are included in the app.' >> release-notes.md
           echo "Source build: https://github.com/$BUILD_REPO/commit/$SOURCE_SHA" >> release-notes.md

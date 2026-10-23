@@ -1,8 +1,9 @@
 # Desktop distribution
 
 The source repository `isct-companion/isct-companion` builds and publishes desktop
-Releases for macOS 14+ (Apple Silicon and Intel) and Windows 10/11 x64. Mobile
-release pipelines remain separate and are not part of this workflow.
+Releases for macOS 14+ (Apple Silicon and Intel) and Windows 10/11 x64. The same
+version tag also starts the Android and iOS release workflows; see
+[mobile-release.md](mobile-release.md).
 
 ## Build and publish
 
@@ -57,7 +58,7 @@ excludes campus-card OCR because ONNX Runtime has no prebuilt Intel macOS librar
 Build success does not establish runtime compatibility on every supported OS.
 
 Installer document sources are `docs/distribution/README.md` and
-`docs/legal/EULA{,.ja}.md`. Third-party notices are bundled in the app.
+`LICENSE` (GPL-3.0) with `docs/legal/NOTICE{,.ja}.md`. Third-party notices are bundled in the app.
 
 ## OAuth and signing
 
