@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Language
@@ -42,6 +43,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -68,7 +70,9 @@ import app.isctcompanion.design.Localizer
 import app.isctcompanion.design.t
 import app.isctcompanion.design.Theme
 import app.isctcompanion.features.assignments.RecordScreen
+import app.isctcompanion.features.course.AssignmentScreen
 import app.isctcompanion.features.course.CourseDetailScreen
+import app.isctcompanion.features.lectures.LecturesScreen
 import app.isctcompanion.features.settings.SettingsScreen
 import app.isctcompanion.features.settings.WelcomeSheet
 import app.isctcompanion.features.timetable.TimetableScreen
@@ -115,9 +119,11 @@ class MainActivity : ComponentActivity() {
 val LocalModel = staticCompositionLocalOf<AppModel> { error("No AppModel") }
 val LocalNavigator = staticCompositionLocalOf<Navigator> { error("No navigator") }
 
-/** Pushes onto the current tab's stack: a course, or a school page. */
+/** Pushes onto the current tab's stack: a course, an assignment, or a school page. */
 class Navigator(private val controller: NavHostController) {
     fun openCourse(id: String) = controller.navigate("course/${Uri.encode(id)}")
+
+    fun openAssignment(id: String) = controller.navigate("assignment/${Uri.encode(id)}")
 
     fun openPage(page: WebRouter.PushedPage) = controller.navigate(
         "page/${page.site.name}?target=${Uri.encode(page.target.orEmpty())}&title=${Uri.encode(page.title)}",
@@ -141,13 +147,21 @@ class Navigator(private val controller: NavHostController) {
     fun back() = controller.popBackStack()
 }
 
-/** Assignments live on 今日, and 設定 is the last tab. */
-private enum class AppTab(val route: String, val start: String, val label: String, val icon: ImageVector) {
+/** Assignments live on 今日, and 設定 is the last tab. 授業 is a tab only on
+ * wide windows (tablets), as on iPad; a phone reaches courses from 今日 and
+ * 時間割. */
+private enum class AppTab(
+    val route: String, val start: String, val label: String, val icon: ImageVector, val wideOnly: Boolean = false,
+) {
     Today("tab/today", "today", "Today", Icons.Outlined.CalendarToday),
     Timetable("tab/timetable", "timetable", "Timetable", Icons.Outlined.GridView),
+    Lectures("tab/lectures", "lectures", "Courses", Icons.AutoMirrored.Outlined.LibraryBooks, wideOnly = true),
     Web("tab/web", "web", "Web", Icons.Outlined.Language),
     Settings("tab/settings", "settings", "Settings", Icons.Outlined.Settings),
 }
+
+/** Window width from which the layout is a tablet's, as iOS tells iPad. */
+private const val WIDE_DP = 600
 
 @Composable
 private fun RootView() {
@@ -204,7 +218,8 @@ private fun Tabs() {
             bottomBar = {
                 if (showsBar) {
                     NavigationBar {
-                        for (tab in AppTab.entries) {
+                        val wide = LocalConfiguration.current.screenWidthDp >= WIDE_DP
+                        for (tab in AppTab.entries.filter { wide || !it.wideOnly }) {
                             NavigationBarItem(
                                 selected = tab == current,
                                 onClick = {
@@ -230,10 +245,14 @@ private fun Tabs() {
             NavHost(controller, startDestination = AppTab.Today.route, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
                 tab(AppTab.Today) { TodayScreen() }
                 tab(AppTab.Timetable) { TimetableScreen() }
+                tab(AppTab.Lectures) { LecturesScreen() }
                 tab(AppTab.Web) { WebTabScreen() }
                 tab(AppTab.Settings) { SettingsScreen() }
                 composable("course/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
                     CourseDetailScreen(it.arguments?.getString("id").orEmpty())
+                }
+                composable("assignment/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
+                    AssignmentScreen(it.arguments?.getString("id").orEmpty())
                 }
                 composable("record") { RecordScreen() }
                 composable(

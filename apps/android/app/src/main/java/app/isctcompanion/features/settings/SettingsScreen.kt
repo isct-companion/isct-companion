@@ -5,7 +5,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SegmentedButton
-import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -35,11 +34,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,7 +70,6 @@ import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.CredentialAvailability
 import app.isctcompanion.core.CredentialSummary
-import app.isctcompanion.core.NotificationScheduler
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolSessionState
@@ -82,7 +78,6 @@ import app.isctcompanion.design.Card
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
-import app.isctcompanion.design.SyncSources
 import app.isctcompanion.design.Theme
 import java.io.IOException
 import java.time.LocalDate
@@ -94,7 +89,14 @@ private sealed interface SettingsPage {
     data object Root : SettingsPage
     data class Account(val profile: SchoolAuthProfile, val name: String) : SettingsPage
     data object Notifications : SettingsPage
+    data object AssignmentLeads : SettingsPage
+    data object StudyProfile : SettingsPage
+    data object DataUpdates : SettingsPage
     data class Reset(val kind: ResetKind) : SettingsPage
+
+    /** Where back goes: a page opened from another returns to it. */
+    val parent: SettingsPage
+        get() = if (this == AssignmentLeads) Notifications else Root
 
     companion object {
         /** Keeps the open page across a tab switch, which drops the composition. */
@@ -103,6 +105,9 @@ private sealed interface SettingsPage {
                 when (it) {
                     Root -> "root"
                     Notifications -> "notifications"
+                    AssignmentLeads -> "assignment-leads"
+                    StudyProfile -> "study-profile"
+                    DataUpdates -> "data-updates"
                     is Reset -> "reset:${it.kind.name}"
                     is Account -> "account:${it.profile.name}:${it.name}"
                 }
@@ -111,6 +116,9 @@ private sealed interface SettingsPage {
                 val parts = raw.split(":", limit = 3)
                 when (parts[0]) {
                     "notifications" -> Notifications
+                    "assignment-leads" -> AssignmentLeads
+                    "study-profile" -> StudyProfile
+                    "data-updates" -> DataUpdates
                     "reset" -> runCatching { Reset(ResetKind.valueOf(parts[1])) }.getOrNull() ?: Root
                     "account" -> runCatching { Account(SchoolAuthProfile.valueOf(parts[1]), parts[2]) }.getOrNull() ?: Root
                     else -> Root
@@ -120,7 +128,9 @@ private sealed interface SettingsPage {
     }
 }
 
-/** 設定, the last tab: school accounts, reminders, language and reset. Planning,
+/** 設定, the last tab: the desktop settings sections that apply on a phone —
+ * school accounts, reminders, study profile, data updates, language and
+ * reset. A group with more than two controls gets a page. Planning,
  * calendars, folders and developer settings stay on desktop. */
 @Composable
 fun SettingsScreen() {
@@ -132,7 +142,7 @@ fun SettingsScreen() {
         navigator.settingsAccount = null
         page = SettingsPage.Account(profile, accountName(profile))
     }
-    BackHandler(page != SettingsPage.Root) { page = SettingsPage.Root }
+    BackHandler(page != SettingsPage.Root) { page = page.parent }
     Column(Modifier.fillMaxSize().background(Theme.colors.bg).imePadding()) {
         when (val current = page) {
             SettingsPage.Root -> {
@@ -145,8 +155,21 @@ fun SettingsScreen() {
             }
             SettingsPage.Notifications -> {
                 Bar(t("Notifications"), back = { page = SettingsPage.Root })
-                NotificationsPage()
+                NotificationsPage { page = SettingsPage.AssignmentLeads }
             }
+            SettingsPage.AssignmentLeads -> {
+                Bar(t("Assignment reminder times"), back = { page = SettingsPage.Notifications })
+                AssignmentLeadsPage()
+            }
+            SettingsPage.StudyProfile -> {
+                Bar(t("Study profile"), back = { page = SettingsPage.Root })
+                StudyProfilePage()
+            }
+            SettingsPage.DataUpdates -> {
+                Bar(t("Data updates"), back = { page = SettingsPage.Root })
+                DataUpdatesPage()
+            }
+
             is SettingsPage.Reset -> {
                 val title = if (current.kind == ResetKind.Everything) "settings.reset.full.title" else "settings.reset.caches.title"
                 Bar(t(title), back = { page = SettingsPage.Root })
@@ -194,25 +217,14 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech))
             }
         }
-        val sources = model.syncSnapshot?.sources.orEmpty()
-        if (sources.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            SectionLabel(t("Sync"))
-            SyncSources(sources, onRetry = { model.refresh(it) })
-        }
         Card(Modifier.padding(top = 16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().clickable { open(SettingsPage.Notifications) }.padding(16.dp),
-            ) {
-                Icon(Icons.Outlined.Notifications, null, tint = Theme.colors.accent)
-                Column(Modifier.weight(1f)) {
-                    Text(t("Notifications"), color = Theme.colors.ink)
-                    Text(notificationSummary(), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
-                }
-                Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted)
+            NavRow(t("Notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications"))) {
+                open(SettingsPage.Notifications)
             }
+            RowDivider(inset = 16.dp)
+            NavRow(t("Study profile"), null) { open(SettingsPage.StudyProfile) }
+            RowDivider(inset = 16.dp)
+            NavRow(t("Data updates"), dataSummary(model.records.settings)) { open(SettingsPage.DataUpdates) }
         }
         LanguageCard()
         Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))
@@ -306,26 +318,17 @@ private fun logText(context: Context): String {
 }
 
 @Composable
-private fun ActionRow(title: String, onClick: () -> Unit) {
+private fun ActionRow(title: String, enabled: Boolean = true, onClick: () -> Unit) {
     Text(
         title,
-        color = Theme.colors.accent,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+        color = if (enabled) Theme.colors.accent else Theme.colors.muted,
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(16.dp),
     )
 }
 
 @Composable
 internal fun Footer(text: String, color: Color = Theme.colors.muted) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.padding(horizontal = 16.dp))
-}
-
-@Composable
-private fun notificationSummary(): String {
-    val settings = LocalModel.current.records.settings.optJSONObject("notifications")
-    val parts = mutableListOf<String>()
-    if (settings?.optBoolean("classes") == true) parts.add(t("Classes {{lead}}", "lead" to t("{{minutes}} minutes before", "minutes" to settings.optInt("classLeadMinutes", 10))))
-    if (settings?.optBoolean("assignments") == true) parts.add(t("Assignments on the day due"))
-    return if (parts.isEmpty()) t("Off") else parts.joinToString(" · ")
 }
 
 @Composable
@@ -447,67 +450,8 @@ private fun Secret(
     )
 }
 
-/** Reminder switches; the system permission is asked on the first switch-on. */
 @Composable
-private fun NotificationsPage() {
-    val model = LocalModel.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var denied by remember { mutableStateOf(false) }
-    var pending by remember { mutableStateOf<String?>(null) }
-    val settings = model.records.settings.optJSONObject("notifications")
-    val turnOn = { key: String, permission: String ->
-        scope.launch {
-            model.setNotifications {
-                it.put(key, true)
-                it.put("localPermission", permission)
-            }
-        }
-    }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        denied = !granted
-        val key = pending
-        pending = null
-        if (granted && key != null) turnOn(key, "granted")
-    }
-    val toggle = { key: String, on: Boolean ->
-        if (!on) {
-            scope.launch { model.setNotifications { it.put(key, false) } }
-        } else if (NotificationScheduler.allowed(context)) {
-            turnOn(key, "granted")
-        } else {
-            pending = key
-            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-    Page {
-        Card {
-            SwitchRow(t("Remind me before classes"), settings?.optBoolean("classes") == true) { toggle("classes", it) }
-            if (settings?.optBoolean("classes") == true) {
-                RowDivider(inset = 16.dp)
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(t("Remind me"), color = Theme.colors.ink)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val lead = settings.optInt("classLeadMinutes", 10)
-                        for (minutes in listOf(5, 10, 15, 30)) {
-                            FilterChip(
-                                selected = lead == minutes,
-                                onClick = { scope.launch { model.setNotifications { it.put("classLeadMinutes", minutes) } } },
-                                label = { Text(t("{{minutes}} minutes before", "minutes" to minutes)) },
-                            )
-                        }
-                    }
-                }
-            }
-            RowDivider(inset = 16.dp)
-            SwitchRow(t("Remind me on the day an assignment is due"), settings?.optBoolean("assignments") == true) { toggle("assignments", it) }
-        }
-        if (denied) Footer(t("Notifications are not allowed. Allow them in the Settings app under Notifications."), Theme.colors.danger)
-    }
-}
-
-@Composable
-private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),

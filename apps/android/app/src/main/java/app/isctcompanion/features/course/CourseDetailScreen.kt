@@ -1,96 +1,116 @@
 package app.isctcompanion.features.course
 
-import app.isctcompanion.design.t
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Campaign
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
+import app.isctcompanion.core.AssignmentDetail
+import app.isctcompanion.core.CourseContent
 import app.isctcompanion.core.CourseDetail
-import app.isctcompanion.core.DeadlineItem
-import app.isctcompanion.core.MaterialItem
+import app.isctcompanion.core.CourseKey
+import app.isctcompanion.core.ExamView
+import app.isctcompanion.core.LessonContent
+import app.isctcompanion.core.LessonItem
+import app.isctcompanion.core.LessonItemKind
 import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.SyncScope
 import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.WebRouter
-import app.isctcompanion.core.number
 import app.isctcompanion.core.text
 import app.isctcompanion.design.Card
-import app.isctcompanion.design.DeadlineLink
-import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.Format
-import app.isctcompanion.design.MaterialRow
-import app.isctcompanion.design.RowDivider
+import app.isctcompanion.design.GuideTip
+import app.isctcompanion.design.HtmlText
+import app.isctcompanion.design.MaterialButton
 import app.isctcompanion.design.PageSubtitle
-import app.isctcompanion.design.SectionLabel
+import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
-import app.isctcompanion.design.courseColor
+import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
-import java.time.Instant
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-private const val LATEST_MATERIALS = 3
-
-private data class Meeting(val day: Int, val start: String, val end: String, val room: String)
-
-/** Course detail: room card with map, open assignments, latest materials and
- * the course's LMS and syllabus pages. Ids and links come from Core's
- * `CourseDetail`; rows are looked up in the snapshot to render them. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** The course page as the desktop Lecture Desk lays it out: the course, then
+ * its lessons (General, 1, 2, …) one at a time, each with its own text (授業
+ * 計画), its files, the pages, labels and announcements shown in place, and
+ * the assignments set in it, which open in place. Content comes from Core's
+ * `CourseContent`; links and the files folder from `CourseDetail`. */
 @Composable
 fun CourseDetailScreen(courseId: String) {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     var detail by remember { mutableStateOf<CourseDetail?>(null) }
-    LaunchedEffect(courseId, model.contentRevision) { detail = model.courseDetail(courseId) }
+    var content by remember { mutableStateOf<CourseContent?>(null) }
+    var assignments by remember { mutableStateOf<List<AssignmentDetail>>(emptyList()) }
+    LaunchedEffect(courseId, model.contentRevision) {
+        val loaded = model.courseDetail(courseId) ?: return@LaunchedEffect
+        detail = loaded
+        content = model.courseContent(courseId)
+        assignments = loaded.assignmentIds.mapNotNull { model.assignmentDetail(it) }
+    }
     // Runs once the LMS id is known: Core's planner moves this course's
     // reads ahead while it is on screen.
     val lmsCourseId = detail?.lmsCourseId
     LaunchedEffect(lmsCourseId) { lmsCourseId?.let { model.open(SyncView.Course(it)) } }
     val course = model.records.courses[courseId] ?: JSONObject()
-    val tint = courseColor(model.colors[courseId])
     val title = course.text("title").orEmpty()
-    val meeting = meetings(course).firstOrNull()
-    val now = Instant.now()
     TabPage(
         title,
         navigationIcon = {
             IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) }
         },
+        onRefresh = { lmsCourseId?.let { model.refresh(SyncScope.Course(it)) } },
     ) {
         Column(
             Modifier
@@ -98,136 +118,277 @@ fun CourseDetailScreen(courseId: String) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            PageSubtitle(subtitle(course, meeting))
-            meeting?.let { RoomCard(it, tint) }
-            val assignments = assignments(courseId)
-            if (assignments.isNotEmpty()) {
-                SectionLabel(t("Assignments"))
-                Card {
-                    assignments.forEachIndexed { index, item ->
-                        if (index > 0) RowDivider()
-                        DeadlineLink(item) { DeadlineRow(item, now, showsCourse = false) }
-                    }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                PageSubtitle(subtitle(course))
+                for (exam in detail?.exams.orEmpty().filter { it.kind == "exam" && !it.hidden }) {
+                    Text(
+                        examLine(exam), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
+                        color = Theme.colors.warn,
+                        textDecoration = if (exam.status == "cancelled") TextDecoration.LineThrough else null,
+                    )
                 }
+                Links(detail, title)
             }
-            val materials = materials(courseId, detail)
-            if (materials.isNotEmpty()) {
-                SectionLabel(t("Materials"))
-                Card {
-                    materials.forEachIndexed { index, item ->
-                        if (index > 0) RowDivider()
-                        MaterialRow(item)
-                    }
-                }
+            val lessons = content?.lessons.orEmpty()
+            if (lessons.isNotEmpty()) {
+                Lessons(courseId, content!!, lessons, assignments, detail?.files) { reread -> content = reread }
+            } else if (detail != null) {
+                Text(t("No materials yet"), color = Theme.colors.muted, modifier = Modifier.padding(vertical = 24.dp).fillMaxWidth())
             }
-            Links(detail, title)
         }
     }
 }
 
-private fun meetings(course: JSONObject): List<Meeting> {
-    val rows = course.optJSONArray("meetings") ?: return emptyList()
-    return (0 until rows.length()).mapNotNull { index ->
-        val row = rows.optJSONObject(index) ?: return@mapNotNull null
-        val start = row.text("startTime") ?: return@mapNotNull null
-        val end = row.text("endTime") ?: return@mapNotNull null
-        val day = row.optJSONArray("days")?.optInt(0) ?: 0
-        Meeting(day, start, end, row.text("room").orEmpty())
+/** The lesson chips and the pages under them, one lesson per page; Core
+ * picks where to open (the marked lesson, else the last with material). */
+@Composable
+private fun Lessons(
+    courseId: String,
+    content: CourseContent,
+    lessons: List<LessonContent>,
+    assignments: List<AssignmentDetail>,
+    files: CourseKey?,
+    reread: (CourseContent) -> Unit,
+) {
+    val model = LocalModel.current
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val opening = lessons.indexOfFirst { it.section == content.currentSection }.coerceAtLeast(0)
+    val pager = rememberPagerState(opening) { lessons.size }
+    var expanded by remember { mutableStateOf(emptySet<String>()) }
+    // A tick per lesson turned, not for the page it opens on.
+    var settled by remember { mutableStateOf(pager.settledPage) }
+    LaunchedEffect(pager.settledPage) {
+        if (pager.settledPage != settled) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+        settled = pager.settledPage
+    }
+    GuideTip("lesson-marks", "Today's lesson", "Long-press a lesson to make it the lesson of today's class.")
+    LessonChips(lessons, pager, content) { marked ->
+        val classAt = content.classAt ?: return@LessonChips
+        val sectionId = marked.sectionId ?: return@LessonChips
+        scope.launch {
+            if (!model.recordLesson(courseId, classAt, sectionId)) return@launch
+            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            model.courseContent(courseId)?.let(reread)
+        }
+    }
+    HorizontalPager(pager, verticalAlignment = Alignment.Top, pageSpacing = 16.dp) { index ->
+        val lesson = lessons[index]
+        LessonPage(
+            lesson,
+            assignments.filter { (it.sectionNumber ?: 0) == lesson.section },
+            files,
+            expanded,
+        ) { id, open -> expanded = if (open) expanded + id else expanded - id }
+    }
+}
+
+/** General, 1, 2, … as on the desktop lesson rail; the chosen one stays in
+ * view. A dot marks where the course is (Core's `currentSection`); a long
+ * press marks a lesson as the one for the coming (or today's) class. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content: CourseContent, mark: (LessonContent) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val row = rememberLazyListState()
+    LaunchedEffect(pager.currentPage) { row.animateScrollToItem(maxOf(pager.currentPage - 2, 0)) }
+    // `11/27` in Tokyo time.
+    val classDay = Format.date(content.classAt)?.let { Format.tokyo(it) }?.let { "${it.monthValue}/${it.dayOfMonth}" }
+    LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        itemsIndexed(lessons, key = { _, lesson -> lesson.section }) { index, lesson ->
+            val selected = index == pager.currentPage
+            var menu by remember { mutableStateOf(false) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Box {
+                    Text(
+                        chipLabel(lesson),
+                        style = MaterialTheme.typography.bodyMedium.tabular(), fontWeight = FontWeight.SemiBold,
+                        color = if (selected) Color.White else Theme.colors.ink,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (selected) Theme.colors.accent else Theme.colors.surface)
+                            .combinedClickable(
+                                onClick = { scope.launch { pager.animateScrollToPage(index) } },
+                                onLongClick = { if (classDay != null && lesson.sectionId != null) menu = true },
+                            )
+                            .defaultMinSize(minWidth = 34.dp)
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                    )
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(t("Make this the {{day}} class", "day" to classDay.orEmpty())) },
+                            leadingIcon = { Icon(Icons.Outlined.CheckCircle, null) },
+                            onClick = {
+                                menu = false
+                                mark(lesson)
+                            },
+                        )
+                    }
+                }
+                Box(
+                    Modifier.size(5.dp).clip(CircleShape)
+                        .background(if (lesson.section == content.currentSection) Theme.colors.accent else Color.Transparent),
+                )
+            }
+        }
+    }
+}
+
+/** The lesson number when the course numbers its lessons, else a short form
+ * of the section title. */
+private fun chipLabel(lesson: LessonContent): String {
+    lesson.number?.let { return "$it" }
+    if (lesson.section == 0) return t("General")
+    val title = lesson.title ?: "${lesson.section}"
+    return if (title.length > 8) title.take(7) + "…" else title
+}
+
+/** One lesson's whole content: its title, its text (授業計画), its items in
+ * LMS order, and the assignments set in it. */
+@Composable
+private fun LessonPage(
+    lesson: LessonContent,
+    work: List<AssignmentDetail>,
+    files: CourseKey?,
+    expanded: Set<String>,
+    expand: (String, Boolean) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        lesson.title?.takeIf { it.isNotEmpty() }?.let {
+            Text(it, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
+        }
+        if (lesson.summaryHtml.isNotEmpty()) Surface { HtmlText(lesson.summaryHtml) }
+        for (group in groups(lesson.items)) {
+            val item = group.first()
+            if (group.size == 1 && item.bodyHtml != null) {
+                InlineItem(item)
+            } else {
+                Card {
+                    group.forEachIndexed { index, row ->
+                        if (index > 0) RowDivider()
+                        MaterialButton(row.title, kind(row.kind), row.source, files)
+                    }
+                }
+            }
+        }
+        if (work.isNotEmpty()) {
+            Text(
+                t("Assignments"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                color = Theme.colors.muted, modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            for (assignment in work) {
+                AssignmentCard(assignment, assignment.assignmentId in expanded) { expand(assignment.assignmentId, it) }
+            }
+        }
+        if (lesson.items.isEmpty() && lesson.summaryHtml.isEmpty() && work.isEmpty()) {
+            Text(t("No materials for this lesson"), color = Theme.colors.muted, modifier = Modifier.padding(vertical = 24.dp))
+        }
+    }
+}
+
+/** Items in LMS order: text shown in place stands on its own; runs of files
+ * and links share one card. */
+private fun groups(items: List<LessonItem>): List<List<LessonItem>> {
+    val groups = mutableListOf<MutableList<LessonItem>>()
+    for (item in items) {
+        if (groups.isEmpty() || item.bodyHtml != null || groups.last().last().bodyHtml != null) {
+            groups.add(mutableListOf(item))
+        } else {
+            groups.last().add(item)
+        }
+    }
+    return groups
+}
+
+private fun kind(kind: LessonItemKind): String = when (kind) {
+    LessonItemKind.FILE -> "resource"
+    LessonItemKind.FOLDER -> "folder"
+    LessonItemKind.LINK, LessonItemKind.OTHER -> "link"
+    LessonItemKind.PAGE -> "page"
+    LessonItemKind.LABEL -> "label"
+    LessonItemKind.FORUM -> "forum"
+}
+
+/** A page, label or announcement shown in place, as on the desktop. */
+@Composable
+private fun InlineItem(item: LessonItem) {
+    Surface {
+        when (item.kind) {
+            LessonItemKind.PAGE -> Text(item.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
+            LessonItemKind.FORUM -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.Campaign, null, tint = Theme.colors.ink, modifier = Modifier.size(18.dp))
+                Text(item.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
+            }
+            else -> Unit
+        }
+        item.bodyHtml?.let { HtmlText(it) }
     }
 }
 
 @Composable
-private fun subtitle(course: JSONObject, meeting: Meeting?): String {
+private fun Surface(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(Theme.radiusSurface)).background(Theme.colors.surface).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) { content() }
+}
+
+/** `CSC.T273 · 月 3–4限 · W5-101`, `CSC.T273 · Mon Periods 3–4 · W5-101` */
+@Composable
+private fun subtitle(course: JSONObject): String {
     val model = LocalModel.current
     val parts = listOfNotNull(course.text("code")).toMutableList()
-    if (meeting != null) {
-        val start = model.periods.firstOrNull { it.startTime == meeting.start }?.periods?.firstOrNull()
-        val end = model.periods.firstOrNull { it.endTime == meeting.end }?.periods?.lastOrNull()
-        val periods = if (start != null && end != null) Format.periods(byteArrayOf(start, end)) else null
-        parts.add("${Format.weekday(meeting.day)} ${periods ?: "${meeting.start}–${meeting.end}"}")
-    }
-    course.number("credits")?.takeIf { it > 0 }?.let {
-        parts.add(t("{{count}} credits", "count" to if (it % 1.0 == 0.0) it.toInt().toString() else it.toString()))
+    val meeting = course.optJSONArray("meetings")?.optJSONObject(0)
+    val start = meeting?.text("startTime")
+    val end = meeting?.text("endTime")
+    if (meeting != null && start != null && end != null) {
+        val first = model.periods.firstOrNull { it.startTime == start }?.periods?.firstOrNull()
+        val last = model.periods.firstOrNull { it.endTime == end }?.periods?.lastOrNull()
+        val periods = if (first != null && last != null) Format.periods(byteArrayOf(first, last)) else null
+        parts.add("${Format.weekday(meeting.optJSONArray("days")?.optInt(0) ?: 0)} ${periods ?: "$start–$end"}")
+        meeting.text("room")?.takeIf { it.isNotEmpty() }?.let { parts.add(it) }
     }
     return parts.joinToString(" · ")
 }
 
-@Composable
-private fun RoomCard(meeting: Meeting, tint: Color) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Theme.radiusPanel))
-            .background(tint.copy(alpha = Theme.tintSoft))
-            .padding(18.dp),
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                meeting.room.ifEmpty { t("Room not set") }, style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold, color = Theme.colors.ink,
-            )
-            Text("${meeting.start} – ${meeting.end}", style = MaterialTheme.typography.bodyMedium.tabular(), color = tint)
-        }
-    }
-}
-
-/** This course's open work from Core's task timeline, in its order. */
-@Composable
-private fun assignments(courseId: String): List<DeadlineItem> {
-    val today = LocalModel.current.board?.today ?: return emptyList()
-    return (today.pinned + today.dueThisWeek + today.later + today.pastRecent).filter { it.courseId == courseId }
-}
-
-/** The newest materials: Core orders by section, so the last ids are newest. */
-@Composable
-private fun materials(courseId: String, detail: CourseDetail?): List<MaterialItem> {
-    val records = LocalModel.current.records
-    return detail?.materialIds.orEmpty().takeLast(LATEST_MATERIALS).reversed().mapNotNull { id ->
-        val row = records.materials[id] ?: return@mapNotNull null
-        MaterialItem(
-            materialId = id, courseId = courseId, courseTitle = null, color = null,
-            title = row.text("title").orEmpty(), kind = row.text("type") ?: "link",
-            section = (row.number("sectionNumber") ?: row.number("session"))?.toLong(),
-            sectionTitle = row.text("sectionTitle"),
-            url = row.text("resourceUrl") ?: row.text("url"),
-            updatedAt = row.text("updatedAt"), addedToday = false,
-        )
-    }
+/** `試験 · 11/27 5–6限 · W9-202`, one line per exam of this course. */
+private fun examLine(exam: ExamView): String {
+    val day = Format.civilDate(exam.date)
+    var time = day?.let { "${it.monthValue}/${it.dayOfMonth}" } ?: exam.date
+    val periods = Format.periods(exam.periods)
+    val start = exam.startTime
+    val end = exam.endTime
+    if (periods != null) time += " $periods" else if (start != null && end != null) time += " $start–$end"
+    return (listOf(t("Exam"), time) + listOfNotNull(exam.room.ifEmpty { null })).joinToString(" · ")
 }
 
 @Composable
 private fun Links(detail: CourseDetail?, title: String) {
     val navigator = LocalNavigator.current
-    val lms = detail?.lmsUrl
-    val syllabus = detail?.syllabusUrl
-    if (lms == null && syllabus == null) return
-    Card(Modifier.padding(top = 8.dp)) {
-        if (lms != null) {
-            LinkRow(t("Open in LMS"), Icons.Outlined.Language) {
-                navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, lms, title))
-            }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        detail?.lmsUrl?.let { url ->
+            LinkChip("LMS", Icons.Outlined.Language) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, title)) }
         }
-        if (lms != null && syllabus != null) RowDivider()
-        if (syllabus != null) {
-            LinkRow(t("Syllabus"), Icons.Outlined.Description) {
-                navigator.openPage(WebRouter.PushedPage(SchoolSite.SYLLABUS, syllabus, title))
-            }
+        detail?.syllabusUrl?.let { url ->
+            LinkChip(t("Syllabus"), Icons.Outlined.Description) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SYLLABUS, url, title)) }
         }
     }
 }
 
 @Composable
-private fun LinkRow(title: String, icon: ImageVector, onClick: () -> Unit) {
+private fun LinkChip(title: String, icon: ImageVector, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(Theme.colors.accentSoft)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
-        Icon(icon, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
-        Text(title, color = Theme.colors.ink, modifier = Modifier.weight(1f))
-        Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
+        Icon(icon, null, tint = Theme.colors.accent, modifier = Modifier.size(14.dp))
+        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.accent)
     }
 }

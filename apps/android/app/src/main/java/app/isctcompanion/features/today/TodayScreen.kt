@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.DeadlineItem
+import app.isctcompanion.core.ExamView
 import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.RecentItem
 import app.isctcompanion.core.SchoolSite
@@ -92,8 +93,11 @@ import app.isctcompanion.design.PillButton
 import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
-import app.isctcompanion.design.SyncNotices
-import app.isctcompanion.design.SyncSpinner
+import app.isctcompanion.design.FirstLoadCard
+import app.isctcompanion.design.SyncProblemBanner
+import app.isctcompanion.design.SyncRingButton
+import app.isctcompanion.design.activeRuns
+import app.isctcompanion.design.problem
 import app.isctcompanion.design.TagChip
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.courseColor
@@ -126,19 +130,33 @@ fun TodayScreen() {
     val navigator = LocalNavigator.current
     val now = rememberNow(30)
     LaunchedEffect(Unit) { model.open(SyncView.Today) }
+    // Core's upcoming exams for the next two weeks.
+    var exams by remember { mutableStateOf<List<ExamView>>(emptyList()) }
+    LaunchedEffect(model.contentRevision, model.today?.date) { exams = model.upcomingExams() }
     TabPage(
         t("Today"),
-        actions = { SyncSpinner(model.syncSnapshot) },
+        actions = { SyncRingButton() },
         onRefresh = { model.refreshFromSchool() },
     ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
             item(key = "today") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PageSubtitle(subtitle(model.today))
-                    model.problem?.let { ProblemBanner(it) }
-                    SyncNotices(model.syncSnapshot, onRetry = { model.refresh(it) }, onSignIn = { navigator.openSettings() })
+                    val problem = model.syncSnapshot?.problem
+                    if (model.problem != null) {
+                        ProblemBanner(model.problem!!)
+                    } else if (problem != null) {
+                        SyncProblemBanner(problem)
+                    }
                     if (model.needsAccount) ConnectCard { navigator.openSettings() }
-                    model.today?.let { TodayContent(it, now) }
+                    model.syncSnapshot?.let { snapshot ->
+                        if ((snapshot.activeRuns.isNotEmpty() || snapshot.resetting) &&
+                            model.records.courses.isEmpty() && model.records.assignments.isEmpty()
+                        ) {
+                            FirstLoadCard(snapshot)
+                        }
+                    }
+                    model.today?.let { TodayContent(it, now, exams) }
                 }
             }
             if (model.today != null) todayAssignments(model.board, now) { navigator.openRecord() }
@@ -158,10 +176,11 @@ private fun subtitle(today: TodayView?): String {
 }
 
 @Composable
-private fun TodayContent(today: TodayView, now: Instant) {
+private fun TodayContent(today: TodayView, now: Instant, exams: List<ExamView>) {
     when (today.phase) {
         TodayPhase.BEFORE_CLASSES, TodayPhase.BETWEEN_CLASSES -> {
             ClassStack(today.upcoming, now)
+            UpcomingExams(exams)
         }
         TodayPhase.IN_CLASS -> {
             today.hero?.let { CurrentClassHero(it, now) }
@@ -174,8 +193,10 @@ private fun TodayContent(today: TodayView, now: Instant) {
         TodayPhase.AFTER_CLASSES -> {
             today.deadlineHero?.let { TonightHero(it, now) }
             ClassStack(today.upcoming, now)
+            UpcomingExams(exams)
         }
         TodayPhase.NO_CLASSES -> {
+            UpcomingExams(exams)
             if (today.recent.isNotEmpty()) {
                 SectionLabel(t("New"))
                 RecentCard(today.recent)
@@ -499,6 +520,40 @@ private fun ThisClassCard(materials: List<MaterialItem>, assignments: List<Deadl
             }
         }
     }
+}
+
+/** Exams in the next two weeks, as Core lists them; a row opens its course. */
+@Composable
+private fun UpcomingExams(exams: List<ExamView>) {
+    if (exams.isEmpty()) return
+    val navigator = LocalNavigator.current
+    SectionLabel(t("Exam"))
+    Card {
+        exams.forEachIndexed { index, exam ->
+            if (index > 0) RowDivider()
+            val id = exam.courseId
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (id != null) Modifier.clickable { navigator.openCourse(id) } else Modifier)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                CourseSquare(exam.color)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(exam.title.ifEmpty { exam.code }, color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(examDetail(exam), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+/** `10月26日（月） · 3–4限 · W531`, or the time when no period is given. */
+private fun examDetail(exam: ExamView): String {
+    val time = Format.periods(exam.periods) ?: exam.startTime?.let { start -> listOfNotNull(start, exam.endTime).joinToString("–") }
+    return listOfNotNull(Format.dayTitle(exam.date), time, exam.room).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
 /** Day off: grades and materials that changed recently. */

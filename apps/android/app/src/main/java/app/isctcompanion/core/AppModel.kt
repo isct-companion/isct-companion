@@ -368,33 +368,87 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     }
 
     suspend fun week(monday: LocalDate): ScheduleView? {
-        val session = session ?: return null
         val term = today?.term ?: return null
-        val query = WorkspaceQuery.ScheduleView(term, Format.civil(monday), Format.civil(monday.plusDays(4)), false)
-        val result = runCatching { session.scheduleQuery(listOf(query)).value() }.getOrNull()
-        return ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull() as? WorkspaceQueryResult.ScheduleView)?.v1
+        val view = WorkspaceQuery.ScheduleView(term, Format.civil(monday), Format.civil(monday.plusDays(4)), false)
+        return (query(view) as? WorkspaceQueryResult.ScheduleView)?.v1
     }
 
     /** The academic year (April–March) a date belongs to. */
-    suspend fun academicYear(date: LocalDate): Int? {
+    suspend fun academicYear(date: LocalDate): Int? =
+        (query(WorkspaceQuery.AcademicYears(Format.civil(date), 0)) as? WorkspaceQueryResult.AcademicYears)?.v1?.currentYear
+
+    /** Every week of an academic year with its quarter, for the week picker. */
+    suspend fun timetableYear(year: Int): TimetableYear? =
+        (query(WorkspaceQuery.TimetableYear(year)) as? WorkspaceQueryResult.TimetableYear)?.v1
+
+    suspend fun courseDetail(id: String): CourseDetail? =
+        (query(WorkspaceQuery.CourseDetail(id)) as? WorkspaceQueryResult.CourseDetail)?.v1
+
+    /** A course's LMS content lesson by lesson. */
+    suspend fun courseContent(id: String): CourseContent? =
+        (query(WorkspaceQuery.CourseContent(id, Format.timestamp(Instant.now()))) as? WorkspaceQueryResult.CourseContent)?.v1
+
+    /** One assignment with its LMS text and files, for the in-app page. */
+    suspend fun assignmentDetail(id: String): AssignmentDetail? =
+        (query(WorkspaceQuery.AssignmentDetail(id)) as? WorkspaceQueryResult.AssignmentDetail)?.v1
+
+    /** The quarter's courses as Core lists them for the course list. */
+    suspend fun overview(term: String): WorkspaceOverview? =
+        (query(WorkspaceQuery.WorkspaceOverview(term)) as? WorkspaceQueryResult.WorkspaceOverview)?.v1
+
+    /** Core's equal-row timetable axis, widened to the week's earliest start
+     * and latest end when those leave the teaching day. */
+    suspend fun timetableAxis(earliest: String?, latest: String?): TimetableAxis? {
+        val axis = (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
+        if (axis != null) lastTimetableAxis = axis
+        return axis
+    }
+
+    /** The last axis Core gave, so a timetable draws its rows at once. */
+    var lastTimetableAxis: TimetableAxis? = null
+        private set
+
+    /** A quarter as an iCalendar file, written by Core as the desktop's export. */
+    suspend fun quarterIcs(term: String, scope: CalendarExportScope): String {
+        val session = session ?: throw SdkException.Unavailable("quarter calendar")
+        val query = WorkspaceQuery.QuarterIcs(term, scope, Format.timestamp(Instant.now()))
+        val value = (session.scheduleQuery(listOf(query)).value() as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
+        return (value as? WorkspaceQueryResult.QuarterIcs)?.v1 ?: throw SdkException.Unavailable("quarter calendar")
+    }
+
+    /** Exams Core lists as upcoming (linked, scheduled, not hidden) from today
+     * through `days` days ahead, for 今日. */
+    suspend fun upcomingExams(days: Long = 14): List<ExamView> {
+        val term = today?.term ?: return emptyList()
+        val from = Format.civil(Format.today())
+        val last = Format.civil(Format.today().plusDays(days))
+        val view = (query(WorkspaceQuery.ScheduleView(term, from, from, false)) as? WorkspaceQueryResult.ScheduleView)?.v1
+        // Civil dates compare as text.
+        return view?.upcomingExams.orEmpty().filter { it.date <= last }
+    }
+
+    /** Downloads (or reuses) a course file through the signed-in LMS session. */
+    suspend fun openMaterial(files: CourseKey, source: String): Material? {
         val session = session ?: return null
-        val query = WorkspaceQuery.AcademicYears(Format.civil(date), 0)
+        val result = runCatching { session.openMaterial(files, source, true, false, null).value() }.getOrNull()
+        return (result as? OperationResult.Material)?.material
+    }
+
+    /** The syllabus departments, as the desktop's course finder lists them. */
+    suspend fun departments(): List<FinderDepartment> {
+        val session = session ?: return emptyList()
+        val term = today?.term ?: return emptyList()
+        val year = term.take(4).toUShortOrNull() ?: return emptyList()
+        val request = FinderRequest(year, term, false, emptyList(), "", null, 0u, 0u)
+        val result = runCatching { session.finderQuery(request).value() }.getOrNull()
+        return (result as? OperationResult.Finder)?.page?.context?.departments.orEmpty()
+    }
+
+    /** One schedule query's first value, or null when Core cannot answer. */
+    private suspend fun query(query: WorkspaceQuery): WorkspaceQueryResult? {
+        val session = session ?: return null
         val result = runCatching { session.scheduleQuery(listOf(query)).value() }.getOrNull()
-        return ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull() as? WorkspaceQueryResult.AcademicYears)
-            ?.v1?.currentYear
-    }
-
-    /** Every week of an academic year with its quarter, for the week chip. */
-    suspend fun timetableYear(year: Int): TimetableYear? {
-        val session = session ?: return null
-        val result = runCatching { session.scheduleQuery(listOf(WorkspaceQuery.TimetableYear(year))).value() }.getOrNull()
-        return ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull() as? WorkspaceQueryResult.TimetableYear)?.v1
-    }
-
-    suspend fun courseDetail(id: String): CourseDetail? {
-        val session = session ?: return null
-        val result = runCatching { session.scheduleQuery(listOf(WorkspaceQuery.CourseDetail(id))).value() }.getOrNull()
-        return ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull() as? WorkspaceQueryResult.CourseDetail)?.v1
+        return (result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
     }
 
     // Intents
@@ -424,21 +478,84 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     }
 
     private suspend fun mark(id: String, hidden: Boolean?, pinned: Boolean?) {
-        val session = session ?: return
-        val mutation = WorkspaceMutation(revision, WorkspaceIntent.SetAssignmentMark(id, hidden, pinned, null))
+        commit(WorkspaceIntent.SetAssignmentMark(id, hidden, pinned, null))
+    }
+
+    /** Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
+     * Core republishes the schedule; the new content revision re-reads the week. */
+    suspend fun markSession(key: String, mark: String) {
+        commit(WorkspaceIntent.MarkSession(key, mark))
+    }
+
+    /** Records `sectionId` as the lesson of the class at `occurrence` (Core's
+     * `CourseContent.classAt`), as a double click on the desktop rail does.
+     * `false` when Core did not take it. */
+    suspend fun recordLesson(courseId: String, occurrence: String, sectionId: ULong): Boolean =
+        commit(WorkspaceIntent.RecordLesson(courseId, occurrence, sectionId))
+
+    /** Commits one intent, then re-reads. A conflict (another device changed
+     * the workspace) only re-reads, so the person can retry. */
+    private suspend fun commit(intent: WorkspaceIntent): Boolean {
+        val session = session ?: return false
+        var committed = false
         try {
-            (session.mutate(mutation).value() as? OperationResult.Workspace)?.let { revision = it.snapshot.revision }
+            (session.mutate(WorkspaceMutation(revision, intent)).value() as? OperationResult.Workspace)
+                ?.let { revision = it.snapshot.revision }
+            committed = true
         } catch (error: SdkException.Conflict) {
-            // Another device changed the workspace: re-read and let the person retry.
+            // Re-read below.
         } catch (error: Exception) {
             problem = describe(error)
         }
+        refresh()
+        return committed
+    }
+
+    /** The study profile as the workspace stores it (`academicProfile`). */
+    data class StudyProfile(val admissionYear: Int?, val enrollments: List<StudyEnrollment>)
+
+    suspend fun studyProfile(): StudyProfile? {
+        val session = session ?: return null
+        val snapshot = runCatching { (session.snapshot().value() as? OperationResult.Workspace)?.snapshot }.getOrNull() ?: return null
+        val profile = runCatching { JSONObject(snapshot.workspace).optJSONObject("academicProfile") }.getOrNull() ?: JSONObject()
+        val rows = profile.optJSONArray("studyEnrollments")
+        return StudyProfile(
+            admissionYear = if (profile.has("admissionYear") && !profile.isNull("admissionYear")) profile.getInt("admissionYear") else null,
+            enrollments = (0 until (rows?.length() ?: 0)).mapNotNull { index ->
+                val row = rows?.optJSONObject(index) ?: return@mapNotNull null
+                StudyEnrollment(
+                    stage = when (row.optString("stage")) {
+                        "undergraduate" -> StudyStage.UNDERGRADUATE
+                        "master" -> StudyStage.MASTER
+                        "professional" -> StudyStage.PROFESSIONAL
+                        "doctoral" -> StudyStage.DOCTORAL
+                        else -> StudyStage.UNKNOWN
+                    },
+                    entryKind = when (row.optString("entryKind")) {
+                        "regular" -> StudyEntryKind.REGULAR
+                        "transfer" -> StudyEntryKind.TRANSFER
+                        else -> StudyEntryKind.UNKNOWN
+                    },
+                    entryGrade = if (row.has("entryGrade") && !row.isNull("entryGrade")) row.getInt("entryGrade").toUByte() else null,
+                    admittedTerm = row.optString("admittedTerm"),
+                )
+            },
+        )
+    }
+
+    /** Saves the cohort and degree history through the desktop's intent. */
+    suspend fun setStudyProfile(profile: StudyProfile) {
+        val session = session ?: return
+        session.mutate(WorkspaceMutation(revision, WorkspaceIntent.SetStudyProfile(profile.admissionYear, profile.enrollments))).value()
         refresh()
     }
 
     /** Pull to refresh: Core's planner decides what to read, and the sync
      * snapshot shows it. */
-    fun refreshFromSchool() = refresh(SyncScope.Everything)
+    fun refreshFromSchool() {
+        problem = null
+        refresh(SyncScope.Everything)
+    }
 
     suspend fun saveCredentials(profile: SchoolAuthProfile, credentials: SchoolCredentials) {
         val session = session ?: return

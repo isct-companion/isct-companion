@@ -1,7 +1,5 @@
 package app.isctcompanion.design
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,10 +19,13 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,7 +50,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -143,7 +143,8 @@ fun DeadlineRow(
     }
 }
 
-/** Opens the assignment's submission page; long press offers quick actions. */
+/** Opens the assignment's page, read from LMS by Core; long press offers
+ * quick actions, among them the LMS submission page. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DeadlineLink(item: DeadlineItem, content: @Composable () -> Unit) {
@@ -153,7 +154,7 @@ fun DeadlineLink(item: DeadlineItem, content: @Composable () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Box(
         Modifier.combinedClickable(
-            onClick = { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, item.sourceUrl, item.title)) },
+            onClick = { navigator.openAssignment(item.assignmentId) },
             onLongClick = { menu = true },
         ),
     ) {
@@ -163,6 +164,12 @@ fun DeadlineLink(item: DeadlineItem, content: @Composable () -> Unit) {
                 MenuItem(t("Open course"), Icons.AutoMirrored.Outlined.MenuBook) {
                     menu = false
                     navigator.openCourse(course)
+                }
+            }
+            item.sourceUrl?.let { url ->
+                MenuItem(t("Submit in LMS"), Icons.AutoMirrored.Outlined.OpenInNew) {
+                    menu = false
+                    navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title))
                 }
             }
             MenuItem(if (item.pinned) t("Unpin") else t("Pin"), Icons.Outlined.PushPin) {
@@ -186,17 +193,17 @@ private fun MenuItem(text: String, icon: ImageVector, tint: Color = Theme.colors
     )
 }
 
+/** A material listed outside its lesson (今日); Core opens it through the
+ * course's folder. */
 @Composable
 fun MaterialRow(item: MaterialItem) {
-    val context = LocalContext.current
+    val opener = rememberMaterialOpener(item.title, item.url, null, item.courseId)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
-                item.url?.let { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
-            }
+            .clickable(enabled = !opener.opening) { opener.open() }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         Icon(
@@ -214,7 +221,11 @@ fun MaterialRow(item: MaterialItem) {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
             }
         }
-        if (item.addedToday) TagChip(t("Added today"))
+        if (opener.opening) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+        } else if (item.addedToday) {
+            TagChip(t("Added today"))
+        }
     }
 }
 

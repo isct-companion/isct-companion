@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Course files Core downloads (`filesDirectory`) and exports written for the
+     share sheet, handed to viewer apps by content URI. -->
+<paths>
+    <files-path name="files" path="files/" />
+    <cache-path name="exports" path="exports/" />
+</paths>
