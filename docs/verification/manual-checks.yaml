@@ -882,7 +882,7 @@ checks:
           bright reflection over the same letters until the deadline and check
           that erased strokes remain marked for review rather than accepted.
           Include a white card background and modest hand movement.
-          After closing each session, inspect core.geometryFrames,
+          After closing each session, inspect core.keyframes,
           core.admissionRejections and core.glareRejections in
           matrix-scan/latest.json, then compare all accepted letters with the card.
         reason: |
@@ -939,6 +939,72 @@ checks:
       notes: 67 expected cells recognised, no wrong accepted cells; private image not
         committed.
       evidence: docs/verification/core-consolidation.md#automated-acceptance
+
+  - id: OCR-CAMERA-GEOMETRY
+    area: ocr
+    title: Camera outline follows the card on the frame it was fitted on
+    persona: undergraduate-first-term
+    preconditions: |
+      A debug or optimized desktop build with OCR on an Apple Silicon Mac or a
+      supported Windows PC, a built-in or USB camera, and a disposable or own
+      Matrix card. For the recording step, a new empty local directory.
+    steps:
+      - action: |
+          Open Scan with camera and bring the card into view, then move it
+          steadily across the frame, tilt it about 30 degrees and turn it
+          upside down. Watch the red outline against the printed grid.
+        reason: |
+          The picture shown is the analysed frame and the outline is fitted on
+          that same frame. A lag here would show the outline trailing the card;
+          an indexing error would put it one row or column off the A-J / 1-7
+          labels, or outline a mirrored grid after the card is turned.
+      - action: |
+          Hold the card still, then move it away until it is lost and bring it
+          back. Also cover the J column with a finger and partly shadow it.
+        reason: |
+          Tracking must hand over to detection when the grid is lost and pick
+          it up again within about half a second; a partly covered edge must
+          not produce an outline squeezed onto the visible columns.
+      - action: |
+          Close the session and open matrix-scan/latest.json. Check that
+          core.frames lists every analysed frame (located or not), that
+          capture.timeline pairs each frameId with boundsFrameId equal to it
+          and paintedMediaMs equal to mediaMs, and that core.keyframes is
+          several per second of steady framing.
+        reason: |
+          The report separates processing rate (frames per second analysed),
+          localisation rate (located / analysed) and draw latency (painted -
+          captured); a mismatch between boundsFrameId and frameId would mean an
+          old outline was drawn over a newer picture.
+      - action: |
+          Launch a debug build with ISCT_MATRIX_RECORD_DIR set to the empty
+          directory, scan once, then run
+          `cargo run -p isct-ocr --release --features training-tools --example matrix_track_replay -- DIR/SESSION`
+          and `python scripts/ocr/matrix_track_report.py --frames DIR/SESSION --trace app=trace.jsonl --live LATEST_JSON --out REPORT`.
+        reason: |
+          The recorded planes replay through the same tracker offline, so a
+          live problem can be reproduced, overlaid stage by stage and compared
+          with the in-app timeline.
+    observe: |
+      The camera dialog's picture and red outline, matrix-scan/latest.json
+      under the app cache, and the replay report's summary.json and overlays.
+    expected: |
+      The outline sits on the grid edges of the card in the picture it is drawn
+      on, with the A1 corner at the A/1 labels in every orientation; it follows
+      motion at the camera's frame rate without trailing, disappears when the
+      grid is lost and returns within about half a second. latest.json shows
+      every timeline entry's boundsFrameId equal to its frameId when located,
+      and the replay reproduces the session's located frames.
+    why_manual: |
+      Camera latency, WebView canvas compositing and how the outline looks on a
+      moving physical card need a camera and the native app; the geometry and
+      tracker themselves are covered by the isct-ocr tests and replays.
+    covers:
+      - crates/isct-ocr/src/engine/grid/**
+      - crates/isct-ocr/src/engine/vendor/**
+      - apps/desktop/src/platform/matrix-camera.ts
+      - apps/desktop/src/components/MatrixCamera.tsx
+      - apps/desktop/src-tauri/src/commands/matrix_camera.rs
 
   - id: DESKTOP-SCHOOL-WEBVIEW
     area: desktop

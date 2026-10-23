@@ -1,8 +1,11 @@
-//! Desktop camera transport. Core owns acquisition, its deadline and offline votes.
+//! Desktop camera transport. Core owns acquisition, its deadline and offline
+//! votes; isct-ocr owns the geometry. The webview sends every new video frame
+//! as two raw 960 px planes (luma, R-G) over binary IPC and, when Core asks,
+//! the full-resolution luma of that same frame for the 70 cells.
 #[cfg(matrix_ocr)]
 use isct_core::matrix_scan::{
-    MatrixCameraPhase, MatrixCaptureFrame, MatrixCaptureGlyph, MatrixFrameTrace, MatrixPoint,
-    MatrixReading,
+    MatrixCameraPhase, MatrixCaptureFrame, MatrixCaptureGlyph, MatrixPoint, MatrixReading,
+    MatrixTrackedFrame,
 };
 use isct_core::matrix_scan::{
     MatrixCameraScanner, MatrixCameraSnapshot, MatrixCaptureMetrics, MatrixScanError,
@@ -13,8 +16,17 @@ use std::{
 };
 use tauri::{Manager, State};
 
+/// Image-side state of the live session: the tracker and the keyframe Core
+/// asked for (its frame id and the grid fitted on that frame).
+#[derive(Default)]
+struct CameraGeometry {
+    session: String,
+    tracker: isct_ocr::MatrixTracker,
+    keyframe: Option<(u32, [[f64; 2]; 4])>,
+}
+
 #[derive(Clone, Default)]
-pub(crate) struct CameraScanner(Arc<Mutex<MatrixCameraScanner>>);
+pub(crate) struct CameraScanner(Arc<Mutex<MatrixCameraScanner>>, Arc<Mutex<CameraGeometry>>);
 impl CameraScanner {
     fn with<T>(&self, f: impl FnOnce(&mut MatrixCameraScanner) -> T) -> Result<T, MatrixScanError> {
         self.0
@@ -26,6 +38,62 @@ impl CameraScanner {
                 )
             })
     }
+    fn geometry<T>(&self, f: impl FnOnce(&mut CameraGeometry) -> T) -> Result<T, MatrixScanError> {
+        self.1
+            .lock()
+            .map(|mut geometry| f(&mut geometry))
+            .map_err(|_| {
+                MatrixScanError::Backend("Camera geometry unavailable. Restart the app.".into())
+            })
+    }
+}
+
+/// Header of a binary camera request; the body is the raw planes.
+#[cfg(matrix_ocr)]
+struct FrameHeader {
+    session_id: String,
+    frame_id: u32,
+    width: u32,
+    height: u32,
+    captured_ms: f64,
+}
+#[cfg(matrix_ocr)]
+fn frame_request<'a>(
+    request: &'a tauri::ipc::Request<'_>,
+    planes: usize,
+) -> Result<(FrameHeader, &'a [u8]), MatrixScanError> {
+    let header = |name: &str| {
+        request
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| MatrixScanError::InvalidFrame(format!("Missing {name}.")))
+    };
+    let number = |name: &str| -> Result<f64, MatrixScanError> {
+        header(name)?
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v >= 0.)
+            .ok_or_else(|| MatrixScanError::InvalidFrame(format!("Invalid {name}.")))
+    };
+    let parsed = FrameHeader {
+        session_id: header("x-matrix-session")?.to_owned(),
+        frame_id: number("x-matrix-frame")? as u32,
+        width: number("x-matrix-width")? as u32,
+        height: number("x-matrix-height")? as u32,
+        captured_ms: number("x-matrix-captured")?,
+    };
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err(MatrixScanError::InvalidFrame("Expected raw planes.".into()));
+    };
+    let pixels = parsed.width as u64 * parsed.height as u64;
+    if !(32..=8192).contains(&parsed.width)
+        || !(32..=8192).contains(&parsed.height)
+        || body.len() as u64 != pixels * planes as u64
+    {
+        return Err(MatrixScanError::InvalidFrame("Plane size mismatch.".into()));
+    }
+    Ok((parsed, body))
 }
 fn backend(error: impl std::fmt::Display) -> MatrixScanError {
     MatrixScanError::Backend(error.to_string())
@@ -43,11 +111,8 @@ fn log_frame_quality(frame: &isct_ocr::MatrixCaptureFrame) {
         )
     };
     log::info!(
-        "[matrix-camera] frame_ms={:.1} decode_ms={:.1} geometry_ms={:.1} glyph_ms={:.1} source_px={:?} contrast={:?} sharpness={:?} centering={:?}",
+        "[matrix-camera] keyframe_ms={:.1} source_px={:?} contrast={:?} sharpness={:?} centering={:?}",
         frame.timing.total_ms,
-        frame.timing.decode_ms,
-        frame.timing.geometry_ms,
-        frame.timing.preprocess_ms,
         range(|g| g.source_size),
         range(|g| g.contrast),
         range(|g| g.sharpness),
@@ -111,16 +176,18 @@ fn save_anonymous_samples(frame: &isct_ocr::MatrixCaptureFrame) {
     }
 }
 /// Explicit local opt-in for replay: `ISCT_MATRIX_RECORD_DIR` makes a debug
-/// build save every analysed camera frame of a session, unmodified, with its
-/// webview capture time. Use a disposable card; recordings are card images.
+/// build save every analysed frame's raw planes (`.planes`: luma then R-G)
+/// and every keyframe's full-resolution luma (`.full`), indexed with sizes and
+/// webview capture times in `frames.jsonl`. These are card images: use a
+/// disposable card and keep recordings local.
 #[cfg(all(matrix_ocr, debug_assertions))]
-fn record_frame(session_id: &str, frame_id: u32, captured_ms: f64, bytes: &[u8]) {
+fn record_frame(frame: &FrameHeader, kind: &str, bytes: &[u8]) {
     use std::io::Write;
     let Some(root) = std::env::var_os("ISCT_MATRIX_RECORD_DIR") else {
         return;
     };
     let save = || -> std::io::Result<()> {
-        let directory = std::path::PathBuf::from(root).join(session_id);
+        let directory = std::path::PathBuf::from(root).join(&frame.session_id);
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true);
         #[cfg(unix)]
@@ -129,10 +196,12 @@ fn record_frame(session_id: &str, frame_id: u32, captured_ms: f64, bytes: &[u8])
             builder.mode(0o700);
         }
         builder.create(&directory)?;
-        let file = format!("{frame_id:06}.jpg");
+        let file = format!("{:06}.{kind}", frame.frame_id);
         std::fs::write(directory.join(&file), bytes)?;
-        let line =
-            serde_json::json!({"file": file, "frameId": frame_id, "capturedMs": captured_ms});
+        let line = serde_json::json!({
+            "file": file, "kind": kind, "frameId": frame.frame_id,
+            "width": frame.width, "height": frame.height, "capturedMs": frame.captured_ms,
+        });
         let mut index = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -152,7 +221,14 @@ pub(crate) fn begin_matrix_camera(
     if !isct_ocr::available() {
         return Err(backend(isct_ocr::MatrixOcrError::Unavailable));
     }
-    scanner.with(|s| s.begin())
+    let id = scanner.with(|s| s.begin())?;
+    scanner.geometry(|g| {
+        *g = CameraGeometry {
+            session: id.clone(),
+            ..CameraGeometry::default()
+        }
+    })?;
+    Ok(id)
 }
 #[tauri::command]
 pub(crate) fn stop_matrix_camera(
@@ -194,88 +270,138 @@ pub(crate) fn poll_matrix_camera(
     crate::require_local_main(&webview).map_err(backend)?;
     scanner.with(|s| s.observe(&session_id, None, Instant::now()))?
 }
+/// The fast loop: one frame's 960 px luma and R-G planes. Returns Core's
+/// snapshot with the outline fitted on this very frame, and whether Core
+/// wants this frame's full resolution as a keyframe.
 #[tauri::command]
-pub(crate) async fn capture_matrix_camera_frame(
+pub(crate) async fn track_matrix_camera_frame(
     webview: tauri::Webview,
     scanner: State<'_, CameraScanner>,
-    session_id: String,
-    image: String,
-    frame_id: u32,
-    captured_ms: f64,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<MatrixCameraSnapshot, MatrixScanError> {
     crate::require_local_main(&webview).map_err(backend)?;
-    let scanner = scanner.inner().clone();
     #[cfg(matrix_ocr)]
     {
-        use base64::Engine;
+        let (frame, body) = frame_request(&request, 2)?;
+        let body = body.to_vec();
+        let scanner = scanner.inner().clone();
         tauri::async_runtime::spawn_blocking(move || {
-            let current = scanner.with(|s| s.observe(&session_id, None, Instant::now()))??;
+            let current =
+                scanner.with(|s| s.observe(&frame.session_id, None, Instant::now()))??;
             if current.phase != MatrixCameraPhase::Capturing {
                 return Ok(current);
             }
-            isct_ocr::check_base64_image_len(image.len()).map_err(backend)?;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(image)
-                .map_err(backend)?;
             #[cfg(debug_assertions)]
-            record_frame(&session_id, frame_id, captured_ms, &bytes);
-            #[cfg(not(debug_assertions))]
-            let _ = captured_ms;
-            let received = Instant::now();
-            let captured = isct_ocr::capture_matrix_frame(&bytes);
-            #[cfg(debug_assertions)]
-            if let Ok(frame) = &captured {
-                log_frame_quality(frame);
-                save_anonymous_samples(frame);
-            }
-            let timing = captured.as_ref().ok().map(|f| f.timing.clone());
-            scanner.with(|s| {
-                s.trace(
-                    &session_id,
-                    MatrixFrameTrace {
-                        frame_id,
-                        located: timing.is_some(),
-                        analysis_ms: received.elapsed().as_secs_f64() * 1000.,
-                        decode_ms: timing.as_ref().map(|t| t.decode_ms),
-                        geometry_ms: timing.as_ref().map(|t| t.geometry_ms),
-                        crop_ms: timing.as_ref().map(|t| t.preprocess_ms),
-                        observed_ms: 0.,
+            record_frame(&frame, "planes", &body);
+            let (luma, chroma) = body.split_at(body.len() / 2);
+            let track = scanner.geometry(|g| {
+                if g.session != frame.session_id {
+                    return Err(MatrixScanError::Ended);
+                }
+                g.tracker
+                    .track(&isct_ocr::MatrixAnalysisFrame {
+                        width: frame.width,
+                        height: frame.height,
+                        luma,
+                        chroma,
+                        time: frame.captured_ms / 1000.,
+                    })
+                    .map_err(backend)
+            })??;
+            let snapshot = scanner.with(|s| {
+                s.track(
+                    &frame.session_id,
+                    MatrixTrackedFrame {
+                        frame_id: frame.frame_id,
+                        bounds: track.display.map(|q| q.map(|[x, y]| MatrixPoint { x, y })),
+                        keyframe_ready: track.keyframe,
+                        analysis_ms: track.elapsed_ms,
                     },
                     Instant::now(),
                 )
             })??;
-            let frame = match captured {
-                Ok(frame) => Some(MatrixCaptureFrame {
-                    frame_id,
-                    quads: frame
-                        .quads
-                        .into_iter()
-                        .map(|q| q.map(|[x, y]| MatrixPoint { x, y }))
-                        .collect(),
-                    glyphs: frame
-                        .glyphs
-                        .into_iter()
-                        .map(|g| MatrixCaptureGlyph {
-                            gray: g.gray,
-                            contrast: g.contrast,
-                            sharpness: g.sharpness,
-                            source_size: g.source_size,
-                            centering: g.centering,
-                            glare: g.glare,
-                        })
-                        .collect(),
-                }),
-                Err(isct_ocr::MatrixOcrError::GridNotFound) => None,
-                Err(error) => return Err(backend(error)),
-            };
-            scanner.with(|s| s.observe(&session_id, frame, Instant::now()))?
+            let wanted = snapshot.keyframe_frame_id == Some(frame.frame_id);
+            scanner.geometry(|g| {
+                g.keyframe = track
+                    .body
+                    .filter(|_| wanted)
+                    .map(|body| (frame.frame_id, body));
+            })?;
+            Ok(snapshot)
         })
         .await
         .map_err(backend)?
     }
     #[cfg(not(matrix_ocr))]
     {
-        let _ = (scanner, session_id, image, frame_id, captured_ms);
+        let _ = (scanner, request);
+        Err(backend(isct_ocr::MatrixOcrError::Unavailable))
+    }
+}
+
+/// A requested keyframe: the full-resolution luma of the frame named in the
+/// last snapshot's `keyframeFrameId`, cut with the grid fitted on it.
+#[tauri::command]
+pub(crate) async fn capture_matrix_keyframe(
+    webview: tauri::Webview,
+    scanner: State<'_, CameraScanner>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<MatrixCameraSnapshot, MatrixScanError> {
+    crate::require_local_main(&webview).map_err(backend)?;
+    #[cfg(matrix_ocr)]
+    {
+        let (frame, body) = frame_request(&request, 1)?;
+        let body = body.to_vec();
+        let scanner = scanner.inner().clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let grid = scanner.geometry(|g| {
+                (g.session == frame.session_id)
+                    .then(|| g.keyframe.take())
+                    .flatten()
+                    .filter(|(id, _)| *id == frame.frame_id)
+            })?;
+            // A keyframe superseded by a newer request is dropped, not cut.
+            let Some((_, body_quad)) = grid else {
+                return scanner.with(|s| s.observe(&frame.session_id, None, Instant::now()))?;
+            };
+            #[cfg(debug_assertions)]
+            record_frame(&frame, "full", &body);
+            let cut =
+                isct_ocr::capture_matrix_keyframe(&body, frame.width, frame.height, body_quad)
+                    .map_err(backend)?;
+            #[cfg(debug_assertions)]
+            {
+                log_frame_quality(&cut);
+                save_anonymous_samples(&cut);
+            }
+            let observed = MatrixCaptureFrame {
+                frame_id: frame.frame_id,
+                quads: cut
+                    .quads
+                    .into_iter()
+                    .map(|q| q.map(|[x, y]| MatrixPoint { x, y }))
+                    .collect(),
+                glyphs: cut
+                    .glyphs
+                    .into_iter()
+                    .map(|g| MatrixCaptureGlyph {
+                        gray: g.gray,
+                        contrast: g.contrast,
+                        sharpness: g.sharpness,
+                        source_size: g.source_size,
+                        centering: g.centering,
+                        glare: g.glare,
+                    })
+                    .collect(),
+            };
+            scanner.with(|s| s.observe(&frame.session_id, Some(observed), Instant::now()))?
+        })
+        .await
+        .map_err(backend)?
+    }
+    #[cfg(not(matrix_ocr))]
+    {
+        let _ = (scanner, request);
         Err(backend(isct_ocr::MatrixOcrError::Unavailable))
     }
 }

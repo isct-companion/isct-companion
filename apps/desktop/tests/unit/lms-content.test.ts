@@ -975,14 +975,36 @@ describe("Live Matrix camera ownership", () => {
       currentTime: { get: () => currentTime },
     });
     vi.spyOn(video, "play").mockResolvedValue();
-    const draw = vi.fn(() => currentTime);
+    const draw = vi.fn((source: unknown) =>
+      source === video ? currentTime : undefined,
+    );
+    const stroke = vi.fn();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
       drawImage: draw,
+      getImageData: (_x: number, _y: number, w: number, h: number) => ({
+        data: new Uint8ClampedArray(w * h * 4).fill(200),
+      }),
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      closePath() {},
+      stroke,
     } as unknown as CanvasRenderingContext2D);
-    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
-      "data:image/jpeg;base64,Y2FtZXJh",
-    );
-    return { video, draw, advance: (time: number) => (currentTime = time) };
+    const display = document.createElement("canvas");
+    // Frames read from the camera, as opposed to repaints of the display.
+    const reads = () =>
+      draw.mock.calls
+        .map((call, i) => [call[0], draw.mock.results[i].value])
+        .filter(([source]) => source === video)
+        .map(([, time]) => time);
+    return {
+      video,
+      display,
+      draw,
+      reads,
+      stroke,
+      advance: (time: number) => (currentTime = time),
+    };
   }
   function streamPort() {
     const track = Object.assign(new EventTarget(), { stop: vi.fn() });
@@ -998,11 +1020,14 @@ describe("Live Matrix camera ownership", () => {
     const { openMatrixCamera } = await import("@app/platform/matrix-camera");
     const { track, stream } = streamPort();
     vi.useFakeTimers();
-    const { video, draw, advance } = cameraSurface(async () => stream);
+    const { video, display, reads, stroke, advance } = cameraSurface(
+      async () => stream,
+    );
     const capturing = {
       phase: "capturing",
       sequence: 1,
       boundsFrameId: 0,
+      keyframeFrameId: null as number | null,
       bounds: [
         { x: 0.1, y: 0.2 },
         { x: 0.9, y: 0.2 },
@@ -1034,10 +1059,12 @@ describe("Live Matrix camera ownership", () => {
       handle: (command) => {
         if (command === "begin_matrix_camera") return "camera-1";
         if (command === "poll_matrix_camera") return capturing;
-        if (command === "capture_matrix_camera_frame")
+        if (command === "track_matrix_camera_frame")
           return new Promise((resolve) => {
             deliver = resolve;
           });
+        if (command === "capture_matrix_keyframe")
+          return { ...capturing, sequence: 3, keyframeFrameId: null };
         if (command === "process_matrix_camera")
           return new Promise((resolve) => {
             finish = resolve;
@@ -1047,9 +1074,9 @@ describe("Live Matrix camera ownership", () => {
     });
     const onSnapshot = vi.fn(),
       onError = vi.fn();
-    close = openMatrixCamera(video, onSnapshot, onError);
+    close = openMatrixCamera(video, display, onSnapshot, onError);
     await vi.waitFor(() =>
-      expect(core.commands("capture_matrix_camera_frame")).toHaveLength(1),
+      expect(core.commands("track_matrix_camera_frame")).toHaveLength(1),
     );
     advance(2);
     await vi.advanceTimersByTimeAsync(100);
@@ -1057,24 +1084,43 @@ describe("Live Matrix camera ownership", () => {
     await vi.advanceTimersByTimeAsync(100);
     advance(4);
     await vi.advanceTimersByTimeAsync(100);
-    expect(draw).toHaveBeenCalledTimes(1);
-    expect(core.commands("capture_matrix_camera_frame")[0].args).toMatchObject({
-      sessionId: "camera-1",
-      image: "Y2FtZXJh",
-      frameId: 0,
+    expect(reads()).toEqual([1]);
+    // Raw 960 x 540 luma and R-G planes; the frame is named in the headers.
+    const first = core.commands("track_matrix_camera_frame")[0];
+    expect((first.args as unknown as Uint8Array).length).toBe(960 * 540 * 2);
+    expect(first.options?.headers).toMatchObject({
+      "x-matrix-session": "camera-1",
+      "x-matrix-frame": "0",
+      "x-matrix-width": "960",
+      "x-matrix-height": "540",
     });
     expect(onSnapshot).not.toHaveBeenCalled();
-    deliver(capturing);
+    // The reply's outline belongs to this frame: both are drawn together, and
+    // Core's keyframe request sends the same frame at full resolution.
+    deliver({ ...capturing, keyframeFrameId: 0 });
     await vi.advanceTimersByTimeAsync(1);
-    expect(core.commands("capture_matrix_camera_frame")).toHaveLength(2);
-    expect(draw.mock.results.map((result) => result.value)).toEqual([1, 4]);
-    deliver(capturing);
+    expect(stroke).toHaveBeenCalledTimes(1);
+    const keyframe = core.commands("capture_matrix_keyframe");
+    expect(keyframe).toHaveLength(1);
+    expect((keyframe[0].args as unknown as Uint8Array).length).toBe(
+      1920 * 1080,
+    );
+    expect(keyframe[0].options?.headers).toMatchObject({
+      "x-matrix-frame": "0",
+      "x-matrix-width": "1920",
+    });
+    expect(core.commands("track_matrix_camera_frame")).toHaveLength(2);
+    expect(reads()).toEqual([1, 4]);
+    // An outline measured on an older frame is never drawn over this one.
+    deliver({ ...capturing, sequence: 4, boundsFrameId: 0 });
     await vi.advanceTimersByTimeAsync(100);
-    expect(core.commands("capture_matrix_camera_frame")).toHaveLength(2);
+    expect(stroke).toHaveBeenCalledTimes(1);
+    expect(core.commands("capture_matrix_keyframe")).toHaveLength(1);
+    expect(core.commands("track_matrix_camera_frame")).toHaveLength(2);
     expect(core.commands("poll_matrix_camera")).toHaveLength(1); // deadlines advance during a video stall
     advance(5);
     await vi.advanceTimersByTimeAsync(100);
-    expect(core.commands("capture_matrix_camera_frame")).toHaveLength(3);
+    expect(core.commands("track_matrix_camera_frame")).toHaveLength(3);
     deliver(processing);
     await vi.advanceTimersByTimeAsync(1);
     expect(track.stop).toHaveBeenCalledTimes(1);
@@ -1101,17 +1147,19 @@ describe("Live Matrix camera ownership", () => {
     };
     expect(metrics.frames).toBe(3);
     expect(metrics.frameMs).toHaveLength(3);
-    // Each reply is paired with its frame and the frame its outline came from.
+    // Each reply is paired with its frame and the frame its outline came
+    // from; a painted frame shows the picture that outline was fitted on.
     expect(
       (metrics as unknown as MatrixCaptureMetrics).timeline.map((e) => [
         e.frameId,
         e.boundsFrameId,
         e.sentMs >= e.capturedMs && e.respondedMs >= e.sentMs,
+        e.paintedMediaMs === e.mediaMs,
       ]),
     ).toEqual([
-      [0, 0, true],
-      [1, 0, true],
-      [2, 0, true],
+      [0, 0, true, true],
+      [1, 0, true, true],
+      [2, 0, true, false],
     ]);
     expect(metrics.elapsedMs).toBeGreaterThanOrEqual(metrics.trackedMs);
     expect(metrics.trackedMs).toBeGreaterThanOrEqual(0);
@@ -1132,14 +1180,14 @@ describe("Live Matrix camera ownership", () => {
           grant = resolve;
         }),
     );
-    const { video } = cameraSurface(acquire);
+    const { video, display } = cameraSurface(acquire);
     let deliver!: (snapshot: unknown) => void;
     let finish!: (snapshot: unknown) => void;
     const core = installFakeCore({
       workspace: workspaceFixture(),
       handle: (command) => {
         if (command === "begin_matrix_camera") return "camera-2";
-        if (command === "capture_matrix_camera_frame")
+        if (command === "track_matrix_camera_frame")
           return new Promise((resolve) => {
             deliver = resolve;
           });
@@ -1152,17 +1200,17 @@ describe("Live Matrix camera ownership", () => {
     });
     const onSnapshot = vi.fn(),
       onError = vi.fn();
-    close = openMatrixCamera(video, onSnapshot, onError);
+    close = openMatrixCamera(video, display, onSnapshot, onError);
     await vi.waitFor(() => expect(acquire).toHaveBeenCalled());
     close();
     grant(stream);
     await vi.waitFor(() => expect(track.stop).toHaveBeenCalledTimes(1));
-    expect(core.commands("capture_matrix_camera_frame")).toHaveLength(0);
-    close = openMatrixCamera(video, onSnapshot, onError);
+    expect(core.commands("track_matrix_camera_frame")).toHaveLength(0);
+    close = openMatrixCamera(video, display, onSnapshot, onError);
     await vi.waitFor(() => expect(acquire).toHaveBeenCalledTimes(2));
     grant(stream);
     await vi.waitFor(() =>
-      expect(core.commands("capture_matrix_camera_frame")).toHaveLength(1),
+      expect(core.commands("track_matrix_camera_frame")).toHaveLength(1),
     );
     close();
     deliver({ complete: true, cells: [] });
@@ -1170,11 +1218,11 @@ describe("Live Matrix camera ownership", () => {
     expect(onSnapshot).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
     expect(core.commands("stop_matrix_camera")).toHaveLength(2);
-    close = openMatrixCamera(video, onSnapshot, onError);
+    close = openMatrixCamera(video, display, onSnapshot, onError);
     await vi.waitFor(() => expect(acquire).toHaveBeenCalledTimes(3));
     grant(stream);
     await vi.waitFor(() =>
-      expect(core.commands("capture_matrix_camera_frame")).toHaveLength(2),
+      expect(core.commands("track_matrix_camera_frame")).toHaveLength(2),
     );
     deliver({
       phase: "processing",
@@ -1184,8 +1232,9 @@ describe("Live Matrix camera ownership", () => {
       completedSamples: 0,
       totalSamples: 210,
     });
+    // Each started session runs its own consumer from the start.
     await vi.waitFor(() =>
-      expect(core.commands("process_matrix_camera")).toHaveLength(1),
+      expect(core.commands("process_matrix_camera")).toHaveLength(2),
     );
     close();
     const published = onSnapshot.mock.calls.length;
@@ -1198,7 +1247,7 @@ describe("Live Matrix camera ownership", () => {
 
   it("reports a denied camera permission and ends the native session", async () => {
     const { openMatrixCamera } = await import("@app/platform/matrix-camera");
-    const { video } = cameraSurface(async () => {
+    const { video, display } = cameraSurface(async () => {
       throw new DOMException("denied", "NotAllowedError");
     });
     const core = installFakeCore({
@@ -1207,7 +1256,7 @@ describe("Live Matrix camera ownership", () => {
         command === "begin_matrix_camera" ? "denied" : undefined,
     });
     const onError = vi.fn();
-    close = openMatrixCamera(video, vi.fn(), onError);
+    close = openMatrixCamera(video, display, vi.fn(), onError);
     await vi.waitFor(() => expect(onError).toHaveBeenCalled());
     expect(onError.mock.calls[0][0].message).toContain(
       "Camera access was denied",

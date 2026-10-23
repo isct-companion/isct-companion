@@ -14,7 +14,12 @@ import { DEFAULT_TIMETABLE_AXIS, emptySchoolRecords } from "./fixtures";
  * asserting that a mock was called.
  */
 
-export type CommandCall = { command: string; args: Record<string, unknown> };
+export type CommandCall = {
+  command: string;
+  args: Record<string, unknown>;
+  /** Invoke options, e.g. the headers of a raw (binary) request. */
+  options?: { headers?: Record<string, string> };
+};
 
 /**
  * A read model, or a function that derives it from the live fake store. The
@@ -160,8 +165,9 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
   const invoke = async (
     command: string,
     args: Record<string, unknown> = {},
+    invokeOptions?: CommandCall["options"],
   ): Promise<unknown> => {
-    calls.push({ command, args });
+    calls.push({ command, args, options: invokeOptions });
     const custom = options.handle?.(command, args, core);
     if (custom !== undefined) return custom;
     switch (command) {

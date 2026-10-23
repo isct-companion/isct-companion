@@ -33,13 +33,43 @@ function cameraError(error: unknown): Error {
 
 /** Frames kept in the capture timeline of one session (about 20 s at 30 fps). */
 const TIMELINE_LIMIT = 600;
+/** Long side of the planes the geometry loop analyses (`WORK_SIDE` in isct-ocr). */
+const ANALYSIS_SIDE = 960;
+/** Long side of the keyframe luma the cells are cut from. */
+const KEYFRAME_SIDE = 2200;
 
-/** Owns camera resources and one in-flight frame. Consensus belongs to core.
- * Cleanup also handles permission/IPC promises that resolve after unmount.
- * Every analysed frame gets an id; the timeline pairs its capture, IPC reply
- * and the paint of the outline Core measured on it (see matrix_track_report). */
+/** Rec.601 luma with the native rounding, and R-G + 128 (pink rows are positive). */
+function analysisPlanes(pixels: Uint8ClampedArray, count: number): Uint8Array {
+  const planes = new Uint8Array(count * 2);
+  for (let i = 0, p = 0; i < count; i++, p += 4) {
+    const r = pixels[p],
+      g = pixels[p + 1];
+    planes[i] = (19595 * r + 38470 * g + 7471 * pixels[p + 2] + 32768) >> 16;
+    planes[count + i] = Math.min(255, Math.max(0, r - g + 128));
+  }
+  return planes;
+}
+function lumaPlane(pixels: Uint8ClampedArray, count: number): Uint8Array {
+  const luma = new Uint8Array(count);
+  for (let i = 0, p = 0; i < count; i++, p += 4)
+    luma[i] =
+      (19595 * pixels[p] +
+        38470 * pixels[p + 1] +
+        7471 * pixels[p + 2] +
+        32768) >>
+      16;
+  return luma;
+}
+
+/** Owns camera resources and one in-flight frame. Consensus belongs to core,
+ * geometry to the native tracker. Cleanup also handles permission/IPC promises
+ * that resolve after unmount. Every analysed frame gets an id and is drawn on
+ * `display` together with the outline fitted on that same frame, so the box
+ * never lags the picture under it. The timeline pairs each frame's capture,
+ * IPC reply and paint (see matrix_track_report). */
 export function openMatrixCamera(
   video: HTMLVideoElement,
+  display: HTMLCanvasElement,
   onSnapshot: (snapshot: MatrixCameraSnapshot) => void,
   onError: (error: Error) => void,
 ): () => void {
@@ -61,6 +91,7 @@ export function openMatrixCamera(
   };
   let nextFrameId = 0;
   let lastSequence = -1;
+  let keyframeInFlight = false;
   const stopSession = (id: string) => {
     void invoke("stop_matrix_camera", { sessionId: id, capture }).catch(() => {
       // A shutting-down native host may already have dropped the session.
@@ -138,9 +169,14 @@ export function openMatrixCamera(
     video.srcObject = stream;
     await video.play();
     if (disposed) return;
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context)
+    // One full-resolution picture per video frame: the source of the analysis
+    // planes, of a requested keyframe, and of what is displayed.
+    const full = document.createElement("canvas");
+    const small = document.createElement("canvas");
+    const fullContext = full.getContext("2d", { willReadFrequently: true });
+    const smallContext = small.getContext("2d", { willReadFrequently: true });
+    const displayContext = display.getContext("2d");
+    if (!fullContext || !smallContext || !displayContext)
       throw new Error(t("Cannot read camera frames. Scan an image instead."));
     captureStarted = performance.now();
     let lastTime = -1;
@@ -148,11 +184,33 @@ export function openMatrixCamera(
       video.readyState >= 2 &&
       video.videoWidth > 0 &&
       video.currentTime !== lastTime;
-    const painted = (entry: MatrixFrameTimeline) =>
-      requestAnimationFrame(() => {
-        entry.paintedMs = performance.now();
-        entry.paintedMediaMs = video.currentTime * 1000;
-      });
+    /** Draw the analysed picture with the outline fitted on it. */
+    const paint = (
+      snapshot: MatrixCameraSnapshot,
+      entry: MatrixFrameTimeline,
+    ) => {
+      if (display.width !== full.width || display.height !== full.height) {
+        display.width = full.width;
+        display.height = full.height;
+      }
+      displayContext.drawImage(full, 0, 0);
+      if (snapshot.bounds && snapshot.boundsFrameId === entry.frameId) {
+        displayContext.beginPath();
+        snapshot.bounds.forEach((point, index) => {
+          const x = point.x * full.width,
+            y = point.y * full.height;
+          if (index === 0) displayContext.moveTo(x, y);
+          else displayContext.lineTo(x, y);
+        });
+        displayContext.closePath();
+        displayContext.lineWidth = Math.max(2, full.width / 400);
+        displayContext.strokeStyle = "#ff4545";
+        displayContext.stroke();
+      }
+      entry.paintedMs = performance.now();
+      entry.paintedMediaMs = entry.mediaMs;
+      entry.liveMediaMs = video.currentTime * 1000;
+    };
     const receive = async (
       snapshot: MatrixCameraSnapshot,
       entry?: MatrixFrameTimeline,
@@ -163,8 +221,8 @@ export function openMatrixCamera(
         // An older reply must not replace an outline from a newer frame.
         if (snapshot.sequence < lastSequence) return true;
         lastSequence = snapshot.sequence;
+        if (entry) paint(snapshot, entry);
         onSnapshot(snapshot);
-        if (entry) painted(entry);
         return true;
       }
       processing = true;
@@ -176,6 +234,27 @@ export function openMatrixCamera(
       }
       onSnapshot(snapshot);
       return false;
+    };
+    /** Core asked for this frame's cells: send its full-resolution luma. */
+    const sendKeyframe = (frameId: number, capturedMs: number) => {
+      if (keyframeInFlight) return;
+      keyframeInFlight = true;
+      const { data } = fullContext.getImageData(0, 0, full.width, full.height);
+      const luma = lumaPlane(data, full.width * full.height);
+      void invoke<MatrixCameraSnapshot>("capture_matrix_keyframe", luma, {
+        headers: {
+          "x-matrix-session": id,
+          "x-matrix-frame": String(frameId),
+          "x-matrix-width": String(full.width),
+          "x-matrix-height": String(full.height),
+          "x-matrix-captured": String(capturedMs),
+        },
+      })
+        .then((snapshot) => receive(snapshot))
+        .catch(fail)
+        .finally(() => {
+          keyframeInFlight = false;
+        });
     };
     // One consumer starts with acquisition and independently reports consensus.
     const onProgress = new Channel<MatrixCameraSnapshot>();
@@ -198,22 +277,40 @@ export function openMatrixCamera(
           lastTime = video.currentTime;
           const scale = Math.min(
             1,
-            2200 / Math.max(video.videoWidth, video.videoHeight),
+            KEYFRAME_SIDE / Math.max(video.videoWidth, video.videoHeight),
           );
-          canvas.width = Math.round(video.videoWidth * scale);
-          canvas.height = Math.round(video.videoHeight * scale);
-          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const width = Math.round(video.videoWidth * scale);
+          const height = Math.round(video.videoHeight * scale);
+          if (full.width !== width || full.height !== height) {
+            full.width = width;
+            full.height = height;
+            const reduce = Math.min(1, ANALYSIS_SIDE / Math.max(width, height));
+            small.width = Math.round(width * reduce);
+            small.height = Math.round(height * reduce);
+          }
+          fullContext.drawImage(video, 0, 0, width, height);
           const frameId = nextFrameId++;
           const capturedMs = performance.now();
-          const image = canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
+          smallContext.drawImage(full, 0, 0, small.width, small.height);
+          const { data } = smallContext.getImageData(
+            0,
+            0,
+            small.width,
+            small.height,
+          );
+          const planes = analysisPlanes(data, small.width * small.height);
           const sentMs = performance.now();
           snapshot = await invoke<MatrixCameraSnapshot>(
-            "capture_matrix_camera_frame",
+            "track_matrix_camera_frame",
+            planes,
             {
-              sessionId: id,
-              image,
-              frameId,
-              capturedMs,
+              headers: {
+                "x-matrix-session": id,
+                "x-matrix-frame": String(frameId),
+                "x-matrix-width": String(small.width),
+                "x-matrix-height": String(small.height),
+                "x-matrix-captured": String(capturedMs),
+              },
             },
           );
           if (disposed) return;
@@ -227,12 +324,16 @@ export function openMatrixCamera(
             boundsFrameId: snapshot.boundsFrameId,
             paintedMs: null,
             paintedMediaMs: null,
+            liveMediaMs: null,
           };
           if (capture.timeline.length < TIMELINE_LIMIT)
             capture.timeline.push(entry);
           capture.frames += 1;
           capture.frameMs.push(performance.now() - started);
           if (capture.frameMs.length > 128) capture.frameMs.shift();
+          // The full canvas still holds this frame until the next one is drawn.
+          if (snapshot.keyframeFrameId === frameId)
+            sendKeyframe(frameId, capturedMs);
         } else {
           // Core's acquisition deadline still advances when video stalls.
           snapshot = await invoke<MatrixCameraSnapshot>("poll_matrix_camera", {

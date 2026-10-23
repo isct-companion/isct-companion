@@ -1916,6 +1916,7 @@ export type MatrixFrameTimeline = {
   boundsFrameId: number | null;
   paintedMs: number | null;
   paintedMediaMs: number | null;
+  liveMediaMs: number | null;
 };
 
 export type MatrixCameraPhase = "capturing" | "processing" | "complete";
@@ -1931,6 +1932,11 @@ export type MatrixCameraSnapshot = {
    * The camera frame `bounds` were measured on.
    */
   boundsFrameId: number | null;
+  /**
+   * Core wants the cells of this tracked frame now (it qualified and the
+   * sampling interval has passed); the shell sends its full resolution.
+   */
+  keyframeFrameId: number | null;
   readyCells: number;
   captureElapsedMs: number;
   timedOut: boolean;

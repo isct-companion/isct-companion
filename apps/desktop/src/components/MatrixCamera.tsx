@@ -15,6 +15,7 @@ export function MatrixCamera({
   onComplete: (cells: Recognition[]) => void;
 }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
+  const [display, setDisplay] = useState<HTMLCanvasElement | null>(null);
   const complete = useRef(onComplete);
   complete.current = onComplete;
   const [outline, setOutline] = useState<MatrixScanOutline>();
@@ -29,9 +30,10 @@ export function MatrixCamera({
     setProgress(0);
     setReadyCells(0);
     setOutline(undefined);
-    if (!video) return;
+    if (!video || !display) return;
     return openMatrixCamera(
       video,
+      display,
       (next) => {
         setOutline(next.bounds ? { bounds: next.bounds } : undefined);
         setReadyCells(next.readyCells);
@@ -62,7 +64,7 @@ export function MatrixCamera({
       },
       (failure) => setError(failure.message),
     );
-  }, [attempt, video]);
+  }, [attempt, video, display]);
   // Activity hiding detaches video refs and restarts the capture effect.
   // Keep the preview mounted while native recognition finishes.
   return (
@@ -82,19 +84,12 @@ export function MatrixCamera({
             )}
           </Text>
           <CameraPreview ref={setVideo} className="matrixCameraPreview">
-            <svg
-              viewBox="0 0 1 1"
-              preserveAspectRatio="none"
+            {/* Each analysed frame is drawn here with the outline fitted on
+                it; the live video shows through until the first one. */}
+            <canvas
+              ref={setDisplay}
               aria-label={t("Matrix recognition overlay")}
-            >
-              {outline && (
-                <polygon
-                  points={outline.bounds
-                    .map((point) => `${point.x},${point.y}`)
-                    .join(" ")}
-                />
-              )}
-            </svg>
+            />
           </CameraPreview>
           {error ? (
             <Alert color="red" role="alert">

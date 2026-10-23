@@ -124,8 +124,9 @@ pub struct MatrixCaptureMetrics {
     pub timeline: Vec<MatrixFrameTimeline>,
 }
 /// Webview clock (`performance.now()`, ms) for one frame sent for analysis.
-/// `media_ms` is the video position of the analysed frame; `painted_*` are
-/// taken in the animation frame after the reply's outline was applied.
+/// `media_ms` is the video position of the analysed frame. `painted_ms` is
+/// when that frame was drawn with its outline, `painted_media_ms` the video
+/// position of the drawn picture and `live_media_ms` the live video's then.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -139,6 +140,8 @@ pub struct MatrixFrameTimeline {
     pub bounds_frame_id: Option<u32>,
     pub painted_ms: Option<f64>,
     pub painted_media_ms: Option<f64>,
+    #[serde(default)]
+    pub live_media_ms: Option<f64>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

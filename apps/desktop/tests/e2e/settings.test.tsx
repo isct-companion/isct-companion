@@ -779,12 +779,20 @@ describe("Matrix scan and paste", () => {
         "videoHeight",
         "get",
       ).mockReturnValue(1080);
+      // jsdom has no canvas renderer: record the outline path instead.
+      const path: number[][] = [];
+      const stroke = vi.fn();
       vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
         drawImage: vi.fn(),
+        getImageData: (_x: number, _y: number, w: number, h: number) => ({
+          data: new Uint8ClampedArray(w * h * 4),
+        }),
+        beginPath: () => path.splice(0),
+        moveTo: (x: number, y: number) => path.push([x, y]),
+        lineTo: (x: number, y: number) => path.push([x, y]),
+        closePath() {},
+        stroke,
       } as unknown as CanvasRenderingContext2D);
-      vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
-        "data:image/jpeg;base64,Y2FtZXJh",
-      );
       let finishCapture: (() => void) | undefined;
       let finishScan: (() => void) | undefined;
       let frames = 0;
@@ -816,9 +824,16 @@ describe("Matrix scan and paste", () => {
               frames = 0;
               return `camera-${++sessions}`;
             }
-            if (command === "capture_matrix_camera_frame") {
+            if (command === "track_matrix_camera_frame") {
               if (frames++ === 0)
-                return { ...captured, phase: "capturing", readyCells: 69 };
+                return {
+                  ...captured,
+                  phase: "capturing",
+                  readyCells: 69,
+                  sequence: 1,
+                  boundsFrameId: 0,
+                  keyframeFrameId: null,
+                };
               return new Promise((resolve) => {
                 finishCapture = () => resolve(captured);
               });
@@ -847,16 +862,14 @@ describe("Matrix scan and paste", () => {
           expect(cardButtons(card)).toContain("Scan with camera"),
         );
         await click(buttonIn(card, "Scan with camera"));
-        await wait(() =>
-          expect(
-            document.body.querySelectorAll(".matrixCameraPreview polygon"),
-          ).toHaveLength(1),
-        );
-        expect(
-          document.body
-            .querySelector(".matrixCameraPreview polygon")
-            ?.getAttribute("points"),
-        ).toBe("0.1,0.2 0.9,0.2 0.9,0.8 0.1,0.8");
+        // One outline, drawn on the analysed 1920 x 1080 frame it came from.
+        await wait(() => expect(stroke).toHaveBeenCalledTimes(1));
+        expect(path).toEqual([
+          [192, 216],
+          [1728, 216],
+          [1728, 864],
+          [192, 864],
+        ]);
         expect(
           document.body.querySelector(".matrixCameraPreview text"),
         ).toBeNull();
@@ -864,7 +877,7 @@ describe("Matrix scan and paste", () => {
           "Use current result and review",
         );
         expect(document.body.textContent).toContain(
-          "Capturing Matrix… 69/70 cells ready.",
+          "Recognizing Matrix… 69/70 cells confirmed.",
         );
         expect(matrixInputs(card).every((input) => input.value === "")).toBe(
           true,
@@ -899,7 +912,7 @@ describe("Matrix scan and paste", () => {
           "Processing Matrix… You can put your card down.",
         );
         expect(document.body.textContent).not.toContain(
-          "Capturing Matrix… 70/70 cells ready.",
+          "Recognizing Matrix… 70/70 cells confirmed.",
         );
         expect(matrixInputs(card).every((input) => input.value === "")).toBe(
           true,
@@ -916,7 +929,7 @@ describe("Matrix scan and paste", () => {
         );
         await wait(() =>
           expect(document.body.textContent).toContain(
-            "Capturing Matrix… 69/70 cells ready.",
+            "Recognizing Matrix… 69/70 cells confirmed.",
           ),
         );
         await wait(() => expect(finishCapture).toBeDefined());
