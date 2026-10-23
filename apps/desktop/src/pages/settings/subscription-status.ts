@@ -25,7 +25,6 @@ export function formatDay(
   return formatJst(date, locale, {
     month: "short",
     day: "numeric",
-    timeZone: "Asia/Tokyo",
     ...options,
   });
 }

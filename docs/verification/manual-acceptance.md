@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 76 checks must be re-run before the next release.**
+**7 of 77 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -27,7 +27,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 
-**67 checks have never been run or could not be run:**
+**68 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -94,6 +94,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-TLS-VERIFIER` — never verified
 - `SCHOOL-KYOMU-RUST-TLS` — never verified
 - `SETTINGS-RESET` — never verified
+- `TODAY-NOW-LINE-NEXT-DAY` — never verified
 - `MOBILE-SETTINGS-RESET` — never verified
 - `MOBILE-BACKGROUND-SYNC` — never verified
 
@@ -175,6 +176,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
 | `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/certs/nii-odca4g7rsa.pem<br>crates/isct-core/src/school_browser/engine/login.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
 | `SETTINGS-RESET` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/ResetSettings.tsx<br>apps/desktop/src-tauri/src/commands/reset.rs |
+| `TODAY-NOW-LINE-NEXT-DAY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
 | `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt |
 | `MOBILE-BACKGROUND-SYNC` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt |
 
@@ -4216,6 +4218,57 @@ and what a person sees.
 
 - `apps/desktop/src/pages/settings/ResetSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/reset.rs`
+
+**Last recorded** never run
+
+### The now line moves to the new day's column after the app stays open overnight (`TODAY-NOW-LINE-NEXT-DAY`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app open on a weekday of a running quarter, with the Mac
+allowed to sleep overnight.
+
+**Steps**
+
+1. In the evening open Today → Week, then switch to Lectures and leave
+   the app running; let the Mac sleep through the night.
+   - *Why:* A hidden page used to stop its own clock: the week view kept
+     yesterday as "today" while the line read the current time.
+2. The next morning wake the Mac, bring the window forward and go back
+   to Today → Week straight away.
+   - *Why:* The column must be right on the first frame, not a minute later
+     when a timer catches up.
+3. Open Timetable.
+   - *Why:* The course timetable marks today's weekday from the same clock and
+     must also show the line in the new day's column.
+
+**Where to look**
+
+The red now line and the tinted today column in Today → Week and in
+Timetable.
+
+**Expected**
+
+Both views tint the new day's column and draw the line at the current
+time inside it, with nothing left in yesterday's column.
+
+**Why this is manual**
+
+It needs a real night: OS sleep and WebView timer throttling cannot be
+reproduced over the fake host. The clock itself (a fresh minute after a
+stalled timer, resync on return) is covered by
+`apps/desktop/tests/unit/schedule-and-dates.test.ts`; this check is what
+a person sees in the two week views.
+
+**Covers**
+
+- `apps/desktop/src/pages/today/CalendarView.tsx`
+- `apps/desktop/src/pages/courses/CoursesPage.tsx`
+- `apps/desktop/src/app/useCoreLifecycle.ts`
 
 **Last recorded** never run
 

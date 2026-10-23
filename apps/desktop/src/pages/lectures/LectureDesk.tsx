@@ -17,10 +17,13 @@ import {
 import type { Assignment, TermId, Workspace } from "../../lib/model";
 import { submissionLabel } from "../../lib/academic";
 import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
-import { addCivilDays as addDays, civilWeekday } from "../../lib/civil-date";
+import {
+  addCivilDays as addDays,
+  civilWeekday,
+  jstMinutes,
+  tokyoDate,
+} from "../../lib/civil-date";
 import { UiSelect } from "../../components/mantine";
-import { jstMinutes } from "../../components/timetable/timetable";
-import { jstDate } from "../../app/shared";
 import { t } from "../../i18n";
 import type { CourseEntry } from "../../features/lms/LmsWorkspace";
 import { useClock } from "../../platform/use-clock";
@@ -154,7 +157,7 @@ export function LectureDesk({
   });
   const nowIso = useClock(active);
   const now = useMemo(() => new Date(nowIso), [nowIso]);
-  const today = jstDate(now);
+  const today = tokyoDate(now);
   const snapshot = useScheduleQueries<[ScheduleView, TaskView]>([
     {
       kind: "scheduleView",

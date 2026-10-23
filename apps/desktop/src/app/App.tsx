@@ -47,7 +47,7 @@ import { confirmAction } from "../components/confirm";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import { desktopBridge, hideNativeSchoolWeb, saveExportFile } from "./native";
-import { jstDate, type Page, type Section } from "./shared";
+import { type Page, type Section } from "./shared";
 
 import { Today } from "../pages/today/TodayPage";
 import type { CourseEntry } from "../features/lms/LmsWorkspace";
@@ -954,11 +954,9 @@ export function WorkspaceApp() {
                             ...options,
                             hour: "2-digit",
                             minute: "2-digit",
-                            hourCycle: "h23",
-                            timeZone: "Asia/Tokyo",
                           });
                         notify.info(
-                          occurrence.startsWith(jstDate(new Date()))
+                          occurrence.startsWith(tokyoDate(new Date()))
                             ? t(
                                 "Today's {{time}} class is recorded as {{lesson}}.",
                                 { time: format({}), lesson: label },

@@ -24,6 +24,7 @@ import {
   type PlanningWeek,
   type WorkspaceOverview,
 } from "../../platform/core-query";
+import { useClock } from "../../platform/use-clock";
 
 /**
  * Timetable on the left, syllabus search on the right. Clicking a course opens
@@ -131,9 +132,10 @@ export function Courses({
     defaultValue: "5",
   });
   // The quarter running now marks today's weekday, which shows the now line.
+  const now = useClock();
   const allColumns = planningColumns(
     planning,
-    term === currentTerm ? tokyoDate(new Date()) : undefined,
+    term === currentTerm ? tokyoDate(new Date(now)) : undefined,
   );
   const columns =
     weekLength === "7"
@@ -357,7 +359,7 @@ export function Courses({
               <WeekTimetable
                 days={columns}
                 onSelect={select}
-                showNow
+                now={now}
                 onSlot={canEdit ? onSlot : undefined}
                 activeSlots={activeSlots}
               />

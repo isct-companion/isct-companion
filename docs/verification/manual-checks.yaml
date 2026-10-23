@@ -3556,6 +3556,49 @@ checks:
       - apps/desktop/src-tauri/src/commands/reset.rs
     verified: null
 
+  - id: TODAY-NOW-LINE-NEXT-DAY
+    area: desktop
+    title: The now line moves to the new day's column after the app stays open overnight
+    persona: undergraduate-senior
+    preconditions: |
+      The desktop app open on a weekday of a running quarter, with the Mac
+      allowed to sleep overnight.
+    steps:
+      - action: |
+          In the evening open Today → Week, then switch to Lectures and leave
+          the app running; let the Mac sleep through the night.
+        reason: |
+          A hidden page used to stop its own clock: the week view kept
+          yesterday as "today" while the line read the current time.
+      - action: |
+          The next morning wake the Mac, bring the window forward and go back
+          to Today → Week straight away.
+        reason: |
+          The column must be right on the first frame, not a minute later
+          when a timer catches up.
+      - action: |
+          Open Timetable.
+        reason: |
+          The course timetable marks today's weekday from the same clock and
+          must also show the line in the new day's column.
+    observe: |
+      The red now line and the tinted today column in Today → Week and in
+      Timetable.
+    expected: |
+      Both views tint the new day's column and draw the line at the current
+      time inside it, with nothing left in yesterday's column.
+    why_manual: |
+      It needs a real night: OS sleep and WebView timer throttling cannot be
+      reproduced over the fake host. The clock itself (a fresh minute after a
+      stalled timer, resync on return) is covered by
+      `apps/desktop/tests/unit/schedule-and-dates.test.ts`; this check is what
+      a person sees in the two week views.
+    covers:
+      - apps/desktop/src/pages/today/CalendarView.tsx
+      - apps/desktop/src/pages/courses/CoursesPage.tsx
+      - apps/desktop/src/app/useCoreLifecycle.ts
+    verified: null
+
   - id: MOBILE-SETTINGS-RESET
     area: native
     title: Reset from Settings on iPhone and Android
