@@ -58,9 +58,11 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.isctcompanion.core.AppModel
+import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.TlsVerifier
 import app.isctcompanion.core.WebRouter
+import app.isctcompanion.design.Guide
 import app.isctcompanion.design.IsctTheme
 import app.isctcompanion.design.Localizer
 import app.isctcompanion.design.t
@@ -68,6 +70,7 @@ import app.isctcompanion.design.Theme
 import app.isctcompanion.features.assignments.RecordScreen
 import app.isctcompanion.features.course.CourseDetailScreen
 import app.isctcompanion.features.settings.SettingsScreen
+import app.isctcompanion.features.settings.WelcomeSheet
 import app.isctcompanion.features.timetable.TimetableScreen
 import app.isctcompanion.features.today.TodayScreen
 import app.isctcompanion.features.web.WebPageScreen
@@ -83,6 +86,7 @@ class IsctApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Localizer.attach(this)
+        Guide.attach(this)
         // Before the session opens: Core's HTTPS verifies through Android.
         TlsVerifier.install(this)
         scope.launch { model.start() }
@@ -121,11 +125,17 @@ class Navigator(private val controller: NavHostController) {
 
     fun openRecord() = controller.navigate("record")
 
-    /** Switches to the 設定 tab, as tapping it would. */
-    fun openSettings() = controller.navigate("tab/settings") {
-        popUpTo(controller.graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
+    /** The account page 設定 should open on, taken (and cleared) by it. */
+    var settingsAccount by mutableStateOf<SchoolAuthProfile?>(null)
+
+    /** Switches to the 設定 tab, as tapping it would, or onto an account page. */
+    fun openSettings(account: SchoolAuthProfile? = null) {
+        settingsAccount = account
+        controller.navigate("tab/settings") {
+            popUpTo(controller.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
     }
 
     fun back() = controller.popBackStack()
@@ -243,6 +253,7 @@ private fun Tabs() {
                 }
             }
         }
+        WelcomeSheet { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
     }
 }
 

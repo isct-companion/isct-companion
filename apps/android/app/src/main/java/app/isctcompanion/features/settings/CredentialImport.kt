@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Keyboard
@@ -104,12 +105,17 @@ private fun clipboardText(context: Context): String? =
 
 // OTP
 
-/** The OTP setup field with three sources: Google's code scanner, a
- * screenshot (the authenticator's export QR on this same phone), or the clipboard. */
+/** The OTP setup, as the desktop's chooser: once saved, one line that says
+ * codes fill themselves in; otherwise a choice between an authenticator's
+ * export QR (Google's code scanner, or a screenshot on this phone) and a
+ * pasted setup. Registering with the school is the desktop's job, so it is
+ * pointed to. */
 @Composable
 fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var changing by remember { mutableStateOf(false) }
+    var path by remember { mutableStateOf("export") }
     var choices by remember { mutableStateOf<List<OtpImportAccount>>(emptyList()) }
     var label by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -148,39 +154,54 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
         }
     }
 
-    OutlinedTextField(
-        setup, { onSetup(it); label = null }, singleLine = true,
-        label = { Text(if (saved) t("Saved (enter only to change)") else t("TOTP secret or otpauth:// link")) },
-        // Masked like a password, but not typed as one: Autofill must not offer
-        // the school login here.
-        visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(
-            capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SourceChip(t("Scan QR"), Icons.Outlined.QrCodeScanner) {
-            scope.launch {
-                when (val result = scanQr(context)) {
-                    null -> Unit
-                    else -> result.fold(::read) { error = t("Could not open the scanner. Use From photo instead.") }
+    if (saved && !changing && setup.isEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Outlined.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
+            Text(t("Codes are filled in for you at sign-in."), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+            TextButton(onClick = { changing = true }) { Text(t("Change")) }
+        }
+        return
+    }
+    Choices(listOf("export" to t("From an authenticator app"), "paste" to t("Setup link or secret")), path) { path = it }
+    if (path == "export") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SourceChip(t("Scan QR"), Icons.Outlined.QrCodeScanner) {
+                scope.launch {
+                    when (val result = scanQr(context)) {
+                        null -> Unit
+                        else -> result.fold(::read) { error = t("Could not open the scanner. Use From photo instead.") }
+                    }
                 }
             }
+            SourceChip(t("From photo"), Icons.Outlined.Image) {
+                photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
         }
-        SourceChip(t("From photo"), Icons.Outlined.Image) {
-            photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-        }
+        Hint(t("Google Authenticator: Transfer accounts → Export accounts, select only the school account."))
+    } else {
+        OutlinedTextField(
+            setup, { onSetup(it); label = null }, singleLine = true,
+            label = { Text(t("otpauth://… or secret key")) },
+            // Masked like a password, but not typed as one: Autofill must not offer
+            // the school login here.
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
         SourceChip(t("Paste"), Icons.Outlined.ContentPaste) {
             clipboardText(context)?.let(::read) ?: run { error = t("The clipboard is empty.") }
         }
+        Hint(t("Not the six-digit code that changes every 30 seconds."))
     }
     label?.let { Text(t("Read “{{label}}”. Save to use it.", "label" to it), style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
-    Text(
-        t("In Google Authenticator, choose Transfer accounts → Export, select only your school account, and load a screenshot of the QR code with From photo."),
-        style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
-    )
+    if (!saved) {
+        Hint(t("Not registered yet? The desktop app registers with the school for you."))
+    } else if (setup.isEmpty()) {
+        TextButton(onClick = { changing = false }) { Text(t("Keep the saved setup")) }
+    }
     if (choices.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { choices = emptyList() },
@@ -200,6 +221,9 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
         )
     }
 }
+
+@Composable
+private fun Hint(text: String) = Text(text, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
 
 private fun name(account: OtpImportAccount) =
     listOf(account.issuer, account.label).filter { it.isNotEmpty() }.joinToString(" · ")
