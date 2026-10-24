@@ -609,7 +609,8 @@ function main() {
             return "";
           }
         })();
-        if (current !== next) {
+        // Git may check out CRLF on Windows; line endings do not change it.
+        if (current.replaceAll("\r\n", "\n") !== next) {
           return fail("docs/verification/manual-acceptance.md is out of date", [
             "run `yarn verify:manual render`",
           ]);
