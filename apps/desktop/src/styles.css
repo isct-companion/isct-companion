@@ -315,8 +315,8 @@ summary,
   align-items: center;
   gap: 18px;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
+  /* Docked, not floating: a hairline separates it; shadows are for overlays. */
   border-top: 1px solid var(--line);
-  box-shadow: 0 -8px 24px color-mix(in srgb, var(--ink) 5%, transparent);
   backdrop-filter: blur(16px);
 }
 .schoolStatusAccounts {
