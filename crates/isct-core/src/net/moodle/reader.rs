@@ -127,40 +127,59 @@ impl<'a> LmsReader<'a> {
 
     // -- lms.enrolment -------------------------------------------------------
 
-    /// `lms.enrolment/all`: enrolled courses and the default dashboard grid
-    /// over token. The cookie fallback reads all offered quarters. Ingestion
-    /// retains stored grids for quarters this read did not show.
-    pub(crate) async fn enrolment(&mut self) -> Result<LmsEnrolment, KeyError> {
-        let mut raw = self.read_enrolment().await;
-        if self.falls_back(&raw) && self.fall_back().await {
-            raw = self.read_enrolment().await;
-        }
-        validate_enrolment(raw?).map_err(KeyError::parse)
+    /// `lms.enrolment/all`, light: enrolled courses and the current
+    /// quarter's grid over this pull's transport. Ingestion retains the
+    /// stored grids of the other quarters.
+    pub(crate) async fn current_enrolment(&mut self) -> Result<LmsEnrolment, KeyError> {
+        let courses = self.read_courses().await?;
+        let grids = if self.on_token() {
+            vec![self.token_timetable().await?]
+        } else {
+            // With no years asked for, only the dashboard's own grid.
+            self.cookie_timetables(&BTreeSet::new()).await?
+        };
+        self.enrolment(courses, grids)
     }
 
-    async fn read_enrolment(&mut self) -> Result<Value, KeyError> {
+    /// `lms.enrolment/all`, full: enrolled courses and every offered quarter's
+    /// grid of their years, which only the session cookie's dashboard reads.
+    pub(crate) async fn full_enrolment(&mut self) -> Result<LmsEnrolment, KeyError> {
         let courses = self.read_courses().await?;
-        if self.on_token() {
-            let function = MoodleFunction::DashboardBlocks;
-            let data = self
-                .transport
-                .call(function, json!({"returncontents": true}))
-                .await
-                .map_err(KeyError::at(function.name()))?;
-            if has_warnings(&data) {
-                return Err(KeyError::new(function.name(), MoodleError::Partial));
-            }
-            let grid = dashboard_timetable(&data).ok_or_else(|| {
-                KeyError::new(
-                    function.name(),
-                    MoodleError::Malformed("dashboard timetable"),
-                )
-            })?;
-            log::info!(target: "isct_core::net::moodle", "LMS enrolment read with token dashboard term={}", super::grid_term(&grid));
-            return Ok(
-                json!({"language": self.language, "courses": courses, "timetables": [grid]}),
-            );
+        let years: BTreeSet<i32> = courses.iter().filter_map(course_year).collect();
+        let grids = self.cookie_timetables(&years).await?;
+        self.enrolment(courses, grids)
+    }
+
+    fn enrolment(&self, courses: Vec<Value>, grids: Vec<Value>) -> Result<LmsEnrolment, KeyError> {
+        log::info!(target: "isct_core::net::moodle", "LMS enrolment read terms={:?}", grids.iter().map(super::grid_term).collect::<Vec<_>>());
+        validate_enrolment(
+            json!({"language": self.language, "courses": courses, "timetables": grids}),
+        )
+        .map_err(KeyError::parse)
+    }
+
+    /// The token dashboard's grid: the current quarter only.
+    async fn token_timetable(&self) -> Result<Value, KeyError> {
+        let function = MoodleFunction::DashboardBlocks;
+        let data = self
+            .transport
+            .call(function, json!({"returncontents": true}))
+            .await
+            .map_err(KeyError::at(function.name()))?;
+        if has_warnings(&data) {
+            return Err(KeyError::new(function.name(), MoodleError::Partial));
         }
+        dashboard_timetable(&data).ok_or_else(|| {
+            KeyError::new(
+                function.name(),
+                MoodleError::Malformed("dashboard timetable"),
+            )
+        })
+    }
+
+    /// The signed-in dashboard's grid and every other quarter's of `years`,
+    /// read through the dashboard's timetable filter.
+    async fn cookie_timetables(&mut self, years: &BTreeSet<i32>) -> Result<Vec<Value>, KeyError> {
         let dashboard = match self.dashboard.take() {
             Some(dashboard) => dashboard,
             None => self
@@ -172,11 +191,9 @@ impl<'a> LmsReader<'a> {
         if !dashboard.config.language.is_empty() {
             self.language = dashboard.config.language.clone();
         }
-        let years: BTreeSet<i32> = courses.iter().filter_map(course_year).collect();
-        let grids = self.client.timetables(&dashboard, &years).await;
+        let grids = self.client.timetables(&dashboard, years).await;
         self.dashboard = Some(dashboard);
-        let grids = grids.map_err(KeyError::on_cookie)?;
-        Ok(json!({"language": self.language, "courses": courses, "timetables": grids}))
+        grids.map_err(KeyError::on_cookie)
     }
 
     async fn read_courses(&self) -> Result<Vec<Value>, KeyError> {

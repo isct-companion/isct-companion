@@ -13,6 +13,7 @@ mod planner;
 mod runner;
 mod snapshot;
 
+pub(crate) use planner::Depth;
 pub(crate) use runner::{Gated, KeyEnd, Lease};
 
 use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};
@@ -71,7 +72,11 @@ pub enum Hint {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum View {
     Today,
     Assignments,
@@ -88,15 +93,25 @@ pub enum View {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum Scope {
     Everything,
-    Site { site: SchoolSite },
-    Course { lms_course_id: u64 },
+    Site {
+        site: SchoolSite,
+    },
+    Course {
+        lms_course_id: u64,
+    },
     /// What the timetable grid is drawn from, the keys of `View::Timetable`.
     Timetable,
     References,
-    Catalog { year: u16 },
+    Catalog {
+        year: u16,
+    },
 }
 
 /// i18n key plus arguments; shells translate, Core never builds sentences.

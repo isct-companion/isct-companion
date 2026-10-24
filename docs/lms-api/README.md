@@ -66,9 +66,13 @@ OpenAPI 的 `RpcRequest.oneOf` 和 `wsfunction` discriminator 描述各函数的
 讨论列表的 `discussion` 是讨论 ID，`id` 是首帖 ID。
 时间戳以秒为单位；0 通常表示未设置。HTML 通过应用现有的内容处理后再显示。
 
-日常刷新现在优先用 token 同步课程列表和 `tttimetable` 默认课表。区块的
-`contents.content` 交给既有 Rust 课表解析器，未返回的历史季度保留缓存。
-区块接口不可用或课表无法解析时，回退到既有 Cookie 读取路径；网络故障按原策略重试。
+课程表分两种读取，由同步规划器决定（`sync_engine::Depth`）：
+
+- 轻量（自动触发）：用 token 读课程列表和 `tttimetable` 默认课表（当前季度）。区块的
+  `contents.content` 交给既有 Rust 课表解析器，未返回的季度保留缓存。失败时不回退，
+  按原策略等下次重试。
+- 全量（刷新按钮，或该键第一次读取）：课程列表照常读，所有季度的课表都走 Cookie
+  的 `POST /2025/my/index.php`，因为 token 只能看到当前季度。
 
 跨季度的 `year`、`quota`、`search` 参数会被 REST 拒绝（`invalidparameter`）。
 学校没有公开课表专用服务函数，也未在移动插件列表中提供 `block_tttimetable`。
