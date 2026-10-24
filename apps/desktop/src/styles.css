@@ -35,6 +35,15 @@ body {
   background-position: center;
   overflow: hidden;
 }
+/* The window draws a system material (Windows 11 Mica, lib.rs
+   window_material): the window background and the rail let it through, and
+   the content above them stays opaque. */
+:root[data-window-material] body {
+  background-color: transparent;
+}
+:root[data-window-material] .rail {
+  background: transparent;
+}
 a {
   color: var(--accent);
 }

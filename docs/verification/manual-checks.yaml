@@ -4906,3 +4906,42 @@ checks:
       - apps/ios/IsctCompanion/Design/Polish.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt
     verified: null
+  - id: DESKTOP-WINDOW-MATERIAL
+    area: desktop
+    title: Windows 11 draws Mica behind the sidebar and window background, never the desktop
+    persona: windows-snap-user
+    preconditions: |
+      The desktop app on Windows 11 and, separately, on Windows 10, with the
+      appearance setting on System, then Light and Dark against the opposite
+      system theme.
+    steps:
+      - action: |
+          Open Today and look at the sidebar and the space around the cards;
+          move the window over a colourful wallpaper.
+        reason: |
+          Mica is applied by the native window (lib.rs window_material) behind
+          a transparent page; only the screen shows whether the material, and
+          not a white page or the desktop itself, fills those areas.
+      - action: |
+          Switch the app's appearance to the opposite of the system theme.
+        reason: |
+          The material follows the window theme, which the page sets from the
+          appearance setting; a mismatch shows light Mica behind dark content.
+      - action: |
+          Repeat on Windows 10.
+        reason: |
+          Windows 10 has no Mica; the window must stay opaque there rather than
+          turn transparent and show the desktop through.
+    observe: |
+      The native window's sidebar, background and title bar.
+    expected: |
+      On Windows 11 the sidebar and background show a faint wallpaper-tinted
+      material in the app's theme, cards stay opaque, the title bar matches;
+      on Windows 10 the window looks as before, fully opaque.
+    why_manual: |
+      The system backdrop is composited by DWM outside the webview; neither a
+      headless DOM nor a page screenshot contains it.
+    covers:
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src/app/useAppearance.ts
+    verified: null

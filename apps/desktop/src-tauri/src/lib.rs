@@ -37,12 +37,29 @@ mod workspaces;
 
 /// The frontend's build-time identity: shell kind and operating system, both
 /// fixed when this binary is compiled, so the UI never sniffs user agents.
+/// The window material is decided here too, once, before the page loads.
 fn native_bootstrap() -> String {
     format!(
         "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{{value:'native-desktop',writable:false,configurable:false}});\
-         Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_OS__',{{value:'{}',writable:false,configurable:false}});",
-        std::env::consts::OS
+         Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_OS__',{{value:'{}',writable:false,configurable:false}});\
+         Object.defineProperty(window,'__ISCT_COMPANION_WINDOW_MATERIAL__',{{value:'{}',writable:false,configurable:false}});",
+        std::env::consts::OS,
+        window_material().unwrap_or("")
     )
+}
+
+/// The system material drawn behind the transparent page, which then keeps
+/// only its content opaque (styles.css `[data-window-material]`).
+#[cfg(target_os = "windows")]
+fn window_material() -> Option<&'static str> {
+    // Windows 11 is build 22000; earlier builds have no Mica, and a
+    // transparent window there would show the desktop through.
+    (windows_version::OsVersion::current().build >= 22000).then_some("mica")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn window_material() -> Option<&'static str> {
+    None
 }
 
 fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
@@ -364,7 +381,18 @@ pub fn run() {
                 );
                 #[cfg(not(dev))]
                 let main_url = WebviewUrl::App("index.html".into());
-                WebviewWindowBuilder::new(app, "main", main_url)
+                let window = WebviewWindowBuilder::new(app, "main", main_url);
+                #[cfg(target_os = "windows")]
+                let window = if window_material().is_some() {
+                    window.transparent(true).effects(
+                        tauri::window::EffectsBuilder::new()
+                            .effect(tauri::window::Effect::Mica)
+                            .build(),
+                    )
+                } else {
+                    window
+                };
+                window
                     .title("IsctCompanion")
                     .inner_size(1280.0, 820.0)
                     .min_inner_size(860.0, 620.0)
