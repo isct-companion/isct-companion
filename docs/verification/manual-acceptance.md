@@ -2623,13 +2623,14 @@ Needs Apple credentials and the notarization service.
 
 **Preconditions**
 
-The IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD, IOS_MOBILE_PROVISION and
-APPLE_API_* repository secrets are configured; IOS_TESTFLIGHT_ENABLED is true.
+The IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD, IOS_MOBILE_PROVISION,
+IOS_SHARE_MOBILE_PROVISION, IOS_OPEN_MOBILE_PROVISION and APPLE_API_*
+repository secrets are configured; IOS_TESTFLIGHT_ENABLED is true.
 
 **Steps**
 
-1. Dispatch the iOS release workflow and inspect the signing, archive,
-   export and upload steps in its Actions log.
+1. Dispatch the iOS release workflow with upload_testflight enabled and
+   inspect the signing, archive, export and upload steps in its Actions log.
    - *Why:* A compilation-only run cannot validate the supplied signing identity
      and profile or prove that Apple accepts the signed IPA.
 2. In App Store Connect, wait for the matching version/build to process,
@@ -2644,8 +2645,9 @@ group assignment and installed version on the iPhone.
 
 **Expected**
 
-The existing Apple Distribution identity and App Store profile sign the
-IPA; Apple processes it and the intended tester can install that build.
+The existing Apple Distribution identity and each bundle's App Store
+profile sign the app and both extensions; Apple processes the IPA and
+the intended tester can install that build.
 
 **Why this is manual**
 
@@ -5499,10 +5501,11 @@ real Google account. The PKCE checks and token storage are covered by
 
 **Preconditions**
 
-An APK built on the Windows machine from this branch, signed with a key
-whose SHA-1 is registered on the IsctCompanion Android OAuth client, on
-a phone with a Google account that is a test user; a desktop app with
-Drive on and at least one plan uploaded.
+The release-signed APK from the Android release workflow, with its package
+and certificate SHA-1 registered on the Android release OAuth client,
+installed on a phone with Play services. The OAuth app is in production;
+use a Google account outside its test-user list. A desktop app has Drive
+on and at least one plan uploaded.
 
 **Steps**
 

@@ -36,6 +36,15 @@ Back up the keystore and its passwords outside the repository.
 The `versionCode` is derived from the version (`1.1.8` → `10108`), so each
 release updates the previous one.
 
+Google Drive authorization matches the APK's package and signing certificate.
+The release client in `config/oauth-clients.yaml` is registered for
+`app.isctcompanion` with SHA-1
+`8D:A3:F4:A1:0E:BC:06:12:74:C7:D6:58:3B:B3:9E:0B:13:8E:A1:8C`.
+Keep the separate debug client for local builds. If distributing through Google
+Play App Signing, register its app signing certificate as another Android client
+before testing the Play-delivered APK. Check `ANDROID-DRIVE-SIGNIN` with the
+release APK and an account outside the OAuth test-user list before release.
+
 ## iOS
 
 Uploading is off until the repository variable is set:

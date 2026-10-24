@@ -1,0 +1,39 @@
+{
+  "bundleId": "app.isctcompanion",
+  "versionString": "1.2.0",
+  "platform": "IOS",
+  "copyright": "2026 Gliese129 and OHNope",
+  "primaryCategory": "EDUCATION",
+  "localizations": {
+    "en-US": {
+      "name": "IsctCompanion",
+      "subtitle": "Your Science Tokyo study day",
+      "description": "Keep your Science Tokyo study day in one place.\n\n• See today's classes, upcoming exams and assignment deadlines.\n• Browse courses, syllabi, materials and assignment details.\n• Organize your timetable and personal study plans.\n• Share files from other apps into an assignment workspace, then send them to the LMS draft area for review.\n• Set reminders for classes, exams and assignments.\n• Keep devices in sync with optional iCloud or Google Drive backups.\n• Scan a Matrix card and manage automatic school verification codes.\n\nOn iPad, landscape view offers a wider workspace for course materials and assignments.\n\nUniversity-linked features use your own university account. IsctCompanion is an independent app and is not affiliated with or endorsed by Institute of Science Tokyo.",
+      "keywords": "Science Tokyo,timetable,assignments,courses,study,calendar",
+      "supportUrl": "https://github.com/isct-companion/isct-companion/issues",
+      "marketingUrl": "https://github.com/isct-companion/isct-companion",
+      "privacyPolicyUrl": null,
+      "whatsNew": null
+    },
+    "ja": {
+      "name": "IsctCompanion",
+      "subtitle": "科学大の授業・課題をひとつに",
+      "description": "東京科学大学での学習を、ひとつの場所に。\n\n・今日の授業、試験、課題の締め切りを確認\n・授業、シラバス、教材、課題の詳細を閲覧\n・時間割と学習計画を整理\n・ほかのアプリから課題の作業スペースにファイルを共有し、LMS の下書き欄へ送って確認\n・授業、試験、課題のリマインダーを設定\n・iCloud や Google Drive を使った任意のバックアップと端末間同期\n・マトリクス表の読み取りと大学の認証コードの管理\n\niPad の横向き表示では、広い作業スペースで教材や課題を扱えます。\n\n大学のサービスと連携する機能には、ご自身の大学アカウントを使用します。IsctCompanion は独立したアプリであり、東京科学大学の公式アプリではありません。",
+      "keywords": "科学大,時間割,課題,授業,シラバス,学習,試験,東京工業大学",
+      "supportUrl": "https://github.com/isct-companion/isct-companion/issues",
+      "marketingUrl": "https://github.com/isct-companion/isct-companion",
+      "privacyPolicyUrl": null,
+      "whatsNew": null
+    },
+    "zh-Hans": {
+      "name": "IsctCompanion",
+      "subtitle": "科学大课表、课程与作业助手",
+      "description": "把东京科学大学的日常学习安排放在一起。\n\n• 查看今日课程、考试和作业截止时间\n• 浏览课程、教学大纲、资料和作业详情\n• 整理课表与个人学习计划\n• 从其他 App 分享文件到作业工作区，再送入 LMS 草稿区确认\n• 分别设置课程、考试和作业提醒\n• 自选 iCloud、Google Drive 或两者，备份并同步多台设备\n• 扫描 Matrix 卡，管理学校登录验证码\n\niPad 横屏提供更宽的工作区，方便查看课程资料和处理作业。\n\n学校服务相关功能使用你自己的大学账号。IsctCompanion 是独立开发的应用，并非东京科学大学官方应用，也未获该大学背书。",
+      "keywords": "科学大,课表,作业,课程,考试,学习计划,东京工业大学",
+      "supportUrl": "https://github.com/isct-companion/isct-companion/issues",
+      "marketingUrl": "https://github.com/isct-companion/isct-companion",
+      "privacyPolicyUrl": null,
+      "whatsNew": null
+    }
+  }
+}
