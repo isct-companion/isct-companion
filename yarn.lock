@@ -661,6 +661,7 @@ __metadata:
     "@codemirror/lang-python": "npm:^6.0.0"
     "@codemirror/language": "npm:^6.0.0"
     "@codemirror/legacy-modes": "npm:^6.4.0"
+    "@codemirror/search": "npm:^6.0.0"
     "@codemirror/state": "npm:^6.0.0"
     "@codemirror/view": "npm:^6.0.0"
     "@milkdown/crepe": "npm:^7.22.2"

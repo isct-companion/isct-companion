@@ -256,6 +256,18 @@ button:disabled {
   opacity: 0.65;
   cursor: default;
 }
+/* WebKit lays a date field's value at the top of a fixed-height box. */
+.uiInput:is([type="date"], [type="time"], [type="datetime-local"], [type="month"]) {
+  display: flex;
+  align-items: center;
+}
+.uiInput::-webkit-date-and-time-value {
+  text-align: start;
+}
+.uiInput::-webkit-datetime-edit,
+.uiInput::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
 textarea.uiInput {
   height: auto;
   padding: 8px 12px;

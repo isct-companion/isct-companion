@@ -5,7 +5,7 @@
 //! reads one leased key, records how it ended, and takes the next key of its
 //! lane, so an LMS worker keeps its transport open across keys.
 use super::{
-    planner::{self, Candidate, Facts, Group, Inputs, Lane, ReferenceWatch},
+    planner::{self, Candidate, Depth, Facts, Group, Inputs, Lane, ReferenceWatch},
     snapshot, Hint, Network, Priority, Scope, SyncSnapshot, View,
 };
 use crate::{
@@ -174,6 +174,7 @@ pub(crate) struct Lease {
     pub(crate) run: String,
     /// The Isct-Data index of a reference key.
     pub(crate) locator: Option<String>,
+    pub(crate) depth: Depth,
     pub(crate) started: DateTime<Utc>,
     pub(crate) cancel: CancellationToken,
     writer: LeaseWriter,
@@ -220,6 +221,7 @@ impl Lease {
             account: account.into(),
             run: uuid::Uuid::new_v4().to_string(),
             locator: None,
+            depth: Depth::Full,
             started: Utc::now(),
             cancel: CancellationToken::new(),
             writer: LeaseWriter {
@@ -1063,6 +1065,7 @@ impl SyncEngine {
             account: candidate.account,
             run,
             locator: candidate.locator,
+            depth: candidate.depth,
             started: now,
             cancel,
             writer: LeaseWriter {

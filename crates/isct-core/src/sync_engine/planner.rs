@@ -190,6 +190,16 @@ pub(crate) struct Candidate {
     pub(crate) title: Option<String>,
     /// The Isct-Data index of a reference key.
     pub(crate) locator: Option<String>,
+    pub(crate) depth: Depth,
+}
+
+/// Which form of a key a read takes, where its reader has two.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Depth {
+    /// An automatic read: only what changes in use, over the light path.
+    Light,
+    /// The refresh button or the key's first read: everything the key holds.
+    Full,
 }
 
 /// One key's attributes before the rules decide whether it is due.
@@ -714,6 +724,11 @@ pub(crate) fn plan(
                 group,
                 title: watch.title,
                 locator: watch.locator,
+                depth: if watch.rule == Rule::Manual || rank == 0 {
+                    Depth::Full
+                } else {
+                    Depth::Light
+                },
                 key,
             })
         })

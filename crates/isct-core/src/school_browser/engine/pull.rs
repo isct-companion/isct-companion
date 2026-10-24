@@ -19,7 +19,7 @@ use crate::{
         LmsAssignStates, LmsCourseContent, LmsDeadlines, LmsEnrolment, LmsHistoryMonth,
         StoredModule,
     },
-    sync_engine::{Gated, KeyEnd, Lease},
+    sync_engine::{Depth, Gated, KeyEnd, Lease},
     sync_state::{self, Dataset, Key, RunOutcome, RunRecord},
 };
 use chrono::{DateTime, Utc};
@@ -143,8 +143,10 @@ impl SchoolBrowserEngine {
         };
         let read = match key.dataset {
             Dataset::LmsEnrolment => {
-                let read: BoxFuture<'_, Result<LmsEnrolment, KeyError>> =
-                    Box::pin(open.enrolment());
+                let read: BoxFuture<'_, Result<LmsEnrolment, KeyError>> = match lease.depth {
+                    Depth::Light => Box::pin(open.current_enrolment()),
+                    Depth::Full => Box::pin(open.full_enrolment()),
+                };
                 read.await.map(LmsRead::Enrolment)
             }
             Dataset::LmsDeadlines => {

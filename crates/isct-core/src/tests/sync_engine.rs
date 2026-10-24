@@ -1,4 +1,4 @@
-use super::planner::{self, Candidate, Facts, Inputs, Lane, ReferenceWatch};
+use super::planner::{self, Candidate, Depth, Facts, Inputs, Lane, ReferenceWatch};
 use super::*;
 use crate::{
     data::DataStore,
@@ -163,6 +163,17 @@ fn due_keys_are_planned_missing_first_within_each_tier() {
     );
     assert!(at(Dataset::LmsCourse, "101") < at(Dataset::LmsDeadlines, "all"));
     assert!(at(Dataset::KyomuPage, "gpa") < at(Dataset::LmsDeadlines, "all"));
+    // A key's first read takes its full form; a stale one the light form.
+    assert_eq!(
+        find(&plan, &key(Dataset::LmsCourse, "101")).unwrap().depth,
+        Depth::Full
+    );
+    assert_eq!(
+        find(&plan, &key(Dataset::LmsDeadlines, "all"))
+            .unwrap()
+            .depth,
+        Depth::Light
+    );
     // Earlier terms are Background, after every Visible key; a frozen course
     // is read only when its content is missing.
     for (dataset, name) in [(Dataset::LmsCourse, "102"), (Dataset::LmsAssign, "103")] {
@@ -259,7 +270,10 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
         ],
     );
     let course = find(&plan, &key(Dataset::LmsCourse, "101")).unwrap();
-    assert_eq!((course.priority, course.rank), (Priority::Interactive, 1));
+    assert_eq!(
+        (course.priority, course.rank, course.depth),
+        (Priority::Interactive, 1, Depth::Light)
+    );
     assert_eq!(course.group.scope.as_deref(), Some("101"));
     // Read 5 minutes ago: within the open threshold.
     assert!(find(&plan, &key(Dataset::LmsAssign, "101")).is_none());
@@ -277,8 +291,8 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
     ] {
         let candidate = find(&plan, &wanted).unwrap();
         assert_eq!(
-            (candidate.priority, candidate.held.clone()),
-            (Priority::Interactive, None)
+            (candidate.priority, candidate.held.clone(), candidate.depth),
+            (Priority::Interactive, None, Depth::Full)
         );
     }
 }
@@ -715,10 +729,16 @@ fn snapshot_wire_names_match_the_shell_contract() {
             }
         }
     );
-    let hint: Hint =
-        serde_json::from_value(serde_json::json!({"kind": "refresh", "scope": {"kind": "timetable"}}))
-            .unwrap();
-    assert_eq!(hint, Hint::Refresh { scope: Scope::Timetable });
+    let hint: Hint = serde_json::from_value(
+        serde_json::json!({"kind": "refresh", "scope": {"kind": "timetable"}}),
+    )
+    .unwrap();
+    assert_eq!(
+        hint,
+        Hint::Refresh {
+            scope: Scope::Timetable
+        }
+    );
     let event = crate::events::CoreEvent::SyncSnapshot(snapshot);
     assert_eq!(event.name(), "sync-snapshot");
     assert_eq!(event.payload(), wire);
