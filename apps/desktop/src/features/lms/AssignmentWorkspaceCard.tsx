@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEventListener } from "usehooks-ts";
 import { t } from "../../i18n";
+import { confirmAction } from "../../components/confirm";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { UiInput } from "../../components/ui";
 import { FileTile, LmsIcon } from "./LmsIcon";
@@ -118,13 +119,14 @@ export function AssignmentWorkspaceFooter({
               aria-label={t("Delete workspace")}
               title={t("Delete workspace")}
               disabled={busy}
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  !confirm(
+                  !(await confirmAction(
                     t("Delete the workspace “{{name}}” and everything in it?", {
                       name: workspace.name,
                     }),
-                  )
+                    t("Delete"),
+                  ))
                 )
                   return;
                 void run(async () => {

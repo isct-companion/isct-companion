@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { UiInput } from "../../components/ui";
+import { UiButton, UiInput } from "../../components/ui";
+import { confirmAction } from "../../components/confirm";
 import { COURSE_FILE_POLICY } from "../../lib/course-file-policy";
 import type { Workspace } from "../../lib/model";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
@@ -56,15 +57,24 @@ function CleanWorkspaces() {
   return (
     <span className="cleanWorkspaces">
       {result && <small role="status">{result}</small>}
-      <button
-        type="button"
+      <UiButton
         className="button small"
         disabled={busy}
         onClick={async () => {
-          if (!confirm(t("Delete every workspace unchanged for over a month?"))) return;
+          if (
+            !(await confirmAction(
+              t("Delete every workspace unchanged for over a month?"),
+              t("Remove"),
+            ))
+          )
+            return;
           setBusy(true);
           try {
-            setResult(t("Removed {{count}} workspaces", { count: await cleanWorkspaces() }));
+            setResult(
+              t("Removed {{count}} workspaces", {
+                count: await cleanWorkspaces(),
+              }),
+            );
           } catch (error) {
             setResult(String(error));
           } finally {
@@ -73,7 +83,7 @@ function CleanWorkspaces() {
         }}
       >
         {t("Remove month-old workspaces")}
-      </button>
+      </UiButton>
     </span>
   );
 }

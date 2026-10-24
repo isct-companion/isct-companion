@@ -32,7 +32,7 @@
 
 /* ---------- Workspace shell ---------- */
 .lmsWorkspace { display: flex; flex-direction: column; width: 100%; min-width: 0; height: 100%; }
-.lmsWorkspace button { cursor: pointer; color: inherit; font: inherit; }
+.lmsWorkspace button { cursor: default; color: inherit; font: inherit; }
 .lmsWorkspace button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .lmsWorkspace svg { flex: 0 0 auto; }
 .lmsWorkspaceHeader { display: flex; align-items: center; gap: 16px; padding: 4px 4px 16px; border-bottom: 1px solid var(--line); }
@@ -132,7 +132,7 @@
 .lmsInlineActivity .lmsQuiet { padding: 0; }
 .lmsSubmit { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 7px 12px; border: 0; border-radius: var(--lms-radius-sm); background: var(--accent); color: white !important; font-size: 12px !important; font-weight: 550; }
 .lmsPreviousNotes { margin: 8px 0 12px; color: var(--muted); font-size: 12px; }
-.lmsPreviousNotes summary { padding: 6px 4px; cursor: pointer; }
+.lmsPreviousNotes summary { padding: 6px 4px; cursor: default; }
 .lmsNoteUndo { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); font-size: 12px; }
 .lmsNoteUndo button { padding: 5px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent) !important; }
 
@@ -275,7 +275,7 @@
 .lmsPdfPagination input { width: 36px; text-align: center; appearance: textfield; }
 .lmsPdfPagination input::-webkit-inner-spin-button { appearance: none; }
 .lmsPdfControls select { max-width: 92px; }
-.lmsPdfControls button, .lmsPdfSearch button { appearance: none; border: 0; background: transparent; color: var(--accent); cursor: pointer; }
+.lmsPdfControls button, .lmsPdfSearch button { appearance: none; border: 0; background: transparent; color: var(--accent); cursor: default; }
 .lmsPdfControls button { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 6px; color: var(--muted); }
 .lmsPdfControls button:hover:not(:disabled) { color: var(--accent); }
 .lmsPdfFindToggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent) !important; }

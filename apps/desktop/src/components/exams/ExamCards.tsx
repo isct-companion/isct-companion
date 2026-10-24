@@ -1,4 +1,4 @@
-import { Modal } from "../ui";
+import { Modal, UiButton } from "../ui";
 import { useState } from "react";
 import type { ExamView } from "../../generated/persistence";
 import type { Course } from "../../lib/model";
@@ -51,15 +51,14 @@ export function ExamCards({
               {examKindLabel(exam)}
               {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
             </span>
-            <button
-              type="button"
+            <UiButton
               className="textButton"
               onClick={() => {
                 setEditing(exam);
               }}
             >
               {t("Edit")}
-            </button>
+            </UiButton>
           </div>
           {openExam || (exam.courseId && open) ? (
             <button

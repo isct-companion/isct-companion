@@ -2252,6 +2252,44 @@ describe("Academic calendar profile", () => {
   );
 });
 
+describe("Course files", () => {
+  it(
+    "removes month-old workspaces only after the in-app confirmation",
+    async () => {
+      // The shell's window.confirm is asynchronous, so a `!confirm()` guard
+      // never stopped this cleanup; the in-app dialog has to answer first.
+      const mounted = await mountSettings(paths.settings("files"), {
+        handle: (command) => (command === "clean_workspaces" ? 2 : undefined),
+      });
+      app = mounted;
+      const pane = await wait(() => settingsPane(mounted));
+      const remove = "Remove month-old workspaces";
+      await wait(() => buttonIn(pane, remove));
+
+      await clickButton(pane, remove);
+      const dialog = await wait(() => openDialog());
+      expect(dialog.textContent).toContain(
+        "Delete every workspace unchanged for over a month?",
+      );
+      await clickButton(dialog, "Cancel");
+      await wait(() =>
+        expect(document.querySelector('[role="dialog"]')).toBeNull(),
+      );
+      expect(mounted.core.commands("clean_workspaces")).toHaveLength(0);
+
+      await clickButton(pane, remove);
+      await answerDialog("Remove");
+      await wait(() =>
+        expect(mounted.core.commands("clean_workspaces")).toHaveLength(1),
+      );
+      await wait(() =>
+        expect(pane.textContent).toContain("Removed 2 workspaces"),
+      );
+    },
+    TIMEOUT,
+  );
+});
+
 describe("Notification preferences", () => {
   it("persists reminder choices and reconciles notification permission with the OS", async () => {
     const sent: unknown[] = [];

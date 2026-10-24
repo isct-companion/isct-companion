@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 99 checks must be re-run before the next release.**
+**10 of 100 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**89 checks have never been run or could not be run:**
+**90 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -121,6 +121,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-RADIX-APPEARANCE` — never verified
 - `NOW-TINT-APPEARANCE` — never verified
 - `DESKTOP-WINDOW-MATERIAL` — never verified
+- `DESKTOP-NATIVE-CHROME` — never verified
 
 ## Status
 
@@ -225,6 +226,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-RADIX-APPEARANCE` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/settings/settings.css |
 | `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
+| `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
 
 ## Personas
 
@@ -5812,5 +5814,57 @@ headless DOM nor a page screenshot contains it.
 
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src/app/useAppearance.ts`
+
+**Last recorded** never run
+
+### Desktop controls take the arrow cursor, show hover and pressed states, and the frame's text cannot be selected (`DESKTOP-NATIVE-CHROME`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app with a workspace on Today, Timetable and Settings.
+
+**Steps**
+
+1. Hover the sidebar, toolbar buttons, tabs, menu items and the
+   official-syllabus link.
+   - *Why:* Native apps show the arrow over controls and the hand only over
+     links; a leftover pointer rule makes a page feel like a website.
+2. Drag across the sidebar, a button row and the status bar, then
+   across a course's details text and inside a text field.
+   - *Why:* Selecting the frame's labels reads as a web page; content and fields
+     must stay selectable so text can still be copied.
+3. In light and then dark appearance, hover and hold the mouse button
+   on a sidebar item, a toolbar button, a tab, a course block, Today's
+   current or next class and a settings item, then drag off before
+   releasing.
+   - *Why:* Pressing draws one shared ink layer (ui.css) over each control's own
+     hover colour; a control whose own shadow outranks it, or a dark
+     theme where the layer darkens instead of lightens, only shows on
+     screen. Dragging off checks that holding never triggers the action.
+
+**Where to look**
+
+The cursor shape and the selection highlight in the native window.
+
+**Expected**
+
+Arrow over controls, hand over the link; every control lightens or tints
+on hover and goes one step deeper while held (lighter in dark mode), with
+nothing firing when released off it; the frame and controls never
+highlight, while content text and fields select normally.
+
+**Why this is manual**
+
+Cursor shape, hover and pressed rendering and drag selection come from
+the native webview; jsdom has no pointer, :active or selection rendering
+to assert on.
+
+**Covers**
+
+- `apps/desktop/src/components/ui/ui.css`
 
 **Last recorded** never run

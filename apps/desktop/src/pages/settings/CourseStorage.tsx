@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { t } from "../../i18n";
+import { UiButton } from "../../components/ui";
 import {
   chooseStorage,
   storageInfo,
@@ -33,24 +34,22 @@ export function CourseStorage() {
       <small>{t("Changing it only affects new downloads.")}</small>
       <div className="actions">
         {info?.canChoose && (
-          <button
-            type="button"
+          <UiButton
             className="button small"
             disabled={busy}
             onClick={() => void choose(false)}
           >
             {t("Choose folder…")}
-          </button>
+          </UiButton>
         )}
         {info?.custom && (
-          <button
-            type="button"
+          <UiButton
             className="textButton"
             disabled={busy}
             onClick={() => void choose(true)}
           >
             {t("Use Documents")}
-          </button>
+          </UiButton>
         )}
       </div>
       {error && <p role="alert">{error}</p>}

@@ -279,7 +279,12 @@ async function openWorkspace(
         return custom?.(command, args) ?? undefined;
       },
     },
-    () => import("@app/features/lms/LmsWorkspace"),
+    // The shell renders the in-app confirmations beside every page; load them
+    // with the workspace so both share one confirmation store.
+    async () => ({
+      ...(await import("@app/features/lms/LmsWorkspace")),
+      ...(await import("@app/components/confirm")),
+    }),
   );
   const props = {
     course: fixture.course,
@@ -294,6 +299,7 @@ async function openWorkspace(
   const view = await mount(
     <>
       <real.LmsWorkspace {...props} />
+      <real.ConfirmDialogs />
     </>,
   );
   views.push(view);
@@ -310,6 +316,7 @@ async function openWorkspace(
         view.root.render(
           <>
             <real.LmsWorkspace {...props} {...overrides} />
+            <real.ConfirmDialogs />
           </>,
         ),
       );
@@ -971,6 +978,53 @@ describe("the LMS reading workspace", () => {
       }
     },
   );
+
+  it("deletes a workspace only after the in-app confirmation", async () => {
+    // The shell's window.confirm is asynchronous, so a `!confirm()` guard
+    // never stopped the delete; the in-app dialog has to answer first.
+    const f = lectureFixture();
+    f.workspace.assignments = [assignment()];
+    const workspace = {
+      path: "/courses/Report",
+      name: "Report",
+      submitFiles: [],
+      zip: false,
+      zipName: "Report.zip",
+    };
+    const { host, core } = await openWorkspace(f, {
+      handle: (command) =>
+        command === "assignment_workspace"
+          ? { workspace, handIn: "prepareDraft" }
+          : undefined,
+    });
+    const trash = await waitFor(() => {
+      const button = host.querySelector<HTMLButtonElement>(
+        '[aria-label="Delete workspace"]',
+      );
+      if (!button) throw new Error("The workspace card has no delete button.");
+      return button;
+    });
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+
+    await click(trash);
+    await waitFor(() =>
+      expect(dialog()?.textContent).toContain(
+        "Delete the workspace “Report” and everything in it?",
+      ),
+    );
+    await click(buttonByText(dialog()!, "Cancel"));
+    await waitFor(() => expect(dialog()).toBeNull());
+    expect(core.commands("delete_workspace")).toHaveLength(0);
+
+    await click(trash);
+    await waitFor(() => expect(dialog()).not.toBeNull());
+    await click(buttonByText(dialog()!, "Delete"));
+    await waitFor(() =>
+      expect(core.commands("delete_workspace")[0]?.args).toMatchObject({
+        path: workspace.path,
+      }),
+    );
+  }, 30_000);
 
   it("renders course HTML inert: tables and safe links stay, active content and unsafe URLs do not", async () => {
     const f = lectureFixture();

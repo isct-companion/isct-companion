@@ -4,11 +4,37 @@ input,
 textarea {
   font: inherit;
 }
+/* Desktop controls keep the arrow; the hand is for links. */
 button {
-  cursor: pointer;
+  cursor: default;
 }
 button:disabled {
-  cursor: not-allowed;
+  cursor: default;
+}
+/* Interaction states. A control's own hover rule sets its colour; pressing
+   adds one ink layer over whatever it shows (darker in light, lighter in
+   dark), drawn as an inset shadow so it never replaces a background. Text
+   controls fade instead, since a layer would box their text. */
+:root {
+  --state-hover: color-mix(in srgb, var(--ink) 5%, transparent);
+  --state-press: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+:where(
+  button:not(:disabled, .textButton:not(.uiButton), .examCourseLink),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="option"]:not([data-disabled]),
+  [role="menuitem"]:not([data-disabled]),
+  summary,
+  label.button
+):active {
+  box-shadow: inset 0 0 0 100vmax var(--state-press);
+}
+:where(.textButton:not(.uiButton), .examCourseLink):not(:disabled):hover {
+  opacity: 0.75;
+}
+:where(.textButton:not(.uiButton), .examCourseLink):not(:disabled):active {
+  opacity: 0.55;
 }
 .uiUnstyledButton {
   border: 0;
@@ -35,7 +61,7 @@ button:disabled {
   line-height: 1;
   text-decoration: none;
 }
-.uiButton:hover {
+.uiButton:not(:disabled):hover {
   background: color-mix(in srgb, var(--accent) 88%, black);
 }
 .uiButton[data-variant="default"] {
@@ -43,7 +69,7 @@ button:disabled {
   color: var(--ink);
   border-color: var(--line);
 }
-.uiButton[data-variant="default"]:hover {
+.uiButton[data-variant="default"]:not(:disabled):hover {
   background: var(--surface-3);
 }
 .uiButton[data-variant="subtle"] {
@@ -54,8 +80,11 @@ button:disabled {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.uiButton[data-variant="subtle"]:hover {
+.uiButton[data-variant="subtle"]:not(:disabled):hover {
   background: var(--accent-soft);
+}
+.uiButton[data-variant="light"]:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--accent-soft));
 }
 .uiButton[data-color="red"] {
   --accent: var(--danger);
@@ -225,7 +254,7 @@ button:disabled {
 .uiInput:disabled {
   background: var(--surface-3);
   opacity: 0.65;
-  cursor: not-allowed;
+  cursor: default;
 }
 textarea.uiInput {
   height: auto;
@@ -249,7 +278,7 @@ textarea.uiInput {
 .uiCheckField > label {
   font-size: 14px;
   line-height: 1.4;
-  cursor: pointer;
+  cursor: default;
 }
 .uiCheckField small {
   display: block;
@@ -300,6 +329,9 @@ textarea.uiInput {
   background: var(--surface-3);
   flex-shrink: 0;
 }
+.uiSwitch:not(:disabled):hover {
+  border-color: var(--line-strong);
+}
 .uiSwitch[data-state="checked"] {
   border-color: var(--accent);
   background: var(--accent);
@@ -338,6 +370,10 @@ textarea.uiInput {
   color: var(--ink);
   box-shadow: 0 1px 3px #0002;
 }
+.uiSegment:not([data-state="on"], :disabled):hover {
+  background: var(--state-hover);
+  color: var(--ink);
+}
 .uiSegment:disabled {
   opacity: 0.5;
 }
@@ -352,6 +388,9 @@ textarea.uiInput {
   background: var(--surface);
   color: var(--ink);
   font-size: 12px;
+}
+.uiChip:not(:disabled):hover {
+  border-color: var(--line-strong);
 }
 .uiChip[data-state="on"] {
   color: var(--accent);
@@ -404,7 +443,7 @@ textarea.uiInput {
   font-size: 13px;
   line-height: 1.4;
   outline: none;
-  cursor: pointer;
+  cursor: default;
   text-align: left;
 }
 .uiSelectOption:is(

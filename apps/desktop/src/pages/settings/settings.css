@@ -89,7 +89,7 @@
   margin: 4px 0 18px;
 }
 .moreOptions > summary {
-  cursor: pointer;
+  cursor: default;
   padding: 8px 0;
   color: var(--muted);
   font-size: calc(12px * var(--text));
@@ -233,7 +233,7 @@
   text-align: left;
 }
 button.calendarDay {
-  cursor: pointer;
+  cursor: default;
 }
 button.calendarDay:hover,
 button.calendarDay.open {
