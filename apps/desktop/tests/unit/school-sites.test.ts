@@ -286,9 +286,9 @@ const loginPages: { window: { close(): void } }[] = [];
 afterEach(() => loginPages.splice(0).forEach((page) => page.window.close()));
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
-const liveOtp = () => [
-  { from: nowSeconds() - 5, code: "123456" },
-  { from: nowSeconds() + 25, code: "654321" },
+const liveOtp = (now = nowSeconds()) => [
+  { from: now - 5, code: "123456" },
+  { from: now + 25, code: "654321" },
 ];
 
 function loadLoginPage(
@@ -299,6 +299,9 @@ function loadLoginPage(
     otp?: { from: number; code: string }[];
     matrix?: string;
     storage?: Record<string, string>;
+    /** Pins the page's clock (seconds), so a run that crosses a second or
+     * an OTP window boundary still sees the windows it was given. */
+    now?: number;
   } = {},
 ): LoginPage {
   const dom = new JSDOM(html, {
@@ -308,6 +311,8 @@ function loadLoginPage(
   });
   loginPages.push(dom as unknown as { window: { close(): void } });
   const window = dom.window as Window & typeof globalThis;
+  const pinned = options.now;
+  if (pinned !== undefined) window.Date.now = () => pinned * 1000;
   const { document } = window;
   for (const [key, value] of Object.entries(options.storage ?? {}))
     window.sessionStorage.setItem(key, value);
@@ -568,7 +573,14 @@ describe("Science Tokyo sign-in", () => {
         page.$("#authenticator-selector").style.display = "none";
         page.$("#totp-form-wrapper").style.display = "";
       });
-    const first = loadLoginPage(secondFactorPage(true), { url: SECOND_FACTOR });
+    // One moment for all three loads: the retries must see the same window.
+    const now = nowSeconds();
+    const otp = liveOtp(now);
+    const first = loadLoginPage(secondFactorPage(true), {
+      url: SECOND_FACTOR,
+      otp,
+      now,
+    });
     pickHandler(first);
     first.start();
     await settle();
@@ -580,6 +592,8 @@ describe("Science Tokyo sign-in", () => {
     const second = loadLoginPage(secondFactorPage(true), {
       url: SECOND_FACTOR,
       storage,
+      otp,
+      now,
     });
     pickHandler(second);
     second.start();
@@ -593,6 +607,8 @@ describe("Science Tokyo sign-in", () => {
     const third = loadLoginPage(secondFactorPage(true), {
       url: SECOND_FACTOR,
       storage: { [key]: JSON.stringify({ method: 2, otp: 2 }) },
+      otp,
+      now,
     });
     third.start();
     await settle();
