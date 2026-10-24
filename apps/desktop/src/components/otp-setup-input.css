@@ -53,7 +53,7 @@
   font: inherit;
   font-size: calc(13px * var(--text, 1));
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 .otpPathHead > i {
   width: 14px;

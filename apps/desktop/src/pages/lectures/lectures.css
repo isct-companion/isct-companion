@@ -11,13 +11,13 @@
   font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .dueScope.lectureMode { display: flex; align-self: stretch; width: 100%; margin: 0 0 8px; }
-.lectureMode > button { flex: 1 1 auto; min-width: 0; padding-inline: 4px; white-space: nowrap; border: 0; background: none; cursor: pointer; }
+.lectureMode > button { flex: 1 1 auto; min-width: 0; padding-inline: 4px; white-space: nowrap; border: 0; background: none; cursor: default; }
 .lectureFilter { margin: 0 0 8px; }
 .lectureFilter input, input.lectureFilter { height: 32px; min-height: 32px; font-size: 13px; }
 .lectureRow {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center;
   width: 100%; padding: 8px 10px 8px 12px; border: 0; border-radius: 9px; background: none;
-  color: var(--ink); text-align: left; cursor: pointer; position: relative;
+  color: var(--ink); text-align: left; cursor: default; position: relative;
 }
 .lectureRow::before { content: ""; position: absolute; left: 3px; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--course, var(--line-strong)); opacity: .55; }
 .lectureRow:hover { background: var(--surface-2); }
@@ -43,7 +43,7 @@
   flex: 0 0 auto; display: grid; place-items: center;
   width: 28px; height: 28px; padding: 0; border: 0;
   border-radius: var(--radius-control); background: none;
-  color: var(--muted); cursor: pointer;
+  color: var(--muted); cursor: default;
 }
 .lectureSidebarToggle:hover { color: var(--ink); background: var(--surface-3); }
 .lectureEmptyHeader { display: flex; padding: 4px; }

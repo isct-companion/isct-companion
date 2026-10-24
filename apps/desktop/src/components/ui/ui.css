@@ -4,11 +4,12 @@ input,
 textarea {
   font: inherit;
 }
+/* Desktop controls keep the arrow; the hand is for links. */
 button {
-  cursor: pointer;
+  cursor: default;
 }
 button:disabled {
-  cursor: not-allowed;
+  cursor: default;
 }
 .uiUnstyledButton {
   border: 0;
@@ -225,7 +226,7 @@ button:disabled {
 .uiInput:disabled {
   background: var(--surface-3);
   opacity: 0.65;
-  cursor: not-allowed;
+  cursor: default;
 }
 textarea.uiInput {
   height: auto;
@@ -249,7 +250,7 @@ textarea.uiInput {
 .uiCheckField > label {
   font-size: 14px;
   line-height: 1.4;
-  cursor: pointer;
+  cursor: default;
 }
 .uiCheckField small {
   display: block;
@@ -404,7 +405,7 @@ textarea.uiInput {
   font-size: 13px;
   line-height: 1.4;
   outline: none;
-  cursor: pointer;
+  cursor: default;
   text-align: left;
 }
 .uiSelectOption:is(

@@ -4946,3 +4946,33 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src/app/useAppearance.ts
     verified: null
+  - id: DESKTOP-NATIVE-CHROME
+    area: desktop
+    title: Desktop controls take the arrow cursor and the frame's text cannot be selected
+    persona: windows-snap-user
+    preconditions: |
+      The desktop app with a workspace on Today, Timetable and Settings.
+    steps:
+      - action: |
+          Hover the sidebar, toolbar buttons, tabs, menu items and the
+          official-syllabus link.
+        reason: |
+          Native apps show the arrow over controls and the hand only over
+          links; a leftover pointer rule makes a page feel like a website.
+      - action: |
+          Drag across the sidebar, a button row and the status bar, then
+          across a course's details text and inside a text field.
+        reason: |
+          Selecting the frame's labels reads as a web page; content and fields
+          must stay selectable so text can still be copied.
+    observe: |
+      The cursor shape and the selection highlight in the native window.
+    expected: |
+      Arrow over controls, hand over the link; the frame and controls never
+      highlight, while content text and fields select normally.
+    why_manual: |
+      Cursor shape and drag selection are rendered by the native webview; jsdom
+      has no pointer or selection rendering to assert on.
+    covers:
+      - apps/desktop/src/components/ui/ui.css
+    verified: null
