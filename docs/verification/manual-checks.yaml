@@ -3719,11 +3719,31 @@ checks:
         reason: |
           The page must show the system's real answer and lead to this app's
           notification settings rather than claim the test was sent.
+      - action: |
+          Leave 設定 › 通知, swipe the app away and reopen it, then open the
+          page again; allow notifications in the system settings and return.
+        reason: |
+          A refusal outlives the visit: the page still says so and offers
+          設定を開く, and a relaunch does not prompt again (Android asks only
+          until refused, as iOS does). Allowing in the system settings
+          schedules the waiting reminders on return. On Android the page
+          re-reads the answer itself, since Android cannot tell "never
+          asked" from "refused" without the shell's record.
+      - action: |
+          Android: with reminders scheduled (`adb shell dumpsys alarm` lists
+          app.isctcompanion.REMIND alarms), restart the phone without opening
+          the app, and read the list again after boot.
+        reason: |
+          Android clears alarms on a reboot or an update, which iOS's
+          scheduled notifications survive; the app must put Core's reminders
+          back on its own within a minute of boot.
     observe: The system prompts, the banner, and 設定 › 通知 on both phones.
     expected: |
       Each phone asks once after the first sync; the test shows a banner with
       the app in front; after denying, the page says notifications are not
-      allowed and 設定を開く opens the app's notification settings.
+      allowed and 設定を開く opens the app's notification settings, also on
+      a later visit, with no new prompt; Android's reminders are back after a
+      reboot without opening the app.
     why_manual: |
       The permission prompt, banners and system settings exist only on real
       devices with a signed app; which reminders are due is Core's
@@ -3735,6 +3755,8 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt
       - apps/android/app/src/main/java/app/isctcompanion/App.kt
+      - apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt
+      - apps/android/app/src/main/AndroidManifest.xml
     verified: null
 
   - id: IOS-TODAY-CLASS-STACK

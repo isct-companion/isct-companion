@@ -201,7 +201,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift |
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
-| `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
@@ -4351,6 +4351,20 @@ notifications) in the same workspace.
    again, then 設定を開く.
    - *Why:* The page must show the system's real answer and lead to this app's
      notification settings rather than claim the test was sent.
+4. Leave 設定 › 通知, swipe the app away and reopen it, then open the
+   page again; allow notifications in the system settings and return.
+   - *Why:* A refusal outlives the visit: the page still says so and offers
+     設定を開く, and a relaunch does not prompt again (Android asks only
+     until refused, as iOS does). Allowing in the system settings
+     schedules the waiting reminders on return. On Android the page
+     re-reads the answer itself, since Android cannot tell "never
+     asked" from "refused" without the shell's record.
+5. Android: with reminders scheduled (`adb shell dumpsys alarm` lists
+   app.isctcompanion.REMIND alarms), restart the phone without opening
+   the app, and read the list again after boot.
+   - *Why:* Android clears alarms on a reboot or an update, which iOS's
+     scheduled notifications survive; the app must put Core's reminders
+     back on its own within a minute of boot.
 
 **Where to look**
 
@@ -4360,7 +4374,9 @@ The system prompts, the banner, and 設定 › 通知 on both phones.
 
 Each phone asks once after the first sync; the test shows a banner with
 the app in front; after denying, the page says notifications are not
-allowed and 設定を開く opens the app's notification settings.
+allowed and 設定を開く opens the app's notification settings, also on
+a later visit, with no new prompt; Android's reminders are back after a
+reboot without opening the app.
 
 **Why this is manual**
 
@@ -4376,6 +4392,8 @@ notification plan, covered by its tests.
 - `apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt`
+- `apps/android/app/src/main/AndroidManifest.xml`
 
 **Last recorded** never run
 

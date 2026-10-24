@@ -171,6 +171,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             reportSchool(SchoolSessionLifecycleKind.FOCUS)
             startWaking()
             scope.launch { refresh() }
+            // Permission granted in the system settings while away.
+            if (notificationsBlocked) scope.launch { resyncNotifications() }
         } else {
             wakeJob?.cancel()
             wakeJob = null

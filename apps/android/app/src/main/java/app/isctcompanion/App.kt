@@ -70,6 +70,8 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.isctcompanion.core.AppModel
+import androidx.compose.ui.platform.LocalContext
+import app.isctcompanion.core.NotificationScheduler
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.SchoolSite
@@ -231,14 +233,18 @@ private fun RootView() {
 @Composable
 private fun NotificationPermissionAsk() {
     val model = LocalModel.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var asked by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) scope.launch { model.resyncNotifications() }
     }
     LaunchedEffect(model.notificationsBlocked) {
-        if (model.notificationsBlocked && !asked) {
+        // Once refused, only the settings page leads on (as iOS asks only
+        // while undetermined).
+        if (model.notificationsBlocked && !asked && !NotificationScheduler.denied(context)) {
             asked = true
+            NotificationScheduler.asking(context)
             launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
