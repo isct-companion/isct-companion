@@ -538,6 +538,68 @@ describe("Science Tokyo sign-in", () => {
     expect(page.submitted[0].totp).toBe("333333");
   });
 
+  it("holds a code that is about to expire and sends the next window's", async () => {
+    // Extic answers a code that expires on its side (its clock runs a little
+    // ahead) by showing the method picker again, with no message; on Windows
+    // a code sent with 3.3 s left came back that way twice.
+    const now = Date.now() / 1000;
+    const page = loadLoginPage(secondFactorPage(false), {
+      url: SECOND_FACTOR,
+      otp: [
+        { from: now - 28.8, code: "111111" },
+        { from: now + 1.2, code: "222222" },
+      ],
+    });
+    page.start();
+    await settle();
+    expect(page.submitted).toHaveLength(0);
+    expect(page.relays.filter((relay) => relay.state !== "progress")).toEqual(
+      [],
+    );
+    // The page's 1 s fallback sends the fresh code once its window is live.
+    await settle(2600);
+    expect(page.submitted.map((form) => form.totp)).toEqual(["222222"]);
+  }, 10_000);
+
+  it("does not resend a turned-down code and reports a second refusal", async () => {
+    const pickHandler = (page: LoginPage) =>
+      page.$("#totp-form-selector").addEventListener("click", (event) => {
+        event.preventDefault();
+        page.$("#authenticator-selector").style.display = "none";
+        page.$("#totp-form-wrapper").style.display = "";
+      });
+    const first = loadLoginPage(secondFactorPage(true), { url: SECOND_FACTOR });
+    pickHandler(first);
+    first.start();
+    await settle();
+    expect(first.submitted.map((form) => form.totp)).toEqual(["123456"]);
+    const key = "isct-companion-login:run-1";
+    const storage = { [key]: first.window.sessionStorage.getItem(key)! };
+
+    // The picker again with the same window live: the code was turned down.
+    const second = loadLoginPage(secondFactorPage(true), {
+      url: SECOND_FACTOR,
+      storage,
+    });
+    pickHandler(second);
+    second.start();
+    await settle();
+    expect(second.submitted).toHaveLength(0);
+    expect(second.relays.filter((relay) => relay.state !== "progress")).toEqual(
+      [],
+    );
+
+    // Two codes turned down: say so, rather than wait for the person.
+    const third = loadLoginPage(secondFactorPage(true), {
+      url: SECOND_FACTOR,
+      storage: { [key]: JSON.stringify({ method: 2, otp: 2 }) },
+    });
+    third.start();
+    await settle();
+    expect(third.submitted).toHaveLength(0);
+    expect(third.relays.at(-1)).toMatchObject({ state: "invalid-otp" });
+  });
+
   it("reports a rejected TOTP without retrying", async () => {
     const page = loadLoginPage(secondFactorPage(false), {
       url: SECOND_FACTOR,

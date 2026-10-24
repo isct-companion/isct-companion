@@ -136,14 +136,38 @@
     return true;
   };
 
+  // Extic answers a code that has expired on its side by showing the method
+  // picker again, with no message, and its clock runs a little ahead: a code
+  // sent with 3.3 s left came back that way. A code with less than this left
+  // is held; the 1 s fallback sends the next window's once it is live.
+  const OTP_MARGIN_S = 8;
+  const remember = (key, value) => {
+    const next = attempts();
+    next[key] = value;
+    try {
+      storage?.setItem(STORE_KEY, JSON.stringify(next));
+    } catch {
+      // Without storage a retry may resend the window's code once.
+    }
+  };
+  // `{ code, from }` to send now, `{ wait: true }` to hold, `{}` with none.
   const otpNow = () => {
     const windows = Array.isArray(config.otp) ? config.otp : [];
     const period = windows.length > 1 ? windows[1].from - windows[0].from : 30;
     const now = Date.now() / 1000;
-    return (
-      windows.find((window) => window.from <= now && now < window.from + period)
-        ?.code || ""
+    const live = windows.find(
+      (window) => window.from <= now && now < window.from + period,
     );
+    if (!live) return {};
+    // A retry never resends the window's code the school turned down.
+    if (
+      live.from + period - now < OTP_MARGIN_S ||
+      live.from === attempts().otpFrom
+    )
+      return windows.some((window) => window.from > live.from)
+        ? { wait: true }
+        : {};
+    return { code: live.code, from: live.from };
   };
 
   const captureHtml = () => {
@@ -240,19 +264,28 @@
     if (!totpForm) return;
     const warning = totpForm.querySelector(".message.warning");
     if (shown(warning)) return report("invalid-otp", text(warning));
-    const code = otpNow();
+    const otp = otpNow();
     if (shown(totpForm)) {
-      if (!code) return report("needs-user", "Enter the one-time password.");
+      if (otp.wait) {
+        acted = true; // Waiting is progress, not an idle page.
+        return;
+      }
+      if (!otp.code)
+        return report("needs-user", "Enter the one-time password.");
       const submit = totpForm.querySelector('button[type="submit"]');
       if (!visible(submit)) return;
       return act("otp", () => {
-        setValue(totpForm.querySelector("#totp"), code);
+        remember("otpFrom", otp.from);
+        setValue(totpForm.querySelector("#totp"), otp.code);
         submit.click();
       });
     }
     const appOtp = document.querySelector("#totp-form-selector");
     if (shown(appOtp)) {
-      if (!code) return report("needs-user", "Choose a verification method.");
+      // The picker again after every code this run allows was turned down.
+      if ((attempts().otp || 0) >= LIMITS.otp) return report(...FAILURE.otp);
+      if (!otp.code && !otp.wait)
+        return report("needs-user", "Choose a verification method.");
       return act("method", () => appOtp.click());
     }
     if (
