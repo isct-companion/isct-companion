@@ -1,12 +1,13 @@
 package app.isctcompanion.features.settings
 
-import app.isctcompanion.design.t
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -33,13 +34,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -70,6 +73,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.MatrixCameraSession
@@ -79,6 +84,7 @@ import app.isctcompanion.core.OtpImportException
 import app.isctcompanion.core.importOtp
 import app.isctcompanion.core.matrixConfidence
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.t
 import com.google.android.gms.common.moduleinstall.ModuleInstall
 import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -88,6 +94,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -105,6 +112,13 @@ private fun SourceChip(label: String, icon: ImageVector, enabled: Boolean = true
         onClick = onClick, enabled = enabled, label = { Text(label) },
         leadingIcon = { Icon(icon, null, modifier = Modifier.size(18.dp)) },
     )
+}
+
+/** An image on the clipboard (a screenshot shared to it), as a content URI. */
+private fun clipboardImage(context: Context): Uri? {
+    val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip ?: return null
+    if (clip.itemCount == 0 || !clip.description.hasMimeType("image/*")) return null
+    return clip.getItemAt(0).uri
 }
 
 private fun clipboardText(context: Context): String? =
@@ -381,26 +395,73 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let(::scan)
     }
+    // Upload image, as on iOS: the system camera's still or a library photo.
+    // The system camera writes into a file this app hands it.
+    var choosing by remember { mutableStateOf(false) }
+    var shot by remember { mutableStateOf<Uri?>(null) }
+    val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        if (taken) shot?.let(::scan)
+    }
+    fun takePhoto() {
+        val file = File(context.cacheDir, "photos").apply { mkdirs() }.resolve("matrix.jpg")
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        shot = uri
+        takePicture.launch(uri)
+    }
+    // An app that declares the camera permission must hold it to start the
+    // system camera.
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
+        if (allowed) takePhoto() else error = t("Camera access was denied. Allow camera access in system settings, then try again.")
+    }
 
     if (!editing) {
         Text(if (saved) t("Saved") else t("Not set"), color = if (saved) Theme.colors.ok else Theme.colors.muted)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (canScan) {
-            SourceChip(t("Scan with camera"), Icons.Outlined.PhotoCamera, enabled = !reading) {
-                error = null
-                note = null
-                runCatching { model.beginMatrixCamera() }
-                    .onSuccess { live = it }
-                    .onFailure { error = AppModel.describe(it) }
+            if (hasCamera) {
+                SourceChip(t("Auto scan"), Icons.Outlined.DocumentScanner, enabled = !reading) {
+                    error = null
+                    note = null
+                    runCatching { model.beginMatrixCamera() }
+                        .onSuccess { live = it }
+                        .onFailure { error = AppModel.describe(it) }
+                }
             }
-            SourceChip(t("From photo"), Icons.Outlined.Image, enabled = !reading) {
-                photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            Box {
+                SourceChip(t("Upload image"), Icons.Outlined.Image, enabled = !reading) { choosing = true }
+                DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
+                    if (hasCamera) {
+                        DropdownMenuItem(text = { Text(t("Take photo")) }, onClick = {
+                            choosing = false
+                            error = null
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                takePhoto()
+                            } else {
+                                cameraPermission.launch(Manifest.permission.CAMERA)
+                            }
+                        })
+                    }
+                    DropdownMenuItem(text = { Text(t("Choose from library")) }, onClick = {
+                        choosing = false
+                        photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    })
+                }
             }
         }
         SourceChip(t("Paste"), Icons.Outlined.ContentPaste, enabled = !reading) {
-            val letters = clipboardText(context).orEmpty().uppercase().filterNot { it.isWhitespace() }
-            if (letters.length != 70 || !letters.all { it in 'A'..'Z' }) {
+            // An image on the clipboard is read like a photo, as on iOS;
+            // otherwise its text must be the 70 letters.
+            clipboardImage(context)?.takeIf { canScan }?.let {
+                scan(it)
+                return@SourceChip
+            }
+            val text = clipboardText(context)
+            val letters = text.orEmpty().uppercase().filterNot { it.isWhitespace() }
+            if (text == null) {
+                error = t("The clipboard has no image or 70 letters.")
+            } else if (letters.length != 70 || !letters.all { it in 'A'..'Z' }) {
                 error = t("Paste exactly 70 letters in row order (A1…J1, A2…J2, …). Spaces and line breaks are ignored.")
             } else {
                 error = null

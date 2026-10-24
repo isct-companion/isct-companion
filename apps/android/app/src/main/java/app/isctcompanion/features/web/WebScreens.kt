@@ -25,14 +25,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -246,10 +245,9 @@ private fun SiteTitle() {
     }
 }
 
-/** A school page pushed from a course or assignment, like a browser tab, as
- * on iOS: the title bar names the page, back, forward, share and the browser
- * sit in the bottom bar. ✕ returns to the opener; system back walks the
- * page history first. */
+/** A school page pushed from a course or assignment, as on iOS: back to the
+ * opener and the page title on top; back, forward, share and the browser in
+ * the bottom bar. System back walks the page history first. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WebPageScreen(page: WebRouter.PushedPage) {
@@ -265,17 +263,9 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
     Column(Modifier.fillMaxSize().background(Theme.colors.surface)) {
         TopAppBar(
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.Outlined.Close, t("Close")) }
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) }
             },
-            title = {
-                Column {
-                    Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Icon(Icons.Outlined.Lock, null, tint = Theme.colors.muted, modifier = Modifier.size(12.dp))
-                        Text(WebRouter.name(page.site), style = MaterialTheme.typography.labelMedium, color = Theme.colors.muted)
-                    }
-                }
-            },
+            title = { Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             actions = { PageMenu(page.site) },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.surface),
         )

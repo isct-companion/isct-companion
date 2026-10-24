@@ -88,6 +88,7 @@ import app.isctcompanion.design.Card
 import app.isctcompanion.design.CourseSquare
 import app.isctcompanion.design.DeadlineChip
 import app.isctcompanion.design.DeadlineLink
+import app.isctcompanion.design.RowChevron
 import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.PageSubtitle
@@ -488,7 +489,7 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
             progress = { progress }, color = tint, trackColor = tint.copy(alpha = 0.2f),
             modifier = Modifier.fillMaxWidth(),
         )
-        CourseTitle(item.occurrence.courseId != null, item.occurrence.title)
+        CourseTitle(item.occurrence.title)
     }
 }
 
@@ -514,16 +515,14 @@ private fun TonightHero(item: DeadlineItem, now: Instant) {
 
 // Sections
 
-/** The hero's course title; the chevron says the whole card opens it. */
+/** The hero's course title. The whole card opens the course, so, as on
+ * iOS, it carries no chevron. */
 @Composable
-private fun CourseTitle(opens: Boolean, title: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
-            color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
-        )
-        if (opens) Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
-    }
+private fun CourseTitle(title: String) {
+    Text(
+        title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+        color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
+    )
 }
 
 /** In class: the newest material and open work of this course. */
@@ -536,7 +535,7 @@ private fun ThisClassCard(materials: List<MaterialItem>, assignments: List<Deadl
         }
         assignments.forEachIndexed { index, item ->
             if (index > 0 || materials.isNotEmpty()) RowDivider()
-            DeadlineLink(item) {
+            DeadlineLink(item, chevron = true) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -577,6 +576,7 @@ private fun UpcomingExams(exams: List<ExamView>) {
                     Text(exam.title.ifEmpty { exam.code }, color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(examDetail(exam), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
                 }
+                if (id != null) RowChevron()
             }
         }
     }
@@ -646,6 +646,7 @@ private fun RecentRow(
             detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1) }
         }
         tag()
+        if (courseId != null) RowChevron()
     }
 }
 

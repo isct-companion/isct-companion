@@ -21,7 +21,9 @@ import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.PlayCircleOutline
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -159,7 +161,7 @@ fun DeadlineRow(
  * quick actions, among them the LMS submission page. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun DeadlineLink(item: DeadlineItem, content: @Composable () -> Unit) {
+fun DeadlineLink(item: DeadlineItem, chevron: Boolean = false, hidden: Boolean = false, content: @Composable () -> Unit) {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
@@ -170,7 +172,14 @@ fun DeadlineLink(item: DeadlineItem, content: @Composable () -> Unit) {
             onLongClick = { menu = true },
         ),
     ) {
-        content()
+        if (chevron) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { content() }
+                RowChevron(Modifier.padding(end = 16.dp))
+            }
+        } else {
+            content()
+        }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             item.courseId?.let { course ->
                 MenuItem(t("Open course"), Icons.AutoMirrored.Outlined.MenuBook) {
@@ -184,16 +193,30 @@ fun DeadlineLink(item: DeadlineItem, content: @Composable () -> Unit) {
                     navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title))
                 }
             }
-            MenuItem(if (item.pinned) t("Unpin") else t("Pin"), Icons.Outlined.PushPin) {
-                menu = false
-                scope.launch { model.setPinned(item, !item.pinned) }
-            }
-            MenuItem(t("Hide"), Icons.Outlined.VisibilityOff, Theme.colors.danger) {
-                menu = false
-                scope.launch { model.setHidden(item, true) }
+            if (hidden) {
+                MenuItem(t("Restore"), Icons.Outlined.Visibility) {
+                    menu = false
+                    scope.launch { model.setHidden(item, false) }
+                }
+            } else {
+                MenuItem(if (item.pinned) t("Unpin") else t("Pin"), Icons.Outlined.PushPin) {
+                    menu = false
+                    scope.launch { model.setPinned(item, !item.pinned) }
+                }
+                MenuItem(t("Hide"), Icons.Outlined.VisibilityOff, Theme.colors.danger) {
+                    menu = false
+                    scope.launch { model.setHidden(item, true) }
+                }
             }
         }
     }
+}
+
+/** A card row that pushes a page ends in this, as iOS's `CardLink` does;
+ * hero cards, which open as a whole, carry none. */
+@Composable
+fun RowChevron(modifier: Modifier = Modifier) {
+    Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted, modifier = modifier.size(18.dp))
 }
 
 @Composable

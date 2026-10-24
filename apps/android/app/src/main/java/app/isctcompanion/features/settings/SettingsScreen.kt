@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Lightbulb
@@ -266,9 +267,8 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         }
         LanguageCard()
         WebCard()
-        Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))
-        LogsCard()
-        ResetCard(open)
+        // As on iOS: About holds the version, the tips and the logs, then the
+        // desktop note; the destructive Reset group comes last.
         Spacer(Modifier.height(8.dp))
         SectionLabel(t("About"))
         Card {
@@ -284,7 +284,11 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
             }
             RowDivider(inset = ICON_ROW_INSET)
             ActionRow(t("Show welcome and tips again"), Icons.Filled.Lightbulb) { Guide.reset() }
+            RowDivider(inset = ICON_ROW_INSET)
+            LogsRow()
         }
+        Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))
+        ResetCard(open)
     }
 }
 
@@ -326,7 +330,7 @@ private fun ResetRow(title: String, hint: String, color: Color, icon: ImageVecto
 /** Core formats and redacts the log; the shell names its build, and the
  * system document picker and clipboard deliver it. */
 @Composable
-private fun LogsCard() {
+private fun LogsRow() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     fun fail(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -341,17 +345,31 @@ private fun LogsCard() {
             }.onFailure { fail(t("Export failed: {{reason}}", "reason" to AppModel.describe(it))) }
         }
     }
-    Spacer(Modifier.height(8.dp))
-    SectionLabel(t("Application logs"))
-    Card {
-        ActionRow(t("Save to file"), Icons.Filled.Description) { save.launch("IsctCompanion-logs-${LocalDate.now()}.txt") }
-        RowDivider(inset = ICON_ROW_INSET)
-        ActionRow(t("Copy"), Icons.Filled.ContentCopy) {
-            // Android shows its own confirmation for every clipboard write.
-            runCatching {
-                context.getSystemService(ClipboardManager::class.java)
-                    .setPrimaryClip(ClipData.newPlainText(t("Application logs"), logText(context)))
-            }.onFailure { fail(t("Copy failed")) }
+    // One row for both log actions, as a menu (iOS's Application logs row).
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        ActionRow(t("Application logs"), Icons.Filled.Description) { menu = true }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text(t("Save to file")) },
+                leadingIcon = { Icon(Icons.Filled.Download, null) },
+                onClick = {
+                    menu = false
+                    save.launch("IsctCompanion-logs-${LocalDate.now()}.txt")
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(t("Copy")) },
+                leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
+                onClick = {
+                    menu = false
+                    // Android shows its own confirmation for every clipboard write.
+                    runCatching {
+                        context.getSystemService(ClipboardManager::class.java)
+                            .setPrimaryClip(ClipData.newPlainText(t("Application logs"), logText(context)))
+                    }.onFailure { fail(t("Copy failed")) }
+                },
+            )
         }
     }
 }

@@ -1034,9 +1034,9 @@ checks:
           and the drawn outline need a phone.
       - action: |
           On each phone, background the app during a camera scan and return;
-          the scan must have stopped with a message and Scan with camera must
+          the scan must have stopped with a message and Auto scan must
           start a fresh one. Revoke camera permission in system settings, then
-          choose Scan with camera: the denial message shows, and From photo and
+          choose Auto scan: the denial message shows, and Upload image and
           Paste still work.
         reason: |
           The OS permission prompt, lifecycle interruption and camera release
@@ -3825,6 +3825,47 @@ checks:
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
     verified: null
 
+  - id: ANDROID-MATRIX-SOURCES
+    area: native
+    title: Android Matrix sources match iOS, with the system camera and a pasted image
+    persona: undergraduate-senior
+    preconditions: |
+      The Android app on an arm64 phone (the x86_64 emulator has no OCR and
+      shows only 貼り付け and 入力), camera permission not yet granted, and a
+      photo of a Matrix card in the gallery.
+    steps:
+      - action: |
+          Open 設定 › Tokyo Tech (旧) and read the マトリクス表 row.
+        reason: |
+          The sources are 自動認識, 画像をアップロード, 貼り付け and 入力, as on
+          iOS; 自動認識 is hidden on a phone without a camera.
+      - action: |
+          Tap 画像をアップロード › 撮影, allow the camera, photograph the card;
+          then 画像をアップロード › ライブラリから選択 and pick the photo.
+        reason: |
+          撮影 is the system camera (the app must hold the camera permission
+          to start it) and both stills fill the grid; a denied permission
+          shows the message instead of crashing.
+      - action: |
+          Copy the card photo to the clipboard (share › コピー in the gallery)
+          and tap 貼り付け; then copy plain text that is not 70 letters and tap
+          貼り付け again.
+        reason: |
+          A pasted image is read like a photo, as on iOS; text must be the 70
+          letters, otherwise the row's red message shows.
+    observe: The Tokyo Tech account page and its grid.
+    expected: |
+      Four sources as on iOS; a taken, picked or pasted photo fills the grid
+      with confidence tints; wrong text is rejected with the message.
+    why_manual: |
+      The system camera, its permission prompt and the clipboard's image
+      exist only on an arm64 phone with the OCR runtime; recognition itself
+      is Core's, covered by its tests.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - apps/android/app/src/main/res/xml/file_paths.xml
+    verified: null
+
   - id: ANDROID-TODAY-CLASS-STACK
     area: native
     title: Android Today stacks the next three classes and carries the assignments
@@ -3851,11 +3892,27 @@ checks:
           Swipe an assignment row right, another left, then tap すべて.
         reason: |
           Right pins and left hides, as before the 課題 tab moved onto 今日;
-          すべて opens すべての課題.
+          すべて opens すべての課題. A left swipe past the threshold hides at
+          once with an undo, where iOS reveals a 非表示 button first: a
+          deliberate difference (apps/android/README.md).
+      - action: |
+          In すべての課題, tap a row under 非表示, go back, then long press it.
+        reason: |
+          A hidden row opens its assignment and its menu offers 授業を開く,
+          LMSで提出 and 戻す, as on iOS; before, it could only be swiped
+          back.
+      - action: |
+          During a class, and on a day with exams or 新着, look at the rows of
+          the cards and at the class card.
+        reason: |
+          Rows that push a page (this class's assignments, 試験, 新着) end in
+          a chevron and the class card has none, as iOS's CardLink; the
+          reverse means the old layout.
     observe: The 今日 and 設定 tabs on the device or emulator.
     expected: |
       Four destinations with 設定 last, a turning three-card stack that
-      yields to the list at its ends, and swipeable assignment rows below.
+      yields to the list at its ends, swipeable assignment rows below, hidden
+      rows that open and restore from their menu, and chevrons only on rows.
     why_manual: |
       Gesture hand-off and haptics need a running Compose app; the data is
       Core's today and board read models, covered by their tests.
@@ -4069,6 +4126,12 @@ checks:
           The toggle is settings.subscriptionRefresh.allowCellular, which
           Core reads for pulls; the times are Core's source status.
       - action: |
+          Scroll to the end of 設定 and open アプリのログ.
+        reason: |
+          As on iOS, このアプリについて holds the version, the tips and one アプリのログ row
+          whose menu offers ファイルに保存 and コピー, the desktop note follows,
+          and リセット is the last group.
+      - action: |
           Look down 設定 on the phone and compare it with the iPhone's.
         reason: |
           Every row but the accounts carries the same icon as on iOS: a white
@@ -4145,9 +4208,9 @@ checks:
           Signed in, open a course's LMS page from its course page, follow a
           link, then use the bottom bar.
         reason: |
-          A pushed page carries ✕, the page title and the site under it on
-          top, and ‹ › · share · open in browser along the bottom, as on iOS;
-          ‹ goes back within the page and ✕ returns to the course.
+          A pushed page carries back and the page title on top, and ‹ › ·
+          share · open in browser along the bottom, as on iOS; the bottom ‹
+          goes back within the page and the top back returns to the course.
     observe: The ウェブ tab, a pushed school page and 設定 › ウェブ on the device.
     expected: |
       The bars match the iOS layout, the size and first site survive a

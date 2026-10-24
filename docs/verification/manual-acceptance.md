@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 104 checks must be re-run before the next release.**
+**10 of 105 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**94 checks have never been run or could not be run:**
+**95 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -94,6 +94,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-SETTINGS-PAGES` — never verified
 - `MOBILE-NOTIFICATION-PERMISSION` — never verified
 - `IOS-TODAY-CLASS-STACK` — never verified
+- `ANDROID-MATRIX-SOURCES` — never verified
 - `ANDROID-TODAY-CLASS-STACK` — never verified
 - `ANDROID-TIMETABLE-WEEK-AND-MARKS` — never verified
 - `ANDROID-COURSE-LESSONS` — never verified
@@ -203,6 +204,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
+| `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
@@ -1275,9 +1277,9 @@ on an iPhone and a CI-built APK on an arm64 Android phone.
      frames (photo and YUV agree on one image); the native camera hand-off
      and the drawn outline need a phone.
 6. On each phone, background the app during a camera scan and return;
-   the scan must have stopped with a message and Scan with camera must
+   the scan must have stopped with a message and Auto scan must
    start a fresh one. Revoke camera permission in system settings, then
-   choose Scan with camera: the denial message shows, and From photo and
+   choose Auto scan: the denial message shows, and Upload image and
    Paste still work.
    - *Why:* The OS permission prompt, lifecycle interruption and camera release
      cannot be produced in headless tests.
@@ -4467,6 +4469,56 @@ read model, covered by its test.
 
 **Last recorded** never run
 
+### Android Matrix sources match iOS, with the system camera and a pasted image (`ANDROID-MATRIX-SOURCES`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app on an arm64 phone (the x86_64 emulator has no OCR and
+shows only 貼り付け and 入力), camera permission not yet granted, and a
+photo of a Matrix card in the gallery.
+
+**Steps**
+
+1. Open 設定 › Tokyo Tech (旧) and read the マトリクス表 row.
+   - *Why:* The sources are 自動認識, 画像をアップロード, 貼り付け and 入力, as on
+     iOS; 自動認識 is hidden on a phone without a camera.
+2. Tap 画像をアップロード › 撮影, allow the camera, photograph the card;
+   then 画像をアップロード › ライブラリから選択 and pick the photo.
+   - *Why:* 撮影 is the system camera (the app must hold the camera permission
+     to start it) and both stills fill the grid; a denied permission
+     shows the message instead of crashing.
+3. Copy the card photo to the clipboard (share › コピー in the gallery)
+   and tap 貼り付け; then copy plain text that is not 70 letters and tap
+   貼り付け again.
+   - *Why:* A pasted image is read like a photo, as on iOS; text must be the 70
+     letters, otherwise the row's red message shows.
+
+**Where to look**
+
+The Tokyo Tech account page and its grid.
+
+**Expected**
+
+Four sources as on iOS; a taken, picked or pasted photo fills the grid
+with confidence tints; wrong text is rejected with the message.
+
+**Why this is manual**
+
+The system camera, its permission prompt and the clipboard's image
+exist only on an arm64 phone with the OCR runtime; recognition itself
+is Core's, covered by its tests.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
+- `apps/android/app/src/main/res/xml/file_paths.xml`
+
+**Last recorded** never run
+
 ### Android Today stacks the next three classes and carries the assignments (`ANDROID-TODAY-CLASS-STACK`)
 
 **Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
@@ -4492,7 +4544,18 @@ week and open assignments in the current quarter.
      past the ends the list scrolls instead.
 3. Swipe an assignment row right, another left, then tap すべて.
    - *Why:* Right pins and left hides, as before the 課題 tab moved onto 今日;
-     すべて opens すべての課題.
+     すべて opens すべての課題. A left swipe past the threshold hides at
+     once with an undo, where iOS reveals a 非表示 button first: a
+     deliberate difference (apps/android/README.md).
+4. In すべての課題, tap a row under 非表示, go back, then long press it.
+   - *Why:* A hidden row opens its assignment and its menu offers 授業を開く,
+     LMSで提出 and 戻す, as on iOS; before, it could only be swiped
+     back.
+5. During a class, and on a day with exams or 新着, look at the rows of
+   the cards and at the class card.
+   - *Why:* Rows that push a page (this class's assignments, 試験, 新着) end in
+     a chevron and the class card has none, as iOS's CardLink; the
+     reverse means the old layout.
 
 **Where to look**
 
@@ -4501,7 +4564,8 @@ The 今日 and 設定 tabs on the device or emulator.
 **Expected**
 
 Four destinations with 設定 last, a turning three-card stack that
-yields to the list at its ends, and swipeable assignment rows below.
+yields to the list at its ends, swipeable assignment rows below, hidden
+rows that open and restore from their menu, and chevrons only on rows.
 
 **Why this is manual**
 
@@ -4733,12 +4797,16 @@ The Android app and the desktop app on the same workspace.
    and tap 今すぐ更新.
    - *Why:* The toggle is settings.subscriptionRefresh.allowCellular, which
      Core reads for pulls; the times are Core's source status.
-4. Look down 設定 on the phone and compare it with the iPhone's.
+4. Scroll to the end of 設定 and open アプリのログ.
+   - *Why:* As on iOS, このアプリについて holds the version, the tips and one アプリのログ row
+     whose menu offers ファイルに保存 and コピー, the desktop note follows,
+     and リセット is the last group.
+5. Look down 設定 on the phone and compare it with the iPhone's.
    - *Why:* Every row but the accounts carries the same icon as on iOS: a white
      symbol on a rounded square in a token role (red 通知, blue 学習
      プロフィール, green データ更新, …), and dividers start at the text.
      Bare text rows mean the icons were dropped.
-5. Back on 設定, read the two account rows and the バックアップ row,
+6. Back on 設定, read the two account rows and the バックアップ row,
    before and after turning Google Drive on.
    - *Why:* A signed-in account reads 接続済 · <time> 更新 from Core's lms
      and kyomu sources, as on iOS; バックアップ reads オフ, then the
@@ -4809,9 +4877,9 @@ needed, the SSO login page is enough.
      down means the scroll check looks at the wrong view.
 6. Signed in, open a course's LMS page from its course page, follow a
    link, then use the bottom bar.
-   - *Why:* A pushed page carries ✕, the page title and the site under it on
-     top, and ‹ › · share · open in browser along the bottom, as on iOS;
-     ‹ goes back within the page and ✕ returns to the course.
+   - *Why:* A pushed page carries back and the page title on top, and ‹ › ·
+     share · open in browser along the bottom, as on iOS; the bottom ‹
+     goes back within the page and the top back returns to the course.
 
 **Where to look**
 

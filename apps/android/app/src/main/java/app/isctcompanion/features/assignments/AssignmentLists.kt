@@ -204,7 +204,8 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
     }
 }
 
-/** A hidden row: swipe left to bring it back. */
+/** A hidden row: it opens and has its menu (with Restore) as on iOS, and a
+ * swipe left brings it back. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RestoreRow(item: DeadlineItem, now: Instant) {
@@ -221,7 +222,9 @@ private fun RestoreRow(item: DeadlineItem, now: Instant) {
         enableDismissFromStartToEnd = false,
         backgroundContent = { SwipeAction(Theme.colors.accent, t("Restore"), Icons.Outlined.Visibility, Alignment.CenterEnd) },
     ) {
-        Box(Modifier.background(Theme.colors.surface)) { DeadlineRow(item, now) }
+        Box(Modifier.background(Theme.colors.surface)) {
+            DeadlineLink(item, hidden = true) { DeadlineRow(item, now) }
+        }
     }
 }
 

@@ -71,6 +71,10 @@ UniFFI checks signatures when the library loads.
 - First-run tips (`design/Guide.kt`, modelled on desktop's `guide.tsx`) cover
   the week swipe with session marks, lesson marks, assignment swipes and the
   ウェブ title's site list.
+- Hiding an assignment by swiping left commits once the row passes the
+  threshold, with the system snackbar's undo; iOS reveals a 非表示 button and
+  never hides on a long pull alone. The Material swipe-to-dismiss row has no
+  revealed-button state, and the undo covers the slip.
 - ウェブ switches sites from its title as iOS does, but has no long press on
   the tab item: Material's navigation bar offers none. Our floating controls
   are Material surfaces, not Liquid Glass; the motion (`design/Motion.kt`:
