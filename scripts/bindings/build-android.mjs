@@ -1,10 +1,11 @@
-import { join } from "node:path";
+import { join, delimiter } from "node:path";
 import {
   mkdirSync,
   copyFileSync,
   rmSync,
   writeFileSync,
   readFileSync,
+  existsSync,
 } from "node:fs";
 import {
   run,
@@ -15,15 +16,33 @@ import {
   androidCompileSdk,
   androidMinSdk,
   capture,
+  kotlinc,
   sdkFeatureArgs,
   root,
   target,
   output,
   generated,
 } from "./common.mjs";
-const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
-const ndk = process.env.NDK_HOME;
-if (!sdk || !ndk) throw new Error("Set ANDROID_HOME and NDK_HOME");
+const app = join(root, "apps/android");
+// Without the variables, the SDK Android Studio recorded for the app and the
+// NDK version the app pins, so a configured checkout builds with no setup.
+const localSdk = existsSync(join(app, "local.properties"))
+  ? readFileSync(join(app, "local.properties"), "utf8")
+      .match(/^sdk\.dir=(.+)$/m)?.[1]
+      .trim()
+      .replace(/\\(.)/g, "$1")
+  : undefined;
+const sdk =
+  process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? localSdk;
+const ndkVersion = readFileSync(
+  join(app, "app/build.gradle.kts"),
+  "utf8",
+).match(/ndkVersion = "([^"]+)"/)?.[1];
+const ndk =
+  process.env.NDK_HOME ?? (sdk && ndkVersion && join(sdk, "ndk", ndkVersion));
+if (!sdk || !ndk || !existsSync(ndk))
+  throw new Error("Set ANDROID_HOME and NDK_HOME");
+const assemble = process.argv.includes("--assemble-debug");
 const profile = process.env.ISCT_SDK_PROFILE ?? "release";
 const ocr = !process.argv.includes("--no-ocr");
 const bindingFeatures = sdkFeatureArgs({ bindgen: true, ocr });
@@ -38,8 +57,14 @@ run("cargo", [
   "2",
 ]);
 generate();
-const host = process.platform === "darwin" ? "darwin-x86_64" : "linux-x86_64";
+const windows = process.platform === "win32";
+const host =
+  { darwin: "darwin-x86_64", win32: "windows-x86_64" }[process.platform] ??
+  "linux-x86_64";
 const toolchain = join(ndk, "toolchains/llvm/prebuilt", host, "bin");
+// The NDK's per-API clang wrappers are batch files on Windows.
+const wrapper = windows ? ".cmd" : "";
+const exe = windows ? ".exe" : "";
 const stage = join(output, "android-aar");
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
@@ -60,10 +85,10 @@ for (const [triple, abi, clang] of [
     CARGO_TARGET_DIR: target,
     [`CARGO_TARGET_${triple.replaceAll("-", "_").toUpperCase()}_LINKER`]: join(
       toolchain,
-      clang,
+      clang + wrapper,
     ),
-    [`CC_${triple.replaceAll("-", "_")}`]: join(toolchain, clang),
-    [`AR_${triple.replaceAll("-", "_")}`]: join(toolchain, "llvm-ar"),
+    [`CC_${triple.replaceAll("-", "_")}`]: join(toolchain, clang + wrapper),
+    [`AR_${triple.replaceAll("-", "_")}`]: join(toolchain, "llvm-ar" + exe),
   };
   run(
     "cargo",
@@ -93,7 +118,7 @@ for (const [triple, abi, clang] of [
     ),
     join(dir, "libisct_ffi.so"),
   );
-  const needed = capture(join(toolchain, "llvm-readelf"), [
+  const needed = capture(join(toolchain, "llvm-readelf" + exe), [
     "-d",
     join(dir, "libisct_ffi.so"),
   ]);
@@ -105,10 +130,7 @@ for (const [triple, abi, clang] of [
 }
 const { jna, coroutines } = await javaDependencies();
 const annotations = await androidAnnotations();
-const android = join(
-  sdk,
-  `platforms/android-${androidCompileSdk}/android.jar`,
-);
+const android = join(sdk, `platforms/android-${androidCompileSdk}/android.jar`);
 // The app compiles against these classes with its own Kotlin plugin, which
 // rejects metadata more than one minor version newer. Whatever kotlinc the
 // host has (CI runners ship a newer one), emit the app's language version.
@@ -118,12 +140,12 @@ const appKotlin = readFileSync(
 ).match(/id\("org\.jetbrains\.kotlin\.android"\) version "(\d+\.\d+)/)?.[1];
 if (!appKotlin)
   throw new Error("Missing the Kotlin plugin version in apps/android");
-run("kotlinc", [
+kotlinc([
   join(generated, "app/isctcompanion/core/isct_ffi.kt"),
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/OperationValue.kt",
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt",
   "-classpath",
-  [jna, coroutines, android, annotations].join(":"),
+  [jna, coroutines, android, annotations].join(delimiter),
   "-language-version",
   appKotlin,
   "-api-version",
@@ -146,7 +168,21 @@ const artifacts = join(root, "bindings/kotlin/artifacts");
 mkdirSync(artifacts, { recursive: true });
 const aar = join(artifacts, "isct-core.aar");
 rmSync(aar, { force: true });
-run("zip", ["-qr", aar, "."], { cwd: stage });
+const entries = [
+  "AndroidManifest.xml",
+  "classes.jar",
+  "proguard.txt",
+  "R.txt",
+  "jni",
+];
+// Windows has no zip; its bundled bsdtar (not Git's GNU tar) writes one.
+if (windows)
+  run(
+    join(process.env.SystemRoot, "System32/tar.exe"),
+    ["--format", "zip", "-cf", aar, ...entries],
+    { cwd: stage },
+  );
+else run("zip", ["-qr", aar, ...entries], { cwd: stage });
 copyFileSync(
   join(generated, "app/isctcompanion/core/isct_ffi.kt"),
   join(
@@ -177,3 +213,14 @@ writeFileSync(
     2,
   ),
 );
+// One command from a clean checkout to the debug APK (`yarn android:debug`).
+if (assemble)
+  // A full path: cmd.exe may be told not to search the current directory.
+  run(
+    windows ? `"${join(app, "gradlew.bat")}"` : join(app, "gradlew"),
+    [":app:assembleDebug"],
+    {
+      cwd: app,
+      shell: windows,
+    },
+  );

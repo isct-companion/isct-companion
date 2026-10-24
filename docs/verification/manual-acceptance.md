@@ -17,17 +17,20 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**7 of 94 checks must be re-run before the next release.**
+**10 of 96 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
+- `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
+- `SCHOOL-LMS-YEAR-ROLLOVER` — covered paths changed after b598ae6
 - `OCR-CAMPUS-CARD` — covered paths changed after 7fdf1b6
 - `DESKTOP-SCHOOL-WEBVIEW` — covered paths changed after 7fdf1b6
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
+- `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**84 checks have never been run or could not be run:**
+**86 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -92,6 +95,8 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-COURSE-LESSONS` — never verified
 - `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
 - `ANDROID-SETTINGS-PAGES` — never verified
+- `ANDROID-WEB-PREFERENCES` — never verified
+- `ANDROID-COURSE-ZOOM-AND-FIGURES` — never verified
 - `MOBILE-UI-LANGUAGE` — never verified
 - `DESKTOP-CALENDAR-NOW-LINE` — never verified
 - `DESKTOP-COURSE-OUTLINE-STILL` — never verified
@@ -119,7 +124,7 @@ an unverified area becomes an assumed-good one.
 | Check | Area | Persona | Result | Covers |
 | --- | --- | --- | --- | --- |
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/school_browser/engine/**<br>crates/isct-core/src/school_service.rs |
-| `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-20 · codex · `07bc592` | docs/tasks/03-lms-sync.md<br>crates/isct-core/src/downloads.rs |
+| `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-20 · codex · `07bc592` | docs/tasks/03-lms-sync.md<br>crates/isct-core/src/downloads.rs |
 | `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/lms_ingest.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs<br>crates/isct-core/src/school_parser/lms/pages.rs<br>crates/isct-core/src/net/moodle/reader.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>crates/isct-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
 | `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/moodle/reader.rs<br>crates/isct-core/src/net/moodle/mapping.rs<br>crates/isct-core/src/net/moodle/token.rs<br>crates/isct-core/src/net/moodle/rest.rs<br>crates/isct-core/src/net/moodle/ajax.rs<br>crates/isct-core/src/school_auth.rs<br>docs/lms-api/README.md |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/isct-core/src/study_profile.rs<br>crates/isct-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
@@ -129,7 +134,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/isct-core/src/kyomu_ingest.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/study_profile.rs |
 | `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/school_parser/kyomu/pages.rs<br>crates/isct-core/src/school_parser/kyomu.rs<br>crates/isct-core/src/kyomu_ingest.rs |
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
-| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs |
+| `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `b598ae6` | crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/school_parser/lms.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-ONEDRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
@@ -166,7 +171,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/isct-core/src/schedule/reminders.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/isct-core/src/schedule/alternation.rs |
 | `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/school_parser/kyomu/search.rs<br>crates/isct-core/src/school_parser/kyomu/pages.rs<br>crates/isct-core/src/net/kyomu.rs<br>crates/isct-core/src/catalog.rs<br>crates/isct-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
-| `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
+| `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
 | `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/isct-core/src/app_updates.rs |
 | `DESKTOP-DEV-BUILD-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs |
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/kyomu.rs |
@@ -183,14 +188,16 @@ an unverified area becomes an assumed-good one.
 | `IOS-NATIVE-CHROME` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
-| `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
+| `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
-| `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
+| `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
+| `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-COURSE-ZOOM-AND-FIGURES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx |
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
@@ -201,7 +208,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
 | `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/mod.rs<br>crates/isct-core/src/data/cloud_merge.rs<br>crates/isct-core/src/data/backup_store.rs |
 | `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/GoogleSignIn.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/project.yml |
-| `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>crates/isct-ffi/src/ports.rs |
+| `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/isct-ffi/src/ports.rs |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
@@ -378,7 +385,9 @@ Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
 
 ### Token-backed native reads and resource bytes (`SCHOOL-LMS-TOKEN-HTTP`)
 
-**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass ⚠
+
+> Needs re-running: covered paths changed after 07bc592
 
 **Preconditions**
 
@@ -964,7 +973,9 @@ judged against the live catalogue.
 
 ### LMS pull after the academic year moves (`SCHOOL-LMS-YEAR-ROLLOVER`)
 
-**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** pass ⚠
+
+> Needs re-running: covered paths changed after b598ae6
 
 **Preconditions**
 
@@ -3029,7 +3040,9 @@ Headless tests exercise the parser, shared projections and UI paging only.
 
 ### Signed macOS updates preserve the existing workspace (`DESKTOP-SIGNED-UPDATES`)
 
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** pass
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** pass ⚠
+
+> Needs re-running: covered paths changed after af4f026
 
 **Preconditions**
 
@@ -3476,9 +3489,11 @@ failure path.
      nothing registered for the scheme.
 3. Tap 設定をコピー, paste into a notes field, then check the keyboard
    clipboard suggestion (Android) or another Apple device's Universal
-   Clipboard (iOS), and paste again after two minutes on iOS.
-   - *Why:* The copy is marked sensitive on Android and local-only with a
-     two-minute expiry on iOS; both are system clipboard behaviours.
+   Clipboard (iOS), and paste again after two minutes on both.
+   - *Why:* The button reads コピーしました for two seconds on both phones. The
+     copy is marked sensitive on Android and local-only on iOS, and both
+     clear it after two minutes (Android only if nothing else was copied
+     since); these are system clipboard behaviours.
 
 **Where to look**
 
@@ -3489,7 +3504,7 @@ The authenticator app, the error line under the buttons, and the pasted text.
 The authenticator adds a working Science Tokyo entry; without one, a red
 line says to copy instead. The copied link pastes once on the phone, is
 hidden from Android's clipboard preview, never reaches another Apple
-device, and is gone from the iOS clipboard after two minutes. The
+device, and is gone from both clipboards after two minutes. The
 warning about the old entry after a school reset shows under the
 buttons.
 
@@ -3939,11 +3954,15 @@ iOS 18 device if one is at hand).
    lift outside the panel.
    - *Why:* Tap-after-lift selects; lifting outside dismisses. Both paths must
      work or the picker only suits one habit.
-4. Tap the ウェブ tab while a site is open, and swipe from the page's
+4. Choose TSUBAME, the last of the six sites.
+   - *Why:* TSUBAME joined the picker; it opens Core's start page for it (the
+     TSUBAME portal's SSO entry). A missing row means the site list is
+     the old one.
+5. Tap the ウェブ tab while a site is open, and swipe from the page's
    edges.
    - *Why:* Tapping the tab returns the site to its start page; WKWebView's own
      edge swipes go back and forward, replacing the old button's arrows.
-5. On an iPad in split, long press ウェブ in the sidebar.
+6. On an iPad in split, long press ウェブ in the sidebar.
    - *Why:* The same rows appear as a context menu.
 
 **Where to look**
@@ -3963,6 +3982,7 @@ device; nothing in the harness reaches UIKit's tab bar.
 
 **Covers**
 
+- `apps/ios/IsctCompanion/Core/WebRouter.swift`
 - `apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift`
 - `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
@@ -4170,7 +4190,13 @@ between the first period's start and the last period's end (Tokyo time).
 4. Look at today's column during a teaching hour.
    - *Why:* The red now line sits at the current time and moves every half
      minute; outside the axis there is no line by design.
-5. Tap the share button in the header, choose 授業のみ, send the file to
+5. Relaunch the app, open 時間割 and swipe quickly four weeks forward,
+   then back past this week.
+   - *Why:* The week is read with four weeks on either side in one query, as on
+     iOS, so each swipe within that reach draws its blocks at once.
+     Columns that flash empty before filling mean each week is still
+     queried on its own.
+6. Tap the share button in the header, choose 授業のみ, send the file to
    Google Calendar or Files and open it.
    - *Why:* The .ics is Core's quarterIcs for the shown week's quarter, as the
      desktop's ICSを書き出す; another quarter or an empty file is wrong.
@@ -4183,16 +4209,17 @@ The 時間割 tab on the device or emulator.
 
 The week fits, the picker labels and jumps as Core says, marks redraw at
 once, the now line tracks the clock and the shared .ics holds this
-quarter's classes.
+quarter's classes; nearby weeks appear without an empty flash.
 
 **Why this is manual**
 
-Layout, the long-press menu, the moving line and the share sheet are
-read at a glance on a device; the axis maths and calendar export are
-covered by Core's timing and ICS tests.
+Layout, the long-press menu, the moving line, swipe redraws and the
+share sheet are read at a glance on a device; the axis maths and
+calendar export are covered by Core's timing and ICS tests.
 
 **Covers**
 
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt`
@@ -4278,12 +4305,17 @@ The Android app with an exam linked to a course within the next 14 days
 1. Read 今日 below the class stack.
    - *Why:* A 試験 card lists Core's upcomingExams (date · periods or time ·
      room); it is absent with no exams, and a row opens its course.
-2. Pull to refresh and watch the title bar, then tap the indicator.
+2. During a session marked 試験にする (mark the current class in
+   時間割 if no exam is running), read the top card of 今日.
+   - *Why:* The hero says 試験中, not 授業中, with the periods and only the
+     first of several rooms, as on iOS; 授業中 or a wrapped room list
+     means the occurrence kind is ignored.
+3. Pull to refresh and watch the title bar, then tap the indicator.
    - *Why:* A ring while a counted run reads, a spinner otherwise, a check for a
      moment when it finishes; the sheet lists each source's last update
      and the runs underway, as on iOS. An indicator that never clears
      means the shell keeps its own busy state.
-3. Turn on airplane mode and pull; then, back online, save a wrong
+4. Turn on airplane mode and pull; then, back online, save a wrong
    Science Tokyo password in 設定 and pull.
    - *Why:* A held read shows its reason in the sheet; a sign-in that Core
      needs shows the red banner with サインイン, which opens the account
@@ -4334,6 +4366,17 @@ The Android app and the desktop app on the same workspace.
    and tap 今すぐ更新.
    - *Why:* The toggle is settings.subscriptionRefresh.allowCellular, which
      Core reads for pulls; the times are Core's source status.
+4. Look down 設定 on the phone and compare it with the iPhone's.
+   - *Why:* Every row but the accounts carries the same icon as on iOS: a white
+     symbol on a rounded square in a token role (red 通知, blue 学習
+     プロフィール, green データ更新, …), and dividers start at the text.
+     Bare text rows mean the icons were dropped.
+5. Back on 設定, read the two account rows and the バックアップ row,
+   before and after turning Google Drive on.
+   - *Why:* A signed-in account reads 接続済 · <time> 更新 from Core's lms
+     and kyomu sources, as on iOS; バックアップ reads オフ, then the
+     last sync time of whichever provider is on. A bare 接続済み after a
+     pull, or オフ with Drive on, means the snapshot is not read.
 
 **Where to look**
 
@@ -4353,6 +4396,129 @@ object is covered by Core's workspace tests.
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
+
+**Last recorded** never run
+
+### Android ウェブ is laid out as on iOS, keeps its preferences, goes home and pulls to reload (`ANDROID-WEB-PREFERENCES`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build on the emulator or a phone; no school account is
+needed, the SSO login page is enough.
+
+**Steps**
+
+1. Open ウェブ and look at the screen, then tap the site name in the
+   title bar.
+   - *Why:* As on iOS, one bar: ‹ › on the left (dimmed when there is no page
+     to go to), the site name with ▾ in the middle, ⋮ on the right, and
+     the page filling the rest; the title opens the six sites (TSUBAME
+     last) with the shown one ticked. A row of site tabs above the page
+     is the old layout.
+2. In 設定 › ウェブ pick 130% and 最初のサイト ポータル. Swipe the app
+   away, reopen it and open ウェブ.
+   - *Why:* Both are device preferences, as on iOS: ウェブ must open on ポータル
+     with large text. LMS or 115% after the relaunch means they are
+     held in memory only.
+3. Open the page menu (⋮) and pick another 文字の大きさ; reopen 設定.
+   - *Why:* The menu holds 再読み込み, 共有 and ブラウザで開く, then the text
+     sizes, as on iOS. The menu and 設定 show one value with a tick; a
+     page that does not resize, or 設定 showing the old size, means two
+     owners.
+4. Follow a link inside the page, then pick the shown site again from
+   the title; follow another link and tap the ウェブ tab in the bottom
+   bar.
+   - *Why:* Re-picking the shown site or the tab returns it to Core's start page
+     (schoolStartUrl), as on iOS. Staying on the inner page means the tap
+     only restores the last page.
+5. At the top of a page, pull down; then scroll down a long page and
+   pull again.
+   - *Why:* A pull at the top shows the spinner and reloads through Core; mid
+     page the gesture scrolls the page instead. A reload while scrolled
+     down means the scroll check looks at the wrong view.
+6. Signed in, open a course's LMS page from its course page, follow a
+   link, then use the bottom bar.
+   - *Why:* A pushed page carries ✕, the page title and the site under it on
+     top, and ‹ › · share · open in browser along the bottom, as on iOS;
+     ‹ goes back within the page and ✕ returns to the course.
+
+**Where to look**
+
+The ウェブ tab, a pushed school page and 設定 › ウェブ on the device.
+
+**Expected**
+
+The bars match the iOS layout, the size and first site survive a
+relaunch and match in both places, a re-pick goes to the site's start
+page, and a pull at the top reloads.
+
+**Why this is manual**
+
+A person sees the page, its text size and the pull spinner at a glance
+in the real WebView; the start URLs are Core's and covered by its
+school browser tests.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+
+**Last recorded** never run
+
+### Android courses grow out of what was tapped and counting figures roll (`ANDROID-COURSE-ZOOM-AND-FIGURES`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app signed in, on a teaching day during or before a class,
+with system animations on (Developer options › animation scales 1x).
+
+**Steps**
+
+1. Tap a block in 時間割, press back; tap the front class card on 今日,
+   press back; on a tablet, tap a row in 授業.
+   - *Why:* Each course page grows out of the block, card or row and shrinks
+     back into it on back, as iOS's zoom transition does. A plain cross
+     fade means the shared bounds did not match; a page that grows from
+     the wrong place means two sources share a zoom id.
+2. Watch the minutes on the current class card and the あと N 分 chip
+   on the next card when the minute turns; swipe 時間割 a week.
+   - *Why:* The figures roll: only the digits that change slide, as SwiftUI's
+     numericText does, and the week range rolls with the swipe. Whole
+     numbers jumping means the counting text is not used.
+3. Set the animation scales to off and repeat both.
+   - *Why:* With animations removed both changes are instant, as Reduce Motion
+     makes them on iOS.
+
+**Where to look**
+
+今日, 時間割 and the course page on the device.
+
+**Expected**
+
+Courses zoom in and out of their source, figures roll digit by digit,
+and both are instant with animations off.
+
+**Why this is manual**
+
+Motion is judged by eye on a device; there is nothing behind it for
+Core to test.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Components.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt`
 
 **Last recorded** never run
 
@@ -4917,6 +5083,18 @@ Drive on and at least one plan uploaded.
 4. Export a backup file to Files and import it again.
    - *Why:* Android had no backup page before; export and import must go through
      the system document picker and the import must leave a recovery file.
+5. Turn Google Drive off, swipe the app away, reopen it and turn Drive
+   on again.
+   - *Why:* Turning off is the port's sign-out, which revokes the grant, so
+     Google's prompt must show again. Reconnecting silently means only
+     the cached token was cleared.
+6. With Drive on, 設定 › リセット › 完全リセット: choose
+   クラウドから復元する, acknowledge and reset; repeat once with
+   新しい端末として始める.
+   - *Why:* Restore turns the providers that were on back on and pulls, as on
+     desktop, so the desktop's plan returns; a new start leaves Drive off
+     and the device empty. The choice only appears while a provider is
+     on, and クラウドのコピーとほかの端末 is listed under what stays.
 
 **Where to look**
 
@@ -4927,7 +5105,8 @@ and the records on both devices.
 
 Decline leaves Drive off with its reason; allow connects it and the
 desktop's data arrives; a relaunch stays connected silently; export and
-import work and the import keeps a recovery file.
+import work and the import keeps a recovery file; off then on asks
+again; a full reset restores from Drive only when asked to.
 
 **Why this is manual**
 
@@ -4940,6 +5119,7 @@ port is covered by
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt`
 - `crates/isct-ffi/src/ports.rs`
 
 **Last recorded** never run

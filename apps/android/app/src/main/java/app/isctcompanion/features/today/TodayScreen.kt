@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.Animatable
 import kotlin.math.abs
 import app.isctcompanion.features.assignments.todayAssignments
+import app.isctcompanion.features.timetable.firstRoom
 import app.isctcompanion.design.t
 import app.isctcompanion.core.OccurrenceKind
 import androidx.compose.ui.zIndex
@@ -100,7 +101,9 @@ import app.isctcompanion.design.activeRuns
 import app.isctcompanion.design.problem
 import app.isctcompanion.design.TagChip
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseColor
+import app.isctcompanion.design.courseZoomSource
 import app.isctcompanion.design.nowGradient
 import app.isctcompanion.design.tabular
 import java.time.Instant
@@ -302,7 +305,7 @@ private fun ClassStack(items: List<TodayClass>, now: Instant) {
                         }
                     },
             ) {
-                StackCard(item, now, leads = at == 0, enabled = at == index)
+                StackCard(item, now, leads = at == 0, enabled = at == index, zoom = "stack-$at")
                 if (depth > 0) {
                     // Cards behind dim a little per level, so the stack reads as layers.
                     Box(
@@ -334,7 +337,7 @@ private fun stackTitle(item: TodayClass, first: Boolean, now: Instant): String {
 /** One class in the stack: periods, start time and room in large figures, and
  * how long until it starts while that is today. */
 @Composable
-private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: Boolean) {
+private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: Boolean, zoom: String) {
     val tint = courseColor(item.occurrence.color)
     val navigator = LocalNavigator.current
     val id = item.occurrence.courseId
@@ -345,20 +348,21 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
         Modifier
             .fillMaxWidth()
             .height(stackCardHeight)
+            .courseZoomSource(zoom.takeIf { enabled && id != null })
             .shadow(6.dp, RoundedCornerShape(Theme.radiusPanel))
             .clip(RoundedCornerShape(Theme.radiusPanel))
             .background(Theme.colors.surface),
     ) {
         Hero(
             Modifier.fillMaxHeight().nowGradient(tint, Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel)),
-            onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it) } },
+            onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it, zoom) } },
         ) {
             HeroLine(listOfNotNull(if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
                 if (leads && today && starts != null) {
                     val minutes = maxOf(Format.minutes(starts, now), 0)
                     TagChip(
                         if (minutes < 60) t("{{count}} min left", "count" to minutes) else Format.time(starts),
-                        ink = if (exam) Theme.colors.warn else tint, fill = Theme.colors.surface,
+                        ink = if (exam) Theme.colors.warn else tint, fill = Theme.colors.surface, counting = true,
                     )
                 }
             }
@@ -413,6 +417,9 @@ private fun HeroLine(text: String, tint: Color, trailing: @Composable () -> Unit
 
 private val bigFigure = 48.sp
 
+/** The current class card's zoom id; one hero shows at a time. */
+private const val HERO_ZOOM = "hero"
+
 /** In class: minutes left, progress and end time. */
 @Composable
 private fun CurrentClassHero(item: TodayClass, now: Instant) {
@@ -424,12 +431,18 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
     val navigator = LocalNavigator.current
     val id = item.occurrence.courseId
     Hero(
-        Modifier.nowGradient(tint, Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel)),
-        onClick = id?.let { { navigator.openCourse(it) } },
+        Modifier
+            .courseZoomSource(HERO_ZOOM.takeIf { id != null })
+            .nowGradient(tint, Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel)),
+        onClick = id?.let { { navigator.openCourse(it, HERO_ZOOM) } },
     ) {
+        // The first room only, so the line never wraps; every room is on the
+        // course page.
         HeroLine(
-            listOfNotNull(t("In class"), Format.periods(item.periods), item.occurrence.room)
-                .filter { it.isNotEmpty() }.joinToString(" · "),
+            listOfNotNull(
+                if (item.occurrence.kind == OccurrenceKind.EXAM) t("Exam in progress") else t("In class"),
+                Format.periods(item.periods), firstRoom(item.occurrence.room),
+            ).filter { it.isNotEmpty() }.joinToString(" · "),
             tint,
         ) {
             Text(
@@ -444,7 +457,7 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
             words.first().takeIf { it.isNotEmpty() }?.let {
                 Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
             }
-            Text(
+            CountingText(
                 "${maxOf(Format.minutes(ends, now), 0)}", fontSize = bigFigure, fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.displayMedium.tabular(), color = Theme.colors.ink,
             )

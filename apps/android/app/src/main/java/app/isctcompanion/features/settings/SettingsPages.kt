@@ -1,5 +1,12 @@
 package app.isctcompanion.features.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -157,7 +164,7 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
                 NavRow(
                     t("Remind me"),
                     ReminderLeads.assignmentLeads(settings).sortedDescending().joinToString("、", transform = ReminderLeads::label),
-                    openLeads,
+                    onClick = openLeads,
                 )
             }
         }
@@ -370,13 +377,31 @@ private fun PickerRow(title: String, selected: Int, minutes: List<Int>, choose: 
     PickerRow(title, selected, minutes.map { it to ReminderLeads.label(it) }, choose)
 
 /** A row that opens a page: title, its current value, a chevron. */
+/** The system settings' row icon, as iOS draws it: a white symbol on a
+ * rounded square in a token role (accent for preferences, ok, warn, danger),
+ * never a rainbow of colours. */
 @Composable
-internal fun NavRow(title: String, detail: String?, onClick: () -> Unit) {
+internal fun SettingsIcon(icon: ImageVector, tint: Color) {
+    Box(
+        Modifier.size(SETTINGS_ICON).clip(RoundedCornerShape(7.dp))
+            .background(Brush.verticalGradient(listOf(tint.copy(alpha = 0.82f).compositeOver(Color.White), tint))),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(18.dp)) }
+}
+
+internal val SETTINGS_ICON = 29.dp
+
+/** Where a divider starts under a row with a settings icon: at its text. */
+internal val ICON_ROW_INSET = 16.dp + SETTINGS_ICON + 12.dp
+
+@Composable
+internal fun NavRow(title: String, detail: String?, icon: ImageVector? = null, tint: Color = Theme.colors.accent, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
     ) {
+        icon?.let { SettingsIcon(it, tint) }
         Column(Modifier.weight(1f)) {
             Text(title, color = Theme.colors.ink)
             detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 2) }

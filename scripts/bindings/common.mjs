@@ -42,10 +42,25 @@ export function run(cmd, args, options = {}) {
 export function capture(cmd, args) {
   return execFileSync(cmd, args, { cwd: root, encoding: "utf8" }).trim();
 }
-export function kotlinLibrary(name) {
-  const kotlinRoot = dirname(
-    dirname(realpathSync(capture("which", ["kotlinc"]))),
+const windows = process.platform === "win32";
+// kotlinc is a batch file on Windows, which Node starts only through cmd.exe,
+// and cmd.exe re-splits the line at spaces in paths. The arguments go in a
+// kotlinc @argfile instead, with forward slashes so none need escaping.
+export function kotlinc(args) {
+  if (!windows) return run("kotlinc", args);
+  mkdirSync(output, { recursive: true });
+  const file = join(output, "kotlinc.args");
+  writeFileSync(
+    file,
+    args.map((arg) => `"${arg.replaceAll("\\", "/")}"`).join("\n"),
   );
+  run(`kotlinc.bat "@${file}"`, [], { shell: true });
+}
+export function kotlinLibrary(name) {
+  const kotlinc = capture(windows ? "where" : "which", ["kotlinc"]).split(
+    /\r?\n/,
+  )[0];
+  const kotlinRoot = dirname(dirname(realpathSync(kotlinc)));
   const library = ["lib", "libexec/lib"]
     .map((directory) => join(kotlinRoot, directory, name))
     .find(existsSync);
@@ -92,7 +107,8 @@ export function generate() {
   const library = join(
     target,
     "debug",
-    process.platform === "darwin" ? "libisct_ffi.dylib" : "libisct_ffi.so",
+    { darwin: "libisct_ffi.dylib", win32: "isct_ffi.dll" }[process.platform] ??
+      "libisct_ffi.so",
   );
   run(join(target, "debug/isct-bindgen"), [
     "generate",

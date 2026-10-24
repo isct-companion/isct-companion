@@ -118,3 +118,14 @@ for its own sake: consolidating a scattered suite into fewer, larger files will
 usually add lines while raising coverage, and that is the intended outcome. The
 thing to drive down is the number of places a reader has to look, not the number
 of assertions.
+
+## 7. Keep project state in slotledger only
+
+Decisions, plans, tasks, handoffs and notes live in slotledger, through its MCP
+tools (set up with `npx slotledger init`; usage in
+`.claude/skills/slotledger/SKILL.md`). Do not
+write handoff, PLAN, TODO or notes files, including notes between sessions, and
+do not keep project state in agent memory (Claude's auto memory, Codex
+memories). Hand work over with the task's `handoff`; record what you would
+otherwise remember with `record` or `task`. `STATUS.md` is generated from
+`.project/events.jsonl`; never edit either by hand.

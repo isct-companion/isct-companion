@@ -17,6 +17,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Localizer
+import app.isctcompanion.features.timetable.clockMinutes
+import app.isctcompanion.features.timetable.thisWeek
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -65,6 +67,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Core's sync planner: its runs and sources, rendered as they are. */
     var syncSnapshot: SyncSnapshot? by mutableStateOf(null)
         private set
+
+    /** One source in Core's sync snapshot (`lms`, `kyomu`, `references`, `catalog`). */
+    fun syncSource(source: String): SourceView? = syncSnapshot?.sources?.firstOrNull { it.source == source }
+
     /** Undo for the last hide, built from the intent Core committed. */
     var undo: UndoAction? by mutableStateOf(null)
         private set
@@ -271,7 +277,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             when (update) {
                 is StreamUpdate.Event -> when (update.event.name) {
                     "sync-snapshot" -> runCatching { decodeSyncSnapshot(update.event.payload) }
-                        .onSuccess { syncSnapshot = it }
+                        .onSuccess(::apply)
                     "school-session", "school-login-status" -> refreshAccounts()
                     "school-web-open" -> web.handleOpenEvent(update.event.payload)
                     "cloud-sync-state" -> refreshCloud()
@@ -343,7 +349,15 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val changed = contentRevision != snapshot.contentRevision
             contentRevision = snapshot.contentRevision
             scheduleBoundary()
+            if (changed || weeks.isEmpty()) {
+                weeks.clear()
+                scope.launch { prefetchTimetable() }
+            }
             if (changed) NotificationScheduler.sync(context, session)
+        } catch (error: CancellationException) {
+            // A newer change hint replaced this read; it is not a failure.
+            throw error
+        } catch (error: SdkException.Cancelled) {
         } catch (error: Exception) {
             problem = describe(error)
         }
@@ -374,14 +388,44 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val session = session ?: return
         val snapshot = runCatching { (session.syncSnapshot().value() as? OperationResult.Sync)?.snapshot }
             .getOrNull() ?: return
+        apply(snapshot)
+    }
+
+    /** A read that started before a newer event must not replace it. */
+    private fun apply(snapshot: SyncSnapshot) {
         val shown = syncSnapshot
         if (shown == null || snapshot.generation >= shown.generation) syncSnapshot = snapshot
     }
 
+    /** Weeks already read this revision, by Monday, so the timetable draws
+     * them at once; a new revision re-reads them. */
+    private val weeks = mutableMapOf<LocalDate, ScheduleView>()
+
+    /** A week read with its neighbours, if this revision has it. */
+    fun cachedWeek(monday: LocalDate): ScheduleView? = weeks[monday]
+
+    /** The week from `monday`, read with `WEEK_REACH` weeks on either side in
+     * one query, so stepping or swiping through nearby weeks draws at once. */
     suspend fun week(monday: LocalDate): ScheduleView? {
+        weeks[monday]?.let { return it }
         val term = today?.term ?: return null
-        val view = WorkspaceQuery.ScheduleView(term, Format.civil(monday), Format.civil(monday.plusDays(4)), false)
-        return (query(view) as? WorkspaceQueryResult.ScheduleView)?.v1
+        val first = Format.civil(monday.minusWeeks(WEEK_REACH))
+        val last = Format.civil(monday.plusWeeks(WEEK_REACH).plusDays(4))
+        val view = (query(WorkspaceQuery.ScheduleView(term, first, last, false)) as? WorkspaceQueryResult.ScheduleView)?.v1
+            ?: return null
+        for (offset in -WEEK_REACH..WEEK_REACH) {
+            val start = monday.plusWeeks(offset)
+            val from = Format.civil(start)
+            val to = Format.civil(start.plusDays(4))
+            // Civil dates compare as text.
+            weeks[start] = view.copy(agendas = view.agendas.filter { it.date >= from && it.date <= to })
+        }
+        return weeks[monday]
+    }
+
+    /** Reads this week and its axis ahead of the timetable being opened. */
+    private suspend fun prefetchTimetable() {
+        timetableAxis(week(thisWeek()) ?: return)
     }
 
     /** The academic year (April–March) a date belongs to. */
@@ -409,7 +453,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Core's equal-row timetable axis, widened to the week's earliest start
      * and latest end when those leave the teaching day. */
-    suspend fun timetableAxis(earliest: String?, latest: String?): TimetableAxis? {
+    suspend fun timetableAxis(week: ScheduleView?): TimetableAxis? {
+        val blocks = week?.agendas.orEmpty().flatMap { it.occurrences }
+            .filter { it.kind == OccurrenceKind.COURSE || it.kind == OccurrenceKind.EXAM }
+        val earliest = blocks.map { it.startTime }.minByOrNull(::clockMinutes)
+        val latest = blocks.map { it.endTime }.maxByOrNull(::clockMinutes)
         val axis = (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
         if (axis != null) lastTimetableAxis = axis
         return axis
@@ -455,10 +503,17 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (result as? OperationResult.Finder)?.page?.context?.departments.orEmpty()
     }
 
-    /** One schedule query's first value, or null when Core cannot answer. */
+    /** One schedule query's first value, or null when Core cannot answer.
+     * A cancelled caller stays cancelled rather than reading "no answer". */
     private suspend fun query(query: WorkspaceQuery): WorkspaceQueryResult? {
         val session = session ?: return null
-        val result = runCatching { session.scheduleQuery(listOf(query)).value() }.getOrNull()
+        val result = try {
+            session.scheduleQuery(listOf(query)).value()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            null
+        }
         return (result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
     }
 
@@ -699,6 +754,17 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         problem = null
         refreshAccounts()
         readSync()
+        refreshCloud()
+    }
+
+    /** After a full reset, as the desktop's: the providers that were on are
+     * turned on again, then their copy is pulled. Throws when either fails. */
+    suspend fun restoreFromCloud(providers: List<CloudProvider>) {
+        val session = session ?: return
+        for (provider in providers) session.setCloudEnabled(provider, true).value()
+        session.syncCloud(Direction.PULL).value()
+        refreshCloud()
+        refresh()
     }
 
     suspend fun deleteCredentials(profile: SchoolAuthProfile) {
@@ -724,3 +790,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 }
 
 data class UndoAction(val title: String, val assignmentId: String)
+
+/** Weeks read on either side of the one asked for. */
+private const val WEEK_REACH = 4L

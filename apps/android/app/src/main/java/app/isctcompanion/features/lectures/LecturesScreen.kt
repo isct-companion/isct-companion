@@ -40,6 +40,7 @@ import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.courseColor
+import app.isctcompanion.design.courseZoomSource
 import app.isctcompanion.design.t
 
 /** 授業 (wide windows): the quarter's courses, as the desktop Lectures
@@ -68,7 +69,8 @@ fun LecturesScreen() {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxWidth().clickable { navigator.openCourse(id) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                            modifier = Modifier.fillMaxWidth().courseZoomSource("lecture-$id")
+                                .clickable { navigator.openCourse(id, "lecture-$id") }.padding(horizontal = 16.dp, vertical = 10.dp),
                         ) {
                             Box(
                                 Modifier.width(6.dp).height(32.dp).clip(RoundedCornerShape(4.dp))

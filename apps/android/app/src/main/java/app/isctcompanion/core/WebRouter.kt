@@ -18,7 +18,13 @@ import org.json.JSONObject
  * visibility fact goes back to Core (`schoolBrowsing`) so background sync
  * yields to it. */
 class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScope, context: Context) {
-    var tabSite by mutableStateOf(SchoolSite.SCIENCE_LMS)
+    /** The site the ウェブ tab opens on at launch, kept on this device (設定 › ウェブ). */
+    private val preferences = context.getSharedPreferences("web", Context.MODE_PRIVATE)
+    var firstSite: SchoolSite by mutableStateOf(
+        tabSites.firstOrNull { wireName(it) == preferences.getString(FIRST_SITE, null) } ?: SchoolSite.SCIENCE_LMS,
+    )
+        private set
+    var tabSite by mutableStateOf(firstSite)
         private set
     val titles = mutableStateMapOf<SchoolSite, String>()
     var loading by mutableStateOf<SchoolSite?>(null)
@@ -45,6 +51,25 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     fun showTab(site: SchoolSite) {
         tabSite = site
         open(site, target = null, restore = true)
+    }
+
+    /** 設定 › ウェブ › 最初のサイト; takes effect at the next launch. */
+    fun chooseFirstSite(site: SchoolSite) {
+        firstSite = site
+        preferences.edit().putString(FIRST_SITE, wireName(site)).apply()
+    }
+
+    /** Back to the site's own start page (Core's `schoolStartUrl`), as tapping
+     * the tab or the site again does. */
+    fun goHome(site: SchoolSite) {
+        tabSite = site
+        open(site, target = runCatching { schoolStartUrl(site) }.getOrNull())
+    }
+
+    /** Picks a site in the switcher; picking the shown one returns it home. */
+    fun choose(site: SchoolSite) {
+        if (site == tabSite && site in opened) goHome(site) else showTab(site)
+        setVisible(site)
     }
 
     /** Opens `site` in its resident view. A site already open keeps its page
@@ -92,9 +117,12 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     }
 
     companion object {
+        private const val FIRST_SITE = "firstSite"
+
         /** Sites in the ウェブ tab's switcher, in order. */
         val tabSites = listOf(
             SchoolSite.SCIENCE_PORTAL, SchoolSite.SCIENCE_LMS, SchoolSite.KYOMU, SchoolSite.TOKYO_MAIL, SchoolSite.LIBRARY,
+            SchoolSite.TSUBAME,
         )
 
         fun name(site: SchoolSite): String = when (site) {
@@ -107,6 +135,19 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
             SchoolSite.TSUBAME -> "TSUBAME"
             SchoolSite.SYLLABUS -> t("Syllabus")
             SchoolSite.STUDY_GUIDE -> t("Study guide")
+        }
+
+        /** Core's wire name for a site (`SchoolSite` serde names). */
+        fun wireName(site: SchoolSite): String = when (site) {
+            SchoolSite.SCIENCE_PORTAL -> "science-portal"
+            SchoolSite.SCIENCE_LMS -> "science-lms"
+            SchoolSite.TOKYO_PORTAL -> "tokyo-portal"
+            SchoolSite.TOKYO_MAIL -> "tokyo-mail"
+            SchoolSite.KYOMU -> "kyomu"
+            SchoolSite.LIBRARY -> "library"
+            SchoolSite.TSUBAME -> "tsubame"
+            SchoolSite.SYLLABUS -> "syllabus"
+            SchoolSite.STUDY_GUIDE -> "study-guide"
         }
 
         /** Core's wire names for sites (`SchoolSite` serde names). */
