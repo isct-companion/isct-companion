@@ -200,14 +200,14 @@ fn desktop_and_native_transports_drive_one_session_to_the_same_votes() {
             assert_eq!(vote.text, letter(cell), "native={native} cell {cell}");
             assert!(vote.stable);
         }
-        // Keyframes are sampled at Core's interval: not every tracked frame is cut.
+        // Both transports must cut enough independent samples for consensus.
+        // The exact sampling interval is covered with an injected timeline in
+        // tracked_frames_own_the_outline_and_keyframes_follow_the_sampling_interval;
+        // a wall-clock frame/cut ratio also measures the CI host's scheduling.
         let report = driver.stop(&id).unwrap();
         let cuts = vision.cuts.load(Ordering::Relaxed) as usize;
         assert_eq!(cuts, report.keyframes, "native={native}");
-        assert!(
-            cuts >= 3 && report.frames.len() > 2 * cuts,
-            "native={native} cuts={cuts}"
-        );
+        assert!(cuts >= 3, "native={native} cuts={cuts}");
         assert!(matches!(driver.poll(&id), Err(MatrixScanError::Ended)));
     }
 }

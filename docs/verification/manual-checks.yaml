@@ -2210,7 +2210,7 @@ checks:
       APPLE_API_* repository secrets are configured; IOS_TESTFLIGHT_ENABLED is true.
     steps:
       - action: |
-          Dispatch the iOS release workflow and inspect the signing, archive,
+          Dispatch the iOS release workflow with upload_testflight enabled and inspect the signing, archive,
           export and upload steps in its Actions log.
         reason: |
           A compilation-only run cannot validate the supplied signing identity
