@@ -1,6 +1,6 @@
 # Task 10 — Settings: department, subscriptions, hidden items, scheduled tasks, data
 
-Product spec: `docs/product-definition.md` → Settings, Advanced. Depends on tasks 1, 5, 6. Keep the existing Mantine layout and the "simple, no page scroll" rule.
+Product spec: `docs/product-definition.md` → Settings, Advanced. Depends on tasks 1, 5, 6. Keep the existing settings layout and the "simple, no page scroll" rule.
 
 ## Sections to add or change
 

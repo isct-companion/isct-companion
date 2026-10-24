@@ -347,7 +347,7 @@ colour as a light tint with dark text, and as a small square in rows.
 `design/` at the repository root holds the shared visual language as W3C
 design tokens (see `design/README.md`): neutrals and semantic colours for
 light and dark, the course palette and tint strengths, radius by role. Style
-Dictionary generates the desktop CSS variables and Mantine theme values,
+Dictionary generates the desktop CSS variables,
 core's course palette, and SwiftUI / Compose constants. Platforms override a
 role's value (phone radii are larger), never its name.
 
