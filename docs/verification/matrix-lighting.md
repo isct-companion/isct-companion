@@ -505,6 +505,17 @@ history. The earlier local-only decision above records the experiment checkpoint
 this explicit promotion supersedes it. Physical check `OCR-CAMPUS-CARD` is pending
 the user's new App session.
 
+#### Default promotion, 2026-10-24
+
+At the user's explicit request, a model trained through the recorded test-card
+workflow above (two training cards, a third card held out) replaces the
+2026-10-21 default: SHA-256
+`f9ca9cc5489dab804923bc3446c01e0b6fb6491ad9ddcd4b12731a23b4ce79c5`. On the
+held-out card it read 99.2% of sharp admitted cells with no confident error
+(previous default 94.1%, 18) and completed every replayed session. Metrics and
+limits are in the model README; thresholds are unchanged and `OCR-CAMPUS-CARD`
+is pending.
+
 Checkpoint `5b07f96` adds 133 and removes 5 production Rust lines (net +128;
 no production-code reduction). Tests add 107 lines; replay examples/scripts add
 124 net lines. Documentation, measured JSON and the generated manual table are
