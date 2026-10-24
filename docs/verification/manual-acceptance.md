@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 105 checks must be re-run before the next release.**
+**10 of 106 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**95 checks have never been run or could not be run:**
+**96 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -113,6 +113,7 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-PROVIDER-COMBINATIONS` — never verified
 - `IOS-DRIVE-SIGNIN` — never verified
 - `ANDROID-DRIVE-SIGNIN` — never verified
+- `IOS-PRIVACY-POLICY` — never verified
 - `IOS-LOG-EXPORT` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
 - `ANDROID-TLS-VERIFIER` — never verified
@@ -223,6 +224,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/mod.rs<br>crates/isct-core/src/data/cloud_merge.rs<br>crates/isct-core/src/data/backup_store.rs |
 | `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/GoogleSignIn.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/project.yml |
 | `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/isct-ffi/src/ports.rs |
+| `IOS-PRIVACY-POLICY` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>docs/legal/PRIVACY.md |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
@@ -5565,6 +5567,47 @@ port is covered by
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt`
 - `crates/isct-ffi/src/ports.rs`
+
+**Last recorded** never run
+
+### iPhone and iPad privacy policy is available before school sign-in (`IOS-PRIVACY-POLICY`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A release build on an iPhone and an iPad, with internet access and no
+school account configured.
+
+**Steps**
+
+1. Dismiss the welcome sheet with Later. Open Settings, then Privacy
+   policy in About; repeat with English, Japanese and Chinese UI.
+   - *Why:* Privacy information must be reachable before providing credentials;
+     the label and destination must remain clear in each supported language.
+2. On iPad, repeat in a wide landscape window.
+   - *Why:* The workstation navigation must expose the same Settings destination.
+
+**Where to look**
+
+The Settings row and the public GitHub privacy policy opened by the system.
+
+**Expected**
+
+The localized row opens docs/legal/PRIVACY.md in the public repository
+without requiring school or GitHub sign-in.
+
+**Why this is manual**
+
+This is a visible native navigation and external browser hand-off check;
+a headless mock screen would not verify the installed app or public URL.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `docs/legal/PRIVACY.md`
 
 **Last recorded** never run
 

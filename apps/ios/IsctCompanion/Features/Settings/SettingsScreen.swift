@@ -103,6 +103,13 @@ struct SettingsScreen: View {
                         SettingsIcon(symbol: "lightbulb", tint: Theme.muted)
                     }
                 }
+                if let policy = URL(string: "https://github.com/isct-companion/isct-companion/blob/main/docs/legal/PRIVACY.md") {
+                    Link(destination: policy) {
+                        Label { Text(t("Privacy policy")) } icon: {
+                            SettingsIcon(symbol: "hand.raised", tint: Theme.muted)
+                        }
+                    }
+                }
                 // One row for both log actions, as a menu.
                 Menu {
                     Button(t("Save to file"), systemImage: "square.and.arrow.down") { saveLogs() }
