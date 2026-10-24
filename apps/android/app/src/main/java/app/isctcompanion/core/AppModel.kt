@@ -53,6 +53,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Course id → Core's display colour, identical on every surface. */
     var colors: Map<String, String> by mutableStateOf(emptyMap())
         private set
+    /** Core has reminders for this device but it may not post them. */
+    var notificationsBlocked: Boolean by mutableStateOf(false)
+        private set
     private var shownRecords by mutableStateOf(WorkspaceRecords())
     var records: WorkspaceRecords
         get() = shownRecords
@@ -353,7 +356,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 weeks.clear()
                 scope.launch { prefetchTimetable() }
             }
-            if (changed) NotificationScheduler.sync(context, session)
+            if (changed) notificationsBlocked = NotificationScheduler.sync(context, session)
         } catch (error: CancellationException) {
             // A newer change hint replaced this read; it is not a failure.
             throw error
@@ -547,6 +550,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         commit(WorkspaceIntent.SetAssignmentMark(id, hidden, pinned, null))
     }
 
+    /** Opening an item of 今日's 新着: Core stops listing it until it changes. */
+    suspend fun markRecentSeen(list: RecentKind, id: String) {
+        commit(WorkspaceIntent.MarkRecentSeen(list, id))
+    }
+
     /** Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
      * Core republishes the schedule; the new content revision re-reads the week. */
     suspend fun markSession(key: String, mark: String) {
@@ -664,7 +672,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             problem = describe(error)
         }
         refresh()
-        NotificationScheduler.sync(context, session)
+        notificationsBlocked = NotificationScheduler.sync(context, session)
+    }
+
+    /** Schedules the plan again, after the notification permission changed. */
+    suspend fun resyncNotifications() {
+        val session = session ?: return
+        notificationsBlocked = NotificationScheduler.sync(context, session)
     }
 
     /** Whether this build can read a Matrix card (arm64; not the x86_64 emulator). */

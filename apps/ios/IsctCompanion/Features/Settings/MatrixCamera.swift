@@ -4,9 +4,10 @@ import SwiftUI
 import UIKit
 
 /// Live Matrix scanning: AVFoundation hands each NV12 frame to Core's camera
-/// session (the same driver as the desktop camera and photo import) and draws
-/// the frame it analysed with the outline Core fitted on that frame, so the
-/// box never lags the picture. The grid fills in as Core confirms cells.
+/// session (the same driver as the desktop camera and photo import). As in
+/// the system camera the live preview fills the screen and a tap focuses
+/// there; a card-shaped guide shows where to hold the card, and the outline
+/// Core last fitted is drawn over it. The grid fills in as Core confirms cells.
 struct MatrixCameraScreen: View {
     let session: MatrixCameraSession
     /// The final cells, or nil when the scan was cancelled or failed.
@@ -17,23 +18,41 @@ struct MatrixCameraScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Color.black
-                if let camera { FrameView(controller: camera) }
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let camera { FrameView(controller: camera).ignoresSafeArea() }
+            VStack(spacing: 0) {
+                HStack {
+                    Button { finish(nil) } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .accessibilityLabel(t("Cancel"))
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                Spacer(minLength: 16)
+                CardGuide().padding(.horizontal, 24).allowsHitTesting(false)
+                Spacer(minLength: 16)
+                VStack(spacing: 10) {
+                    LiveGrid(cells: state?.cells ?? [])
+                    Text(error ?? status)
+                        .font(.footnote)
+                        .foregroundStyle(error == nil ? Color.white.opacity(0.85) : Theme.danger)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(14)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            LiveGrid(cells: state?.cells ?? [])
-            Text(error ?? status)
-                .font(.footnote)
-                .foregroundStyle(error == nil ? Theme.muted : Theme.danger)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-            Button(t("Cancel"), role: .cancel) { finish(nil) }
-                .buttonStyle(.bordered)
+            .foregroundStyle(.white)
         }
-        .padding()
-        .background(Theme.bg)
+        .environment(\.colorScheme, .dark)
+        .statusBarHidden()
         .task { await start() }
         .onDisappear { camera?.stop() }
         .onChange(of: scenePhase) { _, phase in
@@ -81,6 +100,16 @@ struct MatrixCameraScreen: View {
     }
 }
 
+/// Where to hold the card: an ID-1 card's outline, centred.
+private struct CardGuide: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.7), lineWidth: 2)
+            .aspectRatio(85.6 / 53.98, contentMode: .fit)
+            .frame(maxWidth: 480)
+    }
+}
+
 /// The 7×10 letters as Core confirms them; unconfirmed reads stay faint.
 private struct LiveGrid: View {
     let cells: [MatrixCell]
@@ -93,9 +122,9 @@ private struct LiveGrid: View {
                         let cell = cells.indices.contains(row * 10 + column) ? cells[row * 10 + column] : nil
                         Text(cell?.text ?? "")
                             .font(.caption.monospaced().weight(.semibold))
-                            .foregroundStyle(cell?.stable == true ? Theme.ink : Theme.muted)
-                            .frame(maxWidth: .infinity, minHeight: 22)
-                            .background(cell?.stable == true ? Theme.okSoft : Theme.surface2,
+                            .foregroundStyle(cell?.stable == true ? Color.black : Color.white.opacity(0.6))
+                            .frame(maxWidth: .infinity, minHeight: 20)
+                            .background(cell?.stable == true ? Theme.okSoft : Color.white.opacity(0.12),
                                         in: RoundedRectangle(cornerRadius: 4))
                     }
                 }
@@ -105,12 +134,14 @@ private struct LiveGrid: View {
     }
 }
 
-/// Shows the analysed frames (`AVSampleBufferDisplayLayer`) and the outline.
+/// Shows the live preview and the outline.
 private struct FrameView: UIViewRepresentable {
     let controller: MatrixCameraController
 
     func makeUIView(context: Context) -> FrameLayerView {
-        let view = FrameLayerView()
+        let view = FrameLayerView(session: controller.capture) { [controller] point in
+            controller.focus(at: point)
+        }
         controller.display = view
         return view
     }
@@ -119,19 +150,42 @@ private struct FrameView: UIViewRepresentable {
 }
 
 final class FrameLayerView: UIView {
-    private let video = AVSampleBufferDisplayLayer()
+    private let video: AVCaptureVideoPreviewLayer
     private let outline = CAShapeLayer()
+    private let focusBox = CAShapeLayer()
     private var imageSize = CGSize(width: 1, height: 1)
     private var bounds4: [MatrixPoint] = []
+    /// A tap's point in the capture device's coordinates.
+    private let focus: (CGPoint) -> Void
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        video.videoGravity = .resizeAspect
+    init(session: AVCaptureSession, focus: @escaping (CGPoint) -> Void) {
+        video = AVCaptureVideoPreviewLayer(session: session)
+        self.focus = focus
+        super.init(frame: .zero)
+        video.videoGravity = .resizeAspectFill
         outline.fillColor = nil
         outline.strokeColor = UIColor(red: 1, green: 0.27, blue: 0.27, alpha: 1).cgColor
         outline.lineWidth = 3
+        focusBox.fillColor = nil
+        focusBox.strokeColor = UIColor.systemYellow.cgColor
+        focusBox.lineWidth = 1.5
+        focusBox.opacity = 0
         layer.addSublayer(video)
         layer.addSublayer(outline)
+        layer.addSublayer(focusBox)
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+    }
+
+    /// Focus where tapped, with the system camera's yellow square.
+    @objc private func tapped(_ tap: UITapGestureRecognizer) {
+        let point = tap.location(in: self)
+        focus(video.captureDevicePointConverted(fromLayerPoint: point))
+        focusBox.path = UIBezierPath(rect: CGRect(x: point.x - 40, y: point.y - 40, width: 80, height: 80)).cgPath
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [1, 1, 0]
+        fade.keyTimes = [0, 0.7, 1]
+        fade.duration = 1.2
+        focusBox.add(fade, forKey: "focus")
     }
 
     @available(*, unavailable)
@@ -144,11 +198,17 @@ final class FrameLayerView: UIView {
         drawOutline()
     }
 
-    /// The frame Core just analysed, and the outline fitted on that frame.
-    func show(_ buffer: CMSampleBuffer, size: CGSize, outline points: [MatrixPoint]) {
+    /// The preview turns with the frames Core reads, so the outline's
+    /// normalized points map onto the same upright picture.
+    func rotate(_ angle: CGFloat) {
+        guard let connection = video.connection, connection.isVideoRotationAngleSupported(angle) else { return }
+        connection.videoRotationAngle = angle
+    }
+
+    /// The outline Core fitted on the frame it last analysed.
+    func show(size: CGSize, outline points: [MatrixPoint]) {
         imageSize = size
         bounds4 = points
-        video.sampleBufferRenderer.enqueue(buffer)
         drawOutline()
     }
 
@@ -157,7 +217,11 @@ final class FrameLayerView: UIView {
             outline.path = nil
             return
         }
-        let rect = AVMakeRect(aspectRatio: imageSize, insideRect: bounds)
+        // The preview fills the view, so the frame overflows it on one axis.
+        let scale = max(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        let rect = CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
+                          width: size.width, height: size.height)
         let path = UIBezierPath()
         for (index, point) in bounds4.enumerated() {
             let p = CGPoint(x: rect.minX + point.x * rect.width, y: rect.minY + point.y * rect.height)
@@ -178,7 +242,7 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
 
     private let scan: MatrixCameraSession
     private let update: @MainActor (Update) -> Void
-    private let capture = AVCaptureSession()
+    let capture = AVCaptureSession()
     private let output = AVCaptureVideoDataOutput()
     private let queue = DispatchQueue(label: "app.isctcompanion.matrix-camera")
     private var rotation: AVCaptureDevice.RotationCoordinator?
@@ -189,7 +253,11 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
     private var stopped = false
     private var wakeup: DispatchSourceTimer?
     private var lastFrame = CACurrentMediaTime()
-    @MainActor weak var display: FrameLayerView?
+    /// The capture angle, which the preview follows.
+    @MainActor private var angle: CGFloat?
+    @MainActor weak var display: FrameLayerView? {
+        didSet { if let angle { display?.rotate(angle) } }
+    }
 
     init(session: MatrixCameraSession, update: @escaping @MainActor (Update) -> Void) {
         scan = session
@@ -198,7 +266,10 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
 
     func start() {
         queue.async { [self] in
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+            // The system camera's device: a multi-camera one switches to the
+            // ultra wide for focus when the card is held close.
+            let types: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera, .builtInWideAngleCamera]
+            guard let device = types.lazy.compactMap({ AVCaptureDevice.default($0, for: .video, position: .back) }).first,
                   let input = try? AVCaptureDeviceInput(device: device),
                   capture.canAddInput(input), capture.canAddOutput(output)
             else {
@@ -216,7 +287,20 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
             capture.addOutput(output)
             capture.commitConfiguration()
             try? device.lockForConfiguration()
+            // Focus on the centre, where the card is held, and refocus as it
+            // moves; smooth focus is for filming and only slows the change.
+            if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
             if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+            if device.isSmoothAutoFocusSupported { device.isSmoothAutoFocusEnabled = false }
+            if device.isAutoFocusRangeRestrictionSupported { device.autoFocusRangeRestriction = .near }
+            if device.isVirtualDevice {
+                // 1× is the wide camera, as in the system camera; the device
+                // leaves it for the ultra wide on its own.
+                device.setPrimaryConstituentDeviceSwitchingBehavior(.auto, restrictedSwitchingBehaviorConditions: [])
+                if let wide = device.virtualDeviceSwitchOverVideoZoomFactors.first {
+                    device.videoZoomFactor = CGFloat(truncating: wide)
+                }
+            }
             device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
             device.unlockForConfiguration()
             // Frames arrive upright for the interface, so Core's normalized
@@ -245,6 +329,22 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
         }
     }
 
+    /// Focuses and exposes at `point` (device coordinates) and keeps
+    /// refocusing there while the card moves.
+    func focus(at point: CGPoint) {
+        queue.async { [self] in
+            guard !stopped, let device = (capture.inputs.first as? AVCaptureDeviceInput)?.device,
+                  (try? device.lockForConfiguration()) != nil else { return }
+            if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = point }
+            if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = point
+                if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+            }
+            device.unlockForConfiguration()
+        }
+    }
+
     func stop() {
         queue.async { [self] in
             guard !stopped else { return }
@@ -258,6 +358,10 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
     }
 
     private func rotate(_ angle: CGFloat) {
+        Task { @MainActor [weak self] in
+            self?.angle = angle
+            self?.display?.rotate(angle)
+        }
         guard let connection = output.connection(with: .video), connection.isVideoRotationAngleSupported(angle) else { return }
         connection.videoRotationAngle = angle
     }
@@ -315,27 +419,14 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
             return
         }
         let size = CGSize(width: Int(frame.width), height: Int(frame.height))
-        // Show this frame only with an outline from this same frame.
+        // Only an outline fitted on this frame; a stale one would point
+        // where the card was.
         let outline = state.boundsFrameId == frameId ? state.bounds : []
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(buffer, createIfNecessary: true),
-           CFArrayGetCount(attachments) > 0 {
-            let first = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
-            CFDictionarySetValue(first,
-                                 Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
-                                 Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
-        }
-        let display = UncheckedBuffer(buffer)
         Task { @MainActor [weak self] in
-            self?.display?.show(display.buffer, size: size, outline: outline)
+            self?.display?.show(size: size, outline: outline)
             self?.update(.state(state))
         }
         if state.phase == .complete { stop() }
     }
 }
 
-/// `CMSampleBuffer` is immutable once captured; it only crosses to the main
-/// actor to be drawn.
-private struct UncheckedBuffer: @unchecked Sendable {
-    let buffer: CMSampleBuffer
-    init(_ buffer: CMSampleBuffer) { self.buffer = buffer }
-}

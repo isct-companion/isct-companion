@@ -181,7 +181,9 @@ struct MaterialButton: View {
 
 /// Opens a course file or page wherever it is listed. Core fetches it with
 /// the signed-in LMS session (or from the course folder) and Quick Look shows
-/// it; what Core cannot fetch opens in the in-app LMS page.
+/// it; what is not a file opens in the in-app LMS page. A download that only
+/// failed this time (offline, timed out) asks instead: silently showing the
+/// LMS page made Share hand out a link where it had handed out the file.
 struct MaterialOpener<Label: View>: View {
     let title: String
     let source: String?
@@ -194,6 +196,7 @@ struct MaterialOpener<Label: View>: View {
     @State private var opening = false
     @State private var preview: URL?
     @State private var notice: String?
+    @State private var retry = false
     @State private var opened = 0
 
     var body: some View {
@@ -209,6 +212,11 @@ struct MaterialOpener<Label: View>: View {
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK", role: .cancel) {}
         }
+        .alert(t("The file could not be downloaded. Try again, or open it in the LMS."), isPresented: $retry) {
+            Button(t("Try again")) { Task { await open() } }
+            Button(t("Open in LMS")) { if let source { push(source) } }
+            Button(t("Cancel"), role: .cancel) {}
+        }
     }
 
     private func open() async {
@@ -216,7 +224,11 @@ struct MaterialOpener<Label: View>: View {
         opening = true
         defer { opening = false }
         var folder = files
-        if folder == nil, let courseId { folder = await model.courseDetail(courseId)?.files }
+        if folder == nil, let courseId {
+            // Core names a folder for every course; none means the read failed.
+            guard let detail = await model.courseDetail(courseId) else { return retry = true }
+            folder = detail.files
+        }
         guard let files = folder else { return push(source) }
         switch await model.openMaterial(files, source: source) {
         case let .ready(file)?:
@@ -226,6 +238,8 @@ struct MaterialOpener<Label: View>: View {
             notice = t("This file is too large ({{size}}). Open it in the LMS.", ["size": ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)])
         case .failed(.login)?:
             notice = t("Sign in to the LMS again. Check your school account in Settings.")
+        case nil, .failed(.network)?, .failed(.timeout)?, .failed(.cancelled)?:
+            retry = true
         case let .external(url)?:
             push(url)
         default:

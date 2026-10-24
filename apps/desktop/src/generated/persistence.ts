@@ -1363,6 +1363,8 @@ export type MaterialItem = {
 export type RecentItem =
   ({ type: "grade" } & DeadlineItem) | ({ type: "material" } & MaterialItem);
 
+export type RecentKind = "grade" | "material";
+
 export type TodayView = {
   date: string;
   term: string;
@@ -1665,6 +1667,7 @@ export type WorkspaceIntent =
       sectionId: number;
     }
   | { kind: "markTimetableReviewed" }
+  | { kind: "markRecentSeen"; list: RecentKind; id: string }
   | { kind: "setClassGroup"; semester: string; group: ClassGroup | null };
 
 export type CourseBatchChanges = {

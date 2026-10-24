@@ -22,7 +22,7 @@ use super::{
 
 /// Classes the Today stack previews: the next one and two after it.
 const UPCOMING_CLASSES: usize = 3;
-const RECENT_DAYS: i64 = 3;
+pub(crate) const RECENT_DAYS: i64 = 3;
 const RECENT_ITEMS: usize = 3;
 /// In class: the newest material and the nearest open assignment.
 const CLASS_ITEMS: usize = 1;
@@ -99,6 +99,39 @@ pub struct MaterialItem {
 pub enum RecentItem {
     Grade(DeadlineItem),
     Material(MaterialItem),
+}
+
+/// Which list a `RecentItem` comes from, naming it to `MarkRecentSeen`.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum RecentKind {
+    Grade,
+    Material,
+}
+
+/// The `recentSeen` entry of one recent item.
+pub(crate) fn recent_key(kind: RecentKind, id: &str) -> String {
+    match kind {
+        RecentKind::Grade => format!("grade:{id}"),
+        RecentKind::Material => format!("material:{id}"),
+    }
+}
+
+/// The `updatedAt` a recent item is shown for; seeing it records this value.
+pub(crate) fn recent_version<'a>(
+    workspace: &'a Value,
+    kind: RecentKind,
+    id: &str,
+) -> Option<&'a str> {
+    let field = match kind {
+        RecentKind::Grade => "assignments",
+        RecentKind::Material => "materials",
+    };
+    array(workspace, field)
+        .iter()
+        .find(|row| text(row, "id") == Some(id))
+        .and_then(|row| text(row, "updatedAt"))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -468,25 +501,32 @@ pub fn today_view(
 }
 
 /// Grades and materials changed within the last few days, newest first.
+/// One opened since its last change (`recentSeen`) is no longer new.
 fn recent(workspace: &Value, now: DateTime<FixedOffset>, date: &str) -> Vec<RecentItem> {
     let since = now - Duration::days(RECENT_DAYS);
-    let changed = |row: &Value| {
-        text(row, "updatedAt")
-            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
+    let seen = workspace.get("recentSeen");
+    let changed = |kind: RecentKind, row: &Value| {
+        let raw = text(row, "updatedAt")?;
+        let key = recent_key(kind, text(row, "id")?);
+        if seen.and_then(|seen| seen.get(&key)).and_then(Value::as_str) == Some(raw) {
+            return None;
+        }
+        DateTime::parse_from_rfc3339(raw)
+            .ok()
             .filter(|at| *at >= since && *at <= now)
     };
     let mut items: Vec<(DateTime<FixedOffset>, RecentItem)> = array(workspace, "assignments")
         .iter()
         .filter(|row| visible(row) && text(row, "submission") == Some("graded"))
         .filter_map(|row| {
-            let at = changed(row)?;
+            let at = changed(RecentKind::Grade, row)?;
             let item = deadline_item(workspace, row, now)?;
             (!item.hidden && item.grade.is_some()).then_some((at, RecentItem::Grade(item)))
         })
         .collect();
     items.extend(materials(workspace).filter_map(|row| {
         Some((
-            changed(row)?,
+            changed(RecentKind::Material, row)?,
             RecentItem::Material(material_item(workspace, row, date)?),
         ))
     }));

@@ -85,6 +85,43 @@ struct CourseSquare: View {
 }
 
 /// Thin divider inset past the leading marker, as in grouped lists.
+/// A row inside a `Card` that pushes `route`. In a List a nested
+/// NavigationLink gets its disclosure chevron drawn outside the card, so the
+/// row is a button that draws the chevron itself, 20pt from the card's edge as
+/// a Settings row has it.
+struct CardLink<Route: Hashable, Content: View>: View {
+    let route: Route?
+    /// Runs as the row opens.
+    var opened: (() -> Void)?
+    @ViewBuilder var content: Content
+    @Environment(Navigator.self) private var navigator
+
+    var body: some View {
+        if let route {
+            Button {
+                opened?()
+                navigator.push(route)
+            } label: {
+                HStack(spacing: 12) {
+                    content
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 20)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+        } else {
+            content
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+        }
+    }
+}
+
 struct RowDivider: View {
     var inset: CGFloat = 40
     var body: some View {

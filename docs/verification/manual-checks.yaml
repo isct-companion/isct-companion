@@ -416,6 +416,16 @@ checks:
           listed by the site but their answers were never probed. A silently
           empty mapping looks like "nothing to do" in Today.
       - action: |
+          On a fresh profile let the first automatic pull finish, then open the
+          timetable's other quarters (an earlier and a later one). Wait for a
+          later automatic pull, then press Refresh now.
+        reason: |
+          The token dashboard shows only the current quarter. The key's first
+          read and the refresh button take every quarter's grid over the
+          session cookie; an automatic read takes only the current one and
+          keeps the others. Courses of a non-current quarter falling into
+          集中・時間未定 is the failure this exposes.
+      - action: |
           Quit and restart the app, then pull courses, the default timetable
           and deadlines before opening any school page. Repeat a background
           wake with Cookie/browser ports unavailable, and compare cached
@@ -446,7 +456,9 @@ checks:
       SCHOOL-LMS-PULL. No log line, database row or error contains the token,
       sesskey or passport. After the restart the deadlines refresh before any
       school page opens. The forged token is replaced after one sign-in and
-      the pull completes. With REST blocked the pull completes through the
+      the pull completes. Every quarter's courses sit at their times after the
+      first pull and after Refresh now; the automatic pull keeps them. With
+      REST blocked the pull completes through the
       cookie path with the same courses and states, and the log says the
       token transport was unavailable.
     why_manual: |
@@ -461,6 +473,8 @@ checks:
       - crates/isct-core/src/net/moodle/rest.rs
       - crates/isct-core/src/net/moodle/ajax.rs
       - crates/isct-core/src/school_auth.rs
+      - crates/isct-core/src/school_browser/engine/pull.rs
+      - crates/isct-core/src/sync_engine/planner.rs
       - docs/lms-api/README.md
     verified: null
 
@@ -991,15 +1005,17 @@ checks:
           release or the native privacy prompt.
       - action: |
           On the iPhone, open Settings → school account → Matrix card, choose
-          Scan with camera and allow camera access. Hold the real card in view.
-          The red outline must sit on the card in the drawn picture (not trail
-          behind it while you move), and the 7×10 grid below must fill in while
-          the camera is still live. On completion the screen closes, the camera
-          indicator turns off and the editor shows every cell tinted by
-          confidence. Repeat with the phone in landscape and with the card
-          upside down: the cell order must not change. Then import a photo of
-          the same card with From photo and compare both grids cell by cell.
-          Repeat all of this on the Android phone.
+          Auto scan and allow camera access. The live preview fills the screen
+          with a card-shaped guide; hold the real card in it. The red outline
+          must sit on the card (it may follow a moving card slightly, as it is
+          fitted on the last analysed frame), a tap focuses where tapped, and
+          the 7×10 grid at the bottom must fill in while the camera is still
+          live. On completion the screen closes, the camera indicator turns off
+          and the editor shows every cell tinted by confidence. Repeat with the
+          phone in landscape and with the card upside down: the cell order
+          must not change. Then import a photo of the same card with Upload
+          image and compare both grids cell by cell. Repeat all of this on the
+          Android phone.
         reason: |
           AVFoundation and CameraX capture, sensor rotation, the phone's optics
           and the camera privacy indicator only exist on a signed app on real
@@ -1409,9 +1425,18 @@ checks:
         reason: |
           The toolbar was excluded from the last checkpoint's live coverage
           and depends on the platform save dialog.
+      - action: |
+          Look at the zoom control in the PDF header, then open a Java file
+          and an LMS page from the same course.
+        reason: |
+          The zoom select's trigger is a button, and the icon-button rule once
+          squeezed it to 26 px so its label and arrow stacked. The code view's
+          search floats at the code's top right (⌘F too) and highlights every
+          match; the LMS page's header shows its address with back, forward,
+          reload and open-in-browser, following the page as it navigates.
     observe: |
-      The rendered pages, the search results, and the file the save toolbar
-      writes.
+      The rendered pages, the search results, the file the save toolbar
+      writes, and the three reader headers.
     expected: |
       The document renders, Japanese text in non-embedded fonts shows and is
       found by search, paging and search work throughout, and the save toolbar
@@ -1422,6 +1447,10 @@ checks:
       whether the PDF.js data files ship with it.
     covers:
       - apps/desktop/src/features/lms/PdfDocument.tsx
+      - apps/desktop/src/features/lms/TextDocument.tsx
+      - apps/desktop/src/features/lms/OfficialLmsView.tsx
+      - apps/desktop/src/features/lms/lms.css
+      - apps/desktop/src/components/workspace-chrome.css
       - apps/desktop/vite.config.ts
       - apps/desktop/src-tauri/src/school_downloads.rs
     verified: null
@@ -2274,6 +2303,13 @@ checks:
         reason: |
           Confirms the floating DOM list remains reachable beside the native
           browser surface, which headless layout tests cannot display.
+      - action: |
+          With an assignment's LMS page open beside its workspace card, press
+          the card's delete icon, read the dialog, then press Cancel.
+        reason: |
+          No HTML overlay draws above the native page. The page must step
+          aside while the confirmation asks, or its Delete button sits under
+          the LMS page, and come back to the same page after Cancel.
     observe: |
       The native page edges, workspace separator, Web service header and
       the document tool panel in the lecture reader.
@@ -2292,6 +2328,7 @@ checks:
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/pages/lectures/lectures.css
       - apps/desktop/src/features/lms/OfficialLmsView.tsx
+      - apps/desktop/src/components/confirm.tsx
       - apps/desktop/src/features/lms/ReaderPane.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/components/workspace-chrome.css
@@ -2889,7 +2926,7 @@ checks:
     steps:
       - action: |
           Open 設定 → 学校アカウント → Tokyo Tech (旧) and look at the マトリクス表
-          row: 撮影, 写真から, 貼り付け, 入力.
+          row: 自動認識, 画像をアップロード, 貼り付け, 入力.
         reason: |
           Four sources is the widest row. The old bordered buttons sized to
           their labels, so large text wrapped them vertically and left the
@@ -2910,6 +2947,23 @@ checks:
         reason: |
           The tile reads the clipboard itself instead of using PasteButton, so
           iOS asks once per paste unless the app is allowed in Settings.
+      - action: |
+          Tap 画像をアップロード: the system menu offers 撮影 and ライブラリから選択.
+          Take a photo of the card with 撮影; then copy a card photo in Photos
+          and tap the Matrix row's 貼り付け.
+        reason: |
+          撮影 is the system camera, not ours; a pasted image is read like a
+          photo, pasted text must be the 70 letters.
+      - action: |
+          Tap 自動認識, hold the card in the guide about 10 cm from the lens,
+          then tap the card where it looks soft.
+        reason: |
+          The preview fills the screen and is the live camera, not the analysed
+          frames, so it never stutters or shows black bars, and the red outline
+          lands on the card despite the crop. On a multi-camera iPhone the
+          device leaves the wide camera for the ultra wide when the card is too
+          close to focus, as the system camera does; the tap shows the yellow
+          square and refocuses there.
     observe: The two account pages in the settings sheet.
     expected: |
       Every tile in a row has the same width and height, icons sit on one line
@@ -2917,9 +2971,11 @@ checks:
       text shows the row's red error message.
     why_manual: |
       A layout read at a glance on a real phone. The simulator has no camera or
-      OCR, so it shows only two of the Matrix tiles.
+      OCR, so it shows only two of the Matrix tiles, and lens switching and
+      focus exist only on the device.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift
     verified: null
 
   - id: MOBILE-OTP-AUTHENTICATOR-EXPORT
@@ -3286,6 +3342,18 @@ checks:
           It lists Core's upcomingExams within 14 days (date · periods or
           time · room, course square) and is absent when there are none;
           tapping a row with a course opens that course page.
+      - action: |
+          Compare the › of a row in 試験 or 新着 with a row's › in 設定.
+        reason: |
+          A NavigationLink nested in a card had List draw its chevron outside
+          the card; the card rows draw it themselves at the Settings inset.
+      - action: |
+          On a day without classes, check that 新着 sits below the class
+          cards, open one of its rows and come back; repeat on Android.
+        reason: |
+          Opening a row tells Core it was seen (`MarkRecentSeen`, kept on this
+          device only), so it leaves 新着 until it changes again; a row that
+          stays means the intent did not land.
     observe: The 今日 tab on the device.
     expected: |
       Exam labels and chip colour follow the occurrence kind, and the 試験
@@ -3296,6 +3364,8 @@ checks:
       tests.
     covers:
       - apps/ios/IsctCompanion/Features/Today/TodayScreen.swift
+      - apps/ios/IsctCompanion/Design/Theme.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
     verified: null
 
   - id: IOS-ASSIGNMENT-ROWS
@@ -3431,6 +3501,52 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
       - apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift
       - apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift
+    verified: null
+
+  - id: MOBILE-NOTIFICATION-PERMISSION
+    area: native
+    title: A phone asks for notifications when synced reminders need them, and sends a test
+    persona: careless-multidevice
+    preconditions: |
+      Class or assignment reminders turned on in the desktop app, cloud sync
+      on, and the iPhone and Android apps freshly installed (never asked for
+      notifications) in the same workspace.
+    steps:
+      - action: |
+          Open each phone app and let it sync, without touching 設定 › 通知.
+        reason: |
+          The reminder switches arrive on through sync, so no switch-on ever
+          asks on this device. The phone must ask the first time Core has a
+          reminder for it; without the prompt nothing is scheduled and the
+          person is never told, as happened on desktop.
+      - action: |
+          With the app open, tap 設定 › 通知 › 通知のテスト › 送信.
+        reason: |
+          The test arrives while the app is in front. iOS hides such a
+          notification unless the app presents it, so a missing banner here
+          also means every reminder that fires while the app is open is lost.
+      - action: |
+          Deny notifications in the system settings, return, and tap 送信
+          again, then 設定を開く.
+        reason: |
+          The page must show the system's real answer and lead to this app's
+          notification settings rather than claim the test was sent.
+    observe: The system prompts, the banner, and 設定 › 通知 on both phones.
+    expected: |
+      Each phone asks once after the first sync; the test shows a banner with
+      the app in front; after denying, the page says notifications are not
+      allowed and 設定を開く opens the app's notification settings.
+    why_manual: |
+      The permission prompt, banners and system settings exist only on real
+      devices with a signed app; which reminders are due is Core's
+      notification plan, covered by its tests.
+    covers:
+      - apps/ios/IsctCompanion/Core/NotificationScheduler.swift
+      - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
+      - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
+      - apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt
+      - apps/android/app/src/main/java/app/isctcompanion/App.kt
     verified: null
 
   - id: IOS-TODAY-CLASS-STACK
@@ -3634,6 +3750,13 @@ checks:
           assignment shows its LMS text in place and 提出 opens the submission
           page inside the app.
       - action: |
+          With the phone offline, tap a file that is not downloaded yet, on
+          Android and on the iPhone; then go online and choose 再試行.
+        reason: |
+          A download that failed only this time asks (再試行 / LMSで開く)
+          instead of opening the LMS page; showing the page silently made the
+          share button hand out a link where it had handed out the file.
+      - action: |
           On 今日 tap an assignment row, then long press it.
         reason: |
           A tap opens the assignment page (course, text, files, 提出); the
@@ -3650,6 +3773,7 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt
       - apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt
+      - apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Components.kt
       - apps/android/app/src/main/AndroidManifest.xml
     verified: null
@@ -3917,6 +4041,10 @@ checks:
           had dropped.
       - action: Wait a minute.
         reason: The line moves; a line that never moves was computed once.
+      - action: Look at the date field beside This week.
+        reason: |
+          WebKit lays a date field's value at the top of its box; the date
+          must sit centred and start where a text field's value starts.
     observe: The Calendar view and the planner's current quarter.
     expected: Today is tinted and the now line tracks the clock on both.
     why_manual: |
@@ -3925,6 +4053,7 @@ checks:
     covers:
       - apps/desktop/src/components/timetable/workspace.ts
       - apps/desktop/src/pages/today/CalendarView.tsx
+      - apps/desktop/src/components/ui/ui.css
     verified: null
 
   - id: DESKTOP-COURSE-OUTLINE-STILL

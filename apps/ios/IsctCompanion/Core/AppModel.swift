@@ -816,6 +816,20 @@ extension AppModel {
 extension AppModel {
     /// Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
     /// Core republishes the schedule; the new content revision re-reads the week.
+    /// Opening an item of 今日's 新着: Core stops listing it until it changes.
+    func markRecentSeen(_ list: RecentKind, _ id: String) async {
+        guard let session else { return }
+        let mutation = WorkspaceMutation(expectedRevision: revision, intent: .markRecentSeen(list: list, id: id))
+        do {
+            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
+                revision = snapshot.revision
+            }
+        } catch {
+            // The item only stays new a little longer; nothing to tell.
+        }
+        await refresh()
+    }
+
     func markSession(_ key: String, _ mark: String) async {
         guard let session else { return }
         let mutation = WorkspaceMutation(expectedRevision: revision, intent: .markSession(key: key, mark: mark))

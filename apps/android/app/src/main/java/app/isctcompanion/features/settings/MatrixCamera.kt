@@ -3,20 +3,26 @@ package app.isctcompanion.features.settings
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.MeteringPoint
+import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,10 +32,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -43,14 +56,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -73,15 +86,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
-/** The analysed frame and the outline Core fitted on that same frame. */
-private class Shown(val picture: Bitmap, val outline: List<MatrixPoint>)
+/** The outline Core fitted on an analysed frame, and that frame's size. */
+private class Shown(val width: Int, val height: Int, val outline: List<MatrixPoint>)
 
 /**
  * Live Matrix scanning: CameraX hands each YUV frame to Core's camera session
- * (the same driver as the desktop camera and photo import) and draws the frame
- * it analysed with the outline fitted on it, so the box never lags the
- * picture. The grid fills in as Core confirms cells; `done` gets the final
- * cells, or null when the scan was cancelled or failed.
+ * (the same driver as the desktop camera and photo import). As in the system
+ * camera the live preview fills the screen and a tap focuses there; a
+ * card-shaped guide shows where to hold the card, and the outline Core last
+ * fitted is drawn over it. The grid fills in as Core confirms cells; `done`
+ * gets the final cells, or null when the scan was cancelled or failed.
  */
 @Composable
 fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -> Unit) {
@@ -90,10 +104,12 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
     var state by remember { mutableStateOf<MatrixCameraState?>(null) }
     var shown by remember { mutableStateOf<Shown?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var focusAt by remember { mutableStateOf<Offset?>(null) }
     var granted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     val camera = remember { LiveCamera(session) }
+    val preview = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
         granted = allowed
         if (!allowed) error = t("Camera access was denied. Allow camera access in system settings, then try again.")
@@ -110,7 +126,7 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
     LaunchedEffect(Unit) { if (!granted) permission.launch(Manifest.permission.CAMERA) }
     DisposableEffect(granted) {
         if (granted) {
-            camera.start(context, lifecycle) { update ->
+            camera.start(context, lifecycle, preview) { update ->
                 when (update) {
                     is LiveCamera.Update.Frame -> {
                         shown = update.shown
@@ -149,45 +165,87 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
             }
         }
     }
+    // The focus square fades as the system camera's does.
+    LaunchedEffect(focusAt) {
+        if (focusAt != null) {
+            delay(1200)
+            focusAt = null
+        }
+    }
 
-    Dialog(onDismissRequest = { finish(null) }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(
-            Modifier.fillMaxSize().background(Theme.colors.bg).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
-                shown?.let { frame ->
-                    val ratio = frame.picture.width.toFloat() / frame.picture.height
-                    Box(Modifier.aspectRatio(ratio)) {
-                        Image(frame.picture.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                        Canvas(Modifier.fillMaxSize()) {
-                            if (frame.outline.size == 4) {
-                                val path = Path()
-                                frame.outline.forEachIndexed { index, p ->
-                                    val at = Offset(p.x.toFloat() * size.width, p.y.toFloat() * size.height)
-                                    if (index == 0) path.moveTo(at.x, at.y) else path.lineTo(at.x, at.y)
-                                }
-                                path.close()
-                                drawPath(path, Color(0xFFFF4545), style = Stroke(width = 3.dp.toPx()))
-                            }
-                        }
+    Dialog(
+        onDismissRequest = { finish(null) },
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            AndroidView({ preview }, Modifier.fillMaxSize().pointerInput(Unit) {
+                detectTapGestures { at ->
+                    camera.focus(preview.meteringPointFactory.createPoint(at.x, at.y))
+                    focusAt = at
+                }
+            })
+            Canvas(Modifier.fillMaxSize()) {
+                val frame = shown
+                if (frame != null && frame.outline.size == 4) {
+                    // The preview fills the screen, so the frame overflows it
+                    // on one axis.
+                    val scale = maxOf(size.width / frame.width, size.height / frame.height)
+                    val left = (size.width - frame.width * scale) / 2
+                    val top = (size.height - frame.height * scale) / 2
+                    val path = Path()
+                    frame.outline.forEachIndexed { index, p ->
+                        val x = left + p.x.toFloat() * frame.width * scale
+                        val y = top + p.y.toFloat() * frame.height * scale
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
                     }
+                    path.close()
+                    drawPath(path, Color(0xFFFF4545), style = Stroke(width = 3.dp.toPx()))
+                }
+                focusAt?.let { at ->
+                    val half = 40.dp.toPx()
+                    drawRect(
+                        Color(0xFFFFD60A),
+                        topLeft = Offset(at.x - half, at.y - half),
+                        size = androidx.compose.ui.geometry.Size(half * 2, half * 2),
+                        style = Stroke(width = 1.5.dp.toPx()),
+                    )
                 }
             }
-            LiveGrid(state?.cells.orEmpty())
-            val ready = state?.readyCells?.toInt() ?: 0
-            Text(
-                error ?: if (ready > 0 && state?.phase != MatrixCameraPhase.COMPLETE) {
-                    t("Recognizing Matrix… {{count}}/70 cells confirmed.", "count" to ready)
-                } else {
-                    t("Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.")
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (error == null) Theme.colors.muted else Theme.colors.danger,
-                textAlign = TextAlign.Center,
-            )
-            TextButton(onClick = { finish(null) }) { Text(t("Cancel")) }
+            Column(Modifier.fillMaxSize().systemBarsPadding()) {
+                IconButton(
+                    onClick = { finish(null) },
+                    modifier = Modifier.padding(12.dp).size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)),
+                ) {
+                    Icon(Icons.Outlined.Close, t("Cancel"), tint = Color.White)
+                }
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    // Where to hold the card: an ID-1 card's outline.
+                    Box(
+                        Modifier.padding(horizontal = 24.dp).widthIn(max = 480.dp).fillMaxWidth()
+                            .aspectRatio(85.6f / 53.98f)
+                            .border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(14.dp)),
+                    )
+                }
+                Column(
+                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth()
+                        .clip(RoundedCornerShape(22.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    LiveGrid(state?.cells.orEmpty())
+                    val ready = state?.readyCells?.toInt() ?: 0
+                    Text(
+                        error ?: if (ready > 0 && state?.phase != MatrixCameraPhase.COMPLETE) {
+                            t("Recognizing Matrix… {{count}}/70 cells confirmed.", "count" to ready)
+                        } else {
+                            t("Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (error == null) Color.White.copy(alpha = 0.85f) else Theme.colors.danger,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
         }
     }
 }
@@ -202,8 +260,8 @@ private fun LiveGrid(cells: List<MatrixCell>) {
                     val cell = cells.getOrNull(row * 10 + column)
                     val stable = cell?.stable == true
                     Box(
-                        Modifier.weight(1f).height(22.dp).clip(RoundedCornerShape(4.dp))
-                            .background(if (stable) Theme.colors.okSoft else Theme.colors.surface2),
+                        Modifier.weight(1f).height(20.dp).clip(RoundedCornerShape(4.dp))
+                            .background(if (stable) Theme.colors.okSoft else Color.White.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -211,7 +269,7 @@ private fun LiveGrid(cells: List<MatrixCell>) {
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (stable) Theme.colors.ink else Theme.colors.muted,
+                            color = if (stable) Color.Black else Color.White.copy(alpha = 0.6f),
                         )
                     }
                 }
@@ -234,6 +292,7 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
     private val executor = Executors.newSingleThreadExecutor()
     private val closed = AtomicBoolean(false)
     private var provider: ProcessCameraProvider? = null
+    private var control: CameraControl? = null
     private var main: java.util.concurrent.Executor? = null
     private var nextFrame = 0u
     private val started = SystemClock.elapsedRealtime()
@@ -241,7 +300,7 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
         private set
     val stopped: Boolean get() = closed.get()
 
-    fun start(context: Context, owner: androidx.lifecycle.LifecycleOwner, update: (Update) -> Unit) {
+    fun start(context: Context, owner: androidx.lifecycle.LifecycleOwner, view: PreviewView, update: (Update) -> Unit) {
         val main = ContextCompat.getMainExecutor(context).also { this.main = it }
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
@@ -251,14 +310,18 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
                 return@addListener
             }
             provider = cameras
-            val analysis = ImageAnalysis.Builder()
-                .setResolutionSelector(
-                    ResolutionSelector.Builder()
-                        .setResolutionStrategy(
-                            ResolutionStrategy(Size(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER),
-                        )
-                        .build(),
+            // One aspect for both, so the outline Core fits on an analysed
+            // frame lands on the same picture the preview crops.
+            val resolution = ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                .setResolutionStrategy(
+                    ResolutionStrategy(Size(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER),
                 )
+                .build()
+            val preview = Preview.Builder().setResolutionSelector(resolution).build()
+                .also { it.surfaceProvider = view.surfaceProvider }
+            val analysis = ImageAnalysis.Builder()
+                .setResolutionSelector(resolution)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 // Frames arrive upright for the display, so Core's normalized
@@ -270,7 +333,7 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
             }
             runCatching {
                 cameras.unbindAll()
-                cameras.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, analysis)
+                control = cameras.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis).cameraControl
             }.onFailure {
                 update(Update.Failed(t("The camera is unavailable. Close other apps using it and try again.")))
             }
@@ -306,9 +369,16 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
             return Update.Failed(AppModel.describe(it))
         }
         if (state.phase == MatrixCameraPhase.COMPLETE) stop()
-        // Show this frame only with an outline from this same frame.
+        // Only an outline fitted on this frame; a stale one would point
+        // where the card was.
         val outline = if (state.boundsFrameId == frameId) state.bounds else emptyList()
-        return Update.Frame(Shown(image.toBitmap(), outline), state)
+        return Update.Frame(Shown(image.width, image.height, outline), state)
+    }
+
+    /** Focuses and meters at a tapped point, as the system camera does. */
+    fun focus(point: MeteringPoint) {
+        if (closed.get()) return
+        control?.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
     }
 
     fun poll(): MatrixCameraState? =

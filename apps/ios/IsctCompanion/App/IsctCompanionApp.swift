@@ -6,7 +6,10 @@ struct IsctCompanionApp: App {
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
 
-    init() { Guide.configure() }
+    init() {
+        Guide.configure()
+        NotificationScheduler.presentInForeground()
+    }
 
     var body: some Scene {
         WindowGroup {

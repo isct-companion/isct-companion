@@ -1,5 +1,8 @@
 package app.isctcompanion
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Application
 import android.net.Uri
 import android.os.Bundle
@@ -177,6 +180,7 @@ private const val WIDE_DP = 600
 @Composable
 private fun RootView() {
     val model = LocalModel.current
+    NotificationPermissionAsk()
     when (val status = model.status) {
         AppModel.Status.Opening -> Box(Modifier.fillMaxSize().background(Theme.colors.bg), Alignment.Center) {
             CircularProgressIndicator()
@@ -191,6 +195,25 @@ private fun RootView() {
             Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
         }
         AppModel.Status.Ready -> Tabs()
+    }
+}
+
+/** Reminder switches sync from the other devices, so this phone may have
+ * reminders to post without ever having been asked: it asks once when Core
+ * has some, then schedules them. */
+@Composable
+private fun NotificationPermissionAsk() {
+    val model = LocalModel.current
+    val scope = rememberCoroutineScope()
+    var asked by rememberSaveable { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) scope.launch { model.resyncNotifications() }
+    }
+    LaunchedEffect(model.notificationsBlocked) {
+        if (model.notificationsBlocked && !asked) {
+            asked = true
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 }
 

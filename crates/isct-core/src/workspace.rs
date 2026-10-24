@@ -15,7 +15,7 @@ pub(crate) use catalog::{catalog_instructor_names, meetings_from_grid, planned_c
 use courses::*;
 
 use crate::data::{DataError, DataStore, WorkspaceWrite};
-use crate::schedule::ClassGroup;
+use crate::schedule::{ClassGroup, RecentKind};
 use crate::study_profile::StudyEnrollment;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -257,6 +257,12 @@ pub enum WorkspaceIntent {
         section_id: u64,
     },
     MarkTimetableReviewed,
+    /// Opening an item of Today's recent list: it stops being new until it
+    /// changes again.
+    MarkRecentSeen {
+        list: RecentKind,
+        id: String,
+    },
     /// Chooses (or clears) the 物理学演習・実験 group of one semester,
     /// such as "2026-3Q4Q".
     SetClassGroup {
@@ -720,6 +726,29 @@ fn apply_intent(
                 ),
             );
             write.save_setting("importStatus", &status)
+        }
+        WorkspaceIntent::MarkRecentSeen { list, id } => {
+            let version = crate::schedule::recent_version(current, list, &id)
+                .ok_or_else(|| DataError::from("recent item was not found"))?
+                .to_string();
+            let mut seen = current
+                .get("recentSeen")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let entries = object_mut(&mut seen, "recent seen")?;
+            // Only items still within the recent window can show again, so
+            // older entries are dropped instead of kept forever.
+            let since = chrono::Utc::now() - chrono::Duration::days(crate::schedule::RECENT_DAYS);
+            entries.retain(|_, at| {
+                at.as_str()
+                    .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+                    .is_some_and(|at| at >= since)
+            });
+            entries.insert(
+                crate::schedule::recent_key(list, &id),
+                Value::String(version),
+            );
+            write.save_setting("recentSeen", &seen)
         }
         WorkspaceIntent::SetClassGroup { semester, group } => {
             crate::schedule::validate_semester(&semester)

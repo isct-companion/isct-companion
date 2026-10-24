@@ -1,5 +1,8 @@
 package app.isctcompanion.features.settings
 
+import androidx.compose.material3.TextButton
+import android.provider.Settings
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -107,13 +110,15 @@ internal object ReminderLeads {
 }
 
 /** Reminder switches and their timings; the system permission is asked on
- * the first switch-on. */
+ * the first switch-on. The switches sync between devices but the permission
+ * is this phone's, so the page offers the desktop's test notification. */
 @Composable
 internal fun NotificationsPage(openLeads: () -> Unit) {
     val model = LocalModel.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var denied by remember { mutableStateOf(false) }
+    var tested by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<String?>(null) }
     val settings = model.records.settings.optJSONObject("notifications")
     val turnOn = { key: String ->
@@ -124,11 +129,20 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
             }
         }
     }
+    val sendTest = {
+        tested = NotificationScheduler.sendTest(context)
+        denied = !tested
+        scope.launch { model.resyncNotifications() }
+    }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         denied = !granted
         val key = pending
         pending = null
-        if (granted && key != null) turnOn(key)
+        when {
+            !granted -> Unit
+            key == TEST -> sendTest()
+            key != null -> turnOn(key)
+        }
     }
     val toggle = { key: String, on: Boolean ->
         if (!on) {
@@ -168,9 +182,41 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
                 )
             }
         }
-        if (denied) Footer(t("Notifications are not allowed. Allow them in the Settings app under Notifications."), Theme.colors.danger)
+        Card(Modifier.padding(top = 8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            ) {
+                Text(t("Test notification"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+                TextButton(onClick = {
+                    if (NotificationScheduler.allowed(context)) {
+                        sendTest()
+                    } else {
+                        pending = TEST
+                        launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }) { Text(t("Send")) }
+            }
+            if (denied) {
+                RowDivider(inset = 16.dp)
+                NavRow(t("Open Settings"), null) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+                    )
+                }
+            }
+        }
+        if (denied) {
+            Footer(t("Notifications are not allowed. Allow them in the Settings app under Notifications."), Theme.colors.danger)
+        } else if (tested) {
+            Footer(t("The system accepted the test notification. If no banner appears, check notification settings, Focus, and screen sharing."))
+        }
     }
 }
+
+/** `pending` for the test notification rather than a reminder switch. */
+private const val TEST = "test"
 
 /** The desktop's multi-select of assignment reminder times: one to eight of
  * the offered leads, latest first. */

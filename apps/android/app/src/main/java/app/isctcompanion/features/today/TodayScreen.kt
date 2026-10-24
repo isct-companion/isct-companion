@@ -75,6 +75,7 @@ import app.isctcompanion.core.DeadlineItem
 import app.isctcompanion.core.ExamView
 import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.RecentItem
+import app.isctcompanion.core.RecentKind
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TodayClass
@@ -200,11 +201,11 @@ private fun TodayContent(today: TodayView, now: Instant, exams: List<ExamView>) 
         }
         TodayPhase.NO_CLASSES -> {
             UpcomingExams(exams)
+            ClassStack(today.upcoming, now)
             if (today.recent.isNotEmpty()) {
                 SectionLabel(t("New"))
                 RecentCard(today.recent)
             }
-            ClassStack(today.upcoming, now)
         }
     }
 }
@@ -569,7 +570,10 @@ private fun examDetail(exam: ExamView): String {
     return listOfNotNull(Format.dayTitle(exam.date), time, exam.room).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
-/** Day off: grades and materials that changed recently. */
+/**
+ * Day off: grades and materials that changed recently. Opening one tells Core
+ * it has been seen, so it leaves the list until it changes again.
+ */
 @Composable
 private fun RecentCard(items: List<RecentItem>) {
     Card {
@@ -578,25 +582,44 @@ private fun RecentCard(items: List<RecentItem>) {
             when (item) {
                 is RecentItem.Grade -> RecentRow(
                     item.v1.color, listOfNotNull(item.v1.title, item.v1.grade).joinToString(" · "), item.v1.courseTitle,
-                    item.v1.courseId,
+                    item.v1.courseId, RecentKind.GRADE to item.v1.assignmentId,
                 ) { TagChip(t("Graded"), ink = Theme.colors.ok, fill = Theme.colors.okSoft) }
-                is RecentItem.Material -> RecentRow(item.v1.color, item.v1.title, item.v1.courseTitle, item.v1.courseId) {
-                    TagChip(t("Material"))
-                }
+                is RecentItem.Material -> RecentRow(
+                    item.v1.color, item.v1.title, item.v1.courseTitle, item.v1.courseId,
+                    RecentKind.MATERIAL to item.v1.materialId,
+                ) { TagChip(t("Material")) }
             }
         }
     }
 }
 
 @Composable
-private fun RecentRow(color: String?, title: String, detail: String?, courseId: String?, tag: @Composable () -> Unit) {
+private fun RecentRow(
+    color: String?,
+    title: String,
+    detail: String?,
+    courseId: String?,
+    seen: Pair<RecentKind, String>,
+    tag: @Composable () -> Unit,
+) {
     val navigator = LocalNavigator.current
+    val model = LocalModel.current
+    val scope = rememberCoroutineScope()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (courseId != null) Modifier.clickable { navigator.openCourse(courseId) } else Modifier)
+            .then(
+                if (courseId != null) {
+                    Modifier.clickable {
+                        scope.launch { model.markRecentSeen(seen.first, seen.second) }
+                        navigator.openCourse(courseId)
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         CourseSquare(color)

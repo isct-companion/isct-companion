@@ -7,8 +7,8 @@
 //! Only the paging control is ever posted, never a registration control.
 
 use super::html::{
-    by_id, cells, clean, clean_text, closest, disabled, first, group, is, js_number, jwc,
-    lines, maintenance_notice, nine_digits, select, table_rows, text_content,
+    by_id, cells, clean, clean_text, closest, disabled, first, group, is, js_number, jwc, lines,
+    maintenance_notice, nine_digits, select, table_rows, text_content,
 };
 use super::SchoolParseError;
 use crate::course_query::OfficialFilterOption;

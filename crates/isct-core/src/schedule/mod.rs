@@ -81,8 +81,9 @@ pub use timing::{
 };
 pub use today::{
     assignment_board, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem, MaterialItem,
-    RecentItem, TodayClass, TodayPhase, TodayView,
+    RecentItem, RecentKind, TodayClass, TodayPhase, TodayView,
 };
+pub(crate) use today::{recent_key, recent_version, RECENT_DAYS};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {
@@ -850,6 +851,7 @@ pub fn declarations() -> Vec<String> {
         DeadlineItem::decl(),
         MaterialItem::decl(),
         RecentItem::decl(),
+        RecentKind::decl(),
         TodayView::decl(),
         DeadlineGroups::decl(),
         AssignmentBoard::decl(),

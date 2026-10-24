@@ -141,6 +141,7 @@ const INTENT_SETTINGS: &[&str] = &[
     "devicePreferences",
     "cloud",
     "importStatus",
+    "recentSeen",
 ];
 
 /// Fingerprint of the user-owned state intents are checked against. School
@@ -610,6 +611,7 @@ impl WorkspaceWrite<'_, '_> {
                 | "devicePreferences"
                 | "cloud"
                 | "importStatus"
+                | "recentSeen"
                 | "syncStatus"
                 | "logs"
         ) {

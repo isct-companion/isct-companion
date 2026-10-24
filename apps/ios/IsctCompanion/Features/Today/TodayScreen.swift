@@ -104,11 +104,11 @@ private struct TodayContent: View {
             UpcomingExams(exams: exams)
         case .noClasses:
             UpcomingExams(exams: exams)
+            ClassStack(items: today.upcoming, now: now)
             if !today.recent.isEmpty {
                 SectionLabel(t("New"))
                 RecentCard(items: today.recent)
             }
-            ClassStack(items: today.upcoming, now: now)
         }
     }
 }
@@ -442,10 +442,9 @@ struct DeadlineLink<Content: View>: View {
     @Environment(Navigator.self) private var navigator
 
     var body: some View {
-        NavigationLink(value: AssignmentRoute(id: item.assignmentId)) {
+        CardLink(route: AssignmentRoute(id: item.assignmentId)) {
             label
         }
-        .buttonStyle(PressableStyle())
         .contextMenu {
             // A NavigationLink inside a menu does not push reliably.
             if let course = item.courseId {
@@ -485,17 +484,13 @@ private struct ThisClassCard: View {
             ForEach(Array(assignments.enumerated()), id: \.element.assignmentId) { index, item in
                 if index > 0 || !materials.isEmpty { RowDivider() }
                 DeadlineLink(item: item) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "doc.text").foregroundStyle(Theme.muted).frame(width: 16)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title).foregroundStyle(Theme.ink).lineLimit(2)
-                            Text(Format.due(item.dueAt, now: now)).font(.subheadline).foregroundStyle(Theme.muted)
-                        }
-                        Spacer(minLength: 8)
-                        DeadlineChip(item: item, now: now)
+                    Image(systemName: "doc.text").foregroundStyle(Theme.muted).frame(width: 16)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title).foregroundStyle(Theme.ink).lineLimit(2)
+                        Text(Format.due(item.dueAt, now: now)).font(.subheadline).foregroundStyle(Theme.muted)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    Spacer(minLength: 8)
+                    DeadlineChip(item: item, now: now)
                 }
             }
         }
@@ -558,23 +553,13 @@ private struct UpcomingExams: View {
     }
 
     private func row(_ exam: ExamView) -> some View {
-        let content = HStack(spacing: 12) {
+        CardLink(route: exam.courseId.map { CourseRoute(id: $0) }) {
             CourseSquare(color: exam.color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(exam.title.isEmpty ? exam.code : exam.title).foregroundStyle(Theme.ink).lineLimit(1)
                 Text(detail(exam)).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 8)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        return Group {
-            if let id = exam.courseId {
-                NavigationLink(value: CourseRoute(id: id)) { content }.buttonStyle(PressableStyle())
-            } else {
-                content
-            }
         }
     }
 
@@ -587,9 +572,11 @@ private struct UpcomingExams: View {
     }
 }
 
-/// Day off: grades and materials that changed recently.
+/// Day off: grades and materials that changed recently. Opening one tells
+/// Core it has been seen, so it leaves the list until it changes again.
 private struct RecentCard: View {
     let items: [RecentItem]
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         Card {
@@ -598,17 +585,21 @@ private struct RecentCard: View {
                 switch item {
                 case let .grade(row):
                     recentRow(color: row.color, title: [row.title, row.grade].compactMap { $0 }.joined(separator: " · "),
-                              detail: row.courseTitle, tag: TagChip(text: t("Graded"), ink: Theme.ok, fill: Theme.okSoft), courseId: row.courseId)
+                              detail: row.courseTitle, tag: TagChip(text: t("Graded"), ink: Theme.ok, fill: Theme.okSoft),
+                              courseId: row.courseId, seen: (.grade, row.assignmentId))
                 case let .material(row):
                     recentRow(color: row.color, title: row.title, detail: row.courseTitle,
-                              tag: TagChip(text: t("Material")), courseId: row.courseId)
+                              tag: TagChip(text: t("Material")), courseId: row.courseId, seen: (.material, row.materialId))
                 }
             }
         }
     }
 
-    private func recentRow(color: String?, title: String, detail: String?, tag: TagChip, courseId: String?) -> some View {
-        let content = HStack(spacing: 12) {
+    private func recentRow(color: String?, title: String, detail: String?, tag: TagChip, courseId: String?,
+                           seen: (RecentKind, String)) -> some View {
+        CardLink(route: courseId.map { CourseRoute(id: $0) }, opened: {
+            Task { await model.markRecentSeen(seen.0, seen.1) }
+        }) {
             CourseSquare(color: color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).foregroundStyle(Theme.ink).lineLimit(2)
@@ -616,16 +607,6 @@ private struct RecentCard: View {
             }
             Spacer(minLength: 8)
             tag
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        return Group {
-            if let courseId {
-                NavigationLink(value: CourseRoute(id: courseId)) { content }.buttonStyle(PressableStyle())
-            } else {
-                content
-            }
         }
     }
 }

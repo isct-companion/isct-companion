@@ -1,5 +1,7 @@
 package app.isctcompanion.design
 
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -118,8 +120,11 @@ class MaterialOpener(val opening: Boolean, val open: () -> Unit)
 
 /** Opens a course file or page wherever it is listed. Core fetches it with
  * the signed-in LMS session (or from the course folder) and the system viewer
- * shows it; what Core cannot fetch opens in the in-app LMS page. `courseId`
- * names the course whose folder Core uses when `files` is not known yet. */
+ * shows it; what is not a file opens in the in-app LMS page. A download that
+ * only failed this time (offline, timed out) asks instead: silently showing
+ * the LMS page made Share hand out a link where it had handed out the file.
+ * `courseId` names the course whose folder Core uses when `files` is not
+ * known yet. */
 @Composable
 fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?, courseId: String? = null): MaterialOpener {
     val model = LocalModel.current
@@ -127,13 +132,18 @@ fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?, co
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var opening by remember { mutableStateOf(false) }
+    var retry by remember { mutableStateOf(false) }
     fun push(url: String) = navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, title))
-    return MaterialOpener(opening) {
-        val target = source ?: return@MaterialOpener
+    lateinit var open: () -> Unit
+    open = open@{
+        val target = source ?: return@open
         scope.launch {
             opening = true
             try {
-                val folder = files ?: courseId?.let { model.courseDetail(it)?.files }
+                val folder = files ?: courseId?.let {
+                    // Core names a folder for every course; none means the read failed.
+                    model.courseDetail(it)?.files ?: return@launch run { retry = true }
+                }
                 if (folder == null) return@launch push(target)
                 when (val material = model.openMaterial(folder, target)) {
                     is Material.Ready -> if (!view(context, File(material.file.path))) push(target)
@@ -141,11 +151,12 @@ fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?, co
                         context,
                         t("This file is too large ({{size}}). Open it in the LMS.", "size" to Formatter.formatShortFileSize(context, material.bytes.toLong())),
                     )
-                    is Material.Failed -> if (material.reason == MaterialFailure.LOGIN) {
-                        notice(context, t("Sign in to the LMS again. Check your school account in Settings."))
-                    } else {
-                        push(target)
+                    is Material.Failed -> when (material.reason) {
+                        MaterialFailure.LOGIN -> notice(context, t("Sign in to the LMS again. Check your school account in Settings."))
+                        MaterialFailure.NETWORK, MaterialFailure.TIMEOUT, MaterialFailure.CANCELLED -> retry = true
+                        else -> push(target)
                     }
+                    null -> retry = true
                     is Material.External -> push(material.url)
                     // Folders, pages and anything Core could not fetch: the LMS page itself.
                     else -> push(target)
@@ -155,6 +166,25 @@ fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?, co
             }
         }
     }
+    if (retry) {
+        AlertDialog(
+            onDismissRequest = { retry = false },
+            text = { Text(t("The file could not be downloaded. Try again, or open it in the LMS.")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    retry = false
+                    open()
+                }) { Text(t("Try again")) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    retry = false
+                    source?.let(::push)
+                }) { Text(t("Open in LMS")) }
+            },
+        )
+    }
+    return MaterialOpener(opening, open)
 }
 
 /** Hands a downloaded file to the app that views its type. */

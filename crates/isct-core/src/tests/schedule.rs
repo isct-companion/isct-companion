@@ -1065,6 +1065,30 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         .collect();
     assert_eq!(recent, ["slides-2", "graded"]);
     assert_eq!(holiday.upcoming[0].occurrence.date, "2026-04-20");
+    // An item opened since its last change is no longer new; one opened
+    // before a newer change is new again.
+    off["recentSeen"] = json!({
+        "material:slides-2": "2026-04-13T08:00:00+09:00",
+        "grade:graded": "2026-04-11T09:00:00+09:00",
+    });
+    let WorkspaceQueryResult::Today(seen) = query(
+        &off,
+        WorkspaceQuery::Today {
+            now: "2026-04-13T12:00:00+09:00".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("today expected")
+    };
+    let recent: Vec<_> = seen
+        .recent
+        .iter()
+        .map(|item| match item {
+            RecentItem::Grade(row) => row.assignment_id.clone(),
+            RecentItem::Material(row) => row.material_id.clone(),
+        })
+        .collect();
+    assert_eq!(recent, ["graded"]);
 
     // The board resolves the quarter's one task timeline: what is left to do,
     // then every assignment whatever its state.
