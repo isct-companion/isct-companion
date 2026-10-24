@@ -91,6 +91,44 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
         && g.contrast > 0.
         && g.sharpness > 0.
         && g.source_size > 0.));
+    // Edge acuity falls when the strokes blur and holds when only the
+    // contrast changes, so a dim but sharp frame is not taken for blur.
+    let acuity = |gray: &GrayImage| {
+        let interior = image::imageops::crop_imm(gray, 9, 9, 78, 78).to_image();
+        edge_acuity(&image::imageops::resize(
+            &interior,
+            48,
+            48,
+            FilterType::Triangle,
+        ))
+    };
+    let median = |values: &mut Vec<f64>| {
+        values.sort_by(f64::total_cmp);
+        values[values.len() / 2]
+    };
+    let mut levels = vec![vec![]; 4];
+    let mut dim = vec![];
+    for g in &captured.glyphs {
+        let gray = GrayImage::from_raw(96, 96, g.gray.clone()).unwrap();
+        for (level, sigma) in levels.iter_mut().zip([0., 1.5, 3., 5.]) {
+            level.push(if sigma > 0. {
+                acuity(&imageproc::filter::gaussian_blur_f32(&gray, sigma))
+            } else {
+                acuity(&gray)
+            });
+        }
+        dim.push(acuity(&GrayImage::from_fn(96, 96, |x, y| {
+            image::Luma([(128 + (gray.get_pixel(x, y)[0] as i32 - 128) / 2) as u8])
+        })));
+    }
+    let levels: Vec<f64> = levels.iter_mut().map(median).collect();
+    assert!(levels.windows(2).all(|w| w[1] < w[0]), "{levels:?}");
+    assert!(levels[3] < 0.6 * levels[0], "{levels:?}");
+    let dim = median(&mut dim);
+    assert!(
+        (dim - levels[0]).abs() < 0.1 * levels[0],
+        "dim {dim} vs {levels:?}"
+    );
     // Keep black ink on both paper colors, and prevent input whitening from
     // changing physical glare/admission measurements.
     for paper in [[245, 205, 205], [240; 3], [130, 110, 100]] {
@@ -127,8 +165,22 @@ fn capture_keeps_gray_texture_and_classifier_preserves_cell_order_and_batch_boun
             .any(|(a, b)| a.gray != b.gray));
         for (a, b) in captured.glyphs.iter().zip(color.glyphs) {
             assert_eq!(
-                (a.contrast, a.sharpness, a.centering, a.glare, a.source_size),
-                (b.contrast, b.sharpness, b.centering, b.glare, b.source_size)
+                (
+                    a.contrast,
+                    a.sharpness,
+                    a.centering,
+                    a.glare,
+                    a.source_size,
+                    a.acuity
+                ),
+                (
+                    b.contrast,
+                    b.sharpness,
+                    b.centering,
+                    b.glare,
+                    b.source_size,
+                    b.acuity
+                )
             );
         }
     }
@@ -271,9 +323,35 @@ fn complete_letters_near_cell_edges_do_not_become_confident_substitutions() {
     let q = image::load_from_memory(include_bytes!("fixtures/matrix-q-bottom.png"))
         .unwrap()
         .to_luma8();
-    let reading = model.recognize(&[q.into_raw()]).unwrap();
-    assert_eq!(reading[0].text, "Q");
-    assert!(reading[0].confidence >= 0.8, "{:?}", reading[0]);
+    // On the printed card the tail often reaches the row line itself: the
+    // same Q moved down until its tail touches the bottom edge is still read,
+    // as a narrow bottom contact is a descender, not a clipped stroke.
+    let lowest = (0..96)
+        .rev()
+        .find(|&y| (0..96).any(|x| q.get_pixel(x, y)[0] < 100))
+        .unwrap();
+    let paper = *q.get_pixel(0, 0);
+    let touching = GrayImage::from_fn(96, 96, |x, y| match y.checked_sub(95 - lowest) {
+        Some(source) => *q.get_pixel(x, source),
+        None => paper,
+    });
+    assert!(normalize_glyph(&touching).is_some());
+    let reading = model
+        .recognize(&[q.into_raw(), touching.into_raw()])
+        .unwrap();
+    for read in &reading {
+        assert_eq!(read.text, "Q");
+        assert!(read.confidence >= 0.8, "{read:?}");
+    }
+    // A bar cut by the bottom edge touches it wide: an E losing its lower
+    // bar there would otherwise read as F.
+    let cut_bar = GrayImage::from_fn(96, 96, |x, y| {
+        let stem = (30..37).contains(&x) && y >= 20;
+        let bars =
+            (30..70).contains(&x) && ((20..27).contains(&y) || (52..58).contains(&y) || y >= 90);
+        image::Luma([if stem || bars { 20 } else { 230 }])
+    });
+    assert!(normalize_glyph(&cut_bar).is_none());
     // A central stroke joined to an incomplete edge is not safe to delete:
     // deleting that connected component could leave a different letter.
     let clipped = GrayImage::from_fn(96, 96, |x, y| {

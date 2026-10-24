@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let id = scanner
         .lock()
         .map_err(|_| "scanner poisoned")?
-        .begin_at(base, Duration::from_secs(7));
+        .begin_at(base, Duration::from_secs(10));
     let model = isct_ocr::MatrixAlphabetService::default();
     let shared = scanner.clone();
     let worker_id = id.clone();
@@ -151,6 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 source_size: g.source_size,
                                 centering: g.centering,
                                 glare: g.glare,
+                                acuity: g.acuity,
                             })
                             .collect(),
                     })

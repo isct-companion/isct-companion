@@ -44,11 +44,15 @@ Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
   and a small square for "belongs to this course" in lists. Text on a fill
   takes the course colour mixed into ink (`course.tint.ink`), so a block reads
   as one colour on desktop and phone.
-- **One gradient, meaning "now"**: the class in progress or next, or tonight's
-  deadline, takes the course (or danger) colour peaking at `course.tint.hero`
-  in the top-leading corner and fading to the surface, with a hairline at
-  `course.tint.fill`. Desktop draws it on Today's focus row (CSS radial
-  gradient), the phone on the hero card (`CourseMesh`). Nothing else is graded.
+- **One tint, meaning "now"**: the class in progress or next, or tonight's
+  deadline, fills its whole card with a tint: the course (or danger) hue at the
+  theme's `hero.lightness` with chroma capped at `hero.chroma` (OKLCH), so
+  every course is equally quiet and dark mode gets its own tint instead of the
+  light colours on black. It fades slightly from top to bottom, to `hero.fade`
+  of the tint mixed into the surface in OKLab, and stays symmetric side to
+  side: a corner gradient read as lopsided. A hairline at `course.tint.fill`
+  outlines it. Desktop draws it on Today's focus row, iOS (`CourseTint`) and
+  Android (`nowTint`) on the hero card. Nothing else is graded.
 - **Icon tiles use roles, not hues**: a settings row's tile is accent
   (preferences), ok (data), warn or danger (caution) or muted (utilities);
   system rainbow colours do not appear.

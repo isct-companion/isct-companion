@@ -79,6 +79,17 @@ pub struct MatrixGridTrack {
     pub keyframe: bool,
     pub elapsed_ms: f64,
 }
+/// Whether the cells of a tracked frame may be cut for recognition: a fresh
+/// fit whose whole body lies inside the frame. A grid reaching past the edge
+/// is still drawn, but its cut-off cells would only feed the model fragments.
+/// Live sessions and dataset exports decide keyframes here.
+pub fn keyframe_ready(track: &MatrixGridTrack) -> bool {
+    track.keyframe
+        && track.body.is_some_and(|body| {
+            body.iter()
+                .all(|p| (0. ..=1.).contains(&p.x) && (0. ..=1.).contains(&p.y))
+        })
+}
 /// The 70 cells cut from one picture with the grid fitted on it.
 pub struct MatrixCut {
     pub quads: Vec<[MatrixPoint; 4]>,

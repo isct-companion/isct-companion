@@ -10,6 +10,7 @@ use super::*;
 use std::sync::{Arc, Mutex};
 
 type Inspector = Box<dyn Fn(&MatrixCut) + Send + Sync>;
+type Clock = Box<dyn Fn() -> Instant + Send + Sync>;
 
 /// Image-side state of the live session: its tracker and the keyframe Core
 /// asked for (frame id and the grid fitted on that frame).
@@ -31,6 +32,7 @@ pub struct MatrixCameraDriver {
     scanner: Mutex<MatrixCameraScanner>,
     geometry: Mutex<Geometry>,
     inspector: Option<Inspector>,
+    clock: Clock,
 }
 fn unavailable() -> MatrixScanError {
     MatrixScanError::Backend("Camera scanner state unavailable. Restart the app.".into())
@@ -42,7 +44,14 @@ impl MatrixCameraDriver {
             scanner: Mutex::default(),
             geometry: Mutex::default(),
             inspector: None,
+            clock: Box::new(Instant::now),
         }
+    }
+    /// Replay runs the same session on a recording's timeline instead of the
+    /// wall clock; every deadline, sample interval and trace reads this clock.
+    pub fn with_clock(mut self, clock: impl Fn() -> Instant + Send + Sync + 'static) -> Self {
+        self.clock = Box::new(clock);
+        self
     }
     /// Debug tooling sees every cut keyframe (numeric measurements only).
     pub fn with_inspector(
@@ -71,14 +80,15 @@ impl MatrixCameraDriver {
             .map_err(|_| unavailable())
     }
 
-    /// Starts a session; its seven-second budget starts now.
+    /// Starts a session; its ten-second budget starts now.
     pub fn begin(&self) -> Result<String, MatrixScanError> {
         if !self.vision.available() {
             return Err(MatrixScanError::Backend(
                 "Matrix scanner is unavailable in this build.".into(),
             ));
         }
-        let id = self.with(|s| s.begin())?;
+        let now = (self.clock)();
+        let id = self.with(|s| s.begin_at(now, CAPTURE_LIMIT))?;
         let tracker = self.vision.tracker();
         self.geometry(|g| {
             *g = Geometry {
@@ -93,7 +103,7 @@ impl MatrixCameraDriver {
     pub fn stop(&self, id: &str) -> Option<MatrixCameraDiagnostics> {
         let diagnostics = self
             .with(|s| {
-                let report = s.diagnostics(id, Instant::now()).ok();
+                let report = s.diagnostics(id, (self.clock)()).ok();
                 s.stop(id);
                 report
             })
@@ -108,7 +118,7 @@ impl MatrixCameraDriver {
     }
     /// A lifecycle wakeup: the deadline advances even when video stalls.
     pub fn poll(&self, id: &str) -> Result<MatrixCameraSnapshot, MatrixScanError> {
-        self.with(|s| s.observe(id, None, Instant::now()))?
+        self.with(|s| s.observe(id, None, (self.clock)()))?
     }
 
     /// The fast loop: one frame's analysis planes. The snapshot carries the
@@ -140,10 +150,10 @@ impl MatrixCameraDriver {
                 MatrixTrackedFrame {
                     frame_id,
                     bounds: track.display,
-                    keyframe_ready: track.keyframe,
+                    keyframe_ready: keyframe_ready(&track),
                     analysis_ms: track.elapsed_ms,
                 },
-                Instant::now(),
+                (self.clock)(),
             )
         })??;
         let wanted = snapshot.keyframe_frame_id == Some(frame_id);
@@ -183,7 +193,7 @@ impl MatrixCameraDriver {
             quads: cut.quads,
             glyphs: cut.glyphs,
         };
-        self.with(|s| s.observe(id, Some(frame), Instant::now()))?
+        self.with(|s| s.observe(id, Some(frame), (self.clock)()))?
     }
     /// A native camera frame: tracked and, when Core asks for it, cut at once
     /// from the full resolution this call already holds.
@@ -219,13 +229,13 @@ impl MatrixCameraDriver {
             if current.phase == MatrixCameraPhase::Complete {
                 return Ok(current);
             }
-            let Some(batch) = self.with(|s| s.batch(id, Instant::now()))?? else {
+            let Some(batch) = self.reserve(id)? else {
                 // The session deadline bounds this wait; no lock is held.
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
             };
-            let readings = self.vision.recognize(&batch.images)?;
-            let snapshot = self.with(|s| s.apply(id, &batch, readings, Instant::now()))??;
+            let readings = self.recognize(&batch)?;
+            let snapshot = self.apply(id, &batch, readings)?;
             if snapshot.phase == MatrixCameraPhase::Complete {
                 return Ok(snapshot);
             }
@@ -237,6 +247,27 @@ impl MatrixCameraDriver {
             self.with(|s| s.stop(id))?;
         }
         result
+    }
+
+    /// One consumer step is reserve, recognize, apply; `process` loops over
+    /// them, and replay calls them itself to place the model's latency on the
+    /// recording's timeline.
+    pub fn reserve(&self, id: &str) -> Result<Option<MatrixCameraBatch>, MatrixScanError> {
+        self.with(|s| s.batch(id, (self.clock)()))?
+    }
+    pub fn recognize(
+        &self,
+        batch: &MatrixCameraBatch,
+    ) -> Result<Vec<MatrixReading>, MatrixScanError> {
+        self.vision.recognize(&batch.images)
+    }
+    pub fn apply(
+        &self,
+        id: &str,
+        batch: &MatrixCameraBatch,
+        readings: Vec<MatrixReading>,
+    ) -> Result<MatrixCameraSnapshot, MatrixScanError> {
+        self.with(|s| s.apply(id, batch, readings, (self.clock)()))?
     }
 
     /// A still photo, read as one frame of a live session: a fresh tracker

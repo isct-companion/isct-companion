@@ -1,13 +1,38 @@
-"""Local video -> production Rust crops -> reviewed, de-identified OCR dataset.
+"""Local card recordings -> production keyframe cells -> labelled OCR dataset.
 
-The plan assigns whole time segments before extraction. No OCR output is used
-as truth. Reviews confirm geometry and readability; everything else is unknown.
+The pipeline has three stages, each rerunnable on its own:
+
+  export    Every recording runs through the Rust `matrix_dataset` example: the
+            production tracker follows the video and every keyframe a live
+            session would cut is cut by the production cell cut. No labels.
+  build     Labels come from each card's human-checked truth by cell position.
+            A keyframe is used only when Core finds it sharp
+            (`matrix_frame_sharp`) and its indexing is verified (see
+            `indexing`); a cell only when Core would admit it. Near-duplicate
+            cells are dropped per recording and cell, the remaining cells go
+            through Rust model preprocessing, and splits are written with
+            lineage and a report.
+  evaluate  A model on the validation/test split, per cell and per keyframe.
+
+Splits are assigned per card in the manifest, so every recording of a card
+lands in the same split: a held-out card measures generalisation to new cards,
+which is what the app meets. Test cards are never used for model selection.
+With too few cards for a validation card, `--validation-tail` selects
+checkpoints on the end of each training recording instead.
+
+Manifest (local JSON; paths relative to the manifest):
+
+  {"cards": {"card-a": {"truth": ["ABCDEFGHIJ", ... 7 rows],
+                        "truthSource": "human-checked", "split": "train"}},
+   "recordings": [{"id": "a-desk", "card": "card-a", "video": "a-desk.mp4"}]}
+
+Videos, cells, truth and every output here are card images or derived from
+them: keep them local and out of commits.
 """
 
 import argparse
 from collections import Counter
 import hashlib
-from io import BytesIO
 import json
 from pathlib import Path
 import random
@@ -15,12 +40,15 @@ import subprocess
 import time
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 from alphabet_synthetic import prepare
 
-
 SPLITS = ("train", "validation", "test")
+ROOT = Path(__file__).resolve().parents[2]
+PIXELS = 96 * 96
+# Fields of each keyframe cell written by `matrix_dataset`.
+CONTRAST, SHARPNESS, SIZE, CENTERING, GLARE, ADMISSIBLE, TEXT, CONFIDENCE, ACUITY = range(9)
 
 
 def digest(path):
@@ -36,305 +64,223 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2) + "\n")
 
 
-def review_sheet(root, group, report, truth):
-    sheet = Image.new("RGB", (10 * 96, 7 * 114), "white")
-    draw = ImageDraw.Draw(sheet)
-    for cell in report["cells"]:
-        index = cell["cell"]
-        x, y = index % 10 * 96, index // 10 * 114
-        sheet.paste(Image.open(root / group / "crops" / cell["file"]), (x, y))
-        draw.text((x + 2, y + 97), f"{index:02} {truth[index]}", fill="black")
-    sheet.save(root / group / f"{report['frame']}-review.jpg", quality=90)
+def load_manifest(path, validation_tail=0.):
+    path = Path(path).resolve()
+    manifest = read_json(path)
+    cards = manifest["cards"]
+    for name, card in cards.items():
+        rows = card["truth"]
+        if len(rows) != 7 or any(len(r) != 10 or not r.isascii() or not r.isalpha()
+                                 or r != r.upper() for r in rows):
+            raise ValueError(f"{name}: truth must be seven rows of ten A-Z letters")
+        if card.get("truthSource") != "human-checked":
+            raise ValueError(f"{name}: OCR output cannot supply ground truth")
+        if card.get("split") not in SPLITS:
+            raise ValueError(f"{name}: split must be one of {SPLITS}")
+    seen, identities = set(), {}
+    for recording in manifest["recordings"]:
+        rid = recording["id"]
+        if not rid or not all(c.isalnum() or c in "-_" for c in rid) or rid in seen:
+            raise ValueError("Recording ids must be unique and filesystem-safe")
+        seen.add(rid)
+        if recording["card"] not in cards:
+            raise ValueError(f"{rid}: unknown card")
+        recording["video"] = str((path.parent / recording["video"]).resolve())
+        # Content identity: a renamed copy must not appear under two cards/splits.
+        identity = digest(recording["video"])
+        if identity in identities:
+            raise ValueError(f"{rid} repeats the video of {identities[identity]}")
+        identities[identity] = rid
+        recording["sha256"] = identity
+    splits = {c["split"] for c in cards.values()}
+    if "train" not in splits or ("validation" not in splits and not validation_tail):
+        raise ValueError("Assign a training card and a validation card or --validation-tail")
+    return manifest
 
 
-def load_plan(path):
-    plan = read_json(path)
-    gap_seconds = float(plan.get("gapSeconds", 2))
-    if not np.isfinite(gap_seconds) or gap_seconds < 2:
-        raise ValueError("Keep at least two seconds between splits from one recording")
-    rows = plan["truth"]
-    if len(rows) != 7 or any(len(row) != 10 or not row.isascii()
-                             or not row.isalpha() or row != row.upper() for row in rows):
-        raise ValueError("Truth must be seven manually checked rows of ten A-Z letters")
-    if plan.get("truthSource") != "human-checked":
-        raise ValueError("OCR predictions cannot supply ground truth")
-    segments = plan["segments"]
-    if {s["split"] for s in segments} != set(SPLITS):
-        raise ValueError("Assign train, validation and untouched test segments first")
-    groups = set()
-    intervals = []
-    for segment in segments:
-        group = segment["group"]
-        if not group or not all(c.isalnum() or c in "-_" for c in group) or group in groups:
-            raise ValueError("Use unique safe segment group names")
-        groups.add(group)
-        start, end, fps = [float(segment[k]) for k in ("start", "end", "fps")]
-        if not np.isfinite([start, end, fps]).all() or not 0 <= start < end or not 0 < fps <= 30:
-            raise ValueError("Invalid segment bounds/frequency")
-        video = Path(segment["video"]).expanduser().resolve()
-        # Check content identity too: renaming a video must not bypass isolation.
-        identity = digest(video)
-        for other_id, a, b, split in intervals:
-            if identity == other_id:
-                gap = max(start, a) - min(end, b)
-                if gap < 0 or (split != segment["split"] and gap < gap_seconds):
-                    raise ValueError("Overlapping segments or insufficient cross-split time gap")
-        intervals.append((identity, start, end, segment["split"]))
-    return plan
+def binary(target, name):
+    suffix = ".exe" if (Path(target) / "release/examples" / f"{name}.exe").exists() else ""
+    return Path(target) / "release/examples" / f"{name}{suffix}"
 
 
-def extract(args):
-    plan = load_plan(args.plan)
-    args.output.mkdir(parents=True, exist_ok=False)
-    write_json(args.output / "plan.json", plan)
-    records, review = [], {}
-    for segment in plan["segments"]:
-        group = segment["group"]
-        directory = args.output / group
-        directory.mkdir()
-        frames, crops = directory / "frames", directory / "crops"
-        frames.mkdir()
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-                        "-ss", str(segment["start"]), "-i", segment["video"],
-                        "-t", str(segment["end"] - segment["start"]), "-an",
-                        "-vf", f"fps={segment['fps']}", "-q:v", "2",
-                        "-start_number", "0", str(frames / "capture-%05d.jpg")], check=True)
-        subprocess.run([str(args.capture_binary.resolve()), str(frames), str(crops)], check=True)
-        for report in map(json.loads, (crops / "frames.jsonl").read_text().splitlines()):
-            frame = report["frame"]
-            key = f"{group}/{frame}"
-            report.update(key=key, group=group, split=segment["split"],
-                          seconds=segment["start"] + int(frame.split("-")[-1]) / segment["fps"])
-            records.append(report)
-            if report["outcome"] != "located":
-                continue
-            review[key] = {"aligned": False, "readableCells": [], "note": "unreviewed"}
-            review_sheet(args.output, group, report, "".join(plan["truth"]))
-        print(json.dumps({"group": group, "frames": sum(r['group'] == group for r in records),
-                          "located": sum(r['group'] == group and r['outcome'] == 'located' for r in records)}), flush=True)
-    write_json(args.output / "records.json", records)
-    write_json(args.output / "review.json", review)
-    write_json(args.output / "provenance.json", {
-        "planSha256": digest(args.plan), "captureBinarySha256": digest(args.capture_binary),
-        "videos": {str(Path(s["video"]).resolve()): digest(s["video"]) for s in plan["segments"]},
-        "scriptSha256": digest(__file__), "localOnly": True})
-
-
-def assist(args):
-    """Local annotation aid, never the app detector or proof of readability.
-
-    OpenCV owns feature matching and robust homography estimation. Each result
-    still needs a visual alignment/readability review before supervision.
-    https://docs.opencv.org/4.x/d1/de0/tutorial_py_feature_homography.html
-    """
-    import cv2
-    cv2.setNumThreads(2)
-    cv2.setRNGSeed(20261020)
-    plan = load_plan(args.directory / "plan.json")
-    reference = read_json(args.reference)
-    image = cv2.imread(reference["frame"], cv2.IMREAD_GRAYSCALE)
-    if image is None:
-        raise ValueError("Cannot read the local reference frame")
-    mask = np.zeros_like(image)
-    cv2.fillPoly(mask, [np.array(reference["cardPolygon"], dtype=np.int32)], 255)
-    sift = cv2.SIFT_create(nfeatures=5000)
-    keypoints, descriptors = sift.detectAndCompute(image, mask)
-    if descriptors is None or len(keypoints) < 16:
-        raise ValueError("Reference needs at least sixteen distinct card features")
-    matcher = cv2.BFMatcher()
-    body = np.array(reference["body"], dtype=np.float32).reshape(-1, 1, 2)
-    args.output.mkdir(parents=True, exist_ok=False)
-    write_json(args.output / "plan.json", plan)
-    write_json(args.output / "reference-local.json", reference)
-    records, review, tracking = [], {}, []
-    for segment in plan["segments"]:
-        group = segment["group"]
-        directory = args.output / group
-        directory.mkdir()
-        frames = (args.directory / group / "frames").resolve()
-        (directory / "frames").symlink_to(frames, target_is_directory=True)
-        manual = {}
-        for frame in sorted(frames.glob("capture-*.jpg")):
-            gray = cv2.imread(str(frame), cv2.IMREAD_GRAYSCALE)
-            points, features = sift.detectAndCompute(gray, None)
-            good = [] if features is None else [pair[0] for pair in matcher.knnMatch(
-                descriptors, features, k=2) if len(pair) == 2 and pair[0].distance < .65 * pair[1].distance]
-            result = {"key": f"{group}/{frame.stem}", "matches": len(good), "tracked": False}
-            if len(good) >= 16:
-                a = np.float32([keypoints[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-                b = np.float32([points[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-                matrix, inliers = cv2.findHomography(a, b, cv2.RANSAC, 2.5)
-                if matrix is not None:
-                    corners = cv2.perspectiveTransform(body, matrix).reshape(4, 2)
-                    normalized = corners / [gray.shape[1], gray.shape[0]]
-                    count = int(inliers.sum())
-                    source_inliers = a[inliers.ravel().astype(bool), 0]
-                    coverage = np.ptp(source_inliers, axis=0) / [image.shape[1], image.shape[0]]
-                    convex = cv2.isContourConvex(corners.astype(np.float32))
-                    area = cv2.contourArea(corners.astype(np.float32), oriented=True)
-                    valid = (count >= 16 and count / len(good) >= .45 and min(coverage) > .10
-                             and convex and area > 500 and np.isfinite(normalized).all()
-                             and np.all((normalized >= 0) & (normalized <= 1)))
-                    result.update(inliers=count, coverage=coverage.tolist(), tracked=bool(valid))
-                    if valid:
-                        manual[frame.stem] = normalized.tolist()
-            tracking.append(result)
-        geometry_path = directory / "manual-geometry-local.json"
-        write_json(geometry_path, manual)
-        subprocess.run([str(args.capture_binary.resolve()), str(frames), str(directory / "crops"),
-                        str(geometry_path)], check=True)
-        for record in map(json.loads, (directory / "crops" / "frames.jsonl").read_text().splitlines()):
-            record.update(key=f"{group}/{record['frame']}", group=group, split=segment["split"],
-                seconds=segment["start"] + int(record["frame"].split("-")[-1]) / segment["fps"])
-            records.append(record)
-            if record["outcome"] == "located":
-                review[record["key"]] = {"aligned": False, "readableCells": [], "note": "unreviewed"}
-                review_sheet(args.output, group, record, "".join(plan["truth"]))
-        print(json.dumps({"group": group, "tracked": len(manual)}), flush=True)
-    write_json(args.output / "records.json", records)
-    write_json(args.output / "review.json", review)
-    write_json(args.output / "tracking-local.json", tracking)
-    write_json(args.output / "provenance.json", {"nativeProvenance": read_json(args.directory / "provenance.json"),
-        "opencv": cv2.__version__, "referenceSha256": digest(args.reference),
-        "captureBinarySha256": digest(args.capture_binary), "scriptSha256": digest(__file__), "localOnly": True})
-
-
-def augment(image, rng):
-    """Bounded imaging perturbations before Rust; labels still require review.
-
-    No existing generator operates on captured raw cells while preserving their
-    source grouping. Do not infer readability from blur width or erased area.
-    """
-    source = Image.fromarray(image)
-    scale = rng.uniform(.93, 1.07)
-    source = source.transform(source.size, Image.Transform.AFFINE,
-        (scale, 0, rng.uniform(-1.5, 1.5), 0, scale, rng.uniform(-1.5, 1.5)),
-        resample=Image.Resampling.BILINEAR, fillcolor=int(np.median(image)))
-    source = source.filter(ImageFilter.GaussianBlur(rng.uniform(0, .65)))
-    pixels = np.asarray(source, dtype=np.float32)
-    if rng.random() < .35:
-        pixels = sum(np.roll(pixels, shift, axis=rng.choice([0, 1]))
-                     for shift in (-1, 0, 1)) / 3
-    y, x = np.mgrid[:96, :96] / 95
-    mode = rng.choice(["exposure", "shadow", "glare"])
-    if mode == "exposure":
-        pixels *= rng.uniform(.4, 1.1) + x * rng.uniform(-.12, .12)
-    elif mode == "shadow":
-        pixels *= .55 + .45 / (1 + np.exp(-(x + .3 * y - rng.uniform(.2, .8)) * 12))
-    else:
-        pixels += rng.uniform(20, 85) * np.exp(-((x-rng.random())/.35)**2 - ((y-rng.random())/.4)**2)
-    pixels += np.random.default_rng(rng.getrandbits(32)).normal(0, rng.uniform(0, 1.8), pixels.shape)
-    buffer = BytesIO()
-    Image.fromarray(np.clip(pixels, 0, 255).astype(np.uint8)).save(buffer, format="JPEG", quality=rng.randint(65, 95))
-    buffer.seek(0)
-    return np.asarray(Image.open(buffer).convert("L"))
-
-
-def sources(root):
-    plan, review = load_plan(root / "plan.json"), read_json(root / "review.json")
-    truth = "".join(plan["truth"])
-    for record in read_json(root / "records.json"):
-        if record["outcome"] != "located":
+def export(args):
+    manifest = load_manifest(args.manifest)
+    subprocess.run(["cargo", "build", "-p", "isct-ocr", "--release", "--features",
+                    "training-tools", "--example", "matrix_dataset", "--example",
+                    "alphabet_prepare", "--target-dir", str(args.target)], cwd=ROOT, check=True)
+    tool = binary(args.target, "matrix_dataset")
+    tool_hash = digest(tool)
+    for recording in manifest["recordings"]:
+        out = args.output / recording["id"]
+        stamp = out / "provenance.json"
+        wanted = {"videoSha256": recording["sha256"], "exporterSha256": tool_hash}
+        if stamp.exists() and read_json(stamp) == wanted and not args.force:
+            print(f"{recording['id']}: up to date", flush=True)
             continue
-        checked = review[record["key"]]
-        # Geometry failures/unreviewed grids remain in the frame manifest and
-        # whole-camera replay, not mixed into a classifier-only benchmark.
-        if checked["aligned"] is not True:
-            continue
-        readable = checked["readableCells"]
-        if readable != "all" and (not isinstance(readable, list) or any(
-                type(i) is not int or i not in range(70) for i in readable)):
-            raise ValueError("Use readableCells: all or an explicit list of cell indices")
-        for cell in record["cells"]:
-            index = cell["cell"]
-            known = checked["aligned"] is True and (readable == "all" or index in readable)
-            yield record, cell, ord(truth[index])-65 if known else -1
+        out.mkdir(parents=True, exist_ok=True)
+        stamp.unlink(missing_ok=True)
+        subprocess.run([str(tool), recording["video"], str(out)], check=True)
+        write_json(stamp, wanted)
+
+
+def keyframes(directory):
+    """(row, 70 × 96 × 96 cells) for every exported keyframe of a recording."""
+    glyphs = np.memmap(directory / "glyphs.u8", dtype=np.uint8, mode="r").reshape(-1, 70, 96, 96)
+    for line in (directory / "frames.jsonl").read_text().splitlines():
+        row = json.loads(line)
+        if "keyframe" in row:
+            yield row, glyphs[row["keyframe"]]
+
+
+SHIFTS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0)]
+
+
+def indexing(cells, truth, minimum=8, margin=3.):
+    """Is this keyframe's grid on the printed cells, not one row or column off?
+
+    The tracker gates already reject most misindexed fits; this independent
+    check counts confident model readings that match the truth at the fitted
+    positions and at every one-cell shift. Letters differ between neighbours,
+    so a shifted grid matches its shift, not the fitted positions. The reading
+    only accepts or rejects the whole keyframe; every label still comes from
+    the truth, including cells the model reads wrongly. A keyframe with fewer
+    than `minimum` confident matches (heavy motion blur, mostly) cannot show
+    its indexing and is left out.
+    """
+    def agree(dr, dc):
+        count = 0
+        for i, cell in enumerate(cells):
+            r, c = i // 10 + dr, i % 10 + dc
+            if 0 <= r < 7 and 0 <= c < 10 and cell[CONFIDENCE] >= .8 and cell[TEXT] == truth[r * 10 + c]:
+                count += 1
+        return count
+    own = agree(0, 0)
+    shifted = max(agree(dr, dc) for dr, dc in SHIFTS)
+    return own >= minimum and own >= margin * shifted + 3, own, shifted
+
+
+def sheet(path, cells, truth, keep):
+    """A 7×10 review mosaic: truth under each cell, red for excluded cells."""
+    image = Image.new("RGB", (10 * 96, 7 * 112), "white")
+    draw = ImageDraw.Draw(image)
+    for i in range(70):
+        x, y = i % 10 * 96, i // 10 * 112
+        image.paste(Image.fromarray(np.asarray(cells[i])).convert("RGB"), (x, y))
+        draw.text((x + 3, y + 97), f"{truth[i]}", fill="black" if keep[i] else "red")
+    image.save(path, quality=88)
 
 
 def build(args):
-    root = args.directory
+    manifest = load_manifest(args.manifest, args.validation_tail)
     rng = random.Random(args.seed)
-    # Build under local ignored storage. Only the explicitly selected NPZ may
-    # leave this machine; the provenance sidecar is intentionally separate.
     args.output.mkdir(parents=True, exist_ok=False)
+    (args.output / "sheets").mkdir()
     buckets = {s: [] for s in SPLITS}
-    lineage, seen, duplicate = [], {}, Counter()
-    for record, cell, label in sources(root):
-        raw = np.asarray(Image.open(root / record["group"] / "crops" / cell["file"]).convert("L"))
-        split = record["split"]
-        # Grouped within-split dedup only; holdouts retain every source for metrics.
-        key = (record["group"], cell["cell"])
-        thumbnail = np.asarray(Image.fromarray(raw).resize((24, 24)), dtype=np.float32)
-        if split == "train":
-            if label < 0:
+    report = {"recordings": {}, "splits": {}}
+    for recording in manifest["recordings"]:
+        rid, card = recording["id"], manifest["cards"][recording["card"]]
+        truth, card_split = "".join(card["truth"]), card["split"]
+        directory = args.exports / rid
+        # With every card but the test card in training, the end of each
+        # training recording selects checkpoints. Same card: optimistic, but
+        # it never touches the test card; a gap keeps neighbouring frames out.
+        boundary = np.inf
+        if card_split == "train" and args.validation_tail:
+            duration = max(json.loads(line)["t"] for line in (directory / "frames.jsonl").read_text().splitlines())
+            boundary = duration * (1 - args.validation_tail)
+        if read_json(directory / "provenance.json")["videoSha256"] != recording["sha256"]:
+            raise ValueError(f"{rid}: export is stale; rerun export")
+        stats = Counter()
+        kept = {i: [] for i in range(70)}
+        aligned_keys = []
+        for row, cells in keyframes(directory):
+            stats["keyframes"] += 1
+            split = "validation" if row["t"] >= boundary else card_split
+            if boundary - args.validation_gap <= row["t"] < boundary:
+                stats["gap"] += 1
                 continue
-            if any(np.abs(thumbnail - old).mean() < args.dedup_mae for old in seen.get(key, [])):
-                duplicate[record["group"]] += 1
+            # Core rejects a blurred keyframe whole in the app; every split
+            # leaves it out the same way.
+            if not row["sharp"]:
+                stats["blurred"] += 1
                 continue
-            seen.setdefault(key, []).append(thumbnail)
-        source_id = f"{record['key']}/{cell['cell']}"
-        buckets[split].append((raw, label, source_id, "original"))
-        if split == "train":
-            for index in range(args.augment):
-                buckets[split].append((augment(raw, rng), -1, source_id, f"augment-{index}"))
-    data, report = {}, {"deduplicated": dict(duplicate), "splits": {}}
-    augmentation_review = {}
+            ok, own, shifted = indexing(row["cells"], truth)
+            if not ok:
+                stats["misindexed"] += 1
+                if stats["misindexed"] <= args.sheets:
+                    sheet(args.output / "sheets" / f"{rid}-rejected-{row['frame']:05}.jpg",
+                          cells, truth, [False] * 70)
+                continue
+            stats["aligned"] += 1
+            aligned_keys.append(row["frame"])
+            admitted = [bool(c[ADMISSIBLE]) for c in row["cells"]]
+            for i in range(70):
+                if not admitted[i]:
+                    stats["notAdmitted"] += 1
+                    continue
+                pixels = np.array(cells[i])
+                # Dedup within one recording and cell: a card held still
+                # gives near-identical cells that only reweight the data.
+                thumb = np.asarray(Image.fromarray(pixels).resize((24, 24)), dtype=np.float32)
+                if split == "train" and any(np.abs(thumb - old).mean() < args.dedup_mae
+                                            for old in kept[i]):
+                    stats["duplicates"] += 1
+                    continue
+                kept[i].append(thumb)
+                reading = row["cells"][i]
+                stats["modelCorrect"] += int(reading[TEXT] == truth[i])
+                stats["modelWrongQualified"] += int(reading[TEXT] not in ("", truth[i])
+                                                    and reading[CONFIDENCE] >= .8)
+                buckets[split].append((pixels, ord(truth[i]) - 65, f"{rid}/{row['frame']}/{i}"))
+                stats["cells"] += 1
+        for frame in rng.sample(aligned_keys, min(args.sheets, len(aligned_keys))):
+            row, cells = next((r, c) for r, c in keyframes(directory) if r["frame"] == frame)
+            sheet(args.output / "sheets" / f"{rid}-aligned-{frame:05}.jpg", cells, truth,
+                  [bool(c[ADMISSIBLE]) for c in row["cells"]])
+        report["recordings"][rid] = {"card": recording["card"], "split": card_split,
+                                     "validationFrom": None if np.isinf(boundary) else boundary, **stats}
+        print(json.dumps({rid: report["recordings"][rid]}), flush=True)
+    data, lineage = {}, []
+    prepare_binary = binary(args.target, "alphabet_prepare")
     for split, observations in buckets.items():
         if not observations:
-            raise ValueError(f"No {split} sources; review readable training crops first")
-        raw = np.stack([o[0] for o in observations])
-        flags, original, corrected = prepare(raw, args.prepare_binary)
-        labels = np.array([o[1] for o in observations], dtype=np.int64)
-        # Augmented raw crops are not automatically readable even when the
-        # source was. Export a local review sheet before admitting those labels.
-        if split == "train" and args.augment:
-            reviews = read_json(args.augmentation_review) if args.augmentation_review else {}
-            approved = set(reviews.get("readable", []))
-            for i, (_, _, source_id, variant) in enumerate(observations):
-                if variant == "original":
-                    continue
-                token = hashlib.sha256((source_id + variant + str(args.seed)).encode() + raw[i].tobytes()).hexdigest()
-                augmentation_review[token] = {"source": source_id, "variant": variant}
-                Image.fromarray(raw[i]).save(args.output / f"{token}.png")
-                if token in approved:
-                    source_label = next(o[1] for o in observations if o[2] == source_id and o[3] == "original")
-                    labels[i] = source_label
-            if approved - set(augmentation_review):
-                raise ValueError("Augmentation review contains stale IDs")
+            continue
         order = list(range(len(observations)))
         rng.shuffle(order)
+        raw = np.stack([observations[i][0] for i in order])
+        labels = np.array([observations[i][1] for i in order], dtype=np.int64)
+        flags, original, corrected = prepare(raw, prepare_binary)
         if split == "train":
-            valid = [i for i in order if flags[i] > 0 and labels[i] >= 0]
-            dual = [i for i in valid if flags[i] == 2]
+            # Rust-rejected crops never reach the model; dual views both train.
+            valid = np.flatnonzero(flags > 0)
+            dual = np.flatnonzero(flags == 2)
             data["train_images"] = np.concatenate((original[valid], corrected[dual]))
             data["train_labels"] = np.concatenate((labels[valid], labels[dual]))
-            if not len(valid):
-                raise ValueError("No supervised training views survived Rust preprocessing")
         else:
-            data[split + "_images"] = original[order]
-            data[split + "_corrected_images"] = corrected[order]
-            data[split + "_flags"] = flags[order]
-            data[split + "_labels"] = labels[order]
-        for index in order:
+            data[f"{split}_images"] = original
+            data[f"{split}_corrected_images"] = corrected
+            data[f"{split}_flags"] = flags
+            data[f"{split}_labels"] = labels
+        for position, index in enumerate(order):
             lineage.append({"split": split, "source": observations[index][2],
-                            "variant": observations[index][3], "flag": int(flags[index]),
-                            "label": int(labels[index])})
-        counts = Counter(chr(65 + int(y)) for y in labels if y >= 0)
-        report["splits"][split] = {"sources": len(observations), "unknown": int((labels < 0).sum()),
-            "preprocessRejected": int((flags == 0).sum()), "dualViews": int((flags == 2).sum()),
-            "supervisedSources": int(((flags > 0) & (labels >= 0)).sum()),
-            "rejectedKnown": int(((flags == 0) & (labels >= 0)).sum()),
-            "letters": dict(sorted(counts.items())), "missingLetters": [c for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if c not in counts]}
-    # The remote training artifact excludes final-test pixels and labels too.
-    np.savez_compressed(args.output / "training.npz", **{k:v for k,v in data.items() if not k.startswith("test_")})
-    np.savez_compressed(args.output / "evaluation-local.npz", **{k:v for k,v in data.items() if not k.startswith("train_")})
-    write_json(args.output / "augmentation-review-template.json", {"readable": [], "candidates": augmentation_review})
+                            "flag": int(flags[position]), "label": int(labels[position])})
+        letters = Counter(chr(65 + int(y)) for y in labels)
+        report["splits"][split] = {
+            "cells": len(observations), "preprocessRejected": int((flags == 0).sum()),
+            "dualViews": int((flags == 2).sum()), "letters": dict(sorted(letters.items())),
+            "missingLetters": [c for c in map(chr, range(65, 91)) if c not in letters]}
+    if "train_images" not in data or "validation_images" not in data:
+        raise ValueError("Both a training and a validation card need verified keyframes")
+    np.savez_compressed(args.output / "training.npz",
+                        **{k: v for k, v in data.items() if not k.startswith("test_")})
+    np.savez_compressed(args.output / "evaluation-local.npz",
+                        **{k: v for k, v in data.items() if not k.startswith("train_")})
     write_json(args.output / "lineage-local.json", lineage)
-    report.update(seed=args.seed, prepareSha256=digest(args.prepare_binary),
-                  reviewSha256=digest(root / "review.json"), trainingSha256=digest(args.output / "training.npz"),
-                  generatorSha256=digest(__file__))
+    report.update(seed=args.seed, dedupMae=args.dedup_mae, validationTail=args.validation_tail,  prepareSha256=digest(prepare_binary),
+                  manifestSha256=digest(args.manifest), generatorSha256=digest(__file__),
+                  trainingSha256=digest(args.output / "training.npz"))
     write_json(args.output / "report-local.json", report)
-    print(json.dumps(report), flush=True)
+    print(json.dumps(report["splits"]), flush=True)
 
 
 def evaluate(args):
@@ -399,28 +345,27 @@ def evaluate(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
-    command = commands.add_parser("extract")
-    command.add_argument("--plan", type=Path, required=True)
-    command.add_argument("--capture-binary", type=Path, required=True)
+    command = commands.add_parser("export")
+    command.add_argument("--manifest", type=Path, required=True)
     command.add_argument("--output", type=Path, required=True)
-    command.set_defaults(run=extract)
-    command = commands.add_parser("assist")
-    command.add_argument("--directory", type=Path, required=True)
-    command.add_argument("--reference", type=Path, required=True,
-                         help="Local JSON: frame path, body corners and cardPolygon in reference pixels")
-    command.add_argument("--capture-binary", type=Path, required=True)
-    command.add_argument("--output", type=Path, required=True)
-    command.set_defaults(run=assist)
+    command.add_argument("--target", type=Path, default=ROOT / "target")
+    command.add_argument("--force", action="store_true")
+    command.set_defaults(run=export)
     command = commands.add_parser("build")
-    command.add_argument("--directory", type=Path, required=True)
-    command.add_argument("--prepare-binary", type=Path, required=True)
+    command.add_argument("--manifest", type=Path, required=True)
+    command.add_argument("--exports", type=Path, required=True)
     command.add_argument("--output", type=Path, required=True)
-    command.add_argument("--augment", type=int, default=0)
-    command.add_argument("--augmentation-review", type=Path)
-    command.add_argument("--seed", type=int, default=20261020)
+    command.add_argument("--target", type=Path, default=ROOT / "target")
+    command.add_argument("--seed", type=int, default=20261024)
     command.add_argument("--dedup-mae", type=float, default=2)
+    command.add_argument("--sheets", type=int, default=6, help="Review mosaics per recording")
+    command.add_argument("--validation-tail", type=float, default=0.,
+                         help="Share at the end of each training recording used for validation")
+    command.add_argument("--validation-gap", type=float, default=2.,
+                         help="Seconds dropped before that validation tail")
     command.set_defaults(run=build)
     command = commands.add_parser("evaluate")
     command.add_argument("--data", type=Path, required=True)
@@ -430,8 +375,8 @@ def main():
     command.add_argument("--splits", nargs="+", choices=["validation", "test"], default=["validation", "test"])
     command.set_defaults(run=evaluate)
     args = parser.parse_args()
-    if getattr(args, "augment", 0) < 0 or getattr(args, "dedup_mae", 0) < 0:
-        parser.error("Nonnegative augmentation count/dedup threshold required")
+    if getattr(args, "dedup_mae", 0) < 0 or not 0 <= getattr(args, "validation_tail", 0) < 1:
+        parser.error("Nonnegative dedup threshold and a validation tail in [0, 1) required")
     args.run(args)
 
 

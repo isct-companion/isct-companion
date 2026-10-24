@@ -35,6 +35,15 @@ body {
   background-position: center;
   overflow: hidden;
 }
+/* The window draws a system material (Windows 11 Mica, lib.rs
+   window_material): the window background and the rail let it through, and
+   the content above them stays opaque. */
+:root[data-window-material] body {
+  background-color: transparent;
+}
+:root[data-window-material] .rail {
+  background: transparent;
+}
 a {
   color: var(--accent);
 }
@@ -1547,18 +1556,28 @@ p {
   padding-left: 12px;
   border-bottom-color: transparent;
   border-radius: var(--radius-surface);
-  /* The 'now' gradient the phone's hero card uses (design/README.md):
-     the course tint peaks at the top-leading corner and fades to the
-     surface, with a hairline in the tint. */
-  background:
-    radial-gradient(
-      140% 180% at 0% 0%,
-      color-mix(in srgb, var(--course) var(--course-tint-hero), transparent),
-      transparent 72%
-    ),
-    var(--surface);
+  /* The 'now' tint the phone's hero card uses (design/README.md): the
+     course hue at the theme's hero lightness and capped chroma, fading
+     slightly from top to bottom, with a hairline in the tint. */
+  background: var(--surface);
   box-shadow: inset 0 0 0 0.5px
     color-mix(in srgb, var(--course) var(--course-tint-fill), transparent);
+}
+@supports (color: oklch(from red l c h)) {
+  .dayAgendaRow.focus {
+    --hero: oklch(
+      from var(--course) var(--hero-lightness) min(c, var(--hero-chroma)) h
+    );
+    background: linear-gradient(
+      in oklab,
+      var(--hero),
+      color-mix(
+        in oklab,
+        var(--hero) calc(var(--hero-fade) * 100%),
+        var(--surface)
+      )
+    );
+  }
 }
 .agendaState {
   color: var(--muted);

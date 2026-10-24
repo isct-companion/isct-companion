@@ -1589,6 +1589,7 @@
   "Swipe to change weeks": "左右滑动切换周",
   "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "长按课程可标记为考试或停课，长按“课表”标签可导出本学期。",
   "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.": "请保持 Matrix 在框内并尽量拿稳。全部格子确认后完成识别，最多用时七秒。",
+  "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within ten seconds.": "请保持 Matrix 在框内并尽量拿稳。全部格子确认后完成识别，最多用时十秒。",
   "Recognizing Matrix… {{count}}/70 cells confirmed.": "正在识别 Matrix… 已确认 {{count}}/70 格。",
   "Show QR code": "显示二维码",
   "Add to another authenticator": "添加到其他验证器",

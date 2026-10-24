@@ -24,8 +24,8 @@ The Latin fixture includes thin `I` strokes. A 64-pixel-only crop left one cell
 below 0.8; selective 128-pixel recropping recovered it without changing the
 threshold or manufacturing confidence.
 
-Reproduce with `cargo run -p isct-ocr --release --example matrix_profile --
-FRAME_DIRECTORY EXPECTED_TEXT 80`. Source fixtures are in
-`crates/isct-ocr/src/tests/fixtures/`; expected text is A–Z repeated to 70 cells.
+These numbers came from the `matrix_profile` example of the legacy live
+scheduler, removed once camera sessions moved to `MatrixCameraDriver`; replay
+sessions now with `matrix_session_replay` (see `crates/isct-ocr/README.md`).
 Live-session timing and sample counts are saved to the app cache at
 `matrix-scan/latest.json`, without images or recognized characters.

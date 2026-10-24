@@ -21,17 +21,15 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.hypot
 import app.isct.design.IsctTokens
 import app.isct.design.IsctTokensDark
 
@@ -53,12 +51,18 @@ data class Palette(
     val warnSoft: Color,
     val ok: Color,
     val okSoft: Color,
+    /** The 'now' tint in OKLCH ([nowTint]): lightness, and the chroma cap. */
+    val heroLightness: Float,
+    val heroChroma: Float,
+    /** Share of the 'now' tint left at the card's bottom edge. */
+    val heroFade: Float,
 )
 
 private val light = with(IsctTokens) {
     Palette(
         colorBg, colorSurface, colorSurface2, colorInk, colorMuted, colorLine, colorAccent,
         colorAccentSoft, colorDanger, colorDangerSoft, colorWarn, colorWarnSoft, colorOk, colorOkSoft,
+        heroLightness.toFloat(), heroChroma.toFloat(), heroFade.toFloat(),
     )
 }
 
@@ -66,6 +70,7 @@ private val dark = with(IsctTokensDark) {
     Palette(
         colorBg, colorSurface, colorSurface2, colorInk, colorMuted, colorLine, colorAccent,
         colorAccentSoft, colorDanger, colorDangerSoft, colorWarn, colorWarnSoft, colorOk, colorOkSoft,
+        heroLightness.toFloat(), heroChroma.toFloat(), heroFade.toFloat(),
     )
 }
 
@@ -82,33 +87,28 @@ object Theme {
     /** Course colour strengths: a block that occupies time, and row emphasis. */
     val tintFill = IsctTokens.courseTintFill.toFloat()
     val tintSoft = IsctTokens.courseTintSoft.toFloat()
-    /** Peak of the 'now' gradient ([nowGradient], desktop's focus row). */
-    val tintHero = IsctTokens.courseTintHero.toFloat()
 }
 
-/** The 'now' gradient (design/README.md) the hero card shares with desktop's
- * focus row: the tint peaks at [Theme.tintHero] in the top-start corner and
- * fades to the surface by 72% of an ellipse 140% wide and 180% tall (the
- * desktop's radial-gradient), with a hairline at [Theme.tintFill]. */
-fun Modifier.nowGradient(tint: Color, surface: Color, shape: Shape): Modifier = this
+/** The 'now' tint: [tint]'s hue at the theme's hero lightness, its chroma
+ * capped, so every course is equally quiet (design/tokens `hero`). */
+fun heroTint(tint: Color, palette: Palette): Color {
+    val lab = tint.convert(ColorSpaces.Oklab)
+    val chroma = hypot(lab.green, lab.blue)
+    val scale = if (chroma > palette.heroChroma) palette.heroChroma / chroma else 1f
+    return Color(palette.heroLightness, lab.green * scale, lab.blue * scale, 1f, ColorSpaces.Oklab)
+        .convert(ColorSpaces.Srgb)
+}
+
+/** The 'now' card (design/README.md) the hero card shares with desktop's
+ * focus row: [heroTint] fading slightly from top to bottom ([Palette.heroFade],
+ * mixed in Oklab like the desktop), with a hairline at [Theme.tintFill]. */
+fun Modifier.nowTint(tint: Color, palette: Palette, shape: Shape): Modifier = this
     .clip(shape)
-    .drawBehind {
-        drawRect(surface)
-        val rx = size.width * 1.4f
-        val ry = size.height * 1.8f
-        if (rx <= 0f || ry <= 0f) return@drawBehind
-        val start = if (layoutDirection == LayoutDirection.Rtl) size.width else 0f
-        // A circle squashed vertically draws the ellipse.
-        scale(scaleX = 1f, scaleY = ry / rx, pivot = Offset(start, 0f)) {
-            drawRect(
-                Brush.radialGradient(
-                    0f to tint.copy(alpha = Theme.tintHero), 0.72f to Color.Transparent,
-                    center = Offset(start, 0f), radius = rx,
-                ),
-                size = Size(size.width, size.height * rx / ry),
-            )
-        }
-    }
+    .background(
+        heroTint(tint, palette).let { top ->
+            Brush.verticalGradient(listOf(top, lerp(palette.surface, top, palette.heroFade)))
+        },
+    )
     .border(0.5.dp, tint.copy(alpha = Theme.tintFill), shape)
 
 @Composable

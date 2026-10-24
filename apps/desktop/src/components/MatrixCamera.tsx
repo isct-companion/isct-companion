@@ -80,7 +80,7 @@ export function MatrixCamera({
         <Stack gap="sm">
           <Text size="sm">
             {t(
-              "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.",
+              "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within ten seconds.",
             )}
           </Text>
           <CameraPreview ref={setVideo} className="matrixCameraPreview">

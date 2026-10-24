@@ -111,7 +111,7 @@ fn a_photo_and_live_frames_of_one_card_read_the_same_letters() {
     let live = consumer.unwrap();
     let report = driver.stop(&id).unwrap();
     assert!(report.keyframes >= 3);
-    // The seven-second budget is a release-build target measured by the
+    // The ten-second budget is a release-build target measured by the
     // replay tools; a loaded test run may reach it first. Whatever the
     // session confirmed must still be the photo's letter, cell by cell.
     let confirmed = live.cells.iter().filter(|c| c.stable).count();

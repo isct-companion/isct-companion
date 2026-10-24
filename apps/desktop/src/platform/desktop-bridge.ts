@@ -38,6 +38,11 @@ export const nativeOs = (): NativeOs | undefined =>
   typeof window === "undefined"
     ? undefined
     : window.__ISCT_COMPANION_NATIVE_OS__;
+/** The system material behind the window (Windows 11 Mica), when there is one. */
+export const windowMaterial = (): "mica" | undefined =>
+  typeof window === "undefined"
+    ? undefined
+    : window.__ISCT_COMPANION_WINDOW_MATERIAL__ || undefined;
 export type SchoolSite =
   | "science-portal"
   | "science-lms"
@@ -957,6 +962,8 @@ declare global {
     __ISCT_COMPANION_NATIVE_TARGET__?: NativeTarget;
     /** Set by the same bootstrap from the binary's compile-time OS. */
     __ISCT_COMPANION_NATIVE_OS__?: NativeOs;
+    /** Set by the same bootstrap: the material the native window draws. */
+    __ISCT_COMPANION_WINDOW_MATERIAL__?: "mica" | "";
   }
 }
 

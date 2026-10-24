@@ -5,11 +5,11 @@ Source: https://huggingface.co/hermitkk/alphabet-classifier at
 Upstream `outputs/exports/alphabet_model.onnx` SHA-256:
 `a0c968787561bea263851dcc23252672858d2b8748d2a92c710bcff7d5978688`.
 
-`alphabet-printed.onnx` is adapted on generated printed letters plus explicitly
-authorized, de-identified test-card glyphs from the 2026-10-20 video experiment.
-Earlier login-card crops were excluded. Promoted as the default at the user's
-request on 2026-10-21. SHA-256:
-`368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f`.
+`alphabet-printed.onnx` continues the 2026-10-21 default with generated printed
+letters plus explicitly authorized, de-identified glyphs of two test cards,
+cut by the production camera path. Promoted as the default at the user's
+request on 2026-10-24. SHA-256:
+`f9ca9cc5489dab804923bc3446c01e0b6fb6491ad9ddcd4b12731a23b4ce79c5`.
 
 MobileNetV2, 27 logits (A–Z then blank), dynamic batch, input N×1×96×96.
 Input is Rec.601 grayscale normalized to [-1, 1]. The camera retains the complete
@@ -36,13 +36,43 @@ The synthetic L/Z/I boundary replay (`scripts/ocr/matrix_letter_boundaries.py`)
 must also pass through production acquisition and voting before promotion:
 repeated high-confidence mistakes can otherwise appear as settled cells.
 
+## 2026-10-24 default
+
+Trained with `scripts/ocr/alphabet_finetune.py` from the 2026-10-21 default
+(`368780a5…`) on TSUBAME's free interactive queue, 12 epochs, epoch 9
+selected; all layers trained, half of each epoch drawn from production-
+preprocessed synthetic print (held-out font families), GPU augmentation 0.7.
+The card data came from `scripts/ocr/matrix_video.py build` over three local
+recordings of two test cards: only keyframes Core finds sharp, cells Core
+admits, indexing verified, labels from human-checked truth. The last 20% of
+each recording (after a two-second gap) selected the checkpoint. A third card
+recorded separately was never used for training or selection.
+
+| Third card, 1014 sharp admitted cells | Previous default | This model |
+| --- | ---: | ---: |
+| Correct | 954 (94.1%) | 1006 (99.2%) |
+| Confident errors (>= 0.8) | 18 | 0 |
+| Keyframes with all cells correct | 1 / 15 | 11 / 15 |
+
+Session replay of that recording through `MatrixCameraDriver` (blur
+rejection, ten-second limit) completed 6 of 6 overlapping windows correctly
+in 1.1-2.7 s with no wrong pass; the previous default completed none. On
+held-out synthetic Verdana, confident errors fell from 4 to 1. All Rust OCR
+tests (L/Z/I boundaries, Latin fixture, Q tail) pass, and 512 synthetic
+inputs give identical letters through Rust and Python (max confidence
+difference 5e-7). The model is more often confident on synthetic glyphs
+quarantined as unreadable (171 to 218 of 2600); Core's blur rejection keeps
+such frames from the model in the app. One short recording of one card is
+not an independent-card accuracy claim; physical check `OCR-CAMPUS-CARD`
+remains. Training data, truth, lineage and the candidate history stay local.
+
 For a local experimental build, `ISCT_MATRIX_ALPHABET_MODEL=/absolute/model.onnx`
 selects other weights at compile time. Camera datasets and their provenance
 stay local. The authorized video-adapted candidate is now the normal build's
 default; other camera-adapted experiments stay local. Runtime is the existing
 pinned ONNX Runtime; its license and notices are in `../paddle/`.
 
-The later 2026-10-20 video experiment produced the validated default model,
+The later 2026-10-20 video experiment produced the 2026-10-21 default model,
 SHA-256 `368780a5faa7b465e3c68eb6b946551aa5f707a3f68cdaf57e14b9c8bca6090f`.
 It used explicitly authorized test-card glyphs plus production-preprocessed
 synthetic replay. Earlier login-card crops were excluded. Video, truth, lineage,

@@ -131,6 +131,11 @@ pub struct MatrixCaptureGlyph {
     pub source_size: f64,
     pub centering: f64,
     pub glare: f64,
+    /// Edge acuity: after a 5-95 % contrast stretch of the 48 px interior,
+    /// the median over 4×4 blocks of each block's strongest gradient. Motion
+    /// and defocus both widen the strokes' edges and lower it; exposure and
+    /// print contrast do not.
+    pub acuity: f64,
 }
 pub struct MatrixCaptureFrame {
     pub quads: Vec<[[f64; 2]; 4]>,

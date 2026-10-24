@@ -5,7 +5,7 @@
 )]
 use super::*;
 const GRAY_PIXELS: usize = 96 * 96;
-const CAPTURE_LIMIT: Duration = Duration::from_secs(7);
+pub(super) const CAPTURE_LIMIT: Duration = Duration::from_secs(10);
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
 const CANDIDATE_TTL: Duration = Duration::from_millis(700);
 const AUDIT_INTERVAL: Duration = Duration::from_millis(500);
@@ -15,6 +15,11 @@ const MIN_SHARPNESS: f64 = 10.;
 const MIN_SOURCE_SIZE: f64 = 10.;
 const MIN_CENTERING: f64 = 0.5;
 const MAX_GLARE: f64 = 0.12;
+/// Median cell `acuity` below which a keyframe is too blurred to read. On
+/// three recordings of two test cards, frames below it showed smeared or
+/// washed-out letters; rejecting them kept 78% of the confident correct
+/// readings and 41% of the confident errors.
+const MIN_FRAME_ACUITY: f64 = 0.2;
 const TRACE_LIMIT: usize = 1024;
 /// Image capabilities report measurements; core decides admission and retention.
 pub struct MatrixCaptureGlyph {
@@ -24,6 +29,11 @@ pub struct MatrixCaptureGlyph {
     pub source_size: f64,
     pub centering: f64,
     pub glare: f64,
+    /// Edge acuity: after a 5-95 % contrast stretch of the 48 px interior,
+    /// the median over 4×4 blocks of each block's strongest gradient. Motion
+    /// and defocus both widen the strokes' edges and lower it; exposure and
+    /// print contrast do not.
+    pub acuity: f64,
 }
 pub struct MatrixCaptureFrame {
     /// Shell-assigned camera frame id, echoed in snapshots beside its bounds.
@@ -92,6 +102,8 @@ pub struct MatrixCameraDiagnostics {
     pub total_samples: usize,
     pub keyframes: usize,
     pub admission_rejections: usize,
+    /// Keyframes rejected whole as too blurred (`matrix_frame_sharp`).
+    pub blur_rejections: usize,
     pub glare_rejections: Vec<usize>,
     pub frames: Vec<MatrixFrameTrace>,
 }
@@ -138,6 +150,7 @@ struct Acquisition {
     verified: Vec<bool>,
     keyframes: usize,
     admission_rejections: usize,
+    blur_rejections: usize,
     glare_rejections: Vec<usize>,
 }
 impl Acquisition {
@@ -167,6 +180,7 @@ impl Acquisition {
             verified: vec![false; CELLS],
             keyframes: 0,
             admission_rejections: 0,
+            blur_rejections: 0,
             glare_rejections: vec![0; CELLS],
         }
     }
@@ -229,7 +243,7 @@ fn validate(
             g.gray.len() != GRAY_PIXELS
                 || !(0. ..=1.).contains(&g.centering)
                 || !(0. ..=1.).contains(&g.glare)
-                || [g.contrast, g.sharpness, g.source_size]
+                || [g.contrast, g.sharpness, g.source_size, g.acuity]
                     .iter()
                     .any(|v| !v.is_finite() || *v < 0.)
         })
@@ -239,6 +253,21 @@ fn validate(
         ));
     }
     Ok(())
+}
+/// Whether a keyframe is sharp enough to read at all: its median cell edge
+/// acuity. A blurred frame is rejected whole, never cell by cell, because
+/// motion and defocus affect the whole picture; live sessions, photos and
+/// dataset exports share the rule, so a model is trained and validated on
+/// exactly the frames the app reads.
+pub fn matrix_frame_sharp(glyphs: &[MatrixCaptureGlyph]) -> bool {
+    let mut acuity: Vec<f64> = glyphs.iter().map(|g| g.acuity).collect();
+    acuity.sort_by(f64::total_cmp);
+    !acuity.is_empty() && acuity[acuity.len() / 2] >= MIN_FRAME_ACUITY
+}
+/// Whether a cut cell may become a recognition candidate: enough texture and
+/// no clipped highlight. Live sessions, photos and dataset exports share it.
+pub fn matrix_cell_admissible(g: &MatrixCaptureGlyph) -> bool {
+    g.glare <= MAX_GLARE && usable(g)
 }
 fn usable(g: &MatrixCaptureGlyph) -> bool {
     g.contrast >= MIN_CONTRAST
@@ -261,7 +290,7 @@ pub fn read_matrix_photo(
     mut progress: impl FnMut(usize, usize) -> bool,
 ) -> Result<Vec<MatrixVote>, MatrixScanError> {
     validate(&cut.quads, &cut.glyphs)?;
-    if !admits(&cut.glyphs) {
+    if !admits(&cut.glyphs) || !matrix_frame_sharp(&cut.glyphs) {
         return Err(MatrixScanError::Unreadable(
             "The letters are too small or blurred. Take a closer, focused photo of the grid."
                 .into(),
@@ -271,7 +300,7 @@ pub fn read_matrix_photo(
         .glyphs
         .into_iter()
         .enumerate()
-        .filter(|(_, g)| g.glare <= MAX_GLARE && usable(g))
+        .filter(|(_, g)| matrix_cell_admissible(g))
         .collect();
     let mut evidence = vec![CellEvidence::default(); CELLS];
     // Progress counts settled cells out of 70; rejected cells settle at once.
@@ -361,6 +390,13 @@ impl MatrixCameraScanner {
         }
         if let Some(frame) = frame {
             s.sequence += 1;
+            // A blurred keyframe is dropped whole and does not use up the
+            // sampling interval: the next steady frame is requested at once.
+            if !matrix_frame_sharp(&frame.glyphs) {
+                s.blur_rejections += 1;
+                s.keyframe_request = None;
+                return Ok(s.snapshot(now));
+            }
             s.keyframes += 1;
             s.last_keyframe = Some(now);
             s.keyframe_request = None;
@@ -423,13 +459,14 @@ impl MatrixCameraScanner {
                 "Capture time moved backwards.".into(),
             ));
         }
-        if frame.bounds.is_some_and(|b| {
-            b.iter()
-                .any(|p| !(0. ..=1.).contains(&p.x) || !(0. ..=1.).contains(&p.y))
-        }) || !frame.analysis_ms.is_finite()
+        // An outline may reach past the frame edge while the card leaves it.
+        if frame
+            .bounds
+            .is_some_and(|b| b.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()))
+            || !frame.analysis_ms.is_finite()
         {
             return Err(MatrixScanError::InvalidFrame(
-                "Expected normalized bounds.".into(),
+                "Expected finite bounds.".into(),
             ));
         }
         s.last_observation = Some(now);
@@ -600,6 +637,7 @@ impl MatrixCameraScanner {
             total_samples: snapshot.total_samples,
             keyframes: s.keyframes,
             admission_rejections: s.admission_rejections,
+            blur_rejections: s.blur_rejections,
             glare_rejections: s.glare_rejections.clone(),
             frames: s.traces.clone(),
         })

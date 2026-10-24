@@ -69,8 +69,9 @@ fn normalize_glyph(gray: &GrayImage) -> Option<GrayImage> {
     } else {
         initial
     };
+    // (left, top, right, bottom, area, central area, pixels on the bottom row)
     let mut components = vec![
-        (96u32, 96u32, 0u32, 0u32, 0usize, 0usize);
+        (96u32, 96u32, 0u32, 0u32, 0usize, 0usize, 0usize);
         labels.as_raw().iter().copied().max().unwrap_or(0) as usize + 1
     ];
     for (x, y, label) in labels.enumerate_pixels() {
@@ -86,13 +87,23 @@ fn normalize_glyph(gray: &GrayImage) -> Option<GrayImage> {
         if (14..82).contains(&x) && (14..82).contains(&y) {
             component.5 += 1;
         }
+        if y == 95 {
+            component.6 += 1;
+        }
     }
     let (mut left, mut top, mut right, mut bottom) = (96, 96, 0, 0);
-    for (x0, y0, x1, y1, area, interior) in components.into_iter().skip(1) {
+    for (x0, y0, x1, y1, area, interior, bottom_contact) in components.into_iter().skip(1) {
         if area < 8 {
             continue;
         }
-        if x0 == 0 || y0 == 0 || x1 == 95 || y1 == 95 {
+        // A descender: central ink leaving the cell only through a narrow
+        // contact at the bottom. The Q tail of this typeface reaches the row
+        // line; on recorded cards 30% of sharp Q cells were rejected here, ten
+        // times any other letter. Q tails touch up to about 18 px, while a bar
+        // cut by the edge (E losing its lower bar would read F) touches wider,
+        // and any contact with another side stays a possible clipped letter.
+        let descender = y1 == 95 && x0 > 0 && y0 > 0 && x1 < 95 && bottom_contact <= 18;
+        if !descender && (x0 == 0 || y0 == 0 || x1 == 95 || y1 == 95) {
             // An edge joined to central ink may be a clipped letter. Removing
             // that component could manufacture another letter from the rest.
             if interior >= 8 {
@@ -271,6 +282,45 @@ pub fn capture_matrix_frame_configured(
     )
 }
 
+/// Edge acuity of a cell interior: contrast-stretched (5th-95th percentile)
+/// central-difference gradient magnitude, max-pooled over 4×4 blocks, then
+/// the median block. Pooling keeps the strokes' edges and ignores flat paper;
+/// the median needs edges across the glyph, not one sharp speck. A blurred
+/// edge spreads the same intensity step over more pixels, so the value falls
+/// with motion and defocus but not with exposure. Compared on recorded cards
+/// against the Laplacian energy (`sharpness`), Tenengrad and a structure
+/// tensor, this ranked keyframes by readable cells best (Spearman 0.91).
+pub(crate) fn edge_acuity(image: &GrayImage) -> f64 {
+    let (w, h) = (image.width() as usize, image.height() as usize);
+    if w < 10 || h < 10 {
+        return 0.;
+    }
+    let pixels: Vec<f64> = image.pixels().map(|p| p[0] as f64).collect();
+    let mut sorted = pixels.clone();
+    sorted.sort_by(f64::total_cmp);
+    let at = |q: f64| sorted[((sorted.len() - 1) as f64 * q).round() as usize];
+    // A cell without an ink step has no edge to measure; stretching its
+    // noise would read as a sharp edge.
+    let range = at(0.95) - at(0.05);
+    if range < 16. {
+        return 0.;
+    }
+    let (gw, gh) = (w - 2, h - 2);
+    let (bw, bh) = (gw / 4, gh / 4);
+    let mut blocks = [0f64; 16];
+    for y in 0..bh * 4 {
+        for x in 0..bw * 4 {
+            let (px, py) = (x + 1, y + 1);
+            let gx = (pixels[py * w + px + 1] - pixels[py * w + px - 1]) / 2.;
+            let gy = (pixels[(py + 1) * w + px] - pixels[(py - 1) * w + px]) / 2.;
+            let block = &mut blocks[(y / bh) * 4 + x / bw];
+            *block = block.max(gx.hypot(gy) / range);
+        }
+    }
+    blocks.sort_by(f64::total_cmp);
+    (blocks[7] + blocks[8]) / 2.
+}
+
 /// Cuts and measures the 70 cells of a tracked keyframe from its
 /// full-resolution luma plane; `body` is the grid the tracker fitted on
 /// that same frame (normalized, A1 top-left, clockwise).
@@ -379,6 +429,12 @@ fn capture_quads(
             let interior =
                 image::imageops::crop_imm(light.corrected.as_ref().unwrap_or(&gray), 9, 9, 78, 78)
                     .to_image();
+            let acuity = edge_acuity(&image::imageops::resize(
+                &interior,
+                48,
+                48,
+                FilterType::Triangle,
+            ));
             let measured = image::imageops::resize(&interior, 32, 32, FilterType::Triangle);
             let mean = measured.pixels().map(|p| p[0] as f64).sum::<f64>() / 1024.;
             let contrast = (measured
@@ -424,6 +480,7 @@ fn capture_quads(
                 source_size,
                 centering,
                 glare: light.glare_against(reference),
+                acuity,
             })
         })
         .collect::<Result<Vec<_>, MatrixOcrError>>()?;

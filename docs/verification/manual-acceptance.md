@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 97 checks must be re-run before the next release.**
+**10 of 99 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**87 checks have never been run or could not be run:**
+**89 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -119,6 +119,8 @@ an unverified area becomes an assumed-good one.
 - `GUIDE-FIRST-RUN` — never verified
 - `VISUAL-NOW-GRADIENT` — never verified
 - `DESKTOP-RADIX-APPEARANCE` — never verified
+- `NOW-TINT-APPEARANCE` — never verified
+- `DESKTOP-WINDOW-MATERIAL` — never verified
 
 ## Status
 
@@ -221,6 +223,8 @@ an unverified area becomes an assumed-good one.
 | `GUIDE-FIRST-RUN` | desktop | International student | —<br>not run | apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/ios/IsctCompanion/Design/Guide.swift |
 | `VISUAL-NOW-GRADIENT` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/course.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `DESKTOP-RADIX-APPEARANCE` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/settings/settings.css |
+| `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
+| `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 
 ## Personas
 
@@ -1176,7 +1180,7 @@ on an iPhone and a CI-built APK on an arm64 Android phone.
    card, introduce glare, then briefly hold it steady with labels visible.
    Observe per-cell recognition progress while the camera remains live.
    Recognition and acquisition must overlap. The camera stops after all
-   cells pass a fresh confirmation sweep, or seven seconds after starting
+   cells pass a fresh confirmation sweep, or ten seconds after starting
    the session, including time without a detected Matrix. Confirmed cells
    must reopen when a clear new observation contradicts them.
    On completion the dialog closes and the camera indicator turns off;
@@ -1203,13 +1207,18 @@ on an iPhone and a CI-built APK on an arm64 Android phone.
    leaves each cell; unobscured cells must retain their progress. Hold a
    bright reflection over the same letters until the deadline and check
    that erased strokes remain marked for review rather than accepted.
-   Include a white card background and modest hand movement.
+   Include a white card background and modest hand movement, then shake
+   the card for two seconds before holding it steady; the session must
+   still finish within ten seconds of starting.
    After closing each session, inspect core.keyframes,
-   core.admissionRejections and core.glareRejections in
-   matrix-scan/latest.json, then compare all accepted letters with the card.
-   - *Why:* Real camera exposure, sensor noise and specular reflections can differ
-     from synthetic lighting. Hardware is needed to check initial admission,
-     false glare on white paper and recovery as a reflection moves.
+   core.admissionRejections, core.blurRejections and core.glareRejections
+   in matrix-scan/latest.json (blurRejections must count the shaken
+   frames), then compare all accepted letters with the card.
+   - *Why:* Real camera exposure, sensor noise, motion blur and specular
+     reflections can differ from synthetic lighting and recordings.
+     Hardware is needed to check initial admission, that smeared frames are
+     dropped rather than read, false glare on white paper and recovery as a
+     reflection moves.
 4. Cancel and reopen the camera, then background the app during capture.
    Repeat and background it during processing: acquisition stops in the
    former case, but the latter may finish without reopening the camera.
@@ -5704,5 +5713,104 @@ cover actions and state, not rendered layout, colour or font metrics.
 - `apps/desktop/src/components/ui/ui.css`
 - `apps/desktop/src/styles.css`
 - `apps/desktop/src/pages/settings/settings.css`
+
+**Last recorded** never run
+
+### The 'now' card is a quiet course tint with a slight top-to-bottom fade on desktop, iPhone and Android (`NOW-TINT-APPEARANCE`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The same workspace on desktop, iPhone and Android, during a class (or
+with tonight's deadline showing), in light and then dark appearance.
+
+**Steps**
+
+1. Open Today on desktop and look at the current or next class row;
+   open Today on the phones and look at the hero card.
+   - *Why:* The tint comes from design/tokens `hero` in OKLCH and each shell
+     converts it itself; only the rendered colour shows whether a muted
+     course still reads as its own hue rather than grey.
+2. Compare the three for strength and hue, then switch the system to
+   dark appearance and compare again.
+   - *Why:* The three renderers convert colour differently, and dark mode has its
+     own lightness; a mismatch or a murky dark card only shows on the real
+     screens.
+
+**Where to look**
+
+Desktop Today focus row; the hero card on iOS and Android.
+
+**Expected**
+
+The whole card is a pale wash of the course's own hue that fades a little
+toward the bottom, the same on the left and right, with a thin outline in
+the tint; the same strength on all three; in dark
+mode a slightly lighter tint of the hue, not a murky patch.
+
+**Why this is manual**
+
+A colour judgement at a glance on three native renderers; the token values
+are shared, but each platform's colour conversion cannot be asserted
+headlessly, and iOS cannot be built on the Windows host.
+
+**Covers**
+
+- `design/tokens/color.light.json`
+- `design/tokens/color.dark.json`
+- `apps/desktop/src/styles.css`
+- `apps/ios/IsctCompanion/Design/Polish.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt`
+
+**Last recorded** never run
+
+### Windows 11 draws Mica behind the sidebar and window background, never the desktop (`DESKTOP-WINDOW-MATERIAL`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app on Windows 11 and, separately, on Windows 10, with the
+appearance setting on System, then Light and Dark against the opposite
+system theme.
+
+**Steps**
+
+1. Open Today and look at the sidebar and the space around the cards;
+   move the window over a colourful wallpaper.
+   - *Why:* Mica is applied by the native window (lib.rs window_material) behind
+     a transparent page; only the screen shows whether the material, and
+     not a white page or the desktop itself, fills those areas.
+2. Switch the app's appearance to the opposite of the system theme.
+   - *Why:* The material follows the window theme, which the page sets from the
+     appearance setting; a mismatch shows light Mica behind dark content.
+3. Repeat on Windows 10.
+   - *Why:* Windows 10 has no Mica; the window must stay opaque there rather than
+     turn transparent and show the desktop through.
+
+**Where to look**
+
+The native window's sidebar, background and title bar.
+
+**Expected**
+
+On Windows 11 the sidebar and background show a faint wallpaper-tinted
+material in the app's theme, cards stay opaque, the title bar matches;
+on Windows 10 the window looks as before, fully opaque.
+
+**Why this is manual**
+
+The system backdrop is composited by DWM outside the webview; neither a
+headless DOM nor a page screenshot contains it.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src/app/useAppearance.ts`
 
 **Last recorded** never run
