@@ -207,6 +207,17 @@ jobs:
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/IsctCompanion.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/ipa"
           mv "$RUNNER_TEMP"/ipa/*.ipa "$RUNNER_TEMP/ipa/IsctCompanion_${VERSION}_${BUILD_NUMBER}.ipa"
+          # Validate the actual exported bundles, including both extensions.
+          python3 - <<'PY'
+          import glob, os, plistlib, zipfile
+          with zipfile.ZipFile(glob.glob(os.environ['RUNNER_TEMP'] + '/ipa/*.ipa')[0]) as ipa:
+              for bundle in ('', 'PlugIns/IsctShare.appex/', 'PlugIns/IsctOpen.appex/'):
+                  path = 'Payload/IsctCompanion.app/' + bundle + 'PrivacyInfo.xcprivacy'
+                  manifest = plistlib.loads(ipa.read(path))
+                  if manifest.get('NSPrivacyTracking') is not False:
+                      raise ValueError('Missing no-tracking declaration in ' + path)
+                  print('Validated ' + path)
+          PY
       - uses: actions/upload-artifact@v7
         if: env.UPLOAD == 'true'
         with:
