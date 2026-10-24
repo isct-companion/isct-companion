@@ -245,6 +245,7 @@ jobs:
       BUILD_REPO: ${{ github.repository }}
       SOURCE_SHA: ${{ github.sha }}
       REPLACE_EXISTING: ${{ inputs.replace_existing == true }}
+      UPDATER_TAG: desktop-updates
     steps:
       - name: Check cross-repository credentials
         run: |
@@ -274,7 +275,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir public-files release-assets
+          mkdir public-files release-assets updater-assets
           cp installers/desktop-aarch64-apple-darwin/{README.md,LICENSE,NOTICE.md,NOTICE.ja.md} public-files/
           version=$(cat installers/desktop-aarch64-apple-darwin/VERSION)
           mac_status=$(cat installers/desktop-aarch64-apple-darwin/MACOS_SIGNING_STATUS 2>/dev/null || echo unsigned)
@@ -296,7 +297,7 @@ jobs:
             fi
           done
           # Only publish a manifest when every desktop target has a signed update.
-          signed_count=$(find installers -name '*.sig' | wc -l)
+          signed_count=$(find installers -name '*.sig' | wc -l | tr -d '[:space:]')
           if [[ "$signed_count" != 0 ]]; then
             test "$signed_count" = 3 || { echo 'Incomplete signed update set'; exit 1; }
             python3 - <<'PYUPDATE'
@@ -308,9 +309,14 @@ jobs:
               bundle = signature.with_suffix('')
               version = (directory / 'VERSION').read_text().strip()
               import shutil
-              for source in (signature, bundle):
-                  shutil.copy2(source, pathlib.Path('release-assets') / source.name)
-              platforms[platform] = {'signature':signature.read_text().strip(), 'url':f'https://github.com/{os.environ["GH_REPO"]}/releases/download/v{version}/{bundle.name}'}
+              # Windows updates use the installer already on the version release.
+              # Mac archives live on a separate machine-only release so people
+              # looking for an installer only see DMG/EXE/APK files.
+              tag = f'v{version}'
+              if target.endswith('apple-darwin'):
+                  shutil.copy2(bundle, pathlib.Path('updater-assets') / bundle.name)
+                  tag = os.environ['UPDATER_TAG']
+              platforms[platform] = {'signature':signature.read_text().strip(), 'url':f'https://github.com/{os.environ["GH_REPO"]}/releases/download/{tag}/{bundle.name}'}
           manifest = {'version':version, 'notes':'IsctCompanion desktop update', 'pub_date':datetime.datetime.now(datetime.timezone.utc).isoformat(), 'platforms':platforms}
           pathlib.Path('release-assets/latest.json').write_text(json.dumps(manifest, indent=2) + '\n')
           PYUPDATE
@@ -318,6 +324,12 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             test "$GITHUB_REF" = "refs/tags/v$version" || { echo 'Release tag must match artifact version'; exit 1; }
           fi
+          for asset in release-assets/*; do
+            case "$(basename "$asset")" in
+              "IsctCompanion_${version}_aarch64-apple-darwin.dmg"|"IsctCompanion_${version}_x86_64-apple-darwin.dmg"|"IsctCompanion_${version}_x86_64-pc-windows-msvc.exe"|latest.json) ;;
+              *) echo "Unexpected public release asset: $asset"; exit 1 ;;
+            esac
+          done
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
       - name: Verify release destination and source tag
         shell: bash
@@ -330,6 +342,22 @@ jobs:
               exit 1
             fi
           fi
+      - name: Publish machine-only Mac update packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(updater-assets/*.app.tar.gz)
+          if [[ "${#packages[@]}" != 0 ]]; then
+            if ! gh release view "$UPDATER_TAG" > /dev/null 2>&1; then
+              # This persistent storage release is separate from version tags.
+              gh release create "$UPDATER_TAG" --target main \
+                --title 'Automatic desktop update packages' \
+                --notes 'For the in-app updater only. To install IsctCompanion, use the DMG, EXE or APK from the latest version release.' \
+                --prerelease --latest=false
+            fi
+            gh release upload "$UPDATER_TAG" "${packages[@]}" --clobber
+          fi
       - name: Upload complete release as a draft
         shell: bash
         run: |
@@ -339,6 +367,20 @@ jobs:
           if [[ -f "$notes" ]]; then
             cat "$notes" >> release-notes.md
           fi
+          cat >> release-notes.md <<DOWNLOADS
+
+          ## Downloads
+
+          | Device | Installer |
+          | --- | --- |
+          | Mac — Apple Silicon | [DMG](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_aarch64-apple-darwin.dmg) |
+          | Mac — Intel | [DMG](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_x86_64-apple-darwin.dmg) |
+          | Windows — x64 | [EXE](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_x86_64-pc-windows-msvc.exe) |
+          | Android | [APK](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_android.apk) |
+
+          Use the installers above. The latest.json file is for automatic updates.
+          GitHub's automatically generated Source code archives are for developers.
+          DOWNLOADS
           printf '\nThe Android APK is attached by the Android release workflow when its build finishes. iPhone and iPad builds are distributed through TestFlight.\n\n' >> release-notes.md
           echo 'Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.' >> release-notes.md
           echo 'Read the license documents bundled with the app before installing. Third-party notices are included in the app.' >> release-notes.md
