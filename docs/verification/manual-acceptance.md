@@ -5817,7 +5817,7 @@ headless DOM nor a page screenshot contains it.
 
 **Last recorded** never run
 
-### Desktop controls take the arrow cursor and the frame's text cannot be selected (`DESKTOP-NATIVE-CHROME`)
+### Desktop controls take the arrow cursor, show hover and pressed states, and the frame's text cannot be selected (`DESKTOP-NATIVE-CHROME`)
 
 **Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
 
@@ -5837,6 +5837,14 @@ The desktop app with a workspace on Today, Timetable and Settings.
    across a course's details text and inside a text field.
    - *Why:* Selecting the frame's labels reads as a web page; content and fields
      must stay selectable so text can still be copied.
+3. In light and then dark appearance, hover and hold the mouse button
+   on a sidebar item, a toolbar button, a tab, a course block, Today's
+   current or next class and a settings item, then drag off before
+   releasing.
+   - *Why:* Pressing draws one shared ink layer (ui.css) over each control's own
+     hover colour; a control whose own shadow outranks it, or a dark
+     theme where the layer darkens instead of lightens, only shows on
+     screen. Dragging off checks that holding never triggers the action.
 
 **Where to look**
 
@@ -5844,13 +5852,16 @@ The cursor shape and the selection highlight in the native window.
 
 **Expected**
 
-Arrow over controls, hand over the link; the frame and controls never
+Arrow over controls, hand over the link; every control lightens or tints
+on hover and goes one step deeper while held (lighter in dark mode), with
+nothing firing when released off it; the frame and controls never
 highlight, while content text and fields select normally.
 
 **Why this is manual**
 
-Cursor shape and drag selection are rendered by the native webview; jsdom
-has no pointer or selection rendering to assert on.
+Cursor shape, hover and pressed rendering and drag selection come from
+the native webview; jsdom has no pointer, :active or selection rendering
+to assert on.
 
 **Covers**
 
