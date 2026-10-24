@@ -1,4 +1,4 @@
-import { Button, Paper } from "@mantine/core";
+import { Button, Paper } from "../../components/ui";
 import type { ReactNode } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
 import { examWhen } from "../../components/exams/ExamCards";

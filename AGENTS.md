@@ -6,7 +6,7 @@ Rules for any coding agent (Codex, Claude Code, …) working in this repository.
 
 If a dependency already in the project, or a well-maintained library, solves
 the problem, use it instead of hand-rolling an equivalent. Examples: routing is
-react-router, notifications are `@mantine/notifications`, page keep-alive is
+react-router, notifications are Radix Toast, page keep-alive is
 React's `<Activity>`, UI text goes through i18next. Write custom code only when
 no suitable library exists, and say why in a short comment.
 

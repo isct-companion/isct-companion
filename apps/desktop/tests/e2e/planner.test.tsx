@@ -497,9 +497,10 @@ describe("the course planner", () => {
       );
     });
     await settled(() =>
-      expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject(
-        { input: "物理", keys: ["graph"] },
-      ),
+      expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject({
+        input: "物理",
+        keys: ["graph"],
+      }),
     );
     expect(searches()).toBe(before + 1);
     await typeInto(input, "物理");
@@ -530,7 +531,9 @@ describe("the course planner", () => {
     ).toHaveLength(0);
     await act(async () => searchInput.focus());
     // The whole stored result is counted at once; rows mount in batches.
-    await settled(() => expect(app!.host.textContent).toContain("1000 courses"));
+    await settled(() =>
+      expect(app!.host.textContent).toContain("1000 courses"),
+    );
     while (buttonByText(app.host, "Load more courses")) {
       await click(buttonByText(app.host, "Load more courses")!);
       expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
@@ -719,25 +722,27 @@ describe("the course planner", () => {
         revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
-        handle: finderHandler({ courses: [eligible] }, (command, _args, core) =>
-          command === "mutate_workspace"
-            ? gate.then(() => {
-                const rows = [eligibleCourse];
-                core.publish(
-                  workspaceFixture({
-                    courses: rows,
-                    planItems: rows.map((course) => planItemFor(course)),
-                  }),
-                  `${core.revision}+placed`,
-                );
-                return {
-                  revision: core.revision,
-                  contentRevision: core.revision,
-                  workspace: structuredClone(core.workspace),
-                  schoolRecords: structuredClone(core.schoolRecords),
-                };
-              })
-            : undefined,
+        handle: finderHandler(
+          { courses: [eligible] },
+          (command, _args, core) =>
+            command === "mutate_workspace"
+              ? gate.then(() => {
+                  const rows = [eligibleCourse];
+                  core.publish(
+                    workspaceFixture({
+                      courses: rows,
+                      planItems: rows.map((course) => planItemFor(course)),
+                    }),
+                    `${core.revision}+placed`,
+                  );
+                  return {
+                    revision: core.revision,
+                    contentRevision: core.revision,
+                    workspace: structuredClone(core.workspace),
+                    schoolRecords: structuredClone(core.schoolRecords),
+                  };
+                })
+              : undefined,
         ),
       },
       { route: paths.timetable() },
@@ -1299,7 +1304,9 @@ describe("the course editor", () => {
     const period = document.querySelector<HTMLInputElement>(
       '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toContain("1-4 · 08:50–12:25");
+    expect(period.textContent?.replace(/⌄$/, "")).toContain(
+      "1-4 · 08:50–12:25",
+    );
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.title).toBe("Renamed course");
@@ -1319,7 +1326,7 @@ describe("the course editor", () => {
     const period = document.querySelector<HTMLInputElement>(
       '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toBe("Custom time");
+    expect(period.textContent?.replace(/⌄$/, "")).toBe("Custom time");
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.meetings[0]).toMatchObject({
@@ -1342,7 +1349,7 @@ describe("the course editor", () => {
     const period = document.querySelector<HTMLInputElement>(
       '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toContain("1-2");
+    expect(period.textContent?.replace(/⌄$/, "")).toContain("1-2");
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.meetings[0].periods).toEqual([1, 2]);
@@ -1451,7 +1458,9 @@ describe("the year and quarter picker", () => {
     );
     // Pin only this gesture's clock so a busy native build cannot turn the
     // assertion about the first click into an assertion after the quiet window.
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "performance", "Date"],
+    });
     try {
       await act(async () => {
         host

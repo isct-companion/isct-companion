@@ -1,7 +1,7 @@
 import { COURSE_PALETTE } from "../../generated/persistence";
 import { tokyoDate } from "../../lib/civil-date";
 import { t } from "../../i18n";
-import { UiButton, UiInput, UiSelect } from "../../components/mantine";
+import { UiButton, UiInput, UiSelect } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { useState, type FormEvent } from "react";
@@ -26,7 +26,7 @@ import {
   Modal,
   SegmentedControl,
   Text,
-} from "@mantine/core";
+} from "../../components/ui";
 
 const palette = COURSE_PALETTE;
 
@@ -297,10 +297,10 @@ export function CourseEditor({
               className="wide"
               checked={values.onTimetable}
               label={t("Show on the timetable")}
-              onChange={(event) =>
+              onCheckedChange={(checked) =>
                 setValues({
                   ...values,
-                  onTimetable: event.currentTarget.checked,
+                  onTimetable: checked === true,
                 })
               }
             />
@@ -608,8 +608,8 @@ export function EventEditor({
             className="wide"
             checked={draft.blocking}
             label={t("Count as a conflict when it overlaps a class")}
-            onChange={(event) =>
-              setDraft({ ...draft, blocking: event.currentTarget.checked })
+            onCheckedChange={(checked) =>
+              setDraft({ ...draft, blocking: checked === true })
             }
           />
           {error && (

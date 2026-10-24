@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 96 checks must be re-run before the next release.**
+**10 of 97 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**86 checks have never been run or could not be run:**
+**87 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -118,6 +118,7 @@ an unverified area becomes an assumed-good one.
 - `MOBILE-BACKGROUND-SYNC` — never verified
 - `GUIDE-FIRST-RUN` — never verified
 - `VISUAL-NOW-GRADIENT` — never verified
+- `DESKTOP-RADIX-APPEARANCE` — never verified
 
 ## Status
 
@@ -219,6 +220,7 @@ an unverified area becomes an assumed-good one.
 | `MOBILE-BACKGROUND-SYNC` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt |
 | `GUIDE-FIRST-RUN` | desktop | International student | —<br>not run | apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/ios/IsctCompanion/Design/Guide.swift |
 | `VISUAL-NOW-GRADIENT` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/course.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift |
+| `DESKTOP-RADIX-APPEARANCE` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/settings/settings.css |
 
 ## Personas
 
@@ -5653,5 +5655,54 @@ one token generated for both shells.
 - `design/tokens/course.json`
 - `apps/desktop/src/styles.css`
 - `apps/ios/IsctCompanion/Design/Polish.swift`
+
+**Last recorded** never run
+
+### Radix migration preserves desktop controls and overlay appearance (`DESKTOP-RADIX-APPEARANCE`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Before and after desktop builds with the same workspace, window size,
+language, density and text-size settings.
+
+**Steps**
+
+1. Click every main sidebar destination, return to Settings / Appearance,
+   and toggle a switch on and off. Open Web and inspect the embedded pane.
+   - *Why:* Shell stacking contexts can intercept sidebar clicks; generic button
+     rules can collapse switch tracks, and removing AppShell can lose the
+     viewport height needed by native embedded webviews.
+2. Compare Today, Timetable and Settings in light and dark appearance;
+   open the course editor, a select, the export menu and a confirmation.
+   - *Why:* Removing framework CSS can change control heights, wrapping, borders,
+     surface colours and overlay spacing even when behaviour tests pass.
+3. Snap the window narrower, enlarge the text, and show a notification.
+   Inspect the dialog body and dropdowns near the window edges.
+   - *Why:* Native webview font metrics and clipping determine whether content
+     remains readable; a headless DOM cannot reveal visual regressions.
+
+**Where to look**
+
+The native desktop window, shared form controls, dialogs, menus and toasts.
+
+**Expected**
+
+Existing spacing, typography and colours remain consistent; controls,
+overlays and notifications are legible and neither clipped nor overlapping.
+
+**Why this is manual**
+
+Visual comparison at a glance in the native webview; automated suites
+cover actions and state, not rendered layout, colour or font metrics.
+
+**Covers**
+
+- `apps/desktop/src/components/ui/ui.css`
+- `apps/desktop/src/styles.css`
+- `apps/desktop/src/pages/settings/settings.css`
 
 **Last recorded** never run

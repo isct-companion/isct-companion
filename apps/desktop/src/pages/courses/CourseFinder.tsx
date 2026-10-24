@@ -1,8 +1,8 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Paper } from "@mantine/core";
+import { Paper } from "../../components/ui";
 import { useEffect, useRef, useState } from "react";
 
-import { UiButton } from "../../components/mantine";
+import { UiButton } from "../../components/ui";
 import {
   DAYS,
   LOCAL_TYPES,

@@ -1,4 +1,4 @@
-import { Button, Paper, Popover, Text } from "@mantine/core";
+import { Button, Paper, Popover, Text } from "../../components/ui";
 import { useState } from "react";
 import { SyncRing, progressLabel } from "../../components/PullRing";
 import type { PageProgress } from "../../platform/sync";

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useWindowEvent } from "@mantine/hooks";
+import { useEventListener } from "usehooks-ts";
 import { t } from "../../i18n";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
-import { UiInput } from "../../components/mantine";
+import { UiInput } from "../../components/ui";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import type { CourseFolder } from "./files";
 import type { AssignmentAttachment } from "../../platform/core-query";
@@ -60,7 +60,7 @@ export function AssignmentWorkspaceFooter({
     void load().catch(() => setView({ workspace: null, handIn: "openLms" }));
   }, [load]);
   // Folders are also edited in Finder and VS Code; look again on return.
-  useWindowEvent("focus", () => void load().catch(() => undefined));
+  useEventListener("focus", () => void load().catch(() => undefined));
   useEffect(() => setZipName(workspace?.zipName ?? ""), [workspace?.zipName]);
 
   const update = (next: AssignmentWorkspace) => {

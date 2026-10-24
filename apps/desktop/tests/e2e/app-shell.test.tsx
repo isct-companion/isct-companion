@@ -35,6 +35,7 @@ import {
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
 import { notify } from "@app/app/notify";
+import { notifications } from "@app/app/notifications";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
 import type { FinderAction, FinderPage } from "@app/generated/persistence";
@@ -414,14 +415,14 @@ describe("shell navigation", () => {
     );
     pane.scrollTop = 164;
     const language = await required(
-      () => host.querySelector<HTMLInputElement>('input[value="zh"]'),
+      () => host.querySelector<HTMLInputElement>('button[data-value="zh"]'),
       "the Chinese language choice",
     );
 
     await app.go(paths.home());
     await app.go(paths.settings("appearance"));
 
-    expect(host.querySelector('input[value="zh"]')).toBe(language);
+    expect(host.querySelector('button[data-value="zh"]')).toBe(language);
     expect(host.querySelector(".settingsPane details")).toBe(disclosure);
     expect(disclosure.open).toBe(true);
     expect(pane.scrollTop).toBe(164);
@@ -472,7 +473,7 @@ describe("shell navigation", () => {
     expect(host.querySelector(".lectureList")).toBe(list);
     expect(list.scrollTop).toBe(128);
     expect(host.querySelector('.lectureTerm [role="combobox"]')).toBe(term);
-    expect(term.value).toBe("2026 2Q");
+    expect(term.textContent).toContain("2026 2Q");
   }, 20_000);
 
   it("hides an open menu with its page and brings it back still working", async () => {
@@ -492,10 +493,14 @@ describe("shell navigation", () => {
     const shortcut = (key: string) =>
       act(async () => {
         window.dispatchEvent(
-          new KeyboardEvent("keydown", { key, metaKey: true, cancelable: true }),
+          new KeyboardEvent("keydown", {
+            key,
+            metaKey: true,
+            cancelable: true,
+          }),
         );
       });
-    // Mantine keeps a closing dropdown hidden itself, so only ancestors say
+    // Radix unmounts a closed dropdown, so only ancestors say
     // whether the page took it away.
     const hiddenWithPage = (node: Element) => {
       for (let el = node.parentElement; el; el = el.parentElement)
@@ -945,7 +950,7 @@ describe("store failures", () => {
     const toggle = await required(
       () =>
         host.querySelector<HTMLInputElement>(
-          '[data-setting="bilingual"] input',
+          '[data-setting="bilingual"] [role="switch"]',
         ),
       "the bilingual toggle",
     );
@@ -991,6 +996,41 @@ describe("store failures", () => {
         before,
       ),
     );
+    // A migration regression would overwrite the current notice or render two
+    // at once. Queued durable notices must remain available after it closes.
+    await act(async () =>
+      notifications.show({
+        id: "queued-update",
+        message: "Update ready",
+        autoClose: false,
+        withCloseButton: true,
+      }),
+    );
+    expect(document.querySelectorAll(".uiToast")).toHaveLength(1);
+    expect(document.querySelector(".uiToast")?.textContent).toContain(
+      "Disk is full",
+    );
+    await act(async () => notifications.hide("workspace-notice"));
+    await until(() =>
+      expect(document.querySelector(".uiToast")?.textContent).toContain(
+        "Update ready",
+      ),
+    );
+    await act(async () =>
+      notifications.show({
+        id: "queued-update",
+        message: "Update installed",
+        autoClose: false,
+        withCloseButton: true,
+      }),
+    );
+    await until(() =>
+      expect(document.querySelector(".uiToast")?.textContent).toContain(
+        "Update installed",
+      ),
+    );
+    await click(document.querySelector('.uiToast button[aria-label="Close"]'));
+    await until(() => expect(document.querySelector(".uiToast")).toBeNull());
   }, 20_000);
 });
 
@@ -1013,13 +1053,15 @@ describe("Chinese UI", () => {
     expect(document.body.textContent).toContain("中文");
     expect(
       host
-        .querySelector('[data-setting="content-language"] input:checked')
-        ?.getAttribute("value"),
+        .querySelector(
+          '[data-setting="content-language"] button[data-state="on"]',
+        )
+        ?.getAttribute("data-value"),
     ).toBe("en");
     expect(
       host
-        .querySelector('[data-setting="language"] input:checked')
-        ?.getAttribute("value"),
+        .querySelector('[data-setting="language"] button[data-state="on"]')
+        ?.getAttribute("data-value"),
     ).toBe("zh");
     expect(core.workspace.settings.contentLanguage).toBe("en");
   }, 20_000);
@@ -1619,7 +1661,7 @@ describe("First school connection", () => {
     });
     // The school-content language is offered beside the UI language.
     expect(sheet.textContent).toContain("Course and syllabus language");
-    const japanese = [...sheet.querySelectorAll("label")].find(
+    const japanese = [...sheet.querySelectorAll("button")].find(
       (label) => label.textContent === "日本語",
     );
     await click(japanese);

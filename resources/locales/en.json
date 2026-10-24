@@ -1,4 +1,7 @@
 {
+  "Confirm": "Confirm",
+  "Previous page": "Previous page",
+  "Next page": "Next page",
   "settings.reset.group": "Reset",
   "settings.reset.caches.title": "Clear school caches and resync",
   "settings.reset.caches.hint": "Use this when school data looks wrong or after changing school accounts.",

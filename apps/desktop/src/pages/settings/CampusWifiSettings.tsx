@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Progress } from "@mantine/core";
+import { Progress } from "../../components/ui";
 import { t } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import {
@@ -8,7 +8,7 @@ import {
   type CampusWifiStatus,
   type CampusWifiStep,
 } from "../../platform/desktop-bridge";
-import { UiButton } from "../../components/mantine";
+import { UiButton } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
 import { errorText } from "../../app/shared";

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pagination } from "@mantine/core";
+import { Pagination } from "../../components/ui";
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { errorText } from "../../app/shared";
@@ -11,7 +11,7 @@ import type {
   CloudSyncState,
   CloudSyncVersion,
 } from "../../platform/desktop-bridge";
-import { UiButton, UiInput } from "../../components/mantine";
+import { UiButton, UiInput } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import {
   Row,

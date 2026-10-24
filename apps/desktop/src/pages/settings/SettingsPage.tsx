@@ -13,7 +13,7 @@ import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
 import { performAction } from "../../platform/actions";
 import { resolveCapabilities } from "../../platform/capabilities";
 import { workspaceActions } from "../../store/workspace";
-import { UiButton, UiInput } from "../../components/mantine";
+import { UiButton, UiInput } from "../../components/ui";
 import { SettingsHeader } from "../../components/forms";
 import { AcademicCalendarSettings } from "./AcademicCalendarSettings";
 import { AboutSettings } from "./AboutSettings";

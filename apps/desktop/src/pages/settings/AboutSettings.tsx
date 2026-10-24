@@ -4,7 +4,7 @@ import {
   SettingsHeader,
   Toggle,
 } from "../../components/forms";
-import { UiButton } from "../../components/mantine";
+import { UiButton } from "../../components/ui";
 import { useResetGuide } from "../../components/guide";
 import { desktopBridge } from "../../app/native";
 import { lastInstallText, useAppUpdate } from "../../app/useDesktopUpdates";

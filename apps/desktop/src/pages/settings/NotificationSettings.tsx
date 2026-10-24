@@ -1,4 +1,4 @@
-import { MultiSelect } from "@mantine/core";
+import { MultiSelect } from "../../components/ui";
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../app/native";
@@ -9,7 +9,7 @@ import {
   ASSIGNMENT_LEAD_CHOICES,
   DEFAULT_ASSIGNMENT_LEADS,
 } from "../../platform/reminders";
-import { UiButton, UiSelect } from "../../components/mantine";
+import { UiButton, UiSelect } from "../../components/ui";
 import {
   Row,
   SettingsGroup,

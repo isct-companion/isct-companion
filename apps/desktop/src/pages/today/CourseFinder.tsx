@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { UiInput } from "../../components/mantine";
+import { UiInput } from "../../components/ui";
 import {
   contentLanguage,
   pickLocalized,

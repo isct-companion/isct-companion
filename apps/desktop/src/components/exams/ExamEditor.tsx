@@ -1,4 +1,4 @@
-import { Button, Checkbox, Select, TextInput } from "@mantine/core";
+import { Button, Checkbox, Select, TextInput } from "../ui";
 import { useState } from "react";
 import type { ExamAssociation, ExamView } from "../../generated/persistence";
 import type { Course } from "../../lib/model";

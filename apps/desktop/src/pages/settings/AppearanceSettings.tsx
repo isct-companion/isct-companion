@@ -1,6 +1,6 @@
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
-import { UiInput } from "../../components/mantine";
+import { UiInput } from "../../components/ui";
 import {
   Choice,
   MoreOptions,

@@ -9,9 +9,9 @@ import {
   Stack,
   Text,
   TextInput,
-} from "@mantine/core";
+} from "./ui";
 import { t } from "../i18n";
-import { useTimeout } from "@mantine/hooks";
+import { useTimeout } from "usehooks-ts";
 import { desktopBridge } from "../app/native";
 import {
   importOtp,
@@ -90,7 +90,7 @@ export function OtpSetupInput({
   openSchoolSettings: (url: string, setupOtp?: boolean) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const copiedTimeout = useTimeout(() => setCopied(false), 2000);
+  useTimeout(() => setCopied(false), copied ? 2000 : null);
   const copy = async () => {
     setError("");
     try {
@@ -100,7 +100,6 @@ export function OtpSetupInput({
       )
         throw new Error(t("Copy failed"));
       setCopied(true);
-      copiedTimeout.start();
     } catch (reason) {
       setError(t(reason instanceof Error ? reason.message : String(reason)));
     }

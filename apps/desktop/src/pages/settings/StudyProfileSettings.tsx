@@ -9,7 +9,7 @@ import {
 } from "../../lib/model";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "../../lib/departments";
 import { tokyoDate } from "../../lib/civil-date";
-import { UiButton, UiSelect } from "../../components/mantine";
+import { UiButton, UiSelect } from "../../components/ui";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
 import {
   useScheduleQuery,

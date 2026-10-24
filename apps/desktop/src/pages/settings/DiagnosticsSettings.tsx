@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Switch } from "@mantine/core";
+import { Switch } from "../../components/ui";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { t, intlLocale } from "../../i18n";
 import { formatTimestamp, tokyoDate } from "../../lib/civil-date";
@@ -8,7 +8,7 @@ import { desktopBridge, saveExportFile } from "../../app/native";
 import { errorText } from "../../app/shared";
 import type { ApplicationLog } from "../../platform/desktop-bridge";
 import { SettingsHeader } from "../../components/forms";
-import { UiButton } from "../../components/mantine";
+import { UiButton } from "../../components/ui";
 
 const LOG_LIMIT = 2000;
 
@@ -110,7 +110,7 @@ export function DiagnosticsSettings({
           <Switch
             label={t("Follow latest")}
             checked={follow}
-            onChange={(event) => setFollow(event.currentTarget.checked)}
+            onCheckedChange={setFollow}
           />
           {canExport && (
             <>

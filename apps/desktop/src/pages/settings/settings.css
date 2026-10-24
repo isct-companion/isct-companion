@@ -127,7 +127,7 @@
 .settingsPane .row {
   grid-template-columns: minmax(0, 1fr) auto;
 }
-.settingsPane .row > :is(.mantine-Input-wrapper, .uiSelect) {
+.settingsPane .row > :is(.uiInputWrapper, .uiSelect) {
   width: clamp(180px, 40cqi, 280px);
 }
 .studyProfileActions {
@@ -331,7 +331,7 @@ button.calendarDay.open {
     gap: 2px;
     overflow: visible;
   }
-  .matrixGrid .mantine-Input-wrapper {
+  .matrixGrid .uiInputWrapper {
     min-width: 0;
   }
   .matrixGrid input {
@@ -349,7 +349,7 @@ button.calendarDay.open {
   .settingsPane .row {
     grid-template-columns: minmax(0, 1fr);
   }
-  .settingsPane .row > :is(.mantine-Input-wrapper, .uiSelect) {
+  .settingsPane .row > :is(.uiInputWrapper, .uiSelect) {
     width: 100%;
     max-width: 100%;
   }

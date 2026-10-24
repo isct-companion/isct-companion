@@ -1,5 +1,5 @@
-import { Button, Group, Modal, Popover, Stack, Text } from "@mantine/core";
-import { useLocalStorage } from "@mantine/hooks";
+import { Button, Group, Modal, Popover, Stack, Text } from "./ui";
+import { useLocalStorage } from "usehooks-ts";
 import { t } from "../i18n";
 import type { Workspace } from "../lib/model";
 import { Choice } from "./forms";
@@ -7,7 +7,7 @@ import "./guide.css";
 
 /**
  * First-run guidance: one welcome sheet, then one-time tips anchored to the
- * control they explain. Mantine's Popover and Modal are enough for a single
+ * control they explain. Radix Popover and Dialog are enough for a single
  * anchored hint; a step-by-step tour library would add a mode the app does
  * not want. What has been seen is a per-device convenience, so it stays in
  * this window's storage and never syncs (the phone has its own tips).
@@ -21,11 +21,7 @@ export type TipId = (typeof TIPS)[number];
 type GuideState = { welcome?: boolean; tips?: string[] };
 
 function useGuide() {
-  return useLocalStorage<GuideState>({
-    key: GUIDE_KEY,
-    defaultValue: {},
-    getInitialValueInEffect: false,
-  });
+  return useLocalStorage<GuideState>(GUIDE_KEY, {});
 }
 
 /** Clears what this device has seen; the welcome sheet and tips come back. */

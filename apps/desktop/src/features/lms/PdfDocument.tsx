@@ -1,4 +1,4 @@
-import { UiSelect } from "../../components/mantine";
+import { UiSelect } from "../../components/ui";
 import { ReaderTools } from "./ReaderPane";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";

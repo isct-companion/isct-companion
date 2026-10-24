@@ -1,6 +1,6 @@
 import { createElement, Fragment } from "react";
-import { notifications } from "@mantine/notifications";
-import { UiButton } from "../components/mantine";
+import { notifications } from "./notifications";
+import { UiButton } from "../components/ui";
 import { t } from "../i18n";
 import { errorText } from "./shared";
 

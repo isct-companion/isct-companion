@@ -122,7 +122,7 @@ function withTask(workspace: Workspace, task: ScheduledTask): Workspace {
 
 /** The plan editor renders in a portal, outside the mounted shell. */
 function modal(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(".mantine-Modal-content");
+  return document.querySelector<HTMLElement>('[role="dialog"]');
 }
 
 function modalText(): string {
@@ -134,12 +134,12 @@ function modalButton(label: string): HTMLButtonElement | undefined {
   return root ? buttonByText(root, label) : undefined;
 }
 
-/** The input behind a Mantine `label`, so a rewrite does not depend on order. */
+/** The input behind a field label, so a rewrite does not depend on order. */
 function fieldInput(label: string): HTMLInputElement {
   const root = modal();
   if (!root) throw new Error("The plan editor is not open.");
   const wrapper = [
-    ...root.querySelectorAll<HTMLElement>(".mantine-InputWrapper-root"),
+    ...root.querySelectorAll<HTMLElement>(".uiField"),
   ].find((node) => node.querySelector("label")?.textContent?.trim() === label);
   const input = wrapper?.querySelector<HTMLInputElement>("input");
   if (!input) throw new Error(`The "${label}" field is not on screen.`);
@@ -147,7 +147,7 @@ function fieldInput(label: string): HTMLInputElement {
 }
 
 function taskSwitch(host: HTMLElement): HTMLInputElement | null {
-  return host.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  return host.querySelector<HTMLInputElement>('[role="switch"]');
 }
 
 type TaskIntent = Extract<WorkspaceIntent, { kind: "saveScheduledTask" }>;
@@ -361,11 +361,11 @@ describe("Scheduled tasks", () => {
     await openAutomation(app);
     const toggle = taskSwitch(host)!;
     expect(host.textContent).toContain("21:00");
-    expect(toggle.checked).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
 
     await click(toggle);
 
-    await until(() => expect(taskSwitch(host)?.checked).toBe(true));
+    await until(() => expect(taskSwitch(host)?.getAttribute("aria-checked")).toBe("true"));
     // The page still describes the schedule the task already had.
     expect(host.textContent).toContain("21:00");
 

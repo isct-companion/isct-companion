@@ -1,29 +1,72 @@
-import { Text } from "@mantine/core";
-import { modals } from "@mantine/modals";
+import { useEffect } from "react";
+import { create } from "zustand";
+import { Button, Group, Modal, Stack, Text } from "./ui";
 import { t } from "../i18n";
+import { useTranslation } from "react-i18next";
 
-/**
- * Asks before an action with an in-app Mantine dialog; resolves true only
- * when the user presses the confirm button (red unless `danger: false`). Never use
- * `window.confirm`: tauri-plugin-dialog replaces it with an async version, so
- * `!confirm(...)` is always false and the action runs without asking.
- * Needs `<ModalsProvider>` (mounted in `App`).
- */
-export const confirmAction = (
+type Confirmation = {
+  message: string;
+  confirmLabel: string;
+  title?: string;
+  danger: boolean;
+  resolve: (confirmed: boolean) => void;
+};
+const useConfirmations = create<{ queue: Confirmation[] }>(() => ({
+  queue: [],
+}));
+/** In-app Radix Dialog: only the confirm button resolves true. Never use
+ * window.confirm: the native shell replaces it with an asynchronous API. */
+export function confirmAction(
   message: string,
   confirmLabel: string,
   { title, danger = true }: { title?: string; danger?: boolean } = {},
-) =>
-  new Promise<boolean>((resolve) => {
-    modals.openConfirmModal({
-      title,
-      withCloseButton: false,
-      centered: true,
-      children: <Text size="sm">{message}</Text>,
-      labels: { confirm: confirmLabel, cancel: t("Cancel") },
-      confirmProps: danger ? { color: "red" } : undefined,
-      onConfirm: () => resolve(true),
-      // Cancel, Escape, and clicking outside all land here; a settled promise ignores it.
-      onClose: () => resolve(false),
-    });
-  });
+) {
+  return new Promise<boolean>((resolve) =>
+    useConfirmations.setState(({ queue }) => ({
+      queue: [...queue, { message, confirmLabel, title, danger, resolve }],
+    })),
+  );
+}
+export function ConfirmDialogs() {
+  useTranslation();
+  const request = useConfirmations((state) => state.queue[0]);
+  useEffect(
+    () => () => {
+      const queue = useConfirmations.getState().queue;
+      useConfirmations.setState({ queue: [] });
+      queue.forEach((item) => item.resolve(false));
+    },
+    [],
+  );
+  if (!request) return null;
+  const finish = (confirmed: boolean) => {
+    useConfirmations.setState(({ queue }) => ({
+      queue: queue.filter((item) => item !== request),
+    }));
+    request.resolve(confirmed);
+  };
+  return (
+    <Modal
+      opened
+      onClose={() => finish(false)}
+      title={request.title}
+      withCloseButton={false}
+      centered
+    >
+      <Stack>
+        <Text size="sm">{request.message}</Text>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => finish(false)}>
+            {t("Cancel")}
+          </Button>
+          <Button
+            color={request.danger ? "red" : undefined}
+            onClick={() => finish(true)}
+          >
+            {request.confirmLabel}
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}

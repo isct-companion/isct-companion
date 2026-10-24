@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Modal, Stack, Text } from "@mantine/core";
+import { Alert, Button, Modal, Stack, Text } from "./ui";
 import { CameraPreview } from "./CameraPreview";
 import { t } from "../i18n";
 

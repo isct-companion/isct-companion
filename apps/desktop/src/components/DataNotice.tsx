@@ -1,4 +1,4 @@
-import { Button, Modal } from "@mantine/core";
+import { Button, Modal } from "./ui";
 import { t } from "../i18n";
 
 const ISSUES_URL = "https://github.com/isct-companion/Isct-Data/issues";

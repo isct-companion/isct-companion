@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Paper, Input } from "@mantine/core";
-import { UiButton } from "../../components/mantine";
+import { Paper, Input } from "../../components/ui";
+import { UiButton } from "../../components/ui";
 import {
   WeekTimetable,
   type Block,

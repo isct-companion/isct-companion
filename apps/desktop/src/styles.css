@@ -1,6 +1,7 @@
 @import "./generated/design/tokens.css";
 @import "./generated/design/tokens.dark.css";
 @import "./components/workspace-chrome.css";
+@import "./components/ui/ui.css";
 
 /* Colours, radii, shadow and font come from design/tokens (yarn design:tokens). */
 :root {
@@ -49,7 +50,7 @@ p {
 }
 /* Web select menus share shell tokens even when portalled outside the page. */
 .uiSelect { min-width: 0; }
-.uiSelect .mantine-Input-input {
+.uiSelect .uiInput {
   background: var(--surface-3);
   border-color: var(--line);
   color: var(--ink);
@@ -57,9 +58,9 @@ p {
   border-radius: var(--radius-control);
   cursor: pointer;
 }
-.uiSelect .mantine-Input-input:focus { border-color: var(--accent); }
-.uiSelect .mantine-Input-input:focus-visible { outline: none; }
-.uiSelect .mantine-Input-section { color: var(--muted); }
+.uiSelect .uiInput:focus { border-color: var(--accent); }
+.uiSelect .uiInput:focus-visible { outline: none; }
+.uiSelect .uiInputSection { color: var(--muted); }
 .uiSelectDropdown {
   background: var(--surface);
   border-color: var(--line);
@@ -67,16 +68,16 @@ p {
   border-radius: var(--radius-surface);
   box-shadow: var(--shadow);
 }
-.uiSelectDropdown .mantine-Select-option {
+.uiSelectDropdown .uiSelectOption {
   font-size: calc(13px * var(--text));
   border-radius: var(--radius-control);
 }
-.uiSelectDropdown .mantine-Select-option[data-combobox-active],
-.uiSelectDropdown .mantine-Select-option[data-combobox-selected] {
+.uiSelectDropdown .uiSelectOption[data-highlighted],
+.uiSelectDropdown .uiSelectOption[data-state="checked"] {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.uiSelectDropdown .mantine-Select-groupLabel { color: var(--muted); }
+.uiSelectDropdown .uiSelectGroupLabel { color: var(--muted); }
 .muted {
   color: var(--muted);
 }
@@ -93,6 +94,11 @@ p {
   overflow: hidden;
 }
 .rail {
+  position: fixed;
+  /* The main page has a view-transition stacking context over its padding. */
+  z-index: 100;
+  inset: 0 auto 0 0;
+  width: var(--rail);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -171,7 +177,7 @@ p {
 .workspaceMain {
   min-width: 0;
   padding: 20px 20px 72px;
-  padding-inline-start: calc(var(--app-shell-navbar-offset, 0rem) + 20px);
+  padding-inline-start: calc(var(--rail) + 20px);
   display: flex;
   transition: margin-right 0.18s ease;
 }
@@ -186,8 +192,10 @@ p {
   overflow: hidden;
 }
 .workspaceMain.webMain {
+  height: 100dvh;
+  overflow: hidden;
   padding: 0 0 52px;
-  padding-inline-start: var(--app-shell-navbar-offset, 0rem);
+  padding-inline-start: var(--rail);
 }
 /* A retained page's overlay layer (app/KeptPage.tsx) takes no space; its
    popovers and modals position themselves against the viewport. */
@@ -273,7 +281,7 @@ p {
 .schoolStatusBar {
   position: fixed;
   z-index: 50;
-  left: var(--app-shell-navbar-offset, 0rem);
+  left: var(--rail);
   right: 0;
   bottom: 0;
   min-height: 52px;
@@ -3306,7 +3314,7 @@ textarea.codeArea {
   font-size: calc(11.5px * var(--text));
   color: var(--muted);
 }
-.row > button {
+.row > button:not(.uiSwitch) {
   justify-self: end;
   width: auto;
 }
@@ -3741,13 +3749,13 @@ textarea.codeArea {
 
 /* Page changes (app/navigation.ts): the rail and the status bar stay put,
    the page fades and rises into place. */
-.mantine-AppShell-navbar {
+.rail {
   view-transition-name: app-rail;
 }
 .schoolStatusBar {
   view-transition-name: app-status;
 }
-.mantine-AppShell-main {
+.workspaceMain {
   view-transition-name: app-page;
 }
 ::view-transition-old(root),
