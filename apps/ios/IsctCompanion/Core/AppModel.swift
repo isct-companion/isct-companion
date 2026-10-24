@@ -644,7 +644,7 @@ final class AppModel {
         return cells
     }
 
-    /// Starts a live Matrix scan; its seven-second budget starts now.
+    /// Starts a live Matrix scan; its ten-second budget starts now.
     func beginMatrixCamera() throws -> MatrixCameraSession {
         guard let session else { throw SdkError.Closed }
         return try session.beginMatrixCamera()

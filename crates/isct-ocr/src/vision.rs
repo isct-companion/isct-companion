@@ -95,6 +95,7 @@ impl MatrixVision for Vision {
                     source_size: g.source_size,
                     centering: g.centering,
                     glare: g.glare,
+                    acuity: g.acuity,
                 })
                 .collect(),
         })

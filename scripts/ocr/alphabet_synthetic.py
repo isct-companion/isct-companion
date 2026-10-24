@@ -183,9 +183,12 @@ def main():
     if a.check_model:
         check_preprocessing(fonts, a.prepare_binary, a.check_model, a.output)
         return
+    # Hold out by family name, not file name: Windows ships Trebuchet MS as
+    # trebuc.ttf and macOS as "Trebuchet MS.ttf".
+    family = {f: ImageFont.truetype(str(f), 20).getname()[0].lower() for f in fonts}
     held_out = ("verdana", "trebuchet", "georgia")
-    train = [f for f in fonts if not f.name.lower().startswith(held_out)]
-    valid = [f for f in fonts if f.name.lower().startswith("verdana")]
+    train = [f for f in fonts if not family[f].startswith(held_out)]
+    valid = [f for f in fonts if family[f].startswith("verdana")]
     if not train or not valid:
         raise ValueError("Need train fonts and held-out Verdana/Trebuchet fonts")
     data = {}
@@ -193,8 +196,8 @@ def main():
     splits = [
         ("train", a.train, train, a.seed),
         ("validation", a.validation, valid, a.seed + 1),
-        ("calibration", a.validation, [f for f in fonts if f.name.lower().startswith("trebuchet")], a.seed + 4),
-        ("test", a.validation, [f for f in fonts if f.name.lower().startswith("georgia")], a.seed + 5),
+        ("calibration", a.validation, [f for f in fonts if family[f].startswith("trebuchet")], a.seed + 4),
+        ("test", a.validation, [f for f in fonts if family[f].startswith("georgia")], a.seed + 5),
     ]
     for split, count, choices, seed in splits:
         if not choices:

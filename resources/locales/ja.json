@@ -1589,6 +1589,7 @@
   "Swipe to change weeks": "左右にスワイプで週を切り替え",
   "Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.": "授業を長押しすると試験や休講にでき、時間割タブを長押しするとこのクォーターを書き出せます。",
   "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.": "Matrix を枠内に収め、動かさずに保持してください。全セルの確認後、または開始から7秒以内に終了します。",
+  "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within ten seconds.": "Matrix を枠内に収め、動かさずに保持してください。全セルの確認後、または開始から10秒以内に終了します。",
   "Recognizing Matrix… {{count}}/70 cells confirmed.": "Matrix を認識中… {{count}}/70 セル確認済み。",
   "Show QR code": "QR コードを表示",
   "Add to another authenticator": "ほかの認証アプリに追加",

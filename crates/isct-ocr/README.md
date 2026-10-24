@@ -56,13 +56,18 @@ retained candidate remains the original grayscale image. Still photos
 (`capture_matrix_frame`, `MatrixOcrService`) use the same detector on one frame.
 
 `isct_core::matrix_scan::MatrixCameraScanner` owns the bounded acquisition.
-The first plausible Matrix (at least half its cells have usable texture) starts
-an eight-second deadline. Each cell independently retains up to six candidate
+Starting the session starts its ten-second deadline; the first plausible Matrix
+(at least half its cells have usable texture) opens admission. Each cell independently retains up to six candidate
 gray images from observations at least 100 ms apart, preferring sharp centered
 texture. Clipped highlights combined with uneven paper brightness within a cell
 or relative to the card's upper-quartile paper level reject only the affected
 cells; uniform white paper is not treated as glare. These rejections
-do not suppress the first plausible grid or restart its deadline.
+do not suppress the first plausible grid or restart its deadline. A keyframe
+whose median cell edge acuity (5-95 % contrast stretch, 48 px interior,
+gradient magnitude max-pooled over 4×4 blocks, median block) is below 0.20 is
+rejected whole as smeared or defocused (`matrix_frame_sharp`,
+`blurRejections`), and the next steady frame is requested at once. Dataset
+exports and photos apply the same rule.
 Acquisition stops immediately once every cell has five candidates, or
 at the deadline. A periodic shell wakeup enforces the deadline even when video
 stalls. Missing geometry never restarts it. Before first detection there is no
@@ -74,7 +79,9 @@ processing. `MatrixAlphabetService` uses the bundled A–Z + blank classifier on
 batches of up to ten candidate glyphs. Before inference, an illumination-adjusted
 Otsu mask and imageproc connected components locate the ink separately from grid
 edges. A near-full-width boundary line is split only when it joins central ink.
-Unresolved ink touching the crop boundary returns an explicit blank reading.
+Unresolved ink touching the crop boundary returns an explicit blank reading,
+except a descender: ink leaving only through the bottom edge with a contact at
+most 18 px wide, like this typeface's Q tail reaching the row line.
 The classifier receives the original grayscale glyph, centered with paper-colored
 padding and scaled proportionally to fit 80×76 pixels inside its 96×96 input.
 Only results at confidence >= 0.8 vote.
@@ -97,9 +104,10 @@ full-resolution luma follows; a keyframe superseded by a newer request is
 dropped. Processing has inline progress and can continue while the app is in
 the background after capture has stopped. `matrix-scan/latest.json` under the
 app cache contains acquisition/processing times, per-cell candidate/vote counts,
-weak coverage and shell capture timing; `keyframes`, `admissionRejections`, and
-per-cell `glareRejections` distinguish missing keyframes, a located grid with
-insufficient texture, and rejected highlights; it contains no images or
+weak coverage and shell capture timing; `keyframes`, `admissionRejections`,
+`blurRejections` and per-cell `glareRejections` distinguish missing keyframes,
+a located grid with insufficient texture, smeared frames and rejected
+highlights; it contains no images or
 recognized letters. `trackedMs` measures first visible outline to camera
 release, not the later inference completion.
 
@@ -136,17 +144,18 @@ on the host. `ISCT_MATRIX_ALPHABET_MODEL` can select local experimental weights
 at build time; ordinary builds embed the synthetic-only printed model documented
 under `models/alphabet/`. No captured card data belongs in that directory.
 
-Run a local replay through the real scheduler and model:
+Replay a recorded video as camera sessions through Core's driver (the phone
+path, one fresh session per second, on the recording's clock):
 
 ```sh
-cargo run -p isct-ocr --release --example matrix_profile -- IMAGE_OR_FRAME_DIRECTORY EXPECTED_TEXT [MAX_FRAMES]
+cargo run -p isct-ocr --release --example matrix_session_replay -- VIDEO EXPECTED OUT
 ```
 
-This reports first-pass time, refinement latency, effective update frequency,
-full-card-equivalent throughput, completion time and ground-truth mismatches.
-Replay timing excludes camera/IPC overhead; physical focus, framing and live
-acquisition remain manual check `OCR-CAMPUS-CARD`. The Latin glyph fixture is
-rendered from the system Helvetica font and contains no student data.
+Each window reports whether the session completed, whether all 70 cells were
+right, wrongly confirmed cells and a completed but wrong result. Replay timing
+excludes camera/IPC overhead; physical focus, framing and live acquisition
+remain manual check `OCR-CAMPUS-CARD`. The Latin glyph fixture is rendered from
+the system Helvetica font and contains no student data.
 
 ## Geometry replay and capture timeline
 
@@ -191,21 +200,18 @@ sensor noise and glare; substantial erased ink is labelled blank. Font families
 used for validation are held out of training. These metrics do not replace
 the physical-card check.
 
-`matrix_live CAPTURE_DIRECTORY [ALPHABET_ONNX] [TIMEOUT_SECONDS]` can run an
-external A–Z + blank classifier against live `latest.jpg` frames. It uses the
-production capture preprocessing and legacy core consensus, with direct 96×96 grayscale input.
-Unlike production metadata logging, this supervised diagnostic saves source
-frames, geometry and readings locally for replay; use a disposable test card.
-
-`scripts/ocr/alphabet_eval.py` evaluates a local rectified card.
-`alphabet_motion.py` evaluates the recorded frames.
 `alphabet_synthetic.py` generates printed training/validation images with held-out
 font families, camera sampling and motion degradation. `alphabet_finetune.py`
 continues the specified ONNX weights and exports a dynamic-batch model after
 checking conversion/export parity. Synthetic training needs no captured card.
-`alphabet_adapt.py` optionally prepares local adaptation data from one labelled
-card; keep those data and weights local, and evaluate on a separate motion
-recording. Fitting that card does not establish generalization to other cards.
+Recorded test cards become training data through the camera path itself:
+`matrix_video.py export` runs the `matrix_dataset` example (production tracker,
+`keyframe_ready`, production cut) over each recording, `build` labels cells
+from each card's human-checked truth with a split per card, and
+`matrix_session_replay` replays a recording as camera sessions through Core's
+driver. The workflow is in
+[`docs/verification/matrix-lighting.md`](../../docs/verification/matrix-lighting.md#recorded-test-card-preparation);
+recordings, cells and weights stay local.
 
 The diagnostic uses bilinear perspective correction and Rec.601 grayscale to
 match PIL/TorchVision training pixels, then normalizes to [-1, 1]; it does not

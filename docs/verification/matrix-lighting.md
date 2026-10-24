@@ -222,9 +222,10 @@ ordinary letters and blurred cards.
 
 The trainer accepts `--replay-data`, `--train-convs`, `--learning-rate` and
 `--resume-reference`. It checks finite loss, model-conversion parity and exported
-ONNX parity, and records the selected epoch. Re-exported ONNX graphs may fail
-round-trip conversion through onnx2torch; use the upstream graph plus its saved
-PyTorch checkpoint, then require that resumed outputs match the bundled ONNX:
+ONNX parity, and records the selected epoch. `alphabet_model.py` rebuilds the
+network natively (MobileNetV2 with folded batch norms) and copies the ONNX
+weights in, checked against ONNX Runtime, so re-exported graphs load as well
+as the upstream one (onnx2torch could not convert them):
 
 ```sh
 python scripts/ocr/alphabet_synthetic.py --fonts FONT_DIRECTORY \
@@ -254,9 +255,7 @@ the `training-tools` Cargo feature, calls the same Rust
 Ink segmentation, edge handling, aspect-preserving normalization and illumination
 correction therefore have one implementation. The binary streams fixed-size
 records containing rejection status and both grayscale views. Python performs
-only the same final `pixel / 127.5 - 1` tensor conversion as Rust. The historical
-`alphabet_eval.py` PIL rectification/9% crop remains an explicitly labelled
-ablation tool and is excluded from training and promotion.
+only the same final `pixel / 127.5 - 1` tensor conversion as Rust.
 
 The four font-family splits are Arial/Times/Courier for training, Verdana for
 checkpoint selection, Trebuchet for temperature fitting and Georgia for final
@@ -287,7 +286,8 @@ scaling. The unknown set remains a separate stress indicator, not labelled error
 ground truth.
 
 The data/parity/calibration tools require NumPy, Pillow, ONNX, ONNX Runtime and
-SciPy; fine-tuning additionally uses PyTorch and onnx2torch.
+SciPy; fine-tuning additionally uses PyTorch and torchvision. Pinned versions
+are in `scripts/ocr/requirements.txt`.
 Training and calibration reject legacy raw-only NPZs. Regenerate replay datasets
 through Rust too; their evaluation uses the same two-view fusion and rejection
 records as the primary dataset.
@@ -356,66 +356,64 @@ authorized anonymous physical glyph crops remain local and are not training data
 
 ### Recorded test-card preparation
 
-`matrix_video.py` keeps recordings, human truth, source times, cell indices,
-review sheets and lineage on the local machine. A local plan supplies seven
-ten-letter `truth` rows, `truthSource: "human-checked"`, `gapSeconds` (default
-two), and `segments`. Each segment has a unique `group`, `split` (`train`,
-`validation` or `test`), absolute `video` path, `start`/`end` seconds and `fps`.
-The plan is fixed before extraction. Overlaps and cross-split gaps shorter than
-the configured interval are rejected, including copies/aliases of one video.
+Since 2026-10-24 card recordings become training data through the camera path
+itself, on the local RTX 3090 machine; nothing is uploaded. Earlier datasets
+cut every frame with the still-photo detector and needed a person to approve
+each grid and list its readable cells; the frames, crops and review rules
+below replace that.
+
+A local manifest names each card once, with its seven human-checked rows and
+its split, and lists the recordings of each card (see the docstring of
+`scripts/ocr/matrix_video.py`). The split belongs to the card: every recording
+of a card lands in one split, so validation and test measure cards the model
+never saw, as the app does. A video repeated under another name is rejected.
 
 ```sh
-cargo build -p isct-ocr --release --locked --features training-tools \
-  --example matrix_dataset --example alphabet_prepare --example matrix_capture
-python scripts/ocr/matrix_video.py extract --plan LOCAL_PLAN.json \
-  --capture-binary target/release/examples/matrix_dataset --output LOCAL_EXTRACTED
+python scripts/ocr/matrix_video.py export --manifest LOCAL/manifest.json --output LOCAL/exports
+python scripts/ocr/matrix_video.py build --manifest LOCAL/manifest.json   --exports LOCAL/exports --output LOCAL/dataset-v1
+python scripts/ocr/alphabet_finetune.py --model crates/isct-ocr/models/alphabet/alphabet-printed.onnx   --data LOCAL/dataset-v1/training.npz --replay-data LOCAL/synthetic.npz --replay-fraction 0.5   --augment 0.7 --output LOCAL/run-1
+python scripts/ocr/matrix_video.py evaluate --data LOCAL/dataset-v1/evaluation-local.npz   --model LOCAL/run-1/alphabet-printed.onnx --lineage LOCAL/dataset-v1/lineage-local.json   --output LOCAL/run-1/evaluation.json
 ```
 
-Extraction calls the production camera geometry and complete-cell crop path.
-`noGeometry` remains a frame outcome; a detected grid does not establish correct
-cell alignment. If it fails, `assist` can track one visually checked reference
-with OpenCV SIFT/RANSAC. Its local reference JSON contains a `frame` path,
-clockwise `body` corners (letter body only, excluding A–J/1–7 labels), and
-`cardPolygon` feature mask, all in source pixels. The training-tools-only Rust
-entry point uses the same projective grid, crop measurements and rectification
-as production. It retains `nativeQuads` and marks recovered frames `assisted`;
-these frames do not count as successful native detections.
+- **Export** runs the Rust `matrix_dataset` example per recording: one
+  production tracker over the decoded 4:2:0 frames, and every frame a live
+  session would cut (`isct_core::matrix_scan::keyframe_ready`) cut by the
+  production `MatrixVision::cut`. It stores the 70 cells per keyframe, Core's
+  quality measurements and admission verdict (`matrix_cell_admissible`), and
+  the bundled model's reading, plus each cell's edge acuity and Core's
+  sharpness verdict on the keyframe. Exports are reused while the video and the
+  exporter binary are unchanged.
+- **Build** labels each cell from its card's truth by position. A keyframe
+  Core rejects as blurred (`matrix_frame_sharp`, median cell edge acuity below
+  0.20) is left out of every split, exactly as the app drops it, so the model
+  is neither trained nor validated on smears it will never be shown. A
+  remaining keyframe is used only if its indexing is verified: confident model readings must match
+  the truth at the fitted positions far more often than at any one-cell shift.
+  The reading accepts or rejects whole keyframes; it never labels a cell, so
+  cells the current model gets wrong keep their true letter. Within a keyframe
+  only cells Core would admit as candidates are kept: those are the only cells
+  the model sees in the app. Training cells are deduplicated per recording and
+  cell (24×24 thumbnail MAE below 2), passed through Rust `alphabet_prepare`,
+  and written with lineage, per-split letter counts and a few review mosaics
+  per recording (accepted keyframes, and rejected ones). The mosaics are for a
+  spot check: a crop that is unreadable yet admitted is label noise the
+  validation card will expose, not something a per-frame review must remove.
+- **Training** mixes the card data with synthetic print at a fixed share
+  (`--replay-fraction`), because a few cards do not contain every letter, and
+  perturbs samples on the GPU (`--augment`: small affine jitter, Gaussian or
+  motion blur, exposure, contrast and noise) instead of storing reviewed
+  augmented copies. Checkpoints are selected on the validation card only; the
+  test card is evaluated once, then the candidate goes through the session
+  replay below before any promotion.
 
-```sh
-python scripts/ocr/matrix_video.py assist --directory LOCAL_EXTRACTED \
-  --reference LOCAL_REFERENCE.json --capture-binary target/release/examples/matrix_dataset \
-  --output LOCAL_ASSISTED
-python scripts/ocr/matrix_video.py build --directory LOCAL_ASSISTED \
-  --prepare-binary target/release/examples/alphabet_prepare --augment 2 --output LOCAL_DRAFT
-```
-
-`review.json` starts with no approved geometry or readable cells. Inspect the
-crop sheets, set `aligned: true` only for correctly indexed cells, and set
-`readableCells` to an explicit list of 0–69 indices or `"all"`. A correctly
-aligned but erased/ambiguous cell stays unknown (`-1`); it is never relabelled
-blank. Unreviewed grids remain in the frame manifest and whole-camera replay,
-outside the classifier benchmark. Training deduplication runs within each
-segment/cell before augmentation. All derivatives retain the original split.
-
-Augmentations change raw crops before calling `alphabet_prepare`: exposure
-gradients, shadows, localized highlights, mild blur, resampling, subpixel shifts,
-JPEG compression and sensor noise. They start unknown, including when the source
-was readable. The draft writes random-looking hash-named crop PNGs and a local
-augmentation-review template. A separate review JSON lists visually confirmed
-tokens in `readable`; pass it with `--augmentation-review` to a fresh `build`
-output directory. Stale tokens are rejected. Neither matching nor recognition
-supplies letter truth.
-
-Only `training.npz` is eligible for transfer: shuffled numeric training and
-validation arrays, no source identifiers or test arrays. Give it an opaque file
-name; keep PNGs, all JSON sidecars and `evaluation-local.npz` local. Run
-`matrix_video.py evaluate` with `--lineage` locally for preprocessing rejection,
-model blank, weak/conflicting readings, qualified errors, per-letter confusion
-and fully readable whole-card snapshots. Run `matrix_capture` over held-out
-frames separately for actual acquisition, voting, blank/weak/error counts and
-wrong settled cells. An assisted classifier benchmark does not measure native
-localization or independent-card generalization. A separately recorded test and
-the existing font-held-out replay remain necessary for broader claims.
+`matrix_session_replay VIDEO EXPECTED OUT` replays one recording as a fresh
+camera session at every second through Core's `MatrixCameraDriver` (`submit`,
+the phone path) with a clock that follows the recording, a latest-frame slot
+and one OCR consumer, and reports per window whether the session completed,
+whether every cell was right, wrong confirmed cells and a completed session
+that is wrong. `ISCT_MATRIX_ALPHABET_MODEL` selects candidate weights at build
+time. Stage costs are measured on the host; `--geometry-scale` and `--ocr-ms`
+model a slower device or fix the model latency for comparisons.
 
 Checkpoint selection now applies the same error/coverage preservation gate to
 both real validation and synthetic replay; higher real accuracy cannot override

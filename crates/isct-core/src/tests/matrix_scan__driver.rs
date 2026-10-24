@@ -1,5 +1,8 @@
 use super::*;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Mutex,
+};
 
 // The real tracker and model need pixels and ONNX; isct-ocr's tests drive
 // this same driver with them. Here a scripted capability isolates what the
@@ -17,6 +20,8 @@ struct Scripted {
     /// A cell that is read, but never clearly.
     weak: Option<u8>,
     cuts: AtomicU32,
+    /// Where the tracker finds the grid on the next frame.
+    body: Arc<Mutex<[MatrixPoint; 4]>>,
 }
 fn clear(cell: usize) -> MatrixCaptureGlyph {
     let mut gray = vec![255; 96 * 96];
@@ -28,9 +33,10 @@ fn clear(cell: usize) -> MatrixCaptureGlyph {
         source_size: 20.,
         centering: 0.7,
         glare: 0.,
+        acuity: 0.3,
     }
 }
-struct Found;
+struct Found(Arc<Mutex<[MatrixPoint; 4]>>);
 impl MatrixGridTracker for Found {
     fn track(
         &mut self,
@@ -38,9 +44,10 @@ impl MatrixGridTracker for Found {
         _: f64,
     ) -> Result<MatrixGridTrack, MatrixScanError> {
         assert_eq!(planes.luma.len(), planes.chroma.len());
+        let body = *self.0.lock().unwrap();
         Ok(MatrixGridTrack {
-            display: Some(BODY),
-            body: Some(BODY),
+            display: Some(body),
+            body: Some(body),
             keyframe: true,
             elapsed_ms: 1.,
         })
@@ -54,7 +61,7 @@ impl MatrixVision for Scripted {
         Ok(())
     }
     fn tracker(&self) -> Box<dyn MatrixGridTracker> {
-        Box::new(Found)
+        Box::new(Found(self.body.clone()))
     }
     fn decode(&self, _: &[u8]) -> Result<MatrixPicture, MatrixScanError> {
         Ok(picture())
@@ -124,6 +131,7 @@ fn scripted(
         glyph,
         weak,
         cuts: AtomicU32::new(0),
+        body: Arc::new(Mutex::new(BODY)),
     });
     (Arc::new(MatrixCameraDriver::new(vision.clone())), vision)
 }
@@ -228,10 +236,24 @@ fn a_keyframe_is_cut_only_for_the_frame_core_requested() {
     assert_eq!(third.keyframe_frame_id, None);
     driver.keyframe(&id, 3, full.full()).unwrap();
     assert_eq!(vision.cuts.load(Ordering::Relaxed), 1);
+    // A grid reaching past the frame edge is still drawn, but its cut-off
+    // cells are never requested; the session goes on.
+    std::thread::sleep(Duration::from_millis(110));
+    let mut beyond = BODY;
+    beyond[1].x = 1.02;
+    *vision.body.lock().unwrap() = beyond;
+    let edge = driver.track(&id, 4, full.planes(), 200.).unwrap();
+    assert_eq!(
+        (edge.bounds, edge.bounds_frame_id, edge.keyframe_frame_id),
+        (Some(beyond), Some(4), None)
+    );
+    *vision.body.lock().unwrap() = BODY;
+    let back = driver.track(&id, 5, full.planes(), 220.).unwrap();
+    assert_eq!(back.keyframe_frame_id, Some(5));
     // A stopped session drops its tracker and pending keyframe.
     driver.stop(&id);
     assert!(matches!(
-        driver.track(&id, 4, full.planes(), 30.),
+        driver.track(&id, 6, full.planes(), 240.),
         Err(MatrixScanError::Ended)
     ));
 }

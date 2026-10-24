@@ -25,6 +25,7 @@ fn frame(usable: impl Fn(usize) -> bool, marker: u8) -> MatrixCaptureFrame {
                 source_size: 20.,
                 centering: 0.7,
                 glare: 0.,
+                acuity: 0.3,
             })
             .collect(),
     }
@@ -268,9 +269,32 @@ fn tracked_frames_own_the_outline_and_keyframes_follow_the_sampling_interval() {
     assert!(stale.bounds.is_none() && stale.bounds_frame_id.is_none());
     assert_eq!(stale.sequence, 6, "wakeups are not frames");
     let mut invalid = tracked(6, true, false);
-    invalid.bounds = Some([MatrixPoint { x: 1.5, y: 0. }; 4]);
+    invalid.bounds = Some([MatrixPoint { x: f64::NAN, y: 0. }; 4]);
     assert!(scanner.track(&id, invalid, at(510)).is_err());
-    let report = scanner.diagnostics(&id, at(520)).unwrap();
+    // A keyframe blurred in more than half its cells is dropped whole and
+    // does not use up the sampling interval: the next steady frame is asked
+    // for at once instead of 100 ms later.
+    let asked = scanner.track(&id, tracked(7, true, true), at(600)).unwrap();
+    assert_eq!(asked.keyframe_frame_id, Some(7));
+    let mut blurred = frame(|_| true, 7);
+    blurred
+        .glyphs
+        .iter_mut()
+        .take(36)
+        .for_each(|g| g.acuity = 0.1);
+    let dropped = scanner.observe(&id, Some(blurred), at(605)).unwrap();
+    assert_eq!(
+        (dropped.keyframe_frame_id, dropped.total_samples),
+        (None, asked.total_samples)
+    );
+    assert_eq!(
+        scanner
+            .track(&id, tracked(8, true, true), at(610))
+            .unwrap()
+            .keyframe_frame_id,
+        Some(8)
+    );
+    let report = scanner.diagnostics(&id, at(620)).unwrap();
     let frames: Vec<_> = report
         .frames
         .iter()
@@ -283,8 +307,11 @@ fn tracked_frames_own_the_outline_and_keyframes_follow_the_sampling_interval() {
             (2, true, true),
             (3, true, false),
             (4, true, false),
-            (5, true, false)
+            (5, true, false),
+            (7, true, false),
+            (8, true, false)
         ]
     );
     assert_eq!((report.keyframes, report.frames[1].observed_ms), (1, 10.));
+    assert_eq!(report.blur_rejections, 1);
 }

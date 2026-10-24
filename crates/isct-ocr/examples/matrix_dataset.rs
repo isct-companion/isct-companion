@@ -1,90 +1,101 @@
-//! Local-only dataset export through the production camera geometry/crop path.
-//! No recognition: fixed cell positions are provenance, never predicted labels.
+//! Local-only dataset export through the production camera path.
+//!
+//! `matrix_dataset VIDEO OUT [--cache FRAMES_YUV]`
+//!
+//! One `MatrixTracker` follows the whole recording exactly as in a camera
+//! session (4:2:0 frames through `MatrixVision::convert`), and every frame the
+//! session would cut (`keyframe_ready`) is cut by the production `MatrixVision::cut`:
+//! the same 96×96 grayscale cells, at the same positions, that Core would
+//! queue for the model. Cell positions are the only provenance; labels come
+//! later from the card's human-checked truth (`scripts/ocr/matrix_video.py`).
+//!
+//! `OUT/glyphs.u8` holds the cells, 70 × 9216 bytes per keyframe in row order
+//! (A1…J1, A2…). `OUT/frames.jsonl` has one line per video frame: time,
+//! whether the grid was located, the measured body corners and tracking cost;
+//! keyframe lines add their index into `glyphs.u8` and, per cell, Core's
+//! quality measurements, its admission verdict (`matrix_cell_admissible`),
+//! the bundled model's reading and the cell's edge acuity
+//! `[contrast, sharpness, sourceSize, centering, glare, admissible, text, confidence, acuity]`;
+//! `sharp` is Core's verdict on the whole keyframe (`matrix_frame_sharp`).
+//! The reading only lets the dataset check indexing and report the current
+//! model's errors; it never becomes a label. Outputs are card images.
+#[cfg(matrix_ocr)]
+#[path = "common/video.rs"]
+mod video;
+
 #[cfg(matrix_ocr)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use isct_core::matrix_scan::{keyframe_ready, matrix_cell_admissible, matrix_frame_sharp};
+    use serde_json::json;
     use std::{io::Write, path::PathBuf};
-    let mut args = std::env::args().skip(1);
-    let input = PathBuf::from(args.next().ok_or("Pass frame directory")?);
-    let output = PathBuf::from(args.next().ok_or("Pass new output directory")?);
-    let manual = args
-        .next()
-        .map(|file| {
-            std::fs::read(file)
-                .map_err(Box::<dyn std::error::Error>::from)
-                .and_then(|bytes| {
-                    serde_json::from_slice::<std::collections::BTreeMap<String, [[f64; 2]; 4]>>(
-                        &bytes,
-                    )
-                    .map_err(Into::into)
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (Some(source), Some(out)) = (args.first(), args.get(1)) else {
+        return Err("usage: matrix_dataset VIDEO OUT [--cache FRAMES_YUV]".into());
+    };
+    let out = PathBuf::from(out);
+    std::fs::create_dir_all(&out)?;
+    let cache = args
+        .iter()
+        .position(|a| a == "--cache")
+        .and_then(|i| args.get(i + 1))
+        .map_or_else(|| out.join("frames.yuv"), PathBuf::from);
+    let mut video = video::Video::open(source.as_ref(), &cache)?;
+    let vision = isct_ocr::matrix_vision();
+    let mut tracker = vision.tracker();
+    let mut glyphs = std::io::BufWriter::new(std::fs::File::create(out.join("glyphs.u8"))?);
+    let mut lines = std::io::BufWriter::new(std::fs::File::create(out.join("frames.jsonl"))?);
+    let (mut buffer, mut keyframes) = (Vec::new(), 0usize);
+    for index in 0..video.times.len() {
+        video.read(index, &mut buffer)?;
+        let picture = vision.convert(&video.yuv(&buffer))?;
+        let track = tracker.track(picture.planes(), video.times[index])?;
+        let mut row = json!({"frame": index, "t": video.times[index],
+            "located": track.body.is_some(), "trackMs": track.elapsed_ms,
+            "body": track.body.map(|b| b.map(|p| [p.x, p.y]))});
+        if let (true, Some(body)) = (keyframe_ready(&track), track.body) {
+            let cut = vision.cut(picture.full(), body)?;
+            let mut readings = Vec::with_capacity(cut.glyphs.len());
+            for chunk in cut.glyphs.chunks(10) {
+                let images: Vec<_> = chunk.iter().map(|g| g.gray.clone()).collect();
+                readings.extend(vision.recognize(&images)?);
+            }
+            for glyph in &cut.glyphs {
+                glyphs.write_all(&glyph.gray)?;
+            }
+            row["keyframe"] = json!(keyframes);
+            row["sharp"] = json!(matrix_frame_sharp(&cut.glyphs));
+            row["cells"] = cut
+                .glyphs
+                .iter()
+                .zip(&readings)
+                .map(|(g, r)| {
+                    json!([
+                        g.contrast,
+                        g.sharpness,
+                        g.source_size,
+                        g.centering,
+                        g.glare,
+                        matrix_cell_admissible(g),
+                        r.text,
+                        r.confidence,
+                        g.acuity
+                    ])
                 })
-        })
-        .transpose()?
-        .unwrap_or_default();
-    std::fs::create_dir(&output)?;
-    let mut paths = std::fs::read_dir(input)?
-        .map(|entry| entry.map(|e| e.path()))
-        .collect::<Result<Vec<_>, _>>()?;
-    paths.retain(|path| {
-        path.file_name()
-            .is_some_and(|name| name.to_string_lossy().starts_with("capture-"))
-            && path
-                .extension()
-                .is_some_and(|ext| ext == "jpg" || ext == "png")
-    });
-    paths.sort();
-    if paths.is_empty() {
-        return Err("No capture-*.jpg/png frames".into());
+                .collect();
+            keyframes += 1;
+        }
+        writeln!(lines, "{row}")?;
+        if index % 200 == 0 {
+            eprintln!("frame {index}/{}: {keyframes} keyframes", video.times.len());
+        }
     }
-    let mut manifest = std::io::BufWriter::new(std::fs::File::create(output.join("frames.jsonl"))?);
-    for path in paths {
-        let name = path
-            .file_stem()
-            .ok_or("Invalid frame name")?
-            .to_string_lossy();
-        let bytes = std::fs::read(&path)?;
-        let native = isct_ocr::capture_matrix_frame(&bytes);
-        let native_quads = match &native {
-            Ok(frame) => Some(frame.quads.clone()),
-            Err(isct_ocr::MatrixOcrError::GridNotFound) => None,
-            Err(error) => return Err(error.to_string().into()),
-        };
-        let assisted = manual.get(name.as_ref());
-        let captured = if let Some(&body) = assisted {
-            isct_ocr::capture_matrix_training_frame(&bytes, body)
-        } else {
-            native
-        };
-        let report = match captured {
-            Ok(frame) => {
-                if frame.glyphs.len() != 70 || frame.quads.len() != 70 {
-                    return Err("Expected exactly 70 production cells".into());
-                }
-                let mut cells = Vec::with_capacity(70);
-                for (cell, glyph) in frame.glyphs.into_iter().enumerate() {
-                    let file = format!("{name}-{cell:02}.png");
-                    image::GrayImage::from_raw(96, 96, glyph.gray)
-                        .ok_or("Invalid production crop")?
-                        .save(output.join(&file))?;
-                    cells.push(serde_json::json!({"cell":cell,"file":file,
-                        "contrast":glyph.contrast,"sharpness":glyph.sharpness,
-                        "sourceSize":glyph.source_size,"centering":glyph.centering,
-                        "glare":glyph.glare}));
-                }
-                serde_json::json!({"frame":name,"outcome":"located",
-                    "assisted":assisted.is_some(),"nativeQuads":native_quads,
-                    "quads":frame.quads,"cells":cells,"timing":{
-                        "decodeMs":frame.timing.decode_ms,"geometryMs":frame.timing.geometry_ms,
-                        "cropMs":frame.timing.preprocess_ms,"totalMs":frame.timing.total_ms}})
-            }
-            Err(isct_ocr::MatrixOcrError::GridNotFound) => {
-                serde_json::json!({"frame":name,"outcome":"noGeometry"})
-            }
-            Err(error) => return Err(error.into()),
-        };
-        serde_json::to_writer(&mut manifest, &report)?;
-        manifest.write_all(b"\n")?;
-        manifest.flush()?;
-    }
+    glyphs.flush()?;
+    lines.flush()?;
+    eprintln!(
+        "{keyframes} keyframes from {} frames ({:.1} s)",
+        video.times.len(),
+        video.duration
+    );
     Ok(())
 }
 

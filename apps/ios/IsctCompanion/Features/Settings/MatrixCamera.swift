@@ -46,7 +46,7 @@ struct MatrixCameraScreen: View {
 
     private var status: String {
         guard let state, state.phase != .complete, state.readyCells > 0 else {
-            return t("Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.")
+            return t("Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within ten seconds.")
         }
         return t("Recognizing Matrix… {{count}}/70 cells confirmed.", ["count": state.readyCells])
     }

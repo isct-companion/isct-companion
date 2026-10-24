@@ -149,7 +149,7 @@ impl MatrixCameraSession {
             Err(unavailable("OCR backend"))
         }
     }
-    /// A wakeup without a frame: the seven-second budget still advances.
+    /// A wakeup without a frame: the ten-second budget still advances.
     pub fn poll(&self) -> Result<MatrixCameraState, SdkError> {
         #[cfg(feature = "ocr")]
         {
@@ -175,7 +175,7 @@ impl Drop for MatrixCameraSession {
 
 #[uniffi::export]
 impl Session {
-    /// Starts a live scan; the seven-second budget starts now.
+    /// Starts a live scan; the ten-second budget starts now.
     pub fn begin_matrix_camera(&self) -> Result<Arc<MatrixCameraSession>, SdkError> {
         #[cfg(feature = "ocr")]
         {

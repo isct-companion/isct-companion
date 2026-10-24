@@ -937,7 +937,7 @@ checks:
           card, introduce glare, then briefly hold it steady with labels visible.
           Observe per-cell recognition progress while the camera remains live.
           Recognition and acquisition must overlap. The camera stops after all
-          cells pass a fresh confirmation sweep, or seven seconds after starting
+          cells pass a fresh confirmation sweep, or ten seconds after starting
           the session, including time without a detected Matrix. Confirmed cells
           must reopen when a clear new observation contradicts them.
           On completion the dialog closes and the camera indicator turns off;
@@ -966,14 +966,19 @@ checks:
           leaves each cell; unobscured cells must retain their progress. Hold a
           bright reflection over the same letters until the deadline and check
           that erased strokes remain marked for review rather than accepted.
-          Include a white card background and modest hand movement.
+          Include a white card background and modest hand movement, then shake
+          the card for two seconds before holding it steady; the session must
+          still finish within ten seconds of starting.
           After closing each session, inspect core.keyframes,
-          core.admissionRejections and core.glareRejections in
-          matrix-scan/latest.json, then compare all accepted letters with the card.
+          core.admissionRejections, core.blurRejections and core.glareRejections
+          in matrix-scan/latest.json (blurRejections must count the shaken
+          frames), then compare all accepted letters with the card.
         reason: |
-          Real camera exposure, sensor noise and specular reflections can differ
-          from synthetic lighting. Hardware is needed to check initial admission,
-          false glare on white paper and recovery as a reflection moves.
+          Real camera exposure, sensor noise, motion blur and specular
+          reflections can differ from synthetic lighting and recordings.
+          Hardware is needed to check initial admission, that smeared frames are
+          dropped rather than read, false glare on white paper and recovery as a
+          reflection moves.
       - action: |
           Cancel and reopen the camera, then background the app during capture.
           Repeat and background it during processing: acquisition stops in the
