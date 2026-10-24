@@ -2,6 +2,8 @@ package app.isctcompanion.core
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
@@ -11,11 +13,14 @@ import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.ClearTokenRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.RevokeAccessRequest
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 
 /** Drive access tokens from Google Identity's authorization API, which keeps
  * the grant in the device's Google account and refreshes it itself. Core owns
@@ -56,13 +61,38 @@ class DriveTokens(private val context: Context) : NativeDriveTokens {
             } ?: throw SdkException.Cancelled()
             result = try {
                 client.getAuthorizationResultFromIntent(data)
-            } catch (error: Exception) {
-                throw SdkException.Authentication("Google sign-in was declined.")
+            } catch (error: ApiException) {
+                throw refusal(error)
             }
         }
         return result.accessToken?.also { lastToken = it }
             ?: throw SdkException.Authentication("Google returned no Drive authorization.")
     }
+
+    /** What Google's answer means. A closed prompt is a cancel, not a
+     * refusal. A build Google does not know (its package and signing
+     * certificate are not on the app's Android OAuth client, which needs an
+     * entry per signing key) names the certificate to register. */
+    private fun refusal(error: ApiException): SdkException {
+        Log.w("isct", "Drive authorization", error)
+        val unregistered = error.statusCode == CommonStatusCodes.DEVELOPER_ERROR ||
+            "UNREGISTERED_ON_API_CONSOLE" in error.message.orEmpty()
+        return when {
+            error.statusCode == CommonStatusCodes.CANCELED -> SdkException.Cancelled()
+            unregistered -> SdkException.Unavailable(
+                "Google does not recognise this build. Register package ${context.packageName} with " +
+                    "signing certificate SHA-1 ${signingSha1()} on the app's Android OAuth client.",
+            )
+            else -> SdkException.Authentication("Google sign-in failed (${error.statusCode}).")
+        }
+    }
+
+    /** This APK's signing certificate, as the Google Cloud console asks for it. */
+    private fun signingSha1(): String = runCatching {
+        val info = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        val certificate = info.signingInfo?.apkContentsSigners?.firstOrNull()?.toByteArray() ?: return "?"
+        MessageDigest.getInstance("SHA-1").digest(certificate).joinToString(":") { "%02X".format(it) }
+    }.getOrDefault("?")
 
     /** Forgets the grant, as the port promises: drops the cached token and
      * revokes the Drive grant for its Google account, so turning Drive on

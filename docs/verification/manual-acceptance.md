@@ -5443,9 +5443,11 @@ Drive on and at least one plan uploaded.
    - *Why:* The switch must stay off with the reason under it. A crash or a
      switch left on means the consent result was not read.
 2. Turn it on again, allow the prompt, then Pull.
-   - *Why:* The desktop's plan must arrive. "DEVELOPER_ERROR" or an immediate
-     failure without a prompt means the package name or signing SHA-1 is
-     not on the Android client.
+   - *Why:* The desktop's plan must arrive. If Google does not know the build
+     (UNREGISTERED_ON_API_CONSOLE), the Drive row says so and names the
+     SHA-1 to register on the Android client; each signing key (each
+     machine's debug key, the release key) needs its own entry. A
+     closed account chooser leaves the switch off without an error.
 3. Swipe the app away, reopen it, edit a record and Upload; Pull on the
    desktop.
    - *Why:* A relaunch must get a token without showing the prompt again; a
