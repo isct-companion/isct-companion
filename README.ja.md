@@ -51,7 +51,7 @@ macOS のリリース版は署名・公証済みです。Windows 版は現在未
 
 ## 開発・参加
 
-[CONTRIBUTING.md](CONTRIBUTING.md)、[開発ガイド](docs/development.md)、[テストガイド](apps/desktop/tests/README.md) から始めてください。
+[CONTRIBUTING.md](CONTRIBUTING.md)（英語。issue は日本語でも書けます）、[開発ガイド](docs/development.md)、[テストガイド](apps/desktop/tests/README.md) から始めてください。
 [ドキュメント一覧](docs/README.md) に Core API、ネイティブ SDK、取得処理、配布手順をまとめています。
 レビュー済みのバージョンは、一致するバージョンタグの push で配布できます。[リリース手順](docs/desktop-release.md) を参照してください。
 

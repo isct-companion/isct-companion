@@ -1,0 +1,33 @@
+name: Feature request / 機能の提案
+description: Propose an improvement, starting from the problem it solves. / 解決したい問題から改善を提案する。
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues may be written in Japanese, English or Chinese. / 日本語・英語・中国語のどれで書いてもかまいません。
+
+        Proposals are judged against the project's written principles, not against "it works". Read the [design and quality bar](https://github.com/isct-companion/isct-companion/blob/main/CONTRIBUTING.md#design-and-quality-bar) first. / 提案は「動くかどうか」ではなく、文書化された原則に照らして判断します。先に [Design and quality bar](https://github.com/isct-companion/isct-companion/blob/main/CONTRIBUTING.md#design-and-quality-bar) を読んでください。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve / 解決したい問題
+      description: What are you trying to do, and what gets in the way today? / 何をしようとしていて、今は何が妨げになっていますか。
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach / 提案する方法
+      description: Optional. How you would solve it, and on which platforms. / 任意。どう解決するか、どのプラットフォームで。
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks / 確認
+      options:
+        - label: I read the [product definition](https://github.com/isct-companion/isct-companion/blob/main/docs/product-definition.md). / [プロダクト定義](https://github.com/isct-companion/isct-companion/blob/main/docs/product-definition.md)を読みました。
+          required: true
+        - label: If AI helped write this, I read it and it matches what I intend. / AI に手伝ってもらった場合、内容を読み、自分の意図と一致していることを確認しました。
+          required: true

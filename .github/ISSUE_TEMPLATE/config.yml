@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Data error / データの誤り
+    url: https://github.com/isct-companion/Isct-Data/issues
+    about: Wrong or missing calendar, exam, department or important-date data. Isct-Data is updated by an AI workflow that checks the official pages daily. / 校暦・試験・学系・重要日程の誤りや欠落。
+  - name: Security vulnerability / 脆弱性の報告
+    url: https://github.com/isct-companion/isct-companion/security/advisories/new
+    about: Report privately through GitHub private vulnerability reporting, not in a public issue. / 公開の issue ではなく、非公開で報告してください。
