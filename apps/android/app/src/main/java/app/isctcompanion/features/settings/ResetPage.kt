@@ -22,17 +22,19 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.ResetRequest
@@ -55,16 +57,20 @@ private val SCHOOL_CACHES = listOf("schoolData", "catalog", "references", "syncR
  * estimate of the space freed; a full reset needs the acknowledgement and a
  * confirmation dialog. Core decides what each scope removes. */
 @Composable
-internal fun ResetPage(kind: ResetKind, done: () -> Unit) {
+internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> Unit) {
     val model = LocalModel.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    // Not the page's scope: switching tabs drops the page, and a reset or
+    // restore must not be cancelled halfway.
+    val scope = ProcessLifecycleOwner.get().lifecycleScope
     val everything = kind == ResetKind.Everything
     var signOutWeb by remember { mutableStateOf(false) }
     var deleteDownloads by remember { mutableStateOf(false) }
     var acknowledged by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
+    LaunchedEffect(resetting) { onBusy(resetting) }
+    DisposableEffect(Unit) { onDispose { onBusy(false) } }
     // Read before the reset, which stops cloud sync.
     val cloudOn = model.cloud?.providers.orEmpty().filter { it.enabled }.map { it.provider }
     var restore by remember { mutableStateOf(true) }

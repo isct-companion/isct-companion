@@ -168,7 +168,10 @@ fun SettingsScreen() {
         navigator.settingsAccount = null
         page = SettingsPage.Account(profile, accountName(profile))
     }
-    BackHandler(page != SettingsPage.Root) { page = page.parent }
+    // A running reset holds the page, as on iOS: leaving would look like it
+    // stopped while Core carries on.
+    var busy by remember { mutableStateOf(false) }
+    BackHandler(page != SettingsPage.Root) { if (!busy) page = page.parent }
     Column(Modifier.fillMaxSize().background(Theme.colors.bg).imePadding()) {
         when (val current = page) {
             SettingsPage.Root -> {
@@ -202,8 +205,8 @@ fun SettingsScreen() {
             }
             is SettingsPage.Reset -> {
                 val title = if (current.kind == ResetKind.Everything) "settings.reset.full.title" else "settings.reset.caches.title"
-                Bar(t(title), back = { page = SettingsPage.Root })
-                ResetPage(current.kind) { page = SettingsPage.Root }
+                Bar(t(title), back = if (busy) null else ({ page = SettingsPage.Root }))
+                ResetPage(current.kind, onBusy = { busy = it }) { page = SettingsPage.Root }
             }
         }
     }

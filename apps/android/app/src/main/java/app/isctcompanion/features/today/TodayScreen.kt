@@ -8,6 +8,7 @@ import app.isctcompanion.features.assignments.todayAssignments
 import app.isctcompanion.features.timetable.firstRoom
 import app.isctcompanion.design.t
 import app.isctcompanion.core.OccurrenceKind
+import app.isctcompanion.core.SchoolAuthProfile
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
@@ -153,7 +154,7 @@ fun TodayScreen() {
                     } else if (problem != null) {
                         SyncProblemBanner(problem)
                     }
-                    if (model.needsAccount) ConnectCard { navigator.openSettings() }
+                    if (model.needsAccount) ConnectCard { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
                     model.syncSnapshot?.let { snapshot ->
                         if ((snapshot.activeRuns.isNotEmpty() || snapshot.resetting) &&
                             model.records.courses.isEmpty() && model.records.assignments.isEmpty()

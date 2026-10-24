@@ -158,9 +158,13 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
         while (granted && isActive && !camera.stopped) {
             delay(100)
             if (SystemClock.elapsedRealtime() - camera.lastFrame >= 100) {
-                withContext(Dispatchers.IO) { camera.poll() }?.let { next ->
-                    state = next
-                    if (next.phase == MatrixCameraPhase.COMPLETE) finish(next.cells)
+                when (val next = withContext(Dispatchers.IO) { camera.poll() }) {
+                    is LiveCamera.Update.State -> {
+                        state = next.state
+                        if (next.state.phase == MatrixCameraPhase.COMPLETE) finish(next.state.cells)
+                    }
+                    is LiveCamera.Update.Failed -> fail(next.message)
+                    else -> Unit
                 }
             }
         }
@@ -238,7 +242,7 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
                         error ?: if (ready > 0 && state?.phase != MatrixCameraPhase.COMPLETE) {
                             t("Recognizing Matrix… {{count}}/70 cells confirmed.", "count" to ready)
                         } else {
-                            t("Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within seven seconds.")
+                            t("Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within ten seconds.")
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (error == null) Color.White.copy(alpha = 0.85f) else Theme.colors.danger,
@@ -381,8 +385,14 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
         control?.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
     }
 
-    fun poll(): MatrixCameraState? =
-        if (closed.get()) null else runCatching { scan.poll() }.getOrNull()
+    /** Core's state without a frame; a failure stops the scan, as on iOS. */
+    fun poll(): Update? {
+        if (closed.get()) return null
+        return runCatching { Update.State(scan.poll()) }.getOrElse {
+            stop()
+            Update.Failed(AppModel.describe(it))
+        }
+    }
 
     fun stop() {
         if (closed.getAndSet(true)) return
