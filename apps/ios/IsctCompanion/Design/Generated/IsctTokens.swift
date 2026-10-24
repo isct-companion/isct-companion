@@ -38,6 +38,7 @@ public class IsctTokens {
     public static let courseTintInk = 0.4 /** Text on a fill: the course colour mixed into ink */
     public static let courseTintSoft = 0.1 /** Emphasis on a row: the current or next class */
     public static let heroChroma = 0.022 /** Upper bound; a muted course keeps its own lower chroma */
+    public static let heroFade = 0.45 /** Share of the tint left at the card's bottom edge: a slight top-to-bottom fade, symmetric side to side */
     public static let heroLightness = 0.965
     public static let radiusChip = CGFloat(6)
     public static let radiusControl = CGFloat(999)

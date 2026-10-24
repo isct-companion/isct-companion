@@ -22,9 +22,10 @@
   },
   "hero": {
     "$type": "number",
-    "$description": "The 'now' card's even tint, in OKLCH: the course hue at this lightness, its chroma capped. A fixed lightness keeps every course equally quiet; mixing the raw course colour into white instead greyed it.",
+    "$description": "The 'now' card's tint, in OKLCH: the course hue at this lightness, its chroma capped. A fixed lightness keeps every course equally quiet; mixing the raw course colour into white instead greyed it.",
     "lightness": { "$value": 0.965 },
-    "chroma": { "$value": 0.022, "$description": "Upper bound; a muted course keeps its own lower chroma" }
+    "chroma": { "$value": 0.022, "$description": "Upper bound; a muted course keeps its own lower chroma" },
+    "fade": { "$value": 0.45, "$description": "Share of the tint left at the card's bottom edge: a slight top-to-bottom fade, symmetric side to side" }
   },
   "shadow": {
     "$type": "shadow",

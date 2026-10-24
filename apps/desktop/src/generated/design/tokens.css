@@ -22,6 +22,7 @@
   --ok-soft: #e1f3e7;
   --hero-lightness: 0.965;
   --hero-chroma: 0.022; /** Upper bound; a muted course keeps its own lower chroma */
+  --hero-fade: 0.45; /** Share of the tint left at the card's bottom edge: a slight top-to-bottom fade, symmetric side to side */
   --shadow: 0px 1px 2px 0px #0000000a, 0px 8px 24px 0px #0000000d;
   --course-tint-fill: 22%; /** Something that occupies time: a timetable block */
   --course-tint-soft: 10%; /** Emphasis on a row: the current or next class */

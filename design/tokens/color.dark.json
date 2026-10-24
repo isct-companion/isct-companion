@@ -24,7 +24,8 @@
     "$type": "number",
     "$description": "Dark theme's 'now' tint (see the light theme): a little lighter than the surface, not the light theme's colours on black.",
     "lightness": { "$value": 0.265 },
-    "chroma": { "$value": 0.028 }
+    "chroma": { "$value": 0.028 },
+    "fade": { "$value": 0.45 }
   },
   "shadow": {
     "$type": "shadow",

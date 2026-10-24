@@ -5,10 +5,10 @@ import UIKit
 // on SwiftUI's own animation APIs, so Reduce Motion and Dynamic Type apply.
 
 /// The 'now' tint desktop draws on Today's current or next class and Android
-/// on its hero card (design/README.md): one even wash of the course hue at the
-/// theme's hero lightness, chroma capped (design/tokens `hero`). Mixing the raw
-/// course colour into the surface greyed muted courses, and a corner gradient
-/// read as lopsided.
+/// on its hero card (design/README.md): the course hue at the theme's hero
+/// lightness, chroma capped (design/tokens `hero`), fading slightly from top
+/// to bottom. Mixing the raw course colour into the surface greyed muted
+/// courses, and a corner gradient read as lopsided.
 struct CourseTint: View {
     let tint: Color
     @Environment(\.colorScheme) private var scheme
@@ -16,15 +16,21 @@ struct CourseTint: View {
     var body: some View {
         let dark = scheme == .dark
         let traits = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
-        OKLab(UIColor(tint).resolvedColor(with: traits)).hero(
+        let top = OKLab(UIColor(tint).resolvedColor(with: traits)).hero(
             lightness: dark ? IsctTokensDark.heroLightness : IsctTokens.heroLightness,
             chroma: dark ? IsctTokensDark.heroChroma : IsctTokens.heroChroma
-        ).color
+        )
+        let surface = OKLab(UIColor(Theme.surface).resolvedColor(with: traits))
+        let fade = dark ? IsctTokensDark.heroFade : IsctTokens.heroFade
+        LinearGradient(
+            colors: [top.color, surface.mix(top, fade).color],
+            startPoint: .top, endPoint: .bottom
+        )
     }
 }
 
-/// A colour in OKLab, for the hero tint (desktop uses CSS `oklch(from …)`,
-/// Android Compose's Oklab colour space).
+/// A colour in OKLab, for the hero tint and its fade (desktop uses CSS
+/// `oklch(from …)` and `color-mix(in oklab)`, Android Compose's Oklab).
 private struct OKLab {
     var l: Double, a: Double, b: Double
 
@@ -53,6 +59,11 @@ private struct OKLab {
         let current = (a * a + b * b).squareRoot()
         let scale = current > chroma ? chroma / current : 1
         return OKLab(l: lightness, a: a * scale, b: b * scale)
+    }
+
+    /// `share` of `other` mixed into this colour.
+    func mix(_ other: OKLab, _ share: Double) -> OKLab {
+        OKLab(l: l + (other.l - l) * share, a: a + (other.a - a) * share, b: b + (other.b - b) * share)
     }
 
     var color: Color {

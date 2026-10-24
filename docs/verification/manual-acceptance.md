@@ -5716,7 +5716,7 @@ cover actions and state, not rendered layout, colour or font metrics.
 
 **Last recorded** never run
 
-### The 'now' card is one quiet, even course tint on desktop, iPhone and Android (`NOW-TINT-APPEARANCE`)
+### The 'now' card is a quiet course tint with a slight top-to-bottom fade on desktop, iPhone and Android (`NOW-TINT-APPEARANCE`)
 
 **Area** native · **Persona** Two devices, interrupted work · **Result** —
 
@@ -5746,8 +5746,9 @@ Desktop Today focus row; the hero card on iOS and Android.
 
 **Expected**
 
-The whole card is one even, pale wash of the course's own hue with a thin
-outline in the tint, no gradient; the same strength on all three; in dark
+The whole card is a pale wash of the course's own hue that fades a little
+toward the bottom, the same on the left and right, with a thin outline in
+the tint; the same strength on all three; in dark
 mode a slightly lighter tint of the hue, not a murky patch.
 
 **Why this is manual**

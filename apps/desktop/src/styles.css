@@ -1556,15 +1556,28 @@ p {
   padding-left: 12px;
   border-bottom-color: transparent;
   border-radius: var(--radius-surface);
-  /* The 'now' tint the phone's hero card uses (design/README.md): one even
-     wash of the course hue at the theme's hero lightness and capped chroma,
-     with a hairline in the tint. */
+  /* The 'now' tint the phone's hero card uses (design/README.md): the
+     course hue at the theme's hero lightness and capped chroma, fading
+     slightly from top to bottom, with a hairline in the tint. */
   background: var(--surface);
-  background: oklch(
-    from var(--course) var(--hero-lightness) min(c, var(--hero-chroma)) h
-  );
   box-shadow: inset 0 0 0 0.5px
     color-mix(in srgb, var(--course) var(--course-tint-fill), transparent);
+}
+@supports (color: oklch(from red l c h)) {
+  .dayAgendaRow.focus {
+    --hero: oklch(
+      from var(--course) var(--hero-lightness) min(c, var(--hero-chroma)) h
+    );
+    background: linear-gradient(
+      in oklab,
+      var(--hero),
+      color-mix(
+        in oklab,
+        var(--hero) calc(var(--hero-fade) * 100%),
+        var(--surface)
+      )
+    );
+  }
 }
 .agendaState {
   color: var(--muted);

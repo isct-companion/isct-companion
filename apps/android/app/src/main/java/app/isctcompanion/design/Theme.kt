@@ -21,8 +21,10 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.colorspace.ColorSpaces
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -52,13 +54,15 @@ data class Palette(
     /** The 'now' tint in OKLCH ([nowTint]): lightness, and the chroma cap. */
     val heroLightness: Float,
     val heroChroma: Float,
+    /** Share of the 'now' tint left at the card's bottom edge. */
+    val heroFade: Float,
 )
 
 private val light = with(IsctTokens) {
     Palette(
         colorBg, colorSurface, colorSurface2, colorInk, colorMuted, colorLine, colorAccent,
         colorAccentSoft, colorDanger, colorDangerSoft, colorWarn, colorWarnSoft, colorOk, colorOkSoft,
-        heroLightness.toFloat(), heroChroma.toFloat(),
+        heroLightness.toFloat(), heroChroma.toFloat(), heroFade.toFloat(),
     )
 }
 
@@ -66,7 +70,7 @@ private val dark = with(IsctTokensDark) {
     Palette(
         colorBg, colorSurface, colorSurface2, colorInk, colorMuted, colorLine, colorAccent,
         colorAccentSoft, colorDanger, colorDangerSoft, colorWarn, colorWarnSoft, colorOk, colorOkSoft,
-        heroLightness.toFloat(), heroChroma.toFloat(),
+        heroLightness.toFloat(), heroChroma.toFloat(), heroFade.toFloat(),
     )
 }
 
@@ -96,10 +100,15 @@ fun heroTint(tint: Color, palette: Palette): Color {
 }
 
 /** The 'now' card (design/README.md) the hero card shares with desktop's
- * focus row: one even [heroTint] with a hairline at [Theme.tintFill]. */
+ * focus row: [heroTint] fading slightly from top to bottom ([Palette.heroFade],
+ * mixed in Oklab like the desktop), with a hairline at [Theme.tintFill]. */
 fun Modifier.nowTint(tint: Color, palette: Palette, shape: Shape): Modifier = this
     .clip(shape)
-    .background(heroTint(tint, palette))
+    .background(
+        heroTint(tint, palette).let { top ->
+            Brush.verticalGradient(listOf(top, lerp(palette.surface, top, palette.heroFade)))
+        },
+    )
     .border(0.5.dp, tint.copy(alpha = Theme.tintFill), shape)
 
 @Composable

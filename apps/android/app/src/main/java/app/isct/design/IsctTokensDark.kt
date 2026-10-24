@@ -28,5 +28,6 @@ object IsctTokensDark {
   val colorWarn = Color(0xffe0ad4a)
   val colorWarnSoft = Color(0xff3a2f16)
   val heroChroma = 0.028
+  val heroFade = 0.45
   val heroLightness = 0.265
 }
