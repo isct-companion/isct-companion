@@ -21,12 +21,27 @@ import java.time.Instant
 object NotificationScheduler {
     private const val LIMIT = 64
     private const val HORIZON_DAYS = 7L
-    private const val CHANNEL = "reminders"
+    /** High importance, so a reminder shows as a banner as on iOS, also
+     * while the app is open. A channel keeps the importance it was created
+     * with, hence a new id; the old default-importance one is removed. */
+    private const val CHANNEL = "reminder-banners"
+    private const val OLD_CHANNEL = "reminders"
     private const val SCHEDULED = "scheduled"
     private const val WINDOW_MS = 10 * 60 * 1000L
+    private const val ASKED = "asked"
 
     fun allowed(context: Context): Boolean =
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    /** Refused rather than not yet asked, iOS's `.denied`: Android cannot
+     * tell the two apart, so the shell records each time it asks. */
+    fun denied(context: Context): Boolean =
+        !allowed(context) && context.getSharedPreferences("notifications", Context.MODE_PRIVATE).getBoolean(ASKED, false)
+
+    /** Call right before showing the system's permission prompt. */
+    fun asking(context: Context) {
+        context.getSharedPreferences("notifications", Context.MODE_PRIVATE).edit().putBoolean(ASKED, true).apply()
+    }
 
     /** Schedules the plan. True when Core has reminders this device may not
      * post: the switches sync from the other devices, so this one may never
@@ -65,14 +80,18 @@ object NotificationScheduler {
     /** The desktop's Test notification, posted now. False without permission. */
     fun sendTest(context: Context): Boolean {
         if (!allowed(context)) return false
+        // A repost only updates the shown one, which Android does not alert
+        // again; each test should show its banner.
+        context.getSystemService(NotificationManager::class.java)?.cancel("test".hashCode())
         post(context, "test", "IsctCompanion", app.isctcompanion.design.t("This is a test notification."), null)
         return true
     }
 
     private fun post(context: Context, key: String, title: String?, body: String?, deepLink: String?) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        manager.deleteNotificationChannel(OLD_CHANNEL)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, context.getString(R.string.reminders), NotificationManager.IMPORTANCE_DEFAULT),
+            NotificationChannel(CHANNEL, context.getString(R.string.reminders), NotificationManager.IMPORTANCE_HIGH),
         )
         val open = PendingIntent.getActivity(
             context, 0,

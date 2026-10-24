@@ -2,6 +2,8 @@ package app.isctcompanion.core
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
@@ -10,12 +12,18 @@ import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.ClearTokenRequest
 import com.google.android.gms.auth.api.identity.Identity
-import com.google.android.gms.auth.api.identity.RevokeAccessRequest
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.security.MessageDigest
+import kotlin.concurrent.thread
 
 /** Drive access tokens from Google Identity's authorization API, which keeps
  * the grant in the device's Google account and refreshes it itself. Core owns
@@ -56,34 +64,75 @@ class DriveTokens(private val context: Context) : NativeDriveTokens {
             } ?: throw SdkException.Cancelled()
             result = try {
                 client.getAuthorizationResultFromIntent(data)
-            } catch (error: Exception) {
-                throw SdkException.Authentication("Google sign-in was declined.")
+            } catch (error: ApiException) {
+                throw refusal(error)
             }
         }
         return result.accessToken?.also { lastToken = it }
             ?: throw SdkException.Authentication("Google returned no Drive authorization.")
     }
 
-    /** Forgets the grant, as the port promises: drops the cached token and
-     * revokes the Drive grant for its Google account, so turning Drive on
-     * again shows the consent screen instead of reconnecting silently. The
-     * account is only known from an authorization; after a restart a silent
-     * one (no UI while the grant stands) supplies it. Core has already
+    /** What Google's answer means. A closed prompt is a cancel, not a
+     * refusal. A build Google does not know (its package and signing
+     * certificate are not on the app's Android OAuth client, which needs an
+     * entry per signing key) names the certificate to register. */
+    private fun refusal(error: ApiException): SdkException {
+        Log.w("isct", "Drive authorization", error)
+        val unregistered = error.statusCode == CommonStatusCodes.DEVELOPER_ERROR ||
+            "UNREGISTERED_ON_API_CONSOLE" in error.message.orEmpty()
+        return when {
+            error.statusCode == CommonStatusCodes.CANCELED -> SdkException.Cancelled()
+            unregistered -> SdkException.Unavailable(
+                "Google does not recognise this build. Register package ${context.packageName} with " +
+                    "signing certificate SHA-1 ${signingSha1()} on the app's Android OAuth client.",
+            )
+            else -> SdkException.Authentication("Google sign-in failed (${error.statusCode}).")
+        }
+    }
+
+    /** This APK's signing certificate, as the Google Cloud console asks for it. */
+    private fun signingSha1(): String = runCatching {
+        val info = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        val certificate = info.signingInfo?.apkContentsSigners?.firstOrNull()?.toByteArray() ?: return "?"
+        MessageDigest.getInstance("SHA-1").digest(certificate).joinToString(":") { "%02X".format(it) }
+    }.getOrDefault("?")
+
+    /** Forgets the grant, as the port promises, so turning Drive on again
+     * asks instead of reconnecting silently. A drive.appdata-only grant
+     * does not name its Google account, which `revokeAccess` needs, so the
+     * grant is revoked through Google's OAuth revoke endpoint with a token
+     * (the last one, or after a restart one a silent authorization gives),
+     * and the token then leaves the system cache. Core has already
      * forgotten that Drive was connected, so a failure here leaves only the
-     * system-side grant. */
+     * grant on Google's side. */
     override fun signOut() {
         val client = Identity.getAuthorizationClient(context)
-        lastToken?.let { client.clearToken(ClearTokenRequest.builder().setToken(it).build()) }
-        lastToken = null
-        val scopes = listOf(Scope(grantedScope))
-        client.authorize(AuthorizationRequest.builder().setRequestedScopes(scopes).build())
-            .addOnSuccessListener { result ->
-                val account = result.toGoogleSignInAccount()?.account ?: return@addOnSuccessListener
-                client.revokeAccess(RevokeAccessRequest.builder().setAccount(account).setScopes(scopes).build())
+        val revoke = { token: String ->
+            thread(name = "drive-revoke") {
+                runCatching {
+                    val connection = URL(REVOKE).openConnection() as HttpURLConnection
+                    connection.requestMethod = "POST"
+                    connection.doOutput = true
+                    connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                    connection.outputStream.use { it.write("token=${URLEncoder.encode(token, "UTF-8")}".toByteArray()) }
+                    connection.responseCode.also { connection.disconnect() }
+                }.onSuccess { Log.i("isct", "Drive grant revoked ($it)") }
+                    .onFailure { Log.w("isct", "Drive grant not revoked", it) }
+                client.clearToken(ClearTokenRequest.builder().setToken(token).build())
             }
+        }
+        val cached = lastToken
+        lastToken = null
+        if (cached != null) {
+            revoke(cached)
+        } else {
+            client.authorize(AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(grantedScope))).build())
+                .addOnSuccessListener { result -> result.accessToken?.let(revoke) }
+        }
     }
 
     private companion object {
         const val DRIVE_APPDATA = "https://www.googleapis.com/auth/drive.appdata"
+        const val REVOKE = "https://oauth2.googleapis.com/revoke"
     }
 }

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Course files Core downloads (`filesDirectory`) and exports written for the
-     share sheet, handed to viewer apps by content URI. -->
+     share sheet, handed to viewer apps by content URI; the system camera
+     writes a Matrix card photo into photos/. -->
 <paths>
     <files-path name="files" path="files/" />
     <cache-path name="exports" path="exports/" />
+    <cache-path name="photos" path="photos/" />
 </paths>

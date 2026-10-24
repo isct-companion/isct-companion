@@ -178,7 +178,8 @@ describe("manual acceptance table", () => {
   });
 
   it("keeps the rendered document in step with the YAML it is generated from", () => {
-    expect(readRepoFile(rel(rendered))).toBe(
+    // Git may check out CRLF on Windows; line endings do not change it.
+    expect(readRepoFile(rel(rendered)).replaceAll("\r\n", "\n")).toBe(
       render(load(), { compute: true, skipPending: true }),
     );
   });

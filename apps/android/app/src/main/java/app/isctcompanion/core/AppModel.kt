@@ -47,10 +47,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     var today: TodayView? by mutableStateOf(null)
         private set
     var board: AssignmentBoard? by mutableStateOf(null)
+        private set
     /** Files waiting in each assignment's `submit/`, by assignment id, for
      * 今日's rows (Core's `waitingHandIns`). */
     var waiting: Map<String, Int> by mutableStateOf(emptyMap())
-        private set
         private set
     var periods: List<TeachingPeriod> by mutableStateOf(emptyList())
         private set
@@ -171,6 +171,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             reportSchool(SchoolSessionLifecycleKind.FOCUS)
             startWaking()
             scope.launch { refresh() }
+            // Permission granted in the system settings while away.
+            if (notificationsBlocked) scope.launch { resyncNotifications() }
         } else {
             wakeJob?.cancel()
             wakeJob = null

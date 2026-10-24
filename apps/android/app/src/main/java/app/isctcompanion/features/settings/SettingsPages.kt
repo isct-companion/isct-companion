@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,8 +118,15 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
     val model = LocalModel.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var denied by remember { mutableStateOf(false) }
+    var denied by remember { mutableStateOf(NotificationScheduler.denied(context)) }
     var tested by remember { mutableStateOf(false) }
+    // The answer can change in the system settings while this page is away,
+    // as iOS re-reads it when the scene becomes active.
+    LifecycleResumeEffect(Unit) {
+        denied = NotificationScheduler.denied(context)
+        if (NotificationScheduler.allowed(context) && model.notificationsBlocked) scope.launch { model.resyncNotifications() }
+        onPauseOrDispose {}
+    }
     var pending by remember { mutableStateOf<String?>(null) }
     val settings = model.records.settings.optJSONObject("notifications")
     val turnOn = { key: String ->
@@ -151,6 +159,7 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
             turnOn(key)
         } else {
             pending = key
+            NotificationScheduler.asking(context)
             launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -193,6 +202,7 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
                         sendTest()
                     } else {
                         pending = TEST
+                        NotificationScheduler.asking(context)
                         launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }) { Text(t("Send")) }

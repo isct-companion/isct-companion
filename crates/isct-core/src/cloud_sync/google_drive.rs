@@ -139,24 +139,18 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
         Ok(ids)
     }
 
-    async fn download(&self, id: &str, etag: Option<&str>) -> Result<Vec<u8>, DocumentError> {
-        // v2 honors the ETag of its own metadata for a conditional read.
-        let version = if etag.is_some() { "v2" } else { "v3" };
+    async fn download(&self, id: &str) -> Result<Vec<u8>, DocumentError> {
         let response = self
             .send(
                 reqwest::Method::GET,
                 endpoint(&format!(
-                    "https://www.googleapis.com/drive/{version}/files/{id}?alt=media"
+                    "https://www.googleapis.com/drive/v3/files/{id}?alt=media"
                 ))?,
                 None,
                 None,
-                etag,
+                None,
             )
             .await?;
-        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
-            log::warn!("Google Drive changed during conditional read");
-            return Err(DocumentError::Conflict);
-        }
         if !response.status().is_success() {
             return Err(transport("Google Drive workspace read failed."));
         }
@@ -166,7 +160,7 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
     /// Reads a file by name; `None` when the folder has none.
     pub async fn read_file(&self, name: &str) -> Result<Option<Vec<u8>>, DocumentError> {
         match self.file_ids(name).await?.first() {
-            Some(id) => self.download(id, None).await.map(Some),
+            Some(id) => self.download(id).await.map(Some),
             None => Ok(None),
         }
     }
@@ -221,7 +215,7 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
         // documents until their union has been committed there.
         let mut current: Option<CloudWorkspaceFile> = None;
         for id in self.file_ids(CLOUD_FILE_NAME).await? {
-            let file = document::parse_cloud_workspace(&self.download(&id, None).await?)?;
+            let file = document::parse_cloud_workspace(&self.download(&id).await?)?;
             match current.as_mut() {
                 Some(current) => current.siblings.push(file.document),
                 None => current = Some(file),
@@ -245,8 +239,11 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
                 Some(_) => Err(DocumentError::Conflict),
             };
         };
-        // v2 exposes the file ETag explicitly; it is honored by conditional
-        // media reads and writes of the same resource.
+        // v2 exposes the file ETag; the upload below is conditional on it, so
+        // a write that landed after this read fails with 412 and is merged
+        // again. Media downloads do not accept it: Drive answers If-Match on
+        // `alt=media` with 412 conditionNotMet even when nothing changed, so
+        // the content is read plainly.
         let meta = self
             .send(
                 reqwest::Method::GET,
@@ -266,7 +263,7 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
         let etag = meta["etag"]
             .as_str()
             .ok_or_else(|| transport("Google Drive did not return a version tag."))?;
-        let current = document::parse_cloud_workspace(&self.download(&id, Some(etag)).await?)?;
+        let current = document::parse_cloud_workspace(&self.download(&id).await?)?;
         if Some(current.revision) != expected
             || file.previous.first().is_some_and(|previous| {
                 !document::workspace_contents_equal(&current.document, &previous.document)
