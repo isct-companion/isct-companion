@@ -211,13 +211,13 @@ impl Notes {
     ) -> Result<Vec<LocalFile>, NoteError> {
         let _guard = self.lock_selected()?;
         let mut notes = Vec::new();
-        let canonical_root = canonical_root_if_present(&self.root)?;
+        let tree = self.tree();
+        let canonical_root = canonical_root_if_present(&tree)?;
         for section in sections.into_iter().take(300) {
             component(&context.term)?;
             component(&context.course)?;
             component(&section)?;
-            let dir = self
-                .root
+            let dir = tree
                 .join(&context.term)
                 .join(&context.course)
                 .join(&section)
@@ -396,13 +396,14 @@ impl Notes {
     }
 
     fn export_unlocked(&self) -> Result<Vec<LocalNoteBackup>, NoteError> {
-        if !self.root.is_dir() {
+        let tree = self.tree();
+        if !tree.is_dir() {
             return Ok(Vec::new());
         }
-        let canonical = self.root.canonicalize().map_err(storage_error)?;
+        let canonical = tree.canonicalize().map_err(storage_error)?;
         let mut result = Vec::new();
         let mut total = 0_u64;
-        for term in fs::read_dir(&self.root).map_err(storage_error)? {
+        for term in fs::read_dir(&tree).map_err(storage_error)? {
             let term = term.map_err(storage_error)?;
             if term.path().is_symlink() || !term.path().is_dir() {
                 continue;
@@ -497,9 +498,14 @@ impl Notes {
         Ok(result)
     }
 
+    /// Notes live in the material tree, beside the course's downloads.
+    fn tree(&self) -> PathBuf {
+        crate::storage::material_root(&self.root)
+    }
+
     fn folder(&self, context: &CourseFolder, kind: &str) -> Result<PathBuf, NoteError> {
         storage_dir(
-            &self.root,
+            &self.tree(),
             &[&context.term, &context.course, &context.section, kind],
         )
         .map_err(NoteError::from)

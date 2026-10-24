@@ -22,7 +22,7 @@ use super::{
 
 /// Classes the Today stack previews: the next one and two after it.
 const UPCOMING_CLASSES: usize = 3;
-const RECENT_DAYS: i64 = 3;
+pub(crate) const RECENT_DAYS: i64 = 3;
 const RECENT_ITEMS: usize = 3;
 /// In class: the newest material and the nearest open assignment.
 const CLASS_ITEMS: usize = 1;
@@ -99,6 +99,39 @@ pub struct MaterialItem {
 pub enum RecentItem {
     Grade(DeadlineItem),
     Material(MaterialItem),
+}
+
+/// Which list a `RecentItem` comes from, naming it to `MarkRecentSeen`.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum RecentKind {
+    Grade,
+    Material,
+}
+
+/// The `recentSeen` entry of one recent item.
+pub(crate) fn recent_key(kind: RecentKind, id: &str) -> String {
+    match kind {
+        RecentKind::Grade => format!("grade:{id}"),
+        RecentKind::Material => format!("material:{id}"),
+    }
+}
+
+/// The `updatedAt` a recent item is shown for; seeing it records this value.
+pub(crate) fn recent_version<'a>(
+    workspace: &'a Value,
+    kind: RecentKind,
+    id: &str,
+) -> Option<&'a str> {
+    let field = match kind {
+        RecentKind::Grade => "assignments",
+        RecentKind::Material => "materials",
+    };
+    array(workspace, field)
+        .iter()
+        .find(|row| text(row, "id") == Some(id))
+        .and_then(|row| text(row, "updatedAt"))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -468,42 +501,83 @@ pub fn today_view(
 }
 
 /// Grades and materials changed within the last few days, newest first.
+/// One opened since its last change (`recentSeen`) is no longer new.
 fn recent(workspace: &Value, now: DateTime<FixedOffset>, date: &str) -> Vec<RecentItem> {
+    unseen(workspace, now, date)
+        .into_iter()
+        .take(RECENT_ITEMS)
+        .map(|unseen| unseen.item)
+        .collect()
+}
+
+/// Every item that is new now, past the few Today shows: read all marks
+/// them, so the list does not refill from the ones it held back.
+pub(crate) fn unseen_recent(
+    workspace: &Value,
+    now: DateTime<FixedOffset>,
+) -> Vec<(String, String)> {
+    unseen(workspace, now, &tokyo_date(now))
+        .into_iter()
+        .map(|unseen| (unseen.key, unseen.version))
+        .collect()
+}
+
+/// A new recent item with its `recentSeen` entry: the key and the
+/// `updatedAt` seeing it records.
+struct Unseen {
+    key: String,
+    version: String,
+    item: RecentItem,
+}
+
+fn unseen(workspace: &Value, now: DateTime<FixedOffset>, date: &str) -> Vec<Unseen> {
     let since = now - Duration::days(RECENT_DAYS);
-    let changed = |row: &Value| {
-        text(row, "updatedAt")
-            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
+    let seen = workspace.get("recentSeen");
+    let changed = |kind: RecentKind, row: &Value| {
+        let raw = text(row, "updatedAt")?;
+        let key = recent_key(kind, text(row, "id")?);
+        if seen.and_then(|seen| seen.get(&key)).and_then(Value::as_str) == Some(raw) {
+            return None;
+        }
+        DateTime::parse_from_rfc3339(raw)
+            .ok()
             .filter(|at| *at >= since && *at <= now)
     };
-    let mut items: Vec<(DateTime<FixedOffset>, RecentItem)> = array(workspace, "assignments")
+    let entry = |kind: RecentKind, row: &Value, item: RecentItem| {
+        Some(Unseen {
+            key: recent_key(kind, text(row, "id")?),
+            version: text(row, "updatedAt")?.to_owned(),
+            item,
+        })
+    };
+    let mut items: Vec<(DateTime<FixedOffset>, Unseen)> = array(workspace, "assignments")
         .iter()
         .filter(|row| visible(row) && text(row, "submission") == Some("graded"))
         .filter_map(|row| {
-            let at = changed(row)?;
+            let at = changed(RecentKind::Grade, row)?;
             let item = deadline_item(workspace, row, now)?;
-            (!item.hidden && item.grade.is_some()).then_some((at, RecentItem::Grade(item)))
+            if item.hidden || item.grade.is_none() {
+                return None;
+            }
+            Some((at, entry(RecentKind::Grade, row, RecentItem::Grade(item))?))
         })
         .collect();
     items.extend(materials(workspace).filter_map(|row| {
-        Some((
-            changed(row)?,
-            RecentItem::Material(material_item(workspace, row, date)?),
-        ))
+        let at = changed(RecentKind::Material, row)?;
+        let item = RecentItem::Material(material_item(workspace, row, date)?);
+        Some((at, entry(RecentKind::Material, row, item)?))
     }));
     items.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-    items
-        .into_iter()
-        .take(RECENT_ITEMS)
-        .map(|(_, item)| item)
-        .collect()
+    items.into_iter().map(|(_, unseen)| unseen).collect()
 }
 
 pub fn assignment_board(
     workspace: &Value,
     now: DateTime<FixedOffset>,
+    term: Option<String>,
 ) -> Result<AssignmentBoard, ScheduleError> {
     let now = now.with_timezone(&jst()?);
-    let term = reminder_term(workspace);
+    let term = term.unwrap_or_else(|| reminder_term(workspace));
     let view = task_view(workspace, now)?;
     let groups = view.by_term.get(&term).cloned().unwrap_or_default();
     Ok(AssignmentBoard {

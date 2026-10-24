@@ -1,6 +1,12 @@
 package app.isctcompanion
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Application
+import android.content.Intent
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -65,9 +71,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.SchoolAuthProfile
+import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.TlsVerifier
 import app.isctcompanion.core.WebRouter
+import app.isctcompanion.features.handin.InboxTray
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.IsctTheme
 import app.isctcompanion.design.LocalDestinationScope
@@ -116,11 +124,33 @@ class MainActivity : ComponentActivity() {
         val model = (application as IsctApplication).model
         model.browser.attachParking(this)
         model.drive.attach(this)
+        receiveShared(intent)
         setContent {
             IsctTheme {
                 CompositionLocalProvider(LocalModel provides model) { RootView() }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch(Dispatchers.IO) { SharedInbox.refresh(this@MainActivity) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        receiveShared(intent)
+    }
+
+    /** Copies what another app shared into the inbox while its grant lasts. */
+    private fun receiveShared(intent: Intent?) {
+        val uris = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
+            Intent.ACTION_SEND_MULTIPLE ->
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            else -> return
+        }
+        if (uris.isNotEmpty()) lifecycleScope.launch(Dispatchers.IO) { SharedInbox.receive(this@MainActivity, uris) }
     }
 }
 
@@ -177,6 +207,7 @@ private const val WIDE_DP = 600
 @Composable
 private fun RootView() {
     val model = LocalModel.current
+    NotificationPermissionAsk()
     when (val status = model.status) {
         AppModel.Status.Opening -> Box(Modifier.fillMaxSize().background(Theme.colors.bg), Alignment.Center) {
             CircularProgressIndicator()
@@ -191,6 +222,25 @@ private fun RootView() {
             Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
         }
         AppModel.Status.Ready -> Tabs()
+    }
+}
+
+/** Reminder switches sync from the other devices, so this phone may have
+ * reminders to post without ever having been asked: it asks once when Core
+ * has some, then schedules them. */
+@Composable
+private fun NotificationPermissionAsk() {
+    val model = LocalModel.current
+    val scope = rememberCoroutineScope()
+    var asked by rememberSaveable { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) scope.launch { model.resyncNotifications() }
+    }
+    LaunchedEffect(model.notificationsBlocked) {
+        if (model.notificationsBlocked && !asked) {
+            asked = true
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 }
 
@@ -259,6 +309,7 @@ private fun Tabs() {
             @OptIn(ExperimentalSharedTransitionApi::class)
             SharedTransitionLayout {
             CompositionLocalProvider(LocalSharedTransition provides this) {
+            Box(Modifier.fillMaxSize()) {
             NavHost(controller, startDestination = AppTab.Today.route, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
                 tab(AppTab.Today) { TodayScreen() }
                 tab(AppTab.Timetable) { TimetableScreen() }
@@ -296,6 +347,13 @@ private fun Tabs() {
                         WebRouter.PushedPage(site, args?.getString("target")?.ifEmpty { null }, args?.getString("title").orEmpty()),
                     )
                 }
+            }
+            // What was shared into the app waits in the corner, above the
+            // navigation bar.
+            InboxTray(
+                Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = padding.calculateBottomPadding() + 12.dp),
+            )
             }
             }
             }

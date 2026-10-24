@@ -20,6 +20,9 @@ final class AppModel {
     private(set) var status: Status = .opening
     private(set) var today: TodayView?
     private(set) var board: AssignmentBoard?
+    /// Files waiting in each assignment's `submit/`, by assignment id, for
+    /// 今日's rows (Core's `waitingHandIns`).
+    private(set) var waiting: [String: Int] = [:]
     private(set) var periods: [TeachingPeriod] = []
     /// Course id → Core's display colour, identical on every surface.
     private(set) var colors: [String: String] = [:]
@@ -317,12 +320,15 @@ final class AppModel {
                 records = WorkspaceRecords(json: snapshot.workspace)
             }
             guard case let .schedule(result) = try await session.scheduleQuery(queries: [
-                .today(now: now), .assignmentBoard(now: now), .teachingPeriods,
+                .today(now: now), .assignmentBoard(now: now, term: nil), .teachingPeriods,
             ]).value() else { return }
             for value in result.values {
                 switch value {
                 case let .today(view): today = view
-                case let .assignmentBoard(value): board = value
+                case let .assignmentBoard(value):
+                    board = value
+                    writeShareChoices(value)
+                    await refreshWaiting()
                 case let .teachingPeriods(value): periods = value
                 default: break
                 }
@@ -445,6 +451,17 @@ final class AppModel {
             case let .workspaceOverview(view)? = result.values.first
         else { return nil }
         return view
+    }
+
+    /// One quarter's assignments as Core groups them, for 授業's 課題.
+    func board(term: String) async -> AssignmentBoard? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .assignmentBoard(now: Self.timestamp(Date()), term: term)
+            ]).value(),
+            case let .assignmentBoard(board)? = result.values.first
+        else { return nil }
+        return board
     }
 
     /// Core's equal-row timetable axis, widened to the week's earliest start
@@ -814,6 +831,30 @@ extension AppModel {
 // MARK: - Timetable session marks and upcoming exams
 
 extension AppModel {
+    /// Opening an item of 今日's 新着: Core stops listing it until it changes.
+    func markRecentSeen(_ list: RecentKind, _ id: String) async {
+        await markSeen(.markRecentSeen(list: list, id: id))
+    }
+
+    /// 新着's read all: Core stops listing everything new now, past the few it
+    /// shows too.
+    func markAllRecentSeen() async {
+        await markSeen(.markAllRecentSeen)
+    }
+
+    private func markSeen(_ intent: WorkspaceIntent) async {
+        guard let session else { return }
+        let mutation = WorkspaceMutation(expectedRevision: revision, intent: intent)
+        do {
+            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
+                revision = snapshot.revision
+            }
+        } catch {
+            // The item only stays new a little longer; nothing to tell.
+        }
+        await refresh()
+    }
+
     /// Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
     /// Core republishes the schedule; the new content revision re-reads the week.
     func markSession(_ key: String, _ mark: String) async {
@@ -938,5 +979,66 @@ extension AppModel {
         case "transfer": .transfer
         default: .unknown
         }
+    }
+}
+
+// MARK: - Hand-in (see HandIn.swift)
+
+extension AppModel {
+    /// The files waiting in the assignment's `submit/`.
+    func submitFiles(_ assignment: String) async -> [LocalFile] {
+        guard let session,
+            case let .files(files)? = try? await session.assignmentSubmitFiles(assignmentId: assignment).value()
+        else { return [] }
+        return files
+    }
+
+    /// Copies the files into the assignment's `submit/`; the sources stay.
+    func addSubmitFiles(_ assignment: String, _ files: [SharedFile]) async throws -> [LocalFile] {
+        guard let session else { throw SdkError.Closed }
+        guard case let .files(listed) = try await session.addAssignmentFiles(assignmentId: assignment, files: files).value()
+        else { return [] }
+        await refreshWaiting()
+        return listed
+    }
+
+    func removeSubmitFile(_ assignment: String, name: String) async throws -> [LocalFile] {
+        guard let session else { throw SdkError.Closed }
+        guard case let .files(listed) = try await session.removeAssignmentFile(assignmentId: assignment, name: name).value()
+        else { return [] }
+        await refreshWaiting()
+        return listed
+    }
+
+    /// Re-reads which assignments have files waiting to be handed in.
+    func refreshWaiting() async {
+        guard let session,
+            case let .waiting(assignments)? = try? await session.waitingHandIns().value()
+        else { return }
+        waiting = Dictionary(assignments.map { ($0.assignmentId, Int($0.files)) }, uniquingKeysWith: +)
+    }
+
+    /// Queues `submit/` for the LMS draft area and returns the page that
+    /// receives it, for the in-app web view.
+    func handIn(_ assignment: String) async throws -> String {
+        guard let session else { throw SdkError.Closed }
+        let messages = UploadMessages(
+            waiting: t("Preparing your LMS upload…"),
+            queued: t("Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself."),
+            failed: t("The upload area is not available. Choose the files in LMS."))
+        guard case let .text(url) = try await session.handInAssignment(assignmentId: assignment, messages: messages).value()
+        else { throw SdkError.Unavailable(detail: "") }
+        return url
+    }
+
+    /// The quarter's open assignments, for the share sheet's list.
+    func writeShareChoices(_ board: AssignmentBoard) {
+        let groups = board.today
+        let open = groups.pinned + groups.dueThisWeek + groups.later + groups.undated + groups.pastRecent
+        var seen = Set<String>()
+        let choices = open.filter { seen.insert($0.assignmentId).inserted }.map {
+            SharedInbox.Choice(id: $0.assignmentId, title: $0.title, course: $0.courseTitle, due: Format.due($0.dueAt))
+        }
+        SharedInbox.writeChoices(SharedInbox.Choices(language: Localizer.shared.language, assignments: choices))
     }
 }

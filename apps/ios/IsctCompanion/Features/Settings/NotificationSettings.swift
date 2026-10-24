@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 /// The desktop's reminder choices (`platform/reminders.ts`) and labels
 /// (`NotificationSettings.tsx`), so both ends write the same values to
@@ -42,10 +43,15 @@ enum ReminderLeads {
 }
 
 /// Reminder switches and their timings; the system permission is asked on the
-/// first switch-on.
+/// first switch-on. The switches sync between devices but the permission is
+/// this device's, so the screen shows the system's answer and offers the
+/// desktop's test notification.
 struct NotificationsScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @State private var denied = false
+    @State private var tested = false
 
     private var settings: [String: Any] {
         model.records.settings["notifications"] as? [String: Any] ?? [:]
@@ -82,15 +88,38 @@ struct NotificationsScreen: View {
                         }
                     }
                 }
+            }
+            Section {
+                LabeledContent(t("Test notification")) {
+                    Button(t("Send")) {
+                        Task {
+                            let sent = await NotificationScheduler.sendTest()
+                            denied = !sent
+                            tested = sent
+                        }
+                    }
+                }
+                if denied, let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                    Button(t("Open Settings")) { openURL(url) }
+                }
             } footer: {
                 if denied {
                     Text(t("Notifications are not allowed. Allow them in the Settings app under Notifications."))
                         .foregroundStyle(Theme.danger)
+                } else if tested {
+                    Text(t("The system accepted the test notification. If no banner appears, check notification settings, Focus, and screen sharing."))
                 }
             }
         }
         .navigationTitle(t("Notifications"))
         .navigationBarTitleDisplayMode(.inline)
+        // The answer can change in the Settings app while this screen is away.
+        .task(id: scenePhase) {
+            if scenePhase == .active {
+                let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+                denied = status == .denied
+            }
+        }
     }
 
     private func binding(_ key: String, current: Bool) -> Binding<Bool> {

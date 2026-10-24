@@ -47,11 +47,18 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     var today: TodayView? by mutableStateOf(null)
         private set
     var board: AssignmentBoard? by mutableStateOf(null)
+    /** Files waiting in each assignment's `submit/`, by assignment id, for
+     * 今日's rows (Core's `waitingHandIns`). */
+    var waiting: Map<String, Int> by mutableStateOf(emptyMap())
+        private set
         private set
     var periods: List<TeachingPeriod> by mutableStateOf(emptyList())
         private set
     /** Course id → Core's display colour, identical on every surface. */
     var colors: Map<String, String> by mutableStateOf(emptyMap())
+        private set
+    /** Core has reminders for this device but it may not post them. */
+    var notificationsBlocked: Boolean by mutableStateOf(false)
         private set
     private var shownRecords by mutableStateOf(WorkspaceRecords())
     var records: WorkspaceRecords
@@ -329,13 +336,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             }
             val result = (
                 session.scheduleQuery(
-                    listOf(WorkspaceQuery.Today(now), WorkspaceQuery.AssignmentBoard(now), WorkspaceQuery.TeachingPeriods),
+                    listOf(WorkspaceQuery.Today(now), WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods),
                 ).value() as? OperationResult.Schedule
                 )?.snapshot ?: return
             for (value in result.values) {
                 when (value) {
                     is WorkspaceQueryResult.Today -> today = value.v1
-                    is WorkspaceQueryResult.AssignmentBoard -> board = value.v1
+                    is WorkspaceQueryResult.AssignmentBoard -> {
+                        board = value.v1
+                        refreshWaiting()
+                    }
                     is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
                     else -> Unit
                 }
@@ -353,7 +363,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 weeks.clear()
                 scope.launch { prefetchTimetable() }
             }
-            if (changed) NotificationScheduler.sync(context, session)
+            if (changed) notificationsBlocked = NotificationScheduler.sync(context, session)
         } catch (error: CancellationException) {
             // A newer change hint replaced this read; it is not a failure.
             throw error
@@ -493,6 +503,67 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (result as? OperationResult.Material)?.material
     }
 
+    // Hand-in (docs/ux/mobile.md, Hand-in): files go to the assignment's
+    // workspace `submit/`; handing in fills the LMS draft area from it. Core
+    // never submits; the person saves the page.
+
+    /** The files waiting in the assignment's `submit/`. */
+    suspend fun submitFiles(assignment: String): List<LocalFile> {
+        val session = session ?: return emptyList()
+        val result = runCatching { session.assignmentSubmitFiles(assignment).value() }.getOrNull()
+        return (result as? OperationResult.Files)?.files.orEmpty()
+    }
+
+    /** Copies the files into the assignment's `submit/`; the sources stay. */
+    suspend fun addSubmitFiles(assignment: String, files: List<SharedFile>): List<LocalFile> {
+        val session = session ?: throw SdkException.Closed()
+        val listed = (session.addAssignmentFiles(assignment, files).value() as? OperationResult.Files)?.files.orEmpty()
+        refreshWaiting()
+        return listed
+    }
+
+    suspend fun removeSubmitFile(assignment: String, name: String): List<LocalFile> {
+        val session = session ?: throw SdkException.Closed()
+        val listed = (session.removeAssignmentFile(assignment, name).value() as? OperationResult.Files)?.files.orEmpty()
+        refreshWaiting()
+        return listed
+    }
+
+    /** Re-reads which assignments have files waiting to be handed in. */
+    suspend fun refreshWaiting() {
+        val session = session ?: return
+        val result = runCatching { session.waitingHandIns().value() }.getOrNull() as? OperationResult.Waiting ?: return
+        waiting = result.assignments.groupBy({ it.assignmentId }, { it.files.toInt() }).mapValues { it.value.sum() }
+    }
+
+    /** Queues `submit/` for the LMS draft area; returns the page that receives it. */
+    suspend fun handIn(assignment: String): String {
+        val session = session ?: throw SdkException.Closed()
+        val messages = UploadMessages(
+            t("Preparing your LMS upload…"),
+            t("Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself."),
+            t("The upload area is not available. Choose the files in LMS."),
+        )
+        return (session.handInAssignment(assignment, messages).value() as? OperationResult.Text)?.value
+            ?: throw SdkException.Unavailable("")
+    }
+
+    /** Gives inbox items to an assignment and removes them; on failure they stay. */
+    suspend fun give(items: List<SharedInbox.Item>, assignment: String): Boolean {
+        val files = items.map { SharedFile(it.file.path, it.name) }
+        if (files.isEmpty()) return false
+        return try {
+            addSubmitFiles(assignment, files)
+            items.forEach { SharedInbox.remove(context, it) }
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            problem = describe(error)
+            false
+        }
+    }
+
     /** The syllabus departments, as the desktop's course finder lists them. */
     suspend fun departments(): List<FinderDepartment> {
         val session = session ?: return emptyList()
@@ -545,6 +616,17 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     private suspend fun mark(id: String, hidden: Boolean?, pinned: Boolean?) {
         commit(WorkspaceIntent.SetAssignmentMark(id, hidden, pinned, null))
+    }
+
+    /** Opening an item of 今日's 新着: Core stops listing it until it changes. */
+    suspend fun markRecentSeen(list: RecentKind, id: String) {
+        commit(WorkspaceIntent.MarkRecentSeen(list, id))
+    }
+
+    /** 新着's read all: Core stops listing everything new now, past the few it
+     * shows too. */
+    suspend fun markAllRecentSeen() {
+        commit(WorkspaceIntent.MarkAllRecentSeen)
     }
 
     /** Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
@@ -664,7 +746,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             problem = describe(error)
         }
         refresh()
-        NotificationScheduler.sync(context, session)
+        notificationsBlocked = NotificationScheduler.sync(context, session)
+    }
+
+    /** Schedules the plan again, after the notification permission changed. */
+    suspend fun resyncNotifications() {
+        val session = session ?: return
+        notificationsBlocked = NotificationScheduler.sync(context, session)
     }
 
     /** Whether this build can read a Matrix card (arm64; not the x86_64 emulator). */

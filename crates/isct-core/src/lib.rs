@@ -56,5 +56,4 @@ pub mod sync_state;
 pub mod workspace;
 pub mod workspace_changes;
 
-#[cfg(feature = "desktop-workspaces")]
 pub mod workspaces;

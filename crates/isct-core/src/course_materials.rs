@@ -342,8 +342,11 @@ fn bounded_download_limit(limit: Option<u64>) -> Option<u64> {
 }
 
 pub fn material_path(root: &Path, course: &CourseKey, url: &Url) -> Result<PathBuf, MaterialError> {
-    let path =
-        storage_dir(root, &[&course.term, &course.course, "materials"])?.join(material_name(url));
+    let path = storage_dir(
+        &crate::storage::material_root(root),
+        &[&course.term, &course.course, "materials"],
+    )?
+    .join(material_name(url));
     if path.exists()
         && fs::symlink_metadata(&path)
             .map_err(storage_error)?
@@ -502,9 +505,10 @@ pub fn purge_downloads(root: &Path, delete: bool) -> Result<RemovedFiles, Materi
     Ok(removed)
 }
 
-/// The `materials` folders of the current and legacy layouts:
+/// The `materials` folders of the material tree, current and legacy:
 /// `<term>/<course>/materials` and `<term>/<course>/<section>/materials`.
 fn material_directories(root: &Path) -> Result<Vec<PathBuf>, MaterialError> {
+    let root = crate::storage::material_root(root);
     if !root.exists() {
         return Ok(Vec::new());
     }

@@ -28,6 +28,10 @@ targets:
     dependencies:
       - package: IsctCore
       - package: Pow
+      # The share sheet's entries (docs/ux/mobile.md, Hand-in): the app-row
+      # sheet and the "Open in IsctCompanion" action.
+      - target: IsctShare
+      - target: IsctOpen
     info:
       path: IsctCompanion/Info.plist
       properties:
@@ -52,6 +56,18 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # "Open in IsctCompanion" in another app's share sheet: the system
+        # starts the app with a copy of the file, which goes to the hand-in
+        # inbox (docs/ux/mobile.md, Hand-in).
+        # The share extension's "open the app" link.
+        CFBundleURLTypes:
+          - CFBundleURLName: app.isctcompanion.inbox
+            CFBundleURLSchemes: [isctcompanion]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: File
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.data, public.content]
+        LSSupportsOpeningDocumentsInPlace: false
         NSCameraUsageDescription: 認証アプリの QR コードやマトリクス表を読み取るためにカメラを使います。
         NSPhotoLibraryUsageDescription: QR コードやマトリクス表の写真を読み込むために使います。
         # Google Drive sign-in (GoogleSignIn.swift): the iOS client registered in
@@ -71,6 +87,9 @@ targets:
         # Development-signed builds would otherwise use CloudKit's separate
         # Development database and never see what the released Mac app wrote.
         com.apple.developer.icloud-container-environment: Production
+        # The inbox the share extension writes (SharedInbox.swift).
+        com.apple.security.application-groups:
+          - group.app.isctcompanion
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion
@@ -84,3 +103,87 @@ targets:
         ENABLE_PREVIEWS: true
         CODE_SIGN_STYLE: Automatic
         ISCT_GOOGLE_IOS_CLIENT_ID: 681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv.apps.googleusercontent.com
+  # Share extension: what is shared from another app goes to the app's inbox
+  # in the App Group, optionally for an assignment picked in the sheet. It
+  # never loads Core; the app hands the files in.
+  IsctShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: IsctShare
+      - path: ExtensionShared
+      - path: IsctCompanion/Shared
+      - path: IsctCompanion/Design/Localization.swift
+      - path: ../../resources/locales
+        buildPhase: resources
+    info:
+      path: IsctShare/Info.plist
+      properties:
+        CFBundleDisplayName: IsctCompanion
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # Core's draft upload takes at most 32 files.
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 32
+              NSExtensionActivationSupportsImageWithMaxCount: 32
+              NSExtensionActivationSupportsMovieWithMaxCount: 32
+    entitlements:
+      path: IsctShare/IsctShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.isctcompanion
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.share
+        PRODUCT_NAME: IsctShare
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        APPLICATION_EXTENSION_API_ONLY: YES
+  # Action extension: "Open in IsctCompanion" in the share sheet's actions.
+  # What was shared goes to the inbox and the app comes forward with it in the
+  # corner stack; no sheet, nothing picked or submitted here.
+  IsctOpen:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: IsctOpen
+      - path: ExtensionShared
+      - path: IsctCompanion/Shared/SharedInbox.swift
+    info:
+      path: IsctOpen/Info.plist
+      properties:
+        CFBundleDisplayName: Open in IsctCompanion
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ui-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).OpenViewController
+          NSExtensionAttributes:
+            NSExtensionActionWantsFullScreenPresentation: false
+            # Core's draft upload takes at most 32 files.
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 32
+              NSExtensionActivationSupportsImageWithMaxCount: 32
+              NSExtensionActivationSupportsMovieWithMaxCount: 32
+    entitlements:
+      path: IsctOpen/IsctOpen.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.isctcompanion
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.open
+        PRODUCT_NAME: IsctOpen
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        APPLICATION_EXTENSION_API_ONLY: YES

@@ -955,7 +955,10 @@ fn otp_setup_uri(setup: &str, account: &str) -> String {
     let label = if account.is_empty() {
         issuer.to_string()
     } else {
-        format!("{issuer}:{}", utf8_percent_encode(account, NON_ALPHANUMERIC))
+        format!(
+            "{issuer}:{}",
+            utf8_percent_encode(account, NON_ALPHANUMERIC)
+        )
     };
     let secret = setup.replace([' ', '-', '='], "").to_ascii_uppercase();
     format!("otpauth://totp/{label}?secret={secret}&issuer={issuer}")

@@ -542,11 +542,23 @@ See [isct-ocr](../crates/isct-ocr/README.md) for limits and supported formats.
 
 ## Assignment workspace contract
 
-Enable Core's `desktop-workspaces` feature on desktop targets. `Workspaces::new`
-takes the selected root. `find`, `create`, `workspace_path`, `set_submission`,
-`prepare`, `delete` and `clean` retain the existing directory/metadata format and
-camelCase wire records. `prepare` returns `PreparedSubmission` with a folder or
-archive target; the shell opens it. Core never submits school assignments.
+Every target builds workspaces; ZIP packing of `submit/` and unpacking of
+attachments are the desktop's alone, behind Core's `workspace-archives`
+feature, so the phones carry no `zip` dependency and refuse an archive
+workspace with `WorkspaceError::Archive`. `Workspaces::new` takes the selected root and
+keeps workspaces in its `workspace/` tree (see
+[course file storage](course-file-storage.md)). `find`, `create`,
+`workspace_path`, `set_submission`, `prepare`, `delete` and `clean` retain the
+directory/metadata format and camelCase wire records. `prepare` returns
+`PreparedSubmission` with a folder or archive target; the shell opens it.
+
+The phones fill `submit/` instead of an editor: `submit_files`,
+`add_submit_files` (creating the workspace from a `HandInTarget`, which Core
+reads from `AssignmentDetail`) and `remove_submit_file`. The FFI exposes them by
+assignment id, with `hand_in_assignment` handing `submit/` to
+`SchoolBrowserEngine::prepare_submission`, which fills the assignment's LMS draft
+area. Core never submits school assignments; the person reviews the page and
+saves it.
 
 These are synchronous filesystem APIs. Native commands execute them on blocking
 workers inside `CoreRuntime::run`. An admitted operation retains its captured

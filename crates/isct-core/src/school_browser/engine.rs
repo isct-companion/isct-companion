@@ -102,7 +102,6 @@ struct State {
     lifecycle_epoch: u64,
     customizations: HashMap<SchoolSite, SchoolPageCustomization>,
     guide: Vec<crate::kyomu_guide::GuideItem>,
-    #[cfg(feature = "desktop-workspaces")]
     submission: Option<super::submission::PendingSubmission>,
     history: HashMap<SchoolSite, PageHistory>,
     suppress_history: HashSet<SchoolSite>,
@@ -286,11 +285,10 @@ impl SchoolBrowserEngine {
         Ok(true)
     }
 
-    #[cfg(feature = "desktop-workspaces")]
     pub fn prepare_submission(
         &self,
         raw: &str,
-        files: Vec<crate::workspaces::SubmissionFile>,
+        files: Vec<super::SubmissionFile>,
         messages: super::SubmissionMessages,
     ) -> Result<String, super::SubmissionError> {
         let pending = super::submission::PendingSubmission::new(raw, files, messages)?;
@@ -318,10 +316,7 @@ impl SchoolBrowserEngine {
     }
 
     pub async fn shutdown(&self) {
-        #[cfg(feature = "desktop-workspaces")]
-        {
-            self.0.state.guard().submission = None;
-        }
+        self.0.state.guard().submission = None;
         self.0.tasks.close();
         let _ = self.0.traces.send(Trace::Stopped);
         self.0.browsing_changed.notify_waiters();
@@ -569,7 +564,6 @@ impl Inner {
         if !customization.javascript.trim().is_empty() {
             let _ = self.dispatch_eval(event.page.browser, customization.javascript, false);
         }
-        #[cfg(feature = "desktop-workspaces")]
         let _ = self.inject_submission(event.page.browser, event.url.as_str());
         if let Some(guide) = guide {
             let _ = self.dispatch_eval(event.page.browser, guide, false);
@@ -825,7 +819,6 @@ impl Inner {
         Ok(action)
     }
 
-    #[cfg(feature = "desktop-workspaces")]
     fn inject_submission(
         &self,
         browser: BrowserId,

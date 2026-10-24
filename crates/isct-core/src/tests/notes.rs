@@ -95,8 +95,11 @@ fn validation_rejects_limits_before_touching_storage() {
 #[test]
 fn export_does_not_truncate_a_large_section_and_rejects_the_real_limit() {
     let notes = service("export-count");
-    let directory =
-        storage_dir(&notes.root, &["2026-3Q", "CSC.T251", "section-91", "notes"]).unwrap();
+    let directory = storage_dir(
+        &crate::storage::material_root(&notes.root),
+        &["2026-3Q", "CSC.T251", "section-91", "notes"],
+    )
+    .unwrap();
     let mut ids = Vec::new();
     for _ in 0..501 {
         let id = uuid::Uuid::new_v4().to_string();
@@ -251,7 +254,11 @@ fn symbolic_link_note_is_rejected() {
     use std::os::unix::fs::symlink;
     let notes = service("symlink");
     let id = uuid::Uuid::new_v4().to_string();
-    let dir = storage_dir(&notes.root, &["2026-3Q", "CSC.T251", "section-91", "notes"]).unwrap();
+    let dir = storage_dir(
+        &crate::storage::material_root(&notes.root),
+        &["2026-3Q", "CSC.T251", "section-91", "notes"],
+    )
+    .unwrap();
     let outside = notes.root.join("outside.md");
     fs::write(&outside, "keep").unwrap();
     symlink(&outside, dir.join(format!("{id}.md"))).unwrap();
@@ -271,7 +278,11 @@ fn failed_restore_does_not_delete_notes_omitted_by_the_backup() {
         .save(context(), String::new(), "keep".into(), "device-a")
         .unwrap();
     let incoming_id = uuid::Uuid::new_v4().to_string();
-    let dir = storage_dir(&notes.root, &["2026-3Q", "CSC.T251", "section-91", "notes"]).unwrap();
+    let dir = storage_dir(
+        &crate::storage::material_root(&notes.root),
+        &["2026-3Q", "CSC.T251", "section-91", "notes"],
+    )
+    .unwrap();
     let outside = notes.root.join("outside.md");
     fs::write(&outside, "outside").unwrap();
     symlink(&outside, dir.join(format!("{incoming_id}.md"))).unwrap();

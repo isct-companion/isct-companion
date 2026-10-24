@@ -28,15 +28,18 @@ object NotificationScheduler {
     fun allowed(context: Context): Boolean =
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
-    suspend fun sync(context: Context, session: Session) {
-        if (!allowed(context)) return
+    /** Schedules the plan. True when Core has reminders this device may not
+     * post: the switches sync from the other devices, so this one may never
+     * have asked for the permission, and the screen asks then. */
+    suspend fun sync(context: Context, session: Session): Boolean {
         val now = Instant.now()
         val horizon = now.plusSeconds(HORIZON_DAYS * 24 * 3600)
         val query = WorkspaceQuery.NotificationPlan(Format.timestamp(now), Format.timestamp(horizon), null)
         val result = runCatching { session.scheduleQuery(listOf(query)).value() }.getOrNull()
         val plan = ((result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
-            as? WorkspaceQueryResult.NotificationPlan)?.v1 ?: return
-        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+            as? WorkspaceQueryResult.NotificationPlan)?.v1 ?: return false
+        if (!allowed(context)) return plan.items.isNotEmpty()
+        val alarms = context.getSystemService(AlarmManager::class.java) ?: return false
         val store = context.getSharedPreferences("notifications", Context.MODE_PRIVATE)
         for (key in store.getStringSet(SCHEDULED, emptySet()).orEmpty()) {
             alarms.cancel(pending(context, key, null))
@@ -56,6 +59,34 @@ object NotificationScheduler {
             scheduled.add(item.key)
         }
         store.edit().putStringSet(SCHEDULED, scheduled).apply()
+        return false
+    }
+
+    /** The desktop's Test notification, posted now. False without permission. */
+    fun sendTest(context: Context): Boolean {
+        if (!allowed(context)) return false
+        post(context, "test", "IsctCompanion", app.isctcompanion.design.t("This is a test notification."), null)
+        return true
+    }
+
+    private fun post(context: Context, key: String, title: String?, body: String?, deepLink: String?) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL, context.getString(R.string.reminders), NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        val open = PendingIntent.getActivity(
+            context, 0,
+            Intent(context, MainActivity::class.java).putExtra("deepLink", deepLink),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = android.app.Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(key.hashCode(), notification)
     }
 
     private fun pending(context: Context, key: String, item: NotificationItem?): PendingIntent {
@@ -73,23 +104,10 @@ object NotificationScheduler {
     class Receiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (!allowed(context)) return
-            val manager = context.getSystemService(NotificationManager::class.java) ?: return
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL, context.getString(R.string.reminders), NotificationManager.IMPORTANCE_DEFAULT),
+            post(
+                context, intent.getStringExtra("key").orEmpty(), intent.getStringExtra("title"),
+                intent.getStringExtra("body"), intent.getStringExtra("deepLink"),
             )
-            val open = PendingIntent.getActivity(
-                context, 0,
-                Intent(context, MainActivity::class.java).putExtra("deepLink", intent.getStringExtra("deepLink")),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val notification = android.app.Notification.Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(intent.getStringExtra("title"))
-                .setContentText(intent.getStringExtra("body"))
-                .setContentIntent(open)
-                .setAutoCancel(true)
-                .build()
-            manager.notify(intent.getStringExtra("key").hashCode(), notification)
         }
     }
 }

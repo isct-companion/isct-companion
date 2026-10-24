@@ -372,6 +372,51 @@ fn insert_school_assignment(store: &DataStore) {
 }
 
 #[test]
+fn seeing_a_recent_item_records_its_version_and_drops_entries_past_the_window() {
+    let store = store("recent-seen");
+    insert_school_assignment(&store);
+    let fresh = chrono::Utc::now().to_rfc3339();
+    let mut connection = store.test_connection();
+    let transaction = connection.transaction().unwrap();
+    upsert_row(
+        &transaction,
+        "assignments",
+        &json!({
+            "id":"assignment-2", "kind":"assignment", "courseId":"course-1",
+            "title":"Graded", "details":"", "dueAt":null,
+            "sourceKey":"lms:default:assignment:43", "source":{"provider":"lms"},
+            "rev":1, "updatedAt":fresh, "updatedBy":"lms"
+        }),
+        true,
+    )
+    .unwrap();
+    transaction.commit().unwrap();
+    let service = crate::workspace::WorkspaceService::new(store.clone());
+    let mark = |id: &str| {
+        service.mutate(crate::workspace::WorkspaceMutation {
+            expected_revision: service.snapshot().unwrap().revision,
+            intent: crate::workspace::WorkspaceIntent::MarkRecentSeen {
+                list: crate::schedule::RecentKind::Grade,
+                id: id.into(),
+            },
+        })
+    };
+    let first = mark("assignment-1").unwrap();
+    assert_eq!(
+        first.workspace["recentSeen"]["grade:assignment-1"],
+        "2026-10-06T00:00:00Z"
+    );
+    // The first entry is older than the recent window, so it cannot show
+    // again and the next mark drops it.
+    let second = mark("assignment-2").unwrap();
+    assert_eq!(
+        second.workspace["recentSeen"],
+        json!({"grade:assignment-2": fresh})
+    );
+    assert!(mark("missing").is_err());
+}
+
+#[test]
 fn course_identity_is_shared_by_every_provider() {
     let store = store("course-identity");
     let mut connection = store.test_connection();

@@ -99,9 +99,11 @@ To do:
   Certificates, Identifiers & Profiles".
 - In CloudKit Console → `iCloud.app.isctcompanion` → **Production** schema,
   check that record type `IsctCompanionBackup` exists with an asset field
-  `payload`. It is created the first time a released Mac app uploads to iCloud.
-  If no released Mac has ever done that, deploy the schema from Development
-  first. Otherwise Production rejects the iPhone's first write.
+  `payload`. Production never creates a type on a client's write: create it
+  in the Development schema (Record Types → +, field `payload` of type Asset)
+  and press Deploy Schema Changes. Until then every device's write fails with
+  "Cannot create new type IsctCompanionBackup in production schema". Records
+  are fetched by ID only, so no index is needed.
 
 ## 3. Install and verify
 

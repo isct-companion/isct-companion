@@ -81,8 +81,9 @@ pub use timing::{
 };
 pub use today::{
     assignment_board, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem, MaterialItem,
-    RecentItem, TodayClass, TodayPhase, TodayView,
+    RecentItem, RecentKind, TodayClass, TodayPhase, TodayView,
 };
+pub(crate) use today::{recent_key, recent_version, unseen_recent, RECENT_DAYS};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {
@@ -154,9 +155,12 @@ pub enum WorkspaceQuery {
     Today {
         now: String,
     },
-    /// Phone assignment lists: the current quarter's timeline as rows.
+    /// Phone assignment lists: a quarter's timeline as rows, the current
+    /// quarter's unless `term` names another (the iPad 授業 page's 課題).
     AssignmentBoard {
         now: String,
+        #[serde(default)]
+        term: Option<String>,
     },
     CourseDetail {
         course_id: String,
@@ -442,9 +446,14 @@ pub fn query(
             workspace,
             parse_timestamp(&now)?,
         )?)),
-        WorkspaceQuery::AssignmentBoard { now } => Ok(WorkspaceQueryResult::AssignmentBoard(
-            assignment_board(workspace, parse_timestamp(&now)?)?,
-        )),
+        WorkspaceQuery::AssignmentBoard { now, term } => {
+            let term = term.map(|term| Term::parse(&term)).transpose()?;
+            Ok(WorkspaceQueryResult::AssignmentBoard(assignment_board(
+                workspace,
+                parse_timestamp(&now)?,
+                term.map(|term| term.to_string()),
+            )?))
+        }
         WorkspaceQuery::CourseDetail { course_id } => Ok(WorkspaceQueryResult::CourseDetail(
             course_detail(workspace, &course_id),
         )),
@@ -850,6 +859,7 @@ pub fn declarations() -> Vec<String> {
         DeadlineItem::decl(),
         MaterialItem::decl(),
         RecentItem::decl(),
+        RecentKind::decl(),
         TodayView::decl(),
         DeadlineGroups::decl(),
         AssignmentBoard::decl(),

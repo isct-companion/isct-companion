@@ -526,17 +526,18 @@ async fn otp_setup_waits_have_correlated_cancellation_drop_timeout_and_shutdown(
     assert!(matches!(wait.await, Err(OtpSetupError::Cancelled)));
 }
 
-#[cfg(feature = "desktop-workspaces")]
 #[tokio::test]
 async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinations() {
-    use crate::workspaces::SubmissionFile;
+    use crate::school_browser::SubmissionFile;
     let (engine, browser, _, _) = engine();
+    // Shells hand over bytes; Core encodes them as the page's uploader takes them.
     let files = || {
-        vec![SubmissionFile {
-            name: "report.txt".into(),
-            data: "bXkgcmVwb3J0".into(),
-        }]
+        vec![SubmissionFile::from_bytes(
+            "report.txt".into(),
+            b"my report",
+        )]
     };
+    assert_eq!(files()[0].data, "bXkgcmVwb3J0");
     let messages = || SubmissionMessages {
         waiting: "waiting".into(),
         queued: "queued".into(),

@@ -6,23 +6,33 @@ import UIKit
 /// and Dynamic Type apply. Links open in the in-app school page.
 ///
 /// The text is there on first layout, so a card never grows under an
-/// animation: screens warm `HTMLCache` ahead of showing it, and a miss
-/// renders on the spot.
+/// animation: screens warm `HTMLCache` ahead of showing it. A miss renders
+/// after the view update, never inside it: WebKit's HTML import spins the run
+/// loop, and doing that while SwiftUI is updating its graph corrupts it (the
+/// layout crashes seen on iPadOS 26 when an assignment page opened).
 struct HTMLText: View {
     let html: String
-    @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
+    @State private var rendered: AttributedString?
 
     var body: some View {
-        Text(HTMLCache.text(html))
+        Text(rendered ?? HTMLCache.cached(html) ?? AttributedString())
             .font(.body)
             .foregroundStyle(Theme.ink)
             .tint(Theme.accent)
             .textSelection(.enabled)
             .environment(\.openURL, OpenURLAction { url in
                 guard url.host == "lms.s.isct.ac.jp" else { return .systemAction }
-                navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url.absoluteString, title: ""))
+                push(WebRouter.PushedPage(site: .scienceLms, target: url.absoluteString, title: ""))
                 return .handled
             })
+            .task(id: html) {
+                rendered = nil
+                guard HTMLCache.cached(html) == nil else { return }
+                // Out of the update that showed the view, then render.
+                await Task.yield()
+                rendered = HTMLCache.text(html)
+            }
     }
 
     /// WebKit's HTML import runs on the main thread; the body's own colours
@@ -67,6 +77,12 @@ enum HTMLCache {
         return cache
     }()
 
+    /// The rendered text if it is already cached; never renders.
+    static func cached(_ html: String) -> AttributedString? {
+        entries.object(forKey: html as NSString)?.text
+    }
+
+    /// Renders on a miss, so call it outside a view update (a task, an action).
     static func text(_ html: String) -> AttributedString {
         if let hit = entries.object(forKey: html as NSString) { return hit.text }
         let text = HTMLText.render(html)

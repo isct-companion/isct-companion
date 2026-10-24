@@ -267,18 +267,28 @@ async fn cleanup_removes_only_stale_complete_material_cache_files() {
     }
     let service = CourseMaterials::new(store("cleanup"), root.clone(), Downloader::default(), None);
     assert_eq!(service.clean(1).await.unwrap(), 2);
-    assert!(stale.iter().all(|path| !path.exists()));
-    assert!(part.exists());
-    assert!(note.exists());
+    // The files above sit in the layout before the trees: the first use moved
+    // every quarter folder into `material/`, and cleanup ran there. A folder
+    // not named like a quarter stays where it was.
+    let moved = |path: &Path| {
+        root.join("material")
+            .join(path.strip_prefix(&root).unwrap())
+    };
+    assert!(stale
+        .iter()
+        .all(|path| !path.exists() && !moved(path).exists()));
+    assert!(!root.join("2026-3Q").exists());
+    assert!(moved(&part).exists());
+    assert!(moved(&note).exists());
     assert!(workspace_file.exists());
-    assert!(nested_note.exists());
-    assert!(nested_workspace.exists());
+    assert!(moved(&nested_note).exists());
+    assert!(moved(&nested_workspace).exists());
 }
 
 #[tokio::test]
 async fn cleanup_reclaims_stale_partials_of_other_processes_only() {
     let root = root("partials");
-    let materials = root.join("2026-3Q/CSC.T251/materials");
+    let materials = root.join("material/2026-3Q/CSC.T251/materials");
     fs::create_dir_all(&materials).unwrap();
     let other = std::process::id().wrapping_add(1);
     let age = |path: &Path, modified: SystemTime| {

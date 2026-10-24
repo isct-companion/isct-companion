@@ -377,6 +377,7 @@ private struct FailureLine: View {
 struct SyncProblemBanner: View {
     let problem: SyncProblem
     @Environment(AppModel.self) private var model
+    @Environment(\.push) private var push
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -384,7 +385,9 @@ struct SyncProblemBanner: View {
             Text(problem.text).font(.subheadline).foregroundStyle(Theme.ink)
             Spacer()
             if let profile = problem.signIn {
-                NavigationLink(value: SettingsRoute.account(profile)) {
+                Button {
+                    push(SettingsRoute.account(profile))
+                } label: {
                     Text(t("Sign in")).font(.subheadline.weight(.semibold))
                 }
             } else if let scope = problem.retry {

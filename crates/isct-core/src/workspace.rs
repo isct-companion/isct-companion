@@ -15,7 +15,7 @@ pub(crate) use catalog::{catalog_instructor_names, meetings_from_grid, planned_c
 use courses::*;
 
 use crate::data::{DataError, DataStore, WorkspaceWrite};
-use crate::schedule::ClassGroup;
+use crate::schedule::{ClassGroup, RecentKind};
 use crate::study_profile::StudyEnrollment;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -257,6 +257,15 @@ pub enum WorkspaceIntent {
         section_id: u64,
     },
     MarkTimetableReviewed,
+    /// Opening an item of Today's recent list: it stops being new until it
+    /// changes again.
+    MarkRecentSeen {
+        list: RecentKind,
+        id: String,
+    },
+    /// Today's read all: every item new now stops being new until it changes
+    /// again, including those past the few Today shows.
+    MarkAllRecentSeen,
     /// Chooses (or clears) the 物理学演習・実験 group of one semester,
     /// such as "2026-3Q4Q".
     SetClassGroup {
@@ -721,6 +730,20 @@ fn apply_intent(
             );
             write.save_setting("importStatus", &status)
         }
+        WorkspaceIntent::MarkRecentSeen { list, id } => {
+            let version = crate::schedule::recent_version(current, list, &id)
+                .ok_or_else(|| DataError::from("recent item was not found"))?
+                .to_string();
+            save_recent_seen(
+                write,
+                current,
+                [(crate::schedule::recent_key(list, &id), version)],
+            )
+        }
+        WorkspaceIntent::MarkAllRecentSeen => {
+            let now = chrono::Utc::now().fixed_offset();
+            save_recent_seen(write, current, crate::schedule::unseen_recent(current, now))
+        }
         WorkspaceIntent::SetClassGroup { semester, group } => {
             crate::schedule::validate_semester(&semester)
                 .map_err(|error| DataError::InvalidInput(error.to_string()))?;
@@ -780,6 +803,31 @@ fn normalize_language(value: Option<&str>) -> &'static str {
         "ja-en" => "ja-en",
         _ => "other",
     }
+}
+
+/// Records recent items as seen at the `updatedAt` they were shown for.
+fn save_recent_seen(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    seen_now: impl IntoIterator<Item = (String, String)>,
+) -> Result<(), DataError> {
+    let mut seen = current
+        .get("recentSeen")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let entries = object_mut(&mut seen, "recent seen")?;
+    // Only items still within the recent window can show again, so
+    // older entries are dropped instead of kept forever.
+    let since = chrono::Utc::now() - chrono::Duration::days(crate::schedule::RECENT_DAYS);
+    entries.retain(|_, at| {
+        at.as_str()
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+            .is_some_and(|at| at >= since)
+    });
+    for (key, version) in seen_now {
+        entries.insert(key, Value::String(version));
+    }
+    write.save_setting("recentSeen", &seen)
 }
 
 /// One override per session key: write the new content, or remove the row

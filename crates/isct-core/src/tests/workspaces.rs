@@ -15,7 +15,9 @@ impl Drop for Fixture {
     }
 }
 
+#[cfg(feature = "workspace-archives")]
 fn archive(path: &Path, files: &[(&str, &str)]) {
+    use std::io::Write;
     let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
     for (name, body) in files {
         zip.start_file(*name, zip::write::SimpleFileOptions::default())
@@ -77,6 +79,7 @@ fn creates_once_and_preserves_existing_student_files() {
     assert_eq!(created.name, "OOP 1B_ A_B_");
 }
 
+#[cfg(feature = "workspace-archives")]
 #[test]
 fn archive_paths_cannot_escape_and_junk_is_ignored() {
     let fixture = Fixture::new("unpack");
@@ -105,6 +108,7 @@ fn archive_paths_cannot_escape_and_junk_is_ignored() {
     assert!(output.join("loose/a.txt").is_file());
 }
 
+#[cfg(feature = "workspace-archives")]
 #[test]
 fn submission_archive_is_recursive_and_skips_symlinks() {
     let fixture = Fixture::new("pack");
@@ -182,15 +186,25 @@ fn upload_reads_only_the_matching_assignments_submit_files_and_supports_zip() {
     service
         .set_submission(&workspace.path, true, "student.zip")
         .unwrap();
-    let zip = service.prepare_upload(&workspace.path, "a1").unwrap();
-    assert_eq!(zip.files.len(), 1);
-    assert_eq!(zip.files[0].name, "student.zip");
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(&zip.files[0].data)
-        .unwrap();
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
-    assert!(archive.by_name("src/Main.java").is_ok());
-    assert!(archive.by_name("private.txt").is_err());
+    #[cfg(feature = "workspace-archives")]
+    {
+        let zip = service.prepare_upload(&workspace.path, "a1").unwrap();
+        assert_eq!(zip.files.len(), 1);
+        assert_eq!(zip.files[0].name, "student.zip");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&zip.files[0].data)
+            .unwrap();
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        assert!(archive.by_name("src/Main.java").is_ok());
+        assert!(archive.by_name("private.txt").is_err());
+    }
+    // The phones build no ZIP support: an archive workspace is refused, never
+    // handed in some other way.
+    #[cfg(not(feature = "workspace-archives"))]
+    assert!(matches!(
+        service.prepare_upload(&workspace.path, "a1"),
+        Err(WorkspaceError::Archive(_))
+    ));
     service.set_submission(&workspace.path, false, "").unwrap();
     fs::remove_dir_all(root.join("submit/src")).unwrap();
     fs::File::create(root.join("submit/large.bin"))
@@ -246,4 +260,141 @@ fn folder_deleted_outside_the_app_is_missing_and_hand_in_falls_back_to_lms() {
     let gone = service.hand_in(&course(), "a", false).unwrap();
     assert_eq!(gone.hand_in, HandIn::OpenLms);
     assert!(gone.workspace.is_none());
+}
+
+#[test]
+fn the_layout_before_the_trees_moves_in_without_overwriting() {
+    let fixture = Fixture::new("migrate");
+    let root = &fixture.0;
+    let old = root.join("2026-3Q/CSC.T251");
+    let workspace = old.join("workspaces/Report 3");
+    fs::create_dir_all(workspace.join(SUBMIT_DIR)).unwrap();
+    fs::write(
+        workspace.join(META),
+        r#"{"assignment":"a1","title":"Report 3"}"#,
+    )
+    .unwrap();
+    fs::write(workspace.join("submit/answer.pdf"), "mine").unwrap();
+    fs::create_dir_all(old.join("materials")).unwrap();
+    fs::write(old.join("materials/slides-1234abcd.pdf"), "old copy").unwrap();
+    // Already in the material tree, so the old copy must not replace it.
+    let newer = root.join("material/2026-3Q/CSC.T251/materials/slides-1234abcd.pdf");
+    fs::create_dir_all(newer.parent().unwrap()).unwrap();
+    fs::write(&newer, "new copy").unwrap();
+    fs::create_dir_all(root.join("Photos")).unwrap();
+
+    let first = storage::migrate_layout(root).unwrap();
+    assert_eq!(first, storage::Moved { moved: 1, kept: 1 });
+    let found = Workspaces::new(root.clone())
+        .find(&course(), "a1")
+        .unwrap()
+        .unwrap();
+    assert!(Path::new(&found.path).ends_with("workspace/2026-3Q/CSC.T251/Report 3"));
+    assert_eq!(
+        fs::read_to_string(Path::new(&found.path).join("submit/answer.pdf")).unwrap(),
+        "mine"
+    );
+    assert_eq!(fs::read_to_string(&newer).unwrap(), "new copy");
+    assert!(old.join("materials/slides-1234abcd.pdf").exists());
+    assert!(!old.join("workspaces").exists());
+    // A folder not named like a quarter is not the app's.
+    assert!(root.join("Photos").is_dir());
+    // Running again finds only what it already had to keep.
+    assert_eq!(
+        storage::migrate_layout(root).unwrap(),
+        storage::Moved { moved: 0, kept: 1 }
+    );
+}
+
+#[test]
+fn shared_files_land_in_submit_without_overwriting_and_are_what_hand_in_reads() {
+    let fixture = Fixture::new("shared");
+    let service = Workspaces::new(fixture.0.clone());
+    let inbox = fixture.0.join("inbox");
+    fs::create_dir_all(&inbox).unwrap();
+    let photo = inbox.join("IMG_0001.jpeg");
+    fs::write(&photo, "page one").unwrap();
+    let target = HandInTarget {
+        course: course(),
+        assignment: "a1".into(),
+        title: "Report 3".into(),
+        brief: "# Report 3\n".into(),
+    };
+    assert!(service.submit_files(&course(), "a1").unwrap().is_empty());
+    // The first file creates the workspace; the same name again is numbered.
+    let names = |files: Vec<LocalFile>| files.into_iter().map(|file| file.name).collect::<Vec<_>>();
+    service
+        .add_submit_files(&target, vec![(photo.clone(), "page.jpeg".into())])
+        .unwrap();
+    let listed = service
+        .add_submit_files(&target, vec![(photo.clone(), "page.jpeg".into())])
+        .unwrap();
+    assert_eq!(names(listed), ["page (2).jpeg", "page.jpeg"]);
+    assert!(photo.exists());
+    let workspace = service.find(&course(), "a1").unwrap().unwrap();
+    assert_eq!(
+        fs::read_to_string(Path::new(&workspace.path).join(BRIEF)).unwrap(),
+        "# Report 3\n"
+    );
+    // Folders and names reaching outside `submit/` are refused.
+    assert!(service
+        .add_submit_files(&target, vec![(inbox.clone(), "inbox".into())])
+        .is_err());
+    assert!(service
+        .remove_submit_file(&course(), "a1", "../ASSIGNMENT.md")
+        .is_err());
+    let left = service
+        .remove_submit_file(&course(), "a1", "page (2).jpeg")
+        .unwrap();
+    assert_eq!(names(left), ["page.jpeg"]);
+    let uploaded = service.prepare_upload(&workspace.path, "a1").unwrap();
+    assert_eq!(
+        uploaded
+            .files
+            .iter()
+            .map(|file| file.name.as_str())
+            .collect::<Vec<_>>(),
+        ["page.jpeg"]
+    );
+}
+
+#[test]
+fn waiting_lists_assignments_with_files_until_lms_shows_them_submitted() {
+    let fixture = Fixture::new("waiting");
+    let service = Workspaces::new(fixture.0.clone());
+    let file = fixture.0.join("page.pdf");
+    fs::write(&file, "page").unwrap();
+    let target = |assignment: &str| HandInTarget {
+        course: course(),
+        assignment: assignment.into(),
+        title: assignment.into(),
+        brief: String::new(),
+    };
+    service
+        .add_submit_files(
+            &target("a1"),
+            vec![
+                (file.clone(), "one.pdf".into()),
+                (file.clone(), "two.pdf".into()),
+            ],
+        )
+        .unwrap();
+    service
+        .add_submit_files(&target("a2"), vec![(file.clone(), "one.pdf".into())])
+        .unwrap();
+    // A workspace whose `submit/` is empty has nothing waiting.
+    service
+        .add_submit_files(&target("a3"), vec![(file.clone(), "one.pdf".into())])
+        .unwrap();
+    service
+        .remove_submit_file(&course(), "a3", "one.pdf")
+        .unwrap();
+    let open = serde_json::json!({ "assignments": [{ "id": "a1", "submission": "new" }] });
+    assert_eq!(
+        service.waiting(&open),
+        [("a1".to_string(), 2), ("a2".to_string(), 1)]
+    );
+    // Once LMS shows the work submitted, its files no longer wait.
+    let handed = serde_json::json!({ "assignments": [{ "id": "a1", "submission": "submitted" }, { "id": "a2", "submission": "graded" }] });
+    assert!(service.waiting(&handed).is_empty());
 }

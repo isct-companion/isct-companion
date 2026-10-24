@@ -1,5 +1,7 @@
 package app.isctcompanion.features.course
 
+import app.isctcompanion.features.handin.HandInCard
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -82,6 +84,7 @@ fun AssignmentScreen(assignmentId: String) {
                     modifier = Modifier.clickable { navigator.openCourse(detail.courseId) },
                 )
                 AssignmentBody(detail)
+                if (detail.sourceUrl != null) HandInCard(detail)
             }
         }
     }

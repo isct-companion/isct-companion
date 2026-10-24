@@ -308,9 +308,11 @@ private struct QRScanner: UIViewControllerRepresentable {
 
 // MARK: Matrix
 
-/// The Matrix card: photograph it (or pick a photo), Core reads the 70 cells,
-/// and the person checks the grid against the card before saving. Pasting all
-/// 70 letters (copied from the desktop app) fills the grid too.
+/// The Matrix card: scan it live, or give Core one image (a photo taken with
+/// the system camera, one from the library, or one on the clipboard); Core
+/// reads the 70 cells and the person checks the grid against the card before
+/// saving. Pasting all 70 letters (copied from the desktop app) fills the grid
+/// too.
 struct MatrixImportSection: View {
     let saved: Bool
     @Binding var matrix: String
@@ -320,6 +322,9 @@ struct MatrixImportSection: View {
     @State private var editing = false
     @State private var camera: LiveScan?
     @State private var photo: PhotosPickerItem?
+    @State private var choosingImage = false
+    @State private var pickingPhoto = false
+    @State private var takingPhoto = false
     @State private var reading = false
     @State private var note: String?
     @State private var error: String?
@@ -332,14 +337,12 @@ struct MatrixImportSection: View {
             }
             SourceTiles {
                 if model.canScanMatrix {
-                    if AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil {
-                        Button(t("Scan with camera"), systemImage: "camera.viewfinder") { startCamera() }
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button(t("Auto scan"), systemImage: "camera.viewfinder") { startCamera() }
                     }
-                    PhotosPicker(selection: $photo, matching: .images) {
-                        Label(t("From photo"), systemImage: "photo")
-                    }
+                    Button(t("Upload image"), systemImage: "photo.on.rectangle") { choosingImage = true }
                 }
-                Button(t("Paste"), systemImage: "doc.on.clipboard") { paste(UIPasteboard.general.string ?? "") }
+                Button(t("Paste"), systemImage: "doc.on.clipboard") { pasteClipboard() }
                 if !editing {
                     Button(t("Enter manually"), systemImage: "keyboard") { editing = true }
                 }
@@ -348,6 +351,20 @@ struct MatrixImportSection: View {
             // Presentation lives on one row: modifiers on a Section repeat on
             // every row, and several covers presenting at once tear down the
             // settings sheet.
+            .confirmationDialog(t("Upload image"), isPresented: $choosingImage) {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button(t("Take photo")) { takingPhoto = true }
+                }
+                Button(t("Choose from library")) { pickingPhoto = true }
+            }
+            .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
+            .fullScreenCover(isPresented: $takingPhoto) {
+                SystemCamera { image in
+                    takingPhoto = false
+                    if let image { Task { await scan(image) } }
+                }
+                .ignoresSafeArea()
+            }
             .onChange(of: photo) { _, item in
                 guard let item else { return }
                 photo = nil
@@ -407,12 +424,39 @@ struct MatrixImportSection: View {
     }
 
     private func scan(_ data: Data) async {
-        // OCR reads PNG/JPEG/WebP; HEIC photos are converted here.
-        guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.95) else {
+        guard let image = UIImage(data: data) else {
+            error = t("Could not load the image.")
+            return
+        }
+        await scan(image)
+    }
+
+    private func scan(_ image: UIImage) async {
+        // OCR reads PNG/JPEG/WebP; HEIC photos are converted here, drawn
+        // upright so a camera still's orientation flag does not matter.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let upright = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        guard let jpeg = upright.jpegData(compressionQuality: 0.95) else {
             error = t("Could not load the image.")
             return
         }
         await scan(jpeg: jpeg)
+    }
+
+    /// An image on the clipboard is read like a photo; otherwise its text
+    /// must be the 70 letters.
+    private func pasteClipboard() {
+        let board = UIPasteboard.general
+        if model.canScanMatrix, board.hasImages, let image = board.image {
+            Task { await scan(image) }
+        } else if let text = board.string {
+            paste(text)
+        } else {
+            error = t("The clipboard has no image or 70 letters.")
+        }
     }
 
     private func startCamera() {
@@ -517,6 +561,34 @@ private struct MatrixGrid: View {
         case .medium: return Theme.warnSoft
         case .low: return Theme.dangerSoft
         }
+    }
+}
+
+/// The system camera: one still, or nil when cancelled.
+private struct SystemCamera: UIViewControllerRepresentable {
+    let done: (UIImage?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let done: (UIImage?) -> Void
+        init(done: @escaping (UIImage?) -> Void) { self.done = done }
+
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            done(info[.originalImage] as? UIImage)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
     }
 }
 

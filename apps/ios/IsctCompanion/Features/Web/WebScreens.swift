@@ -192,7 +192,7 @@ extension WebRouter {
 
 /// The site picker's rows: one per site in `WebRouter.tabSites` (the shown one
 /// checked), a divider, then 再読み込み and ブラウザで開く. The same buttons fill
-/// the tab's long-press panel and the iPad sidebar row's context menu, where
+/// the tab's long-press panel and the workstation rail row's context menu, where
 /// the menu draws them itself and ignores the panel's styling.
 struct SitePickerRows: View {
     /// The row under the finger during a press-and-slide.

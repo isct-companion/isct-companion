@@ -218,6 +218,7 @@ impl DataStore {
             "academicProfile",
             "classGroups",
             "importStatus",
+            "recentSeen",
             "syncStatus",
             "logs",
         ] {
