@@ -1253,7 +1253,10 @@ async function openEditorFor(course: Course): Promise<MountedApp> {
       ].find((button) => (button.textContent ?? "").trim() === "Edit"),
     "the panel Edit action",
   );
-  await click(panelEdit);
+  // Activated from the keyboard: jsdom has no layout, so a synthetic
+  // pointerdown lands on the panel separator and takes focus first.
+  panelEdit.focus();
+  await act(async () => panelEdit.click());
   await required(
     () => document.querySelector('[role="combobox"][aria-label="Period"]'),
     "the course editor",
@@ -1368,6 +1371,37 @@ describe("the course editor", () => {
     const intent = await saveEditor(app.core, "custom");
     expect(intent.draft.meetings[0].periods).toEqual([]);
     expect(intent.draft.meetings[0].startTime).toBe("08:50");
+  }, 60_000);
+
+  it("returns focus to Edit when the editor is dismissed", async () => {
+    // The Title field autofocuses as the drawer commits, before Radix's focus
+    // scope records where focus came from, so the drawer records it itself.
+    app = await openEditorFor(
+      meetingCourse({
+        days: [1],
+        periods: [1, 2],
+        startTime: "08:50",
+        endTime: "10:30",
+        room: "W9-201",
+      }),
+    );
+    const edit = [
+      ...app.host.querySelectorAll<HTMLButtonElement>(
+        ".coursePanelFoot button",
+      ),
+    ].find((button) => (button.textContent ?? "").trim() === "Edit")!;
+    const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(drawer.contains(document.activeElement)).toBe(true);
+
+    await act(async () =>
+      drawer.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    await until(() =>
+      expect(document.querySelector('[role="dialog"]')).toBeNull(),
+    );
+    await until(() => expect(document.activeElement).toBe(edit));
   }, 60_000);
 });
 

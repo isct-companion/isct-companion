@@ -3,7 +3,6 @@ import {
   createContext,
   useContext,
   useState,
-  useRef,
   type CSSProperties,
   type HTMLAttributes,
   type ReactNode,
@@ -13,6 +12,9 @@ import { t } from "../../i18n";
 import { cx, spacing, type Size } from "./layout";
 import { CloseButton } from "./controls";
 import { createPortal } from "react-dom";
+
+const focusedElement = () =>
+  document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
 type ModalProps = {
   opened: boolean;
@@ -48,7 +50,17 @@ function DialogSurface({
   drawer,
 }: ModalProps & { drawer?: boolean }) {
   const layer = usePageLayer();
-  const returnFocus = useRef<HTMLElement | null>(null);
+  // Where focus returns on close, read while rendering the open state: a field
+  // with autoFocus takes focus as the dialog commits, before Radix's focus
+  // scope looks, and Radix then skips onOpenAutoFocus.
+  const [returnFocus, setReturnFocus] = useState(() =>
+    opened ? focusedElement() : null,
+  );
+  const [wasOpened, setWasOpened] = useState(opened);
+  if (opened !== wasOpened) {
+    setWasOpened(opened);
+    if (opened) setReturnFocus(focusedElement());
+  }
   // A camera must keep its video/canvas refs while the dialog releases modality.
   // Radix changes its content implementation when modal changes; a stable portal
   // keeps the preview mounted while its host is moved to the new dialog body.
@@ -106,17 +118,12 @@ function DialogSurface({
             }}
             onOpenAutoFocus={(event) => {
               if (!opened) event.preventDefault();
-              else
-                returnFocus.current =
-                  document.activeElement instanceof HTMLElement
-                    ? document.activeElement
-                    : null;
             }}
             onCloseAutoFocus={(event) => {
               // These controlled dialogs have no Radix Trigger to restore focus to.
               event.preventDefault();
-              if (returnFocus.current?.isConnected)
-                returnFocus.current.focus({ preventScroll: true });
+              if (returnFocus?.isConnected)
+                returnFocus.focus({ preventScroll: true });
             }}
           >
             <header className="uiDialogHeader">
