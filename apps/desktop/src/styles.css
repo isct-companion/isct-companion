@@ -1547,14 +1547,21 @@ p {
   padding-left: 12px;
   border-bottom-color: transparent;
   border-radius: var(--radius-surface);
-  /* The 'now' gradient the phone's hero card uses (design/README.md):
-     the course tint peaks at the top-leading corner and fades to the
-     surface, with a hairline in the tint. */
+  /* The 'now' gradient the phone's hero card uses (design/README.md): the
+     course hue at the theme's hero lightness and capped chroma peaks at the
+     top-leading corner and eases (smoothstep) into the surface, with a
+     hairline in the tint. */
+  --hero: oklch(
+    from var(--course) var(--hero-lightness) min(c, var(--hero-chroma)) h
+  );
   background:
     radial-gradient(
-      140% 180% at 0% 0%,
-      color-mix(in srgb, var(--course) var(--course-tint-hero), transparent),
-      transparent 72%
+      140% 180% at 0% 0% in oklab,
+      var(--hero),
+      color-mix(in oklab, var(--hero) 84%, var(--surface)) 18%,
+      color-mix(in oklab, var(--hero) 50%, var(--surface)) 36%,
+      color-mix(in oklab, var(--hero) 16%, var(--surface)) 54%,
+      var(--surface) 72%
     ),
     var(--surface);
   box-shadow: inset 0 0 0 0.5px

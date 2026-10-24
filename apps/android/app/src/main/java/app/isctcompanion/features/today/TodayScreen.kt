@@ -354,7 +354,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             .background(Theme.colors.surface),
     ) {
         Hero(
-            Modifier.fillMaxHeight().nowGradient(tint, Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel)),
+            Modifier.fillMaxHeight().nowGradient(tint, Theme.colors, RoundedCornerShape(Theme.radiusPanel)),
             onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it, zoom) } },
         ) {
             HeroLine(listOfNotNull(if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
@@ -433,7 +433,7 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
     Hero(
         Modifier
             .courseZoomSource(HERO_ZOOM.takeIf { id != null })
-            .nowGradient(tint, Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel)),
+            .nowGradient(tint, Theme.colors, RoundedCornerShape(Theme.radiusPanel)),
         onClick = id?.let { { navigator.openCourse(it, HERO_ZOOM) } },
     ) {
         // The first room only, so the line never wraps; every room is on the

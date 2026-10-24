@@ -20,6 +20,12 @@
     "ok": { "$value": "#24733f" },
     "ok-soft": { "$value": "#e1f3e7" }
   },
+  "hero": {
+    "$type": "number",
+    "$description": "The 'now' gradient's peak, in OKLCH: the course hue at this lightness, its chroma capped, fading to the surface. A fixed lightness keeps every course equally quiet; mixing the raw course colour into white instead greyed it.",
+    "lightness": { "$value": 0.96 },
+    "chroma": { "$value": 0.03, "$description": "Upper bound; a muted course keeps its own lower chroma" }
+  },
   "shadow": {
     "$type": "shadow",
     "default": {

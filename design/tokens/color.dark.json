@@ -20,6 +20,12 @@
     "ok": { "$value": "#6fc48b" },
     "ok-soft": { "$value": "#1e3526" }
   },
+  "hero": {
+    "$type": "number",
+    "$description": "Dark theme's 'now' gradient peak (see the light theme): a little lighter than the surface, not the light theme's colours on black.",
+    "lightness": { "$value": 0.29 },
+    "chroma": { "$value": 0.04 }
+  },
   "shadow": {
     "$type": "shadow",
     "default": {

@@ -26,4 +26,6 @@ public class IsctTokensDark {
     public static let colorSurface3 = Color(red: 0.169, green: 0.176, blue: 0.176, opacity: 1)
     public static let colorWarn = Color(red: 0.878, green: 0.678, blue: 0.290, opacity: 1)
     public static let colorWarnSoft = Color(red: 0.227, green: 0.184, blue: 0.086, opacity: 1)
+    public static let heroChroma = 0.04
+    public static let heroLightness = 0.29
 }

@@ -1,42 +1,108 @@
 import SwiftUI
+import UIKit
 
 // The finish the content components share (docs/ux/mobile.md, Look). Built
 // on SwiftUI's own animation APIs, so Reduce Motion and Dynamic Type apply.
 
-/// The course colour as a soft mesh: the hero card's surface. This is the
-/// 'now' gradient desktop draws on Today's current or next class: it peaks
-/// at `Theme.tintHero` in the top-leading corner and fades to the surface.
-struct CourseMesh: View {
+/// The 'now' gradient desktop draws on Today's current or next class and
+/// Android on its hero card (design/README.md): the course hue at the theme's
+/// hero lightness, chroma capped (design/tokens `hero`), in the top-leading
+/// corner, easing (smoothstep) into the surface by 72% of an ellipse 140% wide
+/// and 180% tall. Mixing the raw course colour into the surface instead greyed
+/// it, and dark mode reused the light colours.
+struct CourseGlow: View {
     let tint: Color
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.layoutDirection) private var direction
 
-    /// Each point's share of the peak, top-leading to bottom-trailing.
-    private static let falloff: [Double] = [
-        1, 0.6, 0.3,
-        0.67, 0.37, 0.17,
-        0.37, 0.17, 0.07,
-    ]
+    /// (position along the 72% radius, share of the peak), as desktop's stops.
+    private static let falloff: [(CGFloat, Double)] = [(0, 1), (0.25, 0.84), (0.5, 0.5), (0.75, 0.16), (1, 0)]
 
     var body: some View {
-        MeshGradient(
-            width: 3, height: 3,
-            points: [
-                [0, 0], [0.5, 0], [1, 0],
-                [0, 0.5], [0.62, 0.42], [1, 0.5],
-                [0, 1], [0.5, 1], [1, 1],
-            ],
-            colors: Self.falloff.map { tint.opacity(Theme.tintHero * $0) }
+        let dark = scheme == .dark
+        let traits = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
+        let surface = OKLab(UIColor(Theme.surface).resolvedColor(with: traits))
+        let peak = OKLab(UIColor(tint).resolvedColor(with: traits)).hero(
+            lightness: dark ? IsctTokensDark.heroLightness : IsctTokens.heroLightness,
+            chroma: dark ? IsctTokensDark.heroChroma : IsctTokens.heroChroma
         )
-        .background(Theme.surface)
+        let gradient = Gradient(stops: Self.falloff.map { at, share in
+            Gradient.Stop(color: surface.mix(peak, share).color, location: at)
+        })
+        let leading = direction == .leftToRight
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(surface.color))
+            let rx = size.width * 1.4, ry = size.height * 1.8
+            guard rx > 0, ry > 0 else { return }
+            let center = CGPoint(x: leading ? 0 : size.width, y: 0)
+            // A circle squashed vertically draws the ellipse.
+            context.scaleBy(x: 1, y: ry / rx)
+            context.fill(
+                Path(CGRect(x: 0, y: 0, width: size.width, height: size.height * rx / ry)),
+                with: .radialGradient(gradient, center: center, startRadius: 0, endRadius: rx * 0.72)
+            )
+        }
+    }
+}
+
+/// A colour in OKLab, for the hero peak and for mixing it into the surface
+/// as desktop's `color-mix(in oklab)` and Compose's `lerp` do.
+private struct OKLab {
+    var l: Double, a: Double, b: Double
+
+    init(l: Double, a: Double, b: Double) { (self.l, self.a, self.b) = (l, a, b) }
+
+    init(_ color: UIColor) {
+        var r: CGFloat = 0, g: CGFloat = 0, bl: CGFloat = 0, alpha: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &bl, alpha: &alpha)
+        func linear(_ c: CGFloat) -> Double {
+            let c = Double(c)
+            return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        let (lr, lg, lb) = (linear(r), linear(g), linear(bl))
+        let lc = cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb)
+        let mc = cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb)
+        let sc = cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb)
+        self.init(
+            l: 0.2104542553 * lc + 0.7936177850 * mc - 0.0040720468 * sc,
+            a: 1.9779984951 * lc - 2.4285922050 * mc + 0.4505937099 * sc,
+            b: 0.0259040371 * lc + 0.7827717662 * mc - 0.8086757660 * sc
+        )
+    }
+
+    /// The same hue at `lightness`, its chroma no higher than `chroma`.
+    func hero(lightness: Double, chroma: Double) -> OKLab {
+        let current = (a * a + b * b).squareRoot()
+        let scale = current > chroma ? chroma / current : 1
+        return OKLab(l: lightness, a: a * scale, b: b * scale)
+    }
+
+    /// `share` of `other` mixed into this colour.
+    func mix(_ other: OKLab, _ share: Double) -> OKLab {
+        OKLab(l: l + (other.l - l) * share, a: a + (other.a - a) * share, b: b + (other.b - b) * share)
+    }
+
+    var color: Color {
+        let lc = pow(l + 0.3963377774 * a + 0.2158037573 * b, 3)
+        let mc = pow(l - 0.1055613458 * a - 0.0638541728 * b, 3)
+        let sc = pow(l - 0.0894841775 * a - 1.2914855480 * b, 3)
+        func clamp(_ v: Double) -> Double { min(max(v, 0), 1) }
+        return Color(
+            .sRGBLinear,
+            red: clamp(4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc),
+            green: clamp(-1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc),
+            blue: clamp(-0.0041960863 * lc - 0.7034186147 * mc + 1.7076147010 * sc)
+        )
     }
 }
 
 extension View {
-    /// The hero card: course mesh, continuous corners and a hairline in the tint.
+    /// The hero card: course glow, continuous corners and a hairline in the tint.
     func heroCard(tint: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous)
         return padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background { CourseMesh(tint: tint).clipShape(shape) }
+            .background { CourseGlow(tint: tint).clipShape(shape) }
             .overlay { shape.strokeBorder(tint.opacity(Theme.tintFill), lineWidth: 0.5) }
     }
 

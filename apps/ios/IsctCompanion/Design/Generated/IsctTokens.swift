@@ -35,9 +35,10 @@ public class IsctTokens {
     public static let coursePalette7 = Color(red: 0.502, green: 0.416, blue: 0.616, opacity: 1)
     public static let coursePalette8 = Color(red: 0.361, green: 0.490, blue: 0.576, opacity: 1)
     public static let courseTintFill = 0.22 /** Something that occupies time: a timetable block */
-    public static let courseTintHero = 0.3 /** Peak of the 'now' gradient (the current or next class, tonight's deadline): the top-leading corner, fading to the surface */
     public static let courseTintInk = 0.4 /** Text on a fill: the course colour mixed into ink */
     public static let courseTintSoft = 0.1 /** Emphasis on a row: the current or next class */
+    public static let heroChroma = 0.03 /** Upper bound; a muted course keeps its own lower chroma */
+    public static let heroLightness = 0.96
     public static let radiusChip = CGFloat(6)
     public static let radiusControl = CGFloat(999)
     public static let radiusPanel = CGFloat(26)

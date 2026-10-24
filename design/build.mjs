@@ -134,7 +134,7 @@ const composeTransforms = [
   "size/compose/px",
 ];
 // Phones take fonts and shadows from the platform.
-const mobileToken = group("color", "radius", "course");
+const mobileToken = group("color", "radius", "course", "hero");
 
 async function build(out) {
   const at = (file) => path.join(out, path.dirname(file)) + path.sep;
@@ -164,6 +164,7 @@ async function build(out) {
                   "radius",
                   "font",
                   "workspace",
+                  "hero",
                 )(token) || isTint(token),
             },
           ],
@@ -202,7 +203,7 @@ async function build(out) {
             {
               destination: name(outputs.swiftDark),
               format: "ios-swift/class.swift",
-              filter: group("color"),
+              filter: group("color", "hero"),
               options: { className: "IsctTokensDark", import: ["SwiftUI"] },
             },
           ],
@@ -214,7 +215,7 @@ async function build(out) {
             {
               destination: name(outputs.composeDark),
               format: "compose/object",
-              filter: group("color"),
+              filter: group("color", "hero"),
               options: {
                 className: "IsctTokensDark",
                 packageName: "app.isct.design",
