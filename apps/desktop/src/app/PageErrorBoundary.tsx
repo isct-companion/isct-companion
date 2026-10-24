@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { traceEvent } from "./interaction-trace";
 import { t } from "../i18n";
+import { UiButton } from "../components/ui";
 
 /**
  * One page failing to render shows its error here instead of blanking the
@@ -34,13 +35,12 @@ export class PageErrorBoundary extends Component<
       <div className="pageError" role="alert">
         <b>{t("This page hit an error.")}</b>
         <code>{error.message}</code>
-        <button
-          type="button"
+        <UiButton
           className="button"
           onClick={() => this.setState({ error: undefined })}
         >
           {t("Try again")}
-        </button>
+        </UiButton>
       </div>
     );
   }
