@@ -4,49 +4,27 @@ import UIKit
 // The finish the content components share (docs/ux/mobile.md, Look). Built
 // on SwiftUI's own animation APIs, so Reduce Motion and Dynamic Type apply.
 
-/// The 'now' gradient desktop draws on Today's current or next class and
-/// Android on its hero card (design/README.md): the course hue at the theme's
-/// hero lightness, chroma capped (design/tokens `hero`), in the top-leading
-/// corner, easing (smoothstep) into the surface by 72% of an ellipse 140% wide
-/// and 180% tall. Mixing the raw course colour into the surface instead greyed
-/// it, and dark mode reused the light colours.
-struct CourseGlow: View {
+/// The 'now' tint desktop draws on Today's current or next class and Android
+/// on its hero card (design/README.md): one even wash of the course hue at the
+/// theme's hero lightness, chroma capped (design/tokens `hero`). Mixing the raw
+/// course colour into the surface greyed muted courses, and a corner gradient
+/// read as lopsided.
+struct CourseTint: View {
     let tint: Color
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.layoutDirection) private var direction
-
-    /// (position along the 72% radius, share of the peak), as desktop's stops.
-    private static let falloff: [(CGFloat, Double)] = [(0, 1), (0.25, 0.84), (0.5, 0.5), (0.75, 0.16), (1, 0)]
 
     var body: some View {
         let dark = scheme == .dark
         let traits = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
-        let surface = OKLab(UIColor(Theme.surface).resolvedColor(with: traits))
-        let peak = OKLab(UIColor(tint).resolvedColor(with: traits)).hero(
+        OKLab(UIColor(tint).resolvedColor(with: traits)).hero(
             lightness: dark ? IsctTokensDark.heroLightness : IsctTokens.heroLightness,
             chroma: dark ? IsctTokensDark.heroChroma : IsctTokens.heroChroma
-        )
-        let gradient = Gradient(stops: Self.falloff.map { at, share in
-            Gradient.Stop(color: surface.mix(peak, share).color, location: at)
-        })
-        let leading = direction == .leftToRight
-        Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(surface.color))
-            let rx = size.width * 1.4, ry = size.height * 1.8
-            guard rx > 0, ry > 0 else { return }
-            let center = CGPoint(x: leading ? 0 : size.width, y: 0)
-            // A circle squashed vertically draws the ellipse.
-            context.scaleBy(x: 1, y: ry / rx)
-            context.fill(
-                Path(CGRect(x: 0, y: 0, width: size.width, height: size.height * rx / ry)),
-                with: .radialGradient(gradient, center: center, startRadius: 0, endRadius: rx * 0.72)
-            )
-        }
+        ).color
     }
 }
 
-/// A colour in OKLab, for the hero peak and for mixing it into the surface
-/// as desktop's `color-mix(in oklab)` and Compose's `lerp` do.
+/// A colour in OKLab, for the hero tint (desktop uses CSS `oklch(from …)`,
+/// Android Compose's Oklab colour space).
 private struct OKLab {
     var l: Double, a: Double, b: Double
 
@@ -77,11 +55,6 @@ private struct OKLab {
         return OKLab(l: lightness, a: a * scale, b: b * scale)
     }
 
-    /// `share` of `other` mixed into this colour.
-    func mix(_ other: OKLab, _ share: Double) -> OKLab {
-        OKLab(l: l + (other.l - l) * share, a: a + (other.a - a) * share, b: b + (other.b - b) * share)
-    }
-
     var color: Color {
         let lc = pow(l + 0.3963377774 * a + 0.2158037573 * b, 3)
         let mc = pow(l - 0.1055613458 * a - 0.0638541728 * b, 3)
@@ -97,12 +70,12 @@ private struct OKLab {
 }
 
 extension View {
-    /// The hero card: course glow, continuous corners and a hairline in the tint.
+    /// The hero card: course tint, continuous corners and a hairline in the tint.
     func heroCard(tint: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous)
         return padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background { CourseGlow(tint: tint).clipShape(shape) }
+            .background { CourseTint(tint: tint).clipShape(shape) }
             .overlay { shape.strokeBorder(tint.opacity(Theme.tintFill), lineWidth: 0.5) }
     }
 

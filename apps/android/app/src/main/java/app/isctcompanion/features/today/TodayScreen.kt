@@ -104,7 +104,7 @@ import app.isctcompanion.design.Theme
 import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseColor
 import app.isctcompanion.design.courseZoomSource
-import app.isctcompanion.design.nowGradient
+import app.isctcompanion.design.nowTint
 import app.isctcompanion.design.tabular
 import java.time.Instant
 import kotlinx.coroutines.delay
@@ -354,7 +354,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             .background(Theme.colors.surface),
     ) {
         Hero(
-            Modifier.fillMaxHeight().nowGradient(tint, Theme.colors, RoundedCornerShape(Theme.radiusPanel)),
+            Modifier.fillMaxHeight().nowTint(tint, Theme.colors, RoundedCornerShape(Theme.radiusPanel)),
             onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it, zoom) } },
         ) {
             HeroLine(listOfNotNull(if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
@@ -387,7 +387,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
 
 // Heroes
 
-/** A hero card; [surface] is its background, the 'now' gradient for a class. */
+/** A hero card; [surface] is its background, the 'now' tint for a class. */
 @Composable
 private fun Hero(
     surface: Modifier,
@@ -433,7 +433,7 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
     Hero(
         Modifier
             .courseZoomSource(HERO_ZOOM.takeIf { id != null })
-            .nowGradient(tint, Theme.colors, RoundedCornerShape(Theme.radiusPanel)),
+            .nowTint(tint, Theme.colors, RoundedCornerShape(Theme.radiusPanel)),
         onClick = id?.let { { navigator.openCourse(it, HERO_ZOOM) } },
     ) {
         // The first room only, so the line never wraps; every room is on the

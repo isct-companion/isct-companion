@@ -22,9 +22,9 @@
   },
   "hero": {
     "$type": "number",
-    "$description": "Dark theme's 'now' gradient peak (see the light theme): a little lighter than the surface, not the light theme's colours on black.",
-    "lightness": { "$value": 0.29 },
-    "chroma": { "$value": 0.04 }
+    "$description": "Dark theme's 'now' tint (see the light theme): a little lighter than the surface, not the light theme's colours on black.",
+    "lightness": { "$value": 0.265 },
+    "chroma": { "$value": 0.028 }
   },
   "shadow": {
     "$type": "shadow",

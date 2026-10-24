@@ -4867,9 +4867,9 @@ checks:
       - apps/desktop/src/styles.css
       - apps/desktop/src/pages/settings/settings.css
     verified: null
-  - id: NOW-GRADIENT-APPEARANCE
+  - id: NOW-TINT-APPEARANCE
     area: native
-    title: The 'now' gradient is a quiet course tint, alike on desktop, iPhone and Android
+    title: The 'now' card is one quiet, even course tint on desktop, iPhone and Android
     persona: careless-multidevice
     preconditions: |
       The same workspace on desktop, iPhone and Android, during a class (or
@@ -4879,26 +4879,25 @@ checks:
           Open Today on desktop and look at the current or next class row;
           open Today on the phones and look at the hero card.
         reason: |
-          A peak mixed from the raw course colour turned muted courses into a
-          grey smudge; the peak now comes from design/tokens `hero` in OKLCH,
-          and only the rendered colour shows whether it reads as the course.
+          The tint comes from design/tokens `hero` in OKLCH and each shell
+          converts it itself; only the rendered colour shows whether a muted
+          course still reads as its own hue rather than grey.
       - action: |
-          Compare the three for direction, extent and strength, then switch the
-          system to dark appearance and compare again.
+          Compare the three for strength and hue, then switch the system to
+          dark appearance and compare again.
         reason: |
-          Each shell draws the ellipse and smoothstep stops itself; a
-          mismatched geometry, a visible edge where the fade ends, or the light
-          colours reused on black only show on the real screens.
+          The three renderers convert colour differently, and dark mode has its
+          own lightness; a mismatch or a murky dark card only shows on the real
+          screens.
     observe: |
       Desktop Today focus row; the hero card on iOS and Android.
     expected: |
-      A faint wash of the course's own hue in the top-leading corner that fades
-      smoothly with no visible edge or grey band; the same direction and
-      strength on all three; in dark mode a slightly lighter tint of the hue,
-      not a murky patch.
+      The whole card is one even, pale wash of the course's own hue with a thin
+      outline in the tint, no gradient; the same strength on all three; in dark
+      mode a slightly lighter tint of the hue, not a murky patch.
     why_manual: |
-      A colour judgement at a glance on three native renderers; the token math
-      is shared, but how each platform's gradient renders cannot be asserted
+      A colour judgement at a glance on three native renderers; the token values
+      are shared, but each platform's colour conversion cannot be asserted
       headlessly, and iOS cannot be built on the Windows host.
     covers:
       - design/tokens/color.light.json

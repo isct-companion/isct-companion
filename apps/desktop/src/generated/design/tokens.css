@@ -20,8 +20,8 @@
   --warn-soft: #fff3d6;
   --ok: #24733f;
   --ok-soft: #e1f3e7;
-  --hero-lightness: 0.96;
-  --hero-chroma: 0.03; /** Upper bound; a muted course keeps its own lower chroma */
+  --hero-lightness: 0.965;
+  --hero-chroma: 0.022; /** Upper bound; a muted course keeps its own lower chroma */
   --shadow: 0px 1px 2px 0px #0000000a, 0px 8px 24px 0px #0000000d;
   --course-tint-fill: 22%; /** Something that occupies time: a timetable block */
   --course-tint-soft: 10%; /** Emphasis on a row: the current or next class */

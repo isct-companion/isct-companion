@@ -119,7 +119,7 @@ an unverified area becomes an assumed-good one.
 - `GUIDE-FIRST-RUN` — never verified
 - `VISUAL-NOW-GRADIENT` — never verified
 - `DESKTOP-RADIX-APPEARANCE` — never verified
-- `NOW-GRADIENT-APPEARANCE` — never verified
+- `NOW-TINT-APPEARANCE` — never verified
 
 ## Status
 
@@ -222,7 +222,7 @@ an unverified area becomes an assumed-good one.
 | `GUIDE-FIRST-RUN` | desktop | International student | —<br>not run | apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/ios/IsctCompanion/Design/Guide.swift |
 | `VISUAL-NOW-GRADIENT` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/course.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `DESKTOP-RADIX-APPEARANCE` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/settings/settings.css |
-| `NOW-GRADIENT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
+| `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
 
 ## Personas
 
@@ -5714,7 +5714,7 @@ cover actions and state, not rendered layout, colour or font metrics.
 
 **Last recorded** never run
 
-### The 'now' gradient is a quiet course tint, alike on desktop, iPhone and Android (`NOW-GRADIENT-APPEARANCE`)
+### The 'now' card is one quiet, even course tint on desktop, iPhone and Android (`NOW-TINT-APPEARANCE`)
 
 **Area** native · **Persona** Two devices, interrupted work · **Result** —
 
@@ -5729,14 +5729,14 @@ with tonight's deadline showing), in light and then dark appearance.
 
 1. Open Today on desktop and look at the current or next class row;
    open Today on the phones and look at the hero card.
-   - *Why:* A peak mixed from the raw course colour turned muted courses into a
-     grey smudge; the peak now comes from design/tokens `hero` in OKLCH,
-     and only the rendered colour shows whether it reads as the course.
-2. Compare the three for direction, extent and strength, then switch the
-   system to dark appearance and compare again.
-   - *Why:* Each shell draws the ellipse and smoothstep stops itself; a
-     mismatched geometry, a visible edge where the fade ends, or the light
-     colours reused on black only show on the real screens.
+   - *Why:* The tint comes from design/tokens `hero` in OKLCH and each shell
+     converts it itself; only the rendered colour shows whether a muted
+     course still reads as its own hue rather than grey.
+2. Compare the three for strength and hue, then switch the system to
+   dark appearance and compare again.
+   - *Why:* The three renderers convert colour differently, and dark mode has its
+     own lightness; a mismatch or a murky dark card only shows on the real
+     screens.
 
 **Where to look**
 
@@ -5744,15 +5744,14 @@ Desktop Today focus row; the hero card on iOS and Android.
 
 **Expected**
 
-A faint wash of the course's own hue in the top-leading corner that fades
-smoothly with no visible edge or grey band; the same direction and
-strength on all three; in dark mode a slightly lighter tint of the hue,
-not a murky patch.
+The whole card is one even, pale wash of the course's own hue with a thin
+outline in the tint, no gradient; the same strength on all three; in dark
+mode a slightly lighter tint of the hue, not a murky patch.
 
 **Why this is manual**
 
-A colour judgement at a glance on three native renderers; the token math
-is shared, but how each platform's gradient renders cannot be asserted
+A colour judgement at a glance on three native renderers; the token values
+are shared, but each platform's colour conversion cannot be asserted
 headlessly, and iOS cannot be built on the Windows host.
 
 **Covers**

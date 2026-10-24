@@ -21,15 +21,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.colorspace.ColorSpaces
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -56,7 +49,7 @@ data class Palette(
     val warnSoft: Color,
     val ok: Color,
     val okSoft: Color,
-    /** The 'now' gradient's peak in OKLCH ([nowGradient]): lightness, and the chroma cap. */
+    /** The 'now' tint in OKLCH ([nowTint]): lightness, and the chroma cap. */
     val heroLightness: Float,
     val heroChroma: Float,
 )
@@ -92,13 +85,9 @@ object Theme {
     val tintSoft = IsctTokens.courseTintSoft.toFloat()
 }
 
-/** Smoothstep from the peak to the surface: (position along the 72% radius,
- * share of the peak), matching the desktop's stops. */
-private val HERO_FALLOFF = listOf(0.25f to 0.84f, 0.5f to 0.5f, 0.75f to 0.16f, 1f to 0f)
-
-/** The 'now' gradient's peak: [tint]'s hue at the theme's hero lightness,
- * its chroma capped, so every course glows equally quietly (design/tokens). */
-fun heroPeak(tint: Color, palette: Palette): Color {
+/** The 'now' tint: [tint]'s hue at the theme's hero lightness, its chroma
+ * capped, so every course is equally quiet (design/tokens `hero`). */
+fun heroTint(tint: Color, palette: Palette): Color {
     val lab = tint.convert(ColorSpaces.Oklab)
     val chroma = hypot(lab.green, lab.blue)
     val scale = if (chroma > palette.heroChroma) palette.heroChroma / chroma else 1f
@@ -106,32 +95,11 @@ fun heroPeak(tint: Color, palette: Palette): Color {
         .convert(ColorSpaces.Srgb)
 }
 
-/** The 'now' gradient (design/README.md) the hero card shares with desktop's
- * focus row: [heroPeak] in the top-start corner easing (smoothstep) into the
- * surface by 72% of an ellipse 140% wide and 180% tall (the desktop's
- * radial-gradient), with a hairline at [Theme.tintFill]. Every stop is
- * opaque: fading to Color.Transparent (transparent black) greyed the middle. */
-fun Modifier.nowGradient(tint: Color, palette: Palette, shape: Shape): Modifier = this
+/** The 'now' card (design/README.md) the hero card shares with desktop's
+ * focus row: one even [heroTint] with a hairline at [Theme.tintFill]. */
+fun Modifier.nowTint(tint: Color, palette: Palette, shape: Shape): Modifier = this
     .clip(shape)
-    .drawBehind {
-        drawRect(palette.surface)
-        val rx = size.width * 1.4f
-        val ry = size.height * 1.8f
-        if (rx <= 0f || ry <= 0f) return@drawBehind
-        val start = if (layoutDirection == LayoutDirection.Rtl) size.width else 0f
-        val peak = heroPeak(tint, palette)
-        // lerp mixes in Oklab, as the desktop's color-mix(in oklab).
-        val stops = arrayOf(0f to peak) + HERO_FALLOFF.map { (at, share) ->
-            at * 0.72f to lerp(palette.surface, peak, share)
-        }
-        // A circle squashed vertically draws the ellipse.
-        scale(scaleX = 1f, scaleY = ry / rx, pivot = Offset(start, 0f)) {
-            drawRect(
-                Brush.radialGradient(*stops, center = Offset(start, 0f), radius = rx),
-                size = Size(size.width, size.height * rx / ry),
-            )
-        }
-    }
+    .background(heroTint(tint, palette))
     .border(0.5.dp, tint.copy(alpha = Theme.tintFill), shape)
 
 @Composable
