@@ -4,7 +4,7 @@ import { CalendarView } from "../pages/today/CalendarView";
 import { DataNotice } from "../components/DataNotice";
 import { ResizableWorkspace } from "../components/ResizableWorkspace";
 import { WelcomeSheet } from "../components/guide";
-import { useMediaQuery } from "@mantine/hooks";
+import { useMediaQuery } from "usehooks-ts";
 import { refresh, syncAvailable, useOpenHint, useSync } from "./useSync";
 import { pageProgress, runsFor } from "../platform/sync";
 import { useAnimatedNavigate } from "./navigation";
@@ -22,8 +22,7 @@ import { useFinder } from "../pages/courses/useFinder";
 import type { FinderRowView } from "../platform/finder-query";
 import { contentLanguage, pickLocalized } from "../lib/model";
 import { decodeEntities } from "../lib/text";
-import { ModalsProvider } from "@mantine/modals";
-import { Notifications } from "@mantine/notifications";
+import { Notifications } from "./notifications";
 import {
   createHashRouter,
   RouterProvider,
@@ -40,9 +39,8 @@ import {
   workspaceRoutes,
 } from "./routes";
 import { notify } from "./notify";
-import { AppShell, MantineProvider } from "@mantine/core";
-import { UiButton } from "../components/mantine";
-import { confirmAction } from "../components/confirm";
+import { UiButton } from "../components/ui";
+import { confirmAction, ConfirmDialogs } from "../components/confirm";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import { desktopBridge, hideNativeSchoolWeb, saveExportFile } from "./native";
@@ -57,14 +55,7 @@ import { Settings } from "../pages/settings/SettingsPage";
 import { PlanEditor, type PlanDraft } from "../pages/schedule/PlanEditor";
 import { IntensiveEditor } from "../pages/courses/IntensiveEditor";
 
-import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 const LmsWorkspace = lazy(() =>
   import("../features/lms/LmsWorkspace").then((module) => ({
@@ -78,7 +69,6 @@ import {
   useSchoolSession,
   type SchoolSessionState,
 } from "../platform/school-session";
-import { appTheme, cssVariablesResolver } from "./theme";
 
 import { performAction } from "../platform/actions";
 
@@ -1460,14 +1450,8 @@ export function WorkspaceApp() {
     </>
   );
   return (
-    <AppShell
-      className="app"
-      data-density={data.settings.density}
-      // The native window's minimum width always leaves room for the rail.
-      navbar={{ width: 72, breakpoint: 0 }}
-      padding={0}
-    >
-      <AppShell.Navbar className="rail">
+    <div className="app" data-density={data.settings.density}>
+      <aside className="rail">
         <nav aria-label={t("Pages")}>
           {pages.map((p, i) => (
             <UiButton
@@ -1505,9 +1489,8 @@ export function WorkspaceApp() {
           {icons.settings}
           <span>{navigation.settings}</span>
         </UiButton>
-      </AppShell.Navbar>
-      <AppShell.Main
-        component="main"
+      </aside>
+      <main
         className={`workspaceMain${page === "home" ? " homeMain" : page === "timetable" ? " timetableMain" : page === "lectures" ? " lecturesMain" : page === "web" ? " webMain" : page === "settings" ? " settingsMain" : ""}`}
       >
         {keep("lectures", lecturesPage)}
@@ -1515,7 +1498,7 @@ export function WorkspaceApp() {
         {keep("timetable", timetablePage)}
         {keep("web", webPage)}
         {keep("settings", settingsPage)}
-      </AppShell.Main>
+      </main>
       {overlays}
       <aside
         className="schoolStatusBar"
@@ -1549,7 +1532,7 @@ export function WorkspaceApp() {
           refresh={canSync ? () => refresh({ kind: "everything" }) : undefined}
         />
       </aside>
-    </AppShell>
+    </div>
   );
 }
 
@@ -1569,20 +1552,10 @@ export default function App({
   // Router construction installs history listeners; reuse it through StrictMode renders.
   const [router] = useState(() => providedRouter ?? getDefaultRouter());
   return (
-    <MantineProvider
-      theme={appTheme}
-      cssVariablesResolver={cssVariablesResolver}
-      defaultColorScheme="light"
-    >
-      <Notifications
-        position="bottom-right"
-        className="appNotifications"
-        limit={1}
-        transitionDuration={0}
-      />
-      <ModalsProvider>
-        <RouterProvider router={router} />
-      </ModalsProvider>
-    </MantineProvider>
+    <>
+      <Notifications />
+      <ConfirmDialogs />
+      <RouterProvider router={router} />
+    </>
   );
 }

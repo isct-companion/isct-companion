@@ -11,10 +11,10 @@ import {
   Stack,
   Text,
   TextInput,
-} from "@mantine/core";
+} from "../../components/ui";
 import { OtpSetupInput } from "../../components/OtpSetupInput";
 import { MatrixCamera } from "../../components/MatrixCamera";
-import { UiInput } from "../../components/mantine";
+import { UiInput } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { t } from "../../i18n";
 

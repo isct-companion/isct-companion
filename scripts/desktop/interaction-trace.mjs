@@ -8,12 +8,15 @@
 import { appendFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizePath } from "vite";
 
 const dir = fileURLToPath(
   new URL("../../tmp/interaction-trace/", import.meta.url),
 );
-const tracedCore = fileURLToPath(
-  new URL("../../apps/desktop/src/app/traced-tauri-core.ts", import.meta.url),
+const tracedCore = normalizePath(
+  fileURLToPath(
+    new URL("../../apps/desktop/src/app/traced-tauri-core.ts", import.meta.url),
+  ),
 );
 const KEEP_FILES = 20;
 const LEAD_UP = 25;
@@ -45,8 +48,8 @@ export function interactionTrace() {
       if (
         source === "@tauri-apps/api/core" &&
         importer &&
-        importer !== tracedCore &&
-        !importer.includes("/node_modules/")
+        normalizePath(importer).split("?")[0] !== tracedCore &&
+        !normalizePath(importer).includes("/node_modules/")
       )
         return tracedCore;
     },

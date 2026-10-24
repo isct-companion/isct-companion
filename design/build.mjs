@@ -15,12 +15,12 @@ const tokens = (name) => path.join(designDir, "tokens", name);
 export const outputs = {
   desktopCss: "apps/desktop/src/generated/design/tokens.css",
   desktopDarkCss: "apps/desktop/src/generated/design/tokens.dark.css",
-  desktopJson: "apps/desktop/src/generated/design/tokens.json",
   corePalette: "crates/isct-core/src/schedule/course_palette.rs",
   swiftLight: "apps/ios/IsctCompanion/Design/Generated/IsctTokens.swift",
   swiftDark: "apps/ios/IsctCompanion/Design/Generated/IsctTokensDark.swift",
   composeLight: "apps/android/app/src/main/java/app/isct/design/IsctTokens.kt",
-  composeDark: "apps/android/app/src/main/java/app/isct/design/IsctTokensDark.kt",
+  composeDark:
+    "apps/android/app/src/main/java/app/isct/design/IsctTokensDark.kt",
 };
 
 const group =
@@ -133,7 +133,7 @@ const composeTransforms = [
   "color/composeColor",
   "size/compose/px",
 ];
-// Phones take fonts and shadows from the platform; the tonal scale is Mantine's.
+// Phones take fonts and shadows from the platform.
 const mobileToken = group("color", "radius", "course");
 
 async function build(out) {
@@ -158,13 +158,13 @@ async function build(out) {
               destination: name(outputs.desktopCss),
               format: "css/variables",
               filter: (token) =>
-                group("color", "shadow", "radius", "font", "workspace")(token) ||
-                isTint(token),
-            },
-            {
-              destination: name(outputs.desktopJson),
-              format: "json/nested",
-              filter: group("accent-scale", "radius", "font"),
+                group(
+                  "color",
+                  "shadow",
+                  "radius",
+                  "font",
+                  "workspace",
+                )(token) || isTint(token),
             },
           ],
         },
@@ -274,7 +274,11 @@ export async function staleOutputs() {
       const committed = await readFile(path.join(repoRoot, file), "utf8").catch(
         () => null,
       );
-      if (fresh !== committed) stale.push(file);
+      // Git may check out CRLF on Windows; line endings do not change tokens.
+      if (
+        fresh.replaceAll("\r\n", "\n") !== committed?.replaceAll("\r\n", "\n")
+      )
+        stale.push(file);
     }
     return stale;
   } finally {

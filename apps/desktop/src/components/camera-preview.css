@@ -1,7 +1,7 @@
 .cameraPreview {
   position: relative;
   background: #101715;
-  border-radius: var(--mantine-radius-md);
+  border-radius: var(--radius-surface);
   overflow: hidden;
   min-height: 160px;
 }

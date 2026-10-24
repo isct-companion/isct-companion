@@ -1,4 +1,4 @@
-import { Modal } from "@mantine/core";
+import { Modal } from "../ui";
 import { useState } from "react";
 import type { ExamView } from "../../generated/persistence";
 import type { Course } from "../../lib/model";

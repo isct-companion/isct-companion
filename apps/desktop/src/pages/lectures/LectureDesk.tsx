@@ -1,7 +1,7 @@
 import { examKindLabel } from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
 import { DueChip } from "../../components/DueChip";
-import { CloseButton, Input } from "@mantine/core";
+import { CloseButton, Input } from "../../components/ui";
 import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
@@ -23,7 +23,7 @@ import {
   jstMinutes,
   tokyoDate,
 } from "../../lib/civil-date";
-import { UiSelect } from "../../components/mantine";
+import { UiSelect } from "../../components/ui";
 import { t } from "../../i18n";
 import type { CourseEntry } from "../../features/lms/LmsWorkspace";
 import { useClock } from "../../platform/use-clock";

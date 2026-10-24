@@ -5,7 +5,7 @@ import {
   NumberInput,
   Stack,
   TextInput,
-} from "@mantine/core";
+} from "../../components/ui";
 import { useState } from "react";
 import type { IntensiveSchedule } from "../../lib/model";
 import { scheduleQuery } from "../../platform/core-query";

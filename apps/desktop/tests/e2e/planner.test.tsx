@@ -497,9 +497,10 @@ describe("the course planner", () => {
       );
     });
     await settled(() =>
-      expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject(
-        { input: "物理", keys: ["graph"] },
-      ),
+      expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject({
+        input: "物理",
+        keys: ["graph"],
+      }),
     );
     expect(searches()).toBe(before + 1);
     await typeInto(input, "物理");
@@ -530,7 +531,9 @@ describe("the course planner", () => {
     ).toHaveLength(0);
     await act(async () => searchInput.focus());
     // The whole stored result is counted at once; rows mount in batches.
-    await settled(() => expect(app!.host.textContent).toContain("1000 courses"));
+    await settled(() =>
+      expect(app!.host.textContent).toContain("1000 courses"),
+    );
     while (buttonByText(app.host, "Load more courses")) {
       await click(buttonByText(app.host, "Load more courses")!);
       expect(app.host.querySelectorAll(".finderRow").length).toBeLessThan(25);
@@ -719,25 +722,27 @@ describe("the course planner", () => {
         revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
-        handle: finderHandler({ courses: [eligible] }, (command, _args, core) =>
-          command === "mutate_workspace"
-            ? gate.then(() => {
-                const rows = [eligibleCourse];
-                core.publish(
-                  workspaceFixture({
-                    courses: rows,
-                    planItems: rows.map((course) => planItemFor(course)),
-                  }),
-                  `${core.revision}+placed`,
-                );
-                return {
-                  revision: core.revision,
-                  contentRevision: core.revision,
-                  workspace: structuredClone(core.workspace),
-                  schoolRecords: structuredClone(core.schoolRecords),
-                };
-              })
-            : undefined,
+        handle: finderHandler(
+          { courses: [eligible] },
+          (command, _args, core) =>
+            command === "mutate_workspace"
+              ? gate.then(() => {
+                  const rows = [eligibleCourse];
+                  core.publish(
+                    workspaceFixture({
+                      courses: rows,
+                      planItems: rows.map((course) => planItemFor(course)),
+                    }),
+                    `${core.revision}+placed`,
+                  );
+                  return {
+                    revision: core.revision,
+                    contentRevision: core.revision,
+                    workspace: structuredClone(core.workspace),
+                    schoolRecords: structuredClone(core.schoolRecords),
+                  };
+                })
+              : undefined,
         ),
       },
       { route: paths.timetable() },
@@ -1248,7 +1253,10 @@ async function openEditorFor(course: Course): Promise<MountedApp> {
       ].find((button) => (button.textContent ?? "").trim() === "Edit"),
     "the panel Edit action",
   );
-  await click(panelEdit);
+  // Activated from the keyboard: jsdom has no layout, so a synthetic
+  // pointerdown lands on the panel separator and takes focus first.
+  panelEdit.focus();
+  await act(async () => panelEdit.click());
   await required(
     () => document.querySelector('[role="combobox"][aria-label="Period"]'),
     "the course editor",
@@ -1299,7 +1307,9 @@ describe("the course editor", () => {
     const period = document.querySelector<HTMLInputElement>(
       '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toContain("1-4 · 08:50–12:25");
+    expect(period.textContent?.replace(/⌄$/, "")).toContain(
+      "1-4 · 08:50–12:25",
+    );
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.title).toBe("Renamed course");
@@ -1319,7 +1329,7 @@ describe("the course editor", () => {
     const period = document.querySelector<HTMLInputElement>(
       '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toBe("Custom time");
+    expect(period.textContent?.replace(/⌄$/, "")).toBe("Custom time");
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.meetings[0]).toMatchObject({
@@ -1342,7 +1352,7 @@ describe("the course editor", () => {
     const period = document.querySelector<HTMLInputElement>(
       '[role="combobox"][aria-label="Period"]',
     )!;
-    expect(period.value).toContain("1-2");
+    expect(period.textContent?.replace(/⌄$/, "")).toContain("1-2");
 
     const intent = await saveEditor(app.core);
     expect(intent.draft.meetings[0].periods).toEqual([1, 2]);
@@ -1361,6 +1371,37 @@ describe("the course editor", () => {
     const intent = await saveEditor(app.core, "custom");
     expect(intent.draft.meetings[0].periods).toEqual([]);
     expect(intent.draft.meetings[0].startTime).toBe("08:50");
+  }, 60_000);
+
+  it("returns focus to Edit when the editor is dismissed", async () => {
+    // The Title field autofocuses as the drawer commits, before Radix's focus
+    // scope records where focus came from, so the drawer records it itself.
+    app = await openEditorFor(
+      meetingCourse({
+        days: [1],
+        periods: [1, 2],
+        startTime: "08:50",
+        endTime: "10:30",
+        room: "W9-201",
+      }),
+    );
+    const edit = [
+      ...app.host.querySelectorAll<HTMLButtonElement>(
+        ".coursePanelFoot button",
+      ),
+    ].find((button) => (button.textContent ?? "").trim() === "Edit")!;
+    const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(drawer.contains(document.activeElement)).toBe(true);
+
+    await act(async () =>
+      drawer.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    await until(() =>
+      expect(document.querySelector('[role="dialog"]')).toBeNull(),
+    );
+    await until(() => expect(document.activeElement).toBe(edit));
   }, 60_000);
 });
 
@@ -1451,7 +1492,9 @@ describe("the year and quarter picker", () => {
     );
     // Pin only this gesture's clock so a busy native build cannot turn the
     // assertion about the first click into an assertion after the quiet window.
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "performance", "Date"],
+    });
     try {
       await act(async () => {
         host

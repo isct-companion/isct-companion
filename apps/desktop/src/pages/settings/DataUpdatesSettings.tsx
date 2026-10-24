@@ -5,7 +5,7 @@ import { refresh, useSync } from "../../app/useSync";
 import { runsFor } from "../../platform/sync";
 import { t } from "../../i18n";
 import type { Subscription, Workspace } from "../../lib/model";
-import { UiButton, UiInput } from "../../components/mantine";
+import { UiButton, UiInput } from "../../components/ui";
 import {
   Row,
   SettingsGroup,

@@ -44,6 +44,10 @@ export function installWindowGlobals(window: Window & typeof globalThis): void {
   });
   // jsdom leaves scrollIntoView undefined; several views call it on reveal.
   if (window.HTMLElement) {
+    // jsdom has no pointer-capture implementation; Radix uses it on selects.
+    window.HTMLElement.prototype.hasPointerCapture ??= () => false;
+    window.HTMLElement.prototype.setPointerCapture ??= () => {};
+    window.HTMLElement.prototype.releasePointerCapture ??= () => {};
     // jsdom has no layout engine. Supply viewport/row geometry while running
     // the real virtualizer; neither search results nor range selection are mocked.
     Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", {
@@ -94,5 +98,4 @@ export function resetDocument(): void {
   if (typeof document === "undefined") return;
   document.body.replaceChildren();
   document.documentElement.removeAttribute("style");
-  document.documentElement.removeAttribute("data-mantine-color-scheme");
 }

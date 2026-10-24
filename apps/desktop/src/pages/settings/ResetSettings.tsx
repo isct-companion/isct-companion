@@ -1,4 +1,4 @@
-import { Checkbox, Radio } from "@mantine/core";
+import { Checkbox, Radio } from "../../components/ui";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { intlLocale, t } from "../../i18n";
@@ -6,7 +6,7 @@ import { errorText } from "../../app/shared";
 import { desktopBridge } from "../../app/native";
 import type { CloudSyncProvider } from "../../platform/desktop-bridge";
 import { workspaceActions } from "../../store/workspace";
-import { UiButton } from "../../components/mantine";
+import { UiButton } from "../../components/ui";
 import { Row, SettingsGroup } from "../../components/forms";
 
 /** `isct_core::sync_engine::ResetScope`; Core decides what each one removes. */
@@ -216,15 +216,15 @@ export function ResetSettings({
             disabled={resetting}
             label={t("settings.reset.caches.signOut")}
             description={t("settings.reset.caches.signOutHint")}
-            onChange={(event) => setSignOutWeb(event.currentTarget.checked)}
+            onCheckedChange={(checked) => setSignOutWeb(checked === true)}
           />
           <Checkbox
             checked={deleteDownloads}
             disabled={resetting}
             label={t("settings.reset.caches.downloads")}
             description={t("settings.reset.caches.downloadsHint")}
-            onChange={(event) =>
-              setDeleteDownloads(event.currentTarget.checked)
+            onCheckedChange={(checked) =>
+              setDeleteDownloads(checked === true)
             }
           />
         </>
@@ -254,7 +254,7 @@ export function ResetSettings({
           checked={acknowledged}
           disabled={resetting}
           label={t("settings.reset.full.acknowledge")}
-          onChange={(event) => setAcknowledged(event.currentTarget.checked)}
+          onCheckedChange={(checked) => setAcknowledged(checked === true)}
         />
       )}
       <div className="actions">

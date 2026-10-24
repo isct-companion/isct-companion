@@ -2,7 +2,7 @@ import { t } from "../../i18n";
 import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
 import { useState } from "react";
-import { Menu } from "@mantine/core";
+import { Menu } from "../ui";
 import { GuideTip } from "../guide";
 import {
   axisPosition,
@@ -365,4 +365,4 @@ export function WeekTimetable({
     </div>
   );
 }
-import { UiButton } from "../mantine";
+import { UiButton } from "../ui";

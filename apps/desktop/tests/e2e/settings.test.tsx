@@ -417,7 +417,7 @@ describe("School accounts", () => {
       await clickButton(account(mounted, "science"), "Scan QR");
       await wait(() => expect(qrVideo).toHaveBeenCalled());
       const close = document.querySelector<HTMLButtonElement>(
-        '.mantine-Modal-root button[aria-label="Close"]',
+        '.uiDialogContent button[aria-label="Close"]',
       )!;
       await click(close);
       const stop = vi.fn();
@@ -448,7 +448,7 @@ describe("School accounts", () => {
         cardButtons(science.querySelector(".schoolAccountActions")!),
       ).toEqual(["Connect", "Forget"]);
       // Saved, but no session has been reported yet in this launch.
-      expect(science.querySelector(".mantine-Badge-root")).toBeNull();
+      expect(science.querySelector(".uiBadge")).toBeNull();
       expect(
         [
           ...settingsPane(mounted).querySelectorAll<HTMLElement>(
@@ -1296,6 +1296,22 @@ describe("Matrix scan and paste", () => {
       );
       expect(mounted.core.commands("copy_school_matrix")).toHaveLength(0);
 
+      // Escape must settle the pending confirmation as false, just like Cancel.
+      const copyButton = buttonIn(card, "Copy");
+      copyButton.focus();
+      await clickButton(card, "Copy");
+      const keyboardDismissal = await wait(() => openDialog());
+      await act(async () =>
+        keyboardDismissal.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        ),
+      );
+      await wait(() =>
+        expect(document.querySelector('[role="dialog"]')).toBeNull(),
+      );
+      expect(mounted.core.commands("copy_school_matrix")).toHaveLength(0);
+      await wait(() => expect(document.activeElement).toBe(copyButton));
+
       await clickButton(card, "Copy");
       await answerDialog("Copy");
       await wait(() =>
@@ -1333,7 +1349,7 @@ it(
     });
     const toggle = await wait(() =>
       settingsPane(app!).querySelector<HTMLInputElement>(
-        '[data-setting="developer-mode"] input',
+        '[data-setting="developer-mode"] [role="switch"]',
       )!,
     );
     await click(toggle);
@@ -1349,10 +1365,8 @@ it(
     );
     expect(pane.querySelectorAll(".diagnosticLogRow").length).toBeLessThan(40);
     expect(pane.querySelector('[contenteditable="true"],textarea')).toBeNull();
-    const follow = pane.querySelector<HTMLInputElement>(
-      'input[type="checkbox"]',
-    )!;
-    expect(follow.checked).toBe(true);
+    const follow = pane.querySelector<HTMLInputElement>('[role="switch"]')!;
+    expect(follow.getAttribute("aria-checked")).toBe("true");
     await act(async () =>
       pane
         .querySelector(".diagnosticLogs")!
@@ -1360,9 +1374,9 @@ it(
           new WheelEvent("wheel", { deltaY: -100, bubbles: true }),
         ),
     );
-    expect(follow.checked).toBe(false);
+    expect(follow.getAttribute("aria-checked")).toBe("false");
     await click(follow);
-    expect(follow.checked).toBe(true);
+    expect(follow.getAttribute("aria-checked")).toBe("true");
 
     await clickButton(pane, "Save to file");
     await wait(() => expect(app!.core.commands("save_file")).toHaveLength(1));
@@ -1418,12 +1432,12 @@ async function mountBackup(
 
 const driveToggle = (pane: HTMLElement) =>
   pane.querySelector<HTMLInputElement>(
-    '[data-setting="cloud"] input[type="checkbox"]',
+    '[data-setting="cloud"] [role="switch"]',
   )!;
 
 const autoToggle = (pane: HTMLElement) =>
   pane.querySelector<HTMLInputElement>(
-    '[data-setting="sync-automatic"] input',
+    '[data-setting="sync-automatic"] [role="switch"]',
   )!;
 
 function passwordFields(pane: HTMLElement): NodeListOf<HTMLInputElement> {
@@ -1729,7 +1743,9 @@ describe("Study profile", () => {
     await wait(() =>
       expect(mounted.core.workspace.settings.departmentId).toBe("cs"),
     );
-    expect(departmentSelect(pane).value).toBe("Computer Science");
+    expect(departmentSelect(pane).textContent?.replace(/⌄$/, "")).toBe(
+      "Computer Science",
+    );
   });
 
   it("prefills the detected entry year and saves it only on request", async () => {
@@ -1759,9 +1775,11 @@ describe("Study profile", () => {
     const pane = settingsPane(mounted);
     await wait(() =>
       expect(
-        pane.querySelector<HTMLInputElement>(
-          '[data-setting="admission-year"] [role="combobox"]',
-        )!.value,
+        pane
+          .querySelector<HTMLInputElement>(
+            '[data-setting="admission-year"] [role="combobox"]',
+          )!
+          .textContent?.replace(/⌄$/, ""),
       ).toBe("2025 entry"),
     );
     expect(studyIntents(mounted)).toHaveLength(0);
@@ -1787,9 +1805,11 @@ describe("Study profile", () => {
     const pane = settingsPane(mounted);
     await flush();
     expect(
-      pane.querySelector<HTMLInputElement>(
-        '[data-setting="admission-year"] [role="combobox"]',
-      )!.value,
+      pane
+        .querySelector<HTMLInputElement>(
+          '[data-setting="admission-year"] [role="combobox"]',
+        )!
+        .textContent?.replace(/⌄$/, ""),
     ).toBe("2024 entry");
     expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true);
     expect(studyIntents(mounted)).toHaveLength(0);
@@ -1886,7 +1906,7 @@ describe("Study profile", () => {
         return alert;
       });
       expect(error.textContent).toContain("duplicate term");
-      expect(stageSelect(pane).value).toBe("Doctoral");
+      expect(stageSelect(pane).textContent?.replace(/⌄$/, "")).toBe("Doctoral");
       expect(buttonIn(pane, "Save enrollment details").disabled).toBe(false);
     },
     TIMEOUT,
@@ -1917,7 +1937,11 @@ describe("Study profile", () => {
       );
       // The department is not part of the draft, so it proves the newer profile
       // has really been adopted before Save is pressed.
-      await wait(() => expect(departmentSelect(pane).value).toBe("Physics"));
+      await wait(() =>
+        expect(departmentSelect(pane).textContent?.replace(/⌄$/, "")).toBe(
+          "Physics",
+        ),
+      );
 
       await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
@@ -1926,7 +1950,7 @@ describe("Study profile", () => {
         return alert;
       });
       expect(error.textContent).toContain("changed elsewhere");
-      expect(stageSelect(pane).value).toBe("Doctoral");
+      expect(stageSelect(pane).textContent?.replace(/⌄$/, "")).toBe("Doctoral");
       expect(studyIntents(mounted)).toHaveLength(0);
     },
     TIMEOUT,
@@ -1953,7 +1977,7 @@ describe("Study profile", () => {
       await wait(() =>
         expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true),
       );
-      expect(stageSelect(pane).value).toBe("Master");
+      expect(stageSelect(pane).textContent?.replace(/⌄$/, "")).toBe("Master");
 
       const external = structuredClone(initial);
       external.academicProfile.studyEnrollments = [
@@ -1974,7 +1998,11 @@ describe("Study profile", () => {
           changes: ["settings"],
         }),
       );
-      await wait(() => expect(stageSelect(pane).value).toBe("Doctoral"));
+      await wait(() =>
+        expect(stageSelect(pane).textContent?.replace(/⌄$/, "")).toBe(
+          "Doctoral",
+        ),
+      );
     },
     TIMEOUT,
   );
@@ -2038,7 +2066,7 @@ describe("Agent access", () => {
         ),
       );
       await click(
-        [...pane.querySelectorAll("label")].find(
+        [...pane.querySelectorAll("button")].find(
           (label) => label.textContent === "Codex",
         )!,
       );
@@ -2165,7 +2193,9 @@ describe("Academic calendar profile", () => {
       });
       app = mounted;
       const pane = settingsPane(mounted);
-      await click(pane.querySelector('[data-setting="developer-mode"] input'));
+      await click(
+        pane.querySelector('[data-setting="developer-mode"] [role="switch"]'),
+      );
       const start = () =>
         pane.querySelector<HTMLInputElement>(
           '[aria-label="Periods 1–2 start time"]',
@@ -2282,7 +2312,7 @@ describe("Notification preferences", () => {
         1440,
       ),
     );
-    const exams = pane.querySelector('[data-setting="exams"] input')!;
+    const exams = pane.querySelector('[data-setting="exams"] [role="switch"]')!;
     await click(exams);
     await wait(() =>
       expect(pane.querySelector('[data-setting="exam-lead"]')).toBeNull(),
@@ -2304,7 +2334,9 @@ describe("Notification preferences", () => {
     await click(assignmentTime);
     const option = await wait(() => {
       const option = [
-        ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+        ...document.querySelectorAll<HTMLElement>(
+          ".uiMultiOptions [aria-pressed]",
+        ),
       ].find((item) => item.textContent === "3 hours before");
       if (!option) throw new Error("Reminder choice not visible");
       return option;
@@ -2316,7 +2348,7 @@ describe("Notification preferences", () => {
       ).toEqual([1440, 60, 180]),
     );
     const assignments = pane.querySelector(
-      '[data-setting="assignments"] input',
+      '[data-setting="assignments"] [role="switch"]',
     )!;
     await click(assignments);
     await wait(() =>

@@ -36,40 +36,6 @@
       }
     }
   },
-  "accent-scale": {
-    "$type": "color",
-    "$description": "Ten-step campus blue for UI frameworks that want a tonal scale (Mantine).",
-    "0": {
-      "$value": "#eef3ff"
-    },
-    "1": {
-      "$value": "#dce7ff"
-    },
-    "2": {
-      "$value": "#b8cdff"
-    },
-    "3": {
-      "$value": "#8faeff"
-    },
-    "4": {
-      "$value": "#6b94f8"
-    },
-    "5": {
-      "$value": "#527ff0"
-    },
-    "6": {
-      "$value": "#416fe5"
-    },
-    "7": {
-      "$value": "#315fd0"
-    },
-    "8": {
-      "$value": "#2853bb"
-    },
-    "9": {
-      "$value": "#21479f"
-    }
-  },
   "workspace": {
     "$type": "dimension",
     "$description": "Desktop workspace chrome: stable headers, inset controls and comfortable split targets.",

@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { MantineProvider } from "@mantine/core";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -23,7 +22,6 @@ import {
   type Mounted,
   type MountedApp,
 } from "@tests/harness";
-import { appTheme, cssVariablesResolver } from "@app/app/theme";
 import { paths } from "@app/app/routes";
 import type {
   Assignment,
@@ -41,7 +39,7 @@ import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
  *
  * The legacy suites mounted `Today`, `CourseFinder`, `LectureDesk` and
  * `AcademicSummary` directly and replaced `core-query`,
- * `finder-query` and `@mantine/core` with `vi.mock`. Here the pages are reached
+ * `finder-query` and UI components with `vi.mock`. Here the pages are reached
  * through the shipped routes and the harness answers the real query path, so a
  * passing test says something about the app instead of about a mock.
  *
@@ -50,7 +48,7 @@ import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
  * - `mountCompactToday`: the shipped `Today` is never rendered with `compact`
  *   (only the dev-only `?preview=lms` workbench passes it), so the Today course
  *   list is mounted as the real page over the same scripted host, inside the
- *   shell's `MantineProvider`.
+ *   same shell tokens.
  * - `taskViewFor`: the harness has no `TaskView` builder, so the scripted Core
  *   derives one from the workspace the same way Core decides those sets.
  *
@@ -428,10 +426,7 @@ async function mountCompactToday(opened: string[]): Promise<Mounted> {
   standaloneCore = core;
   const { Today } = await import("@app/pages/today/TodayPage");
   standalone = await mount(
-    <MantineProvider
-      theme={appTheme}
-      cssVariablesResolver={cssVariablesResolver}
-    >
+    <>
       <Today
         compact
         data={data}
@@ -443,7 +438,7 @@ async function mountCompactToday(opened: string[]): Promise<Mounted> {
         hideAssignment={() => undefined}
         openSchedule={() => undefined}
       />
-    </MantineProvider>,
+    </>,
   );
   return standalone;
 }
@@ -1116,17 +1111,28 @@ describe("the lecture desk", () => {
 
     expect(mounted.host.querySelector("select.lectureTerm")).toBeNull();
     await click(quarter);
+    await until(() =>
+      expect(document.activeElement?.getAttribute("data-option-value")).toBe(
+        TERM,
+      ),
+    );
     await act(async () => {
-      quarter.dispatchEvent(
+      document.activeElement!.dispatchEvent(
         new KeyboardEvent("keydown", {
-          key: "ArrowUp",
-          code: "ArrowUp",
+          key: "ArrowDown",
+          code: "ArrowDown",
           bubbles: true,
         }),
       );
     });
+    // Radix moves option focus asynchronously; Enter belongs to the next option.
+    await until(() =>
+      expect(document.activeElement?.getAttribute("data-option-value")).toBe(
+        "2026-4Q",
+      ),
+    );
     await act(async () => {
-      quarter.dispatchEvent(
+      document.activeElement!.dispatchEvent(
         new KeyboardEvent("keydown", {
           key: "Enter",
           code: "Enter",

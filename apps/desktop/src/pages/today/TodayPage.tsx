@@ -3,7 +3,7 @@ import { DueChip } from "../../components/DueChip";
 import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
-import { UiButton } from "../../components/mantine";
+import { UiButton } from "../../components/ui";
 import {
   contentLanguage,
   pickLocalized,

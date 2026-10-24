@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
-import { notifications } from "@mantine/notifications";
+import { notifications } from "./notifications";
 import { desktopBridge } from "./native";
 import { t } from "../i18n";
 import type {

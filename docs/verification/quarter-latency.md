@@ -45,7 +45,7 @@ now bypasses remote TTL via the existing manual school pulls. It refreshes
 captures now advance their own progress when a page arrives; they previously
 left the manual-only progress value unset and displayed 5% throughout.
 
-Quarter selection uses the existing Mantine debounced callback with a 100 ms
+Quarter selection uses a debounced callback (usehooks-ts `useDebounceCallback`) with a 100 ms
 trailing delay in both layouts. Rapid clicks submit only the final quarter; the
 existing picker case now verifies this through the real shell.
 
@@ -101,8 +101,8 @@ existing 1,000-result paging case now checks zero queries before focus and an
 empty, inactive panel after navigating away and back, preserving the virtual
 row bound.
 
-Quarter selection flushes the first call immediately, then uses the Mantine
-100 ms trailing debounce for the remainder of a burst. Mantine leading mode
+Quarter selection flushes the first call immediately, then uses a
+100 ms trailing debounce for the remainder of a burst. Leading mode
 alone drops the final call, so it is deliberately not used. The existing picker
 case checks that the first click is immediate and only the final subsequent
 click commits. The final frontend run passed 520 cases with four skipped; type

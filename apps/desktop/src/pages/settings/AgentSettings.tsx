@@ -3,8 +3,8 @@ import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../app/native";
 import type { AgentConnection } from "../../platform/desktop-bridge";
-import { SegmentedControl } from "@mantine/core";
-import { UiButton } from "../../components/mantine";
+import { SegmentedControl } from "../../components/ui";
+import { UiButton } from "../../components/ui";
 import {
   Row,
   SettingsGroup,

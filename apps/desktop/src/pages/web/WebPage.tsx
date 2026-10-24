@@ -1,6 +1,6 @@
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { UiButton, UiInput } from "../../components/mantine";
+import { UiButton, UiInput } from "../../components/ui";
 import { t } from "../../i18n";
 import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";

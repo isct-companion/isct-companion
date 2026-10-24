@@ -1,16 +1,8 @@
-import { MantineThemeProvider } from "@mantine/core";
-import {
-  Activity,
-  createContext,
-  use,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { Activity, createContext, use, useState, type ReactNode } from "react";
 
 const PageLayer = createContext<HTMLElement | null>(null);
 
-/** Where a hand-written portal on this page mounts; Mantine's already do. */
+/** All page overlays, including Radix portals, mount in this retained layer. */
 export const usePageLayer = () => use(PageLayer) ?? document.body;
 
 /**
@@ -18,7 +10,7 @@ export const usePageLayer = () => use(PageLayer) ?? document.body;
  * popover, menu or modal portaled to `document.body` would stay on screen
  * with its effects disconnected: it could not close or move until the page
  * came back. Each page therefore owns an overlay layer inside its Activity,
- * and every Mantine Portal on the page targets it, so overlays hide and
+ * and every portal on the page targets it, so overlays hide and
  * return with their page.
  */
 export function KeptPage({
@@ -38,15 +30,9 @@ export function KeptPage({
   const [attach] = useState(
     () => (host: HTMLDivElement | null) => host?.append(layer),
   );
-  const theme = useMemo(
-    () => ({ components: { Portal: { defaultProps: { target: layer } } } }),
-    [layer],
-  );
   return (
     <Activity mode={visible ? "visible" : "hidden"}>
-      <MantineThemeProvider theme={theme}>
-        <PageLayer value={layer}>{children}</PageLayer>
-      </MantineThemeProvider>
+      <PageLayer value={layer}>{children}</PageLayer>
       <div className="pageLayerHost" ref={attach} />
     </Activity>
   );

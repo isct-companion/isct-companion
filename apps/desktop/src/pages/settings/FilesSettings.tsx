@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { UiInput } from "../../components/mantine";
+import { UiInput } from "../../components/ui";
 import { COURSE_FILE_POLICY } from "../../lib/course-file-policy";
 import type { Workspace } from "../../lib/model";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";

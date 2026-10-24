@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { t } from "../../i18n";
-import { UiButton, UiInput, UiTextarea } from "../../components/mantine";
+import { UiButton, UiInput, UiTextarea } from "../../components/ui";
 import { DEFAULT_TEACHING_PERIODS } from "../../generated/persistence";
 import type { AcademicProfile, Workspace } from "../../lib/model";
 import { scheduleQuery } from "../../platform/core-query";

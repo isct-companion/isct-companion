@@ -53,9 +53,9 @@ describe("third-party notices", () => {
     expect(packageRoot(`${nm}react${path.sep}index.js`)).toBe(`${nm}react`);
     expect(
       packageRoot(
-        `${nm}@mantine${path.sep}core${path.sep}esm${path.sep}x.mjs?v=1`,
+        `${nm}@radix-ui${path.sep}react-dialog${path.sep}esm${path.sep}x.mjs?v=1`,
       ),
-    ).toBe(`${nm}@mantine${path.sep}core`);
+    ).toBe(`${nm}@radix-ui${path.sep}react-dialog`);
     // Vite reports virtual modules with a leading NUL; the real path is inside.
     expect(packageRoot(`\0${nm}react${path.sep}index.js`)).toBe(`${nm}react`);
     // A first-party module ships under the app's own licence, not a package's.

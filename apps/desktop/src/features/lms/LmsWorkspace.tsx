@@ -2,7 +2,7 @@ import { ExamCards } from "../../components/exams/ExamCards";
 import { GuideTip } from "../../components/guide";
 import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
-import { useElementSize } from "@mantine/hooks";
+import { useResizeObserver } from "usehooks-ts";
 import { ReaderPane } from "./ReaderPane";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import {
@@ -225,8 +225,10 @@ export function LmsWorkspace({
   // reader restored into a narrow pane starts on the viewer, not hidden.
   const [viewing, setViewing] = useState(Boolean(saved?.opened));
   const outline = useRef<HTMLDivElement>(null);
-  const workspaceSize = useElementSize();
-  const narrow = workspaceSize.width > 0 && workspaceSize.width < 640;
+  const workspaceRef = useRef<HTMLDivElement>(null!);
+  const workspaceSize = useResizeObserver({ ref: workspaceRef });
+  const narrow =
+    (workspaceSize.width ?? 0) > 0 && (workspaceSize.width ?? 0) < 640;
   const viewerActive = active && (!narrow || viewing);
   const folder = useMemo(
     () => ({
@@ -1385,7 +1387,7 @@ export function LmsWorkspace({
           </GuideTip>
         )}
       </div>
-      <div className="lmsWorkspaceBody" ref={workspaceSize.ref}>
+      <div className="lmsWorkspaceBody" ref={workspaceRef}>
         <ResizableWorkspace
           id={`reading-${course.id}`}
           enabled={!narrow && Boolean(opened)}

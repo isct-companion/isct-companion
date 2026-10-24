@@ -1,7 +1,5 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import "@mantine/core/styles.css";
-import "@mantine/notifications/styles.css";
 import App from "./app/App";
 import { PageErrorBoundary } from "./app/PageErrorBoundary";
 import { installInteractionTrace } from "./app/interaction-trace";

@@ -1,6 +1,4 @@
-import { MantineProvider } from "@mantine/core";
 import { useState } from "react";
-import { appTheme, cssVariablesResolver } from "../../app/theme";
 import { seedWorkspace, type Course, type Material } from "../../lib/model";
 import type { LmsCourseRecord } from "../../platform/desktop-bridge";
 import { Today } from "../../pages/today/TodayPage";
@@ -95,7 +93,13 @@ export function LmsPreview() {
         module: "page",
         bodyHtml: `<div><ul><li><div><div class="fileuploadsubmission"><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/225786/mod_assign/introattachment/0/OOP-2026-1A-problem.zip?forcedownload=1">OOP-2026-1A-problem.zip</a></div><div class="fileuploadsubmissiontime">2026年 10月 5日 12:14</div></div></li><li><div><div class="fileuploadsubmission"><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/225787/mod_assign/introattachment/0/OOP-2026-1B-problem.zip?forcedownload=1">OOP-2026-1B-problem.zip</a></div><div class="fileuploadsubmissiontime">2026年 10月 5日 12:15</div></div></li></ul></div>`,
       },
-      ...["slides-week1.pdf", "state-diagram.png", "exercise.pptx", "starter-code.zip", "recording.mp4"].map((name, i): Material => ({
+      ...[
+        "slides-week1.pdf",
+        "state-diagram.png",
+        "exercise.pptx",
+        "starter-code.zip",
+        "recording.mp4",
+      ].map((name, i): Material => ({
         ...meta,
         id: `preview-resource-${i}`,
         kind: "material",
@@ -139,7 +143,10 @@ export function LmsPreview() {
     return workspace;
   });
   // Opens on the sample course, the surface this preview exists for.
-  const [entry, setEntry] = useState<CourseEntry | null>({ courseId: "preview-automata", request: 1 });
+  const [entry, setEntry] = useState<CourseEntry | null>({
+    courseId: "preview-automata",
+    request: 1,
+  });
   const [filtered, setFiltered] = useState(false);
   const course = data.courses[0];
   const summaries = [
@@ -187,10 +194,7 @@ export function LmsPreview() {
     ],
   };
   return (
-    <MantineProvider
-      theme={appTheme}
-      cssVariablesResolver={cssVariablesResolver}
-    >
+    <>
       <div className="lmsPreviewShell">
         <div className="lmsPreviewNotice">
           <span>UX preview · isolated sample data</span>
@@ -255,6 +259,6 @@ export function LmsPreview() {
           </TodayWorkbench>
         </div>
       </div>
-    </MantineProvider>
+    </>
   );
 }

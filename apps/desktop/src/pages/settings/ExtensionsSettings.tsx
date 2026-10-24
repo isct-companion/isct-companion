@@ -1,6 +1,6 @@
-import { Badge } from "@mantine/core";
+import { Badge } from "../../components/ui";
 import { t } from "../../i18n";
-import { UiButton, UiTextarea } from "../../components/mantine";
+import { UiButton, UiTextarea } from "../../components/ui";
 import {
   customizationNames,
   desktopBridge,

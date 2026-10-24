@@ -93,6 +93,20 @@ export async function typeInto(
 export async function click(target: Element | null | undefined): Promise<void> {
   if (!target) throw new Error("click() received no element.");
   await act(async () => {
+    target.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        pointerType: "mouse",
+        button: 0,
+      }),
+    );
+    target.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        pointerType: "mouse",
+        button: 0,
+      }),
+    );
     (target as HTMLElement).click();
   });
 }
@@ -109,9 +123,13 @@ export async function chooseOption(
     );
     const option = [
       ...(list?.querySelectorAll<HTMLElement>('[role="option"]') ?? []),
-    ].find((item) => item.getAttribute("value") === value);
+    ].find((item) => item.getAttribute("data-option-value") === value);
     if (!option) throw new Error(`Option ${value} is not available.`);
-    if (option.hasAttribute("data-combobox-disabled"))
+    if (
+      option.getAttribute("aria-disabled") === "true" ||
+      (option.hasAttribute("data-disabled") &&
+        option.getAttribute("data-disabled") !== "false")
+    )
       throw new Error(`Option ${value} is disabled.`);
     return option;
   });

@@ -1,8 +1,12 @@
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
-import { useRef, type ReactNode } from "react";
-import { Badge, Button, Menu, Paper } from "@mantine/core";
-import { useLocalStorage, useDebouncedCallback } from "@mantine/hooks";
+import { useRef, useLayoutEffect, type ReactNode } from "react";
+import { Badge, Button, Menu, Paper } from "../../components/ui";
+import {
+  useLocalStorage,
+  useDebounceCallback,
+  useEventCallback,
+} from "usehooks-ts";
 
 import {
   WeekTimetable,
@@ -14,7 +18,7 @@ import type { PersonalEvent, Plan, TermId, Workspace } from "../../lib/model";
 import { planningColumns } from "../../components/timetable/workspace";
 import { tokyoDate } from "../../lib/civil-date";
 import type { CalendarExportScope } from "../../generated/persistence";
-import { UiButton } from "../../components/mantine";
+import { UiButton } from "../../components/ui";
 import { YearQuarterPicker } from "./YearQuarterPicker";
 import { SyncRing, progressLabel } from "../../components/PullRing";
 import type { PageProgress } from "../../platform/sync";
@@ -95,11 +99,17 @@ export function Courses({
   academic?: ReactNode;
 }) {
   const lastQuarterClick = useRef(-Infinity);
-  const commitTerm = useDebouncedCallback(
-    (termId: TermId) => {
+  const commitTerm = useDebounceCallback(
+    useEventCallback((termId: TermId) => {
       void mutate({ kind: "selectTerm", termId }).catch(() => undefined);
+    }),
+    100,
+  );
+  useLayoutEffect(
+    () => () => {
+      commitTerm.flush();
     },
-    { delay: 100, flushOnUnmount: true },
+    [commitTerm],
   );
   const selectTerm = (termId: TermId) => {
     onSelectTerm(termId);
@@ -107,8 +117,7 @@ export function Courses({
     const first = now - lastQuarterClick.current >= 100;
     lastQuarterClick.current = now;
     commitTerm(termId);
-    // Mantine's leading mode drops the trailing click; flush only the first
-    // click and let its normal debounce retain the final click in a burst.
+    // Flush the first click immediately; debounce the remaining burst.
     if (first) commitTerm.flush();
   };
   const canEdit = !readOnly;
@@ -127,10 +136,10 @@ export function Courses({
   // Intensive or unpublished times have no grid cell; they get their own lane.
   const unscheduled = scheduled.filter((course) => !course.meetings.length);
   const conflictCount = planning?.conflictCount ?? 0;
-  const [weekLength, setWeekLength] = useLocalStorage<"5" | "7">({
-    key: "isct-companion-courses-week-length",
-    defaultValue: "5",
-  });
+  const [weekLength, setWeekLength] = useLocalStorage<"5" | "7">(
+    "isct-companion-courses-week-length",
+    "5",
+  );
   // The quarter running now marks today's weekday, which shows the now line.
   const now = useClock();
   const allColumns = planningColumns(

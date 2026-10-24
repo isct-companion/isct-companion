@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { MantineProvider } from "@mantine/core";
 import { Activity, act, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -293,9 +292,9 @@ async function openWorkspace(
     markLesson: options.markLesson,
   };
   const view = await mount(
-    <MantineProvider>
+    <>
       <real.LmsWorkspace {...props} />
-    </MantineProvider>,
+    </>,
   );
   views.push(view);
   await waitFor(() =>
@@ -309,9 +308,9 @@ async function openWorkspace(
     render: async (overrides: Partial<typeof props> = {}) => {
       await act(async () =>
         view.root.render(
-          <MantineProvider>
+          <>
             <real.LmsWorkspace {...props} {...overrides} />
-          </MantineProvider>,
+          </>,
         ),
       );
     },
@@ -1780,9 +1779,9 @@ describe("the PDF viewer", () => {
       () => import("@app/features/lms/PdfDocument"),
     );
     const view = await mount(
-      <MantineProvider>
+      <>
         <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
-      </MantineProvider>,
+      </>,
     );
     views.push(view);
     return { view, host: view.host };

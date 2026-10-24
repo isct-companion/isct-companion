@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { t } from "../../i18n";
-import { UiButton } from "../mantine";
+import { UiButton } from "../ui";
 import type { Assignment } from "../../lib/model";
 import type { AssignmentGroups } from "../../generated/persistence";
 

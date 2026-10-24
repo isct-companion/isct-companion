@@ -5,7 +5,7 @@ import {
   SegmentedControl,
   Stack,
   Text,
-} from "@mantine/core";
+} from "../../components/ui";
 import { t } from "../../i18n";
 import { classGroupLabel, semesterLabel } from "../../lib/alternation";
 import type { ClassGroup, ClassGroupChoice } from "../../lib/model";

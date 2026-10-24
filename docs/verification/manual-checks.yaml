@@ -4821,3 +4821,44 @@ checks:
       - apps/desktop/src/styles.css
       - apps/ios/IsctCompanion/Design/Polish.swift
     verified: null
+
+  - id: DESKTOP-RADIX-APPEARANCE
+    area: desktop
+    title: Radix migration preserves desktop controls and overlay appearance
+    persona: windows-snap-user
+    preconditions: |
+      Before and after desktop builds with the same workspace, window size,
+      language, density and text-size settings.
+    steps:
+      - action: |
+          Click every main sidebar destination, return to Settings / Appearance,
+          and toggle a switch on and off. Open Web and inspect the embedded pane.
+        reason: |
+          Shell stacking contexts can intercept sidebar clicks; generic button
+          rules can collapse switch tracks, and removing AppShell can lose the
+          viewport height needed by native embedded webviews.
+      - action: |
+          Compare Today, Timetable and Settings in light and dark appearance;
+          open the course editor, a select, the export menu and a confirmation.
+        reason: |
+          Removing framework CSS can change control heights, wrapping, borders,
+          surface colours and overlay spacing even when behaviour tests pass.
+      - action: |
+          Snap the window narrower, enlarge the text, and show a notification.
+          Inspect the dialog body and dropdowns near the window edges.
+        reason: |
+          Native webview font metrics and clipping determine whether content
+          remains readable; a headless DOM cannot reveal visual regressions.
+    observe: |
+      The native desktop window, shared form controls, dialogs, menus and toasts.
+    expected: |
+      Existing spacing, typography and colours remain consistent; controls,
+      overlays and notifications are legible and neither clipped nor overlapping.
+    why_manual: |
+      Visual comparison at a glance in the native webview; automated suites
+      cover actions and state, not rendered layout, colour or font metrics.
+    covers:
+      - apps/desktop/src/components/ui/ui.css
+      - apps/desktop/src/styles.css
+      - apps/desktop/src/pages/settings/settings.css
+    verified: null

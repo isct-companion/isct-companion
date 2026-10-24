@@ -4,7 +4,7 @@ import { useState } from "react";
 import { t } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../lib/model";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
-import { UiButton } from "../../components/mantine";
+import { UiButton } from "../../components/ui";
 import { Row, SettingsGroup, Toggle } from "../../components/forms";
 import { formatDay } from "./subscription-status";
 

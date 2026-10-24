@@ -19,7 +19,7 @@ import {
   type CalendarOrigin,
 } from "../../platform/core-query";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
-import { UiButton, UiInput, UiSelect } from "../../components/mantine";
+import { UiButton, UiInput, UiSelect } from "../../components/ui";
 import { SettingsGroup, SettingsHeader, Status } from "../../components/forms";
 import {
   formatDay,

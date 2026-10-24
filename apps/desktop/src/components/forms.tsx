@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { Badge, SegmentedControl, Switch } from "@mantine/core";
+import { Badge, SegmentedControl, Switch } from "./ui";
 import { useId } from "react";
 import {
   resolveCapabilities,
@@ -121,7 +121,7 @@ export function Toggle({
       className="settingSwitch"
       disabled={disabled}
       checked={checked}
-      onChange={(event) => onChange(event.currentTarget.checked)}
+      onCheckedChange={onChange}
     />
   );
 }

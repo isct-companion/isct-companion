@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Modal, Progress, Stack, Text } from "@mantine/core";
+import { Alert, Button, Modal, Progress, Stack, Text } from "./ui";
 import type { MatrixScanOutline } from "../generated/persistence";
 import type { Recognition } from "../lib/matrix-ocr";
 import { openMatrixCamera } from "../platform/matrix-camera";
