@@ -846,6 +846,15 @@ checks:
           Confirms the document round-trips through the provider's private app
           folder rather than a general folder.
       - action: |
+          With a document already in Drive, edit a record on this device,
+          upload, and check that the upload task completes and Drive's copy
+          has a new modified time.
+        reason: |
+          Overwriting an existing copy is a conditional write that only real
+          Drive judges: from 10-12 to 10-24 Drive answered If-Match on media
+          downloads with 412, so every upload ended "Cloud copy keeps
+          changing" while first uploads and pulls still worked.
+      - action: |
           Restore from the uploaded document and confirm the replacement.
         reason: |
           Restore is the only operation that can destroy local data; it must
@@ -860,8 +869,9 @@ checks:
       after restore, and the delivery state after the network returns.
     expected: |
       The consent screen returns to the app, IsctCompanion.json appears in the
-      private app folder, pull and restore change only what they claim, and
-      the interrupted upload retries without duplicating the document.
+      private app folder, an upload over an existing copy completes and
+      updates it, pull and restore change only what they claim, and the
+      interrupted upload retries without duplicating the document.
     why_manual: |
       Requires a real Google account and an interactive OAuth consent screen
       that cannot be automated without live credentials.

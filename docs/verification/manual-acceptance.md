@@ -1069,10 +1069,17 @@ A real Google account; a workspace with at least one editable record.
 2. Upload, edit a record, then pull.
    - *Why:* Confirms the document round-trips through the provider's private app
      folder rather than a general folder.
-3. Restore from the uploaded document and confirm the replacement.
+3. With a document already in Drive, edit a record on this device,
+   upload, and check that the upload task completes and Drive's copy
+   has a new modified time.
+   - *Why:* Overwriting an existing copy is a conditional write that only real
+     Drive judges: from 10-12 to 10-24 Drive answered If-Match on media
+     downloads with 412, so every upload ended "Cloud copy keeps
+     changing" while first uploads and pulls still worked.
+4. Restore from the uploaded document and confirm the replacement.
    - *Why:* Restore is the only operation that can destroy local data; it must
      be confirmed and must replace exactly what it claims.
-4. Drop the network mid-upload and restore it.
+5. Drop the network mid-upload and restore it.
    - *Why:* A delivery that silently gives up looks identical to one that
      succeeded until the next device pulls stale content.
 
@@ -1084,8 +1091,9 @@ after restore, and the delivery state after the network returns.
 **Expected**
 
 The consent screen returns to the app, IsctCompanion.json appears in the
-private app folder, pull and restore change only what they claim, and
-the interrupted upload retries without duplicating the document.
+private app folder, an upload over an existing copy completes and
+updates it, pull and restore change only what they claim, and the
+interrupted upload retries without duplicating the document.
 
 **Why this is manual**
 
