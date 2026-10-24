@@ -47,6 +47,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     var today: TodayView? by mutableStateOf(null)
         private set
     var board: AssignmentBoard? by mutableStateOf(null)
+    /** Files waiting in each assignment's `submit/`, by assignment id, for
+     * 今日's rows (Core's `waitingHandIns`). */
+    var waiting: Map<String, Int> by mutableStateOf(emptyMap())
+        private set
         private set
     var periods: List<TeachingPeriod> by mutableStateOf(emptyList())
         private set
@@ -338,7 +342,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             for (value in result.values) {
                 when (value) {
                     is WorkspaceQueryResult.Today -> today = value.v1
-                    is WorkspaceQueryResult.AssignmentBoard -> board = value.v1
+                    is WorkspaceQueryResult.AssignmentBoard -> {
+                        board = value.v1
+                        refreshWaiting()
+                    }
                     is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
                     else -> Unit
                 }
@@ -494,6 +501,67 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val session = session ?: return null
         val result = runCatching { session.openMaterial(files, source, true, false, null).value() }.getOrNull()
         return (result as? OperationResult.Material)?.material
+    }
+
+    // Hand-in (docs/ux/mobile.md, Hand-in): files go to the assignment's
+    // workspace `submit/`; handing in fills the LMS draft area from it. Core
+    // never submits; the person saves the page.
+
+    /** The files waiting in the assignment's `submit/`. */
+    suspend fun submitFiles(assignment: String): List<LocalFile> {
+        val session = session ?: return emptyList()
+        val result = runCatching { session.assignmentSubmitFiles(assignment).value() }.getOrNull()
+        return (result as? OperationResult.Files)?.files.orEmpty()
+    }
+
+    /** Copies the files into the assignment's `submit/`; the sources stay. */
+    suspend fun addSubmitFiles(assignment: String, files: List<SharedFile>): List<LocalFile> {
+        val session = session ?: throw SdkException.Closed()
+        val listed = (session.addAssignmentFiles(assignment, files).value() as? OperationResult.Files)?.files.orEmpty()
+        refreshWaiting()
+        return listed
+    }
+
+    suspend fun removeSubmitFile(assignment: String, name: String): List<LocalFile> {
+        val session = session ?: throw SdkException.Closed()
+        val listed = (session.removeAssignmentFile(assignment, name).value() as? OperationResult.Files)?.files.orEmpty()
+        refreshWaiting()
+        return listed
+    }
+
+    /** Re-reads which assignments have files waiting to be handed in. */
+    suspend fun refreshWaiting() {
+        val session = session ?: return
+        val result = runCatching { session.waitingHandIns().value() }.getOrNull() as? OperationResult.Waiting ?: return
+        waiting = result.assignments.groupBy({ it.assignmentId }, { it.files.toInt() }).mapValues { it.value.sum() }
+    }
+
+    /** Queues `submit/` for the LMS draft area; returns the page that receives it. */
+    suspend fun handIn(assignment: String): String {
+        val session = session ?: throw SdkException.Closed()
+        val messages = UploadMessages(
+            t("Preparing your LMS upload…"),
+            t("Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself."),
+            t("The upload area is not available. Choose the files in LMS."),
+        )
+        return (session.handInAssignment(assignment, messages).value() as? OperationResult.Text)?.value
+            ?: throw SdkException.Unavailable("")
+    }
+
+    /** Gives inbox items to an assignment and removes them; on failure they stay. */
+    suspend fun give(items: List<SharedInbox.Item>, assignment: String): Boolean {
+        val files = items.map { SharedFile(it.file.path, it.name) }
+        if (files.isEmpty()) return false
+        return try {
+            addSubmitFiles(assignment, files)
+            items.forEach { SharedInbox.remove(context, it) }
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            problem = describe(error)
+            false
+        }
     }
 
     /** The syllabus departments, as the desktop's course finder lists them. */

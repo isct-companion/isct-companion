@@ -1,15 +1,174 @@
 //! Course storage path primitives shared by notes, materials and assignment
 //! workspaces: safe folder components, canonical-root checks, file
 //! descriptions and atomic writes. Download policy stays in `course_materials`.
+//!
+//! A course-files root holds two trees, so each can be opened, cleaned or
+//! handed to an editor on its own:
+//!
+//! ```text
+//! <root>/material/<term>/<course>/materials/…            downloads, cleanable
+//! <root>/material/<term>/<course>/<section>/notes/…      notes, never cleaned
+//! <root>/workspace/<term>/<course>/<assignment>/…        assignment workspaces
+//! ```
 
 use serde::Serialize;
 use std::{
+    collections::HashSet,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock, PoisonError},
 };
 
 pub(crate) const MAX_TEXT_PREVIEW_BYTES: u64 = 1_000_000;
+
+/// Downloaded materials, with the notes beside them.
+pub const MATERIAL_TREE: &str = "material";
+/// Assignment workspaces.
+pub const WORKSPACE_TREE: &str = "workspace";
+
+/// `<root>/material`, with the layout before the trees moved in first.
+pub fn material_root(root: &Path) -> PathBuf {
+    settle(root);
+    root.join(MATERIAL_TREE)
+}
+
+/// `<root>/workspace`, with the layout before the trees moved in first.
+pub fn workspace_root(root: &Path) -> PathBuf {
+    settle(root);
+    root.join(WORKSPACE_TREE)
+}
+
+/// Moves a root's old layout into the trees the first time this process uses
+/// that root. The lock is held while it runs, so nothing writes into a tree
+/// before the old files have arrived. A failure is logged and retried at the
+/// next start; the files it left stay where they were.
+fn settle(root: &Path) {
+    static SETTLED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    let mut settled = SETTLED
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if !settled.insert(root.to_path_buf()) {
+        return;
+    }
+    match migrate_layout(root) {
+        Ok(Moved { moved: 0, kept: 0 }) => {}
+        Ok(Moved { moved, kept }) => {
+            log::info!("course files: moved {moved} entries into the material and workspace trees, kept {kept} in place")
+        }
+        Err(error) => log::warn!("course files: layout migration stopped: {error}"),
+    }
+}
+
+/// What a layout migration did: entries renamed into a tree, and entries left
+/// in place because their destination already existed.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Moved {
+    pub moved: usize,
+    pub kept: usize,
+}
+
+/// Moves the layout before the two trees into them:
+/// `<term>/<course>/workspaces/<name>` to `workspace/<term>/<course>/<name>`,
+/// and every other entry of a course (its `materials`, its sections' notes) to
+/// `material/<term>/<course>/`. Only top-level folders named like a quarter
+/// (`2026-3Q`) are touched, since a chosen root may hold unrelated folders.
+/// Renames only, never copies or overwrites, and running it again finishes
+/// what an earlier run left.
+pub fn migrate_layout(root: &Path) -> Result<Moved, StorageError> {
+    let mut moved = Moved::default();
+    if !root.is_dir() {
+        return Ok(moved);
+    }
+    for term in plain_directories(root)? {
+        let Some(term_name) = term.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if crate::schedule::Term::parse(term_name).is_err() {
+            continue;
+        }
+        for course in plain_directories(&term)? {
+            let Some(course_name) = course.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            for entry in fs::read_dir(&course).map_err(storage_error)? {
+                let entry = entry.map_err(storage_error)?.path();
+                if fs::symlink_metadata(&entry)
+                    .map_err(storage_error)?
+                    .is_symlink()
+                {
+                    moved.kept += 1;
+                    continue;
+                }
+                let destination = if entry.file_name() == Some("workspaces".as_ref()) {
+                    root.join(WORKSPACE_TREE).join(term_name).join(course_name)
+                } else {
+                    let name = entry.file_name().unwrap_or_default();
+                    root.join(MATERIAL_TREE)
+                        .join(term_name)
+                        .join(course_name)
+                        .join(name)
+                };
+                move_into(&entry, &destination, &mut moved)?;
+            }
+            let _ = fs::remove_dir(&course);
+        }
+        let _ = fs::remove_dir(&term);
+    }
+    Ok(moved)
+}
+
+/// Renames `source` to `destination`; two folders merge entry by entry, and
+/// anything else already at the destination keeps the source where it is.
+fn move_into(source: &Path, destination: &Path, moved: &mut Moved) -> Result<(), StorageError> {
+    let source_is_dir = fs::symlink_metadata(source)
+        .map_err(storage_error)?
+        .is_dir();
+    match fs::symlink_metadata(destination) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent).map_err(storage_error)?;
+            }
+            fs::rename(source, destination).map_err(storage_error)?;
+            moved.moved += 1;
+        }
+        Err(error) => return Err(storage_error(error)),
+        Ok(existing) if source_is_dir && existing.is_dir() && !existing.is_symlink() => {
+            for entry in fs::read_dir(source).map_err(storage_error)? {
+                let entry = entry.map_err(storage_error)?.path();
+                if fs::symlink_metadata(&entry)
+                    .map_err(storage_error)?
+                    .is_symlink()
+                {
+                    moved.kept += 1;
+                    continue;
+                }
+                move_into(
+                    &entry,
+                    &destination.join(entry.file_name().unwrap_or_default()),
+                    moved,
+                )?;
+            }
+            let _ = fs::remove_dir(source);
+        }
+        Ok(_) => moved.kept += 1,
+    }
+    Ok(())
+}
+
+/// Folders directly under `path`, symbolic links left out.
+fn plain_directories(path: &Path) -> Result<Vec<PathBuf>, StorageError> {
+    let mut directories = Vec::new();
+    for entry in fs::read_dir(path).map_err(storage_error)? {
+        let entry = entry.map_err(storage_error)?;
+        let kind = entry.file_type().map_err(storage_error)?;
+        if kind.is_dir() && !kind.is_symlink() {
+            directories.push(entry.path());
+        }
+    }
+    Ok(directories)
+}
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum StorageError {

@@ -139,6 +139,17 @@ fun DeadlineRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // Files put in its upload card wait for the person to hand them
+            // in; Core counts them until LMS shows the work submitted.
+            LocalModel.current.waiting[item.assignmentId]?.let { waiting ->
+                Text(
+                    t("{{count}} files to hand in", "count" to waiting),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Theme.colors.accent,
+                    maxLines = 1,
+                )
+            }
         }
         DeadlineChip(item, now, overdueStyle)
     }

@@ -11,22 +11,57 @@ pub struct ScheduleSnapshot {
 // UniFFI transports records by value and does not expose Box<T> in this ABI.
 #[allow(clippy::large_enum_variant)]
 pub enum OperationResult {
-    Workspace { snapshot: WorkspaceSnapshot },
-    WorkspaceRecords { patch: WorkspacePatch },
-    Schedule { snapshot: ScheduleSnapshot },
-    Finder { page: FinderPage },
-    Credentials { status: SchoolCredentialStatus },
-    SchoolSession { snapshot: SchoolSessionSnapshot },
-    SchoolWeb { result: SchoolWebResult },
-    Sync { snapshot: SyncSnapshot },
-    Cloud { state: SyncState },
-    File { file: LocalFile },
-    Files { files: Vec<LocalFile> },
-    Material { material: Material },
-    Recognitions { cells: Vec<Recognition> },
-    Document { value: JsonValue },
-    Text { value: String },
-    Flag { value: bool },
+    Workspace {
+        snapshot: WorkspaceSnapshot,
+    },
+    WorkspaceRecords {
+        patch: WorkspacePatch,
+    },
+    Schedule {
+        snapshot: ScheduleSnapshot,
+    },
+    Finder {
+        page: FinderPage,
+    },
+    Credentials {
+        status: SchoolCredentialStatus,
+    },
+    SchoolSession {
+        snapshot: SchoolSessionSnapshot,
+    },
+    SchoolWeb {
+        result: SchoolWebResult,
+    },
+    Sync {
+        snapshot: SyncSnapshot,
+    },
+    Cloud {
+        state: SyncState,
+    },
+    File {
+        file: LocalFile,
+    },
+    Files {
+        files: Vec<LocalFile>,
+    },
+    Waiting {
+        assignments: Vec<crate::services::WaitingHandIn>,
+    },
+    Material {
+        material: Material,
+    },
+    Recognitions {
+        cells: Vec<Recognition>,
+    },
+    Document {
+        value: JsonValue,
+    },
+    Text {
+        value: String,
+    },
+    Flag {
+        value: bool,
+    },
     Done,
 }
 #[derive(Clone, Debug, uniffi::Enum)]

@@ -287,3 +287,198 @@ impl Session {
         }
     }
 }
+
+/// A file the shell received (shared into the app, dropped on an assignment),
+/// by its path and the name it is handed in under.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SharedFile {
+    pub path: String,
+    pub name: String,
+}
+
+/// An assignment whose `submit/` holds files not yet handed in.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct WaitingHandIn {
+    pub assignment_id: String,
+    pub files: u32,
+}
+
+/// What the LMS page says while Core fills its draft area, in the app's language.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct UploadMessages {
+    pub waiting: String,
+    pub queued: String,
+    pub failed: String,
+}
+
+fn workspace_error(e: isct_core::workspaces::WorkspaceError) -> SdkError {
+    use isct_core::workspaces::WorkspaceError as E;
+    match e {
+        E::Input(detail) => SdkError::InvalidInput { detail },
+        E::Missing => SdkError::InvalidInput {
+            detail: e.to_string(),
+        },
+        E::Storage(detail) | E::Archive(detail) => SdkError::Storage { detail },
+    }
+}
+
+fn submission_error(e: isct_core::school_browser::SubmissionError) -> SdkError {
+    use isct_core::school_browser::SubmissionError as E;
+    match e {
+        E::InvalidInput(detail) => SdkError::InvalidInput { detail },
+        E::Storage(detail) => SdkError::Storage { detail },
+        E::Browser(detail) => SdkError::Unavailable { detail },
+        E::WorkspaceMissing => SdkError::InvalidInput {
+            detail: e.to_string(),
+        },
+    }
+}
+
+/// Core's reading of one assignment, which names its course folder and page.
+fn assignment_detail(
+    inner: &crate::session::Inner,
+    id: &str,
+) -> Result<isct_core::schedule::AssignmentDetail, SdkError> {
+    let snapshot = inner.core.schedule_query(vec![
+        isct_core::schedule::WorkspaceQuery::AssignmentDetail {
+            assignment_id: id.into(),
+        },
+    ])?;
+    match snapshot.values.into_iter().next() {
+        Some(isct_core::schedule::WorkspaceQueryResult::AssignmentDetail(Some(detail))) => {
+            Ok(detail)
+        }
+        _ => Err(SdkError::InvalidInput {
+            detail: "The assignment was not found.".into(),
+        }),
+    }
+}
+
+/// The assignment's workspace target, once Core knows its course folder.
+fn hand_in_target(
+    detail: &isct_core::schedule::AssignmentDetail,
+) -> Result<isct_core::workspaces::HandInTarget, SdkError> {
+    isct_core::workspaces::HandInTarget::from_detail(detail).ok_or_else(|| SdkError::Unavailable {
+        detail: "This assignment's course folder is not known yet.".into(),
+    })
+}
+
+/// The phones' hand-in: files shared into the app go to the assignment's
+/// workspace `submit/` (the desktop's folder layout), and handing in fills the
+/// LMS draft area from it. Core never submits; the person saves the page.
+#[uniffi::export]
+impl Session {
+    /// Assignments with files waiting to be handed in, for 今日's rows.
+    pub fn waiting_hand_ins(&self) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let snapshot = i.core.workspace.snapshot()?;
+            let assignments = isct_core::workspaces::Workspaces::new(i.files.clone())
+                .waiting(&snapshot.workspace)
+                .into_iter()
+                .map(|(assignment_id, files)| WaitingHandIn {
+                    assignment_id,
+                    files: u32::try_from(files).unwrap_or(u32::MAX),
+                })
+                .collect();
+            Ok(OperationResult::Waiting { assignments })
+        })
+    }
+    /// The files waiting in the assignment's `submit/`.
+    pub fn assignment_submit_files(
+        &self,
+        assignment_id: String,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let detail = assignment_detail(&i, &assignment_id)?;
+            let files = match detail.files {
+                Some(course) => isct_core::workspaces::Workspaces::new(i.files.clone())
+                    .submit_files(&course, &assignment_id)
+                    .map_err(workspace_error)?,
+                None => Vec::new(),
+            };
+            Ok(OperationResult::Files {
+                files: project(files)?,
+            })
+        })
+    }
+    /// Copies the files into the assignment's `submit/`, creating its
+    /// workspace on first use; the sources stay where they are.
+    pub fn add_assignment_files(
+        &self,
+        assignment_id: String,
+        files: Vec<SharedFile>,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let target = hand_in_target(&assignment_detail(&i, &assignment_id)?)?;
+            let files = files
+                .into_iter()
+                .map(|file| (std::path::PathBuf::from(file.path), file.name))
+                .collect();
+            Ok(OperationResult::Files {
+                files: project(
+                    isct_core::workspaces::Workspaces::new(i.files.clone())
+                        .add_submit_files(&target, files)
+                        .map_err(workspace_error)?,
+                )?,
+            })
+        })
+    }
+    pub fn remove_assignment_file(
+        &self,
+        assignment_id: String,
+        name: String,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let target = hand_in_target(&assignment_detail(&i, &assignment_id)?)?;
+            Ok(OperationResult::Files {
+                files: project(
+                    isct_core::workspaces::Workspaces::new(i.files.clone())
+                        .remove_submit_file(&target.course, &assignment_id, &name)
+                        .map_err(workspace_error)?,
+                )?,
+            })
+        })
+    }
+    /// Queues `submit/` for the assignment's LMS draft area and returns the
+    /// page to show; Core fills the draft area when that page loads.
+    pub fn hand_in_assignment(
+        &self,
+        assignment_id: String,
+        messages: UploadMessages,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            let detail = assignment_detail(&i, &assignment_id)?;
+            let page = detail
+                .source_url
+                .clone()
+                .ok_or_else(|| SdkError::Unavailable {
+                    detail: "This assignment has no LMS page.".into(),
+                })?;
+            let target = hand_in_target(&detail)?;
+            let workspaces = isct_core::workspaces::Workspaces::new(i.files.clone());
+            let workspace = workspaces
+                .find(&target.course, &assignment_id)
+                .map_err(workspace_error)?
+                .ok_or_else(|| SdkError::InvalidInput {
+                    detail: "There are no files to hand in.".into(),
+                })?;
+            let prepared = workspaces
+                .prepare_upload(&workspace.path, &assignment_id)
+                .map_err(workspace_error)?;
+            let url = i
+                .core
+                .school_browser()?
+                .prepare_submission(
+                    &page,
+                    prepared.files,
+                    isct_core::school_browser::SubmissionMessages {
+                        waiting: messages.waiting,
+                        queued: messages.queued,
+                        failed: messages.failed,
+                    },
+                )
+                .map_err(submission_error)?;
+            Ok(OperationResult::Text { value: url })
+        })
+    }
+}

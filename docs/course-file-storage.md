@@ -117,13 +117,25 @@ The default root is:
 A custom desktop root is stored separately as
 `<app-data>/course-files-root.json`, written atomically; changing it does not
 move or delete the old root. Only a missing file means "use the default root";
-an unreadable file is reported instead of silently falling back. Under the active root:
+an unreadable file is reported instead of silently falling back. The active
+root holds two trees, so materials and workspaces can each be opened (a
+workspace tree straight in VS Code), cleaned or backed up on their own:
 
 ```text
-<term>/<course>/materials/<readable-name>-<url-digest>.<extension>
-<term>/<course>/<section>/notes/<uuid>.md
-<term>/<course>/<section>/deleted-notes/<uuid>.md
+material/<term>/<course>/materials/<readable-name>-<url-digest>.<extension>
+material/<term>/<course>/<section>/notes/<uuid>.md
+material/<term>/<course>/<section>/deleted-notes/<uuid>.md
+workspace/<term>/<course>/<assignment>/{ASSIGNMENT.md,submit/,…}
 ```
+
+Notes sit in the material tree beside the course's downloads; cleanup still
+removes only downloaded material bytes. The first time a process uses a root,
+Core moves the layout before the trees into them (`storage::migrate_layout`):
+`<term>/<course>/workspaces/<assignment>` to the workspace tree and every other
+entry of a course to the material tree. Only top-level folders named like a
+quarter (`2026-3Q`) are touched, since a chosen root may hold unrelated folders.
+It renames and never copies or overwrites; an entry whose destination already
+exists stays where it is and is logged, and the next start tries again.
 
 Materials are shared by all sections of a course and keyed by the full,
 allowlisted LMS attachment URL. Downloads first use a sibling

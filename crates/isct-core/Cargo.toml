@@ -7,7 +7,9 @@ description = "Shared IsctCompanion domain logic and state"
 
 [features]
 default = []
-desktop-workspaces = ["dep:zip"]
+# ZIP packing of `submit/` and unpacking of attachments in assignment
+# workspaces; desktop only, the phones hand files in one by one.
+workspace-archives = ["dep:zip"]
 ts = ["dep:ts-rs"]
 
 [dependencies]

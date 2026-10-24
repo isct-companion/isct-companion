@@ -1217,7 +1217,9 @@ async fn storage_root_change_keeps_pending_apply_for_the_fresh_backup_service() 
         1
     );
     assert!(!old_note_directory.exists());
-    assert!(new_root.join("2026-3Q/cloud-recovery/notes/notes").is_dir());
+    assert!(new_root
+        .join("material/2026-3Q/cloud-recovery/notes/notes")
+        .is_dir());
 }
 
 #[tokio::test]

@@ -131,7 +131,9 @@ struct RecordSections: View {
             Section(title) {
                 ForEach(items, id: \.assignmentId) { item in
                     if selectable {
-                        DeadlineRow(item: item, now: Date()).tag(item.assignmentId)
+                        DeadlineRow(item: item, now: Date())
+                            .handInTarget(item.assignmentId)
+                            .tag(item.assignmentId)
                     } else {
                         AssignmentListRow(item: item, hidden: hidden) { DeadlineRow(item: item, now: Date()) }
                     }
@@ -198,6 +200,7 @@ struct AssignmentListRow<Content: View>: View {
             }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: acted)
+        .handInTarget(item.assignmentId)
     }
 
     private func togglePin() {

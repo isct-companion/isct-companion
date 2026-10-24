@@ -334,7 +334,7 @@ async fn school_cache_options_remove_downloads_and_web_session_but_never_notes()
     assert_eq!(count(&core.store, "lms_courses"), 1);
 
     let root = std::env::temp_dir().join(format!("isct-reset-files-{}", uuid::Uuid::new_v4()));
-    let course = root.join("2026-3Q").join("MTH.A201");
+    let course = root.join("material").join("2026-3Q").join("MTH.A201");
     fs::create_dir_all(course.join("materials")).unwrap();
     fs::create_dir_all(course.join("notes")).unwrap();
     let material = course.join("materials").join("slides-0123abcd.pdf");

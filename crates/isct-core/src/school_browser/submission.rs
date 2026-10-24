@@ -1,12 +1,32 @@
 //! One user-requested upload to an assignment's draft file area. Never submits the form.
+//! Every shell hands files here: desktop from an assignment workspace, the
+//! phones from what was shared into the app.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use crate::workspaces::{
-    SubmissionFile, WorkspaceError, MAX_SUBMISSION_BYTES, MAX_SUBMISSION_FILES,
-};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use url::Url;
+
+pub const MAX_SUBMISSION_FILES: usize = 32;
+pub const MAX_SUBMISSION_BYTES: usize = 20 * 1024 * 1024;
+
+/// One file for the draft area, base64 as the page's uploader takes it.
+#[derive(Clone, Debug, Serialize)]
+pub struct SubmissionFile {
+    pub name: String,
+    pub data: String,
+}
+
+impl SubmissionFile {
+    /// A file a shell read, under the name the draft area shows.
+    pub fn from_bytes(name: String, bytes: &[u8]) -> Self {
+        Self {
+            name,
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error, Serialize)]
 #[serde(tag = "kind", content = "message", rename_all = "camelCase")]
@@ -21,8 +41,9 @@ pub enum SubmissionError {
     WorkspaceMissing,
 }
 
-impl From<WorkspaceError> for SubmissionError {
-    fn from(error: WorkspaceError) -> Self {
+impl From<crate::workspaces::WorkspaceError> for SubmissionError {
+    fn from(error: crate::workspaces::WorkspaceError) -> Self {
+        use crate::workspaces::WorkspaceError;
         match error {
             WorkspaceError::Input(message) => Self::InvalidInput(message),
             WorkspaceError::Storage(message) | WorkspaceError::Archive(message) => {

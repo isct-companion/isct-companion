@@ -131,7 +131,7 @@ rule 3), and it only adds 授業 to the tab bar.
 | Pages | 今日 · 時間割 · ウェブ · 設定 | 今日 · 時間割 · **授業** · ウェブ · 設定 | Rail: 今日 · 時間割 · 授業 · ウェブ, 設定 at its foot (⌘1–4, ⌘,) |
 | Courses | Pushed from any block, card or row | 授業 tab: course list → course page | 今日 opens courses and assignments beside itself (desktop's TodayWorkbench); 授業: course list column + course page |
 | Settings | Last tab | Last tab | Rail foot |
-| Workstation | — | — | File tray bottom right (phase 3) |
+| Shared files | Inbox thumbnails bottom right; 「選択」 in the inbox | Same | Same, and drag the thumbnails onto an assignment's upload card |
 
 The same page views fill every container; only the container changes, and
 今日 on the workstation. With nothing open there it is a two-column
@@ -287,10 +287,42 @@ TipKit forgets shown tips at the next launch.
 Stays on desktop: course planner and adding courses, note editor, custom
 CSS/JS, advanced catalog search, academic calendar editing, developer
 settings. LMS course content is readable on every device. Assignment
-workspaces come to the iPad in phase 3: files shared in (for example from
-GoodNotes) land in a tray, are dragged onto an assignment and uploaded one by
-one or as a ZIP through Core's `workspaces` and `prepare_submission`; the
-iPhone picks the assignment in a sheet instead of dragging.
+workspaces are on every device, but only the phones fill them by sharing
+(see [Hand-in](#hand-in)); editing a workspace in an editor stays on desktop.
+
+### Hand-in
+
+iOS, iPadOS and Android. Files reach an assignment's workspace `submit/`
+(Core's `workspaces`, the desktop's folder layout under `workspace/`), and
+the assignment page uploads them to the LMS draft area through Core's
+`prepare_submission`. Core never submits: the LMS page opens with the files
+in its draft area, and the person reviews and saves it.
+
+- **Opening in.** A file shared from another app opens the app with the file
+  in the corner stack, as a file chosen in the app would be: on iOS through
+  「IsctCompanion で開く」 in the share sheet's actions (an action extension,
+  which shows nothing and brings the app forward), on Android through the
+  `ACTION_SEND` filter. On iOS the app's icon in the share sheet's app row is
+  a share extension with a sheet of its own, which says plainly that nothing is submitted for you and that the
+  app is where you check and upload, with 「追加して IsctCompanion を開く」 (the
+  app's `isctcompanion://` URL, reached through the responder chain since an
+  extension has no API for it). A file given an assignment in that sheet goes
+  to it on the next open, and the first such assignment's page is shown.
+- **Waiting files on 今日.** An assignment row says 「x 件のファイルが提出待ち」
+  while its `submit/` holds files and LMS does not show the work submitted
+  (Core's `waitingHandIns`).
+- **The corner stack.** While anything waits, the files sit bottom right as a
+  stack of cards in order, like the screenshot thumbnail (no count badge). The
+  finger moves it at once: over an assignment row or upload card, that target
+  floats; dropping puts the files there and opens the assignment, its upload
+  card listing them. Thrown to the trash that appears top right, they are
+  discarded. Tapping the stack opens the upload panel: the files, then the
+  quarter's unsubmitted assignments as 今日 groups them.
+- **The upload card.** Each assignment page with an LMS page carries one card,
+  the only drop target: drop the inbox stack (iPad) or files from another app
+  on it, or tap it to choose files (Photos beside it). Its files are listed in
+  the card, each removable; 「LMS にアップロード」 fills the draft area. Files
+  are never merged into a ZIP.
 
 ## Gestures
 

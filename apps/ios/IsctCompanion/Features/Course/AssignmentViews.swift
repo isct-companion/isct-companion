@@ -27,6 +27,7 @@ struct AssignmentScreen: View {
                         .font(.title.bold())
                         .foregroundStyle(Theme.ink)
                     AssignmentBody(assignment: assignment)
+                    if assignment.sourceUrl != nil { HandInCard(assignment: assignment) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -38,7 +39,10 @@ struct AssignmentScreen: View {
         .toolbar(.visible, for: .navigationBar)
         .task(id: "\(assignmentId)-\(model.contentRevision)") {
             let loaded = await model.assignmentDetail(assignmentId)
-            if !Task.isCancelled, let loaded { assignment = loaded }
+            guard !Task.isCancelled, let loaded else { return }
+            // The text is ready before the page shows it, outside any view update.
+            HTMLCache.warm([loaded.bodyHtml])
+            assignment = loaded
         }
     }
 }

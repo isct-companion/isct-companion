@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct IsctCompanionApp: App {
     @State private var model = AppModel()
+    @State private var inbox = InboxModel()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -16,6 +17,7 @@ struct IsctCompanionApp: App {
             RootView()
                 .environment(model)
                 .environment(model.web)
+                .environment(inbox)
                 .task { await model.start() }
         }
         .onChange(of: scenePhase) { _, phase in model.scenePhase(phase) }
@@ -169,6 +171,8 @@ extension EnvironmentValues {
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(WebRouter.self) private var web
+    @Environment(InboxModel.self) private var inbox
+    @Environment(\.scenePhase) private var scenePhase
     @State private var navigator = Navigator()
     @State private var sitePress = SitePickerPress()
     @State private var exportPress = TabItemPress<CalendarExportPick>()
@@ -200,6 +204,29 @@ struct RootView: View {
                     }
                 }
                 .onChange(of: stacked, initial: true) { _, stacked in navigator.setWorkbench(!stacked) }
+                // What was shared into the app waits in the corner, above the
+                // tab bar or the status bar.
+                .overlay { InboxTray(bottom: stacked ? 64 : 60) }
+                .task(id: scenePhase) {
+                    if scenePhase == .active { await inbox.refresh(model) }
+                }
+                // "Open in IsctCompanion" from another app joins the corner
+                // stack; the share sheet's "open the app" link only brings it
+                // forward, where the refresh above reads the inbox.
+                .onOpenURL { url in if url.isFileURL { inbox.receive(url) } }
+                .sheet(isPresented: Binding(get: { inbox.presenting }, set: { inbox.presenting = $0 })) {
+                    InboxSheet()
+                }
+                // A share-sheet pick was handed in: show that assignment.
+                .onChange(of: inbox.handedTo) { _, assignment in
+                    guard let assignment else { return }
+                    navigator.tab = .today
+                    navigator.open(AssignmentRoute(id: assignment))
+                    inbox.handedTo = nil
+                }
+                .alert(inbox.error ?? "", isPresented: Binding(get: { inbox.error != nil }, set: { if !$0 { inbox.error = nil } })) {
+                    Button("OK", role: .cancel) {}
+                }
                 .environment(navigator)
                 .environment(\.push, PushAction { navigator.push($0) })
                 .environment(\.courseZoom, zoom)

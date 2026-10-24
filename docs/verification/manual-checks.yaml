@@ -3528,6 +3528,121 @@ checks:
       - apps/ios/IsctCompanion/Features/Today/TodayScreen.swift
     verified: null
 
+  - id: IOS-SHARE-HAND-IN
+    area: native
+    title: Files shared into the iPhone or iPad app reach an assignment's LMS draft area
+    persona: undergraduate-senior
+    preconditions: |
+      The app signed in to Science Tokyo with an open assignment this quarter
+      whose LMS page accepts file submissions; a signed build with the share
+      extension and the App Group.
+    steps:
+      - action: |
+          In Goodnotes or Files, share a PDF and choose 「IsctCompanion で開く」
+          from the share sheet's actions (Edit Actions lists it if it is not
+          shown).
+        reason: |
+          The app opens with the PDF in the corner stack, as if chosen in the
+          app; no panel pops up. No stack means the opened file never reached
+          the inbox.
+      - action: |
+          Drag the stack over an assignment row on 今日 and drop it; then add
+          another file, drag it to the trash that appears top right.
+        reason: |
+          The row floats while the stack is over it; the drop opens the
+          assignment with the files in its upload card, and the row then says
+          「x 件のファイルが提出待ち」. The trash takes the stack with a bounce
+          and the files are gone from the inbox.
+      - action: |
+          In Photos, select two photos, Share, choose IsctCompanion, read the
+          sheet, leave 「アプリで選ぶ」 and tap 「追加して IsctCompanion を開く」.
+        reason: |
+          The share extension copies both into the App Group inbox and the app
+          shows them as a thumbnail stack bottom right, without a count badge.
+          No IsctCompanion in the sheet means the extension or its activation
+          rule is missing.
+      - action: |
+          Tap the stack, then 「課題を選ぶ」 and the assignment.
+        reason: |
+          The files move to the assignment's workspace `submit/` (Core) and its
+          page opens with both files in the upload card; the stack disappears.
+      - action: |
+          On the iPad, share a PDF from Files with the assignment picked in the
+          sheet; open the app. Then drag a file from Files in Split View onto
+          the upload card, and tap the card to add one more.
+        reason: |
+          A file given an assignment in the sheet is handed in on the next
+          open and that page is shown. The card is the one drop target and
+          tapping it opens the Files picker; each adds to the card's list.
+      - action: Tap 「LMS にアップロード」, wait, and read the LMS page.
+        reason: |
+          Core fills the draft area through Moodle's own uploader and the page
+          says to review and submit yourself. The app never presses save; a
+          submission without the person's tap is a safety failure.
+      - action: |
+          In Files › On My iPad › IsctCompanion, open
+          `workspace/<quarter>/<course>/`.
+        reason: |
+          The assignment's folder holds ASSIGNMENT.md and `submit/` with the
+          files, the same layout desktop uses.
+    observe: The share sheet, the corner stack, the assignment page and the LMS page in the app.
+    expected: |
+      Shared files wait in the corner, go to the chosen assignment's
+      `submit/`, show in its upload card, and fill the LMS draft area for the
+      person to save.
+    why_manual: |
+      The share extension, App Group, Split View drag and the LMS draft area
+      need a signed build, a device and a school account.
+    covers:
+      - apps/ios/IsctShare/ShareViewController.swift
+      - apps/ios/IsctOpen/OpenViewController.swift
+      - apps/ios/ExtensionShared/ExtensionInput.swift
+      - apps/ios/IsctCompanion/Shared/SharedInbox.swift
+      - apps/ios/IsctCompanion/Core/HandIn.swift
+      - apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift
+    verified: null
+
+  - id: ANDROID-SHARE-HAND-IN
+    area: native
+    title: Files shared into the Android app reach an assignment's LMS draft area
+    persona: undergraduate-senior
+    preconditions: |
+      The Android app signed in to Science Tokyo with an open assignment this
+      quarter whose LMS page accepts file submissions.
+    steps:
+      - action: |
+          In Photos (or Files), select two items, Share, choose IsctCompanion.
+        reason: |
+          The app opens with both in the inbox stack above the navigation
+          bar. No IsctCompanion in the sheet means the SEND filter is wrong.
+      - action: Tap the stack, then 「課題を選ぶ」 and the assignment.
+        reason: |
+          The files go to the assignment's `submit/` through Core and its page
+          opens with them listed in the upload card.
+      - action: |
+          On the card, tap to add a document and use Photos to add an image;
+          remove one file; on a tablet, drag a file from another app onto it.
+        reason: |
+          The card is the one place to add files: the document picker, the
+          photo picker and a drop all add to its list, and removing deletes
+          the copy in `submit/` only.
+      - action: Tap 「LMS にアップロード」 and read the LMS page.
+        reason: |
+          Core fills the draft area and the page asks the person to review and
+          submit; the app never saves the submission itself.
+    observe: The share sheet, the corner stack, the assignment page and the LMS page.
+    expected: |
+      Shared files wait in the corner, go to the chosen assignment, show in its
+      upload card and fill the LMS draft area for the person to save.
+    why_manual: |
+      The share sheet, document and photo pickers, cross-app drag and the LMS
+      draft area need a device or emulator with a school account.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt
+      - apps/android/app/src/main/AndroidManifest.xml
+    verified: null
+
   - id: IOS-SETTINGS-PAGES
     area: native
     title: iPhone settings pages keep their values and share the desktop's keys
