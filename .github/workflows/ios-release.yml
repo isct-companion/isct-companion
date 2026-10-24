@@ -25,6 +25,14 @@ jobs:
     env:
       UPLOAD: ${{ vars.IOS_TESTFLIGHT_ENABLED == 'true' }}
       TEAM_ID: FB7AL944GK
+      # Each signed bundle and the App Store profile secret it is signed with:
+      # the app, its share extension and its "Open in" action extension. All
+      # three carry the App Group the extensions hand files through.
+      SIGNED_TARGETS: >-
+        IsctCompanion:app.isctcompanion:IOS_MOBILE_PROVISION
+        IsctShare:app.isctcompanion.share:IOS_SHARE_MOBILE_PROVISION
+        IsctOpen:app.isctcompanion.open:IOS_OPEN_MOBILE_PROVISION
+      APP_GROUP: group.app.isctcompanion
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v7
@@ -55,31 +63,51 @@ jobs:
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          IOS_SHARE_MOBILE_PROVISION: ${{ secrets.IOS_SHARE_MOBILE_PROVISION }}
+          IOS_OPEN_MOBILE_PROVISION: ${{ secrets.IOS_OPEN_MOBILE_PROVISION }}
         run: |
           set -euo pipefail
           umask 077
-          for name in APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION; do
+          for name in APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_API_PRIVATE_KEY IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION IOS_SHARE_MOBILE_PROVISION IOS_OPEN_MOBILE_PROVISION; do
             test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
           done
           mkdir -p ~/.appstoreconnect/private_keys
           printf '%s' "$APPLE_API_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_"$APPLE_API_KEY_ID".p8
           printf '%s' "$IOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/distribution.p12"
-          printf '%s' "$IOS_MOBILE_PROVISION" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
-          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          for entry in $SIGNED_TARGETS; do
+            IFS=: read -r target bundle secret <<< "$entry"
+            printf '%s' "${!secret}" | base64 --decode > "$RUNNER_TEMP/$target.mobileprovision"
+            security cms -D -i "$RUNNER_TEMP/$target.mobileprovision" > "$RUNNER_TEMP/$target.plist"
+          done
           python3 - <<'PYTHON'
           import datetime, hashlib, os, pathlib, plistlib
-          profile = plistlib.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "profile.plist").read_bytes())
-          entitlements = profile["Entitlements"]
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
           team = os.environ["TEAM_ID"]
-          if profile["TeamIdentifier"] != [team] or entitlements["application-identifier"] != f"{team}.app.isctcompanion":
-              raise SystemExit("Provisioning profile must belong to the app and release team")
-          if profile["ExpirationDate"] <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None):
-              raise SystemExit("Provisioning profile has expired")
-          if not entitlements.get("beta-reports-active") or entitlements.get("get-task-allow") or profile.get("ProvisionedDevices") or profile.get("ProvisionsAllDevices"):
-              raise SystemExit("Use an App Store distribution profile for TestFlight")
+          group = os.environ["APP_GROUP"]
+          now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+          certificates = None
+          lines = []
+          for entry in os.environ["SIGNED_TARGETS"].split():
+              target, bundle, secret = entry.split(":")
+              profile = plistlib.loads((temp / f"{target}.plist").read_bytes())
+              entitlements = profile["Entitlements"]
+              if profile["TeamIdentifier"] != [team] or entitlements["application-identifier"] != f"{team}.{bundle}":
+                  raise SystemExit(f"{secret} must be the release team's profile for {bundle}")
+              if profile["ExpirationDate"] <= now:
+                  raise SystemExit(f"{secret} has expired")
+              if not entitlements.get("beta-reports-active") or entitlements.get("get-task-allow") or profile.get("ProvisionedDevices") or profile.get("ProvisionsAllDevices"):
+                  raise SystemExit(f"{secret} must be an App Store distribution profile")
+              # A profile made before the App ID had the App Group lacks it,
+              # and signing would then fail on the entitlements.
+              if group not in entitlements.get("com.apple.security.application-groups", []):
+                  raise SystemExit(f"{secret} lacks the App Group {group}; regenerate it")
+              hashes = {hashlib.sha1(cert).hexdigest().upper() for cert in profile["DeveloperCertificates"]}
+              certificates = hashes if certificates is None else certificates & hashes
+              lines.append(f"PROFILE_UUID_{target.upper()}={profile['UUID']}")
+          # One certificate signs all three bundles.
+          lines.append("PROFILE_CERTIFICATES=" + " ".join(sorted(certificates or [])))
           with open(os.environ["GITHUB_ENV"], "a") as output:
-              print(f"PROFILE_UUID={profile['UUID']}", file=output)
-              print("PROFILE_CERTIFICATES=" + " ".join(hashlib.sha1(cert).hexdigest().upper() for cert in profile["DeveloperCertificates"]), file=output)
+              print("\n".join(lines), file=output)
           PYTHON
           keychain="$RUNNER_TEMP/signing.keychain-db"
           password=$(uuidgen)
@@ -96,12 +124,16 @@ jobs:
           set -euo pipefail
           identity=$(security find-identity -v -p codesigning "$RUNNER_TEMP/signing.keychain-db" | awk '/"Apple Distribution:/ {print $2; exit}')
           test -n "$identity" || { echo 'No valid Apple Distribution identity in IOS_CERTIFICATE'; exit 1; }
-          [[ " $PROFILE_CERTIFICATES " == *" $identity "* ]] || { echo 'IOS_CERTIFICATE does not match IOS_MOBILE_PROVISION'; exit 1; }
+          [[ " $PROFILE_CERTIFICATES " == *" $identity "* ]] || { echo 'IOS_CERTIFICATE does not match all three provisioning profiles'; exit 1; }
           echo "SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
           # Xcode 16+ uses UserData; retain the legacy path for older Xcode tools.
-          for directory in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
-            mkdir -p "$directory"
-            cp "$RUNNER_TEMP/profile.mobileprovision" "$directory/$PROFILE_UUID.mobileprovision"
+          for entry in $SIGNED_TARGETS; do
+            IFS=: read -r target bundle secret <<< "$entry"
+            uuid_var="PROFILE_UUID_$(printf '%s' "$target" | tr '[:lower:]' '[:upper:]')"
+            for directory in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+              mkdir -p "$directory"
+              cp "$RUNNER_TEMP/$target.mobileprovision" "$directory/${!uuid_var}.mobileprovision"
+            done
           done
       - name: Build the Core XCFramework (release profile)
         run: node scripts/bindings/build-ios.mjs
@@ -118,13 +150,17 @@ jobs:
         working-directory: apps/ios
         run: |
           if [[ "$UPLOAD" == 'true' ]]; then
-            # Profile settings belong only to the app, never Swift package resource bundles.
+            # Profile settings belong only to the app and its extensions, never
+            # Swift package resource bundles.
             ruby -ryaml -rjson -e '
               spec = YAML.load_file("project.yml")
-              settings = spec.fetch("targets").fetch("IsctCompanion").fetch("settings").fetch("base")
-              settings.merge!("DEVELOPMENT_TEAM" => ENV.fetch("TEAM_ID"),
-                "CODE_SIGN_STYLE" => "Manual", "CODE_SIGN_IDENTITY" => ENV.fetch("SIGNING_IDENTITY"),
-                "PROVISIONING_PROFILE_SPECIFIER" => ENV.fetch("PROFILE_UUID"))
+              ENV.fetch("SIGNED_TARGETS").split.each do |entry|
+                target, _bundle, _secret = entry.split(":")
+                settings = spec.fetch("targets").fetch(target).fetch("settings").fetch("base")
+                settings.merge!("DEVELOPMENT_TEAM" => ENV.fetch("TEAM_ID"),
+                  "CODE_SIGN_STYLE" => "Manual", "CODE_SIGN_IDENTITY" => ENV.fetch("SIGNING_IDENTITY"),
+                  "PROVISIONING_PROFILE_SPECIFIER" => ENV.fetch("PROFILE_UUID_#{target.upcase}"))
+              end
               File.write("project-ci.json", JSON.pretty_generate(spec))
             '
             xcodegen generate --spec project-ci.json
@@ -155,7 +191,9 @@ jobs:
             <key>signingStyle</key><string>manual</string>
             <key>signingCertificate</key><string>$SIGNING_IDENTITY</string>
             <key>provisioningProfiles</key><dict>
-              <key>app.isctcompanion</key><string>$PROFILE_UUID</string>
+              <key>app.isctcompanion</key><string>$PROFILE_UUID_ISCTCOMPANION</string>
+              <key>app.isctcompanion.share</key><string>$PROFILE_UUID_ISCTSHARE</string>
+              <key>app.isctcompanion.open</key><string>$PROFILE_UUID_ISCTOPEN</string>
             </dict>
             <key>manageAppVersionAndBuildNumber</key><false/>
             <key>uploadSymbols</key><true/>
@@ -183,7 +221,8 @@ jobs:
         if: ${{ always() && env.UPLOAD == 'true' }}
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
-          rm -f ~/.appstoreconnect/private_keys/AuthKey_*.p8 "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP/profile.mobileprovision" "$RUNNER_TEMP/profile.plist"
-          if [[ -n "${PROFILE_UUID:-}" ]]; then
-            rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-          fi
+          rm -f ~/.appstoreconnect/private_keys/AuthKey_*.p8 "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP"/*.mobileprovision "$RUNNER_TEMP"/Isct*.plist
+          for uuid in "${PROFILE_UUID_ISCTCOMPANION:-}" "${PROFILE_UUID_ISCTSHARE:-}" "${PROFILE_UUID_ISCTOPEN:-}"; do
+            [[ -n "$uuid" ]] || continue
+            rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$uuid.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+          done
