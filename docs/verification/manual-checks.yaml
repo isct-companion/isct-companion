@@ -2206,12 +2206,13 @@ checks:
     title: Existing iOS distribution signing and TestFlight delivery
     persona: careless-multidevice
     preconditions: |
-      The IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD, IOS_MOBILE_PROVISION and
-      APPLE_API_* repository secrets are configured; IOS_TESTFLIGHT_ENABLED is true.
+      The IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD, IOS_MOBILE_PROVISION,
+      IOS_SHARE_MOBILE_PROVISION, IOS_OPEN_MOBILE_PROVISION and APPLE_API_*
+      repository secrets are configured; IOS_TESTFLIGHT_ENABLED is true.
     steps:
       - action: |
-          Dispatch the iOS release workflow with upload_testflight enabled and inspect the signing, archive,
-          export and upload steps in its Actions log.
+          Dispatch the iOS release workflow with upload_testflight enabled and
+          inspect the signing, archive, export and upload steps in its Actions log.
         reason: |
           A compilation-only run cannot validate the supplied signing identity
           and profile or prove that Apple accepts the signed IPA.
@@ -2225,8 +2226,9 @@ checks:
       The iOS release Actions log, matching TestFlight version/build status,
       group assignment and installed version on the iPhone.
     expected: |
-      The existing Apple Distribution identity and App Store profile sign the
-      IPA; Apple processes it and the intended tester can install that build.
+      The existing Apple Distribution identity and each bundle's App Store
+      profile sign the app and both extensions; Apple processes the IPA and
+      the intended tester can install that build.
     why_manual: |
       Requires private signing materials, App Store Connect access, Apple's
       processing service and an enrolled physical iPhone.
@@ -4723,10 +4725,11 @@ checks:
     title: Android signs in to Google Drive through the account prompt
     persona: careless-multidevice
     preconditions: |
-      An APK built on the Windows machine from this branch, signed with a key
-      whose SHA-1 is registered on the IsctCompanion Android OAuth client, on
-      a phone with a Google account that is a test user; a desktop app with
-      Drive on and at least one plan uploaded.
+      The release-signed APK from the Android release workflow, with its package
+      and certificate SHA-1 registered on the Android release OAuth client,
+      installed on a phone with Play services. The OAuth app is in production;
+      use a Google account outside its test-user list. A desktop app has Drive
+      on and at least one plan uploaded.
     steps:
       - action: |
           設定 › バックアップ: turn on Google Drive and decline Google's
@@ -4788,6 +4791,37 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt
       - crates/isct-ffi/src/ports.rs
+    verified: null
+
+  - id: IOS-PRIVACY-POLICY
+    area: native
+    title: iPhone and iPad privacy policy is available before school sign-in
+    persona: careless-multidevice
+    preconditions: |
+      A release build on an iPhone and an iPad, with internet access and no
+      school account configured.
+    steps:
+      - action: |
+          Dismiss the welcome sheet with Later. Open Settings, then Privacy
+          policy in About; repeat with English, Japanese and Chinese UI.
+        reason: |
+          Privacy information must be reachable before providing credentials;
+          the label and destination must remain clear in each supported language.
+      - action: |
+          On iPad, repeat in a wide landscape window.
+        reason: |
+          The workstation navigation must expose the same Settings destination.
+    observe: |
+      The Settings row and the public GitHub privacy policy opened by the system.
+    expected: |
+      The localized row opens docs/legal/PRIVACY.md in the public repository
+      without requiring school or GitHub sign-in.
+    why_manual: |
+      This is a visible native navigation and external browser hand-off check;
+      a headless mock screen would not verify the installed app or public URL.
+    covers:
+      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - docs/legal/PRIVACY.md
     verified: null
 
   - id: IOS-LOG-EXPORT

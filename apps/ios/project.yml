@@ -22,6 +22,8 @@ targets:
     platform: iOS
     sources:
       - path: IsctCompanion
+      - path: Privacy/App/PrivacyInfo.xcprivacy
+        buildPhase: resources
       # The desktop's UI catalogs, read by `Localizer` (ja.json, zh.json).
       - path: ../../resources/locales
         buildPhase: resources
@@ -111,6 +113,8 @@ targets:
     platform: iOS
     sources:
       - path: IsctShare
+      - path: Privacy/Extensions/PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: ExtensionShared
       - path: IsctCompanion/Shared
       - path: IsctCompanion/Design/Localization.swift
@@ -154,6 +158,8 @@ targets:
     platform: iOS
     sources:
       - path: IsctOpen
+      - path: Privacy/Extensions/PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: ExtensionShared
       - path: IsctCompanion/Shared/SharedInbox.swift
     info:
