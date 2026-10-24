@@ -292,7 +292,7 @@ struct TimetableScreen: View {
     }
 
     private func blockView(_ block: Occurrence, height: CGFloat, holiday: Bool) -> some View {
-        let planned = block.courseId.map { !(week?.enrolledCourseIds.contains($0) ?? true) } ?? false
+        let planned = block.planned == true
         let cancelled = block.cancelled == true
         let exam = block.kind == .exam && !cancelled
         let faded = holiday || cancelled
@@ -380,7 +380,7 @@ enum CalendarExportPick: Hashable {
     var scope: CalendarExportScope { self == .courses ? .courses : .coursesAndPlans }
 }
 
-/// The export panel's rows; the iPad sidebar row shows the same in a menu.
+/// The export panel's rows; the workstation's rail row shows the same in a menu.
 struct CalendarExportRows: View {
     let term: String
     var highlighted: CalendarExportPick?

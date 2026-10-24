@@ -51,6 +51,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -203,9 +204,25 @@ private fun TodayContent(today: TodayView, now: Instant, exams: List<ExamView>) 
             UpcomingExams(exams)
             ClassStack(today.upcoming, now)
             if (today.recent.isNotEmpty()) {
-                SectionLabel(t("New"))
+                RecentLabel()
                 RecentCard(today.recent)
             }
+        }
+    }
+}
+
+/** 新着's label, with read all at its trailing end. */
+@Composable
+private fun RecentLabel() {
+    val model = LocalModel.current
+    val scope = rememberCoroutineScope()
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Box(Modifier.weight(1f)) { SectionLabel(t("New")) }
+        TextButton(
+            onClick = { scope.launch { model.markAllRecentSeen() } },
+            modifier = Modifier.padding(end = 4.dp, top = 8.dp),
+        ) {
+            Text(t("Mark all as read"), fontWeight = FontWeight.SemiBold)
         }
     }
 }

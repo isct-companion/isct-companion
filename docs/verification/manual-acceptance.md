@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 101 checks must be re-run before the next release.**
+**10 of 102 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**91 checks have never been run or could not be run:**
+**92 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -88,6 +88,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-TODAY-EXAMS` — never verified
 - `IOS-ASSIGNMENT-ROWS` — never verified
 - `IOS-WEB-TAB-PICKER` — never verified
+- `IOS-IPAD-WORKSTATION` — never verified
 - `IOS-SETTINGS-PAGES` — never verified
 - `MOBILE-NOTIFICATION-PERMISSION` — never verified
 - `IOS-TODAY-CLASS-STACK` — never verified
@@ -194,6 +195,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
 | `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
+| `IOS-IPAD-WORKSTATION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/App/Workstation.swift<br>apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -2511,8 +2513,8 @@ A signed build, provisioning, and physical iOS and Android devices.
 8. On an iPad, hold it upright, then turn it to landscape, open 授業 and
    pick two courses.
    - *Why:* Upright keeps the tab bar with 授業 added; landscape switches to the
-     sidebar and the course list beside the course page, by the desktop's
-     width rule. A course page that does not change, or a back stack that
+     workstation's rail and the course list beside the course page, by
+     the desktop's width rule. A course page that does not change, or a back stack that
      survives choosing another course, means the split lost its owner.
 9. On each device, after a pull, turn two reminder switches on in quick
    succession, force-quit the app, reopen it and open 設定.
@@ -3931,6 +3933,11 @@ from 時間割 for tomorrow.
    - *Why:* Opening a row tells Core it was seen (`MarkRecentSeen`, kept on this
      device only), so it leaves 新着 until it changes again; a row that
      stays means the intent did not land.
+5. With 新着 showing, tap すべて既読 at the end of its label; repeat on
+   Android.
+   - *Why:* Core marks everything new now (`MarkAllRecentSeen`), past the three
+     rows shown too, so the whole section goes at once; a section that
+     refills with older rows means only the shown ones were marked.
 
 **Where to look**
 
@@ -4033,7 +4040,7 @@ iOS 18 device if one is at hand).
    edges.
    - *Why:* Tapping the tab returns the site to its start page; WKWebView's own
      edge swipes go back and forward, replacing the old button's arrows.
-6. On an iPad in split, long press ウェブ in the sidebar.
+6. On an iPad in landscape, long press ウェブ in the rail.
    - *Why:* The same rows appear as a context menu.
 
 **Where to look**
@@ -4057,6 +4064,78 @@ device; nothing in the harness reaches UIKit's tab bar.
 - `apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift`
 - `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+
+**Last recorded** never run
+
+### iPad in landscape is desktop's workstation, upright keeps the tab bar (`IOS-IPAD-WORKSTATION`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPad app signed in to Science Tokyo, on a teaching day with classes
+left and open assignments this quarter.
+
+**Steps**
+
+1. Hold the iPad upright, then turn it to landscape.
+   - *Why:* Upright is the tab bar with 授業 added; landscape is desktop's rail
+     (今日 · 時間割 · 授業 · ウェブ, 設定 at its foot) with the status bar
+     under the page, naming LMS and 教務Web with a dot and the last update.
+     A tab bar in landscape, or a sidebar, means the width rule or the
+     container is the old one.
+2. Read 今日 in landscape with nothing open, on a day with three classes
+   to come.
+   - *Why:* A two-column dashboard: the next class as a full card with the two
+     after it side by side under it, exams and 新着 below, and the
+     assignments in their own column on the right, both columns level
+     under the header. One stretched column or a swiping card stack means
+     the dashboard did not take over.
+3. On 今日 in landscape, tap the next class card, then an assignment row,
+   then the same assignment row again.
+   - *Why:* The class opens beside 今日, which narrows to its single column, as
+     desktop's TodayWorkbench; the assignment replaces it in the pane;
+     tapping the open row again closes the pane and the dashboard returns. A push over
+     the whole page means 今日's column lost its open-beside action.
+4. With a course open beside 今日, open its LMS link, go back, then tap
+   Close; then open a course and turn the iPad upright.
+   - *Why:* Pages opened inside the pane push inside it and Close returns to 今日
+     alone. Turning upright leaves the open course pushed on 今日's tab,
+     so the place survives the change of container.
+5. Open 授業 in landscape, pick another academic year and 2Q, switch to
+   課題 and choose an assignment, then back to 授業 and a course.
+   - *Why:* The list follows the picked quarter (Core's overview and that
+     quarter's AssignmentBoard), and the page beside it follows the
+     switch; the current quarter's courses after picking 2Q means the
+     term never reached Core.
+6. With a keyboard attached, press ⌘1 to ⌘4 and ⌘,.
+   - *Why:* The rail's pages and 設定 switch from the keyboard, as on desktop.
+7. Tap the status bar.
+   - *Why:* It opens the school connection sheet, the same one the sync ring opens.
+
+**Where to look**
+
+The iPad, in both orientations.
+
+**Expected**
+
+Tab bar upright; rail, status bar and 今日's open-beside pane in
+landscape; Close and a second tap return to 今日 alone; the open course
+survives turning upright.
+
+**Why this is manual**
+
+A person sees the container and the pane at a glance on the real iPad;
+the shell has no SwiftUI test host, and rebuilding the screen over a fake
+one would prove only the fake.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+- `apps/ios/IsctCompanion/App/Workstation.swift`
+- `apps/ios/IsctCompanion/Features/Today/TodayScreen.swift`
 
 **Last recorded** never run
 

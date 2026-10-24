@@ -2116,8 +2116,8 @@ checks:
           pick two courses.
         reason: |
           Upright keeps the tab bar with 授業 added; landscape switches to the
-          sidebar and the course list beside the course page, by the desktop's
-          width rule. A course page that does not change, or a back stack that
+          workstation's rail and the course list beside the course page, by
+          the desktop's width rule. A course page that does not change, or a back stack that
           survives choosing another course, means the split lost its owner.
       - action: |
           On each device, after a pull, turn two reminder switches on in quick
@@ -3354,6 +3354,13 @@ checks:
           Opening a row tells Core it was seen (`MarkRecentSeen`, kept on this
           device only), so it leaves 新着 until it changes again; a row that
           stays means the intent did not land.
+      - action: |
+          With 新着 showing, tap すべて既読 at the end of its label; repeat on
+          Android.
+        reason: |
+          Core marks everything new now (`MarkAllRecentSeen`), past the three
+          rows shown too, so the whole section goes at once; a section that
+          refills with older rows means only the shown ones were marked.
     observe: The 今日 tab on the device.
     expected: |
       Exam labels and chip colour follow the occurrence kind, and the 試験
@@ -3438,7 +3445,7 @@ checks:
         reason: |
           Tapping the tab returns the site to its start page; WKWebView's own
           edge swipes go back and forward, replacing the old button's arrows.
-      - action: On an iPad in split, long press ウェブ in the sidebar.
+      - action: On an iPad in landscape, long press ウェブ in the rail.
         reason: The same rows appear as a context menu.
     observe: The ウェブ tab and the tab bar on the device.
     expected: |
@@ -3453,6 +3460,72 @@ checks:
       - apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift
       - apps/ios/IsctCompanion/Features/Web/WebScreens.swift
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
+    verified: null
+
+  - id: IOS-IPAD-WORKSTATION
+    area: native
+    title: iPad in landscape is desktop's workstation, upright keeps the tab bar
+    persona: undergraduate-senior
+    preconditions: |
+      The iPad app signed in to Science Tokyo, on a teaching day with classes
+      left and open assignments this quarter.
+    steps:
+      - action: Hold the iPad upright, then turn it to landscape.
+        reason: |
+          Upright is the tab bar with 授業 added; landscape is desktop's rail
+          (今日 · 時間割 · 授業 · ウェブ, 設定 at its foot) with the status bar
+          under the page, naming LMS and 教務Web with a dot and the last update.
+          A tab bar in landscape, or a sidebar, means the width rule or the
+          container is the old one.
+      - action: |
+          Read 今日 in landscape with nothing open, on a day with three classes
+          to come.
+        reason: |
+          A two-column dashboard: the next class as a full card with the two
+          after it side by side under it, exams and 新着 below, and the
+          assignments in their own column on the right, both columns level
+          under the header. One stretched column or a swiping card stack means
+          the dashboard did not take over.
+      - action: |
+          On 今日 in landscape, tap the next class card, then an assignment row,
+          then the same assignment row again.
+        reason: |
+          The class opens beside 今日, which narrows to its single column, as
+          desktop's TodayWorkbench; the assignment replaces it in the pane;
+          tapping the open row again closes the pane and the dashboard returns. A push over
+          the whole page means 今日's column lost its open-beside action.
+      - action: |
+          With a course open beside 今日, open its LMS link, go back, then tap
+          Close; then open a course and turn the iPad upright.
+        reason: |
+          Pages opened inside the pane push inside it and Close returns to 今日
+          alone. Turning upright leaves the open course pushed on 今日's tab,
+          so the place survives the change of container.
+      - action: |
+          Open 授業 in landscape, pick another academic year and 2Q, switch to
+          課題 and choose an assignment, then back to 授業 and a course.
+        reason: |
+          The list follows the picked quarter (Core's overview and that
+          quarter's AssignmentBoard), and the page beside it follows the
+          switch; the current quarter's courses after picking 2Q means the
+          term never reached Core.
+      - action: With a keyboard attached, press ⌘1 to ⌘4 and ⌘,.
+        reason: The rail's pages and 設定 switch from the keyboard, as on desktop.
+      - action: Tap the status bar.
+        reason: It opens the school connection sheet, the same one the sync ring opens.
+    observe: The iPad, in both orientations.
+    expected: |
+      Tab bar upright; rail, status bar and 今日's open-beside pane in
+      landscape; Close and a second tap return to 今日 alone; the open course
+      survives turning upright.
+    why_manual: |
+      A person sees the container and the pane at a glance on the real iPad;
+      the shell has no SwiftUI test host, and rebuilding the screen over a fake
+      one would prove only the fake.
+    covers:
+      - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
+      - apps/ios/IsctCompanion/App/Workstation.swift
+      - apps/ios/IsctCompanion/Features/Today/TodayScreen.swift
     verified: null
 
   - id: IOS-SETTINGS-PAGES

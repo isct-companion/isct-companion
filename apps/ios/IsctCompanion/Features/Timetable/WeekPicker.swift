@@ -115,7 +115,6 @@ struct WeekPicker: View {
     private func months(_ year: TimetableYear?) -> [Month] {
         var months: [Month] = []
         for week in year?.weeks ?? [] {
-            let parts = week.monday.split(separator: "-")
             let title = Format.civilDate(week.monday).map { Format.written($0, "yMMMM") } ?? week.monday
             if months.last?.title == title {
                 months[months.count - 1].weeks.append(week)

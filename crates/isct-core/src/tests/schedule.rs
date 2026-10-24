@@ -1089,6 +1089,25 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         })
         .collect();
     assert_eq!(recent, ["graded"]);
+    // Read all records what is new now under the keys and versions that
+    // hide it, so nothing is new afterwards.
+    let now = chrono::DateTime::parse_from_rfc3339("2026-04-13T12:00:00+09:00").unwrap();
+    let unseen = crate::schedule::unseen_recent(&off, now);
+    let keys: Vec<_> = unseen.iter().map(|(key, _)| key.as_str()).collect();
+    assert_eq!(keys, ["grade:graded"]);
+    for (key, version) in unseen {
+        off["recentSeen"][key] = json!(version);
+    }
+    let WorkspaceQueryResult::Today(read) = query(
+        &off,
+        WorkspaceQuery::Today {
+            now: "2026-04-13T12:00:00+09:00".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("today expected")
+    };
+    assert!(read.recent.is_empty());
 
     // The board resolves the quarter's one task timeline: what is left to do,
     // then every assignment whatever its state.
@@ -1096,6 +1115,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
         &data,
         WorkspaceQuery::AssignmentBoard {
             now: "2026-04-13T12:00:00+09:00".into(),
+            term: None,
         },
     )
     .unwrap() else {
@@ -1120,6 +1140,23 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     assert_eq!(ids(&board.record.hidden), ["gone"]);
     assert_eq!(board.record.past_recent[1].grade.as_deref(), Some("8/10"));
     assert!(board.record.past_recent[1].submitted);
+    // Another quarter, asked by name, is read from the same timeline: none of
+    // 1Q's work, and a malformed name is refused.
+    let other = |term: &str| {
+        query(
+            &data,
+            WorkspaceQuery::AssignmentBoard {
+                now: "2026-04-13T12:00:00+09:00".into(),
+                term: Some(term.into()),
+            },
+        )
+    };
+    let Ok(WorkspaceQueryResult::AssignmentBoard(second)) = other("2026-2Q") else {
+        panic!("board expected")
+    };
+    assert_eq!(second.term, "2026-2Q");
+    assert!(second.record.due_this_week.is_empty() && second.record.past_recent.is_empty());
+    assert!(other("spring").is_err());
 }
 
 #[test]
@@ -1516,11 +1553,17 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
     fourth["id"] = json!("fourth");
     fourth["termId"] = json!("2026-4Q");
     fourth["meetings"] = json!([{"days":[4,5],"periods":[1,2]}]);
+    let mut maybe = data["courses"][1].clone();
+    maybe["id"] = json!("maybe");
+    maybe["meetings"] = json!([{"days":[4],"periods":[5,6]}]);
     data["courses"].as_array_mut().unwrap().push(fourth);
+    data["courses"].as_array_mut().unwrap().push(maybe);
     data["memberships"] = json!([
         {"id":"m3","courseId":"course","termId":"2026-3Q"},
         {"id":"m4","courseId":"fourth","termId":"2026-4Q"}
     ]);
+    // Only planned for 4Q: on the timetable, without a membership there.
+    data["planItems"] = json!([{"id":"p4","courseId":"maybe","termId":"2026-4Q"}]);
     data["plans"] = json!([{"id":"daily","title":"Walk","start":"2026-11-30T18:00:00+09:00","duration":30,"rrule":"FREQ=DAILY;COUNT=7"}]);
     data["events"] = json!([
         {"id":"weekly3","termId":"2026-3Q","title":"Third-quarter event","days":[1],"startTime":"12:30","endTime":"13:00"},
@@ -1542,6 +1585,17 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
     assert!(!agendas[2].occurrences.iter().any(|b| b.id == "course"));
     assert!(agendas[2].occurrences.iter().any(|b| b.id == "dated"));
     assert!(agendas[3].occurrences.iter().any(|b| b.id == "fourth"));
+    // Planned is judged against each block's own quarter, so it holds
+    // whichever quarter the view is asked from (the loop below).
+    let planned = |day: &DatedAgenda, id: &str| {
+        day.occurrences
+            .iter()
+            .find(|b| b.id == id)
+            .map(|b| b.planned)
+    };
+    assert_eq!(planned(&agendas[0], "course"), Some(None));
+    assert_eq!(planned(&agendas[3], "fourth"), Some(None));
+    assert_eq!(planned(&agendas[3], "maybe"), Some(Some(true)));
     assert!(agendas[4]
         .occurrences
         .iter()

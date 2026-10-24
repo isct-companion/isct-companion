@@ -24,7 +24,7 @@ final class GoogleSignIn: NSObject, NativeWebAuthentication, ASWebAuthentication
             throw SdkError.InvalidInput(detail: "Sign-in address is invalid.")
         }
         return try await withCheckedThrowingContinuation { continuation in
-            Task { @MainActor in
+            Task { @MainActor [self] in
                 let session = ASWebAuthenticationSession(url: start, callbackURLScheme: callbackScheme) {
                     [weak self] callback, error in
                     self?.session = nil

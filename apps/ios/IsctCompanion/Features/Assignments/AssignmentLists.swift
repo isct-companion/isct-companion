@@ -9,6 +9,7 @@ import TipKit
 struct TodayAssignmentSections: View {
     let now: Date
     @Environment(AppModel.self) private var model
+    @Environment(\.push) private var push
 
     var body: some View {
         if let board = model.board {
@@ -34,7 +35,9 @@ struct TodayAssignmentSections: View {
                         .foregroundStyle(Theme.muted)
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    NavigationLink(value: AssignmentRecordRoute()) {
+                    Button {
+                        push(AssignmentRecordRoute())
+                    } label: {
                         Text(t("See all")).font(.subheadline.weight(.semibold))
                     }
                     .fixedSize()
@@ -79,32 +82,11 @@ extension DeadlineGroups {
 /// older past work stays folded, hidden work comes back from here.
 struct RecordScreen: View {
     @Environment(AppModel.self) private var model
-    @State private var unfolded = false
 
     var body: some View {
         List {
             if let record = model.board?.record {
-                group(t("Pinned"), record.pinned)
-                group(t("This week"), record.dueThisWeek)
-                group(t("Next week and later"), record.later)
-                group(t("No deadline"), record.undated)
-                group(t("Past"), record.pastRecent)
-                if !record.pastEarlier.isEmpty {
-                    if unfolded {
-                        group(t("Earlier"), record.pastEarlier)
-                    } else {
-                        Section {
-                            Button(t("Show {{count}} earlier", ["count": record.pastEarlier.count])) { unfolded = true }
-                        }
-                    }
-                }
-                if !record.hidden.isEmpty {
-                    Section(t("Hidden")) {
-                        ForEach(record.hidden, id: \.assignmentId) { item in
-                            AssignmentListRow(item: item, hidden: true) { DeadlineRow(item: item, now: Date()) }
-                        }
-                    }
-                }
+                RecordSections(record: record)
             }
         }
         .listStyle(.insetGrouped)
@@ -115,13 +97,44 @@ struct RecordScreen: View {
         .toolbar(.visible, for: .navigationBar)
         .onAppear { model.syncHint(.open(view: .assignments)) }
     }
+}
+
+/// A quarter's record as list sections, for すべての課題 and 授業's 課題. With
+/// `selectable`, rows are tags of the list's selection, which opens them
+/// beside it, instead of buttons that push.
+struct RecordSections: View {
+    let record: DeadlineGroups
+    var selectable = false
+    @State private var unfolded = false
+
+    var body: some View {
+        group(t("Pinned"), record.pinned)
+        group(t("This week"), record.dueThisWeek)
+        group(t("Next week and later"), record.later)
+        group(t("No deadline"), record.undated)
+        group(t("Past"), record.pastRecent)
+        if !record.pastEarlier.isEmpty {
+            if unfolded {
+                group(t("Earlier"), record.pastEarlier)
+            } else {
+                Section {
+                    Button(t("Show {{count}} earlier", ["count": record.pastEarlier.count])) { unfolded = true }
+                }
+            }
+        }
+        group(t("Hidden"), record.hidden, hidden: true)
+    }
 
     @ViewBuilder
-    private func group(_ title: String, _ items: [DeadlineItem]) -> some View {
+    private func group(_ title: String, _ items: [DeadlineItem], hidden: Bool = false) -> some View {
         if !items.isEmpty {
             Section(title) {
                 ForEach(items, id: \.assignmentId) { item in
-                    AssignmentListRow(item: item) { DeadlineRow(item: item, now: Date()) }
+                    if selectable {
+                        DeadlineRow(item: item, now: Date()).tag(item.assignmentId)
+                    } else {
+                        AssignmentListRow(item: item, hidden: hidden) { DeadlineRow(item: item, now: Date()) }
+                    }
                 }
             }
         }
@@ -138,24 +151,24 @@ struct AssignmentListRow<Content: View>: View {
     var hidden = false
     @ViewBuilder var label: Content
     @Environment(AppModel.self) private var model
-    @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
     /// Bumped by every pin or hide, so each one answers with a tap.
     @State private var acted = 0
 
     var body: some View {
         Button {
-            navigator.push(AssignmentRoute(id: item.assignmentId))
+            push(AssignmentRoute(id: item.assignmentId))
         } label: {
             label
         }
         .listRowInsets(EdgeInsets())
         .contextMenu {
             if let course = item.courseId {
-                Button(t("Open course"), systemImage: "book") { navigator.push(CourseRoute(id: course)) }
+                Button(t("Open course"), systemImage: "book") { push(CourseRoute(id: course)) }
             }
             if let url = item.sourceUrl {
                 Button(t("Submit in LMS"), systemImage: "arrow.up.forward.square") {
-                    navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
+                    push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
                 }
             }
             if hidden {

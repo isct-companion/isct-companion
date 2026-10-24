@@ -84,7 +84,7 @@ struct AssignmentCard: View {
 struct AssignmentBody: View {
     let assignment: AssignmentDetail
     var showsState = true
-    @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -113,7 +113,7 @@ struct AssignmentBody: View {
             }
             if let url = assignment.sourceUrl {
                 Button {
-                    navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: assignment.title))
+                    push(WebRouter.PushedPage(site: .scienceLms, target: url, title: assignment.title))
                 } label: {
                     Label(t("Submit in LMS"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
@@ -192,7 +192,7 @@ struct MaterialOpener<Label: View>: View {
     var courseId: String? = nil
     @ViewBuilder var label: (_ opening: Bool) -> Label
     @Environment(AppModel.self) private var model
-    @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
     @State private var opening = false
     @State private var preview: URL?
     @State private var notice: String?
@@ -249,6 +249,6 @@ struct MaterialOpener<Label: View>: View {
     }
 
     private func push(_ url: String) {
-        navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: title))
+        push(WebRouter.PushedPage(site: .scienceLms, target: url, title: title))
     }
 }

@@ -403,7 +403,7 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
     var menu by remember { mutableStateOf(false) }
     val top = rowHeight * axis.offset(block.startTime).toFloat()
     val bottom = rowHeight * axis.offset(block.endTime).toFloat()
-    val planned = block.courseId?.let { week?.enrolledCourseIds?.contains(it) == false } ?: false
+    val planned = block.planned == true
     val cancelled = block.cancelled == true
     val exam = block.kind == OccurrenceKind.EXAM && !cancelled
     val faded = holiday || cancelled

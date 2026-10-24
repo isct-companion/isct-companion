@@ -94,13 +94,13 @@ struct CardLink<Route: Hashable, Content: View>: View {
     /// Runs as the row opens.
     var opened: (() -> Void)?
     @ViewBuilder var content: Content
-    @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
 
     var body: some View {
         if let route {
             Button {
                 opened?()
-                navigator.push(route)
+                push(route)
             } label: {
                 HStack(spacing: 12) {
                     content

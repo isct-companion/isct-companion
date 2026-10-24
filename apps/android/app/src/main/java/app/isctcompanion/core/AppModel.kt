@@ -332,7 +332,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             }
             val result = (
                 session.scheduleQuery(
-                    listOf(WorkspaceQuery.Today(now), WorkspaceQuery.AssignmentBoard(now), WorkspaceQuery.TeachingPeriods),
+                    listOf(WorkspaceQuery.Today(now), WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods),
                 ).value() as? OperationResult.Schedule
                 )?.snapshot ?: return
             for (value in result.values) {
@@ -553,6 +553,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Opening an item of 今日's 新着: Core stops listing it until it changes. */
     suspend fun markRecentSeen(list: RecentKind, id: String) {
         commit(WorkspaceIntent.MarkRecentSeen(list, id))
+    }
+
+    /** 新着's read all: Core stops listing everything new now, past the few it
+     * shows too. */
+    suspend fun markAllRecentSeen() {
+        commit(WorkspaceIntent.MarkAllRecentSeen)
     }
 
     /** Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.

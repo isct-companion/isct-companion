@@ -61,6 +61,11 @@ pub struct Occurrence {
     /// Set on 物理学演習・実験 blocks, which meet every other week.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alternation: Option<Alternation>,
+    /// A class or exam of a course only planned for the block's quarter: no
+    /// membership there, so it is drawn as an outline. Judged against the
+    /// block's own quarter, so a range across quarters reads each correctly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned: Option<bool>,
 }
 
 impl Occurrence {
@@ -259,6 +264,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 conflict_with: None,
                 overridden: None,
                 alternation: None,
+                planned: None,
             });
         }
         for left in 0..blocks.len() {
@@ -697,6 +703,7 @@ pub(crate) fn personal_occurrences(
             conflict_with: None,
             overridden: None,
             alternation: None,
+            planned: None,
         });
     }
     for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
@@ -773,6 +780,7 @@ fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, Sched
         conflict_with: None,
         overridden: None,
         alternation: None,
+        planned: None,
     }))
 }
 
@@ -877,6 +885,7 @@ fn course_occurrence(
         conflict_with: None,
         overridden: None,
         alternation: None,
+        planned: None,
     }
 }
 
@@ -935,6 +944,24 @@ pub fn resolve_day_agenda(
     term: &str,
     date: &str,
     options: AgendaOptions,
+) -> Result<Vec<Occurrence>, ScheduleError> {
+    resolve_day_agenda_with(
+        workspace,
+        term,
+        date,
+        options,
+        &super::exam_views(workspace, term),
+    )
+}
+
+/// `resolve_day_agenda` with the term's exams already read, for a caller
+/// resolving many days of one term.
+pub(crate) fn resolve_day_agenda_with(
+    workspace: &Value,
+    term: &str,
+    date: &str,
+    options: AgendaOptions,
+    term_exams: &[super::ExamView],
 ) -> Result<Vec<Occurrence>, ScheduleError> {
     let teaching_periods = teaching_periods(workspace)?;
     let mut blocks = occurrences_on_date(workspace, term, date, options.clone())?;
@@ -1005,17 +1032,15 @@ pub fn resolve_day_agenda(
         }
     }
     let mut exams = Vec::new();
-    for exam in super::exam_views(workspace, term)
-        .into_iter()
-        .filter(|exam| {
-            !exam.hidden
-                && exam.date == date
-                && (exam.status == "scheduled"
+    for exam in term_exams.iter().filter(|exam| {
+        !exam.hidden
+            && exam.date == date
+            && (exam.status == "scheduled"
                     // A session the user cancelled stays visible to undo.
                     || (exam.mark.as_deref() == Some("cancelled")
                         && options.include_cancelled_courses))
-        })
-    {
+    }) {
+        let exam = exam.clone();
         let (Some(id), Some(start), Some(end)) = (exam.course_id, exam.start_time, exam.end_time)
         else {
             continue;
@@ -1059,12 +1084,23 @@ pub fn resolve_day_agenda(
             conflict_with: None,
             overridden: exam.edited.then_some(true),
             alternation: None,
+            planned: None,
         });
     }
     blocks.extend(exams);
+    let enrolled: HashSet<&str> = array(workspace, "memberships")
+        .iter()
+        .filter(|row| visible(row) && text(row, "termId") == Some(term))
+        .filter_map(|row| text(row, "courseId"))
+        .collect();
     for block in &mut blocks {
         if matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam) {
             block.term_id = Some(term.into());
+            block.planned = block
+                .course_id
+                .as_deref()
+                .is_some_and(|id| !enrolled.contains(id))
+                .then_some(true);
         }
     }
     finalize_agenda(blocks)

@@ -7,50 +7,89 @@ import SwiftUI
 /// sorts or filters. A list rather than a scroll view, so assignment rows
 /// keep the system swipes.
 struct TodayScreen: View {
+    /// The workstation's dashboard (docs/ux/mobile.md, Devices and layouts):
+    /// the moment's classes, exams and 新着 on the left, the assignments in
+    /// their own column on the right, the class cards laid out side by side
+    /// instead of stacked.
+    var columns = false
     @Environment(AppModel.self) private var model
+    @Environment(Navigator.self) private var navigator
     /// Core's upcoming exams for the next two weeks.
     @State private var exams: [ExamView] = []
 
+    /// The dashboard's list margin, which its header lines up with.
+    private static let margin: CGFloat = 24
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            List {
-                Group {
-                    header
-                    if let problem = model.problem {
-                        ProblemBanner(text: problem)
-                    } else if let problem = model.syncSnapshot?.problem {
-                        SyncProblemBanner(problem: problem)
+            if columns {
+                VStack(alignment: .leading, spacing: 0) {
+                    header.padding(.horizontal, Self.margin)
+                    HStack(alignment: .top, spacing: 0) {
+                        page { overview(context.date) }
+                        page {
+                            if model.today != nil { TodayAssignmentSections(now: context.date) }
+                        }
+                        .frame(width: 420)
                     }
-                    if model.needsAccount { ConnectCard() }
-                    if let snapshot = model.syncSnapshot, !snapshot.activeRuns.isEmpty || snapshot.resetting,
-                        model.records.courses.isEmpty, model.records.assignments.isEmpty
-                    {
-                        FirstLoadCard(snapshot: snapshot)
-                    }
-                    if let today = model.today {
-                        TodayContent(today: today, now: context.date, exams: exams)
-                    }
+                    .contentMargins(.horizontal, Self.margin, for: .scrollContent)
+                    // Both columns start right under the header, level.
+                    .contentMargins(.top, 4, for: .scrollContent)
                 }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
-                if model.today != nil {
-                    TodayAssignmentSections(now: context.date)
+                .frame(maxWidth: 1180)
+                .frame(maxWidth: .infinity)
+            } else {
+                page {
+                    overview(context.date)
+                    if model.today != nil {
+                        TodayAssignmentSections(now: context.date)
+                    }
                 }
             }
-            .listStyle(.insetGrouped)
-            .listSectionSpacing(.compact)
-            .scrollContentBackground(.hidden)
-            .refreshable { model.refreshFromSchool() }
         }
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) { UndoToast() }
+        // What the page points at opens beside it on the workstation.
+        .environment(\.push, PushAction { navigator.open($0) })
         .onAppear { model.syncHint(.open(view: .today)) }
         .task(id: "\(model.contentRevision)-\(model.today?.date ?? "")") {
             let loaded = await model.upcomingExams()
             if !Task.isCancelled { exams = loaded }
         }
+    }
+
+    private func page<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        List { content() }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(.compact)
+            .scrollContentBackground(.hidden)
+            .refreshable { model.refreshFromSchool() }
+    }
+
+    /// The moment: the header (above the columns on the dashboard), what needs
+    /// the person, then Core's `TodayView` in order.
+    private func overview(_ now: Date) -> some View {
+        Group {
+            if !columns { header }
+            if let problem = model.problem {
+                ProblemBanner(text: problem)
+            } else if let problem = model.syncSnapshot?.problem {
+                SyncProblemBanner(problem: problem)
+            }
+            if model.needsAccount { ConnectCard() }
+            if let snapshot = model.syncSnapshot, !snapshot.activeRuns.isEmpty || snapshot.resetting,
+                model.records.courses.isEmpty, model.records.assignments.isEmpty
+            {
+                FirstLoadCard(snapshot: snapshot)
+            }
+            if let today = model.today {
+                TodayContent(today: today, now: now, exams: exams, spread: columns)
+            }
+        }
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
     }
 
     private var header: some View {
@@ -64,7 +103,8 @@ struct TodayScreen: View {
                     .foregroundStyle(Theme.ink)
             }
             Spacer()
-            SyncRingButton()
+            // The workstation's status bar carries the ring.
+            if !navigator.workbench { SyncRingButton() }
         }
         .padding(.top, 12)
     }
@@ -81,15 +121,35 @@ struct TodayScreen: View {
     }
 }
 
+/// 新着's label, with read all at its trailing end.
+private struct RecentLabel: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            SectionLabel(t("New"))
+            Spacer()
+            Button(t("Mark all as read")) {
+                Task { await model.markAllRecentSeen() }
+            }
+            .font(.subheadline.weight(.semibold))
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 16)
+        }
+    }
+}
+
 private struct TodayContent: View {
     let today: TodayView
     let now: Date
     let exams: [ExamView]
+    /// The class cards side by side rather than stacked.
+    var spread = false
 
     var body: some View {
         switch today.phase {
         case .beforeClasses, .betweenClasses:
-            ClassStack(items: today.upcoming, now: now)
+            ClassStack(items: today.upcoming, now: now, spread: spread)
             UpcomingExams(exams: exams)
         case .inClass:
             if let hero = today.hero { CurrentClassHero(item: hero, now: now) }
@@ -97,16 +157,16 @@ private struct TodayContent: View {
                 SectionLabel(t("This class"))
                 ThisClassCard(materials: today.classMaterials, assignments: today.classAssignments, now: now)
             }
-            ClassStack(items: today.upcoming, now: now)
+            ClassStack(items: today.upcoming, now: now, spread: spread)
         case .afterClasses:
             if let hero = today.deadlineHero { TonightHero(item: hero, now: now) }
-            ClassStack(items: today.upcoming, now: now)
+            ClassStack(items: today.upcoming, now: now, spread: spread)
             UpcomingExams(exams: exams)
         case .noClasses:
             UpcomingExams(exams: exams)
-            ClassStack(items: today.upcoming, now: now)
+            ClassStack(items: today.upcoming, now: now, spread: spread)
             if !today.recent.isEmpty {
-                SectionLabel(t("New"))
+                RecentLabel()
                 RecentCard(items: today.recent)
             }
         }
@@ -124,6 +184,9 @@ private struct TodayContent: View {
 private struct ClassStack: View {
     let items: [TodayClass]
     let now: Date
+    /// The dashboard has room for every card: the first in full, the rest
+    /// side by side under it, each under its own day.
+    var spread = false
     @State private var front = 0
     @State private var pull: CGFloat = 0
 
@@ -136,6 +199,45 @@ private struct ClassStack: View {
     private static let turn: CGFloat = 60
 
     var body: some View {
+        if spread {
+            spreadCards
+        } else {
+            stack
+        }
+    }
+
+    @ViewBuilder
+    private var spreadCards: some View {
+        if let first = items.first {
+            SectionLabel(Self.title(first, first: true))
+            StackCard(item: first, now: now, leads: true)
+                .frame(height: Self.cardHeight)
+                .opensCourse(first.occurrence.courseId, zoom: "stack-0")
+            if items.count > 1 {
+                // A card's day is said only where it changes; the row keeps
+                // one line for it when any of its cards needs one.
+                let labelled = items.indices.dropFirst().filter { items[$0].occurrence.date != items[$0 - 1].occurrence.date }
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(Array(items.enumerated().dropFirst()), id: \.offset) { position, item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            if labelled.contains(position) {
+                                SectionLabel(Self.title(item, first: false))
+                            } else if !labelled.isEmpty {
+                                SectionLabel(" ").hidden()
+                            }
+                            StackCard(item: item, now: now, leads: false)
+                                .frame(height: Self.cardHeight)
+                                .opensCourse(item.occurrence.courseId, zoom: "stack-\(position)")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var stack: some View {
         if !items.isEmpty {
             let index = min(front, items.count - 1)
             // 0…1 while a pull brings the next (up) or previous (down) card in.
@@ -370,6 +472,7 @@ private struct TonightHero: View {
     let item: DeadlineItem
     let now: Date
     @Environment(WebRouter.self) private var web
+    @Environment(\.push) private var push
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -388,7 +491,9 @@ private struct TonightHero: View {
                 Text(course).font(.subheadline).foregroundStyle(Theme.muted)
             }
             if let url = item.sourceUrl {
-                NavigationLink(value: WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title)) {
+                Button {
+                    push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
+                } label: {
                     Label(t("Open submission page"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.white)
@@ -396,6 +501,7 @@ private struct TonightHero: View {
                         .padding(.vertical, 10)
                         .background(Theme.danger, in: Capsule())
                 }
+                .buttonStyle(PressableStyle())
             }
         }
         .padding(18)
@@ -412,12 +518,12 @@ private struct TonightHero: View {
 private struct OpensCourse: ViewModifier {
     let id: String?
     var zoom = "hero"
-    @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
 
     func body(content: Content) -> some View {
         if let id {
             Button {
-                navigator.push(CourseRoute(id: id, zoom: zoom))
+                push(CourseRoute(id: id, zoom: zoom))
             } label: {
                 content.contentShape(RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
             }
@@ -439,7 +545,7 @@ struct DeadlineLink<Content: View>: View {
     let item: DeadlineItem
     @ViewBuilder var label: Content
     @Environment(AppModel.self) private var model
-    @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
 
     var body: some View {
         CardLink(route: AssignmentRoute(id: item.assignmentId)) {
@@ -448,11 +554,11 @@ struct DeadlineLink<Content: View>: View {
         .contextMenu {
             // A NavigationLink inside a menu does not push reliably.
             if let course = item.courseId {
-                Button(t("Open course"), systemImage: "book") { navigator.push(CourseRoute(id: course)) }
+                Button(t("Open course"), systemImage: "book") { push(CourseRoute(id: course)) }
             }
             if let url = item.sourceUrl {
                 Button(t("Submit in LMS"), systemImage: "arrow.up.forward.square") {
-                    navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
+                    push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
                 }
             }
             Button {
@@ -635,6 +741,7 @@ struct ProblemBanner: View {
 
 /// First launch: the real empty Today with one sign-in card.
 private struct ConnectCard: View {
+    @Environment(\.push) private var push
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -642,7 +749,9 @@ private struct ConnectCard: View {
             Text(t("Reads your timetable, assignments and materials from the school sites. Your password is kept in the Keychain and sent only to the school sites."))
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
-            NavigationLink(value: SettingsRoute.account(.science)) {
+            Button {
+                push(SettingsRoute.account(.science))
+            } label: {
                 Text(t("Connect with Science Tokyo"))
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
@@ -650,6 +759,7 @@ private struct ConnectCard: View {
                     .foregroundStyle(.white)
                     .background(Theme.accent, in: Capsule())
             }
+            .buttonStyle(PressableStyle())
         }
         .padding(18)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))

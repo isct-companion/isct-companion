@@ -25,7 +25,7 @@ struct IsctCompanionApp: App {
     }
 }
 
-/// The desktop's pages (`routes.ts`), as tabs, sidebar rows or both.
+/// The desktop's pages (`routes.ts`), as tabs, rail rows or both.
 enum AppTab: Hashable, CaseIterable {
     case today, timetable, lectures, web, settings
 
@@ -51,9 +51,11 @@ enum AppTab: Hashable, CaseIterable {
 }
 
 /// Which container the pages sit in (docs/ux/mobile.md, Devices and layouts).
+/// The window's size picks it, on iPhone and iPad alike: the tab bar when
+/// stacked, the desktop's workstation otherwise.
 enum Layout {
     /// The desktop rule (`form-factor.ts`): one column up to 600 pt wide or in
-    /// portrait up to 1100 pt, two columns otherwise.
+    /// portrait up to 1100 pt, the workstation otherwise.
     static func isStacked(_ size: CGSize) -> Bool {
         size.width <= 600 || (size.height > size.width && size.width <= 1100)
     }
@@ -67,7 +69,13 @@ enum Layout {
         isPad ? [.today, .timetable, .lectures, .web, .settings] : [.today, .timetable, .web, .settings]
     }
 
-    static let sidebar: [AppTab] = [.today, .timetable, .lectures, .web, .settings]
+    /// The workstation's rail, as desktop's; 設定 sits apart at its foot.
+    static let rail: [AppTab] = [.today, .timetable, .lectures, .web]
+}
+
+/// 授業's two lists, as desktop's LectureDesk switches them.
+enum LectureMode: Hashable {
+    case courses, assignments
 }
 
 /// A course pushed from any row, block or card. `zoom` names the view it
@@ -91,14 +99,71 @@ final class Navigator {
     var paths: [AppTab: NavigationPath] = [:]
     /// The course open beside the list in the split 授業.
     var lecture: String?
+    /// The assignment open beside 授業's 課題 list.
+    var lectureAssignment: String?
+    /// The quarter 授業 shows, this quarter until one is picked.
+    var lectureTerm: String?
+    /// Whether 授業 lists the quarter's courses or its assignments.
+    var lectureMode = LectureMode.courses
     /// The quarter 時間割 shows, for its tab's calendar export.
     var timetableTerm: String?
+    /// The workstation is up: 今日 opens what its column points at beside
+    /// itself, as desktop's TodayWorkbench, instead of pushing it.
+    private(set) var workbench = false
+    /// What 今日 opened beside itself, the root of its pane's stack.
+    var bench: (any Hashable)?
 
     /// Pushes onto the current page, for actions that cannot be a
     /// NavigationLink (menu items, buttons).
     func push<Route: Hashable>(_ route: Route) {
         paths[tab, default: NavigationPath()].append(route)
     }
+
+    /// Opens from 今日's column: beside it on the workstation, pushed
+    /// otherwise. Opening what is already open closes it, as on desktop.
+    func open(_ route: any Hashable) {
+        guard workbench, tab == .today else { return push(route) }
+        var route = route
+        // One course, whichever card it grew out of.
+        if var course = route as? CourseRoute {
+            course.zoom = nil
+            route = course
+        }
+        let shown = bench.map { AnyHashable($0) == AnyHashable(route) } ?? false
+        bench = shown && paths[.today]?.isEmpty != false ? nil : route
+        paths[.today] = NavigationPath()
+    }
+
+    /// Closes 今日's pane.
+    func closeBench() {
+        bench = nil
+        paths[.today] = NavigationPath()
+    }
+
+    /// Follows the container. Leaving the workstation, what was open beside
+    /// 今日 becomes its push; pages pushed over it there do not follow.
+    func setWorkbench(_ wide: Bool) {
+        guard wide != workbench else { return }
+        workbench = wide
+        if !wide, let bench {
+            var path = NavigationPath()
+            path.append(bench)
+            paths[.today] = path
+            self.bench = nil
+        }
+    }
+}
+
+/// How a view opens a route. Pages push; 今日's column opens beside itself
+/// on the workstation (`Navigator.open`).
+struct PushAction {
+    var action: (any Hashable) -> Void = { _ in }
+
+    func callAsFunction(_ route: some Hashable) { action(route) }
+}
+
+extension EnvironmentValues {
+    @Entry var push = PushAction()
 }
 
 struct RootView: View {
@@ -126,18 +191,21 @@ struct RootView: View {
             ContentUnavailableView(t("Could not start"), systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
             GeometryReader { proxy in
+                let stacked = Layout.isStacked(proxy.size)
                 Group {
-                    if Layout.isPad, !Layout.isStacked(proxy.size) {
-                        split
-                    } else {
+                    if stacked {
                         tabs
+                    } else {
+                        workstation
                     }
                 }
+                .onChange(of: stacked, initial: true) { _, stacked in navigator.setWorkbench(!stacked) }
                 .environment(navigator)
+                .environment(\.push, PushAction { navigator.push($0) })
                 .environment(\.courseZoom, zoom)
                 .welcomeSheet {
                     navigator.tab = .today
-                    navigator.push(SettingsRoute.account(.science))
+                    navigator.open(SettingsRoute.account(.science))
                 }
                 .sheet(item: $calendarFile) { file in
                     ShareSheet(url: file.url).presentationDetents([.medium, .large])
@@ -187,7 +255,7 @@ struct RootView: View {
         .onAppear { if !Layout.tabs.contains(navigator.tab) { navigator.tab = .today } }
     }
 
-    /// A site picked from the ウェブ tab's panel or the sidebar row's menu
+    /// A site picked from the ウェブ tab's panel or the rail row's menu
     /// shows on the ウェブ page; the site already shown there stays on its
     /// page instead of going home.
     private func pickSite(_ choice: SitePick) {
@@ -214,38 +282,33 @@ struct RootView: View {
         }
     }
 
-    /// iPad, wide: the desktop's sidebar and one page beside it.
-    private var split: some View {
-        NavigationSplitView {
-            List(Layout.sidebar, id: \.self, selection: Binding(get: { navigator.tab }, set: { if let tab = $0 { navigator.tab = tab } })) { tab in
-                if tab == .web {
-                    Label(tab.title, systemImage: tab.symbol)
-                        .contextMenu { SitePickerRows { pickSite($0) } }
-                } else if tab == .timetable, let term = exportTerm {
-                    Label(tab.title, systemImage: tab.symbol)
-                        .contextMenu { CalendarExportRows(term: term) { export($0) } }
-                } else {
-                    Label(tab.title, systemImage: tab.symbol)
+    /// Wide: the desktop's workstation (docs/ux/mobile.md, Devices and
+    /// layouts): the page rail, one page beside it and the school status bar
+    /// under the page.
+    private var workstation: some View {
+        HStack(spacing: 0) {
+            PageRail(selection: selection) { tab in
+                switch tab {
+                case .web: SitePickerRows { pickSite($0) }
+                case .timetable:
+                    if let term = exportTerm { CalendarExportRows(term: term) { export($0) } }
+                default: EmptyView()
                 }
             }
-            .navigationTitle("IsctCompanion")
-            .safeAreaInset(edge: .bottom) {
-                HStack {
-                    SyncRingButton()
-                    Spacer()
+            Divider().ignoresSafeArea()
+            VStack(spacing: 0) {
+                switch navigator.tab {
+                case .today: TodayWorkbench()
+                case .lectures: LecturesSplit()
+                default: page(navigator.tab)
                 }
-                .padding(.horizontal, 8)
-            }
-        } detail: {
-            if navigator.tab == .lectures {
-                LecturesSplit()
-            } else {
-                page(navigator.tab)
+                SchoolStatusBar()
             }
         }
+        .background(Theme.bg)
     }
 
-    /// A page in its own stack; the same views fill tabs and the sidebar.
+    /// A page in its own stack; the same views fill tabs and the workstation.
     @ViewBuilder
     private func page(_ tab: AppTab) -> some View {
         switch tab {
@@ -265,6 +328,7 @@ struct RootView: View {
             set: { next in
                 if next == navigator.tab {
                     navigator.paths[next] = NavigationPath()
+                    if next == .today { navigator.bench = nil }
                     if next == .web { web.goHome(web.tabSite) }
                 }
                 navigator.tab = next
@@ -281,7 +345,8 @@ struct RootView: View {
 }
 
 extension View {
-    /// Everything a page can push, registered once per stack.
+    /// Everything a page can push, registered once per stack. `BenchRoot`
+    /// shows the same pages as the root of 今日's pane.
     func appDestinations() -> some View {
         navigationDestination(for: CourseRoute.self) { route in
             CourseDetailScreen(courseId: route.id).courseZoomDestination(route.zoom)

@@ -10,7 +10,7 @@ import UIKit
 /// renders on the spot.
 struct HTMLText: View {
     let html: String
-    @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
 
     var body: some View {
         Text(HTMLCache.text(html))
@@ -20,7 +20,7 @@ struct HTMLText: View {
             .textSelection(.enabled)
             .environment(\.openURL, OpenURLAction { url in
                 guard url.host == "lms.s.isct.ac.jp" else { return .systemAction }
-                navigator.push(WebRouter.PushedPage(site: .scienceLms, target: url.absoluteString, title: ""))
+                push(WebRouter.PushedPage(site: .scienceLms, target: url.absoluteString, title: ""))
                 return .handled
             })
     }

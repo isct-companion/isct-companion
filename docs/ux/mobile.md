@@ -119,19 +119,33 @@ local "mark done": submission state comes from the LMS.
 
 ## Devices and layouts
 
-One page set, two containers: stacked (single column) up to 600 pt wide or in
-portrait up to 1100 pt, otherwise split. Telling iPhone from iPad is
-the one allowed runtime platform check (AGENTS.md rule 3).
+One page set, two containers, chosen by the window's size alone: stacked
+(single column) up to 600 pt wide or in portrait up to 1100 pt, otherwise the
+workstation, desktop's layout. On an iPad that is upright versus landscape.
+Telling iPhone from iPad is the one allowed runtime platform check (AGENTS.md
+rule 3), and it only adds 授業 to the tab bar.
 
-| | iPhone | iPad, stacked | iPad, split |
+| | iPhone | iPad, stacked (upright) | Workstation (iPad landscape) |
 |---|---|---|---|
-| Container | Tab bar + stack | Tab bar + stack | Sidebar + content (`NavigationSplitView`) |
-| Pages | 今日 · 時間割 · 課題 · ウェブ | 今日 · 時間割 · **授業** · 課題 · ウェブ | Sidebar: the same five, then 設定 |
-| Courses | Pushed from any block, card or row | 授業 tab: course list → course page | 授業: course list column + course page |
-| Settings | Pushed pages from the gear | Pushed pages from the gear | Sidebar item |
+| Container | Tab bar + stack | Tab bar + stack | Desktop's rail + page + school status bar |
+| Pages | 今日 · 時間割 · ウェブ · 設定 | 今日 · 時間割 · **授業** · ウェブ · 設定 | Rail: 今日 · 時間割 · 授業 · ウェブ, 設定 at its foot (⌘1–4, ⌘,) |
+| Courses | Pushed from any block, card or row | 授業 tab: course list → course page | 今日 opens courses and assignments beside itself (desktop's TodayWorkbench); 授業: course list column + course page |
+| Settings | Last tab | Last tab | Rail foot |
 | Workstation | — | — | File tray bottom right (phase 3) |
 
-The same page views fill every container; only the container changes.
+The same page views fill every container; only the container changes, and
+今日 on the workstation. With nothing open there it is a two-column
+dashboard: the header across the top, the moment on the left (the class
+cards laid out rather than stacked, the first in full and the next ones side
+by side, a day said only where it changes; then exams and 新着) and the
+assignments in their own column on the right, each column scrolling on its
+own. Upright on an iPad, 今日 stays the iPhone's single column. On
+the workstation, what 今日's column points at (a class, an assignment, a
+submission page, すべて) opens in a pane beside it while 今日 narrows to a
+column; pages opened inside the pane push inside it, and opening the same
+row again or Close returns to 今日 alone. Turning back upright pushes what was
+open onto 今日's tab. The status bar names each school site with its sign-in
+dot and last update, and opens the connection sheet.
 
 ## App structure
 
@@ -141,7 +155,7 @@ Everything not in the table above is pushed or presented from a page.
 |---|---|
 | **今日 Today** | One hero card chosen by the time of day, then at most two short sections (see below). |
 | **時間割 Timetable** | A dated week grid with a quarter picker (see below). Tap a block → course page. |
-| **授業 Lectures** (iPad) | Courses of the shown quarter; the course page on the right in split. |
+| **授業 Lectures** (iPad) | The academic year (menu) and quarter (1Q–4Q) above a 授業 / 課題 switch, as desktop's LectureDesk: the quarter's courses, or all its assignments in the record's groups. On the workstation the chosen course or assignment opens on the right. |
 | **課題 Assignments** | Open assignments grouped by deadline: overdue, today, this week, later. Submitted and hidden ones sit behind one row at the bottom. |
 | **ウェブ Web** | School sites in one resident web view; the site picker sits behind a long press on the tab (see [School web](#school-web)). |
 
@@ -149,7 +163,7 @@ Everything not in the table above is pushed or presented from a page.
 |---|---|---|
 | Course page (push, zoom) | Any class or assignment row, timetable block, 授業 | Header (room, LMS and syllabus links, the course's exams), then the LMS content one lesson at a time (see [Course page](#course-page)) |
 | School web (push, full screen) | Course page, assignment, notification | The page fills the screen; back returns to where it was opened from |
-| Settings (pushed pages) | Gear on the Today title; sidebar in split | The desktop settings sections that apply on a phone, under the desktop's keys so cloud sync keeps both ends equal: school accounts (with matrix card import), notifications (class, exam and assignment reminders), 学習プロフィール, データ更新 (cellular, last pull per site, pull now), ウェブ (text size, first site; device-local), バックアップ (iCloud, earlier versions, recovery files, backup file), 情報. |
+| Settings (pushed pages) | 設定 tab; the rail foot on the workstation | The desktop settings sections that apply on a phone, under the desktop's keys so cloud sync keeps both ends equal: school accounts (with matrix card import), notifications (class, exam and assignment reminders), 学習プロフィール, データ更新 (cellular, last pull per site, pull now), ウェブ (text size, first site; device-local), バックアップ (iCloud, earlier versions, recovery files, backup file), 情報. |
 
 Navigation follows the platform: stack pushes with edge-swipe back (Android
 back), sheets for settings-like content, pull to refresh as a fallback only.
@@ -165,7 +179,7 @@ order and never sorts, filters or decides what is due.
 | Before first class / between classes | Next class: start time and room in large figures, course, countdown chip. Course tint. | Rest of today (time, course, room) · Nearest deadlines |
 | In class | Current class: minutes left, progress bar, end time, room. Course tint. | This class: newest material, open assignment · Next class · Deadlines due today |
 | After classes | Nearest deadline tonight: time, title, course, countdown, "open submission page". Danger tint. | Tomorrow's first class · Other deadlines |
-| No classes | — | Deadlines · New (grades, materials since last open) · Next class card |
+| No classes | — | Deadlines · New (grades, materials since last open; すべて既読 on its label marks every new item seen) · Next class card |
 
 The title area shows the date and the day status (normal teaching day,
 holiday, make-up day). The connection state is silent when healthy (see
@@ -191,7 +205,7 @@ TipKit forgets shown tips at the next launch.
   one-time tip says so.
 - Long press on the 時間割 tab exports the shown quarter as an .ics (courses
   only, or with personal plans) through the share sheet, the same panel as the
-  ウェブ tab's site picker; the iPad sidebar row offers it as a context menu.
+  ウェブ tab's site picker; the workstation's rail row offers it as a context menu.
 - Tapping the title opens the time picker: 1Q–4Q chips for the academic year
   (a chip jumps to that quarter's first teaching week, which is how a student
   shows someone their courses), and a month calendar whose weeks are labelled
@@ -209,7 +223,9 @@ TipKit forgets shown tips at the next launch.
   休講にする, 通常の授業に戻す, the current state ticked. Plan blocks and
   personal events have no marks.
 - Registration states match desktop (`product-definition.md`): registered and
-  declared are filled, planned courses are an outline only.
+  declared are filled, planned courses are an outline only. Core marks a
+  block `planned` against the block's own quarter, so a week in another
+  quarter than today's reads correctly.
 - Intensive courses sit in one row under the grid.
 - Otherwise read-only. Adding, removing and planning courses stays on desktop.
 
@@ -252,7 +268,7 @@ TipKit forgets shown tips at the next launch.
   with the six sites, 再読み込み and ブラウザで開く; the finger can slide to a
   row and lift to choose it, or lift first and tap. Tapping the tab again
   returns the shown site to its start page; WKWebView's own edge swipes go back
-  and forward; text size lives in Settings. The iPad sidebar row offers the
+  and forward; text size lives in Settings. The workstation's rail row offers the
   same rows as a context menu.
 - A pushed page keeps its glass controls: back to the opener, page title, text
   size; back, forward, share, open in browser.

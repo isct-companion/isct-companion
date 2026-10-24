@@ -963,6 +963,12 @@ export type Occurrence = {
    * Set on 物理学演習・実験 blocks, which meet every other week.
    */
   alternation: Alternation | null;
+  /**
+   * A class or exam of a course only planned for the block's quarter: no
+   * membership there, so it is drawn as an outline. Judged against the
+   * block's own quarter, so a range across quarters reads each correctly.
+   */
+  planned?: boolean | null;
 };
 
 export type ScheduleProblemKind = "courseMeeting" | "plan" | "scheduleOverride";
@@ -1480,7 +1486,7 @@ export type WorkspaceQuery =
     }
   | { kind: "taskView"; now: string }
   | { kind: "today"; now: string }
-  | { kind: "assignmentBoard"; now: string }
+  | { kind: "assignmentBoard"; now: string; term: string | null }
   | { kind: "courseDetail"; courseId: string }
   | { kind: "courseContent"; courseId: string; now: string }
   | { kind: "assignmentDetail"; assignmentId: string }
@@ -1668,6 +1674,7 @@ export type WorkspaceIntent =
     }
   | { kind: "markTimetableReviewed" }
   | { kind: "markRecentSeen"; list: RecentKind; id: string }
+  | { kind: "markAllRecentSeen" }
   | { kind: "setClassGroup"; semester: string; group: ClassGroup | null };
 
 export type CourseBatchChanges = {

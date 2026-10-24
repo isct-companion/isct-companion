@@ -317,7 +317,7 @@ final class AppModel {
                 records = WorkspaceRecords(json: snapshot.workspace)
             }
             guard case let .schedule(result) = try await session.scheduleQuery(queries: [
-                .today(now: now), .assignmentBoard(now: now), .teachingPeriods,
+                .today(now: now), .assignmentBoard(now: now, term: nil), .teachingPeriods,
             ]).value() else { return }
             for value in result.values {
                 switch value {
@@ -445,6 +445,17 @@ final class AppModel {
             case let .workspaceOverview(view)? = result.values.first
         else { return nil }
         return view
+    }
+
+    /// One quarter's assignments as Core groups them, for 授業's 課題.
+    func board(term: String) async -> AssignmentBoard? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .assignmentBoard(now: Self.timestamp(Date()), term: term)
+            ]).value(),
+            case let .assignmentBoard(board)? = result.values.first
+        else { return nil }
+        return board
     }
 
     /// Core's equal-row timetable axis, widened to the week's earliest start
@@ -814,12 +825,20 @@ extension AppModel {
 // MARK: - Timetable session marks and upcoming exams
 
 extension AppModel {
-    /// Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
-    /// Core republishes the schedule; the new content revision re-reads the week.
     /// Opening an item of 今日's 新着: Core stops listing it until it changes.
     func markRecentSeen(_ list: RecentKind, _ id: String) async {
+        await markSeen(.markRecentSeen(list: list, id: id))
+    }
+
+    /// 新着's read all: Core stops listing everything new now, past the few it
+    /// shows too.
+    func markAllRecentSeen() async {
+        await markSeen(.markAllRecentSeen)
+    }
+
+    private func markSeen(_ intent: WorkspaceIntent) async {
         guard let session else { return }
-        let mutation = WorkspaceMutation(expectedRevision: revision, intent: .markRecentSeen(list: list, id: id))
+        let mutation = WorkspaceMutation(expectedRevision: revision, intent: intent)
         do {
             if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
                 revision = snapshot.revision
@@ -830,6 +849,8 @@ extension AppModel {
         await refresh()
     }
 
+    /// Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
+    /// Core republishes the schedule; the new content revision re-reads the week.
     func markSession(_ key: String, _ mark: String) async {
         guard let session else { return }
         let mutation = WorkspaceMutation(expectedRevision: revision, intent: .markSession(key: key, mark: mark))

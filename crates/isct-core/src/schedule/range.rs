@@ -8,9 +8,11 @@ use serde_json::Value;
 use super::calendar::{
     academic_year_of, calendar_state, content_language, localized, quarter_range,
 };
-use super::occurrence::{finalize_agenda, personal_occurrences};
+use super::occurrence::{
+    finalize_agenda, personal_occurrences, resolve_day_agenda_with, scheduled_courses,
+};
 use super::{
-    array, parse_civil_date, placement_terms, resolve_day_agenda, text, visible, AgendaOptions,
+    array, exam_views, parse_civil_date, placement_terms, text, visible, AgendaOptions,
     DatedAgenda, OccurrenceKind, ScheduleError, Term,
 };
 
@@ -55,6 +57,20 @@ pub fn calendar_between(
         .filter(|term| Term::parse(term).is_ok())
         .map(|term| Ok((term.clone(), quarter_range(workspace, term)?)))
         .collect::<Result<_, ScheduleError>>()?;
+    // What a term puts on the timetable does not depend on the day, so it is
+    // read once per term rather than once per day. A term with no course and
+    // no exam adds nothing on any day, moved classes included.
+    let sources: Vec<_> = ranges
+        .iter()
+        .map(|(term, _)| {
+            (
+                term,
+                scheduled_courses(workspace, term),
+                exam_views(workspace, term),
+            )
+        })
+        .filter(|(_, courses, exams)| !courses.is_empty() || !exams.is_empty())
+        .collect();
     let locale = content_language(workspace);
     let mut agendas = Vec::with_capacity((days + 1) as usize);
     for offset in 0..=days {
@@ -85,16 +101,18 @@ pub fn calendar_between(
         let weekly_classes_stop =
             outside_teaching || matches!(state_kind, Some("holiday" | "no-class" | "break"));
         let mut blocks = Vec::new();
-        for (term, _) in &ranges {
-            blocks.extend(resolve_day_agenda(
+        for (term, courses, exams) in &sources {
+            blocks.extend(resolve_day_agenda_with(
                 workspace,
                 term,
                 &date,
                 AgendaOptions {
                     include_personal: false,
                     include_cancelled_courses: true,
+                    courses: Some(courses.clone()),
                     ..AgendaOptions::default()
                 },
+                exams,
             )?);
         }
         // Dated events follow their date. Weekly template events follow their
