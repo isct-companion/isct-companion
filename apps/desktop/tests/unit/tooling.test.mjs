@@ -9,6 +9,7 @@ import {
   mkdtempSync,
   writeFileSync,
   readFileSync,
+  readdirSync,
   rmSync,
   mkdirSync,
   cpSync,
@@ -251,12 +252,20 @@ describe("desktop release publication", () => {
       const script = workflow.jobs.publish.steps.find(
         (step) => step.name === "Upload complete release as a draft",
       ).run;
+      const updaterScript = workflow.jobs.publish.steps.find(
+        (step) => step.name === "Publish machine-only Mac update packages",
+      ).run;
       const dir = mkdtempSync(path.join(os.tmpdir(), "isct-release-"));
       try {
         mkdirSync(path.join(dir, "docs/releases"), { recursive: true });
         writeFileSync(
           path.join(dir, "docs/releases", `${tag.slice(1)}.md`),
           "Reviewed release notes for this version.\n",
+        );
+        mkdirSync(path.join(dir, "updater-assets"));
+        writeFileSync(
+          path.join(dir, "updater-assets/fixture.app.tar.gz"),
+          "test update",
         );
         // GitHub has no offline publication mode. Keep the shipped shell script
         // real, replacing only the external CLI so this test never publishes.
@@ -271,29 +280,35 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
           { mode: 0o755 },
         );
         const log = path.join(dir, "calls.jsonl");
-        const result = spawnSync("bash", ["-c", script], {
-          cwd: dir,
-          encoding: "utf8",
-          env: {
-            ...process.env,
-            PATH: `${dir}${path.delimiter}${process.env.PATH}`,
-            GH_CALL_LOG: log,
-            RELEASE_TAG: tag,
-            GH_REPO: "example/distribution",
-            BUILD_REPO: "example/source",
-            SOURCE_SHA: "abc123",
-            MACOS_SIGNING_STATUS: "signed-notarized",
-            WINDOWS_SIGNING_STATUS: "unsigned",
-            REPLACE_EXISTING: "false",
+        const result = spawnSync(
+          "bash",
+          ["-c", `${updaterScript}\n${script}`],
+          {
+            cwd: dir,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+              GH_CALL_LOG: log,
+              RELEASE_TAG: tag,
+              GH_REPO: "example/distribution",
+              BUILD_REPO: "example/source",
+              SOURCE_SHA: "abc123",
+              MACOS_SIGNING_STATUS: "signed-notarized",
+              WINDOWS_SIGNING_STATUS: "unsigned",
+              REPLACE_EXISTING: "false",
+              UPDATER_TAG: "desktop-updates",
+            },
           },
-        });
+        );
         expect(result.status, result.stderr).toBe(0);
         const calls = readFileSync(log, "utf8")
           .trim()
           .split("\n")
           .map((line) => JSON.parse(line));
         const create = calls.find(
-          (args) => args[0] === "release" && args[1] === "create",
+          (args) =>
+            args[0] === "release" && args[1] === "create" && args[2] === tag,
         );
         const edit = calls.find(
           (args) => args[0] === "release" && args[1] === "edit",
@@ -303,6 +318,14 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
         expect(edit).toContain(prerelease);
         expect(edit).toContain(latest);
         expect(edit).toContain("--draft=false");
+        const updaterCreate = calls.find(
+          (args) =>
+            args[0] === "release" &&
+            args[1] === "create" &&
+            args[2] === "desktop-updates",
+        );
+        expect(updaterCreate).toContain("--prerelease");
+        expect(updaterCreate).toContain("--latest=false");
         const upload = calls.findIndex(
           (args) => args[0] === "release" && args[1] === "upload",
         );
@@ -311,8 +334,14 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
         expect(notes).toContain(
           `IsctCompanion ${tag.slice(1)} desktop release`,
         );
-        expect(notes).toContain("Android APK is attached by the Android release workflow");
+        expect(notes).toContain(
+          "Android APK is attached by the Android release workflow",
+        );
         expect(notes).toContain("Reviewed release notes for this version.");
+        expect(notes).toContain(
+          `/releases/download/${tag}/IsctCompanion_${tag.slice(1)}_aarch64-apple-darwin.dmg`,
+        );
+        expect(notes).toContain("Source code archives are for developers");
         // Each platform states its own signing, so a signed Mac build never
         // claims the same for an unsigned Windows installer.
         expect(notes).toContain("notarized by Apple");
@@ -325,7 +354,7 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
 });
 
 describe("desktop update distribution", () => {
-  it("pairs native update bundles with signatures and rejects an incomplete signed build", () => {
+  it("keeps installers separate from signed update packages and rejects incomplete builds", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "isct-release-"));
     const put = (name, text) => {
       const dest = path.join(root, name);
@@ -412,6 +441,94 @@ describe("desktop update distribution", () => {
           existsSync(path.join(root, "artifacts/desktop", target, "LICENSE")),
         ).toBe(true);
       }
+      for (const target of [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+      ]) {
+        cpSync(
+          path.join(root, "artifacts/desktop", target),
+          path.join(root, "installers", `desktop-${target}`),
+          { recursive: true },
+        );
+      }
+      put(
+        "installers/desktop-aarch64-apple-darwin/unrelated-sdk.zip",
+        "not an installer",
+      );
+      const workflow = parseYaml(
+        readRepoFile(".github/workflows/desktop-release.yml"),
+      );
+      const assemble = workflow.jobs.publish.steps.find(
+        (step) => step.name === "Assemble public documents and installers",
+      ).run;
+      const assembleRelease = () =>
+        spawnSync("bash", ["-c", assemble], {
+          cwd: root,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            GH_REPO: "example/distribution",
+            GITHUB_REF: `refs/tags/v${version}`,
+            GITHUB_ENV: path.join(root, "github-env"),
+            UPDATER_TAG: "desktop-updates",
+          },
+        });
+      const assembled = assembleRelease();
+      expect(assembled.status, assembled.stderr + assembled.stdout).toBe(0);
+      expect(readdirSync(path.join(root, "release-assets")).sort()).toEqual(
+        [
+          `IsctCompanion_${version}_aarch64-apple-darwin.dmg`,
+          `IsctCompanion_${version}_x86_64-apple-darwin.dmg`,
+          `IsctCompanion_${version}_x86_64-pc-windows-msvc.exe`,
+          "latest.json",
+        ].sort(),
+      );
+      expect(readdirSync(path.join(root, "updater-assets")).sort()).toEqual(
+        [
+          `IsctCompanion_${version}_aarch64-apple-darwin.app.tar.gz`,
+          `IsctCompanion_${version}_x86_64-apple-darwin.app.tar.gz`,
+        ].sort(),
+      );
+      const manifest = JSON.parse(
+        readFileSync(path.join(root, "release-assets/latest.json"), "utf8"),
+      );
+      for (const [platform, update] of Object.entries(manifest.platforms)) {
+        expect(update.signature).toBe("test signature");
+        expect(update.url).toContain(
+          `/releases/download/${platform.startsWith("darwin-") ? "desktop-updates" : `v${version}`}/`,
+        );
+        const asset = path.basename(new URL(update.url).pathname);
+        expect(
+          existsSync(
+            path.join(
+              root,
+              platform.startsWith("darwin-")
+                ? "updater-assets"
+                : "release-assets",
+              asset,
+            ),
+          ),
+        ).toBe(true);
+      }
+      rmSync(
+        path.join(
+          root,
+          "installers/desktop-x86_64-pc-windows-msvc",
+          `IsctCompanion_${version}_x86_64-pc-windows-msvc.exe.sig`,
+        ),
+      );
+      for (const directory of [
+        "public-files",
+        "release-assets",
+        "updater-assets",
+      ])
+        rmSync(path.join(root, directory), { recursive: true });
+      const incomplete = assembleRelease();
+      expect(incomplete.status).not.toBe(0);
+      expect(incomplete.stderr + incomplete.stdout).toContain(
+        "Incomplete signed update set",
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

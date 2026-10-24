@@ -11,6 +11,7 @@
 | Goal | goal/ios-share-to-submit | iOS/iPadOS 与 Android：支持从系统分享到本 App，右下角展示文件预览小图；作业页支持多文件投递（不自动合并 zip），iPad 可拖拽，手机在收件箱「选择作业」（本学季未交），并自动帮助填入 LMS 草稿区。桌面不做；Android 在本机只写代码，由用户在 Windows 上构建验收。 | decided | user | 2026-10-24 10:11 |  |
 | Goal | goal/matrix-scan-reliability | Matrix OCR 以准确率为最高优先级：用户尽量保持稳定时，约 10 秒内完成扫描，整卡 70 格全对的会话成功率达到 95%，并尽量杜绝错误放行；只用清晰可识别的帧和格子，宁可多等也不接受模糊样本带来的误读。 | decided | user | 2026-10-24 02:52 |  |
 | Goal | goal/release-1-2-0 | 配齐 iOS 三份正式描述文件 secret、将 Android Google Drive 配置对齐正式发布；先通过 CI，再准备 1.2.0 tag 构建与 iOS/iPadOS App Store 上架。 | decided | user | 2026-10-24 16:04 |  |
+| Goal | goal/release-assets-clean | 正式 Release 的用户下载附件保持清楚，直接提供安装文件，不混入额外 tar/zip 等包让用户误选。 | decided | user | 2026-10-24 17:16 |  |
 | Approach | approach/app-store-school-review | App Store 审核说明如实披露客户端直连学校、无开发者账号服务且无法提供学校演示账号；保留学校功能需要登录的事实，不编造凭据、不声称完整功能免登录。 | decided | user | 2026-10-24 16:42 |  |
 | Approach | approach/cloud-drive-in-core | Google Drive 的 drive.appdata REST、PKCE 与 refresh token 移入 Core cloud_sync::google_drive，三端共用；shell 只通过 DriveAuthorization 端口提供令牌：桌面 loopback、iOS ASWebAuthenticationSession、Android Google Identity AuthorizationClient。 | decided | user | 2026-10-23 11:22 |  |
 | Approach | approach/cloud-remote-checks | Auto 模式下在启动、回到前台、运行中每小时至多一次从所有已开启云端拉取；发现某云端落后时给它排上传（首份立即，其余受每小时上传限制），使双云端设备无需本地编辑即可中转。 | decided | user | 2026-10-23 11:22 |  |
@@ -41,6 +42,7 @@
 | Approach | approach/project-state-in-slotledger | 项目的决定、计划、任务、交接和备忘全部由 slotledger 管理：不写 handoff、PLAN、TODO 或 notes 文件（包括子会话交接笔记），也不用 Claude 的自动记忆。 | decided | user | 2026-10-24 03:23 |  |
 | Approach | approach/release-history-rewrite | 发布前把 main 历史按代码树快照重建为约 100 个线性提交（按版本/功能分组，保留作者与 Co-authored-by），最终代码树与现 main 逐字节一致，重打全部 tag，旧历史先备份再强推。 | decided | user | 2026-10-23 11:47 |  |
 | Approach | approach/release-tags-collapse | 历史重写时只保留 v1.1.6（打在主线上代码树相同的提交），新历史不再打 v1.1.7–v1.1.9；远端这三个旧 tag 与 Release 暂时保留，等 1.2.0 发布后再删除。 | decided | user | 2026-10-24 00:35 |  |
+| Approach | approach/release-update-assets | 正式版本 Release 只附桌面安装器、Android APK和旧客户端所需 latest.json；Mac自动更新包放在非latest的 desktop-updates 预发布资源Release，签名保留在索引而不单独附.sig；iOS继续TestFlight分发，并提供清晰的平台下载入口。 | proposed | AI | 2026-10-24 17:16 |  |
 | Approach | approach/testflight-existing-signing | 自动 TestFlight 发布直接使用仓库已有 IOS_CERTIFICATE、IOS_CERTIFICATE_PASSWORD 和 IOS_MOBILE_PROVISION，签名配置与现有证书和描述文件一致。 | decided | user | 2026-10-23 10:05 |  |
 | Approach | approach/today-recent-seen-local | 手机今日页「新内容」排在课程卡片下方；点开某条后由 Core 记入本机设置 recentSeen（该条当前 updatedAt），在它再次变化前不再显示；不进备份和云同步。 | decided | user | 2026-10-24 08:18 |  |
 | Environment | env/android-dev-windows | OCR 优化、Android 同步（与 iOS 对齐的后续工作与构建）和 Windows 桌面测试由用户在 Windows 机器上进行；git 历史重写在本机 macOS 上由子会话进行。 | decided | user | 2026-10-23 13:01 |  |
