@@ -696,8 +696,9 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
 
     await click(buttonByText(host, "Open in LMS"));
+    // The reader's tool row carries the page's address, as a browser's does.
     await waitFor(() =>
-      expect(host.querySelector(".lmsSourceBar")?.textContent).toContain(
+      expect(host.querySelector(".lmsWebAddress")?.textContent).toContain(
         "lms.s.isct.ac.jp",
       ),
     );
@@ -708,10 +709,15 @@ describe("the LMS reading workspace", () => {
       }),
     );
     await waitFor(() =>
-      expect(host.querySelector(".lmsSourceBar")?.textContent).toBe(
+      expect(host.querySelector(".lmsWebAddress span")?.textContent).toBe(
         "docs.google.com",
       ),
     );
+    expect(
+      host
+        .querySelector('.lmsWebToolbar a[aria-label="Open in browser"]')
+        ?.getAttribute("href"),
+    ).toBe("https://docs.google.com/forms/d/test/viewform");
   }, 30_000);
 
   it("hides the redundant syllabus item and opens the syllabus in its own panel", async () => {
@@ -876,7 +882,7 @@ describe("the LMS reading workspace", () => {
 
   it("opens exact assignment requirements first, and the official LMS only after View in LMS", async () => {
     const f = lectureFixture();
-    const { host } = await openWorkspace(f, {
+    const { host, render } = await openWorkspace(f, {
       entry: { request: 2, assignmentId: "a1" },
     });
 
@@ -895,6 +901,13 @@ describe("the LMS reading workspace", () => {
     );
     expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
     expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
+    // A retained page hides and returns with the page open; the viewer must
+    // render the same hooks either way (React #311 on the first return).
+    await render({ active: false });
+    await render({ active: true });
+    expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
+      "Official LMS",
+    );
 
     await click(host.querySelector(".lmsViewerClose"));
     await waitFor(() =>

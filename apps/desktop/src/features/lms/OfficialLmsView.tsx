@@ -7,18 +7,26 @@ import {
   schoolWebExit,
 } from "../../app/native";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
+import { useConfirmationPending } from "../../components/confirm";
+import { ExternalLink } from "../../components/ExternalLink";
 import { t } from "../../i18n";
+import { LmsIcon } from "./LmsIcon";
+import { ReaderTools } from "./ReaderPane";
 
 /** Same resident LMS WebView and login flow, bounded to this viewer only. */
 export function OfficialLmsView({
   url,
-  active,
+  active: visible,
   available,
 }: {
   url: string;
   active: boolean;
   available: boolean;
 }) {
+  // The native view draws above every HTML overlay, so it hides while a
+  // confirmation asks and returns to the same page afterwards.
+  const confirming = useConfirmationPending();
+  const active = visible && !confirming;
   const host = useRef<HTMLDivElement>(null);
   const owner = useRef(Symbol("today-lms"));
   const opened = useRef(false);
@@ -94,9 +102,61 @@ export function OfficialLmsView({
       void releaseSchoolView(owner.current).catch(() => undefined);
     };
   }, [url, active, available]);
+  const shown = new URL(location);
+  const navigate = (move?: (site: "science-lms") => Promise<boolean>) =>
+    void move?.("science-lms").catch(() => undefined);
   return (
     <>
-      <div className="lmsSourceBar">{new URL(location).hostname}</div>
+      {/* The page's address and the browser's own controls, in the reader's
+          tool row as a file's tools are. */}
+      <ReaderTools>
+        <div className="lmsSourceBar lmsFileToolbar lmsWebToolbar">
+          <div className="lmsWebAddress" title={location}>
+            <span>{shown.hostname}</span>
+            {shown.pathname !== "/" && <small>{shown.pathname}</small>}
+          </div>
+          <div className="lmsFileActions">
+            {available && desktopBridge?.schoolWebBack && (
+              <button
+                type="button"
+                title={t("Previous page")}
+                aria-label={t("Previous page")}
+                onClick={() => navigate(desktopBridge?.schoolWebBack)}
+              >
+                <LmsIcon name="back" size={15} />
+              </button>
+            )}
+            {available && desktopBridge?.schoolWebForward && (
+              <button
+                type="button"
+                className="lmsWebForward"
+                title={t("Next page")}
+                aria-label={t("Next page")}
+                onClick={() => navigate(desktopBridge?.schoolWebForward)}
+              >
+                <LmsIcon name="back" size={15} />
+              </button>
+            )}
+            {available && desktopBridge?.reloadSchoolWeb && (
+              <button
+                type="button"
+                title={t("Reload")}
+                aria-label={t("Reload")}
+                onClick={() => navigate(desktopBridge?.reloadSchoolWeb)}
+              >
+                <LmsIcon name="refresh" size={15} />
+              </button>
+            )}
+            <ExternalLink
+              href={location}
+              title={t("Open in browser")}
+              aria-label={t("Open in browser")}
+            >
+              <LmsIcon name="external" size={15} />
+            </ExternalLink>
+          </div>
+        </div>
+      </ReaderTools>
       <div className="lmsOfficialHost" ref={host}>
         {!available ? (
           <div className="lmsViewerEmpty">

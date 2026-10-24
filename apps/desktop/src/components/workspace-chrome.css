@@ -81,6 +81,41 @@
 .lmsReaderToolSlot .lmsFileActions a:hover {
   color: var(--accent) !important;
 }
+/* A web page keeps its address in view, as a browser's address bar. */
+.lmsReaderToolSlot .lmsWebToolbar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.lmsReaderToolSlot:has(.lmsWebToolbar) {
+  flex: 2 1 240px;
+}
+.lmsWebAddress {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.lmsWebAddress > span {
+  flex: 0 0 auto;
+  color: var(--ink);
+}
+.lmsWebAddress > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lmsWebForward svg {
+  transform: scaleX(-1);
+}
 .lmsReaderToolSlot .lmsPdfControls + .lmsFileToolbar {
   margin-inline-start: 4px;
   padding-inline-start: 8px;

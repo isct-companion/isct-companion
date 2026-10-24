@@ -275,12 +275,13 @@
 .lmsPdfPagination input { width: 36px; text-align: center; appearance: textfield; }
 .lmsPdfPagination input::-webkit-inner-spin-button { appearance: none; }
 .lmsPdfControls select { max-width: 92px; }
-.lmsPdfControls button, .lmsPdfSearch button { appearance: none; border: 0; background: transparent; color: var(--accent); cursor: default; }
-.lmsPdfControls button { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 6px; color: var(--muted); }
-.lmsPdfControls button:hover:not(:disabled) { color: var(--accent); }
+/* Icon buttons only: the zoom select's trigger is a button too. */
+.lmsPdfControls button:not(.uiSelectTrigger), .lmsPdfSearch button { appearance: none; border: 0; background: transparent; color: var(--accent); cursor: default; }
+.lmsPdfControls button:not(.uiSelectTrigger) { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 6px; color: var(--muted); }
+.lmsPdfControls button:not(.uiSelectTrigger):hover:not(:disabled) { color: var(--accent); }
 .lmsPdfFindToggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent) !important; }
-.lmsPdfControls button:hover:not(:disabled), .lmsPdfSearch button:hover:not(:disabled) { background: var(--accent-soft); }
-.lmsPdfControls button:disabled { opacity: .3; cursor: default; }
+.lmsPdfControls button:not(.uiSelectTrigger):hover:not(:disabled), .lmsPdfSearch button:hover:not(:disabled) { background: var(--accent-soft); }
+.lmsPdfControls button:not(.uiSelectTrigger):disabled { opacity: .3; cursor: default; }
 .lmsPdfSearch { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 11px; }
 .lmsPdfSearch input { flex: 1; min-width: 90px; padding: 4px; border: 0; background: transparent; color: var(--ink); font: inherit; }
 .lmsPdfSearch input:focus { outline: none; }
@@ -300,6 +301,20 @@
 .lmsTextMeta > span:first-child { color: var(--ink); font-weight: 600; }
 .lmsTextDocument .cm-editor { outline: none; }
 .lmsTextDocument .cm-scroller { max-height: 75dvh; }
+/* Search floats over the code's top right and stays put while it scrolls. */
+.lmsTextCode { position: relative; }
+.lmsTextDocument .cm-panels.cm-panels-top { position: absolute; top: 8px; right: 12px; left: auto; z-index: 3; border: 0; background: none; }
+.lmsCodeSearchOpen, .lmsCodeSearch { box-shadow: 0 2px 10px rgb(0 0 0 / 0.12); border: 1px solid var(--line); background: var(--surface); }
+.lmsCodeSearchOpen { position: absolute; top: 8px; right: 12px; z-index: 3; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 8px; color: var(--muted); }
+.lmsCodeSearchOpen:hover { color: var(--accent); }
+.lmsCodeSearch { display: flex; align-items: center; gap: 2px; padding: 3px 4px 3px 10px; border-radius: 8px; font-size: 12px; }
+.lmsCodeSearch input { width: 160px; padding: 4px 0; border: 0; background: transparent; color: var(--ink); font: inherit; }
+.lmsCodeSearch input:focus { outline: none; }
+.lmsCodeSearch [role=status] { min-width: 18px; padding: 0 4px; color: var(--muted); white-space: nowrap; }
+.lmsCodeSearch button { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 16px; line-height: 1; }
+.lmsCodeSearch button:hover { background: var(--accent-soft); color: var(--accent); }
+.lmsTextDocument .cm-searchMatch { background: var(--warn-soft); }
+.lmsTextDocument .cm-searchMatch-selected { background: var(--accent-soft); outline: 1px solid var(--accent); }
 .lmsMarkdownDocument { flex: 1; min-height: 0; overflow: auto; background: var(--surface); }
 .lmsMarkdownDocument .milkdown {
   --crepe-color-background: var(--surface);
@@ -538,4 +553,4 @@
 .lmsPullControls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 
 .lmsPdfZoom .uiSelect { width: 100px; }
-.lmsPdfZoom .uiSelect input { width: 100%; height: 28px; min-height: 28px; padding-inline-end: 28px; font-size: 12px; }
+.lmsPdfZoom .uiSelectTrigger { width: 100%; height: 28px; min-height: 28px; padding: 0 8px; font-size: 12px; white-space: nowrap; }

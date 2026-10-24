@@ -27,6 +27,10 @@ export function confirmAction(
     })),
   );
 }
+/** True while a confirmation is open; a native view over the page steps
+ * aside, since no HTML overlay can draw above it. */
+export const useConfirmationPending = () =>
+  useConfirmations((state) => state.queue.length > 0);
 export function ConfirmDialogs() {
   useTranslation();
   const request = useConfirmations((state) => state.queue[0]);
