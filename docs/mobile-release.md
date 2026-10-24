@@ -11,6 +11,10 @@ Both build the Core SDK with the release profile from the tagged commit, take
 the version from `package.json`, and can be started by hand (workflow dispatch)
 to build without a tag.
 
+A manual iOS run signs, archives and exports the IPA without uploading it.
+Select `upload_testflight` to upload that run; version tags upload automatically
+when `IOS_TESTFLIGHT_ENABLED` is true.
+
 ## Android
 
 Without signing secrets the workflow builds a debug-signed APK named
