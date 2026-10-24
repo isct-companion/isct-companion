@@ -195,7 +195,7 @@ internal fun BackupPage() {
     }
 }
 
-private fun providerName(provider: CloudProvider) = when (provider) {
+internal fun providerName(provider: CloudProvider) = when (provider) {
     CloudProvider.GOOGLE_DRIVE -> "Google Drive"
     CloudProvider.ICLOUD -> "iCloud"
     CloudProvider.ONEDRIVE -> "OneDrive"

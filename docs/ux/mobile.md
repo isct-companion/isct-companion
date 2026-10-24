@@ -245,11 +245,11 @@ TipKit forgets shown tips at the next launch.
 ### School web
 
 - Two entries, one web view: the **ウェブ** tab (Portal, LMS, Kyomu, Mail,
-  Library; each site's last page restored), and pushes from context (course →
+  Library, TSUBAME; each site's last page restored), and pushes from context (course →
   its LMS page, assignment → its submission page), which return to the opener.
 - The tab draws nothing over the page. Its site picker is a long press on the
   ウェブ tab item (`TabBarLongPress`): a glass panel rises above the tab bar
-  with the five sites, 再読み込み and ブラウザで開く; the finger can slide to a
+  with the six sites, 再読み込み and ブラウザで開く; the finger can slide to a
   row and lift to choose it, or lift first and tap. Tapping the tab again
   returns the shown site to its start page; WKWebView's own edge swipes go back
   and forward; text size lives in Settings. The iPad sidebar row offers the

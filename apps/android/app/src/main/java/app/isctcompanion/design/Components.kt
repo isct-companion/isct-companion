@@ -90,21 +90,22 @@ fun toneColors(tone: String): Pair<Color, Color> = with(Theme.colors) {
 
 /** Small text chip (`今日`, `資料`, `採点済`). */
 @Composable
-fun TagChip(text: String, ink: Color = Theme.colors.accent, fill: Color = Theme.colors.accentSoft) = Chip(text, ink, fill)
+fun TagChip(text: String, ink: Color = Theme.colors.accent, fill: Color = Theme.colors.accentSoft, counting: Boolean = false) =
+    Chip(text, ink, fill, counting)
 
+/** `counting` rolls the figures as they change (`CountingText`). */
 @Composable
-private fun Chip(text: String, ink: Color, fill: Color) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium.tabular(),
-        fontWeight = FontWeight.SemiBold,
-        color = ink,
-        maxLines = 1,
-        modifier = Modifier
-            .clip(RoundedCornerShape(Theme.radiusChip))
-            .background(fill)
-            .padding(horizontal = 7.dp, vertical = 3.dp),
-    )
+private fun Chip(text: String, ink: Color, fill: Color, counting: Boolean = false) {
+    val shape = Modifier
+        .clip(RoundedCornerShape(Theme.radiusChip))
+        .background(fill)
+        .padding(horizontal = 7.dp, vertical = 3.dp)
+    val style = MaterialTheme.typography.labelMedium.tabular()
+    if (counting) {
+        CountingText(text, shape, style = style, color = ink, fontWeight = FontWeight.SemiBold)
+    } else {
+        Text(text, style = style, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, modifier = shape)
+    }
 }
 
 /** Assignment row: course square, title, due · course, one chip. */

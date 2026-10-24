@@ -11,7 +11,7 @@ import UIKit
 @Observable
 final class WebRouter {
     /// Sites in the ウェブ tab's picker, in order.
-    static let tabSites: [SchoolSite] = [.sciencePortal, .scienceLms, .kyomu, .tokyoMail, .library]
+    static let tabSites: [SchoolSite] = [.sciencePortal, .scienceLms, .kyomu, .tokyoMail, .library, .tsubame]
 
     /// Where the site the ウェブ tab opens on is kept on this device (設定 › ウェブ).
     static let firstSiteKey = "web.firstSite"

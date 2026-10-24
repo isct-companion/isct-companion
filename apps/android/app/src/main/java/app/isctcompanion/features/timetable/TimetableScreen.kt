@@ -88,7 +88,9 @@ import app.isctcompanion.core.TodayPhase
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.GuideTip
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseColor
+import app.isctcompanion.design.courseZoomSource
 import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
 import java.io.File
@@ -117,20 +119,22 @@ private val periodWidth = 26.dp
 fun TimetableScreen() {
     val model = LocalModel.current
     var monday by rememberSaveable { mutableStateOf(monday(Format.today())) }
-    var week by remember { mutableStateOf<ScheduleView?>(null) }
+    var week by remember { mutableStateOf(model.cachedWeek(monday)) }
     var axis by remember { mutableStateOf(model.lastTimetableAxis) }
     var year by remember { mutableStateOf<TimetableYear?>(null) }
     var picker by remember { mutableStateOf(false) }
     var drag by remember { mutableFloatStateOf(0f) }
     val offset by animateFloatAsState(drag, label = "week drag")
     LaunchedEffect(Unit) { model.open(SyncView.Timetable) }
+    // A week read with its neighbours draws at once; the effect below still
+    // checks it against the current revision.
+    LaunchedEffect(monday) { model.cachedWeek(monday)?.let { week = it } }
     LaunchedEffect(monday, model.contentRevision) {
+        // A newer revision or week cancels this read (the query rethrows), so
+        // its empty answer never replaces what is shown.
         val loaded = model.week(monday)
         week = loaded
-        val blocks = loaded?.agendas.orEmpty().flatMap { it.occurrences }.filter { it.isBlock }
-        val earliest = blocks.map { it.startTime }.minByOrNull(::clockMinutes)
-        val latest = blocks.map { it.endTime }.maxByOrNull(::clockMinutes)
-        model.timetableAxis(earliest, latest)?.let { axis = it }
+        model.timetableAxis(loaded)?.let { axis = it }
         val number = model.academicYear(monday) ?: return@LaunchedEffect
         if (year?.year != number || year?.quarters?.isEmpty() == true) model.timetableYear(number)?.let { year = it }
     }
@@ -214,11 +218,14 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             val friday = monday.plusDays(4)
-            Text(
-                "${monday.monthValue}/${monday.dayOfMonth} – ${friday.monthValue}/${friday.dayOfMonth}",
-                style = MaterialTheme.typography.headlineLarge.tabular(), fontWeight = FontWeight.Bold, color = Theme.colors.ink,
-                maxLines = 1, modifier = Modifier.weight(1f).clickable(onClick = openPicker),
-            )
+            Box(Modifier.weight(1f)) {
+                CountingText(
+                    "${monday.monthValue}/${monday.dayOfMonth} – ${friday.monthValue}/${friday.dayOfMonth}",
+                    Modifier.clickable(onClick = openPicker),
+                    style = MaterialTheme.typography.headlineLarge.tabular(), fontWeight = FontWeight.Bold,
+                    color = Theme.colors.ink, countsDown = false,
+                )
+            }
             term?.let { ExportButton(it) }
             // 今日 rests while this week is shown, which doubles as "you are here".
             val atThisWeek = monday == thisWeek()
@@ -410,6 +417,7 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
             Modifier
                 .fillMaxWidth()
                 .height(maxOf(bottom - top - 4.dp, 24.dp))
+                .courseZoomSource(block.key.takeIf { id != null })
                 .clip(shape)
                 .background(if (planned) Theme.colors.surface else tint.copy(alpha = if (faded) 0.08f else Theme.tintFill))
                 .then(
@@ -423,7 +431,7 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
                 )
                 .combinedClickable(
                     enabled = id != null || !planned,
-                    onClick = { id?.let(navigator::openCourse) },
+                    onClick = { id?.let { navigator.openCourse(it, block.key) } },
                     // Planned courses have no sessions of their own to mark.
                     onLongClick = if (planned) null else ({ menu = true }),
                 )
@@ -474,7 +482,7 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
 }
 
 /** The first of several rooms joined by commas; every room stays on the course page. */
-private fun firstRoom(room: String): String =
+internal fun firstRoom(room: String): String =
     room.split(',', '、', '，').firstOrNull()?.trim() ?: room
 
 /** One rule after each teaching block (1–2, 3–4, …), never inside one, so a

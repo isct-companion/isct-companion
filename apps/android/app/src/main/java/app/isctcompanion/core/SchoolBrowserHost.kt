@@ -55,8 +55,16 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     /** Whether `site`'s view has a page to go back to. */
     fun canGoBack(site: SchoolSite): Boolean = views[site]?.webView?.canGoBack() == true
 
+    /** Whether `site`'s view has a page to go forward to. */
+    fun canGoForward(site: SchoolSite): Boolean = views[site]?.webView?.canGoForward() == true
+
+    /** Where the chosen text scale is kept on this device (設定 › ウェブ). */
+    private val preferences = context.getSharedPreferences("web", Context.MODE_PRIVATE)
+
     /** Text scale for school pages, in percent; starts above 100 for readability. */
-    var textScale = 115
+    var textScale by mutableIntStateOf(
+        preferences.getInt(TEXT_SCALE, 115).takeIf { it in textScales } ?: 115,
+    )
         private set
 
     // NativeBrowser (Core worker threads)
@@ -131,10 +139,11 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         host.addView(webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
 
-    /** Cycles 100 → 115 → 130 % on every resident page. */
-    fun cycleTextScale() {
-        textScale = if (textScale >= 130) 100 else textScale + 15
-        for (view in views.values) view.webView.settings.textZoom = textScale
+    /** Applies and keeps a text scale on every resident page. */
+    fun chooseTextScale(percent: Int) {
+        textScale = percent
+        preferences.edit().putInt(TEXT_SCALE, percent).apply()
+        for (view in views.values) view.webView.settings.textZoom = percent
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -306,7 +315,11 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         }
     }
 
-    private companion object {
-        const val TAG = "school-web"
+    companion object {
+        private const val TAG = "school-web"
+        private const val TEXT_SCALE = "textScale"
+
+        /** The text scales offered for school pages, in percent. */
+        val textScales = listOf(100, 115, 130)
     }
 }

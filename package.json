@@ -25,7 +25,8 @@
     "sdk:generate": "node scripts/bindings/generate.mjs",
     "sdk:test": "node scripts/bindings/host-smoke.mjs",
     "sdk:ios": "node scripts/bindings/build-ios.mjs",
-    "sdk:android": "node scripts/bindings/build-android.mjs"
+    "sdk:android": "node scripts/bindings/build-android.mjs",
+    "android:debug": "node scripts/bindings/build-android.mjs --assemble-debug"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.2",

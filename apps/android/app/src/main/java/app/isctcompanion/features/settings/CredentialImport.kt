@@ -10,6 +10,8 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -88,6 +90,7 @@ import com.google.mlkit.vision.common.InputImage
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -109,14 +112,22 @@ private fun clipboardText(context: Context): String? =
         ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
 
 /** Marked sensitive so the clipboard preview and keyboard suggestions hide
- * it: the link is the second factor itself. Android 13+ shows its own
- * "Copied" confirmation. */
+ * it, and cleared after two minutes as on iOS: the link is the second factor
+ * itself. A later copy of something else is left alone; when the app is out
+ * of front Android hides the clipboard, and the clip is cleared regardless. */
 private fun copySensitive(context: Context, text: String) {
+    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
     val clip = ClipData.newPlainText(t("OTP setup"), text)
     clip.description.extras = android.os.PersistableBundle().apply {
         putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
     }
-    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(clip)
+    clipboard.setPrimaryClip(clip)
+    // The description Android stored, stamped with the copy's time.
+    val copied = clipboard.primaryClipDescription?.timestamp
+    Handler(Looper.getMainLooper()).postDelayed({
+        val shown = clipboard.primaryClipDescription
+        if (shown == null || shown.timestamp == copied) clipboard.clearPrimaryClip()
+    }, 120_000)
 }
 
 // OTP
@@ -133,6 +144,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var changing by remember { mutableStateOf(false) }
     var path by remember { mutableStateOf("export") }
+    var copied by remember { mutableStateOf(false) }
     var choices by remember { mutableStateOf<List<OtpImportAccount>>(emptyList()) }
     var label by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -194,11 +206,16 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
                         .onFailure { error = AppModel.describe(it) }
                 }
             }
-            SourceChip(t("Copy setup"), Icons.Outlined.ContentCopy) {
+            SourceChip(if (copied) t("Copied") else t("Copy setup"), Icons.Outlined.ContentCopy) {
                 scope.launch {
                     error = null
                     runCatching { model.otpSetupLink() }
-                        .onSuccess { link -> copySensitive(context, link) }
+                        .onSuccess { link ->
+                            copySensitive(context, link)
+                            copied = true
+                            delay(2_000)
+                            copied = false
+                        }
                         .onFailure { error = AppModel.describe(it) }
                 }
             }

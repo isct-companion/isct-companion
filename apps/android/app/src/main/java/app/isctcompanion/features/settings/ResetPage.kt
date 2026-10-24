@@ -17,6 +17,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,6 +65,9 @@ internal fun ResetPage(kind: ResetKind, done: () -> Unit) {
     var acknowledged by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
+    // Read before the reset, which stops cloud sync.
+    val cloudOn = model.cloud?.providers.orEmpty().filter { it.enabled }.map { it.provider }
+    var restore by remember { mutableStateOf(true) }
     /** `null` while estimating; an empty text when Core cannot tell. */
     var freed by remember { mutableStateOf<String?>(null) }
     // Signing out frees no space, so only the downloads option re-estimates.
@@ -80,17 +84,22 @@ internal fun ResetPage(kind: ResetKind, done: () -> Unit) {
         SCHOOL_CACHES + listOfNotNull("webSession".takeIf { signOutWeb }, "downloads".takeIf { deleteDownloads })
     }
     val keeps = if (everything) {
-        listOf("downloads", "logs")
+        listOf("downloads", "cloud", "logs")
     } else {
         listOf("userData", "settings", "logins") +
             listOfNotNull("webSession".takeIf { !signOutWeb }, "downloads".takeIf { !deleteDownloads })
     }
     val confirmLabel = t(if (everything) "settings.reset.full.confirm" else "settings.reset.caches.confirm")
     fun reset() = scope.launch {
+        val restoring = if (everything && restore) cloudOn else emptyList()
         resetting = true
         val message = try {
             model.reset(if (everything) ResetRequest.Everything else ResetRequest.SchoolCaches(signOutWeb, deleteDownloads))
-            t(if (everything) "settings.reset.full.done" else "settings.reset.caches.done")
+            if (restoring.isEmpty() || runCatching { model.restoreFromCloud(restoring) }.isSuccess) {
+                t(if (everything) "settings.reset.full.done" else "settings.reset.caches.done")
+            } else {
+                t("settings.reset.full.restoreFailed")
+            }
         } catch (error: Exception) {
             AppModel.describe(error).ifEmpty { t("settings.reset.failed") }.also { resetting = false }
         }
@@ -117,6 +126,18 @@ internal fun ResetPage(kind: ResetKind, done: () -> Unit) {
             Row(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text(t("settings.reset.freed"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 Text(freed ?: t("settings.reset.estimating"), color = Theme.colors.muted)
+            }
+        }
+        if (everything && cloudOn.isNotEmpty()) {
+            SectionLabel(t("settings.reset.full.cloudQuestion"))
+            Card {
+                ChoiceRow(t("settings.reset.full.restore"), t("settings.reset.full.restoreHint"), restore, !resetting) {
+                    restore = true
+                }
+                RowDivider(inset = 16.dp)
+                ChoiceRow(t("settings.reset.full.newDevice"), t("settings.reset.full.newDeviceHint"), !restore, !resetting) {
+                    restore = false
+                }
             }
         }
         if (everything) {
@@ -166,6 +187,22 @@ private fun OptionRow(title: String, hint: String, checked: Boolean, enabled: Bo
             Text(hint, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
         }
         Switch(checked, onChange, enabled = enabled)
+    }
+}
+
+@Composable
+private fun ChoiceRow(title: String, hint: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        RadioButton(selected, onClick, enabled = enabled)
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Theme.colors.ink)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
+        }
     }
 }
 

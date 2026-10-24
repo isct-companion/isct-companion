@@ -10,6 +10,7 @@ import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.ClearTokenRequest
 import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.common.api.Scope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,8 @@ class DriveTokens(private val context: Context) : NativeDriveTokens {
     private var consent: ActivityResultLauncher<IntentSenderRequest>? = null
     private var answer: CompletableDeferred<Intent?>? = null
     @Volatile private var lastToken: String? = null
+    /** The scope Core asked for; after a restart, the one it always asks for. */
+    @Volatile private var grantedScope = DRIVE_APPDATA
 
     /** The activity in front registers the consent screen launcher. */
     fun attach(activity: ComponentActivity) {
@@ -33,6 +36,7 @@ class DriveTokens(private val context: Context) : NativeDriveTokens {
     }
 
     override suspend fun accessToken(scope: String, interactive: Boolean): String {
+        grantedScope = scope
         val client = Identity.getAuthorizationClient(context)
         val request = AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(scope))).build()
         var result: AuthorizationResult = try {
@@ -60,11 +64,26 @@ class DriveTokens(private val context: Context) : NativeDriveTokens {
             ?: throw SdkException.Authentication("Google returned no Drive authorization.")
     }
 
-    /** Drops the cached token; Core forgets that Drive was connected. */
+    /** Forgets the grant, as the port promises: drops the cached token and
+     * revokes the Drive grant for its Google account, so turning Drive on
+     * again shows the consent screen instead of reconnecting silently. The
+     * account is only known from an authorization; after a restart a silent
+     * one (no UI while the grant stands) supplies it. Core has already
+     * forgotten that Drive was connected, so a failure here leaves only the
+     * system-side grant. */
     override fun signOut() {
-        val token = lastToken ?: return
+        val client = Identity.getAuthorizationClient(context)
+        lastToken?.let { client.clearToken(ClearTokenRequest.builder().setToken(it).build()) }
         lastToken = null
-        Identity.getAuthorizationClient(context)
-            .clearToken(ClearTokenRequest.builder().setToken(token).build())
+        val scopes = listOf(Scope(grantedScope))
+        client.authorize(AuthorizationRequest.builder().setRequestedScopes(scopes).build())
+            .addOnSuccessListener { result ->
+                val account = result.toGoogleSignInAccount()?.account ?: return@addOnSuccessListener
+                client.revokeAccess(RevokeAccessRequest.builder().setAccount(account).setScopes(scopes).build())
+            }
+    }
+
+    private companion object {
+        const val DRIVE_APPDATA = "https://www.googleapis.com/auth/drive.appdata"
     }
 }

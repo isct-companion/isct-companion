@@ -1,5 +1,20 @@
 package app.isctcompanion.features.settings
 
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Notifications
 import app.isctcompanion.design.t
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -33,9 +48,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -72,14 +90,19 @@ import app.isctcompanion.core.CredentialAvailability
 import app.isctcompanion.core.CredentialSummary
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SchoolCredentials
+import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SchoolSessionState
+import app.isctcompanion.core.SyncState
+import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.exportApplicationLogs
 import app.isctcompanion.design.Card
+import app.isctcompanion.design.Format
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
 import java.io.IOException
+import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -215,40 +238,49 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         SectionLabel(t("School accounts"))
         Card {
             val science = accountName(SchoolAuthProfile.SCIENCE)
-            AccountRow(science, model.credentials?.science, model.sessions?.science) {
+            AccountRow(science, model.credentials?.science, model.sessions?.science, model.syncSource("lms")?.lastUpdated) {
                 open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, science))
             }
             RowDivider(inset = 36.dp)
             val tokyoTech = accountName(SchoolAuthProfile.TOKYO_TECH)
-            AccountRow(tokyoTech, model.credentials?.tokyoTech, model.sessions?.tokyoTech) {
+            AccountRow(tokyoTech, model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.syncSource("kyomu")?.lastUpdated) {
                 open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech))
             }
         }
         Card(Modifier.padding(top = 16.dp)) {
-            NavRow(t("Notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications"))) {
-                open(SettingsPage.Notifications)
+            NavRow(
+                t("Notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications")),
+                Icons.Filled.Notifications, Theme.colors.danger,
+            ) { open(SettingsPage.Notifications) }
+            RowDivider(inset = ICON_ROW_INSET)
+            NavRow(t("Study profile"), null, Icons.Filled.School) { open(SettingsPage.StudyProfile) }
+            RowDivider(inset = ICON_ROW_INSET)
+            NavRow(t("Data updates"), dataSummary(model.records.settings), Icons.Filled.Sync, Theme.colors.ok) {
+                open(SettingsPage.DataUpdates)
             }
-            RowDivider(inset = 16.dp)
-            NavRow(t("Study profile"), null) { open(SettingsPage.StudyProfile) }
-            RowDivider(inset = 16.dp)
-            NavRow(t("Data updates"), dataSummary(model.records.settings)) { open(SettingsPage.DataUpdates) }
-            RowDivider(inset = 16.dp)
-            NavRow(t("Backup"), null) { open(SettingsPage.Backup) }
+            RowDivider(inset = ICON_ROW_INSET)
+            NavRow(t("Backup"), backupSummary(model.cloud), Icons.Filled.Cloud) { open(SettingsPage.Backup) }
         }
         LanguageCard()
+        WebCard()
         Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))
         LogsCard()
         ResetCard(open)
         Spacer(Modifier.height(8.dp))
         SectionLabel(t("About"))
         Card {
-            Row(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SettingsIcon(Icons.Filled.Info, Theme.colors.muted)
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
                 Text(version.orEmpty(), color = Theme.colors.muted)
             }
-            RowDivider(inset = 16.dp)
-            ActionRow(t("Show welcome and tips again")) { Guide.reset() }
+            RowDivider(inset = ICON_ROW_INSET)
+            ActionRow(t("Show welcome and tips again"), Icons.Filled.Lightbulb) { Guide.reset() }
         }
     }
 }
@@ -262,22 +294,24 @@ private fun ResetCard(open: (SettingsPage) -> Unit) {
     Spacer(Modifier.height(8.dp))
     SectionLabel(t("settings.reset.group"))
     Card {
-        ResetRow(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), Theme.colors.ink) {
+        ResetRow(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), Theme.colors.ink, Icons.Filled.Restore, Theme.colors.warn) {
             open(SettingsPage.Reset(ResetKind.SchoolCaches))
         }
-        RowDivider(inset = 16.dp)
-        ResetRow(t("settings.reset.full.title"), t("settings.reset.full.hint"), Theme.colors.danger) {
+        RowDivider(inset = ICON_ROW_INSET)
+        ResetRow(t("settings.reset.full.title"), t("settings.reset.full.hint"), Theme.colors.danger, Icons.Filled.RestartAlt, Theme.colors.danger) {
             open(SettingsPage.Reset(ResetKind.Everything))
         }
     }
 }
 
 @Composable
-private fun ResetRow(title: String, hint: String, color: Color, onClick: () -> Unit) {
+private fun ResetRow(title: String, hint: String, color: Color, icon: ImageVector, tint: Color, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
     ) {
+        SettingsIcon(icon, tint)
         Column(Modifier.weight(1f)) {
             Text(title, color = color)
             Text(hint, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
@@ -307,9 +341,9 @@ private fun LogsCard() {
     Spacer(Modifier.height(8.dp))
     SectionLabel(t("Application logs"))
     Card {
-        ActionRow(t("Save to file")) { save.launch("IsctCompanion-logs-${LocalDate.now()}.txt") }
-        RowDivider(inset = 16.dp)
-        ActionRow(t("Copy")) {
+        ActionRow(t("Save to file"), Icons.Filled.Description) { save.launch("IsctCompanion-logs-${LocalDate.now()}.txt") }
+        RowDivider(inset = ICON_ROW_INSET)
+        ActionRow(t("Copy"), Icons.Filled.ContentCopy) {
             // Android shows its own confirmation for every clipboard write.
             runCatching {
                 context.getSystemService(ClipboardManager::class.java)
@@ -326,13 +360,33 @@ private fun logText(context: Context): String {
     )
 }
 
+/** An action row; with an icon it reads as a settings row, as on iOS. */
 @Composable
-private fun ActionRow(title: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Text(
-        title,
-        color = if (enabled) Theme.colors.accent else Theme.colors.muted,
+private fun ActionRow(title: String, icon: ImageVector? = null, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(16.dp),
-    )
+    ) {
+        icon?.let { SettingsIcon(it, Theme.colors.muted) }
+        Text(
+            title,
+            color = when {
+                !enabled -> Theme.colors.muted
+                icon != null -> Theme.colors.ink
+                else -> Theme.colors.accent
+            },
+        )
+    }
+}
+
+/** A heading inside a card, with its settings icon. */
+@Composable
+private fun IconHeading(title: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        SettingsIcon(icon, tint)
+        Text(title, color = Theme.colors.ink)
+    }
 }
 
 @Composable
@@ -340,18 +394,71 @@ internal fun Footer(text: String, color: Color = Theme.colors.muted) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.padding(horizontal = 16.dp))
 }
 
+/** Off, or when the cloud copy last synced; every connected provider counts,
+ * so a Drive-only phone reads the same as an iCloud one. */
+private fun backupSummary(cloud: SyncState?): String {
+    val enabled = cloud?.providers.orEmpty().filter { it.enabled }
+    if (enabled.isEmpty()) return t("Off")
+    val synced = enabled.mapNotNull { it.lastSyncedAt }.maxByOrNull { Format.date(it) ?: Instant.EPOCH }
+    return synced?.let { t("Synced {{date}}", "date" to Format.due(it)) } ?: enabled.joinToString(" · ") { providerName(it.provider) }
+}
+
+/** The ウェブ tab's device preferences: page text size and the site it opens on. */
+@Composable
+private fun WebCard() {
+    val web = LocalModel.current.web
+    Spacer(Modifier.height(8.dp))
+    SectionLabel(t("Web"))
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            IconHeading(t("Text size"), Icons.Filled.FormatSize, Theme.colors.muted)
+            Choices(SchoolBrowserHost.textScales.map { "$it" to "$it%" }, "${web.browser.textScale}") {
+                web.browser.chooseTextScale(it.toInt())
+            }
+        }
+        RowDivider(inset = ICON_ROW_INSET)
+        var picking by remember { mutableStateOf(false) }
+        Box {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth().clickable { picking = true }.padding(16.dp),
+            ) {
+                SettingsIcon(Icons.Filled.Language, Theme.colors.accent)
+                Text(t("First site"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+                Text(WebRouter.name(web.firstSite), color = Theme.colors.muted)
+            }
+            DropdownMenu(expanded = picking, onDismissRequest = { picking = false }) {
+                for (site in WebRouter.tabSites) {
+                    DropdownMenuItem(
+                        text = { Text(WebRouter.name(site)) },
+                        trailingIcon = { if (site == web.firstSite) Icon(Icons.Outlined.Check, null) },
+                        onClick = {
+                            picking = false
+                            web.chooseFirstSite(site)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AccountRow(
     name: String,
     credential: CredentialSummary?,
     session: SchoolSessionState?,
+    lastRun: String?,
     onClick: () -> Unit,
 ) {
     val connected = credential?.availability == CredentialAvailability.AVAILABLE ||
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
         !connected -> t("Not connected") to Theme.colors.muted
-        session == SchoolSessionState.ACTIVE -> t("Connected") to Theme.colors.ok
+        session == SchoolSessionState.ACTIVE -> (
+            lastRun?.let { t("Connected · updated {{time}}", "time" to Format.due(it)) } ?: t("Connected")
+            ) to Theme.colors.ok
         session == SchoolSessionState.FAILED -> t("Sign-in failed") to Theme.colors.danger
         session == SchoolSessionState.MAINTENANCE -> t("Under maintenance") to Theme.colors.warn
         else -> t("Checking") to Theme.colors.muted
@@ -480,12 +587,12 @@ private fun LanguageCard() {
     fun set(key: String, value: String) = scope.launch { model.updateSettings { it.put(key, value) } }
     Card(Modifier.padding(top = 16.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(t("Language"), color = Theme.colors.ink)
+            IconHeading(t("Language"), Icons.Filled.Translate, Theme.colors.accent)
             Choices(
                 listOf("en" to "English", "ja" to "日本語", "zh" to "中文"),
                 settings.optString("locale").ifEmpty { "en" },
             ) { set("locale", it) }
-            Text(t("School content language"), color = Theme.colors.ink, modifier = Modifier.padding(top = 6.dp))
+            IconHeading(t("School content language"), Icons.AutoMirrored.Filled.MenuBook, Theme.colors.accent, Modifier.padding(top = 6.dp))
             Choices(
                 listOf("auto" to t("Automatic"), "en" to "English", "ja" to "日本語"),
                 settings.optString("contentLanguage").ifEmpty { "auto" },

@@ -6,6 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
@@ -66,6 +70,9 @@ import app.isctcompanion.core.TlsVerifier
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.IsctTheme
+import app.isctcompanion.design.LocalDestinationScope
+import app.isctcompanion.design.LocalSharedTransition
+import app.isctcompanion.design.courseZoomDestination
 import app.isctcompanion.design.Localizer
 import app.isctcompanion.design.t
 import app.isctcompanion.design.Theme
@@ -122,7 +129,10 @@ val LocalNavigator = staticCompositionLocalOf<Navigator> { error("No navigator")
 
 /** Pushes onto the current tab's stack: a course, an assignment, or a school page. */
 class Navigator(private val controller: NavHostController) {
-    fun openCourse(id: String) = controller.navigate("course/${Uri.encode(id)}")
+    /** Opens a course; with `zoom`, it grows out of the block or card that
+     * carries the same `courseZoomSource`. */
+    fun openCourse(id: String, zoom: String? = null) =
+        controller.navigate("course/${Uri.encode(id)}?zoom=${Uri.encode(zoom.orEmpty())}")
 
     fun openAssignment(id: String) = controller.navigate("assignment/${Uri.encode(id)}")
 
@@ -225,8 +235,10 @@ private fun Tabs() {
                                 selected = tab == current,
                                 onClick = {
                                     if (tab == current) {
-                                        // Tapping the current tab returns it to its root.
+                                        // Tapping the current tab returns it to its root;
+                                        // for ウェブ, to the shown site's start page.
                                         controller.popBackStack(tab.start, inclusive = false)
+                                        if (tab == AppTab.Web) model.web.goHome(model.web.tabSite)
                                     } else {
                                         controller.navigate(tab.route) {
                                             popUpTo(controller.graph.findStartDestination().id) { saveState = true }
@@ -243,20 +255,33 @@ private fun Tabs() {
                 }
             },
         ) { padding ->
+            // Shared bounds let a course grow out of what was tapped (`design/Motion.kt`).
+            @OptIn(ExperimentalSharedTransitionApi::class)
+            SharedTransitionLayout {
+            CompositionLocalProvider(LocalSharedTransition provides this) {
             NavHost(controller, startDestination = AppTab.Today.route, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
                 tab(AppTab.Today) { TodayScreen() }
                 tab(AppTab.Timetable) { TimetableScreen() }
                 tab(AppTab.Lectures) { LecturesScreen() }
                 tab(AppTab.Web) { WebTabScreen() }
                 tab(AppTab.Settings) { SettingsScreen() }
-                composable("course/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
-                    CourseDetailScreen(it.arguments?.getString("id").orEmpty())
+                destination(
+                    "course/{id}?zoom={zoom}",
+                    listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("zoom") { type = NavType.StringType; defaultValue = "" },
+                    ),
+                ) {
+                    val zoom = it.arguments?.getString("zoom")?.ifEmpty { null }
+                    Box(Modifier.fillMaxSize().courseZoomDestination(zoom).background(Theme.colors.bg)) {
+                        CourseDetailScreen(it.arguments?.getString("id").orEmpty())
+                    }
                 }
-                composable("assignment/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
+                destination("assignment/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
                     AssignmentScreen(it.arguments?.getString("id").orEmpty())
                 }
-                composable("record") { RecordScreen() }
-                composable(
+                destination("record") { RecordScreen() }
+                destination(
                     "page/{site}?target={target}&title={title}",
                     listOf(
                         navArgument("site") { type = NavType.StringType },
@@ -272,6 +297,8 @@ private fun Tabs() {
                     )
                 }
             }
+            }
+            }
         }
         WelcomeSheet { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
     }
@@ -279,6 +306,18 @@ private fun Tabs() {
 
 private fun NavGraphBuilder.tab(tab: AppTab, content: @Composable () -> Unit) {
     navigation(startDestination = tab.start, route = tab.route) {
-        composable(tab.start) { content() }
+        destination(tab.start) { content() }
+    }
+}
+
+/** A destination whose animation scope reaches `courseZoomSource` and
+ * `courseZoomDestination` inside it. */
+private fun NavGraphBuilder.destination(
+    route: String,
+    arguments: List<NamedNavArgument> = emptyList(),
+    content: @Composable (NavBackStackEntry) -> Unit,
+) {
+    composable(route, arguments) { entry ->
+        CompositionLocalProvider(LocalDestinationScope provides this) { content(entry) }
     }
 }
