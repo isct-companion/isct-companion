@@ -700,7 +700,7 @@ fn commits_report_the_tables_they_changed() {
 fn a_freshness_commit_refreshes_the_snapshot_without_rebuilding_its_workspace() {
     use crate::sync_state::{Commit, Dataset, Key, Outcome};
     let store = store("sync-records");
-    let ((workspace, _, revision), content) = store.workspace_snapshot().unwrap();
+    let ((workspace, _, revision, _), content) = store.workspace_snapshot().unwrap();
     store
         .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
             let commit = Commit {
@@ -718,7 +718,7 @@ fn a_freshness_commit_refreshes_the_snapshot_without_rebuilding_its_workspace() 
         })
         .unwrap();
 
-    let ((refreshed, records, refreshed_revision), refreshed_content) =
+    let ((refreshed, records, refreshed_revision, _), refreshed_content) =
         store.workspace_snapshot().unwrap();
     assert!(Arc::ptr_eq(&workspace, &refreshed));
     assert_eq!(refreshed_revision, revision);
@@ -739,7 +739,7 @@ fn a_freshness_commit_refreshes_the_snapshot_without_rebuilding_its_workspace() 
                 .map_err(DataError::from)
         })
         .unwrap();
-    let ((rebuilt, records, _), _) = store.workspace_snapshot().unwrap();
+    let ((rebuilt, records, _, _), _) = store.workspace_snapshot().unwrap();
     assert!(!Arc::ptr_eq(&refreshed, &rebuilt));
     assert_eq!(records["grades"].as_array().map(Vec::len), Some(1));
     let _ = fs::remove_dir_all(store.directory());

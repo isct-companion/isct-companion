@@ -116,11 +116,7 @@ impl WorkspaceChange {
                 &["registrations"],
                 &["registrations", "registrationStates"],
             ),
-            Finder => fields(
-                true,
-                &["offerings", "departments", "recommendedCourses"],
-                &[],
-            ),
+            Finder => fields(true, &["departments", "recommendedCourses"], &[]),
             // No calendar row feeds the course projection; quarter-start
             // days decide the current term.
             Calendar => fields(

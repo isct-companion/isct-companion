@@ -23,6 +23,18 @@ fn attrs(attrs: &mut Vec<Attribute>) {
         }
     }
 }
+/// `#[serde(skip)]`, which leaves a field out of the serde text both ways.
+fn serde_skip(attr: &Attribute) -> bool {
+    let mut skip = false;
+    if attr.path().is_ident("serde") {
+        let _ = attr.parse_nested_meta(|meta| {
+            skip |= meta.path.is_ident("skip");
+            Ok(())
+        });
+    }
+    skip
+}
+
 struct ForeignTypes;
 impl VisitMut for ForeignTypes {
     fn visit_attribute_mut(&mut self, _: &mut Attribute) {}
@@ -209,6 +221,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             item.ident = renamed;
                         }
                         SyncRenames.visit_item_struct_mut(&mut item);
+                    }
+                    // A field serde skips stays in Core: records cross as serde text.
+                    if let syn::Fields::Named(fields) = &mut item.fields {
+                        fields.named = std::mem::take(&mut fields.named)
+                            .into_iter()
+                            .filter(|field| !field.attrs.iter().any(serde_skip))
+                            .collect();
                     }
                     for field in &mut item.fields {
                         attrs(&mut field.attrs);

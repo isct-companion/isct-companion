@@ -221,29 +221,6 @@ export type ScheduleEntry =
 
 export type ClassFormat = { kinds: Array<string> };
 
-export type Offering = {
-  year: number;
-  quarters: Array<Quarter>;
-  code: string;
-  sourceKey?: string;
-  unitCode?: string;
-  title: Localized;
-  instructors: Array<Localized>;
-  instructionLanguage: InstructionLanguage;
-  format: ClassFormat;
-  credits: CreditSplit;
-  schedule: Array<ScheduleEntry>;
-  intensive: boolean;
-  syllabusUrl: string;
-  lastSeenAt?: string;
-  missingSince?: string;
-  id: string;
-  rev: number;
-  updatedAt: string;
-  updatedBy: string;
-  deletedAt?: string;
-};
-
 export type IntensiveDay = { date: string; periods: [number, number] | null };
 
 export type IntensiveSchedule = {
@@ -675,7 +652,6 @@ export type Workspace = {
   events: Array<PersonalEvent>;
   planItems: Array<PlanItem>;
   exceptions: Array<CalendarException>;
-  offerings: Array<Offering>;
   intensiveSchedules: Array<IntensiveSchedule>;
   plans: Array<Plan>;
   academicCalendar: Array<AcademicCalendarDay>;
@@ -1104,7 +1080,11 @@ export type CourseDetail = {
   assignmentIds: Array<string>;
   examIds: Array<string>;
   exams: Array<ExamView>;
-  offeringId: string | null;
+  /**
+   * The class format of the catalog offering the course names, when the
+   * catalog holds it.
+   */
+  format: ClassFormat | null;
   /**
    * The course's T2SCHOLA page, from the course itself or its LMS record.
    */
@@ -2122,7 +2102,6 @@ export const EMPTY_WORKSPACE: Workspace = {
   intensiveSchedules: [],
   materials: [],
   memberships: [],
-  offerings: [],
   planItems: [],
   plans: [],
   recommendedCourses: [],

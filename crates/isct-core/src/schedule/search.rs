@@ -1,6 +1,6 @@
 //! One lookup policy for lecture, assignment and published-exam filters.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use super::{array, exam_views, text, visible};
+use super::{array, exam_views, text, visible, SchoolReads};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -24,19 +24,13 @@ pub(super) fn course_code_key(code: &str) -> String {
     code.nfkc().collect::<String>().trim().to_uppercase()
 }
 
-fn course_code_aliases(workspace: &Value, course: &Value) -> Vec<String> {
+fn course_code_aliases(workspace: &Value, school: &SchoolReads, course: &Value) -> Vec<String> {
     let mut codes: Vec<_> = text(course, "code")
         .into_iter()
         .map(course_code_key)
         .collect();
-    if let Some(offering) = text(course, "offeringId").and_then(|id| {
-        array(workspace, "offerings")
-            .iter()
-            .find(|offering| text(offering, "id") == Some(id))
-    }) {
-        if let Some(code) = text(offering, "code") {
-            codes.push(course_code_key(code));
-        }
+    if let Some(offering) = text(course, "offeringId").and_then(|id| school.offering(id)) {
+        codes.push(course_code_key(&offering.code));
     }
     if let Some(lms) = array(workspace, "lmsCourses")
         .iter()
@@ -70,9 +64,9 @@ fn course_code_aliases(workspace: &Value, course: &Value) -> Vec<String> {
     codes
 }
 
-fn course_fields(workspace: &Value, course: &Value) -> Vec<Value> {
+fn course_fields(workspace: &Value, school: &SchoolReads, course: &Value) -> Vec<Value> {
     vec![
-        serde_json::json!(course_code_aliases(workspace, course)),
+        serde_json::json!(course_code_aliases(workspace, school, course)),
         course["title"].clone(),
         course["names"].clone(),
         course["instructor"].clone(),
@@ -114,7 +108,12 @@ fn matches(fields: &[Value], query: &str) -> bool {
         })
 }
 
-pub(super) fn lecture_search(workspace: &Value, term: Option<&str>, query: &str) -> LectureSearch {
+pub(super) fn lecture_search(
+    workspace: &Value,
+    school: &SchoolReads,
+    term: Option<&str>,
+    query: &str,
+) -> LectureSearch {
     let courses: Vec<_> = match term {
         Some(term) => super::term_courses(workspace, term),
         None => array(workspace, "courses")
@@ -124,7 +123,7 @@ pub(super) fn lecture_search(workspace: &Value, term: Option<&str>, query: &str)
     };
     let mut result = LectureSearch::default();
     for course in &courses {
-        if matches(&course_fields(workspace, course), query) {
+        if matches(&course_fields(workspace, school, course), query) {
             if let Some(id) = text(course, "id") {
                 result.course_ids.push(id.into());
             }
@@ -140,7 +139,7 @@ pub(super) fn lecture_search(workspace: &Value, term: Option<&str>, query: &str)
         else {
             continue;
         };
-        let mut fields = course_fields(workspace, course);
+        let mut fields = course_fields(workspace, school, course);
         fields.push(assignment["title"].clone());
         if matches(&fields, query) {
             if let Some(id) = text(assignment, "id") {

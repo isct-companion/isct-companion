@@ -1,10 +1,13 @@
 use super::*;
+use crate::schedule::{CatalogEntry, SchoolReads};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
-/// `(workspace, school records, user-intent revision)`, shared: a read hands
-/// out the snapshot itself, never a copy of it.
-pub(crate) type SnapshotParts = (Arc<Value>, Arc<Value>, String);
+/// `(workspace, school records, user-intent revision, the school records
+/// read models evaluate with the workspace)`, shared: a read hands out the
+/// snapshot itself, never a copy of it.
+pub(crate) type SnapshotParts = (Arc<Value>, Arc<Value>, String, Arc<SchoolReads>);
 
 /// `PRAGMA data_version` of user.db, cache.db and sync.db on the snapshot
 /// connection.
@@ -15,19 +18,14 @@ type Versions = (i64, i64, i64);
 /// cached workspace instead of rebuilding it.
 const SYNC_RECORDS: [&str; 2] = ["freshness", "pageAvailability"];
 
-/// The workspace's largest school collections, most of its size: the catalog
-/// and the exam timetable. No user intent can change them (`WorkspaceWrite`
-/// writes user tables only) and nothing in the snapshot rewrites them, so
-/// they are read, normalized and validated once per cache.db version, and a
-/// user write rebuilds only the rest of the snapshot.
-const SHARED_SCHOOL: &[(&str, Validate)] = &[
-    ("offerings", |rows| {
-        Vec::<crate::contracts::Offering>::deserialize(rows).map(drop)
-    }),
-    ("exams", |rows| {
-        Vec::<crate::contracts::Exam>::deserialize(rows).map(drop)
-    }),
-];
+/// The workspace's largest school collection: the exam timetable. No user
+/// intent can change it (`WorkspaceWrite` writes user tables only) and
+/// nothing in the snapshot rewrites it, so it is read, normalized and
+/// validated once per cache.db version, and a user write rebuilds only the
+/// rest of the snapshot.
+const SHARED_SCHOOL: &[(&str, Validate)] = &[("exams", |rows| {
+    Vec::<crate::contracts::Exam>::deserialize(rows).map(drop)
+})];
 
 /// Checks one shared collection against its contract.
 type Validate = fn(&Value) -> Result<(), serde_json::Error>;
@@ -197,7 +195,14 @@ impl SnapshotReader {
 impl DataStore {
     pub fn load_workspace(&self) -> Result<Value, DataError> {
         self.workspace_snapshot()
-            .map(|((workspace, _, _), _)| Value::clone(&workspace))
+            .map(|((workspace, ..), _)| Value::clone(&workspace))
+    }
+
+    /// The workspace and the school records read models evaluate with it,
+    /// from one read, shared with the snapshot cache.
+    pub fn load_reads(&self) -> Result<(Arc<Value>, Arc<SchoolReads>), DataError> {
+        self.workspace_snapshot()
+            .map(|((workspace, _, _, school), _)| (workspace, school))
     }
 
     /// `(workspace, school records, user-intent revision)` and the content
@@ -332,13 +337,13 @@ impl DataStore {
         school: &SharedSchool,
         mut previous: Option<&mut Value>,
     ) -> Result<Built, DataError> {
-        let mut workspace = Self::workspace_without_shared(connection, school)?;
+        let (mut workspace, catalog) = Self::workspace_without_shared(connection)?;
         let mut school_records = Self::school_records_from(connection)?;
         let sync_records = Self::sync_records_from(connection)?;
         let revision = intent_revision(connection)?;
         let mut digest = Sha256::new();
         digest.update(school.digest);
-        serde_json::to_writer(&mut digest, &(&workspace, &school_records))?;
+        serde_json::to_writer(&mut digest, &(&workspace, &school_records, &catalog))?;
         let digest: [u8; 32] = digest.finalize().into();
         let hash = content_hash(&digest, &sync_records)?;
         for field in SYNC_RECORDS {
@@ -356,7 +361,12 @@ impl DataStore {
             workspace[field] = school_records[field].clone();
         }
         Ok(Built {
-            parts: (Arc::new(workspace), Arc::new(school_records), revision),
+            parts: (
+                Arc::new(workspace),
+                Arc::new(school_records),
+                revision,
+                Arc::new(SchoolReads { catalog }),
+            ),
             hash,
             digest,
         })
@@ -368,12 +378,12 @@ impl DataStore {
         Ok(Self::snapshot_from(connection, &school, None)?.parts.0)
     }
 
-    /// The workspace with `school`'s shared collections left empty, the
-    /// rest normalized and validated.
+    /// The workspace with the shared school collections left empty, the
+    /// rest normalized and validated, and what its courses show of the
+    /// catalog.
     fn workspace_without_shared(
         connection: &Connection,
-        school: &SharedSchool,
-    ) -> Result<Value, DataError> {
+    ) -> Result<(Value, BTreeMap<String, CatalogEntry>), DataError> {
         let mut workspace = empty_workspace();
         for (field, table) in COLLECTIONS {
             workspace[*field] = if SHARED_SCHOOL.iter().any(|(shared, _)| shared == field) {
@@ -470,12 +480,7 @@ impl DataStore {
         if let Some(value) = read_setting(connection, "cloud")? {
             workspace["settings"]["cloud"] = value;
         }
-        let offerings = SHARED_SCHOOL
-            .iter()
-            .position(|(field, _)| *field == "offerings")
-            .and_then(|index| school.collections[index].as_array())
-            .map_or(&[][..], Vec::as_slice);
-        school_projection::project(connection, &mut workspace, offerings)?;
+        let catalog = school_projection::project(connection, &mut workspace)?;
         let overrides = read_rows(connection, "course_overrides")?;
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
             for course in courses {
@@ -534,7 +539,7 @@ impl DataStore {
         normalize_meeting_clocks(&mut workspace)?;
         crate::contracts::Workspace::deserialize(&workspace)
             .map_err(|error| format!("workspace validation failed: {error}"))?;
-        Ok(workspace)
+        Ok((workspace, catalog))
     }
 
     pub(super) fn school_records_from(connection: &Connection) -> Result<Value, DataError> {

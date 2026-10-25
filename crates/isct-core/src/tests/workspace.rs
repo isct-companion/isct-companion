@@ -473,7 +473,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     assert_eq!(exam.course_id.as_deref(), Some(course_id.as_str()));
     assert!(!exam.auto_linked && !exam.edited);
     assert_eq!(
-        crate::schedule::course_detail(&linked.workspace, &course_id)
+        crate::schedule::course_detail(&linked.workspace, &linked.school, &course_id)
             .exam_ids
             .len(),
         2
@@ -1337,6 +1337,11 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
         course["termId"], "2026-4Q",
         "an existing course keeps its quarter"
     );
+    // The snapshot reads the offering an added course names from the catalog.
+    let snapshot = service.snapshot().unwrap();
+    let detail =
+        crate::schedule::course_detail(&snapshot.workspace, &snapshot.school, "2026-202630020");
+    assert_eq!(detail.format.unwrap().kinds, ["lecture"]);
 
     // Undo removes the 3Q plan item the add placed, keeps the earlier 4Q
     // one, and brings back the replaced draft itself.

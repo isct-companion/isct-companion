@@ -115,7 +115,6 @@ fn initial_workspace_value(date: chrono::NaiveDate, device_id: &str, updated_at:
         "events": [],
         "planItems": [],
         "exceptions": [],
-        "offerings": [],
         "intensiveSchedules": [],
         "plans": [],
         "academicCalendar": [],

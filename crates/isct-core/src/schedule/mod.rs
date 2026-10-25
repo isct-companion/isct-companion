@@ -15,6 +15,7 @@ mod range;
 mod reminders;
 pub(crate) use reminders::assignment_lead_minutes;
 mod requests;
+mod school;
 mod search;
 mod tasks;
 mod today;
@@ -74,6 +75,8 @@ pub use reminders::{
     ReminderService, DEFAULT_ASSIGNMENT_LEADS,
 };
 pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
+pub(crate) use school::CatalogEntry;
+pub use school::SchoolReads;
 pub use search::LectureSearch;
 pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
@@ -376,8 +379,10 @@ pub struct ScheduleIntensiveDay {
     pub periods: [u8; 2],
 }
 
+/// `request` evaluated over `workspace` and the school records read with it.
 pub fn query(
     workspace: &Value,
+    school: &SchoolReads,
     request: WorkspaceQuery,
 ) -> Result<WorkspaceQueryResult, ScheduleError> {
     match request {
@@ -387,6 +392,7 @@ pub fn query(
             }
             Ok(WorkspaceQueryResult::LectureSearch(search::lecture_search(
                 workspace,
+                school,
                 term.as_deref(),
                 &query,
             )))
@@ -458,7 +464,7 @@ pub fn query(
             )?))
         }
         WorkspaceQuery::CourseDetail { course_id } => Ok(WorkspaceQueryResult::CourseDetail(
-            course_detail(workspace, &course_id),
+            course_detail(workspace, school, &course_id),
         )),
         WorkspaceQuery::CourseContent { course_id, now } => {
             Ok(WorkspaceQueryResult::CourseContent(course_content(

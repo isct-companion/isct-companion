@@ -45,6 +45,11 @@ pub struct WorkspaceSnapshot {
     pub workspace: Arc<Value>,
     #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub school_records: Arc<Value>,
+    /// The school records read models evaluate with the workspace. Core
+    /// keeps them; no shell receives them.
+    #[serde(skip)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub school: Arc<crate::schedule::SchoolReads>,
 }
 
 /// A committed intent as a shell that holds the snapshot adopts it: what the
@@ -373,13 +378,14 @@ impl WorkspaceService {
     }
 
     pub fn snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceError> {
-        let ((workspace, school_records, revision), content_revision) =
+        let ((workspace, school_records, revision, school), content_revision) =
             self.store.workspace_snapshot()?;
         Ok(WorkspaceSnapshot {
             workspace,
             school_records,
             revision,
             content_revision,
+            school,
         })
     }
 
@@ -410,7 +416,7 @@ impl WorkspaceService {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
-        let ((), (workspace, school_records, revision), content_revision, tables) = self
+        let ((), (workspace, school_records, revision, school), content_revision, tables) = self
             .store
             .workspace_write(&mutation.expected_revision, |write, current| {
                 apply_intent(write, current, mutation.intent, &mut undo)
@@ -426,6 +432,7 @@ impl WorkspaceService {
                 content_revision,
                 workspace,
                 school_records,
+                school,
             },
             workspace_changes::changes_for(&tables)
                 .into_iter()

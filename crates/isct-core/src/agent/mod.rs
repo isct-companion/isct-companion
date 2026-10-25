@@ -289,7 +289,7 @@ fn canonicalize_plan(plan: &mut Value) -> Result<(), AgentError> {
 }
 
 fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, AgentError> {
-    let workspace = store.load_workspace()?;
+    let (workspace, school) = store.load_reads()?;
     match name {
         "today" => {
             let now = now_jst()?;
@@ -368,7 +368,7 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                 "assignments": visible_rows(&workspace, "assignments").into_iter()
                     .filter(|row| row.get("courseId").and_then(Value::as_str) == Some(id)
                         && row.get("hidden") != Some(&Value::Bool(true))).collect::<Vec<_>>(),
-                "syllabusUrl": crate::schedule::course_detail(&workspace, id).syllabus_url
+                "syllabusUrl": crate::schedule::course_detail(&workspace, &school, id).syllabus_url
             }))
         }
         "search_catalog" => Ok(Value::Array(

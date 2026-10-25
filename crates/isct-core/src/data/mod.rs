@@ -47,7 +47,6 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("events", "personal_events"),
     ("planItems", "plan_items"),
     ("exceptions", "calendar_exceptions"),
-    ("offerings", "offerings"),
     ("intensiveSchedules", "intensive_schedules"),
     ("plans", "plans"),
     ("academicCalendar", "academic_calendar"),

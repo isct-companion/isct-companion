@@ -65,6 +65,7 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
     assert_eq!(template.days[4].blocks.len(), 1);
     let view = query(
         &data,
+        &SchoolReads::fixture(&data),
         WorkspaceQuery::ScheduleView {
             term: "2026-3Q".into(),
             from: "2026-10-05".into(),
@@ -115,9 +116,12 @@ fn period_backed_meetings_follow_profile_clock_while_custom_clocks_stay_explicit
 #[test]
 fn teaching_period_query_returns_resolved_default_and_profile_override() {
     let mut data = workspace();
-    let WorkspaceQueryResult::TeachingPeriods(defaults) =
-        query(&data, WorkspaceQuery::TeachingPeriods).unwrap()
-    else {
+    let WorkspaceQueryResult::TeachingPeriods(defaults) = query(
+        &data,
+        &SchoolReads::fixture(&data),
+        WorkspaceQuery::TeachingPeriods,
+    )
+    .unwrap() else {
         panic!("expected teaching periods")
     };
     assert_eq!(defaults, default_teaching_periods());
@@ -125,9 +129,12 @@ fn teaching_period_query_returns_resolved_default_and_profile_override() {
     let mut configured = defaults;
     configured[5].end_time = "21:00".into();
     data["academicProfile"]["teachingPeriods"] = serde_json::to_value(&configured).unwrap();
-    let WorkspaceQueryResult::TeachingPeriods(resolved) =
-        query(&data, WorkspaceQuery::TeachingPeriods).unwrap()
-    else {
+    let WorkspaceQueryResult::TeachingPeriods(resolved) = query(
+        &data,
+        &SchoolReads::fixture(&data),
+        WorkspaceQuery::TeachingPeriods,
+    )
+    .unwrap() else {
         panic!("expected teaching periods")
     };
     assert_eq!(resolved, configured);
@@ -207,6 +214,7 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
     }));
     let WorkspaceQueryResult::WorkspaceOverview(view) = query(
         &data,
+        &SchoolReads::fixture(&data),
         WorkspaceQuery::WorkspaceOverview {
             term: String::new(),
         },
@@ -229,6 +237,7 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
     );
     let WorkspaceQueryResult::WorkspaceOverview(future) = query(
         &data,
+        &SchoolReads::fixture(&data),
         WorkspaceQuery::WorkspaceOverview {
             term: "2027-1Q".into(),
         },
@@ -865,6 +874,7 @@ fn a_three_q_four_q_course_belongs_to_every_quarter_it_is_placed_in() {
     // Timetable and Today: 4Q has the course, so Today follows 4Q.
     let WorkspaceQueryResult::WorkspaceOverview(overview) = query(
         &data,
+        &SchoolReads::fixture(&data),
         WorkspaceQuery::WorkspaceOverview {
             term: "2026-4Q".into(),
         },
@@ -955,6 +965,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     let today = |raw: &str| {
         let WorkspaceQueryResult::Today(view) = query(
             &data,
+            &SchoolReads::fixture(&data),
             serde_json::from_value(json!({"kind":"today","now":raw})).unwrap(),
         )
         .unwrap() else {
@@ -1041,6 +1052,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     off["exceptions"] = json!([{"id":"off","date":"2026-04-13","type":"no-class","label":"Trip"}]);
     let WorkspaceQueryResult::Today(holiday) = query(
         &off,
+        &SchoolReads::fixture(&off),
         WorkspaceQuery::Today {
             now: "2026-04-13T12:00:00+09:00".into(),
         },
@@ -1073,6 +1085,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     });
     let WorkspaceQueryResult::Today(seen) = query(
         &off,
+        &SchoolReads::fixture(&off),
         WorkspaceQuery::Today {
             now: "2026-04-13T12:00:00+09:00".into(),
         },
@@ -1100,6 +1113,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     }
     let WorkspaceQueryResult::Today(read) = query(
         &off,
+        &SchoolReads::fixture(&off),
         WorkspaceQuery::Today {
             now: "2026-04-13T12:00:00+09:00".into(),
         },
@@ -1113,6 +1127,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     // then every assignment whatever its state.
     let WorkspaceQueryResult::AssignmentBoard(board) = query(
         &data,
+        &SchoolReads::fixture(&data),
         WorkspaceQuery::AssignmentBoard {
             now: "2026-04-13T12:00:00+09:00".into(),
             term: None,
@@ -1145,6 +1160,7 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     let other = |term: &str| {
         query(
             &data,
+            &SchoolReads::fixture(&data),
             WorkspaceQuery::AssignmentBoard {
                 now: "2026-04-13T12:00:00+09:00".into(),
                 term: Some(term.into()),
@@ -1177,7 +1193,7 @@ fn ics_folds_utf8_and_rolls_overnight() {
 #[test]
 fn query_wire_is_camel_case_and_tagged() {
     let request:WorkspaceQuery=serde_json::from_value(json!({"kind":"dayAgenda","term":"2026-1Q","date":"2026-04-13","options":{"includePersonal":false}})).unwrap();
-    let result = query(&workspace(), request).unwrap();
+    let result = query(&workspace(), &SchoolReads::default(), request).unwrap();
     let wire = serde_json::to_value(result).unwrap();
     assert_eq!(wire["kind"], "dayAgenda");
     assert!(wire.get("value").unwrap().is_array());
@@ -1404,7 +1420,7 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     let data = json!({
         "courses":[{"id":"c","code":" csc.t101 ","offeringId":"o","termId":"2026-3Q"}],
         "memberships":[{"courseId":"c","termId":"2026-3Q","status":"lms-member","evidence":{"provider":"lms"}}],
-        "offerings":[{"id":"o"}],
+        "offerings":[{"id":"o","code":"LAS.A101","format":{"kinds":["lecture"]}}],
         "materials":[
             {"id":"later","courseId":"c","session":2},
             {"id":"first","courseId":"c","session":9,"sectionNumber":1},
@@ -1431,15 +1447,32 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     });
     let request: WorkspaceQuery =
         serde_json::from_value(json!({"kind":"courseDetail","courseId":"c"})).unwrap();
-    let WorkspaceQueryResult::CourseDetail(view) = query(&data, request).unwrap() else {
+    let WorkspaceQueryResult::CourseDetail(view) =
+        query(&data, &SchoolReads::fixture(&data), request).unwrap()
+    else {
         panic!("wrong result kind")
     };
     assert_eq!(view.material_ids, ["first", "same-section", "later"]);
     assert_eq!(view.sections, [1, 2]);
     assert_eq!(view.assignment_ids, ["early", "later", "no-date"]);
     assert_eq!(view.exam_ids, ["early", "late"]);
-    assert_eq!(view.offering_id.as_deref(), Some("o"));
-    assert!(course_detail(&data, "unknown").material_ids.is_empty());
+    assert_eq!(view.format.unwrap().kinds, ["lecture"]);
+    // The course's catalog code finds it too.
+    assert_eq!(
+        super::search::lecture_search(
+            &data,
+            &SchoolReads::fixture(&data),
+            Some("2026-3Q"),
+            "las.a101"
+        )
+        .course_ids,
+        ["c"]
+    );
+    assert!(
+        course_detail(&data, &SchoolReads::fixture(&data), "unknown")
+            .material_ids
+            .is_empty()
+    );
     // Files go where desktop already put them: `folderComponent` replaces
     // every other UTF-16 unit, so an emoji takes two underscores.
     let files = view.files.unwrap();
@@ -1447,7 +1480,11 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
         (files.term.as_str(), files.course.as_str()),
         ("2026-3Q", "_csc.t101_")
     );
-    assert!(course_detail(&data, "unknown").files.is_none());
+    assert!(
+        course_detail(&data, &SchoolReads::fixture(&data), "unknown")
+            .files
+            .is_none()
+    );
     assert_eq!(crate::storage::folder_name("線形代数🙂"), "______");
     assert_eq!(crate::storage::folder_name(".."), "course");
     assert_eq!(crate::storage::folder_name(&"a".repeat(130)).len(), 120);
@@ -1462,7 +1499,9 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     let mut japanese = data.clone();
     japanese["settings"] = json!({"contentLanguage":"ja"});
     assert_eq!(
-        course_detail(&japanese, "c").syllabus_url.as_deref(),
+        course_detail(&japanese, &SchoolReads::fixture(&japanese), "c")
+            .syllabus_url
+            .as_deref(),
         Some("https://syllabus.s.isct.ac.jp/courses/-/-/-/o")
     );
     let mut linked = data.clone();
@@ -1472,7 +1511,7 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     ]);
     // A stored link of another form never reaches the shell.
     linked["offerings"][0]["syllabusUrl"] = json!("https://syllabus.s.isct.ac.jp/courses?jwc=o");
-    let view = course_detail(&linked, "c");
+    let view = course_detail(&linked, &SchoolReads::fixture(&linked), "c");
     assert_eq!(
         view.lms_url.as_deref(),
         Some("https://lms.s.isct.ac.jp/2026/course/view.php?id=8")
@@ -1497,14 +1536,16 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
     ] {
         let manual = json!({"courses":[{"id":"m","url":url}]});
         assert_eq!(
-            course_detail(&manual, "m").syllabus_url.as_deref(),
+            course_detail(&manual, &SchoolReads::fixture(&manual), "m")
+                .syllabus_url
+                .as_deref(),
             expected,
             "{url}"
         );
     }
     // An LMS-sourced course links to itself and has no syllabus without an offering.
     let lms = json!({"courses":[{"id":"l","source":{"provider":"lms","externalId":"9"},"url":"https://lms.s.isct.ac.jp/2026/course/view.php?id=9"}]});
-    let view = course_detail(&lms, "l");
+    let view = course_detail(&lms, &SchoolReads::fixture(&lms), "l");
     assert_eq!(
         view.lms_url.as_deref(),
         Some("https://lms.s.isct.ac.jp/2026/course/view.php?id=9")
@@ -1528,7 +1569,9 @@ fn query_request_contracts_reject_unstructured_inputs() {
         json!({"kind":"planCivilStart","plan":{"start":"2026-10-16T09:00:00+09:00"}}),
     )
     .unwrap();
-    let WorkspaceQueryResult::PlanCivilStart(value) = query(&json!({}), request).unwrap() else {
+    let WorkspaceQueryResult::PlanCivilStart(value) =
+        query(&json!({}), &SchoolReads::default(), request).unwrap()
+    else {
         panic!("wrong result kind")
     };
     assert_eq!(value.date, "2026-10-16");
@@ -1610,6 +1653,7 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
     for term in ["2026-3Q", "2026-4Q"] {
         let WorkspaceQueryResult::ScheduleView(view) = query(
             &data,
+            &SchoolReads::fixture(&data),
             WorkspaceQuery::ScheduleView {
                 term: term.into(),
                 from: "2026-11-30".into(),
@@ -1673,6 +1717,7 @@ fn profile_form_preserves_identity_and_validates_or_resets_the_clock() {
     assert_eq!(normalized["studyEnrollments"], profile["studyEnrollments"]);
     let WorkspaceQueryResult::AcademicProfile(wire) = query(
         &workspace(),
+        &SchoolReads::default(),
         WorkspaceQuery::ValidateAcademicProfile {
             profile: serde_json::from_value(profile.clone()).unwrap(),
         },
@@ -1836,7 +1881,10 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
     assert_eq!(other.course_id, None);
     assert_eq!(other.start_time, None); // Unannounced times still have a visible card.
     assert_eq!(exam_views(&data, "2025-1Q")[0].course_id, None);
-    assert_eq!(course_detail(&data, "course").exam_ids, ["mine"]);
+    assert_eq!(
+        course_detail(&data, &SchoolReads::fixture(&data), "course").exam_ids,
+        ["mine"]
+    );
 
     data["scheduleOverrides"] = json!([{"id":"edit","targetKey":"reference:mine","targetKind":"exam","courseId":"course","date":"2026-10-19","startTime":"00:30","endTime":"01:30","room":"My room","hidden":false}]);
     data["currentTerm"] = json!("2026-3Q");
@@ -1851,7 +1899,10 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
     assert!(plan.items[0].body.contains("My room"));
     let rows = resolve_day_agenda(&data, "2026-1Q", "2026-10-19", Default::default()).unwrap();
     assert_eq!(rows[0].start_time, "00:30");
-    assert_eq!(course_detail(&data, "course").exams[0].room, "My room");
+    assert_eq!(
+        course_detail(&data, &SchoolReads::fixture(&data), "course").exams[0].room,
+        "My room"
+    );
     data["settings"]["notifications"]["exams"] = json!(false);
     assert!(notification_plan(&data, now, horizon, None)
         .unwrap()
@@ -1958,7 +2009,7 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
 
     let views = exam_views(&data, "2026-1Q");
     assert_eq!(views.iter().filter(|view| view.kind == "class").count(), 4);
-    let detail = course_detail(&data, "course");
+    let detail = course_detail(&data, &SchoolReads::fixture(&data), "course");
     assert_eq!(detail.exams.len(), 7);
     assert_eq!(
         detail.exam_ids,
@@ -2033,7 +2084,7 @@ fn a_user_mark_decides_what_a_session_is() {
     };
     assert!(listed(&data).contains(&session("course-weekly-0-2026-04-20", "exam")));
     assert_eq!(
-        course_detail(&data, "course")
+        course_detail(&data, &SchoolReads::fixture(&data), "course")
             .exams
             .iter()
             .filter(|view| view.origin == "session")
@@ -2443,7 +2494,7 @@ fn timetable_axis_gives_every_period_one_row_and_lunch_half_a_row() {
     );
     let request: WorkspaceQuery = serde_json::from_value(json!({"kind":"timetableAxis"})).unwrap();
     assert!(matches!(
-        query(&workspace(), request).unwrap(),
+        query(&workspace(), &SchoolReads::default(), request).unwrap(),
         WorkspaceQueryResult::TimetableAxis(view) if view.length == 12.5
     ));
 }
@@ -2468,7 +2519,9 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     });
     let request: WorkspaceQuery =
         serde_json::from_value(json!({"kind":"assignmentDetail","assignmentId":"a"})).unwrap();
-    let WorkspaceQueryResult::AssignmentDetail(Some(view)) = query(&data, request).unwrap() else {
+    let WorkspaceQueryResult::AssignmentDetail(Some(view)) =
+        query(&data, &SchoolReads::fixture(&data), request).unwrap()
+    else {
         panic!("wrong result kind")
     };
     assert_eq!(
@@ -2561,7 +2614,9 @@ fn course_content_follows_the_desktop_lecture_desk() {
         json!({"kind":"courseContent","courseId":"c","now":"2026-11-24T12:00:00+09:00"}),
     )
     .unwrap();
-    let WorkspaceQueryResult::CourseContent(Some(view)) = query(&data, request).unwrap() else {
+    let WorkspaceQueryResult::CourseContent(Some(view)) =
+        query(&data, &SchoolReads::fixture(&data), request).unwrap()
+    else {
         panic!("wrong result kind")
     };
     let lessons: Vec<_> = view
