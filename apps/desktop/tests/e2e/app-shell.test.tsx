@@ -986,16 +986,6 @@ describe("store failures", () => {
         "Disk is full",
       ),
     );
-    const retry = [
-      ...document.querySelectorAll<HTMLButtonElement>("button"),
-    ].find((button) => button.textContent === "Retry saving");
-    expect(retry).toBeDefined();
-    await click(retry);
-    await until(() =>
-      expect(core.commands("workspace_snapshot").length).toBeGreaterThan(
-        before,
-      ),
-    );
     // A migration regression would overwrite the current notice or render two
     // at once. Queued durable notices must remain available after it closes.
     await act(async () =>
@@ -1010,7 +1000,18 @@ describe("store failures", () => {
     expect(document.querySelector(".uiToast")?.textContent).toContain(
       "Disk is full",
     );
-    await act(async () => notifications.hide("workspace-notice"));
+    // Retry runs the reload it was given and closes the notice, so the
+    // queued one takes its place.
+    const retry = [
+      ...document.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "Retry saving");
+    expect(retry).toBeDefined();
+    await click(retry);
+    await until(() =>
+      expect(core.commands("workspace_snapshot").length).toBeGreaterThan(
+        before,
+      ),
+    );
     await until(() =>
       expect(document.querySelector(".uiToast")?.textContent).toContain(
         "Update ready",
