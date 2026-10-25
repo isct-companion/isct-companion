@@ -2,6 +2,7 @@ import type { SchoolRecords } from "../platform/desktop-bridge";
 import type { Workspace } from "./model";
 import type {
   CourseBatchChanges as GeneratedCourseBatchChanges,
+  WorkspaceCommit as GeneratedWorkspaceCommit,
   WorkspaceIntent as GeneratedWorkspaceIntent,
   WorkspaceMutation as GeneratedWorkspaceMutation,
   WorkspacePatch as GeneratedWorkspacePatch,
@@ -25,4 +26,8 @@ export type CoreWorkspacePatch = Omit<
 > & {
   workspace: Partial<Workspace>;
   schoolRecords: Partial<SchoolRecords>;
+};
+/** A committed intent: what it changed and only the fields those feed. */
+export type CoreWorkspaceCommit = Omit<GeneratedWorkspaceCommit, "patch"> & {
+  patch: CoreWorkspacePatch;
 };

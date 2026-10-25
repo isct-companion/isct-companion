@@ -1,5 +1,9 @@
 import { expect } from "vitest";
-import type { WorkspaceIntent } from "@app/lib/workspace-intents";
+import type {
+  CoreWorkspaceCommit,
+  WorkspaceIntent,
+} from "@app/lib/workspace-intents";
+import type { WorkspaceChange } from "@app/generated/persistence";
 import type { Workspace } from "@app/lib/model";
 import type { SchoolRecords } from "@app/platform/desktop-bridge";
 import type { SyncSnapshot } from "@app/platform/sync";
@@ -74,6 +78,9 @@ export type FakeCore = {
   schoolRecords: SchoolRecords;
   /** Replaces the stored snapshot, as another client would. */
   publish(workspace: Workspace, revision?: string): void;
+  /** What `mutate_workspace` answers for the live store, for a `handle`
+   * that commits by itself; `revision` overrides the one it reports. */
+  commit(revision?: string): CoreWorkspaceCommit;
   /** Delivers a native event to every registered listener. A background
    * `workspace-changed` names its `changes`, which the shell patches by
    * reading `workspace_records`. */
@@ -88,6 +95,25 @@ type Listener = {
   event: string;
   callback: (payload: unknown) => void;
 };
+
+/** The scripted host does not know which tables an intent wrote, so a
+ * commit reports every change name, like a whole read. */
+const EVERY_CHANGE: WorkspaceChange[] = [
+  "courses",
+  "materials",
+  "assignments",
+  "registrations",
+  "grades",
+  "finder",
+  "calendar",
+  "exams",
+  "plans",
+  "events",
+  "subscriptions",
+  "scheduled-tasks",
+  "settings",
+  "freshness",
+];
 
 let nextCallbackId = 1;
 let nextRevision = 1;
@@ -122,6 +148,11 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     publish(workspace, revision) {
       core.workspace = structuredClone(workspace);
       if (revision) core.revision = revision;
+    },
+    commit(revision) {
+      const patch = snapshot();
+      if (revision) patch.revision = patch.contentRevision = revision;
+      return { changes: [...EVERY_CHANGE], patch };
     },
     emit(event, payload) {
       // Tauri hands the listener its `Event` envelope, and the bridge adapter
@@ -212,7 +243,7 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         } else {
           core.revision = options.revisionAfterMutation ?? `${core.revision}+1`;
         }
-        return snapshot();
+        return core.commit();
       }
       case "schedule_query":
         return {

@@ -47,13 +47,13 @@ These are local Tauri commands, restricted to the trusted main WebView. Paramete
 objects below are passed to `invoke`; read commands return values directly,
 without an additional `{data:...}` wrapper.
 
-| Command              | Parameters                      | Result                                       | Rust service                          |
-| -------------------- | ------------------------------- | -------------------------------------------- | ------------------------------------- |
-| `workspace_snapshot` | `{}`                            | `WorkspaceSnapshot`                          | `Core.workspace.snapshot()`           |
-| `workspace_records`  | `{changes: WorkspaceChange[]}`  | `WorkspacePatch`                             | `Core.workspace_records(changes)`     |
-| `mutate_workspace`   | `{mutation: WorkspaceMutation}` | Committed `WorkspaceSnapshot`                | `Core.workspace.mutate(mutation)`     |
-| `schedule_query`     | `{queries: WorkspaceQuery[]}`   | `{revision, values: WorkspaceQueryResult[]}` | `Core.schedule_query(queries)`        |
-| `finder_query`       | `{request: FinderRequest}`      | `FinderPage`                                 | `Core.finder_query(request)`          |
+| Command              | Parameters                      | Result                                       | Rust service                            |
+| -------------------- | ------------------------------- | -------------------------------------------- | --------------------------------------- |
+| `workspace_snapshot` | `{}`                            | `WorkspaceSnapshot`                          | `Core.workspace.snapshot()`             |
+| `workspace_records`  | `{changes: WorkspaceChange[]}`  | `WorkspacePatch`                             | `Core.workspace_records(changes)`       |
+| `mutate_workspace`   | `{mutation: WorkspaceMutation}` | `WorkspaceCommit` (changes and their patch)  | `Core.workspace.mutate_patch(mutation)` |
+| `schedule_query`     | `{queries: WorkspaceQuery[]}`   | `{revision, values: WorkspaceQueryResult[]}` | `Core.schedule_query(queries)`          |
+| `finder_query`       | `{request: FinderRequest}`      | `FinderPage`                                 | `Core.finder_query(request)`            |
 
 `schedule_query` and `finder_query` only read, from Core's pooled read
 connections and caches, so the desktop runs them outside the lock that
@@ -85,14 +85,14 @@ the full committed snapshot; it never returns an optimistic local patch.
 
 Intent groups (the generated `WorkspaceIntent` is the complete field schema):
 
-| Group                  | `kind` values                                                                                                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Preferences / terms    | `replaceSettings`, `setAdmissionYear`, `setStudyProfile`, `editAcademicCalendar`, `selectTerm`, `addTerm`, `removeTerm`                                           |
-| Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `markTimetableReviewed` |
-| Events / plans         | `saveEvent`, `deleteEvent`, `savePlan`, `deletePlan`                                                                                                              |
-| Calendar / sources     | `saveCalendarException`, `deleteCalendarException`, `saveSubscription`, `setSubscription`, `deleteSubscription`                                                   |
+| Group                  | `kind` values                                                                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Preferences / terms    | `replaceSettings`, `setAdmissionYear`, `setStudyProfile`, `editAcademicCalendar`, `selectTerm`, `addTerm`, `removeTerm`                                                                |
+| Courses / review       | `saveCourse`, `deleteCourseBatch`, `editCourseBatch`, `setCourseOnTimetable`, `addCatalogCourses`, `undoCatalogCourses`, `markTimetableReviewed`                                       |
+| Events / plans         | `saveEvent`, `deleteEvent`, `savePlan`, `deletePlan`                                                                                                                                   |
+| Calendar / sources     | `saveCalendarException`, `deleteCalendarException`, `saveSubscription`, `setSubscription`, `deleteSubscription`                                                                        |
 | Overrides / automation | `saveScheduleOverride`, `deleteScheduleOverride`, `editExam`, `linkExam`, `markSession`, `saveScheduledTask`, `deleteScheduledTask`, `recordScheduledTaskRun`, `saveIntensiveSchedule` |
-| Assignment / lesson    | `setAssignmentMark`, `recordLesson`                                                                                                                               |
+| Assignment / lesson    | `setAssignmentMark`, `recordLesson`                                                                                                                                                    |
 
 Save intents take a `draft`; optional `existingId` selects update rather than
 creation. Specialized intents have their own fields; callers must use their
@@ -134,6 +134,7 @@ import type {
   Workspace,
   WorkspaceMutation,
   WorkspaceQuery,
+  WorkspaceCommit,
   WorkspaceQueryResult,
   WorkspaceSnapshot,
 } from "../apps/desktop/src/generated/persistence";
@@ -152,7 +153,22 @@ export async function updateAppearanceAndReadToday() {
       },
     },
   };
-  snapshot = await invoke<WorkspaceSnapshot>("mutate_workspace", { mutation });
+  // Only the fields the commit changed; merge them over the held snapshot.
+  const { patch } = await invoke<WorkspaceCommit>("mutate_workspace", {
+    mutation,
+  });
+  snapshot = {
+    ...snapshot,
+    ...patch,
+    workspace: {
+      ...(snapshot.workspace as object),
+      ...(patch.workspace as object),
+    },
+    schoolRecords: {
+      ...(snapshot.schoolRecords as object),
+      ...(patch.schoolRecords as object),
+    },
+  };
   const queries: WorkspaceQuery[] = [
     { kind: "glance", now: new Date().toISOString() },
   ];
@@ -236,23 +252,23 @@ a snapshot command the UI reads after subscribing.
 
 ## Service map
 
-| Service                     | Rust entry points                                                                                                                          | Shell responsibility                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| Workspace                   | `Core::workspace.snapshot/mutate`                                                                                                          | Render snapshots; forward typed intents with expected revision |
-| Schedule / calendar         | `Core::schedule_query`, `schedule::{glance,notification_plan}`                                                                             | Supply explicit dates/times; render views and export bytes     |
-| Course finder               | `Core::finder_query`                                                                                                                       | Input, selection and progress                                  |
-| Reminders                   | `Core::reminder_tick`, `Core::import_legacy_reminders`                                                                                     | Wakeups, migration bytes and `NotificationSink`                |
-| School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::workspace_records`                                                          | Native views, presentation, callbacks and downloads            |
-| Sync                        | `Core::{sync_hint,sync_snapshot}`, `CoreEvent::SyncSnapshot` (`sync-snapshot`)                                                             | Send lifecycle/network/open/refresh hints; render the snapshot |
-| Scheduler                   | `Core::runtime`: wake, run_scheduled, suspend, resume                                                                                      | Periodic wakeups and scheduled exporter port                   |
+| Service                     | Rust entry points                                                                                                          | Shell responsibility                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Workspace                   | `Core::workspace.snapshot/mutate`                                                                                          | Render snapshots; forward typed intents with expected revision |
+| Schedule / calendar         | `Core::schedule_query`, `schedule::{glance,notification_plan}`                                                             | Supply explicit dates/times; render views and export bytes     |
+| Course finder               | `Core::finder_query`                                                                                                       | Input, selection and progress                                  |
+| Reminders                   | `Core::reminder_tick`, `Core::import_legacy_reminders`                                                                     | Wakeups, migration bytes and `NotificationSink`                |
+| School                      | `Core::school_browser()`, `Core::services(...).school`, `Core::workspace_records`                                          | Native views, presentation, callbacks and downloads            |
+| Sync                        | `Core::{sync_hint,sync_snapshot}`, `CoreEvent::SyncSnapshot` (`sync-snapshot`)                                             | Send lifecycle/network/open/refresh hints; render the snapshot |
+| Scheduler                   | `Core::runtime`: wake, run_scheduled, suspend, resume                                                                      | Periodic wakeups and scheduled exporter port                   |
 | Catalog                     | `catalog::{offerings,syllabus_url}`; downloads are the planner's `catalog.official` keys (教務 Japanese and English pages) | Search locally through `finder_query`                          |
-| Downloads                   | `Core::runtime.downloads`, `course_materials::CourseMaterials`                                                                             | Cookie acquisition, native URL handlers and opening files      |
-| Notes / backups / cloud     | `notes::NoteStore`, `BackupService`, `CloudSync`                                                                                           | Selected root, dialogs, transport and events                   |
-| School credentials          | `Core::auth` / `SchoolAuthService`                                                                                                         | `SecretVault`, native login surface                            |
-| Encrypted credential backup | `cloud_credentials::{validate_password,encrypt,decrypt,supports_provider}`                                                                 | Fetch/store encrypted bytes; vault access                      |
-| Assignment workspaces       | `workspaces::Workspaces`                                                                                                                   | Selected root, Finder/editor opening; desktop feature only     |
-| Agent operations            | `Core::agent.call(name,args,AgentPolicy)`                                                                                                  | MCP schema/HTTP transport and local authentication             |
-| OCR                         | Separate `isct-ocr` crate                                                                                                                  | Supported platform setup and progress delivery                 |
+| Downloads                   | `Core::runtime.downloads`, `course_materials::CourseMaterials`                                                             | Cookie acquisition, native URL handlers and opening files      |
+| Notes / backups / cloud     | `notes::NoteStore`, `BackupService`, `CloudSync`                                                                           | Selected root, dialogs, transport and events                   |
+| School credentials          | `Core::auth` / `SchoolAuthService`                                                                                         | `SecretVault`, native login surface                            |
+| Encrypted credential backup | `cloud_credentials::{validate_password,encrypt,decrypt,supports_provider}`                                                 | Fetch/store encrypted bytes; vault access                      |
+| Assignment workspaces       | `workspaces::Workspaces`                                                                                                   | Selected root, Finder/editor opening; desktop feature only     |
+| Agent operations            | `Core::agent.call(name,args,AgentPolicy)`                                                                                  | MCP schema/HTTP transport and local authentication             |
+| OCR                         | Separate `isct-ocr` crate                                                                                                  | Supported platform setup and progress delivery                 |
 
 Catalog caching preserves the bilingual freshness threshold and stored detail
 content. Batch fetches are ordered futures held by the calling operation; no

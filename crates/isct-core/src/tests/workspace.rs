@@ -592,14 +592,28 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
 
     // A right-click mark is one more field of the same override, so a later
     // schedule edit keeps it and marking the source kind removes it again.
-    let marked = mutate(
-        &service,
-        WorkspaceIntent::MarkSession {
-            key: second.into(),
-            mark: "cancelled".into(),
-        },
-    );
+    let commit = service
+        .mutate_patch(WorkspaceMutation {
+            expected_revision: service.snapshot().unwrap().revision,
+            intent: WorkspaceIntent::MarkSession {
+                key: second.into(),
+                mark: "cancelled".into(),
+            },
+        })
+        .unwrap();
+    let marked = service.snapshot().unwrap();
     assert_eq!(view(&marked, second).status, "cancelled");
+    // The desktop window hears only what the mark changed, as of the commit.
+    assert_eq!(commit.changes, [WorkspaceChange::Calendar]);
+    assert_eq!(
+        commit.patch.workspace["scheduleOverrides"],
+        marked.workspace["scheduleOverrides"]
+    );
+    assert!(commit.patch.workspace.get("courses").is_none());
+    assert_eq!(
+        (commit.patch.revision, commit.patch.content_revision),
+        (marked.revision.clone(), marked.content_revision.clone())
+    );
     let edited = mutate(
         &service,
         WorkspaceIntent::EditExam {

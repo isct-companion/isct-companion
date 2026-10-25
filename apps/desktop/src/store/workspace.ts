@@ -7,6 +7,7 @@ import type { Workspace } from "../lib/model";
 import type { ClassGroup } from "../generated/persistence";
 import { repository } from "../storage/repository";
 import type {
+  CoreWorkspaceCommit,
   CoreWorkspacePatch,
   CoreWorkspaceSnapshot,
   WorkspaceIntent,
@@ -38,7 +39,7 @@ export type WorkspaceEdit = (draft: Workspace) => Workspace | void;
 type WorkspaceService = {
   snapshot(): Promise<CoreWorkspaceSnapshot>;
   records(changes: readonly WorkspaceChange[]): Promise<CoreWorkspacePatch>;
-  mutate(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
+  mutate(mutation: WorkspaceMutation): Promise<CoreWorkspaceCommit>;
 };
 
 export function createWorkspaceStore(service: WorkspaceService) {
@@ -72,6 +73,27 @@ export function createWorkspaceStore(service: WorkspaceService) {
       error: undefined,
     });
   };
+  /** Merges `patch` over the open snapshot; only views reading `changes`
+   * get a new revision. */
+  const merge = (
+    patch: CoreWorkspacePatch,
+    changes: readonly WorkspaceChange[],
+  ) => {
+    const current = state.getState();
+    const viewRevisions: Partial<Record<WorkspaceChange | "all", number>> = {
+      ...current.viewRevisions,
+    };
+    for (const change of changes)
+      viewRevisions[change] = (viewRevisions[change] ?? 0) + 1;
+    publish({
+      ...current,
+      workspace: { ...current.workspace!, ...patch.workspace },
+      schoolRecords: { ...current.schoolRecords!, ...patch.schoolRecords },
+      revision: patch.revision,
+      contentRevision: patch.contentRevision,
+      viewRevisions,
+    });
+  };
   const mutate = (
     intent: WorkspaceIntent | ((workspace: Workspace) => WorkspaceIntent),
   ) => {
@@ -80,20 +102,20 @@ export function createWorkspaceStore(service: WorkspaceService) {
       if (!current.workspace || !current.revision)
         throw new Error("Workspace is not ready.");
       try {
-        const snapshot = await service.mutate({
+        const commit = await service.mutate({
           expectedRevision: current.revision,
           intent:
             typeof intent === "function"
               ? intent(structuredClone(current.workspace))
               : intent,
         });
-        adopt(snapshot);
-        localMutationRevisions.add(snapshot.revision);
+        merge(commit.patch, commit.changes);
+        localMutationRevisions.add(commit.patch.revision);
         if (localMutationRevisions.size > 32)
           localMutationRevisions.delete(
             localMutationRevisions.values().next().value!,
           );
-        return snapshot;
+        return commit;
       } catch (error) {
         // The intent may have lost a race with school, cloud, or another
         // native writer. Recover the authoritative state for user review;
@@ -165,22 +187,7 @@ export function createWorkspaceStore(service: WorkspaceService) {
             for (const change of requested) unpatched.add(change);
             continue;
           }
-          const viewRevisions: Partial<
-            Record<WorkspaceChange | "all", number>
-          > = { ...current.viewRevisions };
-          for (const change of requested)
-            viewRevisions[change] = (viewRevisions[change] ?? 0) + 1;
-          publish({
-            ...current,
-            workspace: { ...current.workspace!, ...result.workspace },
-            schoolRecords: {
-              ...current.schoolRecords!,
-              ...result.schoolRecords,
-            },
-            revision: result.revision,
-            contentRevision: result.contentRevision,
-            viewRevisions,
-          });
+          merge(result, requested);
         }
       } finally {
         // Cleared in the same turn the loop ends, so a change heard right
@@ -198,7 +205,7 @@ export function createWorkspaceStore(service: WorkspaceService) {
       return;
     }
     // Core emits before the native command resolves. Wait for the command's
-    // authoritative snapshot, then read only if this came from another client.
+    // committed patch, then read only if this came from another client.
     await writes;
     if (
       state.getState().revision === event.revision ||

@@ -128,6 +128,10 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
     );
     assert_eq!(keys(&courses.school_records), ["lmsCourses"]);
 
+    // Calendar rows feed no course; quarter-start days move the current term.
+    let calendar = patch(snapshot.clone(), &[Calendar]);
+    assert_eq!(keys(&calendar.workspace), ["currentTerm"]);
+
     // Settings shape every projected field: the whole workspace, no records.
     let settings = patch(snapshot.clone(), &[Settings]);
     assert_eq!(settings.workspace, *snapshot.workspace);

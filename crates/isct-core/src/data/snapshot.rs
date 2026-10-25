@@ -174,14 +174,14 @@ impl DataStore {
     }
 
     /// Applies one user intent after checking the revision it was made
-    /// against, and returns its result with the snapshot as committed; the
-    /// snapshot's revision reaches the observer. `operation` reads the
-    /// workspace as of the write lock.
+    /// against, and returns its result with the snapshot as committed and
+    /// the tables the commit changed; the snapshot's revision reaches the
+    /// observer. `operation` reads the workspace as of the write lock.
     pub(crate) fn workspace_write<T>(
         &self,
         expected_revision: &str,
         operation: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value) -> Result<T, DataError>,
-    ) -> Result<(T, SnapshotParts, String), DataError> {
+    ) -> Result<(T, SnapshotParts, String, BTreeSet<String>), DataError> {
         // Lock order: snapshot reader, then the write connection.
         let mut reader = self
             .snapshot_reader
@@ -247,7 +247,7 @@ impl DataStore {
         self.committed_tables(&tables);
         self.observer
             .committed(WorkspaceChangeSource::UserIntent, Some(revision), &tables);
-        Ok((result, snapshot.0, snapshot.1))
+        Ok((result, snapshot.0, snapshot.1, tables))
     }
 
     /// The whole snapshot as `connection` sees it, with `school`'s shared

@@ -735,12 +735,7 @@ describe("the course planner", () => {
                     }),
                     `${core.revision}+placed`,
                   );
-                  return {
-                    revision: core.revision,
-                    contentRevision: core.revision,
-                    workspace: structuredClone(core.workspace),
-                    schoolRecords: structuredClone(core.schoolRecords),
-                  };
+                  return core.commit();
                 })
               : undefined,
         ),

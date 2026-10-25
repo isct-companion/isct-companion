@@ -1,4 +1,5 @@
 import type {
+  CoreWorkspaceCommit,
   CoreWorkspacePatch,
   CoreWorkspaceSnapshot,
   WorkspaceMutation,
@@ -363,7 +364,8 @@ export interface DesktopBridge {
   workspaceRecords(
     changes: readonly WorkspaceChange[],
   ): Promise<CoreWorkspacePatch>;
-  mutateWorkspace(mutation: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
+  /** Commits one intent; answers what it changed, to merge like a patch. */
+  mutateWorkspace(mutation: WorkspaceMutation): Promise<CoreWorkspaceCommit>;
   finderQuery(request: FinderRequest): Promise<FinderPage>;
   scheduleQuery(queries: readonly unknown[]): Promise<{
     revision: string;

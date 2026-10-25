@@ -121,9 +121,12 @@ impl WorkspaceChange {
                 &["offerings", "departments", "recommendedCourses"],
                 &[],
             ),
+            // No calendar row feeds the course projection; quarter-start
+            // days decide the current term.
             Calendar => fields(
-                true,
+                false,
                 &[
+                    "currentTerm",
                     "academicCalendar",
                     "importantDates",
                     "exceptions",

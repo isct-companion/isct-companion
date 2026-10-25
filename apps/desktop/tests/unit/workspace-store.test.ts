@@ -10,6 +10,7 @@ import {
 } from "@app/app/routes";
 import { seedWorkspace, type Workspace } from "@app/lib/model";
 import type {
+  CoreWorkspaceCommit,
   CoreWorkspacePatch,
   CoreWorkspaceSnapshot,
   WorkspaceIntent,
@@ -148,11 +149,15 @@ type MutationScript = (
   host: CoreHost,
 ) => Promise<CoreWorkspaceSnapshot>;
 
+/** A scripted snapshot is answered as the commit of a settings intent, the
+ * one this suite submits: Settings re-reads the whole workspace. */
+type MutationAnswer = SnapshotAnswer | MutationScript | CoreWorkspaceCommit;
+
 type CoreHost = {
   service: {
     snapshot(): Promise<CoreWorkspaceSnapshot>;
     records(changes: readonly WorkspaceChange[]): Promise<CoreWorkspacePatch>;
-    mutate(request: WorkspaceMutation): Promise<CoreWorkspaceSnapshot>;
+    mutate(request: WorkspaceMutation): Promise<CoreWorkspaceCommit>;
   };
   /** The revision each read started from, in order. */
   reads: string[];
@@ -165,7 +170,7 @@ type CoreHost = {
   mutations: WorkspaceMutation[];
   publish(workspace: Workspace, revision?: string): void;
   answerRead(answer: SnapshotAnswer): void;
-  answerMutation(answer: SnapshotAnswer | MutationScript | Error): void;
+  answerMutation(answer: MutationAnswer | Error): void;
   snapshotAt(revision: string, workspace?: Workspace): CoreWorkspaceSnapshot;
 };
 
@@ -192,7 +197,16 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
   )[] = [];
   const mutations: WorkspaceMutation[] = [];
   const readAnswers: SnapshotAnswer[] = [];
-  const mutationAnswers: (SnapshotAnswer | MutationScript | Error)[] = [];
+  const mutationAnswers: (MutationAnswer | Error)[] = [];
+  const committed = async (
+    answer: SnapshotAnswer | CoreWorkspaceCommit,
+  ): Promise<CoreWorkspaceCommit> => {
+    if (typeof answer === "object" && "patch" in answer) return answer;
+    return {
+      changes: ["settings"],
+      patch: await resolveSnapshot(answer, () => snapshotAt(revision)),
+    };
+  };
 
   const snapshotAt = (
     nextRevision: string,
@@ -222,8 +236,9 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
         mutations.push(request);
         const answer = mutationAnswers.shift();
         if (answer instanceof Error) throw answer;
-        if (typeof answer === "function") return answer(request, host);
-        if (answer !== undefined) return answer;
+        if (typeof answer === "function")
+          return committed(await answer(request, host));
+        if (answer !== undefined) return committed(answer);
         // The default path commits the one intent this suite submits.
         if (request.intent.kind === "replaceSettings") {
           workspace = {
@@ -232,7 +247,7 @@ function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
           };
         }
         revision = bumpRevision(revision);
-        return snapshotAt(revision);
+        return committed(snapshotAt(revision));
       },
     },
     reads,
@@ -317,6 +332,34 @@ describe("submitting coarse intents", () => {
     ]);
     expect(store.getState()).toMatchObject({ revision: "r1" });
     expect(store.getState().workspace?.settings.appearance).toBe("dark");
+    expect(store.getState().viewRevisions).toEqual({ all: 1, settings: 1 });
+
+    // A commit answers only the fields it changed: the rest keep their
+    // identity, and only views reading its change names query again.
+    const before = store.getState();
+    const scheduleOverrides = [
+      { id: "override-1", targetKey: "session-1" },
+    ] as unknown as Workspace["scheduleOverrides"];
+    host.answerMutation({
+      changes: ["calendar"],
+      patch: {
+        revision: "r2",
+        contentRevision: "c2",
+        workspace: { scheduleOverrides },
+        schoolRecords: {},
+      },
+    });
+    await store.mutate(appearance("dark"));
+    const after = store.getState();
+    expect(after).toMatchObject({ revision: "r2", contentRevision: "c2" });
+    expect(after.workspace?.scheduleOverrides).toEqual(scheduleOverrides);
+    expect(after.workspace?.courses).toBe(before.workspace?.courses);
+    expect(after.schoolRecords).toEqual(before.schoolRecords);
+    expect(after.viewRevisions).toEqual({
+      all: 1,
+      settings: 1,
+      calendar: 1,
+    });
   });
 
   it("serializes rapid intents against the revision each preceding write committed", async () => {

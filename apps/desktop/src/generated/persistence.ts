@@ -1586,8 +1586,21 @@ export type WorkspaceSnapshot = {
    * key on it.
    */
   contentRevision: string;
+  /**
+   * Shared with Core's snapshot cache, so a read never copies it. Beside
+   * the workspace fields it carries the school records schedule read
+   * models evaluate: `registrations`, `grades` and `lmsCourses`.
+   */
   workspace: unknown;
   schoolRecords: unknown;
+};
+
+export type WorkspaceCommit = {
+  /**
+   * As in a `workspace-changed` event of the same commit.
+   */
+  changes: Array<WorkspaceChange>;
+  patch: WorkspacePatch;
 };
 
 export type WorkspaceMutation = {

@@ -105,7 +105,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let revision = service.snapshot()?.revision;
         let read_ms = start.elapsed().as_millis();
         let start = Instant::now();
-        service.mutate(WorkspaceMutation {
+        // What the desktop command answers: the changes and their patch.
+        let commit = service.mutate_patch(WorkspaceMutation {
             expected_revision: revision,
             intent: WorkspaceIntent::MarkSession {
                 key: key.clone(),
@@ -114,12 +115,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?;
         let mutation_ms = start.elapsed().as_millis();
         let start = Instant::now();
+        let payload = serde_json::to_vec(&commit)?;
+        let payload_ms = start.elapsed().as_millis();
+        let start = Instant::now();
         let workspace = service.snapshot()?.workspace;
         let view = isct_core::schedule::query(&workspace, schedule_view())?;
         let _ = serde_json::to_vec(&view)?;
         println!(
-            "mark {mark}: snapshot_ms={read_ms} mutation_ms={mutation_ms} refresh_ms={}",
-            start.elapsed().as_millis()
+            "mark {mark}: snapshot_ms={read_ms} mutation_ms={mutation_ms} refresh_ms={} payload_bytes={} payload_encode_ms={payload_ms} changes={:?}",
+            start.elapsed().as_millis(),
+            payload.len(),
+            commit.changes,
         );
     }
     // A sync bookkeeping commit (a `last_used` touch) changes no school
