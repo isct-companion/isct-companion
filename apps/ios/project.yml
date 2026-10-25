@@ -44,6 +44,9 @@ targets:
         CFBundleLocalizations: [en, ja, zh-Hans]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Only the system's HTTPS: exempt, so App Store Connect does not hold
+        # each upload for an export compliance answer.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         # Background refresh (AppModel.backgroundRefresh): Core reads what a
         # token reaches while the app is out of front.

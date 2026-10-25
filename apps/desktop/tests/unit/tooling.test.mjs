@@ -334,8 +334,13 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
         expect(notes).toContain(
           `IsctCompanion ${tag.slice(1)} desktop release`,
         );
+        // The mobile workflows attach their builds after publication; the
+        // IPA is for sideloading, TestFlight stays the way to install.
         expect(notes).toContain(
-          "Android APK is attached by the Android release workflow",
+          "Android APK and the iPhone/iPad IPA are attached by their release workflows",
+        );
+        expect(notes).toContain(
+          `/releases/download/${tag}/IsctCompanion_${tag.slice(1)}_ios.ipa) to sideload`,
         );
         expect(notes).toContain("Reviewed release notes for this version.");
         expect(notes).toContain(

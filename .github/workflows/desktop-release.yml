@@ -377,11 +377,12 @@ jobs:
           | Mac — Intel | [DMG](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_x86_64-apple-darwin.dmg) |
           | Windows — x64 | [EXE](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_x86_64-pc-windows-msvc.exe) |
           | Android | [APK](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_android.apk) |
+          | iPhone / iPad | TestFlight, or [IPA](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/IsctCompanion_${RELEASE_TAG#v}_ios.ipa) to sideload |
 
           Use the installers above. The latest.json file is for automatic updates.
           GitHub's automatically generated Source code archives are for developers.
           DOWNLOADS
-          printf '\nThe Android APK is attached by the Android release workflow when its build finishes. iPhone and iPad builds are distributed through TestFlight.\n\n' >> release-notes.md
+          printf '\nThe Android APK and the iPhone/iPad IPA are attached by their release workflows when their builds finish. Install on iPhone and iPad through TestFlight; the IPA is for sideloading tools (AltStore, Sideloadly), which re-sign it with your own Apple account. A sideloaded copy without the iCloud entitlement backs up through Google Drive or a file instead of iCloud.\n\n' >> release-notes.md
           echo 'Desktop MCP uses the local HTTP server. Optional backups use your own cloud account. Intel Mac builds currently omit campus-card OCR.' >> release-notes.md
           echo 'Read the license documents bundled with the app before installing. Third-party notices are included in the app.' >> release-notes.md
           echo "Source build: https://github.com/$BUILD_REPO/commit/$SOURCE_SHA" >> release-notes.md

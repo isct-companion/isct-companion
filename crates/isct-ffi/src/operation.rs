@@ -47,6 +47,12 @@ pub enum OperationResult {
     Waiting {
         assignments: Vec<crate::services::WaitingHandIn>,
     },
+    /// `checked`: whether a check was due and ran; `release`: a newer build
+    /// for this platform, if it ran and found one.
+    AppUpdate {
+        checked: bool,
+        release: Option<crate::services::AppRelease>,
+    },
     Material {
         material: Material,
     },

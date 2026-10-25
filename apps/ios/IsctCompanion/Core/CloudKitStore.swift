@@ -20,6 +20,27 @@ final class CloudKitStore: NativeCloud, @unchecked Sendable {
         database = container.privateCloudDatabase
     }
 
+    /// Whether this install may open Core's iCloud container. App Store and
+    /// TestFlight installs carry no embedded profile and always may. A build
+    /// sideloaded with someone else's (often free) account carries that
+    /// account's profile, usually without the container, and `CKContainer`
+    /// traps without the entitlement; such an install backs up through
+    /// Google Drive or files instead.
+    static var available: Bool {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+            let profile = try? Data(contentsOf: url)
+        else { return true }
+        // A CMS envelope around a plain property list, readable as it is.
+        guard let start = profile.range(of: Data("<?xml".utf8)),
+            let end = profile.range(of: Data("</plist>".utf8), in: start.lowerBound..<profile.endIndex),
+            let plist = try? PropertyListSerialization.propertyList(
+                from: profile[start.lowerBound..<end.upperBound], format: nil) as? [String: Any],
+            let entitlements = plist["Entitlements"] as? [String: Any],
+            let containers = entitlements["com.apple.developer.icloud-container-identifiers"] as? [String]
+        else { return false }
+        return containers.contains(cloudkitRecord().container)
+    }
+
     private var recordID: CKRecord.ID { CKRecord.ID(recordName: location.recordName) }
 
     func deviceName() -> String? { name }

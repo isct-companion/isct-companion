@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 106 checks must be re-run before the next release.**
+**10 of 107 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**96 checks have never been run or could not be run:**
+**97 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -91,6 +91,7 @@ an unverified area becomes an assumed-good one.
 - `IOS-IPAD-WORKSTATION` — never verified
 - `IOS-SHARE-HAND-IN` — never verified
 - `ANDROID-SHARE-HAND-IN` — never verified
+- `ANDROID-APP-UPDATE` — never verified
 - `IOS-SETTINGS-PAGES` — never verified
 - `MOBILE-NOTIFICATION-PERMISSION` — never verified
 - `IOS-TODAY-CLASS-STACK` — never verified
@@ -202,6 +203,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-IPAD-WORKSTATION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/App/Workstation.swift<br>apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift |
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
+| `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>crates/isct-core/src/app_updates.rs |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -4280,6 +4282,54 @@ draft area need a device or emulator with a school account.
 - `apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt`
 - `apps/android/app/src/main/AndroidManifest.xml`
+
+**Last recorded** never run
+
+### Android offers a newer GitHub release and installs it through the system installer (`ANDROID-APP-UPDATE`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An Android build older than the latest published GitHub release, whose
+APK is attached to that release, signed with the release key.
+
+**Steps**
+
+1. Open the app (or bring it to the front) and read 今日.
+   - *Why:* Core finds the newer release with its APK and 今日 shows
+     「バージョン x.y.z が利用できます」 with 「アップデート」. No banner while
+     the release still lacks its APK means Core waits for it, as it should.
+2. Tap 「アップデート」; allow installing from this app if the system asks,
+   then tap it again.
+   - *Why:* The APK downloads with the system's download manager (its
+     notification shows), and the system installer opens on it; the
+     person confirms there. An installer error about a conflicting
+     package means the release APK was signed with another key.
+3. Install, reopen the app and read 今日.
+   - *Why:* The banner is gone, since the running version is the offered one.
+
+**Where to look**
+
+今日, the download notification and the system installer.
+
+**Expected**
+
+A newer release is offered once its APK is attached, downloads, and
+installs through the system installer after the person confirms.
+
+**Why this is manual**
+
+Needs a published GitHub release, a release-signed APK and the system
+installer on a device.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
+- `crates/isct-core/src/app_updates.rs`
 
 **Last recorded** never run
 

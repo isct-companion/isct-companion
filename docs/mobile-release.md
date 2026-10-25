@@ -5,7 +5,7 @@ A pushed `v<version>` tag starts two workflows beside the Desktop release:
 | Workflow | Output | Where it goes |
 |---|---|---|
 | `android-release.yml` | `IsctCompanion_<version>_android.apk` | Attached to the GitHub release once the Desktop release workflow has published it; also kept as a run artifact |
-| `ios-release.yml` | `IsctCompanion_<version>_<build>.ipa` | Uploaded to TestFlight; also kept as a run artifact |
+| `ios-release.yml` | `IsctCompanion_<version>_<build>.ipa` | Uploaded to TestFlight; on a tag also attached to the GitHub release as `IsctCompanion_<version>_ios.ipa` for sideloading; kept as a run artifact |
 
 Both build the Core SDK with the release profile from the tagged commit, take
 the version from `package.json`, and can be started by hand (workflow dispatch)
@@ -81,6 +81,26 @@ Group, or the certificate does not match all three profiles.
 It installs the supplied certificate and profile, then explicitly selects them
 for both archive and export. It does not create cloud-managed certificates or
 refresh profiles. Renew the existing secrets when their signing materials expire.
+
+The app declares `ITSAppUsesNonExemptEncryption = NO` (only the system's
+HTTPS), so App Store Connect does not hold an upload for an export compliance
+answer.
+
+The IPA on the GitHub release is the App Store-signed one: sideloading tools
+(AltStore, Sideloadly) re-sign it with the person's own Apple account, which
+needs room for three App IDs (the app and its two extensions). Such an account
+usually lacks the iCloud container, so the app checks its embedded profile
+(`CloudKitStore.available`) and backs up through Google Drive or a file
+instead of opening CloudKit, which would trap.
+
+## Updates
+
+iPhone and iPad update through TestFlight or the App Store; an app may not
+install its own updates there. Android checks GitHub's latest release when it
+comes to the front, at most every 12 hours (Core's `check_android`), and once a
+newer release has its APK attached, 今日 offers it. 「アップデート」 downloads it
+with the system's download manager and opens the system installer, where the
+person confirms; Android refuses an APK signed by another key.
 
 After upload, wait for Apple to process the build. Assign it to a TestFlight
 group (or enable automatic distribution for an internal group); external testing

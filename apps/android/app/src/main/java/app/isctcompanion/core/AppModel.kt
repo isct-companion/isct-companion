@@ -36,6 +36,9 @@ import org.json.JSONObject
  * due, grouped or shown stays in Core. Lives as long as the process, so state
  * survives activity recreation. Every member is used on the main thread. */
 class AppModel(private val context: Context, private val scope: CoroutineScope) {
+    /** Newer releases from GitHub, offered on 今日 (`AppUpdater`). */
+    val updater = AppUpdater(context)
+
     sealed interface Status {
         data object Opening : Status
         data object Ready : Status
@@ -171,6 +174,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             reportSchool(SchoolSessionLifecycleKind.FOCUS)
             startWaking()
             scope.launch { refresh() }
+            scope.launch { checkForUpdate() }
             // Permission granted in the system settings while away.
             if (notificationsBlocked) scope.launch { resyncNotifications() }
         } else {
@@ -529,6 +533,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val listed = (session.removeAssignmentFile(assignment, name).value() as? OperationResult.Files)?.files.orEmpty()
         refreshWaiting()
         return listed
+    }
+
+    /** Asks Core for a newer release when a check is due (or now, `manual`). */
+    suspend fun checkForUpdate(manual: Boolean = false) {
+        val session = session ?: return
+        updater.check(session, manual)
     }
 
     /** Re-reads which assignments have files waiting to be handed in. */
