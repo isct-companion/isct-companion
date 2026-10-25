@@ -127,6 +127,9 @@ it excludes API keys and review contacts.
 Complete the developer agreement, privacy answers, age rating, pricing and
 availability in App Store Connect before the first submission. Keep the existing
 review notes explaining school sign-in; the workflow does not replace them.
+An unanswered age-rating questionnaire is initialized from the account holder's
+confirmed answers in `resources/app-store/age-rating.json`. Completed answers
+are preserved on later releases; review the file when app capabilities change.
 Run mode `submit` to submit for review and release automatically after approval.
 Apple's review is still required; a successful workflow is not an approval.
 

@@ -46,6 +46,14 @@ platform :ios do
       app.ensure_version!(version_number, platform: "IOS")
       current = app.get_edit_app_store_version(platform: "IOS")
       UI.user_error!("Unexpected editable version") unless current&.version_string == version_number
+      # Initialize the first listing from the account holder's confirmed
+      # answers. Preserve completed questionnaires on later releases.
+      rating = app.fetch_edit_app_info.fetch_age_rating_declaration
+      if rating.unrestricted_web_access.nil?
+        answers = JSON.parse(File.read(File.join(ROOT, "resources/app-store/age-rating.json")))
+        rating.update(attributes: answers)
+        UI.success("Initialized the confirmed age-rating questionnaire")
+      end
       upload_to_app_store(
         api_key: key, app_identifier: "app.isctcompanion", platform: "ios",
         app_version: version_number, build_number: build.version,
