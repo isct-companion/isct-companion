@@ -147,6 +147,7 @@ pub fn sanitize_setting(row: &mut Value) {
                         key.as_str(),
                         "classes"
                             | "exams"
+                            | "quizzes"
                             | "assignments"
                             | "classLeadMinutes"
                             | "examLeadMinutes"

@@ -87,6 +87,12 @@ object Theme {
     /** Course colour strengths: a block that occupies time, and row emphasis. */
     val tintFill = IsctTokens.courseTintFill.toFloat()
     val tintSoft = IsctTokens.courseTintSoft.toFloat()
+
+    /** An exam block's stronger fill, a quiz block's slightly weaker one,
+     * and the quiz's ring. */
+    val tintExam = IsctTokens.courseTintExam.toFloat()
+    val tintQuiz = IsctTokens.courseTintQuiz.toFloat()
+    val tintOutline = IsctTokens.courseTintOutline.toFloat()
 }
 
 /** The 'now' tint: [tint]'s hue at the theme's hero lightness, its chroma

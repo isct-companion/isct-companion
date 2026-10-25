@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.EditCalendar
@@ -62,12 +63,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -113,8 +111,9 @@ private val periodWidth = 26.dp
 /** 時間割: a dated week. Blocks come from Core's `ScheduleView` for
  * Monday–Friday, whatever quarter the week is in; the week chip opens a picker
  * that names each week's quarter (`TimetableYear`). A long press marks one
- * session as an exam, 休講 or a normal class; the header exports the quarter
- * as an .ics. Adding and planning courses stay on desktop. */
+ * session as an exam, a quiz or 休講 (choosing the checked mark again makes
+ * it a plain class); the header exports the quarter as an .ics. Adding and
+ * planning courses stay on desktop. */
 @Composable
 fun TimetableScreen() {
     val model = LocalModel.current
@@ -406,12 +405,18 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
     val planned = block.planned == true
     val cancelled = block.cancelled == true
     val exam = block.kind == OccurrenceKind.EXAM && !cancelled
+    val quiz = exam && block.quiz == true
     val faded = holiday || cancelled
     val tint = courseColor(block.color)
     val shape = RoundedCornerShape(8.dp)
     val id = block.courseId
-    // The current state, checked in the long-press menu.
-    val state = if (cancelled) "cancelled" else if (block.kind == OccurrenceKind.EXAM) "exam" else "class"
+    // The current mark, checked in the long-press menu.
+    val state = when {
+        cancelled -> "cancelled"
+        block.kind != OccurrenceKind.EXAM -> "class"
+        block.quiz == true -> "quiz"
+        else -> "exam"
+    }
     Box(Modifier.padding(horizontal = 2.dp).offset(y = top + 2.dp).fillMaxWidth()) {
         Column(
             Modifier
@@ -419,12 +424,23 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
                 .height(maxOf(bottom - top - 4.dp, 24.dp))
                 .courseZoomSource(block.key.takeIf { id != null })
                 .clip(shape)
-                .background(if (planned) Theme.colors.surface else tint.copy(alpha = if (faded) 0.08f else Theme.tintFill))
+                // An exam is the strongest fill, a quiz a little weaker;
+                // neither is striped, which means cancelled.
+                .background(
+                    if (planned) Theme.colors.surface
+                    else tint.copy(alpha = when {
+                        faded -> 0.08f
+                        quiz -> Theme.tintQuiz
+                        exam -> Theme.tintExam
+                        else -> Theme.tintFill
+                    }),
+                )
                 .then(
-                    // The class in progress outranks the exam border.
+                    // The class in progress and an exam ring in the course
+                    // colour, which outranks a quiz's lighter ring.
                     when {
-                        current -> Modifier.border(2.dp, tint, shape)
-                        exam -> Modifier.border(1.5.dp, Theme.colors.warn, shape)
+                        current || (exam && !quiz) -> Modifier.border(2.dp, tint, shape)
+                        quiz -> Modifier.border(1.5.dp, tint.copy(alpha = Theme.tintOutline), shape)
                         planned -> Modifier.border(1.dp, Theme.colors.line, shape)
                         else -> Modifier
                     },
@@ -444,22 +460,27 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
                 maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.weight(1f))
-            // 計画, 休講, or the first room (an exam says 試験 before it).
+            // 計画, 休講, or the first room (an exam or quiz tags it first, with
+            // a warning when the published exam changed).
             val room = firstRoom(block.room)
-            val warn = Theme.colors.warn
-            Text(
-                when {
-                    planned -> buildAnnotatedString { append(t("Planned")) }
-                    cancelled -> buildAnnotatedString { append(t("No class")) }
-                    exam -> buildAnnotatedString {
-                        withStyle(SpanStyle(color = warn)) { append(t("Exam")) }
-                        append(" $room")
+            val line = @Composable { text: String ->
+                Text(
+                    text, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = ink,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            when {
+                planned -> line(t("Planned"))
+                cancelled -> line(t("No class"))
+                exam -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    ExamTag(quiz, tint)
+                    if (block.sourceChanged == true) {
+                        Icon(Icons.Filled.Error, t("Timetable changed"), tint = Theme.colors.warn, modifier = Modifier.size(12.dp))
                     }
-                    else -> buildAnnotatedString { append(room) }
-                },
-                style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = ink,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+                    line(room)
+                }
+                else -> line(room)
+            }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text(
@@ -467,18 +488,36 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             )
             HorizontalDivider()
-            for ((value, label) in listOf("exam" to "Mark as exam", "cancelled" to "Mark as cancelled", "class" to "Back to a regular class")) {
+            // Choosing the checked mark again sends `class`; Core decides
+            // whether that clears the mark.
+            for ((value, label) in listOf("exam" to t("Mark as exam"), "quiz" to t("Mark as quiz"), "cancelled" to t("Mark as cancelled"))) {
                 DropdownMenuItem(
-                    text = { Text(t(label)) },
+                    text = { Text(label) },
                     trailingIcon = { if (value == state) Icon(Icons.Outlined.Check, null, tint = Theme.colors.accent) },
                     onClick = {
                         menu = false
-                        if (value != state) scope.launch { model.markSession(block.key, value) }
+                        scope.launch { model.markSession(block.key, if (value == state) "class" else value) }
                     },
                 )
             }
         }
     }
+}
+
+/** 試験 before an exam block's room, solid in the course colour; a quiz's
+ * 小テスト is outlined (design/README.md). */
+@Composable
+private fun ExamTag(quiz: Boolean, tint: Color) {
+    val shape = RoundedCornerShape(50)
+    Text(
+        if (quiz) t("Quiz") else t("Exam"),
+        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1,
+        // The course palette is mid-tone in both themes.
+        color = if (quiz) tint else Color.White,
+        modifier = Modifier
+            .then(if (quiz) Modifier.border(1.dp, tint, shape) else Modifier.background(tint, shape))
+            .padding(horizontal = 4.dp),
+    )
 }
 
 /** The first of several rooms joined by commas; every room stays on the course page. */

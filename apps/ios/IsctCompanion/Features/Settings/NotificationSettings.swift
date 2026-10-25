@@ -32,6 +32,11 @@ enum ReminderLeads {
         settings["exams"] as? Bool ?? (settings["classes"] as? Bool ?? false)
     }
 
+    /// Quizzes count as exams (upcoming exams, exam reminders) until turned off.
+    static func quizzes(_ settings: [String: Any]) -> Bool {
+        settings["quizzes"] as? Bool ?? true
+    }
+
     static func examLead(_ settings: [String: Any]) -> Int {
         (settings["examLeadMinutes"] as? NSNumber)?.intValue ?? classLead(settings)
     }
@@ -76,6 +81,15 @@ struct NotificationsScreen: View {
                             Text(ReminderLeads.label($0)).tag($0)
                         }
                     }
+                }
+                // Also decides Today's upcoming exams, so it stays while
+                // reminders are off and asks for no permission.
+                Toggle(isOn: Binding(
+                    get: { ReminderLeads.quizzes(settings) },
+                    set: { on in Task { await model.setNotifications { $0["quizzes"] = on } } })
+                ) {
+                    Text(t("Count quizzes as exams"))
+                    Text(t("Quizzes appear in upcoming exams and get exam reminders."))
                 }
             }
             Section {

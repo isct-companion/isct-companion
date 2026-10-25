@@ -856,7 +856,8 @@ extension AppModel {
         await refresh()
     }
 
-    /// Marks one session (`Occurrence.key`) as `exam`, `cancelled` or `class`.
+    /// Marks one session (`Occurrence.key`) as `exam`, `quiz`, `cancelled` or
+    /// `class` (a plain class; Core clears the mark when that is the default).
     /// Core republishes the schedule; the new content revision re-reads the week.
     func markSession(_ key: String, _ mark: String) async {
         guard let session else { return }

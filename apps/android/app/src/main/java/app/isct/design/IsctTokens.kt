@@ -35,8 +35,11 @@ object IsctTokens {
   val coursePalette6 = Color(0xffa34e5d)
   val coursePalette7 = Color(0xff806a9d)
   val coursePalette8 = Color(0xff5c7d93)
+  val courseTintExam = 0.42
   val courseTintFill = 0.22
   val courseTintInk = 0.4
+  val courseTintOutline = 0.7
+  val courseTintQuiz = 0.32
   val courseTintSoft = 0.1
   val heroChroma = 0.022
   val heroFade = 0.45

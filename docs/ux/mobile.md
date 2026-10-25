@@ -217,11 +217,17 @@ TipKit forgets shown tips at the next launch.
   first room only. Today's column is outlined and carries the now line, the
   current block has a 2 pt border in the course colour, a holiday column is
   hatched and its blocks fade.
-- An exam block has a warn-coloured border and 試験 before its room; a
+- An exam block has the stronger exam fill, a ring in the course colour and
+  a solid 試験 tag before its room; a quiz (小テスト) is a little weaker: the
+  quiz fill, a thinner lighter ring and an outlined 小テスト tag, never
+  striped (stripes mean cancelled). A warning mark follows the tag when the
+  published exam changed after the user's correction (`sourceChanged`). A
   cancelled block fades, strikes its title and says 休講.
 - Long press on a class or exam block marks it (`MarkSession`): 試験にする,
-  休講にする, 通常の授業に戻す, the current state ticked. Plan blocks and
-  personal events have no marks.
+  小テストにする, 休講にする, mutually exclusive with the current mark ticked.
+  Choosing the ticked mark again sends `class`, and Core decides whether that
+  clears the mark or keeps the session a class against its sources. Plan
+  blocks and personal events have no marks.
 - Registration states match desktop (`product-definition.md`): registered and
   declared are filled, planned courses are an outline only. Core marks a
   block `planned` against the block's own quarter, so a week in another
@@ -333,7 +339,7 @@ used.
 |---|---|
 | Tap | Open |
 | Long press on a row | Quick actions (at most 4): open course, pin, hide |
-| Long press on a timetable block | Mark: exam, cancelled, normal class |
+| Long press on a timetable block | Mark: exam, quiz, cancelled (tick again to unmark) |
 | Long press on a lesson chip | Mark this lesson as the class's lesson |
 | Long press on the ウェブ tab | Site picker; slide to a row and lift |
 | Long press on the 時間割 tab | Export the shown quarter as .ics; slide to a row and lift |

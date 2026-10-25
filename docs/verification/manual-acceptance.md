@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 108 checks must be re-run before the next release.**
+**10 of 109 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**98 checks have never been run or could not be run:**
+**99 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -130,6 +130,7 @@ an unverified area becomes an assumed-good one.
 - `NOW-TINT-APPEARANCE` — never verified
 - `DESKTOP-WINDOW-MATERIAL` — never verified
 - `DESKTOP-NATIVE-CHROME` — never verified
+- `DESKTOP-EXAM-MARKS` — never verified
 
 ## Status
 
@@ -243,6 +244,7 @@ an unverified area becomes an assumed-good one.
 | `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
+| `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
 
 ## Personas
 
@@ -6453,5 +6455,67 @@ to assert on.
 **Covers**
 
 - `apps/desktop/src/components/ui/ui.css`
+
+**Last recorded** never run
+
+### Marked exams and quizzes stand out on the calendar and appear in every exam list (`DESKTOP-EXAM-MARKS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app with this week's classes on the Calendar, in light and
+then dark appearance.
+
+**Steps**
+
+1. Right-click a class, choose Mark as exam; right-click another, choose
+   Mark as quiz; right-click the exam again and choose Mark as exam.
+   - *Why:* The menu has three exclusive checkable items and no "normal class";
+     choosing the checked one must return the session to a plain class.
+     A stale check mark or a session that stays an exam is the bug.
+2. Compare the exam and quiz blocks with the plain classes around them.
+   - *Why:* The exam was drawn lighter than a class (17% against 22%) and could
+     not be told apart; it now takes the stronger fill, a ring in the
+     course colour and a solid tag. The quiz is a little weaker, with an
+     outlined tag, and never striped, since stripes mean cancelled.
+3. Open Lectures → Exams, then the marked course's panel and Today's
+   upcoming exams.
+   - *Why:* A marked session used to change only the calendar block. It must be
+     listed under Exams as "Marked on the calendar", in the course's
+     exams and on Today; clicking the calendar block must open it there.
+4. Settings → Notifications, turn off Count quizzes as exams, look at
+   Today, then turn it back on.
+   - *Why:* The switch decides whether quizzes count on Today and in exam
+     reminders; a quiz that stays listed with it off means the setting is
+     not read.
+
+**Where to look**
+
+The calendar blocks, the Exams list and editor in Lectures, the course
+panel and Today's upcoming exams.
+
+**Expected**
+
+The exam block is clearly darker and ringed with a solid Exam tag, the
+quiz a step lighter, unstriped, with an outlined Quiz tag, both readable
+in dark mode;
+both sessions are listed in Exams (the quiz labelled Quiz), the course
+panel and Today, and the quiz leaves Today while the switch is off.
+
+**Why this is manual**
+
+How strongly a block stands out is a glance check in the real window.
+Which sessions become exams, the toggle and the lists are covered by
+Core's schedule tests and the lecture-desk e2e suite.
+
+**Covers**
+
+- `apps/desktop/src/pages/today/CalendarView.tsx`
+- `apps/desktop/src/components/timetable/timetable.tsx`
+- `apps/desktop/src/styles.css`
+- `design/tokens/course.json`
 
 **Last recorded** never run

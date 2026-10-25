@@ -502,6 +502,7 @@ pub fn notification_plan(
             "Exam reminder time must be between 1 minute and 7 days.".into(),
         ));
     }
+    let quizzes = super::exams::quizzes_count(workspace);
     if classes || exams {
         let term = reminder_term(workspace);
         let mut terms = std::collections::BTreeSet::from([term.clone()]);
@@ -529,7 +530,9 @@ pub fn notification_plan(
                     {
                         continue;
                     }
-                    let is_exam = block.kind == OccurrenceKind::Exam;
+                    // With quizzes switched off, a quiz reminds like its class.
+                    let quiz = block.quiz == Some(true);
+                    let is_exam = block.kind == OccurrenceKind::Exam && (!quiz || quizzes);
                     if (is_exam && !exams) || (!is_exam && (!classes || source_term != term)) {
                         continue;
                     }
@@ -548,11 +551,13 @@ pub fn notification_plan(
                         continue;
                     }
                     let title = if block.kind == OccurrenceKind::Exam {
-                        format!(
-                            "{} · {}",
-                            if japanese { "試験" } else { "Exam" },
-                            block.title
-                        )
+                        let label = match (quiz, japanese) {
+                            (true, true) => "小テスト",
+                            (true, false) => "Quiz",
+                            (false, true) => "試験",
+                            (false, false) => "Exam",
+                        };
+                        format!("{label} · {}", block.title)
                     } else {
                         block.title.clone()
                     };
@@ -576,7 +581,7 @@ pub fn notification_plan(
                         title,
                         body,
                         deep_link: "/today".into(),
-                        priority: if block.kind == OccurrenceKind::Exam {
+                        priority: if is_exam {
                             NotificationPriority::Exam
                         } else {
                             NotificationPriority::Class

@@ -34,8 +34,11 @@ public class IsctTokens {
     public static let coursePalette6 = Color(red: 0.639, green: 0.306, blue: 0.365, opacity: 1)
     public static let coursePalette7 = Color(red: 0.502, green: 0.416, blue: 0.616, opacity: 1)
     public static let coursePalette8 = Color(red: 0.361, green: 0.490, blue: 0.576, opacity: 1)
+    public static let courseTintExam = 0.42 /** An exam block: about twice a class's fill, ringed in the full course colour */
     public static let courseTintFill = 0.22 /** Something that occupies time: a timetable block */
     public static let courseTintInk = 0.4 /** Text on a fill: the course colour mixed into ink */
+    public static let courseTintOutline = 0.7 /** A quiz block's ring: the course colour at this share */
+    public static let courseTintQuiz = 0.32 /** A quiz block: a little weaker than an exam, never striped (stripes mean cancelled) */
     public static let courseTintSoft = 0.1 /** Emphasis on a row: the current or next class */
     public static let heroChroma = 0.022 /** Upper bound; a muted course keeps its own lower chroma */
     public static let heroFade = 0.45 /** Share of the tint left at the card's bottom edge: a slight top-to-bottom fade, symmetric side to side */

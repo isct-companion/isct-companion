@@ -214,11 +214,16 @@ pub enum WorkspaceIntent {
         #[serde(default)]
         hidden: bool,
     },
-    /// Marks one calendar session (`Occurrence.key`) as an exam, cancelled
-    /// (休講) or a normal class. The mark outranks every published source.
+    /// Marks one calendar session (`Occurrence.key`) as an exam, a quiz,
+    /// cancelled (休講) or a normal class. The mark outranks every published
+    /// source; marking a session what its sources already make it removes
+    /// the mark.
     MarkSession {
         key: String,
-        #[cfg_attr(feature = "ts", ts(type = "\"exam\" | \"cancelled\" | \"class\""))]
+        #[cfg_attr(
+            feature = "ts",
+            ts(type = "\"exam\" | \"quiz\" | \"cancelled\" | \"class\"")
+        )]
         mark: String,
     },
     /// Links an exam to a course of its quarter, or to none. Choosing the
@@ -862,6 +867,19 @@ fn save_exam_override(
                 && row.get("targetKey").and_then(Value::as_str) == Some(key)
         })
         .and_then(|row| object_string(row, "id"));
+    // A correction the exam adopted from its renamed row moves to the
+    // exam's own key.
+    if existing.is_none() {
+        if let Some(id) = crate::schedule::adopted_exam_override(current, key) {
+            delete_visible(
+                write,
+                current,
+                "scheduleOverrides",
+                "schedule_overrides",
+                &id,
+            )?;
+        }
+    }
     match (row, existing) {
         (Some(row), Some(id)) => save_simple_record(
             write,

@@ -23,6 +23,33 @@
 .examCard.hidden {
   opacity: 0.6;
 }
+.examConflictTag,
+.lectureRow .examConflictTag {
+  color: var(--warn);
+  font-weight: 700;
+}
+/* The published exam moved after the user's edit: both values and the two
+   ways out. */
+.examConflict {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+  border-radius: 10px;
+  background: var(--warn-soft);
+}
+.examConflict b {
+  color: var(--warn);
+  font-size: 13px;
+}
+.examEditor .examConflict p {
+  color: var(--ink);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.examConflict .examEditorActions {
+  justify-content: flex-start;
+}
 .examCardHeading {
   display: flex;
   align-items: center;

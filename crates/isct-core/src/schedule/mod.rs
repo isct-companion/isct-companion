@@ -52,9 +52,12 @@ pub use course_detail::{
 };
 pub use credits::declared_term_credits;
 pub(crate) use exams::{
-    corrected_exam_override, linked_exam_override, marked_session_override, ExamCorrection,
+    adopted_exam_override, corrected_exam_override, linked_exam_override, marked_session_override,
+    ExamCorrection,
 };
-pub use exams::{exam_association, exam_views, ExamAssociation, ExamSchedule, ExamView};
+pub use exams::{
+    exam_association, exam_views, ExamAssociation, ExamConflict, ExamSchedule, ExamView,
+};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
@@ -847,6 +850,7 @@ pub fn declarations() -> Vec<String> {
         <crate::course_materials::CourseKey as TS>::decl(),
         ExamView::decl(),
         ExamSchedule::decl(),
+        ExamConflict::decl(),
         ExamAssociation::decl(),
         LectureSearch::decl(),
         CourseTimeline::decl(),

@@ -149,7 +149,7 @@ export function CoursePanel({
     (item) => item.id === detail?.offeringId,
   );
   const exams = (detail?.exams ?? []).filter(
-    (exam) => exam.kind === "exam" && !exam.hidden,
+    (exam) => exam.kind !== "class" && !exam.hidden,
   );
   const registered = data.memberships.some(
     (item) =>

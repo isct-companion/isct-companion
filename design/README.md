@@ -43,7 +43,10 @@ Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
   block) or emphasis on a row (`course.tint.soft`, the current or next class),
   and a small square for "belongs to this course" in lists. Text on a fill
   takes the course colour mixed into ink (`course.tint.ink`), so a block reads
-  as one colour on desktop and phone.
+  as one colour on desktop and phone. An exam block is the one stronger fill
+  (`course.tint.exam`, ringed in the course colour, its tag solid); a quiz is
+  a little weaker (`course.tint.quiz`, a thinner ring at `course.tint.outline`,
+  an outlined tag). Neither is striped: stripes mean a cancelled class.
 - **One tint, meaning "now"**: the class in progress or next, or tonight's
   deadline, fills its whole card with a tint: the course (or danger) hue at the
   theme's `hero.lightness` with chroma capped at `hero.chroma` (OKLCH), so

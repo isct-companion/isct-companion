@@ -25,13 +25,15 @@ export function ExamEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  // A session marked on the calendar is its own course's; it has no link.
+  const published = exam.origin === "published";
   const association = useScheduleQuery<ExamAssociation>(
     {
       kind: "examAssociation",
       examKey: exam.key,
       courseId: exam.courseId ?? "",
     },
-    Boolean(exam.courseId),
+    published && Boolean(exam.courseId),
   );
   const run = async (
     intent: Parameters<typeof workspaceActions.mutate>[0],
@@ -66,34 +68,99 @@ export function ExamEditor({
       onSaved,
     );
   };
+  /** Saves these values; Core records today's published facts beside them. */
+  const settle = (values: {
+    date: string;
+    startTime: string | null;
+    endTime: string | null;
+    room: string;
+  }) =>
+    void run({
+      kind: "editExam",
+      examKey: exam.key,
+      date: values.date,
+      startTime: values.startTime ?? undefined,
+      endTime: values.endTime ?? undefined,
+      room: values.room || undefined,
+      hidden: exam.hidden,
+    });
   const source = exam.source;
   const sourceHint = (changed: boolean, value: string) =>
     changed ? t("Source: {{value}}", { value: value || "—" }) : undefined;
-  const conflicts = exam.courseId ? (association.value?.conflicts ?? []) : [];
+  const conflicts =
+    published && exam.courseId ? (association.value?.conflicts ?? []) : [];
+  const facts = (value: {
+    date: string;
+    startTime: string | null;
+    endTime: string | null;
+    room: string;
+  }) =>
+    [value.date, timeRange(value.startTime, value.endTime), value.room]
+      .filter(Boolean)
+      .join(" · ");
   return (
     <div className="examEditor">
-      <Select
-        label={t("Linked course")}
-        value={exam.courseId ?? ""}
-        onChange={(value) =>
-          void run({
-            kind: "linkExam",
-            examKey: exam.key,
-            courseId: value || undefined,
-          })
-        }
-        description={exam.autoLinked ? t("Matched by course code") : undefined}
-        data={[
-          { value: "", label: t("Not linked") },
-          ...courses.map((course) => ({
-            value: course.id,
-            label: `${course.title} · ${course.code}`,
-          })),
-        ]}
-        searchable
-        allowDeselect={false}
-        disabled={saving}
-      />
+      {exam.conflict && (
+        <section className="examConflict" role="status">
+          <b>
+            {t(
+              exam.conflict.removed
+                ? "No longer in the published timetable."
+                : "The published timetable changed after your edit.",
+            )}
+          </b>
+          <p>{t("Your edit: {{value}}", { value: facts(exam) })}</p>
+          {!exam.conflict.removed && (
+            <>
+              <p>{t("Published now: {{value}}", { value: facts(source) })}</p>
+              <p>
+                {t("When you edited: {{value}}", {
+                  value: facts(exam.conflict.base),
+                })}
+              </p>
+              <div className="examEditorActions">
+                <Button disabled={saving} onClick={() => settle(source)}>
+                  {t("Use published")}
+                </Button>
+                <Button
+                  variant="subtle"
+                  disabled={saving}
+                  onClick={() => settle(exam)}
+                >
+                  {t("Keep mine")}
+                </Button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+      {!published && <p>{t("Marked on the calendar")}</p>}
+      {published && (
+        <Select
+          label={t("Linked course")}
+          value={exam.courseId ?? ""}
+          onChange={(value) =>
+            void run({
+              kind: "linkExam",
+              examKey: exam.key,
+              courseId: value || undefined,
+            })
+          }
+          description={
+            exam.autoLinked ? t("Matched by course code") : undefined
+          }
+          data={[
+            { value: "", label: t("Not linked") },
+            ...courses.map((course) => ({
+              value: course.id,
+              label: `${course.title} · ${course.code}`,
+            })),
+          ]}
+          searchable
+          allowDeselect={false}
+          disabled={saving}
+        />
+      )}
       {conflicts.length > 0 && (
         <p className="examEditorNote">
           {t("This course also has: {{exams}}", {

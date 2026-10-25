@@ -17,6 +17,9 @@
       "$description": "Share of the course colour mixed into the surface.",
       "fill": { "$value": 0.22, "$description": "Something that occupies time: a timetable block" },
       "soft": { "$value": 0.1, "$description": "Emphasis on a row: the current or next class" },
+      "exam": { "$value": 0.42, "$description": "An exam block: about twice a class's fill, ringed in the full course colour" },
+      "quiz": { "$value": 0.32, "$description": "A quiz block: a little weaker than an exam, never striped (stripes mean cancelled)" },
+      "outline": { "$value": 0.7, "$description": "A quiz block's ring: the course colour at this share" },
       "ink": { "$value": 0.4, "$description": "Text on a fill: the course colour mixed into ink" }
     }
   }

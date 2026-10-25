@@ -25,6 +25,11 @@ enum Theme {
     /// Course colour strengths: a block that occupies time, and row emphasis.
     static let tintFill = IsctTokens.courseTintFill
     static let tintSoft = IsctTokens.courseTintSoft
+    /// An exam block's stronger fill, a quiz block's slightly weaker one,
+    /// and the quiz's ring.
+    static let tintExam = IsctTokens.courseTintExam
+    static let tintQuiz = IsctTokens.courseTintQuiz
+    static let tintOutline = IsctTokens.courseTintOutline
 
     private static func adaptive(_ light: Color, _ dark: Color) -> Color {
         let light = UIColor(light)

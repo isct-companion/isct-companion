@@ -26,6 +26,9 @@
   --shadow: 0px 1px 2px 0px #0000000a, 0px 8px 24px 0px #0000000d;
   --course-tint-fill: 22%; /** Something that occupies time: a timetable block */
   --course-tint-soft: 10%; /** Emphasis on a row: the current or next class */
+  --course-tint-exam: 42%; /** An exam block: about twice a class's fill, ringed in the full course colour */
+  --course-tint-quiz: 32%; /** A quiz block: a little weaker than an exam, never striped (stripes mean cancelled) */
+  --course-tint-outline: 70%; /** A quiz block's ring: the course colour at this share */
   --course-tint-ink: 40%; /** Text on a fill: the course colour mixed into ink */
   --radius-chip: 6px; /** Deadline chip, timetable block */
   --radius-control: 10px; /** Buttons, inputs, segmented controls */

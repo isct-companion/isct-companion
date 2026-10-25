@@ -587,13 +587,17 @@ private fun Secret(
     )
 }
 
+/** A switch with its title, and an optional line under it saying what it does. */
 @Composable
-internal fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, checked: Boolean, detail: String? = null, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Text(title, color = Theme.colors.ink, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Theme.colors.ink)
+            detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted) }
+        }
         Switch(checked, onChange)
     }
 }

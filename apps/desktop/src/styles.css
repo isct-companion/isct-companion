@@ -73,7 +73,9 @@ summary,
   user-select: none;
 }
 /* Web select menus share shell tokens even when portalled outside the page. */
-.uiSelect { min-width: 0; }
+.uiSelect {
+  min-width: 0;
+}
 .uiSelect .uiInput {
   background: var(--surface-3);
   border-color: var(--line);
@@ -82,9 +84,15 @@ summary,
   border-radius: var(--radius-control);
   cursor: default;
 }
-.uiSelect .uiInput:focus { border-color: var(--accent); }
-.uiSelect .uiInput:focus-visible { outline: none; }
-.uiSelect .uiInputSection { color: var(--muted); }
+.uiSelect .uiInput:focus {
+  border-color: var(--accent);
+}
+.uiSelect .uiInput:focus-visible {
+  outline: none;
+}
+.uiSelect .uiInputSection {
+  color: var(--muted);
+}
 .uiSelectDropdown {
   background: var(--surface);
   border-color: var(--line);
@@ -101,7 +109,9 @@ summary,
   background: var(--accent-soft);
   color: var(--accent);
 }
-.uiSelectDropdown .uiSelectGroupLabel { color: var(--muted); }
+.uiSelectDropdown .uiSelectGroupLabel {
+  color: var(--muted);
+}
 .muted {
   color: var(--muted);
 }
@@ -684,27 +694,67 @@ summary,
   box-shadow: inset 0 0 0 1.5px
     color-mix(in srgb, var(--course) 45%, var(--surface));
 }
+/* An exam is the one stronger fill, ringed in the course colour; a quiz is a
+   little weaker, never striped: stripes mean cancelled (design/README.md). */
 .ttBlock.exam {
   z-index: 4;
-  background: color-mix(in srgb, var(--course) 17%, var(--surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--course) 42%, var(--line));
+  background: color-mix(
+    in srgb,
+    var(--course) var(--course-tint-exam),
+    var(--surface)
+  );
+  box-shadow: inset 0 0 0 2px var(--course);
 }
-/* An inline tag after the course code, in the course's own colour, inside
-   the card's exam border. It never takes a line of its own. */
+.ttBlock.exam b {
+  color: var(--ink);
+}
+.ttBlock.exam.quiz {
+  background: color-mix(
+    in srgb,
+    var(--course) var(--course-tint-quiz),
+    var(--surface)
+  );
+  box-shadow: inset 0 0 0 1.5px
+    color-mix(in srgb, var(--course) var(--course-tint-outline), var(--surface));
+}
+/* An inline tag after the course code, solid in the course's own colour; a
+   quiz's is outlined. It never takes a line of its own. */
 .ttExamTag,
 .ttBlock .ttExamTag {
   display: inline-block;
   margin-left: 5px;
   padding: 0 5px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--course) 34%, var(--surface));
-  color: color-mix(in srgb, var(--course) var(--course-tint-ink), var(--ink));
+  background: var(--course);
+  /* The course palette is mid-tone in both themes. */
+  color: #fff;
   font-size: calc(9px * var(--text));
   font-weight: 750;
   line-height: 1.5;
   opacity: 1;
   vertical-align: 1px;
   white-space: nowrap;
+}
+.ttBlock.quiz .ttExamTag {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--course);
+  color: color-mix(in srgb, var(--course) var(--course-tint-ink), var(--ink));
+}
+/* The published exam moved after the user's edit: a warning dot, the
+   details are in the exam editor. */
+.ttBlock .ttSourceChanged {
+  display: inline-block;
+  margin-left: 4px;
+  min-width: 1.5em;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--surface);
+  font-size: calc(9px * var(--text));
+  font-weight: 800;
+  line-height: 1.5;
+  text-align: center;
+  opacity: 1;
+  vertical-align: 1px;
 }
 .ttBlock .ttConflict {
   color: var(--danger);

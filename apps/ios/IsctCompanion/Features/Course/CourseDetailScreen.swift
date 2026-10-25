@@ -217,16 +217,19 @@ struct CourseDetailScreen: View {
         return parts.joined(separator: " · ")
     }
 
-    /// `試験 · 11/27 5–6限 · W9-202`, one line per exam of this course; a
-    /// cancelled one is struck through.
+    /// `試験 · 11/27 5–6限 · W9-202`, one line per exam or quiz of this
+    /// course; a cancelled one is struck through, a changed one warned.
     @ViewBuilder
     private var examLines: some View {
-        let exams = (detail?.exams ?? []).filter { $0.kind == "exam" && !$0.hidden }
+        let exams = (detail?.exams ?? []).filter { ["exam", "quiz"].contains($0.kind) && !$0.hidden }
         ForEach(exams, id: \.id) { exam in
             Text(Self.examLine(exam))
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.warn)
                 .strikethrough(exam.status == "cancelled")
+            if let conflict = exam.conflict {
+                ExamConflictLabel(conflict: conflict)
+            }
         }
     }
 
@@ -238,7 +241,7 @@ struct CourseDetailScreen: View {
         } else if let start = exam.startTime, let end = exam.endTime {
             when += " \(start)–\(end)"
         }
-        return ([t("Exam"), when] + (exam.room.isEmpty ? [] : [exam.room])).joined(separator: " · ")
+        return ([exam.kind == "quiz" ? t("Quiz") : t("Exam"), when] + (exam.room.isEmpty ? [] : [exam.room])).joined(separator: " · ")
     }
 
     @ViewBuilder

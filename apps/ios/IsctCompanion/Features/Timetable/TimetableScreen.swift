@@ -5,8 +5,8 @@ import TipKit
 /// 時間割: a dated week. Blocks come from Core's `ScheduleView` for
 /// Monday–Friday, whatever quarter the week is in; the title opens a picker
 /// that names each week's quarter (`TimetableYear`). A long press marks one
-/// session as an exam, 休講 or a normal class; adding and planning courses
-/// stay on desktop.
+/// session as an exam, a quiz or 休講 (choosing the checked mark again makes
+/// it a plain class); adding and planning courses stay on desktop.
 struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
@@ -295,6 +295,7 @@ struct TimetableScreen: View {
         let planned = block.planned == true
         let cancelled = block.cancelled == true
         let exam = block.kind == .exam && !cancelled
+        let quiz = exam && block.quiz == true
         let faded = holiday || cancelled
         let current = isCurrent(block)
         let tint = Color(hex: block.color)
@@ -305,7 +306,7 @@ struct TimetableScreen: View {
                 .font(BlockText.titleFont)
                 .lineLimit(BlockText.titleLines(height: height))
             Spacer(minLength: 0)
-            bottomLine(block, planned: planned, exam: exam, cancelled: cancelled)
+            bottomLine(block, planned: planned, exam: exam, quiz: quiz, cancelled: cancelled)
                 .font(BlockText.roomFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -315,14 +316,17 @@ struct TimetableScreen: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: height)
         .background {
-            shape.fill(planned ? Theme.surface : tint.opacity(faded ? 0.08 : Theme.tintFill))
+            // An exam is the strongest fill, a quiz a little weaker; neither is
+            // striped, which means cancelled.
+            shape.fill(planned ? Theme.surface : tint.opacity(faded ? 0.08 : quiz ? Theme.tintQuiz : exam ? Theme.tintExam : Theme.tintFill))
         }
         .overlay {
-            // The class in progress outranks the exam border.
-            if current {
+            // The class in progress and an exam ring in the course colour,
+            // which outranks a quiz's lighter ring.
+            if current || (exam && !quiz) {
                 shape.stroke(tint, lineWidth: 2)
-            } else if exam {
-                shape.stroke(Theme.warn, lineWidth: 1.5)
+            } else if quiz {
+                shape.stroke(tint.opacity(Theme.tintOutline), lineWidth: 1.5)
             } else if planned {
                 shape.stroke(Theme.line, lineWidth: 1)
             }
@@ -342,17 +346,26 @@ struct TimetableScreen: View {
         .sessionMarks(block, enabled: !planned)
     }
 
-    /// 計画, 休講, or the first room (an exam says 試験 before it); every room
-    /// stays on the course page.
+    /// 計画, 休講, or the first room (an exam or quiz tags it first, with a
+    /// warning when the published exam changed); every room stays on the
+    /// course page.
     @ViewBuilder
-    private func bottomLine(_ block: Occurrence, planned: Bool, exam: Bool, cancelled: Bool) -> some View {
+    private func bottomLine(_ block: Occurrence, planned: Bool, exam: Bool, quiz: Bool, cancelled: Bool) -> some View {
         let room = BlockText.firstRoom(block.room)
         if planned {
             Text(t("Planned"))
         } else if cancelled {
             Text(t("No class"))
         } else if exam {
-            Text("\(Text(t("Exam")).foregroundStyle(Theme.warn)) \(room)")
+            HStack(spacing: 3) {
+                ExamTag(quiz: quiz, tint: Color(hex: block.color))
+                if block.sourceChanged == true {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(Theme.warn)
+                        .accessibilityLabel(t("Timetable changed"))
+                }
+                Text(room)
+            }
         } else {
             Text(room)
         }

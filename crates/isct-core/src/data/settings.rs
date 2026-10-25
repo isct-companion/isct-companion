@@ -7,6 +7,7 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "notifications": {
             "classes": settings.pointer("/notifications/classes"),
             "exams": settings.pointer("/notifications/exams"),
+            "quizzes": settings.pointer("/notifications/quizzes"),
             "examLeadMinutes": settings.pointer("/notifications/examLeadMinutes"),
             "assignments": settings.pointer("/notifications/assignments"),
             "classLeadMinutes": settings.pointer("/notifications/classLeadMinutes"),

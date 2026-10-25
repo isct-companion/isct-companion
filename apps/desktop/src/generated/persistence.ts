@@ -440,15 +440,32 @@ export type ScheduleOverride = {
   title?: string;
   hidden: boolean;
   /**
-   * The user's call on what this session is: an exam, a cancelled class
-   * (休講) or a class that runs. It outranks every published source.
+   * The user's call on what this session is: an exam, a quiz (小テスト),
+   * a cancelled class (休講) or a class that runs. It outranks every
+   * published source.
    */
-  mark?: "exam" | "cancelled" | "class";
+  mark?: "exam" | "quiz" | "cancelled" | "class";
+  /**
+   * On an exam correction: the published facts it was made against.
+   */
+  base?: ExamBase;
   id: string;
   rev: number;
   updatedAt: string;
   updatedBy: string;
   deletedAt?: string;
+};
+
+export type ExamBase = {
+  date: string;
+  startTime?: string;
+  endTime?: string;
+  room: string;
+  term: string;
+  code: string;
+  kind: "exam" | "class";
+  title: string;
+  courseId?: string;
 };
 
 export type Subscription = {
@@ -519,6 +536,10 @@ export type Notifications = {
   classes: boolean;
   assignments: boolean;
   exams?: boolean;
+  /**
+   * Quizzes count as exams on Today and in exam reminders (default on).
+   */
+  quizzes?: boolean;
   examLeadMinutes?: number;
   classLeadMinutes?: number;
   assignmentLeadMinutes?: Array<number>;
@@ -969,6 +990,15 @@ export type Occurrence = {
    * block's own quarter, so a range across quarters reads each correctly.
    */
   planned?: boolean | null;
+  /**
+   * An exam block the user marked as a quiz (小テスト) held in class.
+   */
+  quiz?: boolean | null;
+  /**
+   * The published exam changed after the user corrected it, or left the
+   * exam timetable; the block keeps the user's values until they choose.
+   */
+  sourceChanged?: boolean | null;
 };
 
 export type ScheduleProblemKind = "courseMeeting" | "plan" | "scheduleOverride";
@@ -1194,10 +1224,16 @@ export type ExamView = {
   id: string;
   key: string;
   /**
-   * `exam`, or `class` for a class the exam timetable lists in the exam
-   * period. A class enters agendas as a class, not as an exam.
+   * `exam`, `quiz` (小テスト, only by the user's mark), or `class` for a
+   * class the exam timetable lists in the exam period. A class enters
+   * agendas as a class, not as an exam.
    */
-  kind: "exam" | "class";
+  kind: "exam" | "quiz" | "class";
+  /**
+   * `published` for a row of the exam timetable, `session` for a class
+   * session the user marked as an exam or quiz; its key is the session's.
+   */
+  origin: "published" | "session";
   term: string;
   courseId: string | null;
   /**
@@ -1226,7 +1262,12 @@ export type ExamView = {
   /**
    * The user's mark, which outranks the published kind and status.
    */
-  mark?: "exam" | "cancelled" | "class";
+  mark?: "exam" | "quiz" | "cancelled" | "class";
+  /**
+   * The published record moved away from what the user corrected, or left
+   * the timetable. The view keeps the user's values until they choose.
+   */
+  conflict?: ExamConflict;
 };
 
 export type ExamSchedule = {
@@ -1234,6 +1275,18 @@ export type ExamSchedule = {
   startTime: string | null;
   endTime: string | null;
   room: string;
+};
+
+export type ExamConflict = {
+  /**
+   * The published facts when the user last corrected the exam. `source`
+   * on the view holds the published facts now.
+   */
+  base: ExamSchedule;
+  /**
+   * The exam timetable no longer lists this exam.
+   */
+  removed: boolean;
 };
 
 export type ExamAssociation = {
@@ -1659,7 +1712,11 @@ export type WorkspaceIntent =
       room?: string;
       hidden: boolean;
     }
-  | { kind: "markSession"; key: string; mark: "exam" | "cancelled" | "class" }
+  | {
+      kind: "markSession";
+      key: string;
+      mark: "exam" | "quiz" | "cancelled" | "class";
+    }
   | { kind: "linkExam"; examKey: string; courseId?: string }
   | { kind: "deleteScheduleOverride"; overrideId: string }
   | { kind: "saveScheduledTask"; draft: unknown; existingId?: string }

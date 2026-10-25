@@ -68,6 +68,7 @@ import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.text
 import app.isctcompanion.design.Card
+import app.isctcompanion.design.ExamConflictLabel
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.GuideTip
 import app.isctcompanion.design.HtmlText
@@ -122,12 +123,13 @@ fun CourseDetailScreen(courseId: String) {
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 PageSubtitle(subtitle(course))
-                for (exam in detail?.exams.orEmpty().filter { it.kind == "exam" && !it.hidden }) {
+                for (exam in detail?.exams.orEmpty().filter { (it.kind == "exam" || it.kind == "quiz") && !it.hidden }) {
                     Text(
                         examLine(exam), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
                         color = Theme.colors.warn,
                         textDecoration = if (exam.status == "cancelled") TextDecoration.LineThrough else null,
                     )
+                    exam.conflict?.let { ExamConflictLabel(it) }
                 }
                 Links(detail, title)
             }
@@ -353,7 +355,7 @@ private fun subtitle(course: JSONObject): String {
     return parts.joinToString(" · ")
 }
 
-/** `試験 · 11/27 5–6限 · W9-202`, one line per exam of this course. */
+/** `試験 · 11/27 5–6限 · W9-202`, one line per exam or quiz of this course. */
 private fun examLine(exam: ExamView): String {
     val day = Format.civilDate(exam.date)
     var time = day?.let { "${it.monthValue}/${it.dayOfMonth}" } ?: exam.date
@@ -361,7 +363,7 @@ private fun examLine(exam: ExamView): String {
     val start = exam.startTime
     val end = exam.endTime
     if (periods != null) time += " $periods" else if (start != null && end != null) time += " $start–$end"
-    return (listOf(t("Exam"), time) + listOfNotNull(exam.room.ifEmpty { null })).joinToString(" · ")
+    return (listOf(if (exam.kind == "quiz") t("Quiz") else t("Exam"), time) + listOfNotNull(exam.room.ifEmpty { null })).joinToString(" · ")
 }
 
 @Composable

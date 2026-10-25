@@ -408,7 +408,8 @@ export function Today({
                       {timeLabel(block.startTime)}
                       {block.kind === "exam" && (
                         <small>
-                          {t("Exam")} · {block.timeLabel}
+                          {t(block.quiz ? "Quiz" : "Exam")}
+                          {block.timeLabel ? ` · ${block.timeLabel}` : ""}
                         </small>
                       )}
                     </time>
