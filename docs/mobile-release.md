@@ -108,3 +108,38 @@ also requires Beta App Review. Check `IOS-TESTFLIGHT-RELEASE` in the manual chec
 
 Build numbers are the UTC time of the run (`YYYYMMDDHHMM`), so each upload is
 newer than the last. The marketing version is the release version.
+
+## App Store
+
+`app-store.yml` promotes an existing TestFlight build; it does not rebuild or
+upload an IPA. It uses the same three `APPLE_API_*` secrets as the iOS workflow,
+with fastlane pinned in `scripts/app-store/Gemfile.lock`.
+
+For the first submission, run **App Store release** manually with the marketing
+version and mode `prepare`. This updates the editable store version, uploads
+the screenshots in `resources/app-store/screenshots/`, checks their order,
+checksums and processing state, and selects the newest valid build of exactly
+that version. An optional build number selects a specific upload. Mode `inspect`
+only reads the current store status. The `app-store-status` artifact contains
+version/build state, localized screenshot receipts and age-rating answers;
+it excludes API keys and review contacts.
+
+Complete the developer agreement, privacy answers, age rating, pricing and
+availability in App Store Connect before the first submission. Keep the existing
+review notes explaining school sign-in; the workflow does not replace them.
+Run mode `submit` to submit for review and release automatically after approval.
+Apple's review is still required; a successful workflow is not an approval.
+
+Once the first listing is ready, enable automatic submissions:
+
+```bash
+gh variable set IOS_APP_STORE_ENABLED --body true
+```
+
+Successful tag-triggered **iOS release** runs then start **App Store release**.
+It waits up to 30 minutes for Apple to process the matching marketing version,
+reuses the checked-in screenshots, applies `docs/releases/<version>.md` as
+What's New for updates, and submits for review with automatic release after
+approval. Turning the variable off keeps TestFlight uploads running. Re-running
+a version already submitted leaves its selected build and metadata in place;
+an older run cannot rename a newer editable version.

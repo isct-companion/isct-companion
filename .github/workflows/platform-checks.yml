@@ -16,6 +16,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  app-store-tools:
+    name: App Store tooling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: scripts/app-store
+      - name: Load the release lane without App Store credentials
+        working-directory: scripts/app-store
+        env:
+          FASTLANE_SKIP_UPDATE_CHECK: 'true'
+          FASTLANE_OPT_OUT_USAGE: 'true'
+        run: bundle exec fastlane lanes
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
