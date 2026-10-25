@@ -1,14 +1,11 @@
 # Screenshots
 
-Screenshots show the shipped native desktop interface. Use published reference
-exam data and the Notifications settings page so public images contain no school
+The README hero images. They are copied from the website's sample-data captures
+(`isct-companion-homepage/screenshots/{en,ja}/`), so they contain no school
 account identifiers, credentials, grades, private notes or course files.
 
-- `exams.png`: open Lectures, select 2026 2Q and Exams, search `LAL.C202`, then
-  select a published exam. Keep Linked course set to Not linked; capture the
-  list and right-hand editor without saving a personal association.
-- `exam-reminders.png`: open Settings → Notifications and capture the independent
-  class, exam and assignment controls. Keep the user's saved preferences intact.
+- `desktop-today.{en,ja}.png`: the desktop Today page, downscaled to 1600 px wide.
+- `phone-today.{en,ja}.png`: the iPhone Today tab, downscaled to 480 px wide.
 
-Capture through the native app's screenshot surface. Refresh these images when
-the represented layout changes and check their contents before committing.
+Refresh them from the website when its captures change, and check their contents
+before committing.
