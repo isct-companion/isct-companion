@@ -107,8 +107,9 @@ final class AppModel {
             let cloud: NativeCloud? = nil
             let icloud: [CloudProvider] = []
             #else
-            let cloud: NativeCloud? = CloudKitStore()
-            let icloud: [CloudProvider] = [.icloud]
+            // A sideloaded build may lack the container (CloudKitStore.available).
+            let cloud: NativeCloud? = CloudKitStore.available ? CloudKitStore() : nil
+            let icloud: [CloudProvider] = cloud == nil ? [] : [.icloud]
             #endif
             let config = SessionConfig(
                 dataDirectory: data.path, filesDirectory: files.path, initialNetwork: .unknown,

@@ -296,6 +296,13 @@ pub struct SharedFile {
     pub name: String,
 }
 
+/// A newer release for this device: its version and the package to install.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct AppRelease {
+    pub version: String,
+    pub url: String,
+}
+
 /// An assignment whose `submit/` holds files not yet handed in.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct WaitingHandIn {
@@ -368,6 +375,40 @@ fn hand_in_target(
 /// LMS draft area from it. Core never submits; the person saves the page.
 #[uniffi::export]
 impl Session {
+    /// Android's update check: a newer published release with its APK, when a
+    /// check is due after `last_checked` (or `manual`). The shell downloads
+    /// the APK and hands it to the system installer, where the person confirms.
+    pub fn check_android_update(
+        &self,
+        running: String,
+        last_checked: Option<String>,
+        manual: bool,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |_, _| async move {
+            let found = isct_core::app_updates::check_android(
+                &running,
+                last_checked.as_deref(),
+                chrono::Utc::now(),
+                manual,
+            )
+            .await
+            .map_err(|error| match error {
+                isct_core::app_updates::AppUpdateError::Network(detail) => {
+                    SdkError::Network { detail }
+                }
+                other => SdkError::InvalidInput {
+                    detail: other.to_string(),
+                },
+            })?;
+            Ok(OperationResult::AppUpdate {
+                checked: found.is_some(),
+                release: found.flatten().map(|release| AppRelease {
+                    version: release.version,
+                    url: release.apk_url,
+                }),
+            })
+        })
+    }
     /// Assignments with files waiting to be handed in, for 今日's rows.
     pub fn waiting_hand_ins(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {

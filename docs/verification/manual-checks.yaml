@@ -3655,6 +3655,43 @@ checks:
       - apps/android/app/src/main/AndroidManifest.xml
     verified: null
 
+  - id: ANDROID-APP-UPDATE
+    area: native
+    title: Android offers a newer GitHub release and installs it through the system installer
+    persona: undergraduate-senior
+    preconditions: |
+      An Android build older than the latest published GitHub release, whose
+      APK is attached to that release, signed with the release key.
+    steps:
+      - action: Open the app (or bring it to the front) and read 今日.
+        reason: |
+          Core finds the newer release with its APK and 今日 shows
+          「バージョン x.y.z が利用できます」 with 「アップデート」. No banner while
+          the release still lacks its APK means Core waits for it, as it should.
+      - action: |
+          Tap 「アップデート」; allow installing from this app if the system asks,
+          then tap it again.
+        reason: |
+          The APK downloads with the system's download manager (its
+          notification shows), and the system installer opens on it; the
+          person confirms there. An installer error about a conflicting
+          package means the release APK was signed with another key.
+      - action: Install, reopen the app and read 今日.
+        reason: |
+          The banner is gone, since the running version is the offered one.
+    observe: 今日, the download notification and the system installer.
+    expected: |
+      A newer release is offered once its APK is attached, downloads, and
+      installs through the system installer after the person confirms.
+    why_manual: |
+      Needs a published GitHub release, a release-signed APK and the system
+      installer on a device.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
+      - crates/isct-core/src/app_updates.rs
+    verified: null
+
   - id: IOS-SETTINGS-PAGES
     area: native
     title: iPhone settings pages keep their values and share the desktop's keys

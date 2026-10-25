@@ -6,4 +6,6 @@
     <files-path name="files" path="files/" />
     <cache-path name="exports" path="exports/" />
     <cache-path name="photos" path="photos/" />
+    <!-- An update's APK, handed to the system installer. -->
+    <external-files-path name="updates" path="updates/" />
 </paths>

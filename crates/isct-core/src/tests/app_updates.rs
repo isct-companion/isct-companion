@@ -52,3 +52,37 @@ fn last_install_is_judged_by_the_version_that_launched() {
         }
     );
 }
+
+#[test]
+fn android_is_offered_a_newer_release_only_once_its_apk_is_attached() {
+    let apk = |version: &str| {
+        serde_json::json!({
+            "name": format!("IsctCompanion_{version}_android.apk"),
+            "browser_download_url": format!("https://github.com/isct-companion/isct-companion/releases/download/v{version}/IsctCompanion_{version}_android.apk"),
+        })
+    };
+    let release = |assets: Vec<Value>| serde_json::json!({ "tag_name": "v1.2.0", "draft": false, "prerelease": false, "assets": assets });
+    let offered = android_release(&release(vec![apk("1.2.0")]), "1.1.6")
+        .unwrap()
+        .unwrap();
+    assert_eq!(offered.version, "1.2.0");
+    assert!(offered
+        .apk_url
+        .ends_with("/v1.2.0/IsctCompanion_1.2.0_android.apk"));
+    // The release is published before the Android build attaches its APK.
+    let dmg = serde_json::json!({ "name": "IsctCompanion_1.2.0_aarch64-apple-darwin.dmg", "browser_download_url": "https://github.com/isct-companion/isct-companion/releases/download/v1.2.0/x.dmg" });
+    assert_eq!(android_release(&release(vec![dmg]), "1.1.6").unwrap(), None);
+    // Already running it, or an APK hosted anywhere else, is never offered.
+    assert_eq!(
+        android_release(&release(vec![apk("1.2.0")]), "1.2.0").unwrap(),
+        None
+    );
+    let elsewhere = serde_json::json!({ "name": "IsctCompanion_1.2.0_android.apk", "browser_download_url": "https://example.com/IsctCompanion_1.2.0_android.apk" });
+    assert_eq!(
+        android_release(&release(vec![elsewhere]), "1.1.6").unwrap(),
+        None
+    );
+    let mut draft = release(vec![apk("1.2.0")]);
+    draft["prerelease"] = Value::Bool(true);
+    assert_eq!(android_release(&draft, "1.1.6").unwrap(), None);
+}

@@ -6,6 +6,88 @@ use serde_json::Value;
 pub enum AppUpdateError {
     #[error("Invalid application version: {0}")]
     Version(#[from] semver::Error),
+    #[error("The release could not be read: {0}")]
+    Network(String),
+}
+
+/// GitHub's record of the newest published release, which every platform
+/// reads to learn whether there is a newer version.
+pub const RELEASE_API: &str =
+    "https://api.github.com/repos/isct-companion/isct-companion/releases/latest";
+
+/// The Android build of a newer release: its version and the APK to install.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AndroidRelease {
+    pub version: String,
+    pub apk_url: String,
+}
+
+/// Reads GitHub's latest-release record for Android: a published release newer
+/// than `running` whose APK is attached. A release still waiting for its APK
+/// (the Android build attaches it after the release is published) is not
+/// offered yet, so nobody is sent to a download that does not exist.
+pub fn android_release(
+    release: &Value,
+    running: &str,
+) -> Result<Option<AndroidRelease>, AppUpdateError> {
+    let Some(version) = release.get("tag_name").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let flag = |key: &str| release.get(key).and_then(Value::as_bool) == Some(true);
+    if flag("draft") || flag("prerelease") || !newer_release(running, version)? {
+        return Ok(None);
+    }
+    let apk = release
+        .get("assets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|asset| {
+            asset
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| {
+                    name.starts_with("IsctCompanion_") && name.ends_with("_android.apk")
+                })
+        })
+        .filter_map(|asset| asset.get("browser_download_url").and_then(Value::as_str))
+        .find(|url| {
+            url.starts_with("https://github.com/isct-companion/isct-companion/releases/download/")
+        });
+    Ok(apk.map(|url| AndroidRelease {
+        version: version.trim_start_matches('v').to_owned(),
+        apk_url: url.to_owned(),
+    }))
+}
+
+/// Asks GitHub for a newer Android release when a check is due (`check_due`);
+/// `None` for the time when it was not due.
+pub async fn check_android(
+    running: &str,
+    last_checked: Option<&str>,
+    now: DateTime<Utc>,
+    manual: bool,
+) -> Result<Option<Option<AndroidRelease>>, AppUpdateError> {
+    if !check_due(last_checked, now, manual) {
+        return Ok(None);
+    }
+    let network = |error: reqwest::Error| AppUpdateError::Network(error.to_string());
+    let release: Value = crate::net::client_builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent(crate::net::USER_AGENT)
+        .build()
+        .map_err(network)?
+        .get(RELEASE_API)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(network)?
+        .error_for_status()
+        .map_err(network)?
+        .json()
+        .await
+        .map_err(network)?;
+    android_release(&release, running).map(Some)
 }
 
 pub fn newer_release(current: &str, available: &str) -> Result<bool, AppUpdateError> {
