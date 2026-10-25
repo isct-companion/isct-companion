@@ -1,11 +1,11 @@
 {
   "bundleId": "app.isctcompanion",
-  "versionString": "1.2.0",
+  "versionString": "1.2.1",
   "platform": "IOS",
   "copyright": "2026 Gliese129 and OHNope",
   "primaryCategory": "EDUCATION",
-  "demoAccountRequired": true,
-  "reviewNotes": "IsctCompanion is an independent native client for students at Institute of Science Tokyo. It is not an official university app.\n\nArchitecture and school access: the app has no developer-operated application server or developer-issued account system. School requests go directly from the user's device to university services. University accounts and multi-factor authentication are issued and controlled by the university. We cannot create a dedicated university test account or provide another person's university credentials. No demo account or built-in demo mode is supplied in this build.\n\nYou can launch the app without a school account, dismiss the welcome sheet with Later, and inspect navigation and Settings. Retrieving personal classes, LMS materials and assignments, and sending files to an LMS assignment draft require a valid university account and its authentication factors. These school-linked features cannot be fully exercised without that account; the app does not bypass the university's authentication. School accounts are configured in Settings > School accounts.\n\nOptional iCloud and Google Drive synchronization use the user's own cloud account. They do not require a developer-issued account.\n\nThe same iOS binary supports iPhone and iPad. On a wide iPad window, the app presents a sidebar and a wider course/assignment workspace. Please contact us if further review information is needed.",
+  "demoAccountRequired": false,
+  "reviewNotes": "IsctCompanion is an independent native study companion for Institute of Science Tokyo. It is not an official university app.\n\nThe app can be used without signing in. There is no developer-issued account, no app-account registration, and no developer-operated application server. On first launch, choose your language and tap Later to use the app without connecting a school account. Public academic reference information and the app's local features do not require school sign-in.\n\nOptional school integration: connecting a university-issued account enables personal course enrolment, LMS course materials, assignments and LMS draft uploads. These optional school-linked features require the user's valid university account and authentication factors. Requests go directly from the device to the university. We cannot create a dedicated university test account or share another person's credentials. No demo credentials or demo mode are supplied, and we do not claim that the school-linked features can be fully exercised without a school account. School accounts are configured in Settings > School accounts.\n\nOptional iCloud and Google Drive synchronization use the person's own cloud account, without a developer-issued account. The app supports iPhone and iPad; wide iPad windows show a sidebar and course workspace. Please contact us if additional review information is needed.",
   "localizations": {
     "en-US": {
       "name": "IsctCompanion",
@@ -37,5 +37,6 @@
       "privacyPolicyUrl": "https://github.com/isct-companion/isct-companion/blob/main/docs/legal/PRIVACY.md",
       "whatsNew": null
     }
-  }
+  },
+  "contentRightsDeclaration": "USES_THIRD_PARTY_CONTENT"
 }

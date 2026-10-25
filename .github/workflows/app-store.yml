@@ -1,0 +1,79 @@
+name: App Store release
+
+on:
+  workflow_run:
+    workflows: ["iOS release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Marketing version already uploaded to TestFlight (for example 1.2.1)
+        type: string
+        required: true
+      mode:
+        description: Inspect status, prepare screenshots/build, or submit for review
+        type: choice
+        options: [inspect, prepare, submit]
+        default: inspect
+      build_number:
+        description: Optional exact build number (otherwise newest valid build of this version)
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-store-release
+  cancel-in-progress: false
+
+jobs:
+  app-store:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.IOS_APP_STORE_ENABLED == 'true' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v') &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: 'true'
+      FASTLANE_OPT_OUT_USAGE: 'true'
+      CI: 'true'
+    steps:
+      # Always run the trusted default-branch release tooling. Only the version
+      # comes from the completed tag build; no artifact can supply executable code.
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: scripts/app-store
+      - name: Resolve release version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          version="${REQUESTED_VERSION:-${RELEASE_TAG#v}}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected a stable release version'; exit 1; }
+          echo "APP_STORE_VERSION=$version" >> "$GITHUB_ENV"
+      - name: Prepare or submit the existing build
+        working-directory: scripts/app-store
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APP_STORE_MODE: ${{ inputs.mode || 'submit' }}
+          APP_STORE_BUILD: ${{ inputs.build_number }}
+          APP_STORE_REPORT: ${{ runner.temp }}/app-store-status.json
+        run: bundle exec fastlane ios release
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: app-store-status
+          path: ${{ runner.temp }}/app-store-status.json
+          if-no-files-found: ignore
+          retention-days: 14
