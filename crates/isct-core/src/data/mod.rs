@@ -9,7 +9,6 @@ mod reset_store;
 mod school_projection;
 mod settings;
 mod snapshot;
-pub(crate) use snapshot::content_revision;
 
 pub use defaults::initial_workspace;
 use defaults::*;
@@ -536,19 +535,6 @@ pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
 }
 
 impl WorkspaceWrite<'_, '_> {
-    pub(crate) fn revision(&self) -> Result<String, DataError> {
-        intent_revision(self.transaction)
-    }
-
-    /// `(workspace, school records, user-intent revision)` as written so far.
-    pub(crate) fn snapshot_parts(&self) -> Result<(Value, Value, String), DataError> {
-        Ok((
-            DataStore::load_workspace_from(self.transaction)?,
-            DataStore::school_records_from(self.transaction)?,
-            intent_revision(self.transaction)?,
-        ))
-    }
-
     pub(crate) fn put(
         &self,
         table: &str,

@@ -110,8 +110,12 @@ impl WorkspaceChange {
             })
         }
         match self {
-            Courses => fields(true, &[], &["lmsCourses"]),
-            Registrations => fields(true, &[], &["registrations", "registrationStates"]),
+            Courses => fields(true, &["lmsCourses"], &["lmsCourses"]),
+            Registrations => fields(
+                true,
+                &["registrations"],
+                &["registrations", "registrationStates"],
+            ),
             Finder => fields(
                 true,
                 &["offerings", "departments", "recommendedCourses"],
@@ -133,7 +137,7 @@ impl WorkspaceChange {
             Assignments => fields(false, &["assignments"], &[]),
             Grades => fields(
                 false,
-                &["gpaSummary"],
+                &["gpaSummary", "grades"],
                 &["grades", "gpaByTerm", "requirements"],
             ),
             Exams => fields(false, &["exams"], &[]),
@@ -285,21 +289,22 @@ pub(crate) fn patch(snapshot: WorkspaceSnapshot, changes: &[WorkspaceChange]) ->
             None => whole_workspace = true,
         }
     }
-    let pick = |value: Value, all: bool, fields: &BTreeSet<&str>| -> Value {
+    let pick = |value: &Value, all: bool, fields: &BTreeSet<&str>| -> Value {
         match value {
             Value::Object(map) if !all => Value::Object(
-                map.into_iter()
+                map.iter()
                     .filter(|(key, _)| fields.contains(key.as_str()))
+                    .map(|(key, value)| (key.clone(), value.clone()))
                     .collect::<Map<_, _>>(),
             ),
-            value => value,
+            value => value.clone(),
         }
     };
     WorkspacePatch {
+        workspace: pick(&snapshot.workspace, whole_workspace, &workspace_fields),
+        school_records: pick(&snapshot.school_records, false, &record_fields),
         revision: snapshot.revision,
         content_revision: snapshot.content_revision,
-        workspace: pick(snapshot.workspace, whole_workspace, &workspace_fields),
-        school_records: pick(snapshot.school_records, false, &record_fields),
     }
 }
 

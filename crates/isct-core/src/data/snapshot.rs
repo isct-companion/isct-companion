@@ -1,9 +1,72 @@
 use super::*;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
-pub(crate) type SnapshotParts = (Value, Value, String);
+/// `(workspace, school records, user-intent revision)`, shared: a read hands
+/// out the snapshot itself, never a copy of it.
+pub(crate) type SnapshotParts = (Arc<Value>, Arc<Value>, String);
 
 /// `PRAGMA data_version` of user.db and cache.db on the snapshot connection.
 type Versions = (i64, i64);
+
+/// The workspace's largest school collections, most of its size: the catalog
+/// and the exam timetable. No user intent can change them (`WorkspaceWrite`
+/// writes user tables only) and nothing in the snapshot rewrites them, so
+/// they are read, normalized and validated once per cache.db version, and a
+/// user write rebuilds only the rest of the snapshot.
+const SHARED_SCHOOL: &[(&str, Validate)] = &[
+    ("offerings", |rows| {
+        Vec::<crate::contracts::Offering>::deserialize(rows).map(drop)
+    }),
+    ("exams", |rows| {
+        Vec::<crate::contracts::Exam>::deserialize(rows).map(drop)
+    }),
+];
+
+/// Checks one shared collection against its contract.
+type Validate = fn(&Value) -> Result<(), serde_json::Error>;
+
+pub(crate) struct SharedSchool {
+    /// cache.db's data version on the snapshot connection, when one is known.
+    version: Option<i64>,
+    /// In `SHARED_SCHOOL` order.
+    collections: Vec<Value>,
+    /// Feeds the content revision, so the collections are not hashed again.
+    digest: [u8; 32],
+}
+
+impl SharedSchool {
+    /// `cached` when it was read at `version`, otherwise read on `connection`.
+    fn read(
+        connection: &Connection,
+        cached: Option<&Arc<Self>>,
+        version: Option<i64>,
+    ) -> Result<Arc<Self>, DataError> {
+        if let Some(cached) = cached.filter(|cached| version.is_some() && cached.version == version)
+        {
+            return Ok(cached.clone());
+        }
+        let mut collections = Vec::with_capacity(SHARED_SCHOOL.len());
+        let mut digest = Sha256::new();
+        for (field, validate) in SHARED_SCHOOL {
+            let table = COLLECTIONS
+                .iter()
+                .find(|(name, _)| name == field)
+                .map(|(_, table)| *table)
+                .ok_or_else(|| DataError::storage(format!("No table holds {field}.")))?;
+            let mut rows = Value::Array(read_visible_rows(connection, table)?);
+            normalize_optional_nulls(&mut rows);
+            validate(&rows).map_err(|error| format!("workspace validation failed: {error}"))?;
+            serde_json::to_writer(&mut digest, &rows)?;
+            collections.push(rows);
+        }
+        Ok(Arc::new(Self {
+            version,
+            collections,
+            digest: digest.finalize().into(),
+        }))
+    }
+}
 
 pub(super) struct SnapshotReader {
     /// A read connection of its own: data versions only compare between
@@ -11,8 +74,18 @@ pub(super) struct SnapshotReader {
     /// (the store's write connection, or another store on the same files),
     /// so every commit changes them.
     connection: Connection,
-    /// Shared so a read hands it out without copying the workspace.
-    cached: Option<(Versions, chrono::NaiveDate, Arc<SnapshotParts>, String)>,
+    cached: Option<Cached>,
+    shared: Option<Arc<SharedSchool>>,
+}
+
+/// The snapshot of `versions` on `day`, with its content revision.
+struct Cached {
+    versions: Versions,
+    day: chrono::NaiveDate,
+    parts: SnapshotParts,
+    hash: String,
+    /// The shared collections its workspace holds.
+    school: Arc<SharedSchool>,
 }
 
 impl SnapshotReader {
@@ -20,6 +93,7 @@ impl SnapshotReader {
         Self {
             connection,
             cached: None,
+            shared: None,
         }
     }
 
@@ -38,37 +112,32 @@ impl SnapshotReader {
         &self,
         versions: Versions,
         today: chrono::NaiveDate,
-    ) -> Option<(Arc<SnapshotParts>, String)> {
+    ) -> Option<(SnapshotParts, String)> {
         self.cached
             .as_ref()
-            .filter(|(v, day, _, _)| *v == versions && *day == today)
-            .map(|(_, _, parts, hash)| (parts.clone(), hash.clone()))
+            .filter(|cached| cached.versions == versions && cached.day == today)
+            .map(|cached| (cached.parts.clone(), cached.hash.clone()))
+    }
+
+    /// The cached workspace, taken out of the cache, when it holds `school`'s
+    /// collections and nothing else holds it.
+    fn take_workspace(&mut self, school: &Arc<SharedSchool>) -> Option<Value> {
+        let cached = self
+            .cached
+            .take_if(|cached| Arc::ptr_eq(&cached.school, school))?;
+        Arc::try_unwrap(cached.parts.0).ok()
     }
 }
 
 impl DataStore {
     pub fn load_workspace(&self) -> Result<Value, DataError> {
-        self.workspace_snapshot_parts()
-            .map(|(workspace, _, _)| workspace)
+        self.workspace_snapshot()
+            .map(|((workspace, _, _), _)| Value::clone(&workspace))
     }
 
-    /// `(workspace, school records, user-intent revision)` from one read.
-    pub(crate) fn workspace_snapshot_parts(&self) -> Result<SnapshotParts, DataError> {
-        self.workspace_snapshot_with_revision()
-            .map(|(parts, _)| parts)
-    }
-
-    pub(crate) fn workspace_snapshot_with_revision(
-        &self,
-    ) -> Result<(SnapshotParts, String), DataError> {
-        self.workspace_snapshot_shared()
-            .map(|(parts, hash)| (Arc::unwrap_or_clone(parts), hash))
-    }
-
-    /// The cached snapshot itself, for read models that only borrow it.
-    pub(crate) fn workspace_snapshot_shared(
-        &self,
-    ) -> Result<(Arc<SnapshotParts>, String), DataError> {
+    /// `(workspace, school records, user-intent revision)` and the content
+    /// revision, from one read. Cached until a commit or the day changes.
+    pub(crate) fn workspace_snapshot(&self) -> Result<(SnapshotParts, String), DataError> {
         let mut reader = self
             .snapshot_reader
             .lock()
@@ -77,95 +146,161 @@ impl DataStore {
         // Observed before the read: a commit landing during the read must
         // invalidate this snapshot rather than be stamped onto old data.
         let versions = reader.versions()?;
-        if let Some(parts) = reader.baseline(versions, today) {
+        if let Some(snapshot) = reader.baseline(versions, today) {
             if std::env::var_os("ISCT_TRACE_READS").is_some() {
                 eprintln!("[workspace-snapshot] cache=hit data_version={versions:?}");
             }
-            return Ok(parts);
+            return Ok(snapshot);
         }
         if std::env::var_os("ISCT_TRACE_READS").is_some() {
             eprintln!("[workspace-snapshot] cache=miss data_version={versions:?}");
         }
-        let transaction = reader.connection.transaction()?;
-        let parts = Arc::new((
-            Self::load_workspace_from(&transaction)?,
-            Self::school_records_from(&transaction)?,
-            intent_revision(&transaction)?,
-        ));
+        let SnapshotReader {
+            connection, shared, ..
+        } = &mut *reader;
+        let transaction = connection.transaction()?;
+        let school = SharedSchool::read(&transaction, shared.as_ref(), Some(versions.1))?;
+        let snapshot = Self::snapshot_from(&transaction, &school, None)?;
         transaction.commit()?;
-        let hash = content_revision(&parts.0, &parts.1)?;
-        reader.cached = Some((versions, today, parts.clone(), hash.clone()));
-        Ok((parts, hash))
+        *shared = Some(school.clone());
+        reader.cached = Some(Cached {
+            versions,
+            day: today,
+            parts: snapshot.0.clone(),
+            hash: snapshot.1.clone(),
+            school,
+        });
+        Ok(snapshot)
     }
 
     /// Applies one user intent after checking the revision it was made
-    /// against. `operation` returns its result with the snapshot parts and
-    /// content hash as committed; the parts' revision reaches the observer.
+    /// against, and returns its result with the snapshot as committed; the
+    /// snapshot's revision reaches the observer. `operation` reads the
+    /// workspace as of the write lock.
     pub(crate) fn workspace_write<T>(
         &self,
         expected_revision: &str,
-        operation: impl FnOnce(
-            &WorkspaceWrite<'_, '_>,
-            &Value,
-            &Value,
-        ) -> Result<(T, SnapshotParts, String), DataError>,
-    ) -> Result<T, DataError> {
+        operation: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value) -> Result<T, DataError>,
+    ) -> Result<(T, SnapshotParts, String), DataError> {
         // Lock order: snapshot reader, then the write connection.
         let mut reader = self
             .snapshot_reader
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let today = (Utc::now() + chrono::Duration::hours(9)).date_naive();
-        let prior = reader.cached.clone();
         let mut writer = self.connections.writer();
-        let ((result, parts, hash), tables) = commit_on(&mut writer, |transaction| {
-            // Under the write lock no other commit can land, so these are the
-            // versions of the state this transaction starts from.
-            let versions = reader.versions()?;
-            let actual = intent_revision(transaction)?;
-            if actual != expected_revision {
-                return Err(DataError::conflict(format!(
-                    "workspace revision conflict: expected {expected_revision}, actual {actual}"
-                )));
-            }
-            let (current, school_records, _) = match prior {
-                Some((v, day, parts, _)) if v == versions && day == today => {
-                    Arc::unwrap_or_clone(parts)
+        let ((result, snapshot, school, versions, previous), tables) =
+            commit_on(&mut writer, |transaction| {
+                // Under the write lock no other commit can land, so these are
+                // the versions of the state this transaction starts from.
+                let versions = reader.versions()?;
+                let actual = intent_revision(transaction)?;
+                if actual != expected_revision {
+                    return Err(DataError::conflict(format!(
+                        "workspace revision conflict: expected {expected_revision}, actual {actual}"
+                    )));
                 }
-                _ => (
-                    Self::load_workspace_from(transaction)?,
-                    Self::school_records_from(transaction)?,
-                    actual,
-                ),
-            };
-            let write = WorkspaceWrite {
-                transaction,
-                actor: WorkspaceChangeSource::UserIntent.actor(),
-            };
-            operation(&write, &current, &school_records)
-        })?;
-        let revision = parts.2.clone();
-        // The committed parts are the snapshot for the versions after this
+                // A user intent writes no cache.db table, so the shared school
+                // collections read at this version stay those of the commit.
+                let school =
+                    SharedSchool::read(transaction, reader.shared.as_ref(), Some(versions.1))?;
+                let current = match reader.baseline(versions, today) {
+                    Some(((workspace, _, _), _)) => workspace,
+                    None => Self::snapshot_from(transaction, &school, None)?.0 .0,
+                };
+                let write = WorkspaceWrite {
+                    transaction,
+                    actor: WorkspaceChangeSource::UserIntent.actor(),
+                };
+                let result = operation(&write, &current)?;
+                drop(current);
+                // The commit replaces the cached snapshot; its collections
+                // move into the new one rather than being copied.
+                let mut previous = reader.take_workspace(&school);
+                let snapshot = Self::snapshot_from(transaction, &school, previous.as_mut())?;
+                Ok((result, snapshot, school, versions, previous))
+            })?;
+        let revision = snapshot.0 .2.clone();
+        // The committed snapshot is the one for the versions after this
         // commit. They are read before the write lock is released, so no
         // commit of this store can land in between; only another process
         // writing the same files could, and the app opens one store per
         // data folder. Without versions the next read builds it afresh.
-        reader.cached = reader
-            .versions()
-            .ok()
-            .map(|versions| (versions, today, Arc::new(parts), hash));
+        let after = reader.versions().ok();
+        if after.is_some_and(|after| after.1 == versions.1) {
+            reader.shared = Some(school.clone());
+        }
+        let replaced = std::mem::replace(
+            &mut reader.cached,
+            after.map(|after| Cached {
+                versions: after,
+                day: today,
+                parts: snapshot.0.clone(),
+                hash: snapshot.1.clone(),
+                school,
+            }),
+        );
         drop(writer);
         drop(reader);
+        // Freed outside the locks.
+        drop((previous, replaced));
         self.committed_tables(&tables);
         self.observer
             .committed(WorkspaceChangeSource::UserIntent, Some(revision), &tables);
-        Ok(result)
+        Ok((result, snapshot.0, snapshot.1))
     }
 
-    pub(super) fn load_workspace_from(connection: &Connection) -> Result<Value, DataError> {
+    /// The whole snapshot as `connection` sees it, with `school`'s shared
+    /// collections, and its content revision. They move out of `previous`,
+    /// a workspace built with them that is no longer needed, when given.
+    pub(super) fn snapshot_from(
+        connection: &Connection,
+        school: &SharedSchool,
+        mut previous: Option<&mut Value>,
+    ) -> Result<(SnapshotParts, String), DataError> {
+        let mut workspace = Self::workspace_without_shared(connection, school)?;
+        let school_records = Self::school_records_from(connection)?;
+        let revision = intent_revision(connection)?;
+        let mut digest = Sha256::new();
+        digest.update(school.digest);
+        serde_json::to_writer(&mut digest, &(&workspace, &school_records))?;
+        let hash = format!("{:x}", digest.finalize());
+        for ((field, _), rows) in SHARED_SCHOOL.iter().zip(&school.collections) {
+            workspace[*field] = match previous.as_mut().and_then(|old| old.get_mut(*field)) {
+                Some(moved) => moved.take(),
+                None => rows.clone(),
+            };
+        }
+        // Schedule read models evaluate these school records with the
+        // workspace; carrying them saves every query a copy of it.
+        for field in ["registrations", "grades", "lmsCourses"] {
+            workspace[field] = school_records[field].clone();
+        }
+        Ok((
+            (Arc::new(workspace), Arc::new(school_records), revision),
+            hash,
+        ))
+    }
+
+    /// The workspace as `connection` sees it, read in full.
+    pub(super) fn load_workspace_from(connection: &Connection) -> Result<Arc<Value>, DataError> {
+        let school = SharedSchool::read(connection, None, None)?;
+        Ok(Self::snapshot_from(connection, &school, None)?.0 .0)
+    }
+
+    /// The workspace with `school`'s shared collections left empty, the
+    /// rest normalized and validated.
+    fn workspace_without_shared(
+        connection: &Connection,
+        school: &SharedSchool,
+    ) -> Result<Value, DataError> {
         let mut workspace = empty_workspace();
         for (field, table) in COLLECTIONS {
-            workspace[*field] = Value::Array(read_visible_rows(connection, table)?);
+            workspace[*field] = if SHARED_SCHOOL.iter().any(|(shared, _)| shared == field) {
+                json!([])
+            } else {
+                Value::Array(read_visible_rows(connection, table)?)
+            };
         }
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
             courses.extend(read_rows(connection, "manual_courses")?);
@@ -255,7 +390,12 @@ impl DataStore {
         if let Some(value) = read_setting(connection, "cloud")? {
             workspace["settings"]["cloud"] = value;
         }
-        school_projection::project(connection, &mut workspace)?;
+        let offerings = SHARED_SCHOOL
+            .iter()
+            .position(|(field, _)| *field == "offerings")
+            .and_then(|index| school.collections[index].as_array())
+            .map_or(&[][..], Vec::as_slice);
+        school_projection::project(connection, &mut workspace, offerings)?;
         let overrides = read_rows(connection, "course_overrides")?;
         if let Some(courses) = workspace.get_mut("courses").and_then(Value::as_array_mut) {
             for course in courses {
@@ -312,7 +452,7 @@ impl DataStore {
         );
         normalize_optional_nulls(&mut workspace);
         normalize_meeting_clocks(&mut workspace)?;
-        let _: crate::contracts::Workspace = serde_json::from_value(workspace.clone())
+        crate::contracts::Workspace::deserialize(&workspace)
             .map_err(|error| format!("workspace validation failed: {error}"))?;
         Ok(workspace)
     }
@@ -396,13 +536,4 @@ impl DataStore {
         }
         Ok(Value::Object(availability))
     }
-}
-
-pub(crate) fn content_revision(
-    workspace: &Value,
-    school_records: &Value,
-) -> Result<String, DataError> {
-    use sha2::{Digest, Sha256};
-    let bytes = serde_json::to_vec(&(workspace, school_records))?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
 }

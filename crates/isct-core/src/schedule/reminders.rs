@@ -509,7 +509,8 @@ pub fn notification_plan(
             terms.extend(super::exams::exam_terms(workspace));
         }
         for source_term in terms {
-            let courses = scheduled_courses(workspace, &source_term);
+            let courses: std::sync::Arc<[Value]> =
+                scheduled_courses(workspace, &source_term).into();
             for offset in 0..=days + (class_lead.max(exam_lead) + 1439) / 1440 + 1 {
                 let date = (start_date + Duration::days(offset)).to_string();
                 for block in resolve_day_agenda(

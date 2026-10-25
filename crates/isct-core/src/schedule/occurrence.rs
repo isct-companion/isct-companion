@@ -107,7 +107,8 @@ pub struct ScheduleProblem {
 pub struct AgendaOptions {
     pub include_personal: bool,
     pub include_cancelled_courses: bool,
-    pub courses: Option<Vec<Value>>,
+    /// Shared, so a range read passes one term's courses to every day.
+    pub courses: Option<std::sync::Arc<[Value]>>,
     pub events: Option<Vec<Value>>,
 }
 
@@ -527,7 +528,7 @@ pub fn occurrences_on_date(
         });
     let courses = options
         .courses
-        .unwrap_or_else(|| scheduled_courses(workspace, term));
+        .unwrap_or_else(|| scheduled_courses(workspace, term).into());
     // Sessions the user marked as running take place whatever the calendar says.
     let runs: HashSet<&str> = array(workspace, "scheduleOverrides")
         .iter()

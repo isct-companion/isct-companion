@@ -1111,7 +1111,7 @@ fn run(service: &WorkspaceService, intent: WorkspaceIntent) -> Result<Value, Wor
             expected_revision,
             intent,
         })
-        .map(|snapshot| snapshot.workspace)
+        .map(|snapshot| Value::clone(&snapshot.workspace))
 }
 
 fn offering(id: &str, code: &str, quarters: &[&str]) -> Value {

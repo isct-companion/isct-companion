@@ -535,7 +535,7 @@ pub fn query(
                 AgendaOptions {
                     include_personal: options.include_personal.unwrap_or(true),
                     include_cancelled_courses: options.include_cancelled_courses,
-                    courses: options.courses,
+                    courses: options.courses.map(Into::into),
                     events: options.events,
                 },
             )?))

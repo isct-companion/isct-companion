@@ -84,10 +84,12 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
             "courses": [1], "memberships": [], "assignments": [], "materials": [],
             "planItems": [], "terms": [], "currentTerm": "2026-3Q",
             "settings": {"locale": "ja"}, "exams": [], "offerings": [],
-        }),
+        })
+        .into(),
         school_records: serde_json::json!({
             "lmsCourses": [], "grades": [], "freshness": {}, "pageAvailability": {},
-        }),
+        })
+        .into(),
     };
     let keys = |value: &Value| {
         let mut keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
@@ -128,7 +130,7 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
 
     // Settings shape every projected field: the whole workspace, no records.
     let settings = patch(snapshot.clone(), &[Settings]);
-    assert_eq!(settings.workspace, snapshot.workspace);
+    assert_eq!(settings.workspace, *snapshot.workspace);
     assert!(keys(&settings.school_records).is_empty());
 }
 

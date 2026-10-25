@@ -13,7 +13,12 @@ fn array<'a>(row: &'a Value, key: &str) -> &'a [Value] {
         .unwrap_or(&[])
 }
 
-pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<(), DataError> {
+/// `offerings` is the workspace's catalog, which the caller keeps apart.
+pub(super) fn project(
+    connection: &Connection,
+    workspace: &mut Value,
+    offerings: &[Value],
+) -> Result<(), DataError> {
     if let Some(identity) = read_setting(connection, "kyomuAcademicIdentity")? {
         if text(&workspace["settings"], "departmentId").is_empty() {
             let departments: Vec<Value> =
@@ -115,8 +120,14 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
         }
     }
     let registrations = read_visible_rows(connection, "registrations")?;
+    // The first offering of each id, as a scan would find it.
+    let mut catalog = HashMap::new();
+    for offering in offerings {
+        catalog.entry(text(offering, "id")).or_insert(offering);
+    }
     project_lms_timetable(
         workspace,
+        &catalog,
         &lms_courses,
         &registrations,
         &user_courses,
@@ -154,15 +165,11 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
     }
     // Every quarter uses the same cached bilingual metadata. Display language
     // is a read projection, never a mutation of the school's canonical title.
-    let offerings = array(workspace, "offerings").to_vec();
     for course in workspace["courses"].as_array_mut().into_iter().flatten() {
         if course["source"]["provider"] == "manual" {
             continue;
         }
-        if let Some(offering) = offerings
-            .iter()
-            .find(|o| text(o, "id") == text(course, "offeringId"))
-        {
+        if let Some(offering) = catalog.get(text(course, "offeringId")) {
             if !user_courses.contains(text(course, "id")) {
                 if text(course, "code").is_empty() {
                     if let Some(code) = offering["code"].as_str().filter(|code| !code.is_empty()) {
@@ -223,6 +230,7 @@ pub(super) fn project(connection: &Connection, workspace: &mut Value) -> Result<
 /// Project cached LMS quarter grids without rewriting user records.
 fn project_lms_timetable(
     workspace: &mut Value,
+    offerings: &HashMap<&str, &Value>,
     lms_courses: &[Value],
     registrations: &[Value],
     user_courses: &HashSet<String>,
@@ -240,10 +248,10 @@ fn project_lms_timetable(
             continue;
         }
         let offering_id = text(lms, "offeringId");
-        let catalog = array(workspace, "offerings")
-            .iter()
-            .find(|o| !offering_id.is_empty() && text(o, "id") == offering_id)
-            .cloned();
+        let catalog = offerings
+            .get(offering_id)
+            .filter(|_| !offering_id.is_empty())
+            .map(|offering| Value::clone(offering));
         let mut terms = lms_terms(lms);
         terms.retain(|term| term.starts_with(&format!("{year}-")));
         terms.sort();

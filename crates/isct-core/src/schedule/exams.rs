@@ -256,12 +256,13 @@ pub fn exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
     let locale = content_language(workspace);
     let teaching = teaching_periods(workspace).unwrap_or_default();
     let courses = term_courses(workspace, term);
+    let codes = course_code_keys(&courses);
     let mut result = Vec::new();
     for exam in array(workspace, "exams")
         .iter()
         .filter(|exam| visible(exam) && exam_term(exam).as_deref() == Some(term))
     {
-        let mut view = source_view_with(workspace, exam, term, locale, &teaching, &courses);
+        let mut view = source_view_with(workspace, exam, term, locale, &teaching, &courses, &codes);
         if let Some(change) = existing_override(workspace, &view.key) {
             apply_override(&mut view, change, &courses, &teaching);
         }
@@ -281,7 +282,20 @@ fn source_view(workspace: &Value, exam: &Value, term: &str) -> ExamView {
         content_language(workspace),
         &teaching,
         &courses,
+        &course_code_keys(&courses),
     )
+}
+
+/// Each of `courses`' code as exam matching compares it, in their order.
+fn course_code_keys(courses: &[&Value]) -> Vec<String> {
+    courses
+        .iter()
+        .map(|course| {
+            text(course, "code")
+                .map(super::search::course_code_key)
+                .unwrap_or_default()
+        })
+        .collect()
 }
 
 fn source_view_with(
@@ -291,6 +305,7 @@ fn source_view_with(
     locale: &str,
     teaching: &[TeachingPeriod],
     courses: &[&Value],
+    codes: &[String],
 ) -> ExamView {
     let id = text(exam, "id").unwrap_or_default();
     // A feed-resolved offering names the course; otherwise match by code.
@@ -299,7 +314,7 @@ fn source_view_with(
             .iter()
             .copied()
             .find(|course| text(course, "id") == Some(id)),
-        None => matched_course(workspace, courses, term, exam),
+        None => matched_course(workspace, courses, codes, term, exam),
     };
     let periods = period_range(exam, teaching);
     let (start_time, end_time) = match periods.and_then(|range| clock(teaching, range)) {
@@ -412,25 +427,27 @@ fn apply_override(
 
 /// A class suffix is part of the identity. Never guess a neighbouring class or
 /// a different academic year's course from the base code.
+/// `codes` are `courses`' code keys, in their order. Code is a lookup key
+/// inside one term, and only the canonical full code counts: a historical
+/// LMS alias cannot silently bind an exam.
 fn matched_course<'a>(
     workspace: &Value,
     courses: &[&'a Value],
+    codes: &[String],
     term: &str,
     exam: &Value,
 ) -> Option<&'a Value> {
     let code = super::search::course_code_key(text(exam, "courseCode").unwrap_or_default());
-    let code_candidates = super::search::courses_by_code(workspace, term, &code);
     let offering = text(exam, "syllabusCourseId");
     let candidates: Vec<_> = courses
         .iter()
         .copied()
-        .filter(|course| {
+        .zip(codes)
+        .filter(|(course, course_code)| {
             (if let Some(offering) = offering {
                 text(course, "offeringId") == Some(offering)
             } else {
-                code_candidates
-                    .iter()
-                    .any(|candidate| text(candidate, "id") == text(course, "id"))
+                !code.is_empty() && **course_code == code
             }) && array(workspace, "memberships").iter().any(|row| {
                 visible(row)
                     && text(row, "termId") == Some(term)
@@ -439,6 +456,7 @@ fn matched_course<'a>(
                     && row.pointer("/evidence/provider").and_then(Value::as_str) != Some("manual")
             })
         })
+        .map(|(course, _)| course)
         .collect();
     candidates
         .first()

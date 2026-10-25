@@ -346,10 +346,7 @@ impl Core {
                 "Too many schedule queries.".into(),
             ));
         }
-        let mut snapshot = self.workspace.snapshot()?;
-        snapshot.workspace["registrations"] = snapshot.school_records["registrations"].clone();
-        snapshot.workspace["grades"] = snapshot.school_records["grades"].clone();
-        snapshot.workspace["lmsCourses"] = snapshot.school_records["lmsCourses"].clone();
+        let snapshot = self.workspace.snapshot()?;
         let values = queries
             .into_iter()
             .map(|query| crate::schedule::query(&snapshot.workspace, query))
@@ -367,7 +364,7 @@ impl Core {
         // Borrowed, not copied: each keystroke reads the cached snapshot.
         let (parts, content_revision) = self
             .store
-            .workspace_snapshot_shared()
+            .workspace_snapshot()
             .map_err(WorkspaceError::from)?;
         let options = self
             .store
