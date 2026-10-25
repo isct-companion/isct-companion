@@ -3206,6 +3206,61 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
     verified: null
 
+  - id: DESKTOP-CALENDAR-MARK-LATENCY
+    area: desktop
+    title: A session mark shows at once, also while the school sync runs
+    persona: undergraduate-senior
+    preconditions: |
+      macOS desktop build with signed-in school accounts, a quarter with
+      classes on the calendar, and the data folder of a build from before
+      sync.db (its `cache.db` still holds `dataset_state`). Copy the folder
+      aside first.
+    steps:
+      - action: |
+          Launch the new build, run `ls "$HOME/Library/Application
+          Support/app.isctcompanion"` and open the sync status.
+        reason: |
+          The first launch moves freshness and run records out of cache.db
+          into a new `sync.db`. A lost move shows as every key fetching again
+          and the status's last-read times reset to never.
+      - action: |
+          On the calendar, right-click a class and mark it 休講, then 試験,
+          then back to the class, a few seconds apart.
+        reason: |
+          A mark now answers only the calendar fields; a block that keeps
+          its old state, or updates only after a second, means the patch
+          was not merged or the view did not query again.
+      - action: |
+          Press Refresh in the sync status so LMS and 教務 reads run, and
+          mark sessions again while they run and right after they finish.
+        reason: |
+          A read that finds nothing new now commits only its freshness. The
+          delay this check exists for came back exactly while a sync ran.
+      - action: |
+          Switch to the timetable, Today and the course finder, then back.
+        reason: |
+          Those pages read the mark through other change names; one still
+          showing the old state means a view missed its change name.
+    observe: |
+      The data folder listing, the sync status times, the marked block on
+      the calendar, and the same class on the timetable, Today and finder.
+    expected: |
+      `sync.db` sits beside `user.db` and `cache.db`, the sync status keeps
+      its last-read times and does not refetch everything, each mark shows
+      on the calendar with no visible delay with or without a running sync,
+      and every other page shows the same state.
+    why_manual: |
+      The delay is a felt latency in the real app over the person's own data
+      while the real sync engine runs; a scripted host has neither the 4 MB
+      snapshot nor the school reads, and "no visible delay" is a glance.
+    covers:
+      - apps/desktop/src/store/workspace.ts
+      - apps/desktop/src-tauri/src/commands/workspace.rs
+      - crates/isct-core/src/data/snapshot.rs
+      - crates/isct-core/src/data/migrations.rs
+      - crates/isct-core/src/lms_ingest.rs
+    verified: null
+
   - id: IOS-TIMETABLE-WEEK-AND-MARKS
     area: native
     title: iPhone timetable header, fitted blocks, session marks and the now line
