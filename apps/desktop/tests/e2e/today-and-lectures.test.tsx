@@ -899,6 +899,30 @@ describe("the lecture desk", () => {
         examKey: "reference:existing",
       }),
     );
+    // Delete unlinks the exam; the notice's Undo links its course again.
+    const linked = app.core.intents.length;
+    await click(
+      [...edited.querySelectorAll<HTMLButtonElement>("button")].find(
+        (row) => row.textContent === "Delete",
+      )!,
+    );
+    const undo = await required(
+      () =>
+        [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+          (row) => row.textContent === "Undo",
+        ),
+      "the notice's Undo",
+    );
+    await click(undo);
+    await until(() =>
+      expect(app!.core.intents.slice(linked)).toEqual([
+        { kind: "removeExam", examKey: "reference:existing" },
+        expect.objectContaining({
+          kind: "linkExam",
+          examKey: "reference:existing",
+        }),
+      ]),
+    );
   }, 30_000);
 
   it("asks once about data accuracy and marks a calendar session from its right-click menu", async () => {
