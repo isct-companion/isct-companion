@@ -54,7 +54,7 @@ pub use course_detail::{
 pub use credits::declared_term_credits;
 pub(crate) use exams::{
     adopted_exam_override, corrected_exam_override, linked_exam_override, marked_session_override,
-    ExamCorrection,
+    removed_exam_override, ExamCorrection,
 };
 pub use exams::{
     exam_association, exam_views, ExamAssociation, ExamConflict, ExamSchedule, ExamView,

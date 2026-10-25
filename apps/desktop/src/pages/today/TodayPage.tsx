@@ -325,7 +325,6 @@ export function Today({
         {(schedule?.upcomingExams ?? []).some(
           (exam) =>
             exam.courseId &&
-            !exam.hidden &&
             exam.status === "scheduled" &&
             exam.date >= viewIso,
         ) && (
@@ -338,7 +337,6 @@ export function Today({
                 .filter(
                   (exam) =>
                     exam.courseId &&
-                    !exam.hidden &&
                     exam.status === "scheduled" &&
                     exam.date >= viewIso,
                 )

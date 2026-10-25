@@ -2050,22 +2050,14 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
             .is_empty()
     );
     data["settings"]["notifications"]["exams"] = json!(true);
-    data["scheduleOverrides"][0]["hidden"] = json!(true);
+    // A deleted (unlinked) exam is no longer the student's: no reminder.
+    data["scheduleOverrides"][0]["courseId"] = json!("");
     assert!(
         notification_plan(&data, &SchoolReads::fixture(&data), now, horizon, None)
             .unwrap()
             .items
             .is_empty()
     );
-    assert!(
-        exam_views(&data, &SchoolReads::fixture(&data), "2026-1Q")
-            .iter()
-            .find(|row| row.id == "mine")
-            .unwrap()
-            .hidden
-    );
-    data["scheduleOverrides"][0]["hidden"] = json!(false);
-    data["scheduleOverrides"][0]["courseId"] = json!("");
     assert_eq!(
         exam_views(&data, &SchoolReads::fixture(&data), "2026-1Q")
             .iter()
@@ -2320,6 +2312,35 @@ fn a_user_mark_decides_what_a_session_is() {
             && view.date == "2026-04-21"
             && view.source.date == "2026-04-20"
             && view.edited));
+    // Deleting the exam drops only the mark: the class stays on its new day,
+    // and marking it again brings the exam back.
+    let row = super::exams::removed_exam_override(
+        &data,
+        &SchoolReads::fixture(&data),
+        "course-weekly-0-2026-04-20",
+    )
+    .unwrap();
+    let rows = data["scheduleOverrides"].as_array_mut().unwrap();
+    rows.retain(|existing| existing["targetKey"] != "course-weekly-0-2026-04-20");
+    rows.extend(row.map(|mut row| {
+        row["id"] = json!("course-weekly-0-2026-04-20");
+        row
+    }));
+    assert_eq!(
+        agenda(&data, "2026-04-21"),
+        [(OccurrenceKind::Course, None)]
+    );
+    assert!(!listed(&data)
+        .iter()
+        .any(|row| row.0 == "course-weekly-0-2026-04-20"));
+    assert!(super::exams::removed_exam_override(
+        &data,
+        &SchoolReads::fixture(&data),
+        "course-weekly-0-2026-04-20"
+    )
+    .is_err());
+    mark(&mut data, "course-weekly-0-2026-04-20", "exam");
+    assert_eq!(agenda(&data, "2026-04-21"), [(OccurrenceKind::Exam, None)]);
     // The session gives way to the published exam of its course that day.
     data["exams"].as_array_mut().unwrap().push(json!({"id":"monday","kind":"exam","sourceKey":"reference:monday","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-05-11","periods":[1,2],"room":{"ja":"W8E-E207"},"label":{"ja":"中間"},"status":"scheduled"}));
     mark(&mut data, "course-weekly-0-2026-05-11", "exam");
@@ -2507,22 +2528,17 @@ fn a_correction_survives_timetable_changes_and_flags_the_ones_it_hides() {
         .unwrap();
     assert_eq!(removed.date, "2026-05-02");
     assert!(removed.conflict.is_some_and(|conflict| conflict.removed));
-    // A removed exam can still be hidden.
-    let hidden = super::exams::corrected_exam_override(
+    // A removed exam can still be deleted from the schedule.
+    let deleted = super::exams::removed_exam_override(
         &data,
         &SchoolReads::fixture(&data),
         "reference:final-renamed",
-        super::exams::ExamCorrection {
-            date: Some("2026-05-02".into()),
-            hidden: true,
-            ..Default::default()
-        },
     )
     .unwrap();
-    save(&mut data, "reference:final-renamed", hidden);
+    save(&mut data, "reference:final-renamed", deleted);
     assert!(exam_views(&data, &SchoolReads::fixture(&data), "2026-1Q")
         .iter()
-        .any(|view| view.key == "reference:final-renamed" && view.hidden));
+        .any(|view| view.key == "reference:final-renamed" && view.course_id.is_none()));
 }
 
 #[test]

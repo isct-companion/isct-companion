@@ -1,9 +1,10 @@
-import { Button, Checkbox, Select, TextInput } from "../ui";
+import { Button, Select, TextInput } from "../ui";
 import { useState } from "react";
 import type { ExamAssociation, ExamView } from "../../generated/persistence";
 import type { Course } from "../../lib/model";
 import { useScheduleQuery } from "../../platform/core-query";
 import { workspaceActions } from "../../store/workspace";
+import { notify } from "../../app/notify";
 import { t } from "../../i18n";
 import "./exams.css";
 
@@ -17,10 +18,12 @@ export function ExamEditor({
   exam,
   courses,
   onSaved,
+  onRemoved,
 }: {
   exam: ExamView;
   courses: Course[];
   onSaved?: () => void;
+  onRemoved?: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -63,7 +66,6 @@ export function ExamEditor({
         startTime: field("startTime"),
         endTime: field("endTime"),
         room: field("room"),
-        hidden: values?.get("hidden") === "on",
       },
       onSaved,
     );
@@ -82,8 +84,25 @@ export function ExamEditor({
       startTime: values.startTime ?? undefined,
       endTime: values.endTime ?? undefined,
       room: values.room || undefined,
-      hidden: exam.hidden,
     });
+  /** Takes the exam off the schedule. Undo puts back what Core changed: the
+   * session's mark, or the published exam's course link. */
+  const remove = () => {
+    const restore: Parameters<typeof workspaceActions.mutate>[0] = published
+      ? {
+          kind: "linkExam",
+          examKey: exam.key,
+          courseId: exam.courseId ?? undefined,
+        }
+      : { kind: "markSession", key: exam.key, mark: exam.kind };
+    void run({ kind: "removeExam", examKey: exam.key }, () => {
+      onRemoved?.();
+      notify.undoable(
+        "Exam deleted",
+        () => void workspaceActions.mutate(restore).catch(notify.error),
+      );
+    });
+  };
   const source = exam.source;
   const sourceHint = (changed: boolean, value: string) =>
     changed ? t("Source: {{value}}", { value: value || "—" }) : undefined;
@@ -177,7 +196,6 @@ export function ExamEditor({
           exam.startTime,
           exam.endTime,
           exam.room,
-          exam.hidden,
         ].join("|")}
         onSubmit={(event) => {
           event.preventDefault();
@@ -224,17 +242,22 @@ export function ExamEditor({
           defaultValue={exam.room}
           description={sourceHint(exam.room !== source.room, source.room)}
         />
-        <Checkbox
-          name="hidden"
-          label={t("Hide from my schedule")}
-          defaultChecked={exam.hidden}
-        />
         {(error || association.error) && (
           <p role="alert">{error || association.error}</p>
         )}
         {saved && <p role="status">{t("Exam saved")}</p>}
         <div className="examEditorActions">
-          {(exam.edited || exam.hidden) && (
+          {(!published || exam.courseId) && (
+            <Button
+              variant="subtle"
+              color="red"
+              disabled={saving}
+              onClick={remove}
+            >
+              {t("Delete")}
+            </Button>
+          )}
+          {exam.edited && (
             <Button variant="subtle" disabled={saving} onClick={() => edit()}>
               {t("Reset to source")}
             </Button>

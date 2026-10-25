@@ -1044,7 +1044,7 @@ pub(crate) fn resolve_day_agenda_with(
     // exam of its course that day, so the day never shows the exam twice.
     let published: HashSet<(&str, &str)> = term_exams
         .iter()
-        .filter(|exam| exam.origin == "published" && exam.kind == "exam" && !exam.hidden)
+        .filter(|exam| exam.origin == "published" && exam.kind == "exam")
         .filter_map(|exam| Some((exam.course_id.as_deref()?, exam.date.as_str())))
         .collect();
     blocks.retain(|block| {
@@ -1058,7 +1058,6 @@ pub(crate) fn resolve_day_agenda_with(
     for exam in term_exams.iter().filter(|exam| {
         // Marked sessions are drawn above from the class itself.
         exam.origin == "published"
-            && !exam.hidden
             && exam.date == date
             && (exam.status == "scheduled"
                     // A session the user cancelled stays visible to undo.

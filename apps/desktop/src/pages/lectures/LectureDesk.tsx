@@ -490,7 +490,6 @@ export function LectureDesk({
                         ? t("Linked")
                         : t("Not linked")}
                     {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
-                    {exam.hidden ? ` · ${t("Hidden")}` : ""}
                   </small>
                   {exam.conflict && (
                     <small className="examConflictTag">
@@ -594,6 +593,7 @@ export function LectureDesk({
                     key={selectedExam.key}
                     exam={selectedExam}
                     courses={courses}
+                    onRemoved={() => setExamKey(null)}
                   />
                 </>
               ) : (

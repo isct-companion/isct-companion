@@ -58,7 +58,7 @@ export function ExamCards({
       {ordered.map((exam) => (
         <article
           key={exam.key}
-          className={`examCard${exam.kind === "class" ? " examWeekClass" : ""}${exam.hidden ? " hidden" : ""}`}
+          className={`examCard${exam.kind === "class" ? " examWeekClass" : ""}`}
           style={{ "--course": exam.color } as React.CSSProperties}
         >
           <div className="examCardHeading">
@@ -100,7 +100,6 @@ export function ExamCards({
             {exam.code}
             {!exam.courseId ? ` · ${t("Not linked")}` : ""}
             {exam.edited ? ` · ${t("Edited")}` : ""}
-            {exam.hidden ? ` · ${t("Hidden")}` : ""}
           </small>
           <time dateTime={exam.date}>{examWhen(exam)}</time>
           {exam.room && <small>{exam.room}</small>}
@@ -118,6 +117,7 @@ export function ExamCards({
             exam={editing}
             courses={courses}
             onSaved={() => setEditing(null)}
+            onRemoved={() => setEditing(null)}
           />
         )}
       </Modal>

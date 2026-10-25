@@ -145,9 +145,7 @@ export function CoursePanel({
       today: tokyoDate(new Date(now)),
     }).value ?? []
   ).filter((choice) => choice.courses.some((item) => item.id === course.id));
-  const exams = (detail?.exams ?? []).filter(
-    (exam) => exam.kind !== "class" && !exam.hidden,
-  );
+  const exams = (detail?.exams ?? []).filter((exam) => exam.kind !== "class");
   const registered = data.memberships.some(
     (item) =>
       item.courseId === course.id &&

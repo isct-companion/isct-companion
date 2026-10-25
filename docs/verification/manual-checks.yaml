@@ -5575,15 +5575,27 @@ checks:
           The switch decides whether quizzes count on Today and in exam
           reminders; a quiz that stays listed with it off means the setting is
           not read.
+      - action: |
+          In Lectures → Exams open the quiz, click Delete, then Undo in the
+          notice. Delete it again and look at the calendar. Then Delete a
+          published exam, search for it and link its course again.
+        reason: |
+          Deleting replaced "Hide from my schedule", which on a marked session
+          hid the class itself with no way back. Delete must drop only the
+          mark (the class stays on the calendar), Undo must bring the quiz
+          back as a quiz, and a deleted published exam must leave My exams
+          and Today yet stay findable by search.
     observe: |
-      The calendar blocks, the Exams list and editor in Lectures, the course
-      panel and Today's upcoming exams.
+      The calendar blocks, the Exams list and editor in Lectures, the notice
+      at the bottom, the course panel and Today's upcoming exams.
     expected: |
       The exam block is clearly darker and ringed with a solid Exam tag, the
       quiz a step lighter, unstriped, with an outlined Quiz tag, both readable
       in dark mode;
       both sessions are listed in Exams (the quiz labelled Quiz), the course
-      panel and Today, and the quiz leaves Today while the switch is off.
+      panel and Today, and the quiz leaves Today while the switch is off;
+      Delete leaves a plain class on the calendar, Undo restores the quiz,
+      and the published exam returns once its course is linked again.
     why_manual: |
       How strongly a block stands out is a glance check in the real window.
       Which sessions become exams, the toggle and the lists are covered by
@@ -5591,6 +5603,8 @@ checks:
     covers:
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/components/timetable/timetable.tsx
+      - apps/desktop/src/components/exams/ExamEditor.tsx
+      - apps/desktop/src/app/notify.ts
       - apps/desktop/src/styles.css
       - design/tokens/course.json
     verified: null

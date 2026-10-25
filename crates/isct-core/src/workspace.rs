@@ -200,8 +200,8 @@ pub enum WorkspaceIntent {
         #[cfg_attr(feature = "ts", ts(optional))]
         existing_id: Option<String>,
     },
-    /// Replaces an exam's personal date, time, room and visibility. A field
-    /// that is empty or equals the published value follows the source.
+    /// Replaces an exam's personal date, time and room. A field that is
+    /// empty or equals the published value follows the source.
     EditExam {
         exam_key: String,
         #[serde(default)]
@@ -216,8 +216,6 @@ pub enum WorkspaceIntent {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         room: Option<String>,
-        #[serde(default)]
-        hidden: bool,
     },
     /// Marks one calendar session (`Occurrence.key`) as an exam, a quiz,
     /// cancelled (休講) or a normal class. The mark outranks every published
@@ -238,6 +236,12 @@ pub enum WorkspaceIntent {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         course_id: Option<String>,
+    },
+    /// Deletes an exam from the user's schedule: a marked class session
+    /// loses its mark, a published exam is unlinked from its course.
+    /// `MarkSession` or `LinkExam` with the previous value restores it.
+    RemoveExam {
+        exam_key: String,
     },
     DeleteScheduleOverride {
         override_id: String,
@@ -672,7 +676,6 @@ fn apply_intent(
             start_time,
             end_time,
             room,
-            hidden,
         } => {
             let row = crate::schedule::corrected_exam_override(
                 current,
@@ -683,7 +686,6 @@ fn apply_intent(
                     start_time,
                     end_time,
                     room,
-                    hidden,
                 },
             )
             .map_err(|error| DataError::InvalidInput(error.to_string()))?;
@@ -705,6 +707,11 @@ fn apply_intent(
                 course_id.as_deref().filter(|id| !id.is_empty()),
             )
             .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+            save_exam_override(write, current, school, &exam_key, row)
+        }
+        WorkspaceIntent::RemoveExam { exam_key } => {
+            let row = crate::schedule::removed_exam_override(current, school, &exam_key)
+                .map_err(|error| DataError::InvalidInput(error.to_string()))?;
             save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::DeleteScheduleOverride { override_id } => delete_visible(

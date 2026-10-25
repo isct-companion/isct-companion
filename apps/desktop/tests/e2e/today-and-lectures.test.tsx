@@ -690,7 +690,6 @@ describe("the lecture desk", () => {
         room: "Published room",
       },
       edited: false,
-      hidden: false,
     };
     const historical = courseRow("history", "Historical course", {
       termId: "2026-2Q",
@@ -856,7 +855,6 @@ describe("the lecture desk", () => {
           examKey: "reference:exam:2q",
           date: "2026-08-04",
           room: "Personal room",
-          hidden: false,
         }),
       ),
     );
@@ -899,7 +897,6 @@ describe("the lecture desk", () => {
       expect(app!.core.intents).toContainEqual({
         kind: "editExam",
         examKey: "reference:existing",
-        hidden: false,
       }),
     );
   }, 30_000);

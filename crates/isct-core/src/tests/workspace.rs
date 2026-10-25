@@ -502,7 +502,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             start_time: exam.start_time.clone(),
             end_time: exam.end_time.clone(),
             room: Some("Personal room".into()),
-            hidden: false,
         },
     );
     let row = &stored(&edited)[0];
@@ -543,7 +542,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
                     start_time: start.map(Into::into),
                     end_time: end.map(Into::into),
                     room: None,
-                    hidden: false,
                 },
             })
             .is_err());
@@ -559,7 +557,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             start_time: None,
             end_time: None,
             room: None,
-            hidden: false,
         },
     );
     let exam = view(&reset, second);
@@ -573,11 +570,11 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         },
     );
     assert_eq!(stored(&rematched).len(), 1);
+    // Deleting a published exam from the schedule unlinks it from the course.
     let unlinked = mutate(
         &service,
-        WorkspaceIntent::LinkExam {
+        WorkspaceIntent::RemoveExam {
             exam_key: first.into(),
-            course_id: None,
         },
     );
     assert_eq!(view(&unlinked, first).course_id, None);
@@ -624,7 +621,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             start_time: None,
             end_time: None,
             room: Some("Mark room".into()),
-            hidden: false,
         },
     );
     assert_eq!(view(&edited, second).mark.as_deref(), Some("cancelled"));
@@ -636,7 +632,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             start_time: None,
             end_time: None,
             room: None,
-            hidden: false,
         },
     );
     let restored = mutate(

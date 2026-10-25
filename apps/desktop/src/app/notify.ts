@@ -4,12 +4,12 @@ import { UiButton } from "../components/ui";
 import { t } from "../i18n";
 import { errorText } from "./shared";
 
-const show = (message: React.ReactNode) => {
+const show = (message: React.ReactNode, autoClose = 2800) => {
   notifications.hide("workspace-notice");
   notifications.show({
     id: "workspace-notice",
     message,
-    autoClose: 2800,
+    autoClose,
     withCloseButton: false,
     classNames: { root: "workspaceNotice", description: "workspaceNoticeText" },
   });
@@ -36,6 +36,26 @@ export const notify = {
     }, 600);
   },
   info: (message: string) => show(t(message)),
+  /** A finished change with a button that reverses it. */
+  undoable: (message: string, undo: () => void) =>
+    show(
+      createElement(
+        Fragment,
+        null,
+        t(message),
+        createElement(
+          UiButton,
+          {
+            onClick: () => {
+              notifications.hide("workspace-notice");
+              undo();
+            },
+          },
+          t("Undo"),
+        ),
+      ),
+      6000,
+    ),
   error: (error: unknown, retry?: () => void) => {
     const message = t(errorText(error) ?? "unknown error");
     show(

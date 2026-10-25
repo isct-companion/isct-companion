@@ -1204,7 +1204,6 @@ export type ExamView = {
    * Date, time, room or title differs from the published record.
    */
   edited: boolean;
-  hidden: boolean;
   /**
    * The user's mark, which outranks the published kind and status.
    */
@@ -1656,7 +1655,6 @@ export type WorkspaceIntent =
       startTime?: string;
       endTime?: string;
       room?: string;
-      hidden: boolean;
     }
   | {
       kind: "markSession";
@@ -1664,6 +1662,7 @@ export type WorkspaceIntent =
       mark: "exam" | "quiz" | "cancelled" | "class";
     }
   | { kind: "linkExam"; examKey: string; courseId?: string }
+  | { kind: "removeExam"; examKey: string }
   | { kind: "deleteScheduleOverride"; overrideId: string }
   | { kind: "saveScheduledTask"; draft: unknown; existingId?: string }
   | { kind: "deleteScheduledTask"; taskId: string }

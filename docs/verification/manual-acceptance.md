@@ -245,7 +245,7 @@ an unverified area becomes an assumed-good one.
 | `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
-| `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
+| `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/exams/ExamEditor.tsx<br>apps/desktop/src/app/notify.ts<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
 | `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/sync_engine/planner.rs<br>crates/isct-core/src/sync_engine/runner.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>apps/desktop/src/app/sync-text.ts |
 
 ## Personas
@@ -6500,11 +6500,19 @@ then dark appearance.
    - *Why:* The switch decides whether quizzes count on Today and in exam
      reminders; a quiz that stays listed with it off means the setting is
      not read.
+5. In Lectures → Exams open the quiz, click Delete, then Undo in the
+   notice. Delete it again and look at the calendar. Then Delete a
+   published exam, search for it and link its course again.
+   - *Why:* Deleting replaced "Hide from my schedule", which on a marked session
+     hid the class itself with no way back. Delete must drop only the
+     mark (the class stays on the calendar), Undo must bring the quiz
+     back as a quiz, and a deleted published exam must leave My exams
+     and Today yet stay findable by search.
 
 **Where to look**
 
-The calendar blocks, the Exams list and editor in Lectures, the course
-panel and Today's upcoming exams.
+The calendar blocks, the Exams list and editor in Lectures, the notice
+at the bottom, the course panel and Today's upcoming exams.
 
 **Expected**
 
@@ -6512,7 +6520,9 @@ The exam block is clearly darker and ringed with a solid Exam tag, the
 quiz a step lighter, unstriped, with an outlined Quiz tag, both readable
 in dark mode;
 both sessions are listed in Exams (the quiz labelled Quiz), the course
-panel and Today, and the quiz leaves Today while the switch is off.
+panel and Today, and the quiz leaves Today while the switch is off;
+Delete leaves a plain class on the calendar, Undo restores the quiz,
+and the published exam returns once its course is linked again.
 
 **Why this is manual**
 
@@ -6524,6 +6534,8 @@ Core's schedule tests and the lecture-desk e2e suite.
 
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/components/timetable/timetable.tsx`
+- `apps/desktop/src/components/exams/ExamEditor.tsx`
+- `apps/desktop/src/app/notify.ts`
 - `apps/desktop/src/styles.css`
 - `design/tokens/course.json`
 
