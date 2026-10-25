@@ -1,6 +1,6 @@
 //! The database half of a reset (design §10, `docs/data-ownership.md`).
-//! School caches are cache.db, whole, plus the settings rows below; the rest
-//! of user.db belongs to the person.
+//! School caches are cache.db and its bookkeeping in sync.db, whole, plus
+//! the settings rows below; the rest of user.db belongs to the person.
 use super::*;
 
 /// Rows and bytes a reset removes, or would remove.
@@ -39,7 +39,7 @@ fn cache_setting_rows(connection: &Connection) -> Result<u64, DataError> {
         .map_err(DataError::from)
 }
 
-/// Bytes the used pages of one file hold (`main` or `cache`), free pages
+/// Bytes the used pages of one file hold (`main`, `cache` or `sync`), free pages
 /// excluded: what emptying it gives back, as a hint for the confirmation
 /// panel, never a decision.
 fn used_bytes(connection: &Connection, schema: &str) -> Result<u64, DataError> {
@@ -54,10 +54,20 @@ fn used_bytes(connection: &Connection, schema: &str) -> Result<u64, DataError> {
     Ok(pragma("page_count")?.saturating_sub(pragma("freelist_count")?) * pragma("page_size")?)
 }
 
+/// Rows of cache.db and sync.db, which a reset empties together.
+fn cache_rows(connection: &Connection) -> Result<u64, DataError> {
+    Ok(rows_in(connection, migrations::CACHE_TABLES)?
+        + rows_in(connection, migrations::SYNC_TABLES)?)
+}
+
+fn cache_bytes(connection: &Connection) -> Result<u64, DataError> {
+    Ok(used_bytes(connection, "cache")? + used_bytes(connection, "sync")?)
+}
+
 fn estimate(connection: &Connection, everything: bool) -> Result<Cleared, DataError> {
     let mut cleared = Cleared {
-        rows: rows_in(connection, migrations::CACHE_TABLES)?,
-        bytes: used_bytes(connection, "cache")?,
+        rows: cache_rows(connection)?,
+        bytes: cache_bytes(connection)?,
     };
     if everything {
         cleared.rows += rows_in(connection, migrations::USER_TABLES)?;
@@ -99,15 +109,16 @@ impl DataStore {
         estimate(&*self.open()?, everything)
     }
 
-    /// Empties cache.db under the write lock: every table is dropped and
-    /// created again in one transaction, then the file is vacuumed. Returns
+    /// Empties cache.db and sync.db under the write lock: every table is
+    /// dropped and created again in one transaction, then the files are
+    /// vacuumed. Returns
     /// the bytes freed. The file is emptied in place rather than deleted
     /// because read connections keep it open, and SQLite removes a WAL file
     /// by name when the last connection to the old file closes, which would
     /// take the new file's log with it.
     pub(crate) fn rebuild_cache(&self) -> Result<u64, DataError> {
         let mut writer = self.connections.writer();
-        let before = used_bytes(&writer, "cache")?;
+        let before = cache_bytes(&writer)?;
         connection::allow_drops(&writer);
         let rebuilt = writer
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -120,20 +131,21 @@ impl DataStore {
         rebuilt?;
         self.committed_tables(&BTreeSet::from(["offerings".to_string()]));
         // Best effort: a busy reader keeps the free pages for reuse.
-        if let Err(error) =
-            writer.execute_batch("VACUUM cache; PRAGMA cache.wal_checkpoint(TRUNCATE);")
-        {
+        if let Err(error) = writer.execute_batch(
+            "VACUUM cache; PRAGMA cache.wal_checkpoint(TRUNCATE);
+             VACUUM sync; PRAGMA sync.wal_checkpoint(TRUNCATE);",
+        ) {
             log::warn!(target: "isct_core::reset", "cache.db compaction skipped: {error}");
         }
-        Ok(before.saturating_sub(used_bytes(&writer, "cache")?))
+        Ok(before.saturating_sub(cache_bytes(&writer)?))
     }
 
-    /// Empties cache.db, then deletes the cache settings rows and the
-    /// reference bookkeeping in user.db. Plans, notes, marks, overrides,
-    /// subscriptions, tasks and settings stay. Shells hear the change
+    /// Empties cache.db and sync.db, then deletes the cache settings rows
+    /// and the reference bookkeeping in user.db. Plans, notes, marks,
+    /// overrides, subscriptions, tasks and settings stay. Shells hear the change
     /// through [`DataStore::announce`] once admission reopens.
     pub(crate) fn clear_school_caches(&self) -> Result<Cleared, DataError> {
-        let rows = rows_in(&*self.open()?, migrations::CACHE_TABLES)?;
+        let rows = cache_rows(&*self.open()?)?;
         let bytes = self.rebuild_cache()?;
         let settings = self.write(None, |transaction| {
             let settings = cache_setting_rows(transaction)?;
@@ -149,12 +161,12 @@ impl DataStore {
         })
     }
 
-    /// Empties cache.db, then deletes every row of user.db, settings and
-    /// device identity included, and writes the defaults of a new database
-    /// in the same transaction: the first-launch state. No tombstone is
+    /// Empties cache.db and sync.db, then deletes every row of user.db,
+    /// settings and device identity included, and writes the defaults of a
+    /// new database in the same transaction: the first-launch state. No tombstone is
     /// written, so cloud copies and other devices keep their data.
     pub(crate) fn clear_everything(&self) -> Result<Cleared, DataError> {
-        let cache_rows = rows_in(&*self.open()?, migrations::CACHE_TABLES)?;
+        let cache_rows = cache_rows(&*self.open()?)?;
         let cache_bytes = self.rebuild_cache()?;
         let user = self.write(None, |transaction| {
             let cleared = Cleared {

@@ -1,8 +1,8 @@
 //! The connections of one store (design §07). Every commit queues on one
 //! long-lived write connection; reads use a few long-lived read-only
 //! connections. Each connection opens user.db as `main` and attaches
-//! cache.db as `cache`. Table names are unique across the two files, so SQL
-//! never names the schema.
+//! cache.db as `cache` and sync.db as `sync`. Table names are unique across
+//! the three files, so SQL never names the schema.
 //!
 //! No pool library: the write connection carries the change hooks, and the
 //! order connections close in on reset and exit follows the store, which a
@@ -24,10 +24,11 @@ use std::{
 /// short-lived one instead of waiting.
 const READERS: usize = 3;
 
-/// The two files of a store, inside one directory.
+/// The files of a store, inside one directory.
 pub(super) struct Files {
     pub(super) user: PathBuf,
     pub(super) cache: PathBuf,
+    pub(super) sync: PathBuf,
 }
 
 impl Files {
@@ -35,6 +36,7 @@ impl Files {
         Self {
             user: directory.join(migrations::USER_FILE),
             cache: directory.join(migrations::CACHE_FILE),
+            sync: directory.join(migrations::SYNC_FILE),
         }
     }
 }
@@ -57,10 +59,15 @@ impl Connections {
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
         let user_created = migrations::migrate_user(&mut writer)?;
-        let cache_created = migrations::attach_cache(&mut writer, &files.cache)?;
-        // cache.db is fetched again when lost, so it trades the last commits
-        // before a power loss for fewer syncs.
-        writer.execute_batch("PRAGMA cache.journal_mode=WAL; PRAGMA cache.synchronous=NORMAL;")?;
+        let cache_created = migrations::attach_caches(&mut writer, &files.cache, &files.sync)?;
+        // Both are fetched again when lost, so they trade the last commits
+        // before a power loss for fewer syncs. A power loss can then keep a
+        // key's freshness and lose its rows; the key reads stale until it is
+        // read again, as after any lost cache commit.
+        writer.execute_batch(
+            "PRAGMA cache.journal_mode=WAL; PRAGMA cache.synchronous=NORMAL;
+             PRAGMA sync.journal_mode=WAL; PRAGMA sync.synchronous=NORMAL;",
+        )?;
         forbid_truncate(&writer);
         let mut connections = Self {
             files,
@@ -80,13 +87,13 @@ impl Connections {
         self.writer.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A new read-only connection to both files.
+    /// A new read-only connection to the three files.
     pub(super) fn open_reader(&self) -> Result<Connection, DataError> {
         let connection = Connection::open_with_flags(
             &self.files.user,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
-        migrations::attach(&connection, &self.files.cache)?;
+        migrations::attach(&connection, &self.files.cache, &self.files.sync)?;
         Ok(connection)
     }
 

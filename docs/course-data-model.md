@@ -84,7 +84,7 @@ user-table rewrite.
 
 ## Where data lives
 
-**SQLite for structured application data**, owned by the Rust backend: `user.db` holds what the person made or chose (the only file backup and cloud sync read), `cache.db` every school cache, which is fetched again when lost; both live in the app data dir. It replaces `workspace.json`, the localStorage caches and `school-cache.json`. The UI reads and writes only through narrow Tauri commands; it never parses HTML and never opens the database itself. Downloaded material bytes and user-authored note files are the explicit filesystem exception; their types, TTL and paths are defined in [course-file-storage.md](course-file-storage.md).
+**SQLite for structured application data**, owned by the Rust backend: `user.db` holds what the person made or chose (the only file backup and cloud sync read), `cache.db` every school cache, which is fetched again when lost, and `sync.db` the sync engine's freshness and run records about it, so a read that finds nothing new leaves `cache.db` unchanged; all three live in the app data dir. It replaces `workspace.json`, the localStorage caches and `school-cache.json`. The UI reads and writes only through narrow Tauri commands; it never parses HTML and never opens the database itself. Downloaded material bytes and user-authored note files are the explicit filesystem exception; their types, TTL and paths are defined in [course-file-storage.md](course-file-storage.md).
 
 Table groups:
 
@@ -94,7 +94,7 @@ Table groups:
 | User overlays              | `course_overrides`, `assignment_marks`                                                                                                          | SQLite; reference a school `sourceKey`; independent revision and lifetime; included in local backup |
 | Local notes                | Markdown under the course `notes` / `deleted-notes` directories                                                                                 | Local user data; included in local and cloud workspace backups, excluded from cache cleanup         |
 | School records and catalog | `timetable_courses`, `memberships`, `registrations`, `grades`, `lms_courses`, `lms_items`, `assignments`, `offerings`, reference tables         | Rebuildable SQLite cache; `lastSeenAt` / `missingSince`; never exported                             |
-| Derived caches             | `offerings_fts`, `dataset_state`, `sync_runs`, downloaded attachments                              | Rebuildable; never exported                                                                         |
+| Derived caches             | `offerings_fts`, `dataset_state`, `sync_runs`, downloaded attachments                                                                           | Rebuildable; never exported                                                                         |
 
 Only user records and overlays use tombstones. School rows use `missingSince`
 and automatically become visible again if the source returns them.

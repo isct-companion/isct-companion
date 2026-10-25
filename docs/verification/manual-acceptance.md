@@ -925,7 +925,7 @@ itself, where courses are still being edited, is not yet observed.
      申告 period", the extractor's unavailable pattern must learn that
      notice and its element. If the data is visible but the selector
      does not match, the selector is broken.
-5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/cache.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
+5. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/sync.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
    - *Why:* Only a complete read sets `fetched_at`, with outcome `complete` or
      `unavailable`. A page without one stays due and backs off after
      each failure, recorded in `failures` and `last_error`.

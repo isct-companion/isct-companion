@@ -195,7 +195,7 @@ application owner containing `store`, `auth`, `agent`, `workspace`, `reminders` 
 Production shells use `Core::with_events(..., EventSink)` and call
 `Core::start(&Handle)` once; Core owns the pull-event forwarding task.
 
-Every commit to user.db or cache.db goes through `DataStore::write(source, |tx| ...)`
+Every commit to user.db, cache.db or sync.db goes through `DataStore::write(source, |tx| ...)`
 (user intents through `workspace_write`, which shares its commit), on the
 store's one write connection. It holds the IMMEDIATE transaction and, when the
 commit changed a row, tells the observer `Core` installs which tables it

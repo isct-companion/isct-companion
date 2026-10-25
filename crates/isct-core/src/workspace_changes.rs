@@ -179,12 +179,14 @@ const PROJECTED: &[&str] = &[
 enum Owner {
     User,
     Cache,
+    /// sync.db: the sync engine's bookkeeping about cache rows.
+    Sync,
 }
 
 /// Every table a commit can report, with the changes it feeds. A table not
 /// listed here is reported as every change and as user-owned, so a new
-/// table is over-refreshed rather than missed; the test that lists both
-/// database files fails until it is added.
+/// table is over-refreshed rather than missed; the test that lists every
+/// database file fails until it is added.
 const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("timetable_courses", &[Courses], Owner::Cache),
     ("memberships", &[Courses], Owner::Cache),
@@ -219,9 +221,9 @@ const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("subscriptions", &[Subscriptions], Owner::User),
     ("scheduled_tasks", &[ScheduledTasks], Owner::User),
     ("settings", &[Settings], Owner::User),
-    ("dataset_state", &[Freshness], Owner::Cache),
+    ("dataset_state", &[Freshness], Owner::Sync),
     // Run records are diagnostics; no view shows them.
-    ("sync_runs", &[], Owner::Cache),
+    ("sync_runs", &[], Owner::Sync),
 ];
 
 /// FTS5 keeps an index in shadow tables (`offerings_fts_data`, `_idx`,

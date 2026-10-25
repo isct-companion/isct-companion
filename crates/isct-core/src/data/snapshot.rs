@@ -6,8 +6,14 @@ use sha2::{Digest, Sha256};
 /// out the snapshot itself, never a copy of it.
 pub(crate) type SnapshotParts = (Arc<Value>, Arc<Value>, String);
 
-/// `PRAGMA data_version` of user.db and cache.db on the snapshot connection.
-type Versions = (i64, i64);
+/// `PRAGMA data_version` of user.db, cache.db and sync.db on the snapshot
+/// connection.
+type Versions = (i64, i64, i64);
+
+/// The school records only sync.db feeds: freshness and page availability.
+/// A commit there changes nothing else, so they are read again over the
+/// cached workspace instead of rebuilding it.
+const SYNC_RECORDS: [&str; 2] = ["freshness", "pageAvailability"];
 
 /// The workspace's largest school collections, most of its size: the catalog
 /// and the exam timetable. No user intent can change them (`WorkspaceWrite`
@@ -84,8 +90,26 @@ struct Cached {
     day: chrono::NaiveDate,
     parts: SnapshotParts,
     hash: String,
+    /// Feeds `hash` with everything but the sync records.
+    digest: [u8; 32],
     /// The shared collections its workspace holds.
     school: Arc<SharedSchool>,
+}
+
+/// A whole snapshot as one read built it.
+pub(super) struct Built {
+    parts: SnapshotParts,
+    hash: String,
+    digest: [u8; 32],
+}
+
+/// The content revision of a snapshot whose other content hashes to
+/// `digest`.
+fn content_hash(digest: &[u8; 32], sync_records: &Value) -> Result<String, DataError> {
+    let mut hash = Sha256::new();
+    hash.update(digest);
+    serde_json::to_writer(&mut hash, sync_records)?;
+    Ok(format!("{:x}", hash.finalize()))
 }
 
 impl SnapshotReader {
@@ -105,7 +129,7 @@ impl SnapshotReader {
                 })
                 .map_err(DataError::from)
         };
-        Ok((version("main")?, version("cache")?))
+        Ok((version("main")?, version("cache")?, version("sync")?))
     }
 
     fn baseline(
@@ -117,6 +141,47 @@ impl SnapshotReader {
             .as_ref()
             .filter(|cached| cached.versions == versions && cached.day == today)
             .map(|cached| (cached.parts.clone(), cached.hash.clone()))
+    }
+
+    /// The cached workspace when user.db and cache.db are as it read them:
+    /// sync.db feeds no workspace field.
+    fn workspace_at(&self, versions: Versions, today: chrono::NaiveDate) -> Option<Arc<Value>> {
+        self.cached
+            .as_ref()
+            .filter(|cached| {
+                (cached.versions.0, cached.versions.1) == (versions.0, versions.1)
+                    && cached.day == today
+            })
+            .map(|cached| cached.parts.0.clone())
+    }
+
+    /// The cached snapshot with the sync records of `versions` read again,
+    /// when only sync.db changed since it was read.
+    fn refresh_sync_records(
+        &mut self,
+        versions: Versions,
+        today: chrono::NaiveDate,
+    ) -> Result<Option<(SnapshotParts, String)>, DataError> {
+        let Self {
+            connection, cached, ..
+        } = self;
+        let Some(cached) = cached.as_mut().filter(|cached| {
+            (cached.versions.0, cached.versions.1) == (versions.0, versions.1)
+                && cached.day == today
+        }) else {
+            return Ok(None);
+        };
+        let transaction = connection.transaction()?;
+        let sync_records = DataStore::sync_records_from(&transaction)?;
+        transaction.commit()?;
+        let mut records = Value::clone(&cached.parts.1);
+        for field in SYNC_RECORDS {
+            records[field] = sync_records[field].clone();
+        }
+        cached.hash = content_hash(&cached.digest, &sync_records)?;
+        cached.parts.1 = Arc::new(records);
+        cached.versions = versions;
+        Ok(Some((cached.parts.clone(), cached.hash.clone())))
     }
 
     /// The cached workspace, taken out of the cache, when it holds `school`'s
@@ -152,6 +217,12 @@ impl DataStore {
             }
             return Ok(snapshot);
         }
+        if let Some(snapshot) = reader.refresh_sync_records(versions, today)? {
+            if std::env::var_os("ISCT_TRACE_READS").is_some() {
+                eprintln!("[workspace-snapshot] cache=sync-records data_version={versions:?}");
+            }
+            return Ok(snapshot);
+        }
         if std::env::var_os("ISCT_TRACE_READS").is_some() {
             eprintln!("[workspace-snapshot] cache=miss data_version={versions:?}");
         }
@@ -160,14 +231,16 @@ impl DataStore {
         } = &mut *reader;
         let transaction = connection.transaction()?;
         let school = SharedSchool::read(&transaction, shared.as_ref(), Some(versions.1))?;
-        let snapshot = Self::snapshot_from(&transaction, &school, None)?;
+        let built = Self::snapshot_from(&transaction, &school, None)?;
         transaction.commit()?;
         *shared = Some(school.clone());
+        let snapshot = (built.parts.clone(), built.hash.clone());
         reader.cached = Some(Cached {
             versions,
             day: today,
-            parts: snapshot.0.clone(),
-            hash: snapshot.1.clone(),
+            parts: built.parts,
+            hash: built.hash,
+            digest: built.digest,
             school,
         });
         Ok(snapshot)
@@ -204,9 +277,9 @@ impl DataStore {
                 // collections read at this version stay those of the commit.
                 let school =
                     SharedSchool::read(transaction, reader.shared.as_ref(), Some(versions.1))?;
-                let current = match reader.baseline(versions, today) {
-                    Some(((workspace, _, _), _)) => workspace,
-                    None => Self::snapshot_from(transaction, &school, None)?.0 .0,
+                let current = match reader.workspace_at(versions, today) {
+                    Some(workspace) => workspace,
+                    None => Self::snapshot_from(transaction, &school, None)?.parts.0,
                 };
                 let write = WorkspaceWrite {
                     transaction,
@@ -220,7 +293,7 @@ impl DataStore {
                 let snapshot = Self::snapshot_from(transaction, &school, previous.as_mut())?;
                 Ok((result, snapshot, school, versions, previous))
             })?;
-        let revision = snapshot.0 .2.clone();
+        let revision = snapshot.parts.2.clone();
         // The committed snapshot is the one for the versions after this
         // commit. They are read before the write lock is released, so no
         // commit of this store can land in between; only another process
@@ -235,8 +308,9 @@ impl DataStore {
             after.map(|after| Cached {
                 versions: after,
                 day: today,
-                parts: snapshot.0.clone(),
-                hash: snapshot.1.clone(),
+                parts: snapshot.parts.clone(),
+                hash: snapshot.hash.clone(),
+                digest: snapshot.digest,
                 school,
             }),
         );
@@ -247,7 +321,7 @@ impl DataStore {
         self.committed_tables(&tables);
         self.observer
             .committed(WorkspaceChangeSource::UserIntent, Some(revision), &tables);
-        Ok((result, snapshot.0, snapshot.1, tables))
+        Ok((result, snapshot.parts, snapshot.hash, tables))
     }
 
     /// The whole snapshot as `connection` sees it, with `school`'s shared
@@ -257,14 +331,19 @@ impl DataStore {
         connection: &Connection,
         school: &SharedSchool,
         mut previous: Option<&mut Value>,
-    ) -> Result<(SnapshotParts, String), DataError> {
+    ) -> Result<Built, DataError> {
         let mut workspace = Self::workspace_without_shared(connection, school)?;
-        let school_records = Self::school_records_from(connection)?;
+        let mut school_records = Self::school_records_from(connection)?;
+        let sync_records = Self::sync_records_from(connection)?;
         let revision = intent_revision(connection)?;
         let mut digest = Sha256::new();
         digest.update(school.digest);
         serde_json::to_writer(&mut digest, &(&workspace, &school_records))?;
-        let hash = format!("{:x}", digest.finalize());
+        let digest: [u8; 32] = digest.finalize().into();
+        let hash = content_hash(&digest, &sync_records)?;
+        for field in SYNC_RECORDS {
+            school_records[field] = sync_records[field].clone();
+        }
         for ((field, _), rows) in SHARED_SCHOOL.iter().zip(&school.collections) {
             workspace[*field] = match previous.as_mut().and_then(|old| old.get_mut(*field)) {
                 Some(moved) => moved.take(),
@@ -276,16 +355,17 @@ impl DataStore {
         for field in ["registrations", "grades", "lmsCourses"] {
             workspace[field] = school_records[field].clone();
         }
-        Ok((
-            (Arc::new(workspace), Arc::new(school_records), revision),
+        Ok(Built {
+            parts: (Arc::new(workspace), Arc::new(school_records), revision),
             hash,
-        ))
+            digest,
+        })
     }
 
     /// The workspace as `connection` sees it, read in full.
     pub(super) fn load_workspace_from(connection: &Connection) -> Result<Arc<Value>, DataError> {
         let school = SharedSchool::read(connection, None, None)?;
-        Ok(Self::snapshot_from(connection, &school, None)?.0 .0)
+        Ok(Self::snapshot_from(connection, &school, None)?.parts.0)
     }
 
     /// The workspace with `school`'s shared collections left empty, the
@@ -472,13 +552,16 @@ impl DataStore {
                 Value::Array(read_visible_rows(connection, table)?),
             );
         }
-        let freshness = crate::sync_state::list(connection, None)?;
-        records.insert("freshness".into(), Self::freshness_from(&freshness));
-        records.insert(
-            "pageAvailability".into(),
-            Self::page_availability_from(&freshness)?,
-        );
         Ok(Value::Object(records))
+    }
+
+    /// The school records sync.db feeds, `SYNC_RECORDS`.
+    fn sync_records_from(connection: &Connection) -> Result<Value, DataError> {
+        let freshness = crate::sync_state::list(connection, None)?;
+        Ok(json!({
+            "freshness": Self::freshness_from(&freshness),
+            "pageAvailability": Self::page_availability_from(&freshness)?,
+        }))
     }
 
     /// `dataset/key` → when the key was last read in full and how its latest

@@ -692,3 +692,55 @@ fn commits_report_the_tables_they_changed() {
     );
     let _ = fs::remove_dir_all(store.directory());
 }
+
+/// Freshness lives in sync.db, so a sync commit that only records it reaches
+/// the next snapshot over the cached workspace: same workspace, new content
+/// revision, same intent revision. A cache.db commit still rebuilds it.
+#[test]
+fn a_freshness_commit_refreshes_the_snapshot_without_rebuilding_its_workspace() {
+    use crate::sync_state::{Commit, Dataset, Key, Outcome};
+    let store = store("sync-records");
+    let ((workspace, _, revision), content) = store.workspace_snapshot().unwrap();
+    store
+        .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
+            let commit = Commit {
+                account: "",
+                validator: None,
+                outcome: Outcome::Complete,
+                message: None,
+            };
+            crate::sync_state::commit(
+                transaction,
+                &Key::new(Dataset::KyomuPage, "grades"),
+                commit,
+                Utc::now(),
+            )
+        })
+        .unwrap();
+
+    let ((refreshed, records, refreshed_revision), refreshed_content) =
+        store.workspace_snapshot().unwrap();
+    assert!(Arc::ptr_eq(&workspace, &refreshed));
+    assert_eq!(refreshed_revision, revision);
+    assert_ne!(refreshed_content, content);
+    assert!(records["freshness"].get("kyomu.page/grades").is_some());
+    assert_eq!(
+        records["pageAvailability"]["kyomu:grades"]["state"],
+        "available"
+    );
+
+    store
+        .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
+            transaction
+                .execute_batch(
+                    "INSERT INTO grades(id,value,hash,updated_at,updated_by,rev)
+                       VALUES('grade:1','{\"id\":\"grade:1\"}','hash','2026-10-01T00:00:00Z','kyomu',1);",
+                )
+                .map_err(DataError::from)
+        })
+        .unwrap();
+    let ((rebuilt, records, _), _) = store.workspace_snapshot().unwrap();
+    assert!(!Arc::ptr_eq(&refreshed, &rebuilt));
+    assert_eq!(records["grades"].as_array().map(Vec::len), Some(1));
+    let _ = fs::remove_dir_all(store.directory());
+}

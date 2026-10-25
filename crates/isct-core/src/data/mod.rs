@@ -739,17 +739,19 @@ fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
     Ok(())
 }
 
-/// One store: user.db and cache.db in one directory (`connection`).
+/// One store: user.db, cache.db and sync.db in one directory (`connection`).
 ///
-/// A transaction that writes both files, such as a school ingest that pins
-/// a course id in `course_identity_map` (user.db) while it writes school
-/// rows and freshness (cache.db), commits atomically per file but not across
-/// them (WAL). SQLite commits `main` first. A crash in between leaves an
-/// identity-map row whose school rows and freshness rolled back together,
-/// so the key reads as missing, and the next read resolves the same course
-/// id from that row. Readers may likewise see one file's commit before the
-/// other's; the snapshot cache is keyed on both files' data versions, so the
-/// next read shows both.
+/// A transaction that writes several files, such as a school ingest that
+/// pins a course id in `course_identity_map` (user.db) while it writes
+/// school rows (cache.db) and their freshness (sync.db), commits atomically
+/// per file but not across them (WAL). SQLite commits `main` first. A crash
+/// in between leaves an identity-map row whose school rows rolled back, so
+/// the key reads as missing, and the next read resolves the same course id
+/// from that row; a crash between cache.db and sync.db can keep a key's
+/// freshness without its rows, which then read stale until the key is read
+/// again. Readers may likewise see one file's commit before another's; the
+/// snapshot cache is keyed on every file's data version, so the next read
+/// shows all of them.
 #[derive(Clone)]
 pub struct DataStore {
     // Before `connections`: its read connection must close before the write
@@ -1008,12 +1010,13 @@ impl DataStore {
         &self.connections.files.user
     }
 
-    /// A read-write connection to both files, for tests that seed or inspect
-    /// rows directly.
+    /// A read-write connection to the three files, for tests that seed or
+    /// inspect rows directly.
     #[cfg(test)]
     pub(crate) fn test_connection(&self) -> Connection {
-        let connection = Connection::open(&self.connections.files.user).unwrap();
-        migrations::attach(&connection, &self.connections.files.cache).unwrap();
+        let files = &self.connections.files;
+        let connection = Connection::open(&files.user).unwrap();
+        migrations::attach(&connection, &files.cache, &files.sync).unwrap();
         connection
     }
 

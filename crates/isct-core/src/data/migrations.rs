@@ -1,11 +1,16 @@
-//! Schemas of the two database files and the only code that changes them.
+//! Schemas of the three database files and the only code that changes them.
 //! Migrations run once, when a store opens (`DataStore::initialize_dir`).
 //!
 //! user.db holds what the person made or chose: the only file backup and
-//! cloud sync read. cache.db holds every school and reference cache, the
-//! catalog with its search index, freshness and run records; everything in
-//! it is fetched again when it is lost, so a cache.db of another schema
-//! version is deleted and created again rather than migrated.
+//! cloud sync read. cache.db holds every school and reference record and the
+//! catalog with its search index. sync.db holds the sync engine's
+//! bookkeeping about those records: freshness and run records. A sync that
+//! finds nothing new commits to sync.db only, so cache.db's data version,
+//! which the snapshot cache is keyed on, moves only when records change.
+//! Everything in cache.db and sync.db is fetched again when it is lost, so
+//! a file of another schema version is deleted and created again rather
+//! than migrated; freshness without its records would say they are fresh,
+//! so sync.db is emptied whenever cache.db is.
 use super::connection::remove_database;
 use super::DataError;
 use rusqlite::{Connection, Transaction};
@@ -13,8 +18,12 @@ use std::path::Path;
 
 pub(super) const USER_FILE: &str = "user.db";
 pub(super) const CACHE_FILE: &str = "cache.db";
+pub(super) const SYNC_FILE: &str = "sync.db";
 pub const USER_SCHEMA_VERSION: i64 = 1;
-pub const CACHE_SCHEMA_VERSION: i64 = 3;
+pub const CACHE_SCHEMA_VERSION: i64 = 4;
+pub const SYNC_SCHEMA_VERSION: i64 = 1;
+/// cache.db with the sync bookkeeping still inside: moved to sync.db once.
+const CACHE_WITH_SYNC_VERSION: i64 = 3;
 
 /// The single file of schemas 6–8, before the split.
 const LEGACY_FILE: &str = "school.db";
@@ -46,7 +55,7 @@ pub(crate) const USER_TABLES: &[&str] = &[
 ];
 
 /// Tables of cache.db: school and reference records, the catalog and its
-/// index, freshness and runs.
+/// index.
 pub(crate) const CACHE_TABLES: &[&str] = &[
     "timetable_courses",
     "memberships",
@@ -67,18 +76,20 @@ pub(crate) const CACHE_TABLES: &[&str] = &[
     "important_dates",
     "exams",
     "class_schedules",
-    "dataset_state",
-    "sync_runs",
 ];
+
+/// Tables of sync.db: freshness per key and one row per read.
+pub(crate) const SYNC_TABLES: &[&str] = &["dataset_state", "sync_runs"];
 
 /// FTS5 virtual tables; SQLite keeps their rows in `<name>_*` shadow tables.
 pub(super) const FTS_TABLES: &[&str] = &["offerings_fts"];
 
-/// Every table of both files.
+/// Every table of the three files.
 pub(super) fn all_tables() -> std::collections::BTreeSet<String> {
     USER_TABLES
         .iter()
         .chain(CACHE_TABLES)
+        .chain(SYNC_TABLES)
         .map(|table| (*table).to_string())
         .collect()
 }
@@ -165,7 +176,6 @@ CREATE TABLE scheduled_tasks (
 "#;
 
 /// Created through the connection that has cache.db attached as `cache`.
-/// Freshness per (dataset, key) and one row per read: see `crate::sync_state`.
 /// Record rows keep their content in `value` only; a field a query filters
 /// on is a VIRTUAL generated column over it, indexed, so writers never copy
 /// fields into columns and a column cannot drift from its row.
@@ -280,21 +290,26 @@ CREATE TABLE cache.class_schedules (
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
 );
-CREATE TABLE cache.dataset_state (
+"#;
+
+/// Created through the connection that has sync.db attached as `sync`.
+/// Freshness per (dataset, key) and one row per read: see `crate::sync_state`.
+const SYNC_SCHEMA: &str = r#"
+CREATE TABLE sync.dataset_state (
   dataset TEXT NOT NULL, key TEXT NOT NULL, account TEXT NOT NULL DEFAULT '',
   fetched_at TEXT, validator TEXT, outcome TEXT, message TEXT,
   failures INTEGER NOT NULL DEFAULT 0, next_eligible TEXT, cursor TEXT,
   last_error TEXT, last_used TEXT,
   PRIMARY KEY (dataset, key)
 );
-CREATE TABLE cache.sync_runs (
+CREATE TABLE sync.sync_runs (
   id INTEGER PRIMARY KEY, run TEXT NOT NULL, dataset TEXT NOT NULL, key TEXT NOT NULL,
   account TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL, finished_at TEXT NOT NULL,
   outcome TEXT NOT NULL, changed INTEGER NOT NULL DEFAULT 0, requests INTEGER,
   bytes INTEGER, source TEXT, error_kind TEXT
 );
-CREATE INDEX cache.sync_runs_by_finished ON sync_runs(finished_at);
-CREATE INDEX cache.sync_runs_by_key ON sync_runs(dataset, key, finished_at);
+CREATE INDEX sync.sync_runs_by_finished ON sync_runs(finished_at);
+CREATE INDEX sync.sync_runs_by_key ON sync_runs(dataset, key, finished_at);
 "#;
 
 /// Creates the user schema in a new user.db. A file of another version, or
@@ -329,42 +344,108 @@ fn attach_as(connection: &Connection, path: &Path, schema: &str) -> Result<(), D
     Ok(())
 }
 
-/// Attaches cache.db as `cache`, the way every connection of a store sees it.
-pub(super) fn attach(connection: &Connection, path: &Path) -> Result<(), DataError> {
-    attach_as(connection, path, "cache")
+/// Attaches cache.db as `cache` and sync.db as `sync`, the way every
+/// connection of a store sees them.
+pub(super) fn attach(connection: &Connection, cache: &Path, sync: &Path) -> Result<(), DataError> {
+    attach_as(connection, cache, "cache")?;
+    attach_as(connection, sync, "sync")
 }
 
-/// Attaches cache.db to the write connection. A file of another schema
-/// version, or one SQLite cannot read, is deleted and created again: its
-/// rows are fetched again, and with no freshness rows every key reads as
-/// missing. Returns whether the schema was created.
-pub(super) fn attach_cache(connection: &mut Connection, path: &Path) -> Result<bool, DataError> {
-    let found = attach(connection, path).and_then(|()| {
+/// Attaches cache.db and sync.db to the write connection. A file of another
+/// schema version, or one SQLite cannot read, is deleted and created again:
+/// its rows are fetched again, and with no freshness rows every key reads as
+/// missing. A cache.db of schema 3 moves its bookkeeping into sync.db
+/// instead. Returns whether a schema was created.
+pub(super) fn attach_caches(
+    connection: &mut Connection,
+    cache: &Path,
+    sync: &Path,
+) -> Result<bool, DataError> {
+    let sync_created = attach_checked(connection, sync, "sync", SYNC_SCHEMA_VERSION)?;
+    let cache_version = attach_checked(connection, cache, "cache", CACHE_SCHEMA_VERSION)?;
+    let transaction = connection.transaction()?;
+    if sync_created == Attached::Created && cache_version != Attached::Created {
+        create_sync_schema(&transaction)?;
+    }
+    let created = match cache_version {
+        Attached::Current => sync_created == Attached::Created,
+        Attached::Created => {
+            create_cache_schema(&transaction)?;
+            // Freshness of the records that were lost would keep them from
+            // being fetched again.
+            recreate_sync(&transaction)?;
+            true
+        }
+        Attached::Old => {
+            if sync_created == Attached::Created {
+                // `SELECT *` matches: the bookkeeping kept its columns.
+                for table in SYNC_TABLES {
+                    transaction.execute_batch(&format!(
+                        "INSERT INTO sync.{table} SELECT * FROM cache.{table};"
+                    ))?;
+                }
+            }
+            for table in SYNC_TABLES {
+                transaction.execute_batch(&format!("DROP TABLE cache.{table};"))?;
+            }
+            transaction.execute_batch(&format!(
+                "PRAGMA cache.user_version={CACHE_SCHEMA_VERSION};"
+            ))?;
+            log::info!(target: "isct_core::data", "Moved the sync bookkeeping of cache.db into sync.db");
+            sync_created == Attached::Created
+        }
+    };
+    transaction.commit()?;
+    Ok(created)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Attached {
+    Current,
+    /// cache.db of schema 3: its bookkeeping moves to sync.db.
+    Old,
+    /// A new empty file, without its schema yet.
+    Created,
+}
+
+/// Attaches `path` as `schema`; a file of another version (but cache.db of
+/// schema 3) or one SQLite cannot read is replaced by an empty one.
+fn attach_checked(
+    connection: &mut Connection,
+    path: &Path,
+    schema: &str,
+    current: i64,
+) -> Result<Attached, DataError> {
+    let found = attach_as(connection, path, schema).and_then(|()| {
         connection
-            .query_row("PRAGMA cache.user_version", [], |row| row.get::<_, i64>(0))
+            .query_row(&format!("PRAGMA {schema}.user_version"), [], |row| {
+                row.get::<_, i64>(0)
+            })
             .map_err(DataError::from)
     });
+    let file = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(schema);
     match found {
-        Ok(CACHE_SCHEMA_VERSION) => return Ok(false),
+        Ok(version) if version == current => return Ok(Attached::Current),
+        Ok(CACHE_WITH_SYNC_VERSION) if schema == "cache" => return Ok(Attached::Old),
         Ok(0) => {}
         Ok(version) => log::info!(
             target: "isct_core::data",
-            "cache.db has schema {version}, not {CACHE_SCHEMA_VERSION}; creating it again"
+            "{file} has schema {version}, not {current}; creating it again"
         ),
         Err(error) => log::warn!(
             target: "isct_core::data",
-            "cache.db cannot be read ({error}); creating it again"
+            "{file} cannot be read ({error}); creating it again"
         ),
     }
     // Only this connection exists while the store opens, so the files can go.
-    let _ = connection.execute("DETACH DATABASE cache", []);
+    let _ = connection.execute(&format!("DETACH DATABASE {schema}"), []);
     remove_database(path)?;
-    attach(connection, path)?;
-    connection.execute_batch("PRAGMA cache.journal_mode=WAL;")?;
-    let transaction = connection.transaction()?;
-    create_cache_schema(&transaction)?;
-    transaction.commit()?;
-    Ok(true)
+    attach_as(connection, path, schema)?;
+    connection.execute_batch(&format!("PRAGMA {schema}.journal_mode=WAL;"))?;
+    Ok(Attached::Created)
 }
 
 fn create_cache_schema(connection: &Connection) -> Result<(), DataError> {
@@ -375,32 +456,53 @@ fn create_cache_schema(connection: &Connection) -> Result<(), DataError> {
     Ok(())
 }
 
-/// Drops every table of cache.db and creates the schema again, inside the
-/// caller's transaction: a reset leaves either the old cache or an empty
-/// one. Virtual tables go first; they drop their shadow tables themselves.
-pub(super) fn recreate_cache(transaction: &Transaction<'_>) -> Result<(), DataError> {
-    let mut statement = transaction.prepare(
-        "SELECT name FROM cache.sqlite_master
+fn create_sync_schema(connection: &Connection) -> Result<(), DataError> {
+    connection.execute_batch(SYNC_SCHEMA)?;
+    connection.execute_batch(&format!("PRAGMA sync.user_version={SYNC_SCHEMA_VERSION};"))?;
+    Ok(())
+}
+
+/// Drops the tables of `schema`, virtual tables first (they drop their
+/// shadow tables themselves).
+fn drop_tables(transaction: &Transaction<'_>, schema: &str) -> Result<(), DataError> {
+    let mut statement = transaction.prepare(&format!(
+        "SELECT name FROM {schema}.sqlite_master
          WHERE type='table' AND name NOT LIKE 'sqlite_%'
-         ORDER BY sql LIKE 'CREATE VIRTUAL TABLE%' DESC, name",
-    )?;
+         ORDER BY sql LIKE 'CREATE VIRTUAL TABLE%' DESC, name"
+    ))?;
     let tables: Vec<String> = statement
         .query_map([], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
     drop(statement);
     for table in tables {
-        transaction.execute_batch(&format!("DROP TABLE IF EXISTS cache.\"{table}\";"))?;
+        transaction.execute_batch(&format!("DROP TABLE IF EXISTS {schema}.\"{table}\";"))?;
     }
-    create_cache_schema(transaction)
+    Ok(())
 }
 
-/// Both schemas in one in-memory connection, for code that writes through a
-/// transaction and is tested without a store.
+fn recreate_sync(transaction: &Transaction<'_>) -> Result<(), DataError> {
+    drop_tables(transaction, "sync")?;
+    create_sync_schema(transaction)
+}
+
+/// Drops every table of cache.db and sync.db and creates the schemas again,
+/// inside the caller's transaction: a reset leaves either the old caches or
+/// empty ones.
+pub(super) fn recreate_cache(transaction: &Transaction<'_>) -> Result<(), DataError> {
+    drop_tables(transaction, "cache")?;
+    create_cache_schema(transaction)?;
+    recreate_sync(transaction)
+}
+
+/// The three schemas in one in-memory connection, for code that writes
+/// through a transaction and is tested without a store.
 pub fn open_in_memory() -> Result<Connection, DataError> {
     let mut connection = Connection::open_in_memory()?;
     migrate_user(&mut connection)?;
     connection.execute("ATTACH DATABASE ':memory:' AS cache", [])?;
+    connection.execute("ATTACH DATABASE ':memory:' AS sync", [])?;
     create_cache_schema(&connection)?;
+    create_sync_schema(&connection)?;
     super::connection::forbid_truncate(&connection);
     Ok(connection)
 }

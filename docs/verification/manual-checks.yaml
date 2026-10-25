@@ -717,7 +717,7 @@ checks:
           notice and its element. If the data is visible but the selector
           does not match, the selector is broken.
       - action: |
-          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/cache.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
+          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/sync.db" "SELECT key,outcome,fetched_at,failures,last_error FROM dataset_state WHERE dataset='kyomu.page'"`.
         reason: |
           Only a complete read sets `fetched_at`, with outcome `complete` or
           `unavailable`. A page without one stays due and backs off after
