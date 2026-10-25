@@ -1271,6 +1271,14 @@ checks:
         reason: |
           This is the reported flow: the tip stayed on every page and Got it
           did nothing until Today came back.
+      - action: |
+          Show tips again, open a course with lessons on Lectures, and while
+          the lesson tip points at the rail switch the sidebar to Exams, then
+          back to Lectures.
+        reason: |
+          Course workspaces are retained inside the Lectures page; their tip
+          used to stay on the Exams list, pinned to the window's top-left
+          corner, because it portaled to the page layer, not the course's.
     observe: |
       The menus, the dialog backdrop over the rail and status bar, and the
       page shown after each shortcut.
@@ -1284,6 +1292,7 @@ checks:
     covers:
       - apps/desktop/src/app/KeptPage.tsx
       - apps/desktop/src/pages/today/CourseFinder.tsx
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/components/guide.tsx
     verified: null
 

@@ -155,7 +155,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/isct-ocr/src/engine/grid/**<br>crates/isct-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
-| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/components/guide.tsx |
+| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/isct-core/src/agent/** |
@@ -1539,6 +1539,12 @@ A desktop build with classes on Today and an upcoming exam.
    Today switch pages from the rail before pressing Got it.
    - *Why:* This is the reported flow: the tip stayed on every page and Got it
      did nothing until Today came back.
+5. Show tips again, open a course with lessons on Lectures, and while
+   the lesson tip points at the rail switch the sidebar to Exams, then
+   back to Lectures.
+   - *Why:* Course workspaces are retained inside the Lectures page; their tip
+     used to stay on the Exams list, pinned to the window's top-left
+     corner, because it portaled to the page layer, not the course's.
 
 **Where to look**
 
@@ -1560,6 +1566,7 @@ hide-and-return behaviour itself is in tests/e2e/app-shell.test.tsx.
 
 - `apps/desktop/src/app/KeptPage.tsx`
 - `apps/desktop/src/pages/today/CourseFinder.tsx`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/components/guide.tsx`
 
 **Last recorded** never run

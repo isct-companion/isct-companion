@@ -8,15 +8,9 @@ import { CloseButton, Input } from "../../components/ui";
 import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
+import { KeptPage } from "../../app/KeptPage";
 import { usePanelRef } from "react-resizable-panels";
-import {
-  Activity,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Assignment, TermId, Workspace } from "../../lib/model";
 import { submissionLabel } from "../../lib/academic";
 import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
@@ -619,13 +613,13 @@ export function LectureDesk({
                 key={item.courseId}
                 hidden={entry?.courseId !== item.courseId}
               >
-                <Activity
-                  mode={
+                {/* Its own overlay layer, so a course's popovers hide with it
+                    when the exam list or another course takes the pane. */}
+                <KeptPage
+                  visible={
                     active &&
                     mode !== "exams" &&
                     entry?.courseId === item.courseId
-                      ? "visible"
-                      : "hidden"
                   }
                 >
                   {renderWorkspace(
@@ -637,7 +631,7 @@ export function LectureDesk({
                       ? sidebarToggle
                       : undefined,
                   )}
-                </Activity>
+                </KeptPage>
               </div>
             ))}
           </div>
