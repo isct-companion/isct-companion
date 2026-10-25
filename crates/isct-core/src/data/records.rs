@@ -182,22 +182,29 @@ pub(crate) fn resolve_course_id(
     if !matches!(provider, "lms" | "kyomu" | "manual") || external_id.trim().is_empty() {
         return Err("invalid course identity source".into());
     }
-    let stored: Option<String> = transaction
+    let stored: Option<(String, Option<String>)> = transaction
         .query_row(
-            "SELECT course_id FROM course_identity_map
+            "SELECT course_id, offering_id FROM course_identity_map
              WHERE provider=?1 AND external_id=?2 AND academic_year=?3",
             params![provider, external_id, academic_year],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(DataError::from)?;
     let course_id = if let Some(offering_id) = offering_id {
         canonical_course_id(academic_year, offering_id)?
-    } else if let Some(stored) = stored {
-        stored
+    } else if let Some((stored, _)) = &stored {
+        stored.clone()
     } else {
         format!("{academic_year}-{provider}-{external_id}")
     };
+    // Every school read resolves its courses again; an unchanged identity is
+    // not written, so the read does not change user.db.
+    if stored.as_ref().is_some_and(|(stored, stored_offering)| {
+        *stored == course_id && stored_offering.as_deref() == offering_id
+    }) {
+        return Ok(course_id);
+    }
     transaction
         .execute(
             "INSERT INTO course_identity_map

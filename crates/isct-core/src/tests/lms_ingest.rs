@@ -119,6 +119,44 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
     assert_eq!(state.account, ACCOUNT);
     assert!(state.fetched_at.is_some());
 
+    // The same outline again finds nothing new: no record row or course
+    // identity is written, only the key's freshness, so no view hears of a
+    // change and cloud sync captures nothing.
+    let (_, tables) = commit_on(&mut connection, |tx| {
+        apply_lms_course(tx, &second, ACCOUNT, Utc::now())
+    })
+    .unwrap();
+    assert_eq!(
+        crate::workspace_changes::changes_for(&tables),
+        [crate::workspace_changes::WorkspaceChange::Freshness].into()
+    );
+    assert!(!crate::workspace_changes::touches_user_data(&tables));
+    assert_eq!(row(&connection, "lms_items", "lms-item:100"), Some(item));
+    assert_eq!(
+        row(&connection, "lms_courses", "lms-course:42"),
+        Some(course)
+    );
+    // A deleted row the read lists again with the same content comes back.
+    connection
+        .execute(
+            "UPDATE lms_items SET deleted_at='2026-10-01T00:00:00Z' WHERE id='lms-item:102'",
+            [],
+        )
+        .unwrap();
+    let (_, tables) = commit_on(&mut connection, |tx| {
+        apply_lms_course(tx, &second, ACCOUNT, Utc::now())
+    })
+    .unwrap();
+    assert!(tables.contains("lms_items"));
+    let deleted: bool = connection
+        .query_row(
+            "SELECT deleted_at IS NOT NULL FROM lms_items WHERE id='lms-item:102'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(!deleted);
+
     // The enrolment owns the course list: a course it no longer lists is
     // missing; its stored sections are left to `lms.course`.
     let empty = validate_enrolment(json!({"courses": []})).unwrap();

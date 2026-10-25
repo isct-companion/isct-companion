@@ -1135,23 +1135,20 @@ fn apply_row(
     source_hash: &str,
 ) -> Result<bool, SubscriptionError> {
     let hash = content_hash(value)?;
-    let old: Option<(String, u64, Option<String>)> = tx
+    let old: Option<(String, u64, bool)> = tx
         .query_row(
-            &format!("SELECT hash,rev,missing_since FROM {table} WHERE id=?1"),
+            &format!("SELECT hash,rev,missing_since IS NOT NULL OR deleted_at IS NOT NULL FROM {table} WHERE id=?1"),
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
         .map_err(SubscriptionError::from)?;
     let timestamp = Utc::now().to_rfc3339();
-    if old.as_ref().is_some_and(|(h, _, _)| h == &hash) {
-        let changed = old
-            .as_ref()
-            .is_some_and(|(_, _, missing)| missing.is_some());
-        tx.execute(&format!("UPDATE {table} SET last_seen_at=?2,missing_since=NULL,deleted_at=NULL,
-            value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"), rusqlite::params![id,timestamp])
-            .map_err(SubscriptionError::from)?;
-        return Ok(changed);
+    if let Some((stored, _, gone)) = &old {
+        if stored == &hash {
+            return crate::data::versioned::keep_unchanged(tx, table, id, *gone, &timestamp)
+                .map_err(SubscriptionError::from);
+        }
     }
     let rev = old.map_or(0, |x| x.1) + 1;
     let mut stored = value.clone();
