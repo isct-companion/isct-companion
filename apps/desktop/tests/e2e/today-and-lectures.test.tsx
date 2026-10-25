@@ -670,6 +670,7 @@ describe("the lecture desk", () => {
       id: "published-exam",
       key: "reference:exam:2q",
       kind: "exam",
+      origin: "published",
       term: "2026-2Q",
       courseId: null,
       code: "CSC.T241-02",
@@ -970,10 +971,10 @@ describe("the lecture desk", () => {
     }, "the session menu");
     expect(
       items.map((item) => item.textContent?.replace(/[✓\s]+/, "")),
-    ).toEqual(["Mark as exam", "Mark as cancelled", "Mark as a normal class"]);
-    // The running class is already a normal class.
-    expect(items[2].textContent).toContain("✓");
-    await click(items[1]);
+    ).toEqual(["Mark as exam", "Mark as quiz", "Mark as cancelled"]);
+    // A running class carries no mark.
+    expect(items.some((item) => item.textContent?.includes("✓"))).toBe(false);
+    await click(items[2]);
     await until(() =>
       expect(app!.core.intents).toContainEqual({
         kind: "markSession",

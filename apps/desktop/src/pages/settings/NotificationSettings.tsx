@@ -192,6 +192,16 @@ export function NotificationSettings({
             </Row>
           </div>
         )}
+        <Row
+          id="quizzes"
+          title="Count quizzes as exams"
+          hint="Quizzes appear in upcoming exams and get exam reminders."
+        >
+          <Toggle
+            checked={settings.quizzes ?? true}
+            onChange={(value) => set((n) => (n.quizzes = value))}
+          />
+        </Row>
         <Row id="assignments" title="Assignment reminders">
           <Toggle
             checked={settings.assignments}

@@ -1,4 +1,7 @@
-import { examKindLabel } from "../../components/exams/ExamCards";
+import {
+  examConflictLabel,
+  examKindLabel,
+} from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
 import { DueChip } from "../../components/DueChip";
 import { CloseButton, Input } from "../../components/ui";
@@ -486,10 +489,20 @@ export function LectureDesk({
                       : ""}
                   </small>
                   <small>
-                    {exam.courseId ? t("Linked") : t("Not linked")}
+                    {exam.kind === "quiz" ? `${t("Quiz")} · ` : ""}
+                    {exam.origin === "session"
+                      ? t("Marked on the calendar")
+                      : exam.courseId
+                        ? t("Linked")
+                        : t("Not linked")}
                     {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
                     {exam.hidden ? ` · ${t("Hidden")}` : ""}
                   </small>
+                  {exam.conflict && (
+                    <small className="examConflictTag">
+                      {examConflictLabel(exam)}
+                    </small>
+                  )}
                 </button>
               );
               return (

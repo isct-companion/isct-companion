@@ -27,31 +27,34 @@ export function CalendarView({
   data: Workspace;
   open: (block: Block) => void;
   /** Marks one session; absent when the workspace is read-only. */
-  mark?: (block: Block, as: "exam" | "cancelled" | "class") => void;
+  mark?: (block: Block, as: "exam" | "quiz" | "cancelled" | "class") => void;
 }) {
   // Classes and exams take a mark; personal items open their own editor,
-  // exactly as a click does.
+  // exactly as a click does. The marks are exclusive: choosing the checked
+  // one again makes the session a plain class, and Core keeps no mark when
+  // its sources already say so.
   const actionsFor = (block: Block): BlockAction[] => {
     if (!mark) return [];
     if (block.kind === "event" || block.kind === "plan")
       return [{ label: t("Edit"), run: () => open(block) }];
-    return [
-      {
-        label: t("Mark as exam"),
-        current: block.kind === "exam" && !block.cancelled,
-        run: () => mark(block, "exam"),
-      },
-      {
-        label: t("Mark as cancelled"),
-        current: Boolean(block.cancelled),
-        run: () => mark(block, "cancelled"),
-      },
-      {
-        label: t("Mark as a normal class"),
-        current: block.kind === "course" && !block.cancelled,
-        run: () => mark(block, "class"),
-      },
-    ];
+    const state = block.cancelled
+      ? "cancelled"
+      : block.kind === "exam"
+        ? block.quiz
+          ? "quiz"
+          : "exam"
+        : "class";
+    return (
+      [
+        ["exam", t("Mark as exam")],
+        ["quiz", t("Mark as quiz")],
+        ["cancelled", t("Mark as cancelled")],
+      ] as const
+    ).map(([as, label]) => ({
+      label,
+      current: state === as,
+      run: () => mark(block, state === as ? "class" : as),
+    }));
   };
   // The today column and the now line come from one clock instant.
   const now = useClock();

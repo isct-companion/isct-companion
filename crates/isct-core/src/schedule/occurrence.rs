@@ -66,6 +66,13 @@ pub struct Occurrence {
     /// block's own quarter, so a range across quarters reads each correctly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub planned: Option<bool>,
+    /// An exam block the user marked as a quiz (小テスト) held in class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiz: Option<bool>,
+    /// The published exam changed after the user corrected it, or left the
+    /// exam timetable; the block keeps the user's values until they choose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_changed: Option<bool>,
 }
 
 impl Occurrence {
@@ -266,6 +273,8 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 overridden: None,
                 alternation: None,
                 planned: None,
+                quiz: None,
+                source_changed: None,
             });
         }
         for left in 0..blocks.len() {
@@ -705,6 +714,8 @@ pub(crate) fn personal_occurrences(
             overridden: None,
             alternation: None,
             planned: None,
+            quiz: None,
+            source_changed: None,
         });
     }
     for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
@@ -782,6 +793,8 @@ fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, Sched
         overridden: None,
         alternation: None,
         planned: None,
+        quiz: None,
+        source_changed: None,
     }))
 }
 
@@ -887,6 +900,8 @@ fn course_occurrence(
         overridden: None,
         alternation: None,
         planned: None,
+        quiz: None,
+        source_changed: None,
     }
 }
 
@@ -951,7 +966,7 @@ pub fn resolve_day_agenda(
         term,
         date,
         options,
-        &super::exam_views(workspace, term),
+        &super::exams::published_exam_views(workspace, term),
     )
 }
 
@@ -970,6 +985,10 @@ pub(crate) fn resolve_day_agenda_with(
         .iter()
         .filter(|r| visible(r))
         .collect();
+    let shown = |r: &Value| {
+        r.get("hidden").and_then(Value::as_bool) != Some(true)
+            && (text(r, "mark") != Some("cancelled") || options.include_cancelled_courses)
+    };
     blocks = blocks
         .into_iter()
         .filter_map(|mut block| {
@@ -977,28 +996,14 @@ pub(crate) fn resolve_day_agenda_with(
                 .iter()
                 .find(|r| text(r, "targetKey") == Some(&block.key));
             match change {
-                Some(r) if r.get("hidden").and_then(Value::as_bool) == Some(true) => None,
-                Some(r)
-                    if text(r, "mark") == Some("cancelled")
-                        && !options.include_cancelled_courses =>
-                {
-                    None
-                }
+                Some(r) if !shown(r) => None,
                 Some(r) => {
                     // An override Core cannot apply leaves the class as
                     // scheduled; `schedule_problems` reports the record.
                     if apply_override(&mut block, r, &teaching_periods).is_err() {
                         return Some(block);
                     }
-                    match text(r, "mark") {
-                        Some("cancelled") => block.cancelled = Some(true),
-                        Some("exam") => {
-                            block.kind = OccurrenceKind::Exam;
-                            block.cancelled = None;
-                        }
-                        Some("class") => block.cancelled = None,
-                        _ => {}
-                    }
+                    apply_mark(&mut block, r);
                     (block.date == date).then_some(block)
                 }
                 None => Some(block),
@@ -1006,9 +1011,7 @@ pub(crate) fn resolve_day_agenda_with(
         })
         .collect();
     for change in overrides.iter().filter(|r| {
-        r.get("hidden").and_then(Value::as_bool) != Some(true)
-            && text(r, "targetKind") == Some("course")
-            && text(r, "date") == Some(date)
+        shown(r) && text(r, "targetKind") == Some("course") && text(r, "date") == Some(date)
     }) {
         let key = text(change, "targetKey").unwrap_or_default();
         if blocks.iter().any(|b| b.key == key) {
@@ -1028,13 +1031,30 @@ pub(crate) fn resolve_day_agenda_with(
             .find(|b| b.key == key)
         {
             if apply_override(&mut original, change, &teaching_periods).is_ok() {
+                apply_mark(&mut original, change);
                 blocks.push(original)
             }
         }
     }
+    // A class session the user marked as an exam gives way to the published
+    // exam of its course that day, so the day never shows the exam twice.
+    let published: HashSet<(&str, &str)> = term_exams
+        .iter()
+        .filter(|exam| exam.origin == "published" && exam.kind == "exam" && !exam.hidden)
+        .filter_map(|exam| Some((exam.course_id.as_deref()?, exam.date.as_str())))
+        .collect();
+    blocks.retain(|block| {
+        block.kind != OccurrenceKind::Exam
+            || !block
+                .course_id
+                .as_deref()
+                .is_some_and(|id| published.contains(&(id, block.date.as_str())))
+    });
     let mut exams = Vec::new();
     for exam in term_exams.iter().filter(|exam| {
-        !exam.hidden
+        // Marked sessions are drawn above from the class itself.
+        exam.origin == "published"
+            && !exam.hidden
             && exam.date == date
             && (exam.status == "scheduled"
                     // A session the user cancelled stays visible to undo.
@@ -1086,6 +1106,8 @@ pub(crate) fn resolve_day_agenda_with(
             overridden: exam.edited.then_some(true),
             alternation: None,
             planned: None,
+            quiz: (exam.kind == "quiz").then_some(true),
+            source_changed: exam.conflict.is_some().then_some(true),
         });
     }
     blocks.extend(exams);
@@ -1112,11 +1134,11 @@ pub(crate) fn finalize_agenda(
 ) -> Result<Vec<Occurrence>, ScheduleError> {
     let exam_ids: HashSet<_> = blocks
         .iter()
-        .filter(|block| block.kind == OccurrenceKind::Exam)
+        .filter(|block| block.kind == OccurrenceKind::Exam && block.quiz != Some(true))
         .filter_map(|e| e.course_id.clone())
         .collect();
     // An exam replaces its course's classes that day, except a session the
-    // user changed by hand.
+    // user changed by hand. A quiz is part of one class and replaces nothing.
     blocks.retain(|b| {
         b.kind != OccurrenceKind::Course
             || b.overridden == Some(true)
@@ -1162,6 +1184,21 @@ pub(crate) fn finalize_agenda(
             .then(a.key.cmp(&b.key))
     });
     Ok(blocks)
+}
+
+/// The user's mark on a class session: an exam or quiz takes the class's
+/// place, a cancelled class stays visible to undo, and `class` runs anyway.
+fn apply_mark(block: &mut Occurrence, row: &Value) {
+    match text(row, "mark") {
+        Some("cancelled") => block.cancelled = Some(true),
+        Some(mark @ ("exam" | "quiz")) => {
+            block.kind = OccurrenceKind::Exam;
+            block.cancelled = None;
+            block.quiz = (mark == "quiz").then_some(true);
+        }
+        Some("class") => block.cancelled = None,
+        _ => {}
+    }
 }
 
 fn apply_override(

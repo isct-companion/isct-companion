@@ -151,6 +151,20 @@ struct TagChip: View {
     }
 }
 
+/// Core's `ExamConflict` on an exam row: the published exam changed after the
+/// user corrected it, or left the timetable. Resolving it stays on desktop.
+struct ExamConflictLabel: View {
+    let conflict: ExamConflict
+
+    var body: some View {
+        Label(conflict.removed ? t("No longer in the published timetable.") : t("Timetable changed"),
+            systemImage: "exclamationmark.circle.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.warn)
+            .lineLimit(1)
+    }
+}
+
 /// Assignment row: course square, title, course · due, one chip.
 struct DeadlineRow: View {
     let item: DeadlineItem

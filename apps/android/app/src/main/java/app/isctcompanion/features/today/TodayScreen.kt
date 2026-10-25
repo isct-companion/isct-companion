@@ -90,6 +90,7 @@ import app.isctcompanion.design.DeadlineChip
 import app.isctcompanion.design.DeadlineLink
 import app.isctcompanion.design.RowChevron
 import app.isctcompanion.design.DeadlineRow
+import app.isctcompanion.design.ExamConflictLabel
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.PageSubtitle
 import app.isctcompanion.design.TabPage
@@ -363,6 +364,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
     val navigator = LocalNavigator.current
     val id = item.occurrence.courseId
     val exam = item.occurrence.kind == OccurrenceKind.EXAM
+    val quiz = exam && item.occurrence.quiz == true
     val starts = Format.date(item.startsAt)
     val today = starts?.let { Format.tokyo(it).toLocalDate() == Format.today(now) } == true
     Box(
@@ -378,7 +380,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             Modifier.fillMaxHeight().nowTint(tint, Theme.colors, RoundedCornerShape(Theme.radiusPanel)),
             onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it, zoom) } },
         ) {
-            HeroLine(listOfNotNull(if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
+            HeroLine(listOfNotNull(if (quiz) t("Quiz") else if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
                 if (leads && today && starts != null) {
                     val minutes = maxOf(Format.minutes(starts, now), 0)
                     TagChip(
@@ -461,7 +463,11 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
         // course page.
         HeroLine(
             listOfNotNull(
-                if (item.occurrence.kind == OccurrenceKind.EXAM) t("Exam in progress") else t("In class"),
+                when {
+                    item.occurrence.kind != OccurrenceKind.EXAM -> t("In class")
+                    item.occurrence.quiz == true -> t("Quiz in progress")
+                    else -> t("Exam in progress")
+                },
                 Format.periods(item.periods), firstRoom(item.occurrence.room),
             ).filter { it.isNotEmpty() }.joinToString(" · "),
             tint,
@@ -576,6 +582,7 @@ private fun UpcomingExams(exams: List<ExamView>) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(exam.title.ifEmpty { exam.code }, color = Theme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(examDetail(exam), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
+                    exam.conflict?.let { ExamConflictLabel(it) }
                 }
                 if (id != null) RowChevron()
             }
@@ -583,10 +590,11 @@ private fun UpcomingExams(exams: List<ExamView>) {
     }
 }
 
-/** `10月26日（月） · 3–4限 · W531`, or the time when no period is given. */
+/** `10月26日（月） · 3–4限 · W531`, or the time when no period is given; a
+ * quiz says 小テスト first. */
 private fun examDetail(exam: ExamView): String {
     val time = Format.periods(exam.periods) ?: exam.startTime?.let { start -> listOfNotNull(start, exam.endTime).joinToString("–") }
-    return listOfNotNull(Format.dayTitle(exam.date), time, exam.room).filter { it.isNotEmpty() }.joinToString(" · ")
+    return listOfNotNull(if (exam.kind == "quiz") t("Quiz") else null, Format.dayTitle(exam.date), time, exam.room).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
 /**

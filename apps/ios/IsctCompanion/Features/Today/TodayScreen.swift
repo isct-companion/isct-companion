@@ -325,11 +325,12 @@ private struct StackCard: View {
     var body: some View {
         let tint = Color(hex: item.occurrence.color)
         let exam = item.occurrence.kind == .exam
+        let quiz = exam && item.occurrence.quiz == true
         let starts = Format.date(item.startsAt)
         let today = starts.map { Calendar.tokyo.isDate($0, inSameDayAs: now) } == true
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(([exam ? t("Exam") : nil, Format.periods(item.periods)] as [String?]).compactMap { $0 }.joined(separator: " · "))
+                Text(([quiz ? t("Quiz") : exam ? t("Exam") : nil, Format.periods(item.periods)] as [String?]).compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(exam ? Theme.warn : tint)
                 Spacer()
@@ -427,7 +428,7 @@ private struct CurrentClassHero: View {
             HStack {
                 // The first room only, so the line never wraps; every room is
                 // on the course page.
-                Text(([item.occurrence.kind == .exam ? t("Exam in progress") : t("In class"), Format.periods(item.periods), BlockText.firstRoom(item.occurrence.room)] as [String?]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                Text(([inProgress(item.occurrence), Format.periods(item.periods), BlockText.firstRoom(item.occurrence.room)] as [String?]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tint)
                     .lineLimit(1)
@@ -464,6 +465,11 @@ private struct CurrentClassHero: View {
         }
         .heroCard(tint: tint)
         .opensCourse(item.occurrence.courseId)
+    }
+
+    private func inProgress(_ occurrence: Occurrence) -> String {
+        guard occurrence.kind == .exam else { return t("In class") }
+        return occurrence.quiz == true ? t("Quiz in progress") : t("Exam in progress")
     }
 }
 
@@ -664,16 +670,20 @@ private struct UpcomingExams: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(exam.title.isEmpty ? exam.code : exam.title).foregroundStyle(Theme.ink).lineLimit(1)
                 Text(detail(exam)).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1)
+                if let conflict = exam.conflict {
+                    ExamConflictLabel(conflict: conflict)
+                }
             }
             Spacer(minLength: 8)
         }
     }
 
-    /// `10月26日（月） · 3–4限 · W531`, or the time when no period is given.
+    /// `10月26日（月） · 3–4限 · W531`, or the time when no period is given;
+    /// a quiz says 小テスト first.
     private func detail(_ exam: ExamView) -> String {
         let time = Format.periods(exam.periods)
             ?? exam.startTime.map { start in [start, exam.endTime].compactMap { $0 }.joined(separator: "–") }
-        return [Format.dayTitle(exam.date), time, exam.room].compactMap { $0 }.filter { !$0.isEmpty }
+        return [exam.kind == "quiz" ? t("Quiz") : nil, Format.dayTitle(exam.date), time, exam.room].compactMap { $0 }.filter { !$0.isEmpty }
             .joined(separator: " · ")
     }
 }

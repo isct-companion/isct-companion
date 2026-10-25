@@ -364,9 +364,24 @@ contract!(ScheduleOverride {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub room: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub title: Option<String>,
     pub hidden: bool,
-    /// The user's call on what this session is: an exam, a cancelled class
-    /// (休講) or a class that runs. It outranks every published source.
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"exam\" | \"cancelled\" | \"class\""))] pub mark: Option<String>,
+    /// The user's call on what this session is: an exam, a quiz (小テスト),
+    /// a cancelled class (休講) or a class that runs. It outranks every
+    /// published source.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"exam\" | \"quiz\" | \"cancelled\" | \"class\""))] pub mark: Option<String>,
+    /// On an exam correction: the published facts it was made against.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub base: Option<ExamBase>,
+});
+// The published exam a correction was made against: its schedule then, to
+// tell a later timetable change apart, and who the exam is, to follow it
+// when the timetable renames its row or to show it when the row is gone.
+contract!(ExamBase {
+    pub date: String,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub start_time: Option<String>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub end_time: Option<String>,
+    pub room: String, pub term: String, pub code: String,
+    #[cfg_attr(feature = "ts", ts(type = "\"exam\" | \"class\""))] pub kind: String,
+    pub title: String,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub course_id: Option<String>,
 });
 impl ScheduleOverride {
     /// Corrections must remain usable by agendas and notification planning.
@@ -374,10 +389,10 @@ impl ScheduleOverride {
         if self
             .mark
             .as_deref()
-            .is_some_and(|mark| !matches!(mark, "exam" | "cancelled" | "class"))
+            .is_some_and(|mark| !matches!(mark, "exam" | "quiz" | "cancelled" | "class"))
         {
             return Err(crate::schedule::ScheduleError::InvalidInput(
-                "Mark a session as an exam, cancelled or a normal class.".into(),
+                "Mark a session as an exam, a quiz, cancelled or a normal class.".into(),
             ));
         }
         self.periods
@@ -450,6 +465,8 @@ contract!(AgentAccess { pub enabled: bool, #[serde(default)] pub last_writes: Ve
 contract!(Notifications {
     pub classes: bool, pub assignments: bool,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exams: Option<bool>,
+    /// Quizzes count as exams on Today and in exam reminders (default on).
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub quizzes: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exam_lead_minutes: Option<u32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_lead_minutes: Option<u32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub assignment_lead_minutes: Option<Vec<u32>>,
@@ -626,6 +643,7 @@ pub fn declarations() -> Vec<String> {
         ClassSchedule::decl(),
         Exam::decl(),
         ScheduleOverride::decl(),
+        ExamBase::decl(),
         Subscription::decl(),
         ScheduledTask::decl(),
         AssignmentMark::decl(),

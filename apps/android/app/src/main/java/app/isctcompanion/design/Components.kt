@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.DeadlineItem
+import app.isctcompanion.core.ExamConflict
 import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WebRouter
@@ -87,6 +88,20 @@ fun toneColors(tone: String): Pair<Color, Color> = with(Theme.colors) {
         "soon" -> warn to warnSoft
         "done" -> ok to okSoft
         else -> muted to surface2
+    }
+}
+
+/** Core's `ExamConflict` on an exam row: the published exam changed after the
+ * user corrected it, or left the timetable. Resolving it stays on desktop. */
+@Composable
+fun ExamConflictLabel(conflict: ExamConflict) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(Icons.Outlined.ErrorOutline, null, tint = Theme.colors.warn, modifier = Modifier.size(14.dp))
+        Text(
+            if (conflict.removed) t("No longer in the published timetable.") else t("Timetable changed"),
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.warn,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

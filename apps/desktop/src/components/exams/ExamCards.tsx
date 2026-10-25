@@ -8,7 +8,22 @@ import "./exams.css";
 
 /** A class the exam timetable lists in the exam period is not an exam. */
 export const examKindLabel = (exam: Pick<ExamView, "kind">) =>
-  t(exam.kind === "class" ? "Class in exam week" : "Exam");
+  t(
+    exam.kind === "class"
+      ? "Class in exam week"
+      : exam.kind === "quiz"
+        ? "Quiz"
+        : "Exam",
+  );
+
+/** Why an exam needs the user's eye: the timetable moved past their edit. */
+export const examConflictLabel = (exam: Pick<ExamView, "conflict">) =>
+  exam.conflict &&
+  t(
+    exam.conflict.removed
+      ? "No longer in the published timetable."
+      : "Timetable changed",
+  );
 
 /** "2026-12-08 · 10:45–12:25", or the date with "Time not announced". */
 export const examWhen = (
@@ -50,6 +65,12 @@ export function ExamCards({
             <span>
               {examKindLabel(exam)}
               {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
+              {exam.conflict && (
+                <b className="examConflictTag">
+                  {" · "}
+                  {examConflictLabel(exam)}
+                </b>
+              )}
             </span>
             <UiButton
               className="textButton"

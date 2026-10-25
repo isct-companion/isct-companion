@@ -26,30 +26,54 @@ enum BlockText {
     }
 }
 
-/// Long press on a class or exam: mark this one session as an exam, 休講 or
-/// a normal class (Core's `MarkSession`); the current state is checked.
+/// 試験 before an exam block's room, solid in the course colour; a quiz's
+/// 小テスト is outlined (design/README.md).
+struct ExamTag: View {
+    let quiz: Bool
+    let tint: Color
+
+    var body: some View {
+        let shape = Capsule()
+        Text(quiz ? t("Quiz") : t("Exam"))
+            // The course palette is mid-tone in both themes.
+            .foregroundStyle(quiz ? tint : .white)
+            .padding(.horizontal, 4)
+            .background { if !quiz { shape.fill(tint) } }
+            .overlay { if quiz { shape.strokeBorder(tint, lineWidth: 1) } }
+            .fixedSize()
+    }
+}
+
+/// Long press on a class or exam: mark this one session as an exam, a quiz
+/// or 休講 (Core's `MarkSession`). The current mark is checked; choosing it
+/// again sends `class`, and Core decides whether that clears the mark.
 private struct SessionMarks: ViewModifier {
     let block: Occurrence
     @Environment(AppModel.self) private var model
 
+    private var marks: [(String, String)] {
+        [("exam", t("Mark as exam")), ("quiz", t("Mark as quiz")), ("cancelled", t("Mark as cancelled"))]
+    }
+
     func body(content: Content) -> some View {
         content.contextMenu {
-            Picker(t("This lesson"), selection: Binding(get: { state }, set: { mark($0) })) {
-                Text(t("Mark as exam")).tag("exam")
-                Text(t("Mark as cancelled")).tag("cancelled")
-                Text(t("Back to a regular class")).tag("class")
+            Section(t("This lesson")) {
+                ForEach(marks, id: \.0) { value, label in
+                    Toggle(label, isOn: Binding(get: { state == value }, set: { _ in mark(value) }))
+                }
             }
-            .pickerStyle(.inline)
         }
     }
 
     private var state: String {
-        block.cancelled == true ? "cancelled" : block.kind == .exam ? "exam" : "class"
+        if block.cancelled == true { return "cancelled" }
+        guard block.kind == .exam else { return "class" }
+        return block.quiz == true ? "quiz" : "exam"
     }
 
     private func mark(_ value: String) {
-        guard value != state else { return }
-        Task { await model.markSession(block.key, value) }
+        let next = value == state ? "class" : value
+        Task { await model.markSession(block.key, next) }
     }
 }
 

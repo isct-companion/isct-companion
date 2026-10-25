@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 107 checks must be re-run before the next release.**
+**10 of 109 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**97 checks have never been run or could not be run:**
+**99 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -83,6 +83,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` — never verified
 - `DESKTOP-WRITES-PUBLISH-THEMSELVES` — never verified
 - `DESKTOP-STORAGE-SPLIT` — never verified
+- `DESKTOP-CALENDAR-MARK-LATENCY` — never verified
 - `IOS-TIMETABLE-WEEK-AND-MARKS` — never verified
 - `IOS-NATIVE-CHROME` — never verified
 - `IOS-TODAY-EXAMS` — never verified
@@ -129,6 +130,7 @@ an unverified area becomes an assumed-good one.
 - `NOW-TINT-APPEARANCE` — never verified
 - `DESKTOP-WINDOW-MATERIAL` — never verified
 - `DESKTOP-NATIVE-CHROME` — never verified
+- `DESKTOP-EXAM-MARKS` — never verified
 
 ## Status
 
@@ -195,6 +197,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/isct-core/src/data/mod.rs<br>crates/isct-core/src/facade.rs<br>crates/isct-core/src/runtime.rs<br>crates/isct-core/src/notes.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>crates/isct-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/isct-core/src/data/migrations.rs<br>crates/isct-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
+| `DESKTOP-CALENDAR-MARK-LATENCY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>crates/isct-core/src/data/snapshot.rs<br>crates/isct-core/src/data/migrations.rs<br>crates/isct-core/src/lms_ingest.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
 | `IOS-NATIVE-CHROME` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt |
@@ -241,6 +244,7 @@ an unverified area becomes an assumed-good one.
 | `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
+| `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
 
 ## Personas
 
@@ -3788,6 +3792,67 @@ it is left behind.
 
 **Last recorded** never run
 
+### A session mark shows at once, also while the school sync runs (`DESKTOP-CALENDAR-MARK-LATENCY`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build with signed-in school accounts, a quarter with
+classes on the calendar, and the data folder of a build from before
+sync.db (its `cache.db` still holds `dataset_state`). Copy the folder
+aside first.
+
+**Steps**
+
+1. Launch the new build, run `ls "$HOME/Library/Application
+   Support/app.isctcompanion"` and open the sync status.
+   - *Why:* The first launch moves freshness and run records out of cache.db
+     into a new `sync.db`. A lost move shows as every key fetching again
+     and the status's last-read times reset to never.
+2. On the calendar, right-click a class and mark it 休講, then 試験,
+   then back to the class, a few seconds apart.
+   - *Why:* A mark now answers only the calendar fields; a block that keeps
+     its old state, or updates only after a second, means the patch
+     was not merged or the view did not query again.
+3. Press Refresh in the sync status so LMS and 教務 reads run, and
+   mark sessions again while they run and right after they finish.
+   - *Why:* A read that finds nothing new now commits only its freshness. The
+     delay this check exists for came back exactly while a sync ran.
+4. Switch to the timetable, Today and the course finder, then back.
+   - *Why:* Those pages read the mark through other change names; one still
+     showing the old state means a view missed its change name.
+
+**Where to look**
+
+The data folder listing, the sync status times, the marked block on
+the calendar, and the same class on the timetable, Today and finder.
+
+**Expected**
+
+`sync.db` sits beside `user.db` and `cache.db`, the sync status keeps
+its last-read times and does not refetch everything, each mark shows
+on the calendar with no visible delay with or without a running sync,
+and every other page shows the same state.
+
+**Why this is manual**
+
+The delay is a felt latency in the real app over the person's own data
+while the real sync engine runs; a scripted host has neither the 4 MB
+snapshot nor the school reads, and "no visible delay" is a glance.
+
+**Covers**
+
+- `apps/desktop/src/store/workspace.ts`
+- `apps/desktop/src-tauri/src/commands/workspace.rs`
+- `crates/isct-core/src/data/snapshot.rs`
+- `crates/isct-core/src/data/migrations.rs`
+- `crates/isct-core/src/lms_ingest.rs`
+
+**Last recorded** never run
+
 ### iPhone timetable header, fitted blocks, session marks and the now line (`IOS-TIMETABLE-WEEK-AND-MARKS`)
 
 **Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
@@ -6390,5 +6455,67 @@ to assert on.
 **Covers**
 
 - `apps/desktop/src/components/ui/ui.css`
+
+**Last recorded** never run
+
+### Marked exams and quizzes stand out on the calendar and appear in every exam list (`DESKTOP-EXAM-MARKS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app with this week's classes on the Calendar, in light and
+then dark appearance.
+
+**Steps**
+
+1. Right-click a class, choose Mark as exam; right-click another, choose
+   Mark as quiz; right-click the exam again and choose Mark as exam.
+   - *Why:* The menu has three exclusive checkable items and no "normal class";
+     choosing the checked one must return the session to a plain class.
+     A stale check mark or a session that stays an exam is the bug.
+2. Compare the exam and quiz blocks with the plain classes around them.
+   - *Why:* The exam was drawn lighter than a class (17% against 22%) and could
+     not be told apart; it now takes the stronger fill, a ring in the
+     course colour and a solid tag. The quiz is a little weaker, with an
+     outlined tag, and never striped, since stripes mean cancelled.
+3. Open Lectures → Exams, then the marked course's panel and Today's
+   upcoming exams.
+   - *Why:* A marked session used to change only the calendar block. It must be
+     listed under Exams as "Marked on the calendar", in the course's
+     exams and on Today; clicking the calendar block must open it there.
+4. Settings → Notifications, turn off Count quizzes as exams, look at
+   Today, then turn it back on.
+   - *Why:* The switch decides whether quizzes count on Today and in exam
+     reminders; a quiz that stays listed with it off means the setting is
+     not read.
+
+**Where to look**
+
+The calendar blocks, the Exams list and editor in Lectures, the course
+panel and Today's upcoming exams.
+
+**Expected**
+
+The exam block is clearly darker and ringed with a solid Exam tag, the
+quiz a step lighter, unstriped, with an outlined Quiz tag, both readable
+in dark mode;
+both sessions are listed in Exams (the quiz labelled Quiz), the course
+panel and Today, and the quiz leaves Today while the switch is off.
+
+**Why this is manual**
+
+How strongly a block stands out is a glance check in the real window.
+Which sessions become exams, the toggle and the lists are covered by
+Core's schedule tests and the lecture-desk e2e suite.
+
+**Covers**
+
+- `apps/desktop/src/pages/today/CalendarView.tsx`
+- `apps/desktop/src/components/timetable/timetable.tsx`
+- `apps/desktop/src/styles.css`
+- `design/tokens/course.json`
 
 **Last recorded** never run

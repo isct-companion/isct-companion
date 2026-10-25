@@ -90,6 +90,9 @@ internal object ReminderLeads {
     fun exams(settings: JSONObject?): Boolean =
         if (settings?.has("exams") == true) settings.optBoolean("exams") else settings?.optBoolean("classes") == true
 
+    /** Quizzes count as exams (upcoming exams, exam reminders) until turned off. */
+    fun quizzes(settings: JSONObject?): Boolean = settings?.optBoolean("quizzes", true) ?: true
+
     fun examLead(settings: JSONObject?): Int =
         if (settings?.has("examLeadMinutes") == true) settings.optInt("examLeadMinutes") else classLead(settings)
 
@@ -179,6 +182,13 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
                 RowDivider(inset = 16.dp)
                 PickerRow(t("Remind me"), current, (ReminderLeads.examChoices + current).distinct().sorted()) { lead("examLeadMinutes", it) }
             }
+            // Also decides Today's upcoming exams, so it stays while reminders
+            // are off and asks for no permission.
+            RowDivider(inset = 16.dp)
+            SwitchRow(
+                t("Count quizzes as exams"), ReminderLeads.quizzes(settings),
+                detail = t("Quizzes appear in upcoming exams and get exam reminders."),
+            ) { on -> scope.launch { model.setNotifications { it.put("quizzes", on) } } }
         }
         Card(Modifier.padding(top = 8.dp)) {
             SwitchRow(t("Remind me before assignment deadlines"), settings?.optBoolean("assignments") == true) { toggle("assignments", it) }

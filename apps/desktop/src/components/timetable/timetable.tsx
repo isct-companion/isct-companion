@@ -47,6 +47,10 @@ export type Block = {
   conflictWith?: string[];
   overridden?: boolean;
   alternation?: Alternation;
+  /** An exam block the user marked as a quiz. */
+  quiz?: boolean;
+  /** The published exam changed after the user corrected it. */
+  sourceChanged?: boolean;
 };
 
 /** One entry of a block's right-click menu. */
@@ -273,6 +277,8 @@ export function WeekTimetable({
                     block.conflict ? "conflict" : "",
                     block.dim ? "dim" : "",
                     block.cancelled ? "cancelled" : "",
+                    block.quiz ? "quiz" : "",
+                    block.sourceChanged ? "sourceChanged" : "",
                     selectedId === block.id ? "selected" : "",
                   ]
                     .filter(Boolean)
@@ -298,7 +304,19 @@ export function WeekTimetable({
                   {block.kind === "exam" && (
                     <span className="ttCode">
                       {block.subtitle}
-                      <span className="ttExamTag">{t("Exam")}</span>
+                      <span className="ttExamTag">
+                        {t(block.quiz ? "Quiz" : "Exam")}
+                      </span>
+                      {block.sourceChanged && (
+                        <span
+                          className="ttSourceChanged"
+                          title={t(
+                            "The published timetable changed after your edit.",
+                          )}
+                        >
+                          !
+                        </span>
+                      )}
                     </span>
                   )}
                   {block.room && <small className="ttRoom">{block.room}</small>}

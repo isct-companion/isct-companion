@@ -12,8 +12,8 @@ use super::occurrence::{
     finalize_agenda, personal_occurrences, resolve_day_agenda_with, scheduled_courses,
 };
 use super::{
-    array, exam_views, parse_civil_date, placement_terms, text, visible, AgendaOptions,
-    DatedAgenda, OccurrenceKind, ScheduleError, Term,
+    array, parse_civil_date, placement_terms, text, visible, AgendaOptions, DatedAgenda,
+    OccurrenceKind, ScheduleError, Term,
 };
 
 /// Inclusive civil-date range. Cancelled classes remain in the content so each
@@ -66,7 +66,7 @@ pub fn calendar_between(
             (
                 term,
                 std::sync::Arc::<[Value]>::from(scheduled_courses(workspace, term)),
-                exam_views(workspace, term),
+                super::exams::published_exam_views(workspace, term),
             )
         })
         .filter(|(_, courses, exams)| !courses.is_empty() || !exams.is_empty())
