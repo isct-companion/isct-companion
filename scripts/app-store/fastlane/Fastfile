@@ -1,0 +1,115 @@
+require "json"
+require "digest"
+
+ROOT = File.expand_path("../../..", __dir__)
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Inspect, prepare or submit the existing TestFlight build to the App Store"
+  lane :release do
+    mode = ENV.fetch("APP_STORE_MODE", "inspect")
+    UI.user_error!("Expected inspect, prepare or submit") unless %w[inspect prepare submit].include?(mode)
+    version_number = ENV.fetch("APP_STORE_VERSION")
+    UI.user_error!("Expected a release version") unless version_number.match?(/\A\d+\.\d+\.\d+\z/)
+    key = app_store_connect_api_key(
+      key_id: ENV.fetch("APPLE_API_KEY_ID"),
+      issuer_id: ENV.fetch("APPLE_API_ISSUER"),
+      key_content: ENV.fetch("APPLE_API_PRIVATE_KEY"),
+      duration: 1200,
+      in_house: false
+    )
+    app = Spaceship::ConnectAPI::App.find("app.isctcompanion")
+    UI.user_error!("App not found") unless app
+    versions = app.get_app_store_versions(filter: { platform: "IOS" })
+    current = versions.find { |v| v.version_string == version_number }
+    # Re-running a completed submission must never replace an in-review build.
+    editable = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED REJECTED METADATA_REJECTED]
+    if mode != "inspect" && current && !editable.include?(current.app_store_state)
+      UI.success("#{version_number} already #{current.app_store_state}; leaving it in place")
+    elsif mode != "inspect"
+      builds = []
+      30.times do |attempt|
+        builds = Spaceship::ConnectAPI::Build.all(app_id: app.id, version: version_number,
+          build_number: ENV["APP_STORE_BUILD"].to_s.empty? ? nil : ENV["APP_STORE_BUILD"],
+          platform: "IOS", processing_states: "VALID")
+        break unless builds.empty?
+        UI.message("Waiting for Apple to process #{version_number} (#{attempt + 1}/30)")
+        sleep(60) if attempt < 29
+      end
+      build = builds.reject(&:expired).first
+      UI.user_error!("No valid, unexpired build for #{version_number}") unless build
+      draft = app.get_edit_app_store_version(platform: "IOS")
+      if draft && Gem::Version.new(draft.version_string) > Gem::Version.new(version_number)
+        UI.user_error!("Refusing to replace newer draft #{draft.version_string}")
+      end
+      app.ensure_version!(version_number, platform: "IOS")
+      current = app.get_edit_app_store_version(platform: "IOS")
+      UI.user_error!("Unexpected editable version") unless current&.version_string == version_number
+      upload_to_app_store(
+        api_key: key, app_identifier: "app.isctcompanion", platform: "ios",
+        app_version: version_number, build_number: build.version,
+        skip_binary_upload: true, skip_metadata: true,
+        screenshots_path: File.join(ROOT, "resources/app-store/screenshots"),
+        overwrite_screenshots: false, submit_for_review: false, force: true,
+        run_precheck_before_submit: false
+      )
+      current.select_build(build_id: build.id)
+      localizations = current.get_app_store_version_localizations
+      display_types = { "iphone-6.9" => "APP_IPHONE_67", "iphone-6.3" => "APP_IPHONE_61", "ipad-13" => "APP_IPAD_PRO_3GEN_129" }
+      Dir[File.join(ROOT, "resources/app-store/screenshots/*")].each do |directory|
+        locale = File.basename(directory)
+        localization = localizations.find { |l| l.locale == locale }
+        UI.user_error!("Missing localization #{locale}") unless localization
+        sets = localization.get_app_screenshot_sets
+        display_types.each do |prefix, display_type|
+          expected = Dir[File.join(directory, "#{prefix}-*.png")].sort.map { |f| Digest::MD5.file(f).hexdigest }
+          actual = sets.find { |s| s.screenshot_display_type == display_type }&.app_screenshots || []
+          unless actual.all?(&:complete?) && actual.map(&:source_file_checksum) == expected
+            UI.user_error!("Screenshot count, order, checksum or processing mismatch: #{locale}/#{display_type}")
+          end
+        end
+      end
+      # Apple's first version has no What's New field. Subsequent versions use
+      # the same release notes already reviewed for the GitHub release.
+      if app.get_live_app_store_version(platform: "IOS")
+        notes = File.read(File.join(ROOT, "docs/releases/#{version_number}.md"))
+        current.get_app_store_version_localizations.each { |l| l.update(attributes: { whatsNew: notes }) }
+      end
+      if mode == "submit"
+        upload_to_app_store(
+          api_key: key, app_identifier: "app.isctcompanion", platform: "ios",
+          app_version: version_number, build_number: build.version,
+          skip_binary_upload: true, skip_metadata: true, skip_screenshots: true,
+          submit_for_review: true, automatic_release: true, force: true,
+          precheck_include_in_app_purchases: false,
+          submission_information: { export_compliance_uses_encryption: false }
+        )
+      end
+    end
+
+    # Only publish operational status; review contacts and API credentials stay
+    # out of Actions logs and artifacts.
+    versions = app.get_app_store_versions(filter: { platform: "IOS" })
+    info = app.fetch_latest_app_info
+    rating = info&.fetch_age_rating_declaration
+    report = { app_id: app.id, requested_version: version_number,
+      app_info: { state: info&.state, age_rating: info&.app_store_age_rating,
+        age_rating_answers: rating&.instance_variables&.to_h { |k| [k.to_s, rating.instance_variable_get(k)] } },
+      versions: versions.map do |v|
+      { id: v.id, version: v.version_string, state: v.app_store_state,
+        release_type: v.release_type, build: v.get_build&.version,
+        localizations: v.get_app_store_version_localizations.map do |l|
+          { locale: l.locale, description_present: !l.description.to_s.empty?,
+            support_url: l.support_url, screenshots: l.get_app_screenshot_sets.map do |s|
+              { display_type: s.screenshot_display_type, files: s.app_screenshots.map do |f|
+                { name: f.file_name, checksum: f.source_file_checksum, state: f.asset_delivery_state }
+              end }
+            end }
+        end }
+    end }
+    output = JSON.pretty_generate(report)
+    puts(output)
+    File.write(ENV.fetch("APP_STORE_REPORT", File.join(ROOT, "app-store-status.json")), output)
+  end
+end
