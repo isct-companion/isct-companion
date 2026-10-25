@@ -84,7 +84,7 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
         workspace: serde_json::json!({
             "courses": [1], "memberships": [], "assignments": [], "materials": [],
             "planItems": [], "terms": [], "currentTerm": "2026-3Q",
-            "settings": {"locale": "ja"}, "exams": [],
+            "settings": {"locale": "ja"},
         })
         .into(),
         school_records: serde_json::json!({
@@ -113,7 +113,8 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
         ["freshness", "pageAvailability"]
     );
 
-    // Courses re-read everything the projection rewrites, not just courses.
+    // Courses re-read everything the projection rewrites, not just courses;
+    // the exam timetable stays in Core and adds nothing.
     let courses = patch(snapshot.clone(), &[Courses, Exams]);
     assert_eq!(
         keys(&courses.workspace),
@@ -121,7 +122,6 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
             "assignments",
             "courses",
             "currentTerm",
-            "exams",
             "materials",
             "memberships",
             "planItems",

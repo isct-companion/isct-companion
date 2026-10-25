@@ -418,8 +418,8 @@ impl WorkspaceService {
             .clone();
         let ((), (workspace, school_records, revision, school), content_revision, tables) = self
             .store
-            .workspace_write(&mutation.expected_revision, |write, current| {
-                apply_intent(write, current, mutation.intent, &mut undo)
+            .workspace_write(&mutation.expected_revision, |write, current, school| {
+                apply_intent(write, current, school, mutation.intent, &mut undo)
             })?;
         // Only a committed add or undo changes what Undo reverses.
         *self
@@ -475,6 +475,7 @@ pub(crate) fn delete_plan(
 fn apply_intent(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
+    school: &crate::schedule::SchoolReads,
     intent: WorkspaceIntent,
     catalog_undo: &mut Option<CatalogAddReceipt>,
 ) -> Result<(), DataError> {
@@ -675,6 +676,7 @@ fn apply_intent(
         } => {
             let row = crate::schedule::corrected_exam_override(
                 current,
+                school,
                 &exam_key,
                 crate::schedule::ExamCorrection {
                     date,
@@ -685,12 +687,12 @@ fn apply_intent(
                 },
             )
             .map_err(|error| DataError::InvalidInput(error.to_string()))?;
-            save_exam_override(write, current, &exam_key, row)
+            save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::MarkSession { key, mark } => {
-            let row = crate::schedule::marked_session_override(current, &key, &mark)
+            let row = crate::schedule::marked_session_override(current, school, &key, &mark)
                 .map_err(|error| DataError::InvalidInput(error.to_string()))?;
-            save_exam_override(write, current, &key, row)
+            save_exam_override(write, current, school, &key, row)
         }
         WorkspaceIntent::LinkExam {
             exam_key,
@@ -698,11 +700,12 @@ fn apply_intent(
         } => {
             let row = crate::schedule::linked_exam_override(
                 current,
+                school,
                 &exam_key,
                 course_id.as_deref().filter(|id| !id.is_empty()),
             )
             .map_err(|error| DataError::InvalidInput(error.to_string()))?;
-            save_exam_override(write, current, &exam_key, row)
+            save_exam_override(write, current, school, &exam_key, row)
         }
         WorkspaceIntent::DeleteScheduleOverride { override_id } => delete_visible(
             write,
@@ -865,6 +868,7 @@ fn save_recent_seen(
 fn save_exam_override(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
+    school: &crate::schedule::SchoolReads,
     key: &str,
     row: Option<Value>,
 ) -> Result<(), DataError> {
@@ -877,7 +881,7 @@ fn save_exam_override(
     // A correction the exam adopted from its renamed row moves to the
     // exam's own key.
     if existing.is_none() {
-        if let Some(id) = crate::schedule::adopted_exam_override(current, key) {
+        if let Some(id) = crate::schedule::adopted_exam_override(current, school, key) {
             delete_visible(
                 write,
                 current,

@@ -122,7 +122,6 @@ fn initial_workspace_value(date: chrono::NaiveDate, device_id: &str, updated_at:
         "departments": [],
         "recommendedCourses": [],
         "importantDates": [],
-        "exams": [],
         "scheduleOverrides": [],
         "subscriptions": [],
         "scheduledTasks": [reference_refresh_task(device_id), lms_background_refresh_task(device_id)],

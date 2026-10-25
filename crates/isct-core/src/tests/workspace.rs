@@ -438,7 +438,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     let first = "reference:exams:2026:undergraduate:2q:first";
     let second = "reference:exams:2026:undergraduate:2q:second";
     let view = |snapshot: &WorkspaceSnapshot, key: &str| {
-        crate::schedule::exam_views(&snapshot.workspace, "2026-2Q")
+        crate::schedule::exam_views(&snapshot.workspace, &snapshot.school, "2026-2Q")
             .into_iter()
             .find(|exam| exam.key == key)
             .unwrap()
@@ -455,7 +455,9 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     let before = service.snapshot().unwrap();
     assert!(view(&before, first).auto_linked);
     // Linking reports the course's other exam but no longer blocks.
-    let preview = crate::schedule::exam_association(&before.workspace, second, &course_id).unwrap();
+    let preview =
+        crate::schedule::exam_association(&before.workspace, &before.school, second, &course_id)
+            .unwrap();
     assert_eq!(preview.conflicts.len(), 1);
     let linked = mutate(
         &service,

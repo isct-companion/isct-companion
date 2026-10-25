@@ -54,7 +54,6 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("departments", "departments"),
     ("recommendedCourses", "recommended_courses"),
     ("importantDates", "important_dates"),
-    ("exams", "exams"),
     ("classSchedules", "class_schedules"),
     ("scheduleOverrides", "schedule_overrides"),
     ("subscriptions", "subscriptions"),

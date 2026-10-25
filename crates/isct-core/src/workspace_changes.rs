@@ -139,7 +139,8 @@ impl WorkspaceChange {
                 &["gpaSummary", "grades"],
                 &["grades", "gpaByTerm", "requirements"],
             ),
-            Exams => fields(false, &["exams"], &[]),
+            // The exam timetable stays in Core; its views query again.
+            Exams => fields(false, &[], &[]),
             Plans => fields(false, &["plans", "planItems"], &[]),
             Events => fields(false, &["events"], &[]),
             Subscriptions => fields(false, &["subscriptions"], &[]),

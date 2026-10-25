@@ -372,39 +372,6 @@ export type ClassSchedule = {
   deletedAt?: string;
 };
 
-export type Exam = {
-  /**
-   * `class` marks a class row the exam timetable lists in the exam period.
-   */
-  kind?: "exam" | "class";
-  academicYear: number;
-  level: "undergraduate" | "graduate";
-  quarter: Quarter;
-  courseCode: string;
-  date: string;
-  label: Localized;
-  courseId?: string;
-  classLabel?: Localized;
-  syllabusCourseId?: string;
-  periods?: [number, number];
-  startTime?: string;
-  endTime?: string;
-  room: Localized | null;
-  rooms: Array<Localized>;
-  status: "scheduled" | "cancelled";
-  notes?: Localized;
-  sourceIds: Array<string>;
-  sourcePages: Array<number>;
-  sourceKey?: string;
-  lastSeenAt?: string;
-  missingSince?: string;
-  id: string;
-  rev: number;
-  updatedAt: string;
-  updatedBy: string;
-  deletedAt?: string;
-};
-
 export type ScheduleOverride = {
   targetKey: string;
   targetKind?: "course" | "exam";
@@ -659,7 +626,6 @@ export type Workspace = {
   departments: Array<Department>;
   recommendedCourses: Array<RecommendedCourse>;
   importantDates: Array<ImportantDate>;
-  exams: Array<Exam>;
   classSchedules: Array<ClassSchedule>;
   /**
    * The red/white group chosen for each semester ("2026-3Q4Q") of
@@ -2092,7 +2058,6 @@ export const EMPTY_WORKSPACE: Workspace = {
   departments: [],
   deviceId: "preview-device",
   events: [],
-  exams: [],
   exceptions: [],
   gpaSummary: [],
   importStatus: {

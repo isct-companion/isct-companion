@@ -7,6 +7,7 @@ use std::{
     time::Duration as StdDuration,
 };
 
+use super::SchoolReads;
 use chrono::{DateTime, Duration, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -135,7 +136,7 @@ impl ReminderService {
                         // A later import still merges into it.
                         write_fired(&fired_path, &BTreeMap::new())?;
                     }
-                    let workspace = store.load_workspace()?;
+                    let (workspace, school) = store.load_reads()?;
                     let permission = workspace
                         .pointer("/settings/notifications/localPermission")
                         .and_then(Value::as_str)
@@ -143,6 +144,7 @@ impl ReminderService {
                     let plan = if permission {
                         notification_plan(
                             &workspace,
+                            &school,
                             now - Duration::seconds(REMINDER_GRACE_SECONDS),
                             now,
                             None,
@@ -373,12 +375,14 @@ pub struct GlanceSnapshot {
 
 pub fn glance(
     workspace: &Value,
+    school: &SchoolReads,
     now: DateTime<FixedOffset>,
 ) -> Result<GlanceSnapshot, ScheduleError> {
     let term = reminder_term(workspace);
     let date = tokyo_date(now);
     let agenda = resolve_day_agenda(
         workspace,
+        school,
         &term,
         &date,
         AgendaOptions {
@@ -450,6 +454,7 @@ pub(crate) fn assignment_lead_minutes(settings: &Value) -> Result<Vec<i64>, Sche
 
 pub fn notification_plan(
     workspace: &Value,
+    school: &SchoolReads,
     now: DateTime<FixedOffset>,
     horizon: DateTime<FixedOffset>,
     locale: Option<NotificationLocale>,
@@ -507,7 +512,7 @@ pub fn notification_plan(
         let term = reminder_term(workspace);
         let mut terms = std::collections::BTreeSet::from([term.clone()]);
         if exams {
-            terms.extend(super::exams::exam_terms(workspace));
+            terms.extend(super::exams::exam_terms(school));
         }
         for source_term in terms {
             let courses: std::sync::Arc<[Value]> =
@@ -516,6 +521,7 @@ pub fn notification_plan(
                 let date = (start_date + Duration::days(offset)).to_string();
                 for block in resolve_day_agenda(
                     workspace,
+                    school,
                     &source_term,
                     &date,
                     AgendaOptions {

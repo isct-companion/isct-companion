@@ -1,6 +1,7 @@
 //! Date-first calendar content, shared by the interactive view and ICS export.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use super::SchoolReads;
 use std::collections::{BTreeSet, HashSet};
 
 use serde_json::Value;
@@ -20,6 +21,7 @@ use super::{
 /// consumer can present or omit them without recomputing calendar policy.
 pub fn calendar_between(
     workspace: &Value,
+    school: &SchoolReads,
     from: &str,
     to: &str,
 ) -> Result<Vec<DatedAgenda>, ScheduleError> {
@@ -37,14 +39,7 @@ pub fn calendar_between(
             terms.insert(term.into());
         }
     }
-    for exam in array(workspace, "exams").iter().filter(|row| visible(row)) {
-        if let (Some(year), Some(quarter)) = (
-            exam.get("academicYear").and_then(Value::as_i64),
-            text(exam, "quarter"),
-        ) {
-            terms.insert(format!("{year}-{quarter}"));
-        }
-    }
+    terms.extend(school.exams.terms().map(str::to_owned));
     for year in academic_year_of(from)?..=academic_year_of(to)? {
         for quarter in 1..=4 {
             terms.insert(format!("{year}-{quarter}Q"));
@@ -66,7 +61,7 @@ pub fn calendar_between(
             (
                 term,
                 std::sync::Arc::<[Value]>::from(scheduled_courses(workspace, term)),
-                super::exams::published_exam_views(workspace, term),
+                super::exams::published_exam_views(workspace, school, term),
             )
         })
         .filter(|(_, courses, exams)| !courses.is_empty() || !exams.is_empty())

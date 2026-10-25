@@ -124,7 +124,7 @@ pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -
     assignments.sort_by_key(|row| text(row, "dueAt").unwrap_or("~"));
     let exams: Vec<_> = super::course_terms(workspace, course)
         .iter()
-        .flat_map(|term| super::exam_views(workspace, term))
+        .flat_map(|term| super::exam_views(workspace, school, term))
         .filter(|exam| exam.course_id.as_deref() == Some(course_id))
         .collect();
     let ids = |rows: Vec<&Value>| {

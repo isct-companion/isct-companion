@@ -4,6 +4,7 @@
 //! record, so a later source correction still reaches every field the user did
 //! not change. The course link is stored beside those fields but edited apart.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use super::SchoolReads;
 use super::{
     array, clock_for_periods, content_language, display_color, localized, teaching_periods,
     term_courses, text, visible, OccurrenceKind, ScheduleError, TeachingPeriod,
@@ -105,14 +106,15 @@ pub(crate) struct ExamCorrection {
 
 pub fn exam_association(
     workspace: &Value,
+    school: &SchoolReads,
     key: &str,
     course_id: &str,
 ) -> Result<ExamAssociation, ScheduleError> {
-    let source = published_source(workspace, key)?;
+    let source = published_source(workspace, school, key)?;
     require_term_course(workspace, &source.term, course_id)?;
-    let conflicts = exam_terms(workspace)
+    let conflicts = exam_terms(school)
         .into_iter()
-        .flat_map(|term| exam_views(workspace, &term))
+        .flat_map(|term| exam_views(workspace, school, &term))
         .filter(|other| {
             other.key != key
                 && other.kind == "exam"
@@ -127,14 +129,15 @@ pub fn exam_association(
 /// published facts it corrects, so a later change to them reads as a conflict.
 pub(crate) fn corrected_exam_override(
     workspace: &Value,
+    school: &SchoolReads,
     key: &str,
     correction: ExamCorrection,
 ) -> Result<Option<Value>, ScheduleError> {
-    let Ok(view) = published_source(workspace, key) else {
-        return corrected_session_override(workspace, key, correction);
+    let Ok(view) = published_source(workspace, school, key) else {
+        return corrected_session_override(workspace, school, key, correction);
     };
     let source = &view.source;
-    let mut row = override_base(workspace, key, &view);
+    let mut row = override_base(workspace, school, key, &view);
     row.insert("base".into(), base_record(&view, source));
     if let Some(date) = filled(correction.date).filter(|date| *date != source.date) {
         super::parse_civil_date(&date)?;
@@ -166,15 +169,20 @@ pub(crate) fn corrected_exam_override(
 /// fields move that session, and the mark stays.
 fn corrected_session_override(
     workspace: &Value,
+    school: &SchoolReads,
     key: &str,
     correction: ExamCorrection,
 ) -> Result<Option<Value>, ScheduleError> {
     let view = existing_override(workspace, key)
         .and_then(|change| session_terms(workspace, change).into_iter().next())
         .and_then(|term| {
-            session_exam_views(workspace, &term, &published_exam_views(workspace, &term))
-                .into_iter()
-                .find(|view| view.key == key)
+            session_exam_views(
+                workspace,
+                &term,
+                &published_exam_views(workspace, school, &term),
+            )
+            .into_iter()
+            .find(|view| view.key == key)
         })
         .ok_or_else(|| ScheduleError::InvalidInput("Exam is no longer available.".into()))?;
     let source = &view.source;
@@ -219,12 +227,13 @@ fn filled(value: Option<String>) -> Option<String> {
 /// kind is dropped, so the row follows its source again.
 pub(crate) fn marked_exam_override(
     workspace: &Value,
+    school: &SchoolReads,
     key: &str,
     mark: &str,
 ) -> Result<Option<Value>, ScheduleError> {
-    let source = published_source(workspace, key)?;
-    let mut row = override_base(workspace, key, &source);
-    keep_schedule_fields(workspace, key, &mut row);
+    let source = published_source(workspace, school, key)?;
+    let mut row = override_base(workspace, school, key, &source);
+    keep_schedule_fields(workspace, school, key, &mut row);
     row.remove("mark");
     if mark == "cancelled" || mark != source.kind || source.status == "cancelled" {
         row.insert("mark".into(), mark.into());
@@ -239,6 +248,7 @@ pub(crate) fn marked_exam_override(
 /// calendar change (a holiday, 休講) still reaches it.
 pub(crate) fn marked_session_override(
     workspace: &Value,
+    school: &SchoolReads,
     key: &str,
     mark: &str,
 ) -> Result<Option<Value>, ScheduleError> {
@@ -247,8 +257,8 @@ pub(crate) fn marked_session_override(
             "Mark a session as an exam, a quiz, cancelled or a normal class.".into(),
         ));
     }
-    if published_source(workspace, key).is_ok() {
-        return marked_exam_override(workspace, key, mark);
+    if published_source(workspace, school, key).is_ok() {
+        return marked_exam_override(workspace, school, key, mark);
     }
     if key.trim().is_empty() {
         return Err(ScheduleError::InvalidInput(
@@ -338,15 +348,16 @@ fn key_date(key: &str) -> Option<&str> {
 /// matching.
 pub(crate) fn linked_exam_override(
     workspace: &Value,
+    school: &SchoolReads,
     key: &str,
     course_id: Option<&str>,
 ) -> Result<Option<Value>, ScheduleError> {
-    let source = published_source(workspace, key)?;
+    let source = published_source(workspace, school, key)?;
     if let Some(course_id) = course_id {
         require_term_course(workspace, &source.term, course_id)?;
     }
-    let mut row = override_base(workspace, key, &source);
-    keep_schedule_fields(workspace, key, &mut row);
+    let mut row = override_base(workspace, school, key, &source);
+    keep_schedule_fields(workspace, school, key, &mut row);
     row.remove("courseId");
     if course_id != source.course_id.as_deref() {
         row.insert("courseId".into(), course_id.unwrap_or_default().into());
@@ -354,12 +365,8 @@ pub(crate) fn linked_exam_override(
     finish_override(row)
 }
 
-pub(super) fn exam_terms(workspace: &Value) -> std::collections::BTreeSet<String> {
-    array(workspace, "exams")
-        .iter()
-        .filter(|row| visible(row))
-        .filter_map(exam_term)
-        .collect()
+pub(super) fn exam_terms(school: &SchoolReads) -> std::collections::BTreeSet<String> {
+    school.exams.terms().map(str::to_owned).collect()
 }
 
 /// Whether quizzes count as exams for Today and reminders (on by default).
@@ -370,13 +377,13 @@ pub(crate) fn quizzes_count(workspace: &Value) -> bool {
         .unwrap_or(true)
 }
 
-pub(super) fn upcoming_exams(workspace: &Value, from: &str) -> Vec<ExamView> {
+pub(super) fn upcoming_exams(workspace: &Value, school: &SchoolReads, from: &str) -> Vec<ExamView> {
     let quizzes = quizzes_count(workspace);
-    let mut terms = exam_terms(workspace);
+    let mut terms = exam_terms(school);
     terms.extend(super::placement_terms(workspace).map(str::to_owned));
     let mut exams: Vec<_> = terms
         .into_iter()
-        .flat_map(|term| exam_views(workspace, &term))
+        .flat_map(|term| exam_views(workspace, school, &term))
         .filter(|exam| {
             (exam.kind == "exam" || (quizzes && exam.kind == "quiz"))
                 && exam.course_id.is_some()
@@ -391,8 +398,8 @@ pub(super) fn upcoming_exams(workspace: &Value, from: &str) -> Vec<ExamView> {
 
 /// Every exam of the quarter: the exam timetable with the user's corrections,
 /// and the class sessions the user marked as an exam or a quiz.
-pub fn exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
-    let mut result = published_exam_views(workspace, term);
+pub fn exam_views(workspace: &Value, school: &SchoolReads, term: &str) -> Vec<ExamView> {
+    let mut result = published_exam_views(workspace, school, term);
     let sessions = session_exam_views(workspace, term, &result);
     result.extend(sessions);
     sort_views(&mut result);
@@ -402,26 +409,27 @@ pub fn exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
 /// The exam timetable's rows of `term` with the user's corrections, and the
 /// corrections whose exam left the timetable. Agendas draw these; a marked
 /// class session is drawn from the class itself.
-pub(crate) fn published_exam_views(workspace: &Value, term: &str) -> Vec<ExamView> {
+pub(crate) fn published_exam_views(
+    workspace: &Value,
+    school: &SchoolReads,
+    term: &str,
+) -> Vec<ExamView> {
     let locale = content_language(workspace);
     let teaching = teaching_periods(workspace).unwrap_or_default();
     let courses = term_courses(workspace, term);
     let codes = course_code_keys(&courses);
-    let orphans = Orphans::read(workspace);
+    let orphans = Orphans::read(workspace, school);
     let mut result = Vec::new();
-    for exam in array(workspace, "exams")
-        .iter()
-        .filter(|exam| visible(exam) && exam_term(exam).as_deref() == Some(term))
-    {
+    for exam in school.exams.of(term) {
         let mut view = source_view_with(workspace, exam, term, locale, &teaching, &courses, &codes);
         let change = existing_override(workspace, &view.key)
-            .or_else(|| orphans.adopted_by(workspace, exam, term));
+            .or_else(|| orphans.adopted_by(workspace, school, exam, term));
         if let Some(change) = change {
             apply_override(&mut view, change, &courses, &teaching);
         }
         result.push(view);
     }
-    for change in orphans.removed(workspace, term) {
+    for change in orphans.removed(workspace, school, term) {
         if let Some(mut view) = removed_view(change, term, &courses) {
             apply_override(&mut view, change, &courses, &teaching);
             result.push(view);
@@ -554,12 +562,12 @@ struct Identity {
 }
 
 impl<'a> Orphans<'a> {
-    fn read(workspace: &'a Value) -> Self {
+    fn read(workspace: &'a Value, school: &SchoolReads) -> Self {
         let rows = array(workspace, "scheduleOverrides")
             .iter()
             .filter(|row| visible(row) && text(row, "targetKind") == Some("exam"))
             .filter(|row| {
-                published_row(workspace, text(row, "targetKey").unwrap_or_default()).is_none()
+                published_row(school, text(row, "targetKey").unwrap_or_default()).is_none()
             })
             .filter_map(|row| {
                 let base = row.get("base")?;
@@ -576,7 +584,13 @@ impl<'a> Orphans<'a> {
         Self { rows }
     }
 
-    fn adopted_by(&self, workspace: &Value, exam: &Value, term: &str) -> Option<&'a Value> {
+    fn adopted_by(
+        &self,
+        workspace: &Value,
+        school: &SchoolReads,
+        exam: &Value,
+        term: &str,
+    ) -> Option<&'a Value> {
         if self.rows.is_empty() {
             return None;
         }
@@ -585,16 +599,16 @@ impl<'a> Orphans<'a> {
         let [(orphan, _)] = candidates.as_slice() else {
             return None;
         };
-        (uncorrected_rows(workspace, &identity) == 1).then_some(*orphan)
+        (uncorrected_rows(workspace, school, &identity) == 1).then_some(*orphan)
     }
 
-    fn removed(&self, workspace: &Value, term: &str) -> Vec<&'a Value> {
+    fn removed(&self, workspace: &Value, school: &SchoolReads, term: &str) -> Vec<&'a Value> {
         self.rows
             .iter()
             .filter(|(_, id)| id.term == term)
             .filter(|(_, id)| {
                 self.rows.iter().filter(|(_, other)| other == id).count() != 1
-                    || uncorrected_rows(workspace, id) != 1
+                    || uncorrected_rows(workspace, school, id) != 1
             })
             .map(|(row, _)| *row)
             .collect()
@@ -614,12 +628,12 @@ fn row_identity(exam: &Value, term: &str) -> Identity {
     }
 }
 
-fn uncorrected_rows(workspace: &Value, identity: &Identity) -> usize {
-    array(workspace, "exams")
-        .iter()
-        .filter(|exam| visible(exam))
+fn uncorrected_rows(workspace: &Value, school: &SchoolReads, identity: &Identity) -> usize {
+    school
+        .exams
+        .of(&identity.term)
         .filter(|exam| {
-            exam_term(exam).is_some_and(|term| row_identity(exam, &term) == *identity)
+            row_identity(exam, &identity.term) == *identity
                 && existing_override(workspace, exam_key(exam)).is_none()
         })
         .count()
@@ -627,17 +641,21 @@ fn uncorrected_rows(workspace: &Value, identity: &Identity) -> usize {
 
 /// The correction that applies to this published exam: its own, or the one
 /// it adopted from the row it replaced.
-fn exam_override<'a>(workspace: &'a Value, key: &str) -> Option<&'a Value> {
+fn exam_override<'a>(workspace: &'a Value, school: &SchoolReads, key: &str) -> Option<&'a Value> {
     existing_override(workspace, key).or_else(|| {
-        let (exam, term) = published_row(workspace, key)?;
-        Orphans::read(workspace).adopted_by(workspace, exam, &term)
+        let (exam, term) = published_row(school, key)?;
+        Orphans::read(workspace, school).adopted_by(workspace, school, exam, &term)
     })
 }
 
 /// The id of a correction this exam adopted from a row that left the
 /// timetable, which a save replaces with one under the exam's own key.
-pub(crate) fn adopted_exam_override(workspace: &Value, key: &str) -> Option<String> {
-    exam_override(workspace, key)
+pub(crate) fn adopted_exam_override(
+    workspace: &Value,
+    school: &SchoolReads,
+    key: &str,
+) -> Option<String> {
+    exam_override(workspace, school, key)
         .filter(|row| text(row, "targetKey") != Some(key))
         .and_then(|row| text(row, "id"))
         .map(str::to_owned)
@@ -693,8 +711,12 @@ fn removed_view(change: &Value, term: &str, courses: &[&Value]) -> Option<ExamVi
 
 /// The exam as published, before the user's corrections: a row of the
 /// timetable, or the last published facts of a corrected exam that left it.
-fn published_source(workspace: &Value, key: &str) -> Result<ExamView, ScheduleError> {
-    if let Some((exam, term)) = published_row(workspace, key) {
+fn published_source(
+    workspace: &Value,
+    school: &SchoolReads,
+    key: &str,
+) -> Result<ExamView, ScheduleError> {
+    if let Some((exam, term)) = published_row(school, key) {
         return Ok(source_view(workspace, exam, &term));
     }
     existing_override(workspace, key)
@@ -950,10 +972,12 @@ fn matched_course<'a>(
         .copied()
 }
 
-fn published_row<'a>(workspace: &'a Value, key: &str) -> Option<(&'a Value, String)> {
-    array(workspace, "exams")
+fn published_row<'a>(school: &'a SchoolReads, key: &str) -> Option<(&'a Value, String)> {
+    school
+        .exams
+        .rows()
         .iter()
-        .filter(|exam| visible(exam) && exam_key(exam) == key)
+        .filter(|exam| exam_key(exam) == key)
         .find_map(|exam| Some((exam, exam_term(exam)?)))
 }
 
@@ -980,9 +1004,14 @@ fn existing_override<'a>(workspace: &'a Value, key: &str) -> Option<&'a Value> {
         .find(|row| visible(row) && text(row, "targetKey") == Some(key))
 }
 
-fn keep_schedule_fields(workspace: &Value, key: &str, row: &mut Map<String, Value>) {
+fn keep_schedule_fields(
+    workspace: &Value,
+    school: &SchoolReads,
+    key: &str,
+    row: &mut Map<String, Value>,
+) {
     for field in ["date", "startTime", "endTime", "periods", "room"] {
-        if let Some(value) = exam_override(workspace, key).and_then(|row| row.get(field)) {
+        if let Some(value) = exam_override(workspace, school, key).and_then(|row| row.get(field)) {
             row.insert(field.into(), value.clone());
         }
     }
@@ -991,8 +1020,13 @@ fn keep_schedule_fields(workspace: &Value, key: &str, row: &mut Map<String, Valu
 /// Identity and the fields the caller does not replace. The recorded
 /// published schedule stays until the user edits the schedule itself, so a
 /// conflict outlives marking or linking the exam.
-fn override_base(workspace: &Value, key: &str, source: &ExamView) -> Map<String, Value> {
-    let existing = exam_override(workspace, key);
+fn override_base(
+    workspace: &Value,
+    school: &SchoolReads,
+    key: &str,
+    source: &ExamView,
+) -> Map<String, Value> {
+    let existing = exam_override(workspace, school, key);
     let mut row = Map::new();
     row.insert("targetKey".into(), key.into());
     row.insert("targetKind".into(), "exam".into());
@@ -1033,7 +1067,7 @@ fn exam_key(exam: &Value) -> &str {
         .unwrap_or_default()
 }
 
-fn exam_term(exam: &Value) -> Option<String> {
+pub(super) fn exam_term(exam: &Value) -> Option<String> {
     Some(format!(
         "{}-{}",
         exam["academicYear"].as_i64()?,

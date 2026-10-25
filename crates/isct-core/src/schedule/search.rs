@@ -149,9 +149,14 @@ pub(super) fn lecture_search(
     }
     let terms = term
         .map(|term| [term.to_string()].into_iter().collect())
-        .unwrap_or_else(|| super::exams::exam_terms(workspace));
-    for exam in terms.iter().flat_map(|term| exam_views(workspace, term)) {
-        let raw = array(workspace, "exams")
+        .unwrap_or_else(|| super::exams::exam_terms(school));
+    for exam in terms
+        .iter()
+        .flat_map(|term| exam_views(workspace, school, term))
+    {
+        let raw = school
+            .exams
+            .rows()
             .iter()
             .find(|row| text(row, "id") == Some(exam.id.as_str()));
         if matches(

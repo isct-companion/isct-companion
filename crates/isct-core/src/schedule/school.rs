@@ -2,15 +2,59 @@
 //! carry them.
 use crate::contracts::ClassFormat;
 use serde::Serialize;
-#[cfg(test)]
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// What a timetable course shows of its catalog offering.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct CatalogEntry {
     pub code: String,
     pub format: ClassFormat,
+}
+
+/// The published exam timetable: its visible rows that name a term
+/// (`academicYear` and `quarter`), in id order, and where each term's are.
+#[derive(Debug, Default)]
+pub(crate) struct ExamTimetable {
+    rows: Vec<Value>,
+    by_term: BTreeMap<String, Vec<usize>>,
+}
+
+impl ExamTimetable {
+    pub(crate) fn new(rows: Vec<Value>) -> Self {
+        let mut timetable = Self::default();
+        for row in rows.into_iter().filter(super::visible) {
+            let Some(term) = super::exams::exam_term(&row) else {
+                continue;
+            };
+            timetable
+                .by_term
+                .entry(term)
+                .or_default()
+                .push(timetable.rows.len());
+            timetable.rows.push(row);
+        }
+        timetable
+    }
+
+    pub(crate) fn rows(&self) -> &[Value] {
+        &self.rows
+    }
+
+    /// The terms with an exam, in order.
+    pub(crate) fn terms(&self) -> impl Iterator<Item = &str> {
+        self.by_term.keys().map(String::as_str)
+    }
+
+    /// `term`'s rows, in id order.
+    pub(crate) fn of<'a>(&'a self, term: &str) -> impl Iterator<Item = &'a Value> {
+        self.by_term
+            .get(term)
+            .into_iter()
+            .flatten()
+            .map(|index| &self.rows[*index])
+    }
 }
 
 /// School records schedule read models evaluate with the workspace. Core
@@ -20,6 +64,9 @@ pub(crate) struct CatalogEntry {
 pub struct SchoolReads {
     /// The catalog offerings the workspace's courses name, by offering id.
     pub(crate) catalog: BTreeMap<String, CatalogEntry>,
+    /// Shared by every snapshot of one cache.db version: no user intent
+    /// changes it.
+    pub(crate) exams: Arc<ExamTimetable>,
 }
 
 impl SchoolReads {
@@ -47,6 +94,9 @@ impl SchoolReads {
                     )
                 })
                 .collect(),
+            exams: Arc::new(ExamTimetable::new(
+                super::array(workspace, "exams").to_vec(),
+            )),
         }
     }
 }

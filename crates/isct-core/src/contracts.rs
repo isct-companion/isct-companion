@@ -556,7 +556,7 @@ contract!(Workspace {
     pub intensive_schedules: Vec<IntensiveSchedule>, pub plans: Vec<Plan>,
     pub academic_calendar: Vec<AcademicCalendarDay>, pub gpa_summary: Vec<GpaSummary>,
     pub departments: Vec<Department>, pub recommended_courses: Vec<RecommendedCourse>,
-    pub important_dates: Vec<ImportantDate>, pub exams: Vec<Exam>,
+    pub important_dates: Vec<ImportantDate>,
     pub class_schedules: Vec<ClassSchedule>,
     /// The red/white group chosen for each semester ("2026-3Q4Q") of
     /// alternating 物理学演習・実験 classes.
@@ -640,7 +640,6 @@ pub fn declarations() -> Vec<String> {
         ImportantDate::decl(),
         ClassSession::decl(),
         ClassSchedule::decl(),
-        Exam::decl(),
         ScheduleOverride::decl(),
         ExamBase::decl(),
         Subscription::decl(),
