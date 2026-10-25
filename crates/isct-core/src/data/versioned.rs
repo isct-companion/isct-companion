@@ -58,6 +58,32 @@ pub fn content_hash(value: &Value) -> Result<String, DataError> {
     Ok(format!("{:x}", Sha256::digest(bytes.as_bytes())))
 }
 
+/// A school row a complete read found with its stored hash. A row that had
+/// gone missing or been deleted is written, to bring it back; returns
+/// whether it was. Otherwise nothing is written, so a read that finds
+/// nothing new commits no record row and no shell hears of it. When such a
+/// row was last seen follows from its key's freshness: a row that is not
+/// missing was in the latest complete read of its key.
+pub(crate) fn keep_unchanged(
+    connection: &rusqlite::Connection,
+    table: &str,
+    id: &str,
+    revive: bool,
+    timestamp: &str,
+) -> rusqlite::Result<bool> {
+    if !revive {
+        return Ok(false);
+    }
+    connection.execute(
+        &format!(
+            "UPDATE {table} SET last_seen_at=?2, missing_since=NULL, deleted_at=NULL,
+             value=json_remove(value,'$.missingSince','$.deletedAt') WHERE id=?1"
+        ),
+        rusqlite::params![id, timestamp],
+    )?;
+    Ok(true)
+}
+
 #[cfg(test)]
 #[path = "../tests/data__versioned.rs"]
 mod tests;

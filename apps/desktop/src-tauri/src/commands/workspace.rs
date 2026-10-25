@@ -1,5 +1,5 @@
 use crate::{core_ports, data, require_local_main, run_data_command};
-use isct_core::workspace::{WorkspaceError, WorkspaceMutation, WorkspaceSnapshot};
+use isct_core::workspace::{WorkspaceCommit, WorkspaceError, WorkspaceMutation, WorkspaceSnapshot};
 use isct_core::workspace_changes::{WorkspaceChange, WorkspacePatch};
 
 #[tauri::command]
@@ -29,18 +29,20 @@ pub(crate) async fn workspace_records(
     .await
 }
 
+/// Applies one intent and answers what it changed; the window merges the
+/// patch over the snapshot it holds, as it does for `workspace_records`.
 #[tauri::command]
 pub(crate) async fn mutate_workspace(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     mutation: WorkspaceMutation,
-) -> Result<WorkspaceSnapshot, String> {
+) -> Result<WorkspaceCommit, String> {
     require_local_main(&webview)?;
     let started = std::time::Instant::now();
     let core = core_ports::core(&app);
-    let snapshot = run_data_command(move || {
+    let commit = run_data_command(move || {
         core.workspace
-            .mutate(mutation)
+            .mutate_patch(mutation)
             .map_err(|error| match error {
                 WorkspaceError::Conflict(_) => {
                     "Workspace changed. Review the latest data and try again.".to_owned()
@@ -55,7 +57,7 @@ pub(crate) async fn mutate_workspace(
             started.elapsed().as_millis()
         );
     }
-    Ok(snapshot)
+    Ok(commit)
 }
 
 #[tauri::command]

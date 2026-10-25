@@ -65,7 +65,7 @@ pub fn calendar_between(
         .map(|(term, _)| {
             (
                 term,
-                scheduled_courses(workspace, term),
+                std::sync::Arc::<[Value]>::from(scheduled_courses(workspace, term)),
                 exam_views(workspace, term),
             )
         })

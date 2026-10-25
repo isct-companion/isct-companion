@@ -2,7 +2,11 @@
 //! caller's transaction, writes its key's rows, marks what its inventory no
 //! longer lists as missing and records the key fresh, so a key lands whole
 //! or not at all.
-use crate::data::{resolve_course_id, versioned::content_hash, DataError};
+use crate::data::{
+    resolve_course_id,
+    versioned::{content_hash, keep_unchanged},
+    DataError,
+};
 use crate::school_parser::lms::{
     id_of, lms_url, LmsAssignStates, LmsCourseContent, LmsDeadlines, LmsEnrolment, LmsHistoryMonth,
     StoredModule,
@@ -86,25 +90,22 @@ fn upsert_versioned(
     value: &Value,
 ) -> Result<bool, IngestError> {
     let hash = content_hash(value)?;
-    let existing: Option<(String, Option<String>)> = tx
+    let existing: Option<(String, bool)> = tx
         .query_row(
-            &format!("SELECT hash, missing_since FROM {table} WHERE id=?1"),
+            &format!(
+                "SELECT hash, missing_since IS NOT NULL OR deleted_at IS NOT NULL
+                 FROM {table} WHERE id=?1"
+            ),
             [id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(IngestError::from)?;
     let timestamp = Utc::now().to_rfc3339();
-    if existing.as_ref().is_some_and(|(stored, _)| stored == &hash) {
-        let changed = existing
-            .as_ref()
-            .is_some_and(|(_, missing)| missing.is_some());
-        tx.execute(
-            &format!("UPDATE {table} SET last_seen_at=?2, missing_since=NULL, deleted_at=NULL,
-                value=json_remove(json_set(value,'$.lastSeenAt',?2),'$.missingSince','$.deletedAt') WHERE id=?1"),
-            params![id, timestamp],
-        ).map_err(IngestError::from)?;
-        return Ok(changed);
+    if let Some((stored, gone)) = &existing {
+        if stored == &hash {
+            return keep_unchanged(tx, table, id, *gone, &timestamp).map_err(IngestError::from);
+        }
     }
     let old_rev: u64 = tx
         .query_row(&format!("SELECT rev FROM {table} WHERE id=?1"), [id], |r| {

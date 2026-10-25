@@ -112,7 +112,8 @@ module's.
 
 Replaces the Tauri host with an in-memory one: it records every command, applies
 `mutate_workspace` intents, advances the revision, and answers read models from
-a table.
+a table. A commit answers the whole live store under every change name
+(`core.commit()`, also for a `handle` that commits by itself).
 
 ```ts
 const core = installFakeCore({

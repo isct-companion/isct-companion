@@ -42,6 +42,7 @@ fn each_table_is_created_in_the_file_that_owns_it() {
     let connection = open_in_memory().unwrap();
     assert_eq!(tables_of(&connection, "main"), listed(USER_TABLES));
     assert_eq!(tables_of(&connection, "cache"), listed(CACHE_TABLES));
+    assert_eq!(tables_of(&connection, "sync"), listed(SYNC_TABLES));
     for table in crate::data::USER_BACKUP_TABLES {
         assert!(USER_TABLES.contains(table), "{table}");
     }
@@ -56,6 +57,9 @@ fn legacy_school_db(directory: &Path, version: i64) {
     connection.execute_batch(USER_SCHEMA).unwrap();
     connection
         .execute_batch(&CACHE_SCHEMA.replace("cache.", ""))
+        .unwrap();
+    connection
+        .execute_batch(&SYNC_SCHEMA.replace("sync.", ""))
         .unwrap();
     connection
         .pragma_update(None, "user_version", version)
@@ -189,7 +193,8 @@ fn unreadable_databases_are_refused_and_left_intact() {
 }
 
 /// A cache.db of another schema version, or one that is not a database at
-/// all, is created again, empty, and user.db keeps every row.
+/// all, is created again, empty, with its freshness (which would call the
+/// lost rows fresh), and user.db keeps every row.
 #[test]
 fn a_cache_db_of_another_version_or_unreadable_is_rebuilt_and_user_data_stays() {
     let directory = scratch("cache-rebuilt");
@@ -209,6 +214,8 @@ fn a_cache_db_of_another_version_or_unreadable_is_rebuilt_and_user_data_stays() 
                 .execute_batch(
                     "INSERT INTO lms_courses(id,value,hash,updated_at,updated_by,rev)
                        VALUES('lms-course:42','{}','hash','2026-10-01T00:00:00Z','school',1);
+                     INSERT INTO dataset_state(dataset,key,fetched_at)
+                       VALUES('lms.course','42','2026-10-01T00:00:00Z');
                      PRAGMA cache.user_version=99;",
                 )
                 .unwrap();
@@ -220,7 +227,59 @@ fn a_cache_db_of_another_version_or_unreadable_is_rebuilt_and_user_data_stays() 
         let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
         assert!(changed);
         assert!(store.table_rows("lms_courses").unwrap().is_empty());
+        assert!(store.freshness(None).unwrap().is_empty());
         assert_eq!(store.user_rows("plans").unwrap().len(), 1);
     }
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// A cache.db of schema 3 held the sync bookkeeping itself. Opening it moves
+/// freshness and run records into sync.db once and keeps every school row,
+/// so an existing data folder is not fetched again; a lost sync.db alone
+/// only makes every key read as missing.
+#[test]
+fn a_cache_db_with_its_bookkeeping_moves_it_into_sync_db_once() {
+    let directory = scratch("cache-v3");
+    drop(DataStore::initialize_dir(directory.clone()).unwrap());
+    fs::remove_file(directory.join(SYNC_FILE)).unwrap();
+    let cache = Connection::open(directory.join(CACHE_FILE)).unwrap();
+    cache
+        .execute_batch(&format!(
+            "{}
+             INSERT INTO lms_courses(id,value,hash,updated_at,updated_by,rev)
+               VALUES('lms-course:42','{{\"id\":\"lms-course:42\",\"lmsId\":42}}','hash','2026-10-01T00:00:00Z','school',1);
+             INSERT INTO dataset_state(dataset,key,fetched_at)
+               VALUES('lms.course','42','2026-10-01T00:00:00Z');
+             INSERT INTO sync_runs(run,dataset,key,started_at,finished_at,outcome)
+               VALUES('run-1','lms.course','42','2026-10-01T00:00:00Z','2026-10-01T00:00:01Z','complete');
+             PRAGMA user_version=3;",
+            SYNC_SCHEMA.replace("sync.", "")
+        ))
+        .unwrap();
+    drop(cache);
+
+    let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
+    assert!(changed);
+    assert_eq!(store.table_rows("lms_courses").unwrap().len(), 1);
+    assert_eq!(store.freshness(None).unwrap().len(), 1);
+    let connection = store.test_connection();
+    assert_eq!(tables_of(&connection, "cache"), listed(CACHE_TABLES));
+    let runs: i64 = connection
+        .query_row("SELECT COUNT(*) FROM sync.sync_runs", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(runs, 1);
+    drop(connection);
+    drop(store);
+
+    let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
+    assert!(!changed);
+    assert_eq!(store.freshness(None).unwrap().len(), 1);
+    drop(store);
+    fs::remove_file(directory.join(SYNC_FILE)).unwrap();
+    let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
+    assert!(changed);
+    assert!(store.freshness(None).unwrap().is_empty());
+    assert_eq!(store.table_rows("lms_courses").unwrap().len(), 1);
+    drop(store);
     fs::remove_dir_all(directory).unwrap();
 }

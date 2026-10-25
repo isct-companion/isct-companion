@@ -17,6 +17,7 @@ use courses::*;
 use crate::data::{DataError, DataStore, WorkspaceWrite};
 use crate::schedule::{ClassGroup, RecentKind};
 use crate::study_profile::StudyEnrollment;
+use crate::workspace_changes::{self, WorkspaceChange, WorkspacePatch};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
@@ -37,10 +38,24 @@ pub struct WorkspaceSnapshot {
     /// Changes whenever any part of the snapshot changes; read-model caches
     /// key on it.
     pub content_revision: String,
+    /// Shared with Core's snapshot cache, so a read never copies it. Beside
+    /// the workspace fields it carries the school records schedule read
+    /// models evaluate: `registrations`, `grades` and `lmsCourses`.
     #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-    pub workspace: Value,
+    pub workspace: Arc<Value>,
     #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-    pub school_records: Value,
+    pub school_records: Arc<Value>,
+}
+
+/// A committed intent as a shell that holds the snapshot adopts it: what the
+/// commit changed, and only the snapshot fields those changes feed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceCommit {
+    /// As in a `workspace-changed` event of the same commit.
+    pub changes: Vec<WorkspaceChange>,
+    pub patch: WorkspacePatch,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -315,11 +330,12 @@ impl From<DataError> for WorkspaceError {
 pub fn declarations() -> Vec<String> {
     vec![
         WorkspaceSnapshot::decl(),
+        WorkspaceCommit::decl(),
         WorkspaceMutation::decl(),
         WorkspaceIntent::decl(),
         CourseBatchChanges::decl(),
-        crate::workspace_changes::WorkspaceChange::decl(),
-        crate::workspace_changes::WorkspacePatch::decl(),
+        WorkspaceChange::decl(),
+        WorkspacePatch::decl(),
     ]
 }
 
@@ -353,7 +369,7 @@ impl WorkspaceService {
 
     pub fn snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceError> {
         let ((workspace, school_records, revision), content_revision) =
-            self.store.workspace_snapshot_with_revision()?;
+            self.store.workspace_snapshot()?;
         Ok(WorkspaceSnapshot {
             workspace,
             school_records,
@@ -362,38 +378,54 @@ impl WorkspaceService {
         })
     }
 
+    /// Applies `mutation` and returns the whole snapshot as committed.
     pub fn mutate(&self, mutation: WorkspaceMutation) -> Result<WorkspaceSnapshot, WorkspaceError> {
+        self.commit(mutation).map(|(snapshot, _)| snapshot)
+    }
+
+    /// Applies `mutation` and returns only what it changed, for a shell that
+    /// patches the snapshot it holds instead of receiving it whole.
+    pub fn mutate_patch(
+        &self,
+        mutation: WorkspaceMutation,
+    ) -> Result<WorkspaceCommit, WorkspaceError> {
+        let (snapshot, changes) = self.commit(mutation)?;
+        Ok(WorkspaceCommit {
+            patch: workspace_changes::patch(snapshot, &changes),
+            changes,
+        })
+    }
+
+    fn commit(
+        &self,
+        mutation: WorkspaceMutation,
+    ) -> Result<(WorkspaceSnapshot, Vec<WorkspaceChange>), WorkspaceError> {
         let mut undo = self
             .catalog_undo
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
-        let result = self.store.workspace_write(
-            &mutation.expected_revision,
-            |write, current, school_records| {
-                let selection = match &mutation.intent {
-                    WorkspaceIntent::SelectTerm { term_id } => Some(term_id.clone()),
-                    _ => None,
-                };
-                apply_intent(write, current, mutation.intent, &mut undo)?;
-                let parts = if let Some(term) = selection {
-                    let mut workspace = current.clone();
-                    workspace["selectedTerm"] = term.into();
-                    (workspace, school_records.clone(), write.revision()?)
-                } else {
-                    write.snapshot_parts()?
-                };
-                let result = snapshot(parts.0.clone(), parts.1.clone(), parts.2.clone())?;
-                let hash = result.content_revision.clone();
-                Ok((result, parts, hash))
-            },
-        )?;
+        let ((), (workspace, school_records, revision), content_revision, tables) = self
+            .store
+            .workspace_write(&mutation.expected_revision, |write, current| {
+                apply_intent(write, current, mutation.intent, &mut undo)
+            })?;
         // Only a committed add or undo changes what Undo reverses.
         *self
             .catalog_undo
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = undo;
-        Ok(result)
+        Ok((
+            WorkspaceSnapshot {
+                revision,
+                content_revision,
+                workspace,
+                school_records,
+            },
+            workspace_changes::changes_for(&tables)
+                .into_iter()
+                .collect(),
+        ))
     }
 }
 
@@ -426,20 +458,6 @@ pub(crate) fn delete_plan(
     plan_id: &str,
 ) -> Result<(), DataError> {
     delete_visible(write, current, "plans", "plans", plan_id)
-}
-
-fn snapshot(
-    workspace: Value,
-    school_records: Value,
-    revision: String,
-) -> Result<WorkspaceSnapshot, DataError> {
-    let content_revision = crate::data::content_revision(&workspace, &school_records)?;
-    Ok(WorkspaceSnapshot {
-        revision,
-        content_revision,
-        workspace,
-        school_records,
-    })
 }
 
 fn apply_intent(

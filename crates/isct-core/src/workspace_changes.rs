@@ -110,16 +110,23 @@ impl WorkspaceChange {
             })
         }
         match self {
-            Courses => fields(true, &[], &["lmsCourses"]),
-            Registrations => fields(true, &[], &["registrations", "registrationStates"]),
+            Courses => fields(true, &["lmsCourses"], &["lmsCourses"]),
+            Registrations => fields(
+                true,
+                &["registrations"],
+                &["registrations", "registrationStates"],
+            ),
             Finder => fields(
                 true,
                 &["offerings", "departments", "recommendedCourses"],
                 &[],
             ),
+            // No calendar row feeds the course projection; quarter-start
+            // days decide the current term.
             Calendar => fields(
-                true,
+                false,
                 &[
+                    "currentTerm",
                     "academicCalendar",
                     "importantDates",
                     "exceptions",
@@ -133,7 +140,7 @@ impl WorkspaceChange {
             Assignments => fields(false, &["assignments"], &[]),
             Grades => fields(
                 false,
-                &["gpaSummary"],
+                &["gpaSummary", "grades"],
                 &["grades", "gpaByTerm", "requirements"],
             ),
             Exams => fields(false, &["exams"], &[]),
@@ -172,12 +179,14 @@ const PROJECTED: &[&str] = &[
 enum Owner {
     User,
     Cache,
+    /// sync.db: the sync engine's bookkeeping about cache rows.
+    Sync,
 }
 
 /// Every table a commit can report, with the changes it feeds. A table not
 /// listed here is reported as every change and as user-owned, so a new
-/// table is over-refreshed rather than missed; the test that lists both
-/// database files fails until it is added.
+/// table is over-refreshed rather than missed; the test that lists every
+/// database file fails until it is added.
 const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("timetable_courses", &[Courses], Owner::Cache),
     ("memberships", &[Courses], Owner::Cache),
@@ -212,9 +221,9 @@ const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("subscriptions", &[Subscriptions], Owner::User),
     ("scheduled_tasks", &[ScheduledTasks], Owner::User),
     ("settings", &[Settings], Owner::User),
-    ("dataset_state", &[Freshness], Owner::Cache),
+    ("dataset_state", &[Freshness], Owner::Sync),
     // Run records are diagnostics; no view shows them.
-    ("sync_runs", &[], Owner::Cache),
+    ("sync_runs", &[], Owner::Sync),
 ];
 
 /// FTS5 keeps an index in shadow tables (`offerings_fts_data`, `_idx`,
@@ -285,21 +294,22 @@ pub(crate) fn patch(snapshot: WorkspaceSnapshot, changes: &[WorkspaceChange]) ->
             None => whole_workspace = true,
         }
     }
-    let pick = |value: Value, all: bool, fields: &BTreeSet<&str>| -> Value {
+    let pick = |value: &Value, all: bool, fields: &BTreeSet<&str>| -> Value {
         match value {
             Value::Object(map) if !all => Value::Object(
-                map.into_iter()
+                map.iter()
                     .filter(|(key, _)| fields.contains(key.as_str()))
+                    .map(|(key, value)| (key.clone(), value.clone()))
                     .collect::<Map<_, _>>(),
             ),
-            value => value,
+            value => value.clone(),
         }
     };
     WorkspacePatch {
+        workspace: pick(&snapshot.workspace, whole_workspace, &workspace_fields),
+        school_records: pick(&snapshot.school_records, false, &record_fields),
         revision: snapshot.revision,
         content_revision: snapshot.content_revision,
-        workspace: pick(snapshot.workspace, whole_workspace, &workspace_fields),
-        school_records: pick(snapshot.school_records, false, &record_fields),
     }
 }
 

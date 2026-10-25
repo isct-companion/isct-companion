@@ -79,21 +79,6 @@ fn course_fields(workspace: &Value, course: &Value) -> Vec<Value> {
     ]
 }
 
-/// Code is a lookup key inside one academic term; identity remains the
-/// provider's course id and an ambiguous lookup returns every candidate.
-pub(super) fn courses_by_code<'a>(workspace: &'a Value, term: &str, code: &str) -> Vec<&'a Value> {
-    let key = course_code_key(code);
-    if key.is_empty() {
-        return Vec::new();
-    }
-    super::term_courses(workspace, term)
-        .into_iter()
-        // LMS aliases improve discovery; an exam association uses only the
-        // canonical full code so a historical alias cannot silently bind it.
-        .filter(|course| text(course, "code").is_some_and(|code| course_code_key(code) == key))
-        .collect()
-}
-
 fn compact(value: &str) -> String {
     normalized(value)
         .chars()

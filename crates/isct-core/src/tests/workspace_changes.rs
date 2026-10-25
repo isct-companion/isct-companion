@@ -6,10 +6,10 @@ fn tables(names: &[&str]) -> BTreeSet<String> {
 }
 
 /// A table missing from `TABLES` is refreshed as everything, which hides the
-/// omission from every other test. Both database files are listed here, so a
+/// omission from every other test. Every database file is listed here, so a
 /// new table fails until it says which views it feeds.
 #[test]
-fn every_table_in_both_database_files_says_what_it_feeds() {
+fn every_table_in_every_database_file_says_what_it_feeds() {
     let directory =
         std::env::temp_dir().join(format!("isct-core-changes-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory).unwrap();
@@ -18,7 +18,8 @@ fn every_table_in_both_database_files_says_what_it_feeds() {
         .write(None, |transaction| {
             let mut statement = transaction.prepare(
                 "SELECT name FROM main.sqlite_master WHERE type = 'table'
-                 UNION SELECT name FROM cache.sqlite_master WHERE type = 'table'",
+                 UNION SELECT name FROM cache.sqlite_master WHERE type = 'table'
+                 UNION SELECT name FROM sync.sqlite_master WHERE type = 'table'",
             )?;
             let names = statement
                 .query_map([], |row| row.get::<_, String>(0))?
@@ -84,10 +85,12 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
             "courses": [1], "memberships": [], "assignments": [], "materials": [],
             "planItems": [], "terms": [], "currentTerm": "2026-3Q",
             "settings": {"locale": "ja"}, "exams": [], "offerings": [],
-        }),
+        })
+        .into(),
         school_records: serde_json::json!({
             "lmsCourses": [], "grades": [], "freshness": {}, "pageAvailability": {},
-        }),
+        })
+        .into(),
     };
     let keys = |value: &Value| {
         let mut keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
@@ -126,9 +129,13 @@ fn a_patch_carries_only_the_fields_its_changes_feed() {
     );
     assert_eq!(keys(&courses.school_records), ["lmsCourses"]);
 
+    // Calendar rows feed no course; quarter-start days move the current term.
+    let calendar = patch(snapshot.clone(), &[Calendar]);
+    assert_eq!(keys(&calendar.workspace), ["currentTerm"]);
+
     // Settings shape every projected field: the whole workspace, no records.
     let settings = patch(snapshot.clone(), &[Settings]);
-    assert_eq!(settings.workspace, snapshot.workspace);
+    assert_eq!(settings.workspace, *snapshot.workspace);
     assert!(keys(&settings.school_records).is_empty());
 }
 

@@ -1861,12 +1861,7 @@ describe("Study profile", () => {
         // observe the in-flight state of a real mutation.
         handle: (command, _args, core) => {
           if (command !== "mutate_workspace") return undefined;
-          return pending.then(() => ({
-            revision: `${core.revision}+host`,
-            contentRevision: `${core.revision}+host`,
-            workspace: structuredClone(core.workspace),
-            schoolRecords: structuredClone(core.schoolRecords),
-          }));
+          return pending.then(() => core.commit(`${core.revision}+host`));
         },
       });
       const pane = settingsPane(mounted);
