@@ -124,9 +124,18 @@ only reads the current store status. The `app-store-status` artifact contains
 version/build state, localized screenshot receipts and age-rating answers;
 it excludes API keys and review contacts.
 
-Complete the developer agreement, privacy answers, age rating, pricing and
-availability in App Store Connect before the first submission. Keep the existing
-review notes explaining school sign-in; the workflow does not replace them.
+Complete the developer agreement, privacy answers and availability in App Store
+Connect before the first submission. The account holder's listing declarations
+and review notes live in `apps/ios/appstore/metadata.json`. The workflow applies
+those notes and the sign-in requirement while preserving review contacts. The
+notes distinguish the usable signed-out app from optional university features
+that still need a university account; they do not promise a demo account.
+An unanswered age-rating questionnaire is initialized from the account holder's
+confirmed answers in `resources/app-store/age-rating.json`. Completed answers
+are preserved on later releases; review the file when app capabilities change.
+The first price schedule is initialized as free, with Japan as the base
+territory. Existing pricing and territory availability are preserved. A missing
+content-rights declaration is filled from the confirmed listing metadata.
 Run mode `submit` to submit for review and release automatically after approval.
 Apple's review is still required; a successful workflow is not an approval.
 
