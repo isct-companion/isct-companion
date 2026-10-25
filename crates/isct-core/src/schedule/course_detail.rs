@@ -1,4 +1,4 @@
-use super::{array, text, ExamView};
+use super::{array, text, ExamView, SchoolReads};
 use crate::course_materials::CourseKey;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,7 +15,9 @@ pub struct CourseDetail {
     pub assignment_ids: Vec<String>,
     pub exam_ids: Vec<String>,
     pub exams: Vec<ExamView>,
-    pub offering_id: Option<String>,
+    /// The class format of the catalog offering the course names, when the
+    /// catalog holds it.
+    pub format: Option<crate::contracts::ClassFormat>,
     /// The course's T2SCHOLA page, from the course itself or its LMS record.
     pub lms_url: Option<String>,
     /// The course's LMS id, which the course page sends in its `Open` hint.
@@ -84,7 +86,7 @@ fn syllabus_url(workspace: &Value, course: &Value, materials: &[&Value]) -> Opti
         .map(|id| crate::catalog::syllabus_url(&id, super::content_language(workspace)))
 }
 
-pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
+pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -> CourseDetail {
     let Some(course) = array(workspace, "courses")
         .iter()
         .find(|row| visible(row) && text(row, "id") == Some(course_id))
@@ -122,7 +124,7 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
     assignments.sort_by_key(|row| text(row, "dueAt").unwrap_or("~"));
     let exams: Vec<_> = super::course_terms(workspace, course)
         .iter()
-        .flat_map(|term| super::exam_views(workspace, term))
+        .flat_map(|term| super::exam_views(workspace, school, term))
         .filter(|exam| exam.course_id.as_deref() == Some(course_id))
         .collect();
     let ids = |rows: Vec<&Value>| {
@@ -136,15 +138,13 @@ pub fn course_detail(workspace: &Value, course_id: &str) -> CourseDetail {
         assignment_ids: ids(assignments),
         exam_ids: exams
             .iter()
-            .filter(|exam| exam.kind == "exam" && !exam.hidden && exam.status == "scheduled")
+            .filter(|exam| exam.kind == "exam" && exam.status == "scheduled")
             .map(|exam| exam.id.clone())
             .collect(),
         exams,
-        offering_id: array(workspace, "offerings")
-            .iter()
-            .find(|row| visible(row) && text(row, "id") == text(course, "offeringId"))
-            .and_then(|row| text(row, "id"))
-            .map(str::to_owned),
+        format: text(course, "offeringId")
+            .and_then(|id| school.offering(id))
+            .map(|offering| offering.format.clone()),
         lms_url,
         lms_course_id: lms_course_id(workspace, course),
         syllabus_url,

@@ -15,6 +15,7 @@ mod range;
 mod reminders;
 pub(crate) use reminders::assignment_lead_minutes;
 mod requests;
+mod school;
 mod search;
 mod tasks;
 mod today;
@@ -53,7 +54,7 @@ pub use course_detail::{
 pub use credits::declared_term_credits;
 pub(crate) use exams::{
     adopted_exam_override, corrected_exam_override, linked_exam_override, marked_session_override,
-    ExamCorrection,
+    removed_exam_override, ExamCorrection,
 };
 pub use exams::{
     exam_association, exam_views, ExamAssociation, ExamConflict, ExamSchedule, ExamView,
@@ -74,6 +75,8 @@ pub use reminders::{
     ReminderService, DEFAULT_ASSIGNMENT_LEADS,
 };
 pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
+pub use school::SchoolReads;
+pub(crate) use school::{CatalogEntry, ExamTimetable};
 pub use search::LectureSearch;
 pub(crate) use tasks::assignment_submitted;
 pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
@@ -376,8 +379,10 @@ pub struct ScheduleIntensiveDay {
     pub periods: [u8; 2],
 }
 
+/// `request` evaluated over `workspace` and the school records read with it.
 pub fn query(
     workspace: &Value,
+    school: &SchoolReads,
     request: WorkspaceQuery,
 ) -> Result<WorkspaceQueryResult, ScheduleError> {
     match request {
@@ -387,6 +392,7 @@ pub fn query(
             }
             Ok(WorkspaceQueryResult::LectureSearch(search::lecture_search(
                 workspace,
+                school,
                 term.as_deref(),
                 &query,
             )))
@@ -395,7 +401,7 @@ pub fn query(
             exam_key,
             course_id,
         } => Ok(WorkspaceQueryResult::ExamAssociation(exam_association(
-            workspace, &exam_key, &course_id,
+            workspace, school, &exam_key, &course_id,
         )?)),
         WorkspaceQuery::TeachingPeriods => Ok(WorkspaceQueryResult::TeachingPeriods(
             teaching_periods(workspace)?,
@@ -408,7 +414,7 @@ pub fn query(
             )?))
         }
         WorkspaceQuery::WorkspaceOverview { term } => Ok(WorkspaceQueryResult::WorkspaceOverview(
-            workspace_overview(workspace, &term)?,
+            workspace_overview(workspace, school, &term)?,
         )),
         WorkspaceQuery::SubscriptionViews => Ok(WorkspaceQueryResult::SubscriptionViews(
             crate::reference_refresh::subscription_views(workspace),
@@ -447,6 +453,7 @@ pub fn query(
         }
         WorkspaceQuery::Today { now } => Ok(WorkspaceQueryResult::Today(today_view(
             workspace,
+            school,
             parse_timestamp(&now)?,
         )?)),
         WorkspaceQuery::AssignmentBoard { now, term } => {
@@ -458,11 +465,12 @@ pub fn query(
             )?))
         }
         WorkspaceQuery::CourseDetail { course_id } => Ok(WorkspaceQueryResult::CourseDetail(
-            course_detail(workspace, &course_id),
+            course_detail(workspace, school, &course_id),
         )),
         WorkspaceQuery::CourseContent { course_id, now } => {
             Ok(WorkspaceQueryResult::CourseContent(course_content(
                 workspace,
+                school,
                 &course_id,
                 parse_timestamp(&now)?,
             )))
@@ -480,6 +488,7 @@ pub fn query(
             after_days,
         } => Ok(WorkspaceQueryResult::CourseTimeline(course_timeline(
             workspace,
+            school,
             &course_id,
             parse_timestamp(&now)?,
             before_days,
@@ -497,9 +506,9 @@ pub fn query(
         } => {
             let term = Term::parse(&term)?;
             let term_id = term.to_string();
-            let overview = workspace_overview(workspace, &term_id)?;
+            let overview = workspace_overview(workspace, school, &term_id)?;
             let courses = overview.courses.clone();
-            let mut agendas = calendar_between(workspace, &from, &to)?;
+            let mut agendas = calendar_between(workspace, school, &from, &to)?;
             if !include_personal {
                 for agenda in &mut agendas {
                     agenda.occurrences.retain(|block| {
@@ -514,8 +523,8 @@ pub fn query(
                 range: overview.range,
                 courses,
                 agendas,
-                exams: exam_views(workspace, &term_id),
-                upcoming_exams: exams::upcoming_exams(workspace, &from),
+                exams: exam_views(workspace, school, &term_id),
+                upcoming_exams: exams::upcoming_exams(workspace, school, &from),
                 colors: overview.colors,
                 enrolled_course_ids: overview.enrolled_course_ids,
                 on_timetable_course_ids: overview.on_timetable_course_ids,
@@ -533,6 +542,7 @@ pub fn query(
             parse_civil_date(&date)?;
             Ok(WorkspaceQueryResult::DayAgenda(resolve_day_agenda(
                 workspace,
+                school,
                 &term,
                 &date,
                 AgendaOptions {
@@ -574,7 +584,7 @@ pub fn query(
         } => {
             let now = parse_timestamp(&generated_at)?;
             Ok(WorkspaceQueryResult::QuarterIcs(export_quarter_ics(
-                workspace, &term, scope, now,
+                workspace, school, &term, scope, now,
             )?))
         }
         WorkspaceQuery::DeclaredCredits { term } => Ok(WorkspaceQueryResult::DeclaredCredits(
@@ -610,6 +620,7 @@ pub fn query(
         }
         WorkspaceQuery::Glance { now } => Ok(WorkspaceQueryResult::Glance(glance(
             workspace,
+            school,
             parse_timestamp(&now)?,
         )?)),
         WorkspaceQuery::NotificationPlan {
@@ -618,6 +629,7 @@ pub fn query(
             locale,
         } => Ok(WorkspaceQueryResult::NotificationPlan(notification_plan(
             workspace,
+            school,
             parse_timestamp(&now)?,
             parse_timestamp(&horizon)?,
             locale,
@@ -631,7 +643,11 @@ pub fn query(
     }
 }
 
-fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview, ScheduleError> {
+fn workspace_overview(
+    workspace: &Value,
+    school: &SchoolReads,
+    term: &str,
+) -> Result<WorkspaceOverview, ScheduleError> {
     let current_term = text(workspace, "currentTerm")
         .or_else(|| (!term.is_empty()).then_some(term))
         .ok_or_else(|| ScheduleError::InvalidInput("Current term is unavailable.".into()))?
@@ -654,7 +670,7 @@ fn workspace_overview(workspace: &Value, term: &str) -> Result<WorkspaceOverview
     on_timetable_course_ids.dedup();
     let earned = credits::earned_credits_by_term(array(workspace, "grades"));
     let mut all_terms: Vec<String> = placement_terms(workspace).map(str::to_owned).collect();
-    all_terms.extend(exams::exam_terms(workspace));
+    all_terms.extend(exams::exam_terms(school));
     all_terms.extend(earned.keys().cloned());
     all_terms.extend(
         array(workspace, "terms")

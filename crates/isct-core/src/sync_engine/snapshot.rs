@@ -156,11 +156,18 @@ fn source_view(source: &Source, parts: &Parts<'_>) -> SourceView {
         .leased
         .iter()
         .any(|key| source.datasets.contains(&key.dataset));
+    // A key waiting for another of the same source says nothing about the
+    // source; its run shows the wait.
     let mut held = parts
         .plan
         .iter()
         .filter(|candidate| source.datasets.contains(&candidate.key.dataset))
-        .find_map(|candidate| candidate.held.clone());
+        .find_map(|candidate| {
+            candidate
+                .held
+                .clone()
+                .filter(|held| *held != Held::Prerequisite)
+        });
     if let Some(profile) = source.profile {
         if held.is_none()
             && !running

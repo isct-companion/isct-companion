@@ -221,7 +221,7 @@ struct CourseDetailScreen: View {
     /// course; a cancelled one is struck through, a changed one warned.
     @ViewBuilder
     private var examLines: some View {
-        let exams = (detail?.exams ?? []).filter { ["exam", "quiz"].contains($0.kind) && !$0.hidden }
+        let exams = (detail?.exams ?? []).filter { ["exam", "quiz"].contains($0.kind) }
         ForEach(exams, id: \.id) { exam in
             Text(Self.examLine(exam))
                 .font(.subheadline.weight(.medium))

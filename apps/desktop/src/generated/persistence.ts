@@ -221,29 +221,6 @@ export type ScheduleEntry =
 
 export type ClassFormat = { kinds: Array<string> };
 
-export type Offering = {
-  year: number;
-  quarters: Array<Quarter>;
-  code: string;
-  sourceKey?: string;
-  unitCode?: string;
-  title: Localized;
-  instructors: Array<Localized>;
-  instructionLanguage: InstructionLanguage;
-  format: ClassFormat;
-  credits: CreditSplit;
-  schedule: Array<ScheduleEntry>;
-  intensive: boolean;
-  syllabusUrl: string;
-  lastSeenAt?: string;
-  missingSince?: string;
-  id: string;
-  rev: number;
-  updatedAt: string;
-  updatedBy: string;
-  deletedAt?: string;
-};
-
 export type IntensiveDay = { date: string; periods: [number, number] | null };
 
 export type IntensiveSchedule = {
@@ -385,39 +362,6 @@ export type ClassSchedule = {
   quarters: Array<Quarter>;
   sourceIds: Array<string>;
   sessions: Array<ClassSession>;
-  sourceKey?: string;
-  lastSeenAt?: string;
-  missingSince?: string;
-  id: string;
-  rev: number;
-  updatedAt: string;
-  updatedBy: string;
-  deletedAt?: string;
-};
-
-export type Exam = {
-  /**
-   * `class` marks a class row the exam timetable lists in the exam period.
-   */
-  kind?: "exam" | "class";
-  academicYear: number;
-  level: "undergraduate" | "graduate";
-  quarter: Quarter;
-  courseCode: string;
-  date: string;
-  label: Localized;
-  courseId?: string;
-  classLabel?: Localized;
-  syllabusCourseId?: string;
-  periods?: [number, number];
-  startTime?: string;
-  endTime?: string;
-  room: Localized | null;
-  rooms: Array<Localized>;
-  status: "scheduled" | "cancelled";
-  notes?: Localized;
-  sourceIds: Array<string>;
-  sourcePages: Array<number>;
   sourceKey?: string;
   lastSeenAt?: string;
   missingSince?: string;
@@ -675,7 +619,6 @@ export type Workspace = {
   events: Array<PersonalEvent>;
   planItems: Array<PlanItem>;
   exceptions: Array<CalendarException>;
-  offerings: Array<Offering>;
   intensiveSchedules: Array<IntensiveSchedule>;
   plans: Array<Plan>;
   academicCalendar: Array<AcademicCalendarDay>;
@@ -683,7 +626,6 @@ export type Workspace = {
   departments: Array<Department>;
   recommendedCourses: Array<RecommendedCourse>;
   importantDates: Array<ImportantDate>;
-  exams: Array<Exam>;
   classSchedules: Array<ClassSchedule>;
   /**
    * The red/white group chosen for each semester ("2026-3Q4Q") of
@@ -1104,7 +1046,11 @@ export type CourseDetail = {
   assignmentIds: Array<string>;
   examIds: Array<string>;
   exams: Array<ExamView>;
-  offeringId: string | null;
+  /**
+   * The class format of the catalog offering the course names, when the
+   * catalog holds it.
+   */
+  format: ClassFormat | null;
   /**
    * The course's T2SCHOLA page, from the course itself or its LMS record.
    */
@@ -1258,7 +1204,6 @@ export type ExamView = {
    * Date, time, room or title differs from the published record.
    */
   edited: boolean;
-  hidden: boolean;
   /**
    * The user's mark, which outranks the published kind and status.
    */
@@ -1710,7 +1655,6 @@ export type WorkspaceIntent =
       startTime?: string;
       endTime?: string;
       room?: string;
-      hidden: boolean;
     }
   | {
       kind: "markSession";
@@ -1718,6 +1662,7 @@ export type WorkspaceIntent =
       mark: "exam" | "quiz" | "cancelled" | "class";
     }
   | { kind: "linkExam"; examKey: string; courseId?: string }
+  | { kind: "removeExam"; examKey: string }
   | { kind: "deleteScheduleOverride"; overrideId: string }
   | { kind: "saveScheduledTask"; draft: unknown; existingId?: string }
   | { kind: "deleteScheduledTask"; taskId: string }
@@ -2112,7 +2057,6 @@ export const EMPTY_WORKSPACE: Workspace = {
   departments: [],
   deviceId: "preview-device",
   events: [],
-  exams: [],
   exceptions: [],
   gpaSummary: [],
   importStatus: {
@@ -2122,7 +2066,6 @@ export const EMPTY_WORKSPACE: Workspace = {
   intensiveSchedules: [],
   materials: [],
   memberships: [],
-  offerings: [],
   planItems: [],
   plans: [],
   recommendedCourses: [],

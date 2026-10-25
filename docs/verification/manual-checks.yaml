@@ -1271,6 +1271,14 @@ checks:
         reason: |
           This is the reported flow: the tip stayed on every page and Got it
           did nothing until Today came back.
+      - action: |
+          Show tips again, open a course with lessons on Lectures, and while
+          the lesson tip points at the rail switch the sidebar to Exams, then
+          back to Lectures.
+        reason: |
+          Course workspaces are retained inside the Lectures page; their tip
+          used to stay on the Exams list, pinned to the window's top-left
+          corner, because it portaled to the page layer, not the course's.
     observe: |
       The menus, the dialog backdrop over the rail and status bar, and the
       page shown after each shortcut.
@@ -1284,6 +1292,7 @@ checks:
     covers:
       - apps/desktop/src/app/KeptPage.tsx
       - apps/desktop/src/pages/today/CourseFinder.tsx
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/components/guide.tsx
     verified: null
 
@@ -5566,15 +5575,27 @@ checks:
           The switch decides whether quizzes count on Today and in exam
           reminders; a quiz that stays listed with it off means the setting is
           not read.
+      - action: |
+          In Lectures → Exams open the quiz, click Delete, then Undo in the
+          notice. Delete it again and look at the calendar. Then Delete a
+          published exam, search for it and link its course again.
+        reason: |
+          Deleting replaced "Hide from my schedule", which on a marked session
+          hid the class itself with no way back. Delete must drop only the
+          mark (the class stays on the calendar), Undo must bring the quiz
+          back as a quiz, and a deleted published exam must leave My exams
+          and Today yet stay findable by search.
     observe: |
-      The calendar blocks, the Exams list and editor in Lectures, the course
-      panel and Today's upcoming exams.
+      The calendar blocks, the Exams list and editor in Lectures, the notice
+      at the bottom, the course panel and Today's upcoming exams.
     expected: |
       The exam block is clearly darker and ringed with a solid Exam tag, the
       quiz a step lighter, unstriped, with an outlined Quiz tag, both readable
       in dark mode;
       both sessions are listed in Exams (the quiz labelled Quiz), the course
-      panel and Today, and the quiz leaves Today while the switch is off.
+      panel and Today, and the quiz leaves Today while the switch is off;
+      Delete leaves a plain class on the calendar, Undo restores the quiz,
+      and the published exam returns once its course is linked again.
     why_manual: |
       How strongly a block stands out is a glance check in the real window.
       Which sessions become exams, the toggle and the lists are covered by
@@ -5582,6 +5603,59 @@ checks:
     covers:
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/components/timetable/timetable.tsx
+      - apps/desktop/src/components/exams/ExamEditor.tsx
+      - apps/desktop/src/app/notify.ts
       - apps/desktop/src/styles.css
       - design/tokens/course.json
+    verified: null
+
+  - id: SCHOOL-COURSE-AFTER-ENROLMENT
+    area: school
+    title: An open course page fills right after the course list when school caches are cleared
+    persona: undergraduate-senior
+    preconditions: |
+      The desktop app signed in to the LMS, on Wi-Fi, with a current-quarter
+      course that has materials and assignments open in Lectures.
+    steps:
+      - action: |
+          Settings → Reset → Clear school caches and resync, leave the
+          sign-out and download options off, and confirm; go straight back
+          to the open course page.
+        reason: |
+          This is the order that failed on 2026-10-25: the open page asked for
+          its course in the same second as the course list, the course was
+          refused as not enrolled and backed off five minutes, so its page
+          stayed empty while exams (from the reference feed) were already
+          there.
+      - action: |
+          Watch the footer status line and the course page until the course
+          list has landed (Lectures lists your courses again).
+        reason: |
+          The course must wait for the list ("Waiting for the data it depends
+          on", never a failure) and be read the moment the list lands; a
+          "Could not update" line or a retry time means the old ordering or
+          the old error class is back.
+      - action: |
+          Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/sync.db" "SELECT dataset,key,outcome,error_kind,started_at,finished_at FROM sync_runs WHERE dataset IN ('lms.enrolment','lms.course') ORDER BY started_at DESC LIMIT 12"`.
+        reason: |
+          Shows the order on record: the open course's `lms.course` row must
+          start after `lms.enrolment/all` finished, with outcome `complete`
+          and no `parse` or `not-enrolled` row.
+    observe: |
+      The open course page in Lectures, the footer status line and the
+      `sync_runs` rows of sync.db.
+    expected: |
+      Within seconds of the course list returning, the open course shows its
+      materials and assignments; no failure or "retries at" appears for it,
+      and its `lms.course` run starts after the enrolment run and completes
+      on the first try.
+    why_manual: |
+      Needs a real LMS account and the shell's open-page hints racing a real
+      enrolment read. The planner order and the not-enrolled outcome are
+      covered by Core's sync_engine and lms_ingest tests.
+    covers:
+      - crates/isct-core/src/sync_engine/planner.rs
+      - crates/isct-core/src/sync_engine/runner.rs
+      - crates/isct-core/src/school_browser/engine/pull.rs
+      - apps/desktop/src/app/sync-text.ts
     verified: null

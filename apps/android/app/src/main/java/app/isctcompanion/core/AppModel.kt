@@ -491,7 +491,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (value as? WorkspaceQueryResult.QuarterIcs)?.v1 ?: throw SdkException.Unavailable("quarter calendar")
     }
 
-    /** Exams Core lists as upcoming (linked, scheduled, not hidden) from today
+    /** Exams Core lists as upcoming (linked and scheduled) from today
      * through `days` days ahead, for 今日. */
     suspend fun upcomingExams(days: Long = 14): List<ExamView> {
         val term = today?.term ?: return emptyList()

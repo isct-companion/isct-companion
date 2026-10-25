@@ -1,7 +1,7 @@
 //! LMS owns timetable membership and clocks. School caches never
 //! rewrite user plans, colours, notes or edits in their backing tables.
 use super::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 fn text<'a>(row: &'a Value, key: &str) -> &'a str {
     row.get(key).and_then(Value::as_str).unwrap_or_default()
@@ -13,12 +13,38 @@ fn array<'a>(row: &'a Value, key: &str) -> &'a [Value] {
         .unwrap_or(&[])
 }
 
-/// `offerings` is the workspace's catalog, which the caller keeps apart.
+/// The visible catalog offerings `ids` name, by id, as `connection` sees
+/// them. The workspace does not carry the catalog; the projection reads only
+/// the offerings its LMS and timetable courses point at.
+fn offerings_by_id<'a>(
+    connection: &Connection,
+    ids: impl IntoIterator<Item = &'a str>,
+) -> Result<HashMap<String, Value>, DataError> {
+    let mut statement = connection
+        .prepare_cached("SELECT value FROM offerings WHERE id = ?1 AND missing_since IS NULL")?;
+    let mut catalog = HashMap::new();
+    for id in ids {
+        let Some(raw) = statement
+            .query_row([id], |row| row.get::<_, String>(0))
+            .optional()?
+        else {
+            continue;
+        };
+        let mut offering: Value = serde_json::from_str(&raw)
+            .map_err(|_| DataError::storage("offerings contains invalid JSON"))?;
+        normalize_optional_nulls(&mut offering);
+        catalog.insert(id.to_owned(), offering);
+    }
+    Ok(catalog)
+}
+
+/// Projects the school records into `workspace` and returns what its
+/// courses show of the catalog offerings they name, which the workspace does
+/// not carry.
 pub(super) fn project(
     connection: &Connection,
     workspace: &mut Value,
-    offerings: &[Value],
-) -> Result<(), DataError> {
+) -> Result<BTreeMap<String, crate::schedule::CatalogEntry>, DataError> {
     if let Some(identity) = read_setting(connection, "kyomuAcademicIdentity")? {
         if text(&workspace["settings"], "departmentId").is_empty() {
             let departments: Vec<Value> =
@@ -120,11 +146,17 @@ pub(super) fn project(
         }
     }
     let registrations = read_visible_rows(connection, "registrations")?;
-    // The first offering of each id, as a scan would find it.
-    let mut catalog = HashMap::new();
-    for offering in offerings {
-        catalog.entry(text(offering, "id")).or_insert(offering);
-    }
+    let mut ids: BTreeSet<&str> = lms_courses
+        .iter()
+        .map(|lms| text(lms, "offeringId"))
+        .collect();
+    ids.extend(
+        array(workspace, "courses")
+            .iter()
+            .map(|course| text(course, "offeringId")),
+    );
+    ids.remove("");
+    let catalog = offerings_by_id(connection, ids)?;
     project_lms_timetable(
         workspace,
         &catalog,
@@ -224,13 +256,26 @@ pub(super) fn project(
             course["names"]["instructor"] = json!({});
         }
     }
-    Ok(())
+    let mut named = BTreeMap::new();
+    for course in array(workspace, "courses") {
+        let id = text(course, "offeringId");
+        if let Some(offering) = catalog.get(id).filter(|_| !named.contains_key(id)) {
+            named.insert(
+                id.to_owned(),
+                crate::schedule::CatalogEntry {
+                    code: text(offering, "code").to_owned(),
+                    format: serde_json::from_value(offering["format"].clone())?,
+                },
+            );
+        }
+    }
+    Ok(named)
 }
 
 /// Project cached LMS quarter grids without rewriting user records.
 fn project_lms_timetable(
     workspace: &mut Value,
-    offerings: &HashMap<&str, &Value>,
+    offerings: &HashMap<String, Value>,
     lms_courses: &[Value],
     registrations: &[Value],
     user_courses: &HashSet<String>,
@@ -251,7 +296,7 @@ fn project_lms_timetable(
         let catalog = offerings
             .get(offering_id)
             .filter(|_| !offering_id.is_empty())
-            .map(|offering| Value::clone(offering));
+            .cloned();
         let mut terms = lms_terms(lms);
         terms.retain(|term| term.starts_with(&format!("{year}-")));
         terms.sort();

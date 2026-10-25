@@ -430,6 +430,11 @@ async fn lms_commit(lease: &Lease, read: LmsRead) -> KeyEnd {
             let kind = match error {
                 IngestError::InvalidPayload(_) => "parse",
                 IngestError::Storage(_) => "storage",
+                IngestError::NotEnrolled(_) => {
+                    return KeyEnd::NotEnrolled {
+                        source: source.into(),
+                    }
+                }
             };
             KeyEnd::failed(kind, source)
         }

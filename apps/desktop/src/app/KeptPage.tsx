@@ -11,7 +11,8 @@ export const usePageLayer = () => use(PageLayer) ?? document.body;
  * with its effects disconnected: it could not close or move until the page
  * came back. Each page therefore owns an overlay layer inside its Activity,
  * and every portal on the page targets it, so overlays hide and
- * return with their page.
+ * return with their page. A pane that retains its own hidden views (the
+ * course slots on Lectures) nests one per view for the same reason.
  */
 export function KeptPage({
   visible,

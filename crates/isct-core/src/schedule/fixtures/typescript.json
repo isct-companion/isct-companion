@@ -79,7 +79,6 @@
     ],
     "planItems": [],
     "exceptions": [],
-    "offerings": [],
     "intensiveSchedules": [],
     "plans": [
       {
@@ -146,7 +145,6 @@
     "departments": [],
     "recommendedCourses": [],
     "importantDates": [],
-    "exams": [],
     "scheduleOverrides": [],
     "subscriptions": [],
     "scheduledTasks": [

@@ -116,11 +116,7 @@ impl WorkspaceChange {
                 &["registrations"],
                 &["registrations", "registrationStates"],
             ),
-            Finder => fields(
-                true,
-                &["offerings", "departments", "recommendedCourses"],
-                &[],
-            ),
+            Finder => fields(true, &["departments", "recommendedCourses"], &[]),
             // No calendar row feeds the course projection; quarter-start
             // days decide the current term.
             Calendar => fields(
@@ -143,7 +139,8 @@ impl WorkspaceChange {
                 &["gpaSummary", "grades"],
                 &["grades", "gpaByTerm", "requirements"],
             ),
-            Exams => fields(false, &["exams"], &[]),
+            // The exam timetable stays in Core; its views query again.
+            Exams => fields(false, &[], &[]),
             Plans => fields(false, &["plans", "planItems"], &[]),
             Events => fields(false, &["events"], &[]),
             Subscriptions => fields(false, &["subscriptions"], &[]),

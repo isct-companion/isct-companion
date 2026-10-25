@@ -875,7 +875,7 @@ extension AppModel {
         await refresh()
     }
 
-    /// Exams Core lists as upcoming (linked, scheduled, not hidden) from today
+    /// Exams Core lists as upcoming (linked and scheduled) from today
     /// through `days` days ahead, for 今日.
     func upcomingExams(days: Int = 14) async -> [ExamView] {
         guard let session, let term = today?.term else { return [] }

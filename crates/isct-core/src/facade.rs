@@ -349,7 +349,7 @@ impl Core {
         let snapshot = self.workspace.snapshot()?;
         let values = queries
             .into_iter()
-            .map(|query| crate::schedule::query(&snapshot.workspace, query))
+            .map(|query| crate::schedule::query(&snapshot.workspace, &snapshot.school, query))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ScheduleQuerySnapshot {
             revision: snapshot.content_revision,

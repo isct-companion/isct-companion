@@ -1,3 +1,4 @@
+use super::SchoolReads;
 use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,6 +19,7 @@ pub enum CalendarExportScope {
 
 pub fn export_quarter_ics(
     workspace: &Value,
+    school: &SchoolReads,
     term: &str,
     scope: CalendarExportScope,
     generated_at: DateTime<FixedOffset>,
@@ -26,17 +28,25 @@ pub fn export_quarter_ics(
     let range = quarter_range(workspace, term)?.ok_or_else(|| {
         ScheduleError::InvalidInput("Configure this quarter's dates before exporting it.".into())
     })?;
-    export_calendar_ics(workspace, &range.from, &range.to, scope, generated_at)
+    export_calendar_ics(
+        workspace,
+        school,
+        &range.from,
+        &range.to,
+        scope,
+        generated_at,
+    )
 }
 
 pub fn export_calendar_ics(
     workspace: &Value,
+    school: &SchoolReads,
     from: &str,
     to: &str,
     scope: CalendarExportScope,
     generated_at: DateTime<FixedOffset>,
 ) -> Result<String, ScheduleError> {
-    let agendas = calendar_between(workspace, from, to)?;
+    let agendas = calendar_between(workspace, school, from, to)?;
     let mut lines = vec![
         "BEGIN:VCALENDAR".into(),
         "VERSION:2.0".into(),

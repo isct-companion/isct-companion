@@ -60,6 +60,11 @@ connections and caches, so the desktop runs them outside the lock that
 serializes its other data commands; a write never queues behind searches.
 
 `WorkspaceSnapshot` fields are `revision`, `contentRevision`, `workspace` and `schoolRecords`.
+The workspace carries neither the course catalog nor the exam timetable: Core
+reads them with the snapshot and keeps them for its read models, so a shell
+gets catalog facts and exams only through queries (`courseDetail`,
+`scheduleView`, `finder_query`). An `exams` change names no snapshot field;
+it only tells the views that read exams to query again.
 `WorkspacePatch` has the same fields, but `workspace` and `schoolRecords` hold
 only the fields the requested changes feed, read from one snapshot.
 `WorkspaceMutation` fields are `expectedRevision` and `intent`. A mutation returns

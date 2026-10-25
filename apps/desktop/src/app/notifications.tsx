@@ -11,6 +11,8 @@ type Notice = {
   withCloseButton?: boolean;
   color?: string;
   classNames?: { root?: string; description?: string };
+  /** One button beside the message; clicking it also closes the notice. */
+  action?: { label: string; run: () => void };
   revision: number;
 };
 const useNotices = create<{ items: Notice[] }>(() => ({ items: [] }));
@@ -55,6 +57,15 @@ export function Notifications() {
               {notice.message}
             </div>
           </Toast.Description>
+          {notice.action && (
+            <Toast.Action
+              className="uiToastAction"
+              altText={notice.action.label}
+              onClick={notice.action.run}
+            >
+              {notice.action.label}
+            </Toast.Action>
+          )}
           {notice.withCloseButton && (
             <Toast.Close className="uiToastClose" aria-label={t("Close")}>
               ×

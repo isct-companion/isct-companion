@@ -1,15 +1,18 @@
-import { createElement, Fragment } from "react";
 import { notifications } from "./notifications";
-import { UiButton } from "../components/ui";
 import { t } from "../i18n";
 import { errorText } from "./shared";
 
-const show = (message: React.ReactNode) => {
+const show = (
+  message: string,
+  action?: { label: string; run: () => void },
+  autoClose = 2800,
+) => {
   notifications.hide("workspace-notice");
   notifications.show({
     id: "workspace-notice",
     message,
-    autoClose: 2800,
+    action,
+    autoClose,
     withCloseButton: false,
     classNames: { root: "workspaceNotice", description: "workspaceNoticeText" },
   });
@@ -36,17 +39,11 @@ export const notify = {
     }, 600);
   },
   info: (message: string) => show(t(message)),
+  /** A finished change with a button that reverses it. */
+  undoable: (message: string, undo: () => void) =>
+    show(t(message), { label: t("Undo"), run: undo }, 6000),
   error: (error: unknown, retry?: () => void) => {
     const message = t(errorText(error) ?? "unknown error");
-    show(
-      retry
-        ? createElement(
-            Fragment,
-            null,
-            message,
-            createElement(UiButton, { onClick: retry }, t("Retry saving")),
-          )
-        : message,
-    );
+    show(message, retry && { label: t("Retry saving"), run: retry });
   },
 };

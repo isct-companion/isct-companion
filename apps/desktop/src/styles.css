@@ -310,6 +310,12 @@ summary,
   color: var(--bg);
   font-size: calc(12.5px * var(--text));
 }
+/* The notice inverts the theme, so its action takes the inverted ink too. */
+.workspaceNotice .uiToastAction {
+  background: color-mix(in srgb, var(--bg) 16%, transparent);
+  color: var(--bg);
+  font-size: calc(12.5px * var(--text));
+}
 
 /* ---------- school status ---------- */
 .schoolStatusBar {

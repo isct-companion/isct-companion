@@ -1,3 +1,4 @@
+use super::SchoolReads;
 use std::collections::HashSet;
 
 use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, NaiveTime};
@@ -333,6 +334,7 @@ pub fn plan_start(plan: &Value) -> Result<PlanCivilStart, ScheduleError> {
 /// 3Q–4Q course keeps its class times when the quarter changes.
 pub fn course_timeline(
     workspace: &Value,
+    school: &SchoolReads,
     course_id: &str,
     now: DateTime<FixedOffset>,
     before_days: u16,
@@ -358,6 +360,7 @@ pub fn course_timeline(
         for term in &terms {
             for row in resolve_day_agenda(
                 workspace,
+                school,
                 term,
                 &date,
                 AgendaOptions {
@@ -957,6 +960,7 @@ pub(crate) fn overlap(a: &Occurrence, b: &Occurrence) -> Result<bool, ScheduleEr
 
 pub fn resolve_day_agenda(
     workspace: &Value,
+    school: &SchoolReads,
     term: &str,
     date: &str,
     options: AgendaOptions,
@@ -966,7 +970,7 @@ pub fn resolve_day_agenda(
         term,
         date,
         options,
-        &super::exams::published_exam_views(workspace, term),
+        &super::exams::published_exam_views(workspace, school, term),
     )
 }
 
@@ -1040,7 +1044,7 @@ pub(crate) fn resolve_day_agenda_with(
     // exam of its course that day, so the day never shows the exam twice.
     let published: HashSet<(&str, &str)> = term_exams
         .iter()
-        .filter(|exam| exam.origin == "published" && exam.kind == "exam" && !exam.hidden)
+        .filter(|exam| exam.origin == "published" && exam.kind == "exam")
         .filter_map(|exam| Some((exam.course_id.as_deref()?, exam.date.as_str())))
         .collect();
     blocks.retain(|block| {
@@ -1054,7 +1058,6 @@ pub(crate) fn resolve_day_agenda_with(
     for exam in term_exams.iter().filter(|exam| {
         // Marked sessions are drawn above from the class itself.
         exam.origin == "published"
-            && !exam.hidden
             && exam.date == date
             && (exam.status == "scheduled"
                     // A session the user cancelled stays visible to undo.

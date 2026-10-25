@@ -438,7 +438,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     let first = "reference:exams:2026:undergraduate:2q:first";
     let second = "reference:exams:2026:undergraduate:2q:second";
     let view = |snapshot: &WorkspaceSnapshot, key: &str| {
-        crate::schedule::exam_views(&snapshot.workspace, "2026-2Q")
+        crate::schedule::exam_views(&snapshot.workspace, &snapshot.school, "2026-2Q")
             .into_iter()
             .find(|exam| exam.key == key)
             .unwrap()
@@ -455,7 +455,9 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     let before = service.snapshot().unwrap();
     assert!(view(&before, first).auto_linked);
     // Linking reports the course's other exam but no longer blocks.
-    let preview = crate::schedule::exam_association(&before.workspace, second, &course_id).unwrap();
+    let preview =
+        crate::schedule::exam_association(&before.workspace, &before.school, second, &course_id)
+            .unwrap();
     assert_eq!(preview.conflicts.len(), 1);
     let linked = mutate(
         &service,
@@ -473,7 +475,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     assert_eq!(exam.course_id.as_deref(), Some(course_id.as_str()));
     assert!(!exam.auto_linked && !exam.edited);
     assert_eq!(
-        crate::schedule::course_detail(&linked.workspace, &course_id)
+        crate::schedule::course_detail(&linked.workspace, &linked.school, &course_id)
             .exam_ids
             .len(),
         2
@@ -500,7 +502,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             start_time: exam.start_time.clone(),
             end_time: exam.end_time.clone(),
             room: Some("Personal room".into()),
-            hidden: false,
         },
     );
     let row = &stored(&edited)[0];
@@ -541,7 +542,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
                     start_time: start.map(Into::into),
                     end_time: end.map(Into::into),
                     room: None,
-                    hidden: false,
                 },
             })
             .is_err());
@@ -557,7 +557,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             start_time: None,
             end_time: None,
             room: None,
-            hidden: false,
         },
     );
     let exam = view(&reset, second);
@@ -571,11 +570,11 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         },
     );
     assert_eq!(stored(&rematched).len(), 1);
+    // Deleting a published exam from the schedule unlinks it from the course.
     let unlinked = mutate(
         &service,
-        WorkspaceIntent::LinkExam {
+        WorkspaceIntent::RemoveExam {
             exam_key: first.into(),
-            course_id: None,
         },
     );
     assert_eq!(view(&unlinked, first).course_id, None);
@@ -622,7 +621,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             start_time: None,
             end_time: None,
             room: Some("Mark room".into()),
-            hidden: false,
         },
     );
     assert_eq!(view(&edited, second).mark.as_deref(), Some("cancelled"));
@@ -634,7 +632,6 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             start_time: None,
             end_time: None,
             room: None,
-            hidden: false,
         },
     );
     let restored = mutate(
@@ -1337,6 +1334,11 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
         course["termId"], "2026-4Q",
         "an existing course keeps its quarter"
     );
+    // The snapshot reads the offering an added course names from the catalog.
+    let snapshot = service.snapshot().unwrap();
+    let detail =
+        crate::schedule::course_detail(&snapshot.workspace, &snapshot.school, "2026-202630020");
+    assert_eq!(detail.format.unwrap().kinds, ["lecture"]);
 
     // Undo removes the 3Q plan item the add placed, keeps the earlier 4Q
     // one, and brings back the replaced draft itself.

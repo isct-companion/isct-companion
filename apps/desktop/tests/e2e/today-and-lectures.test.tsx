@@ -690,7 +690,6 @@ describe("the lecture desk", () => {
         room: "Published room",
       },
       edited: false,
-      hidden: false,
     };
     const historical = courseRow("history", "Historical course", {
       termId: "2026-2Q",
@@ -856,7 +855,6 @@ describe("the lecture desk", () => {
           examKey: "reference:exam:2q",
           date: "2026-08-04",
           room: "Personal room",
-          hidden: false,
         }),
       ),
     );
@@ -899,8 +897,31 @@ describe("the lecture desk", () => {
       expect(app!.core.intents).toContainEqual({
         kind: "editExam",
         examKey: "reference:existing",
-        hidden: false,
       }),
+    );
+    // Delete unlinks the exam; the notice's Undo links its course again.
+    const linked = app.core.intents.length;
+    await click(
+      [...edited.querySelectorAll<HTMLButtonElement>("button")].find(
+        (row) => row.textContent === "Delete",
+      )!,
+    );
+    const undo = await required(
+      () =>
+        [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+          (row) => row.textContent === "Undo",
+        ),
+      "the notice's Undo",
+    );
+    await click(undo);
+    await until(() =>
+      expect(app!.core.intents.slice(linked)).toEqual([
+        { kind: "removeExam", examKey: "reference:existing" },
+        expect.objectContaining({
+          kind: "linkExam",
+          examKey: "reference:existing",
+        }),
+      ]),
     );
   }, 30_000);
 

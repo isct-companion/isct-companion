@@ -20,9 +20,6 @@
 .lectureRow.examWeekClass b {
   font-weight: 500;
 }
-.examCard.hidden {
-  opacity: 0.6;
-}
 .examConflictTag,
 .lectureRow .examConflictTag {
   color: var(--warn);

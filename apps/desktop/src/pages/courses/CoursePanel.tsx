@@ -145,12 +145,7 @@ export function CoursePanel({
       today: tokyoDate(new Date(now)),
     }).value ?? []
   ).filter((choice) => choice.courses.some((item) => item.id === course.id));
-  const offering = data.offerings.find(
-    (item) => item.id === detail?.offeringId,
-  );
-  const exams = (detail?.exams ?? []).filter(
-    (exam) => exam.kind !== "class" && !exam.hidden,
-  );
+  const exams = (detail?.exams ?? []).filter((exam) => exam.kind !== "class");
   const registered = data.memberships.some(
     (item) =>
       item.courseId === course.id &&
@@ -259,10 +254,10 @@ export function CoursePanel({
           {course.creditSplit.lecture}-{course.creditSplit.exercise}-
           {course.creditSplit.lab} ({course.credits})
         </dd>
-        {offering && (
+        {detail?.format && (
           <>
             <dt>{t("Format")}</dt>
-            <dd>{offering.format.kinds.join(" / ") || "—"}</dd>
+            <dd>{detail.format.kinds.join(" / ") || "—"}</dd>
           </>
         )}
         {exams.length > 0 && (

@@ -1,4 +1,5 @@
 use super::*;
+use crate::schedule::SchoolReads;
 use crate::schedule::{
     course_timeline, occurrences_on_date, planning_week, resolve_day_agenda, AgendaOptions,
     Occurrence,
@@ -97,13 +98,22 @@ fn exercise_and_lab_share_their_slot_without_a_schedule() {
             Some(&["Seminar".to_owned()][..])
         );
     };
-    check(&resolve_day_agenda(&data, "2026-3Q", "2026-10-30", AgendaOptions::default()).unwrap());
+    check(
+        &resolve_day_agenda(
+            &data,
+            &SchoolReads::fixture(&data),
+            "2026-3Q",
+            "2026-10-30",
+            AgendaOptions::default(),
+        )
+        .unwrap(),
+    );
     let week = planning_week(&data, "2026-3Q").unwrap();
     check(&week.days[4].blocks);
     assert_eq!(week.conflict_count, 1);
     // The lab's own timeline still finds the shared block.
     let now = chrono::DateTime::parse_from_rfc3339("2026-10-30T12:00:00+09:00").unwrap();
-    let timeline = course_timeline(&data, "lab", now, 0, 0).unwrap();
+    let timeline = course_timeline(&data, &SchoolReads::fixture(&data), "lab", now, 0, 0).unwrap();
     assert_eq!(timeline.next.as_deref(), Some("2026-10-30T15:25:00+09:00"));
 }
 

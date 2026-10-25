@@ -44,7 +44,11 @@ How the desktop renders it (`platform/sync.ts`, `app/SchoolStatusLine.tsx`,
   known; a run of unknown size shows its label; background-only work is a
   small spinner and "Updating in the background". Held work names its reason
   (offline, waiting for Wi-Fi, power saver, in front only, retry time, host
-  paused, sign-in, resetting).
+  paused, sign-in, resetting, waiting for the data it depends on). The last is
+  read order, not a failure: `planner::prerequisite` is the one table of it
+  (a course after the enrolment list, its assignments after the course, an
+  English catalog page after the Japanese one), and a waiting key pulls its
+  prerequisite forward to its own priority.
 - **Idle** shows each source's age from `SourceView.lastUpdated`.
 - **Failures** are listed per dataset with their reason and "retries at …",
   each with a Retry that sends `refresh` for that run's scope (`retryScope`).

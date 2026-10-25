@@ -143,7 +143,6 @@ describe("workspace seeding", () => {
     "events",
     "planItems",
     "exceptions",
-    "offerings",
     "intensiveSchedules",
     "plans",
     "academicCalendar",
@@ -151,7 +150,6 @@ describe("workspace seeding", () => {
     "departments",
     "recommendedCourses",
     "importantDates",
-    "exams",
     "scheduleOverrides",
     "subscriptions",
   ] as const;

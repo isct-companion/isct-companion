@@ -235,7 +235,8 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
     assert_eq!(state.fetched_at, Some(fetched_at));
     assert_eq!(state.failures, 1);
 
-    // A course the enrolment does not list is not written either.
+    // A course the enrolment does not list is not written either; it waits
+    // for the list rather than failing as a bad payload.
     let other = LmsCourseContent {
         course_id: 43,
         ..content.clone()
@@ -247,7 +248,7 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
             ACCOUNT,
             Utc::now()
         )),
-        Err(IngestError::InvalidPayload(_))
+        Err(IngestError::NotEnrolled(43))
     ));
 }
 

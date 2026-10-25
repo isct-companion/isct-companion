@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 109 checks must be re-run before the next release.**
+**10 of 110 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**99 checks have never been run or could not be run:**
+**100 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -131,6 +131,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-WINDOW-MATERIAL` — never verified
 - `DESKTOP-NATIVE-CHROME` — never verified
 - `DESKTOP-EXAM-MARKS` — never verified
+- `SCHOOL-COURSE-AFTER-ENROLMENT` — never verified
 
 ## Status
 
@@ -155,7 +156,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/isct-ocr/src/engine/grid/**<br>crates/isct-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
-| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/components/guide.tsx |
+| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/isct-core/src/agent/** |
@@ -244,7 +245,8 @@ an unverified area becomes an assumed-good one.
 | `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
-| `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
+| `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/exams/ExamEditor.tsx<br>apps/desktop/src/app/notify.ts<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
+| `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/sync_engine/planner.rs<br>crates/isct-core/src/sync_engine/runner.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>apps/desktop/src/app/sync-text.ts |
 
 ## Personas
 
@@ -1539,6 +1541,12 @@ A desktop build with classes on Today and an upcoming exam.
    Today switch pages from the rail before pressing Got it.
    - *Why:* This is the reported flow: the tip stayed on every page and Got it
      did nothing until Today came back.
+5. Show tips again, open a course with lessons on Lectures, and while
+   the lesson tip points at the rail switch the sidebar to Exams, then
+   back to Lectures.
+   - *Why:* Course workspaces are retained inside the Lectures page; their tip
+     used to stay on the Exams list, pinned to the window's top-left
+     corner, because it portaled to the page layer, not the course's.
 
 **Where to look**
 
@@ -1560,6 +1568,7 @@ hide-and-return behaviour itself is in tests/e2e/app-shell.test.tsx.
 
 - `apps/desktop/src/app/KeptPage.tsx`
 - `apps/desktop/src/pages/today/CourseFinder.tsx`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/components/guide.tsx`
 
 **Last recorded** never run
@@ -6491,11 +6500,19 @@ then dark appearance.
    - *Why:* The switch decides whether quizzes count on Today and in exam
      reminders; a quiz that stays listed with it off means the setting is
      not read.
+5. In Lectures → Exams open the quiz, click Delete, then Undo in the
+   notice. Delete it again and look at the calendar. Then Delete a
+   published exam, search for it and link its course again.
+   - *Why:* Deleting replaced "Hide from my schedule", which on a marked session
+     hid the class itself with no way back. Delete must drop only the
+     mark (the class stays on the calendar), Undo must bring the quiz
+     back as a quiz, and a deleted published exam must leave My exams
+     and Today yet stay findable by search.
 
 **Where to look**
 
-The calendar blocks, the Exams list and editor in Lectures, the course
-panel and Today's upcoming exams.
+The calendar blocks, the Exams list and editor in Lectures, the notice
+at the bottom, the course panel and Today's upcoming exams.
 
 **Expected**
 
@@ -6503,7 +6520,9 @@ The exam block is clearly darker and ringed with a solid Exam tag, the
 quiz a step lighter, unstriped, with an outlined Quiz tag, both readable
 in dark mode;
 both sessions are listed in Exams (the quiz labelled Quiz), the course
-panel and Today, and the quiz leaves Today while the switch is off.
+panel and Today, and the quiz leaves Today while the switch is off;
+Delete leaves a plain class on the calendar, Undo restores the quiz,
+and the published exam returns once its course is linked again.
 
 **Why this is manual**
 
@@ -6515,7 +6534,68 @@ Core's schedule tests and the lecture-desk e2e suite.
 
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/components/timetable/timetable.tsx`
+- `apps/desktop/src/components/exams/ExamEditor.tsx`
+- `apps/desktop/src/app/notify.ts`
 - `apps/desktop/src/styles.css`
 - `design/tokens/course.json`
+
+**Last recorded** never run
+
+### An open course page fills right after the course list when school caches are cleared (`SCHOOL-COURSE-AFTER-ENROLMENT`)
+
+**Area** school · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app signed in to the LMS, on Wi-Fi, with a current-quarter
+course that has materials and assignments open in Lectures.
+
+**Steps**
+
+1. Settings → Reset → Clear school caches and resync, leave the
+   sign-out and download options off, and confirm; go straight back
+   to the open course page.
+   - *Why:* This is the order that failed on 2026-10-25: the open page asked for
+     its course in the same second as the course list, the course was
+     refused as not enrolled and backed off five minutes, so its page
+     stayed empty while exams (from the reference feed) were already
+     there.
+2. Watch the footer status line and the course page until the course
+   list has landed (Lectures lists your courses again).
+   - *Why:* The course must wait for the list ("Waiting for the data it depends
+     on", never a failure) and be read the moment the list lands; a
+     "Could not update" line or a retry time means the old ordering or
+     the old error class is back.
+3. Run `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion/sync.db" "SELECT dataset,key,outcome,error_kind,started_at,finished_at FROM sync_runs WHERE dataset IN ('lms.enrolment','lms.course') ORDER BY started_at DESC LIMIT 12"`.
+   - *Why:* Shows the order on record: the open course's `lms.course` row must
+     start after `lms.enrolment/all` finished, with outcome `complete`
+     and no `parse` or `not-enrolled` row.
+
+**Where to look**
+
+The open course page in Lectures, the footer status line and the
+`sync_runs` rows of sync.db.
+
+**Expected**
+
+Within seconds of the course list returning, the open course shows its
+materials and assignments; no failure or "retries at" appears for it,
+and its `lms.course` run starts after the enrolment run and completes
+on the first try.
+
+**Why this is manual**
+
+Needs a real LMS account and the shell's open-page hints racing a real
+enrolment read. The planner order and the not-enrolled outcome are
+covered by Core's sync_engine and lms_ingest tests.
+
+**Covers**
+
+- `crates/isct-core/src/sync_engine/planner.rs`
+- `crates/isct-core/src/sync_engine/runner.rs`
+- `crates/isct-core/src/school_browser/engine/pull.rs`
+- `apps/desktop/src/app/sync-text.ts`
 
 **Last recorded** never run

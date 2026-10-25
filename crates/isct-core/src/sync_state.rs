@@ -405,6 +405,9 @@ pub enum RunOutcome {
     Failed,
     Cancelled,
     SignInRequired,
+    /// Nothing landed because the data it lands on is not stored yet; the
+    /// key waits for it, without a failure.
+    Waiting,
 }
 
 impl RunOutcome {
@@ -416,6 +419,7 @@ impl RunOutcome {
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
             Self::SignInRequired => "sign-in-required",
+            Self::Waiting => "waiting",
         }
     }
 }

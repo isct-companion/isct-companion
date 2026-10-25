@@ -40,10 +40,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut session_key = None;
     for _ in 0..3 {
         let start = Instant::now();
-        let workspace = service.snapshot()?.workspace;
+        let snapshot = service.snapshot()?;
         let read_ms = start.elapsed().as_millis();
         let start = Instant::now();
-        let view = isct_core::schedule::query(&workspace, schedule_view())?;
+        let view =
+            isct_core::schedule::query(&snapshot.workspace, &snapshot.school, schedule_view())?;
         let query_ms = start.elapsed().as_millis();
         let start = Instant::now();
         let encoded = serde_json::to_vec(&view)?;
@@ -118,8 +119,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let payload = serde_json::to_vec(&commit)?;
         let payload_ms = start.elapsed().as_millis();
         let start = Instant::now();
-        let workspace = service.snapshot()?.workspace;
-        let view = isct_core::schedule::query(&workspace, schedule_view())?;
+        let snapshot = service.snapshot()?;
+        let view =
+            isct_core::schedule::query(&snapshot.workspace, &snapshot.school, schedule_view())?;
         let _ = serde_json::to_vec(&view)?;
         println!(
             "mark {mark}: snapshot_ms={read_ms} mutation_ms={mutation_ms} refresh_ms={} payload_bytes={} payload_encode_ms={payload_ms} changes={:?}",

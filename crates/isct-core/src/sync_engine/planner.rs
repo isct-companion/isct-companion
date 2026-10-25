@@ -275,6 +275,40 @@ pub(crate) fn japanese_key(key: &Key) -> Option<Key> {
         .map(|japanese| Key::new(Dataset::CatalogOfficial, japanese))
 }
 
+/// The one table of read order: the key whose stored rows a read of `key`
+/// lands on. Until that key is read for the same account, `key` waits
+/// ([`Held::Prerequisite`]) and the plan wants the prerequisite at `key`'s
+/// priority.
+pub(crate) fn prerequisite(key: &Key) -> Option<Key> {
+    match key.dataset {
+        // A course's outline lands on the course row the enrolment list
+        // writes.
+        Dataset::LmsCourse => Some(Key::new(Dataset::LmsEnrolment, "all")),
+        // A course's assignment states land on the rows its outline creates.
+        Dataset::LmsAssign => Some(Key::new(Dataset::LmsCourse, key.key.clone())),
+        // English names merge into rows the Japanese page stored.
+        Dataset::CatalogOfficial => japanese_key(key),
+        Dataset::LmsEnrolment
+        | Dataset::LmsDeadlines
+        | Dataset::LmsHistory
+        | Dataset::KyomuPage
+        | Dataset::Reference => None,
+    }
+}
+
+/// Whether `key` was read for the account that reads its dataset now.
+fn read_for_account(key: &Key, inputs: &Inputs) -> bool {
+    let account = inputs.account(key.dataset);
+    inputs.states.get(key).is_some_and(|state| {
+        state.fetched_at.is_some() && account.as_deref() == Some(state.account.as_str())
+    })
+}
+
+/// `key`'s prerequisite, while it is not read.
+fn missing_prerequisite(key: &Key, inputs: &Inputs) -> Option<Key> {
+    prerequisite(key).filter(|prerequisite| !read_for_account(prerequisite, inputs))
+}
+
 /// A year's whole catalog: its official departments.
 fn catalog_keys(year: u16, english: bool) -> Vec<(Key, Option<String>)> {
     official_keys(year, english)
@@ -455,9 +489,18 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
     match key.dataset {
         Dataset::LmsCourse | Dataset::LmsAssign => {
             let id: u64 = key.key.parse().ok().filter(|id| *id > 0)?;
-            if let Some(course) = inputs.course(id) {
-                watch.term = lms_course_term(course, current_lms_term(None, now));
-                watch.title = Some(course.title.clone());
+            match inputs.course(id) {
+                Some(course) => {
+                    watch.term = lms_course_term(course, current_lms_term(None, now));
+                    watch.title = Some(course.title.clone());
+                }
+                // The stored enrolment list lacks it: not (or no longer) the
+                // person's course, so the ingest would refuse its rows. It is
+                // wanted again once a list that holds it lands.
+                None if read_for_account(&Key::new(Dataset::LmsEnrolment, "all"), inputs) => {
+                    return None;
+                }
+                None => {}
             }
         }
         Dataset::LmsHistory => {
@@ -604,12 +647,13 @@ fn needs_foreground(dataset: Dataset, priority: Priority) -> bool {
 
 /// Why a due key may not be leased now, most fundamental reason first.
 pub(crate) fn hold(
-    dataset: Dataset,
+    key: &Key,
     priority: Priority,
     inputs: &Inputs,
     facts: &Facts,
     now: DateTime<Utc>,
 ) -> Option<Held> {
+    let dataset = key.dataset;
     if facts.resetting {
         return Some(Held::Resetting);
     }
@@ -641,7 +685,8 @@ pub(crate) fn hold(
             return Some(Held::PowerSaver);
         }
     }
-    None
+    // Last: every reason above holds the prerequisite as well.
+    missing_prerequisite(key, inputs).map(|_| Held::Prerequisite)
 }
 
 /// Every due key that is not leased, in lease order: Interactive first,
@@ -680,30 +725,25 @@ pub(crate) fn plan(
             now,
         );
     }
+    // A key waiting for its prerequisite pulls that forward to its own
+    // priority: an open course page reads the enrolment list first, on any
+    // network the page itself may use.
+    let mut waiting: Vec<(Key, Priority)> = watched
+        .iter()
+        .filter_map(|(key, watch)| Some((missing_prerequisite(key, inputs)?, watch.priority)))
+        .collect();
+    while let Some((key, priority)) = waiting.pop() {
+        if let Some(prerequisite) = missing_prerequisite(&key, inputs) {
+            waiting.push((prerequisite, priority));
+        }
+        want(&mut watched, key, priority, Rule::Ttl, None, inputs, now);
+    }
     let mut candidates: Vec<Candidate> = watched
         .into_iter()
         .filter(|(key, _)| !leased.contains(key))
-        // A course's assignment states land on the rows its outline creates;
-        // read them once that outline is stored, not before.
-        .filter(|(key, _)| {
-            key.dataset != Dataset::LmsAssign
-                || inputs
-                    .states
-                    .get(&Key::new(Dataset::LmsCourse, key.key.clone()))
-                    .is_some_and(|state| state.fetched_at.is_some())
-        })
-        // English names merge into rows the Japanese page stored.
-        .filter(|(key, _)| {
-            japanese_key(key).is_none_or(|japanese| {
-                inputs
-                    .states
-                    .get(&japanese)
-                    .is_some_and(|state| state.fetched_at.is_some())
-            })
-        })
         .filter_map(|(key, watch)| {
             let (rank, backoff) = evaluate(&key, &watch, inputs.states.get(&key), now)?;
-            let held = hold(key.dataset, watch.priority, inputs, facts, now).or(backoff);
+            let held = hold(&key, watch.priority, inputs, facts, now).or(backoff);
             let group = Group {
                 dataset: key.dataset,
                 scope: watch.scope.clone(),

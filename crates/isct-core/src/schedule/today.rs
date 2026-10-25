@@ -5,6 +5,7 @@
 //! countdowns from the timestamps.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use super::SchoolReads;
 use chrono::{DateTime, Duration, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -363,6 +364,7 @@ fn open_deadlines(
 
 pub fn today_view(
     workspace: &Value,
+    school: &SchoolReads,
     now: DateTime<FixedOffset>,
 ) -> Result<TodayView, ScheduleError> {
     let now = now.with_timezone(&jst()?);
@@ -370,7 +372,7 @@ pub fn today_view(
     let term = reminder_term(workspace);
     let periods = teaching_periods(workspace)?;
     let lookahead = (parse_civil_date(&date)? + Duration::days(LOOKAHEAD_DAYS)).to_string();
-    let days = calendar_between(workspace, &date, &lookahead)?;
+    let days = calendar_between(workspace, school, &date, &lookahead)?;
     let (no_classes, calendar_notice, todays) = days
         .first()
         .map(|day| {

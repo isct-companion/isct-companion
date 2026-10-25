@@ -1,6 +1,7 @@
 //! A course's LMS content lesson by lesson, as the desktop Lecture Desk lays
 //! it out (`LmsWorkspace.tsx`, `lessons.ts`): each section's own text, its
 //! files and links, and the pages, labels and announcements shown inline.
+use super::SchoolReads;
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -121,6 +122,7 @@ fn kind_of(module: Option<&str>) -> LessonItemKind {
 
 pub fn course_content(
     workspace: &Value,
+    school: &SchoolReads,
     course_id: &str,
     now: DateTime<FixedOffset>,
 ) -> Option<CourseContent> {
@@ -252,7 +254,7 @@ pub fn course_content(
         .collect();
     // The class times only place a mark; content reads without them, so a
     // timetable Core cannot resolve leaves the page without marks.
-    let timeline = course_timeline(workspace, course_id, now, 14, 14).ok();
+    let timeline = course_timeline(workspace, school, course_id, now, 14, 14).ok();
     let last_started = timeline
         .as_ref()
         .and_then(|timeline| timeline.last_started.as_deref())

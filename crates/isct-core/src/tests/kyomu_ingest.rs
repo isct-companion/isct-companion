@@ -382,7 +382,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
             record_kyomu_unavailable(tx, &unavailable, ACCOUNT)
         })
         .unwrap();
-    let ((_, records, _), _) = store.workspace_snapshot().unwrap();
+    let ((_, records, _, _), _) = store.workspace_snapshot().unwrap();
     let availability = &records["pageAvailability"]["kyomu:registrations"];
     assert_eq!(availability["state"], "unavailable");
     assert_eq!(availability["message"], "Registration is closed");
