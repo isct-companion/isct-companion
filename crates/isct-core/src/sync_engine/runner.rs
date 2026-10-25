@@ -273,6 +273,12 @@ pub(crate) enum KeyEnd {
     Cancelled {
         source: String,
     },
+    /// The enrolment list no longer (or not yet) holds the course: nothing
+    /// landed and nothing backs off. The planner holds the key until a list
+    /// that holds the course lands, then reads it at once.
+    NotEnrolled {
+        source: String,
+    },
     /// The lease's generation is gone; nothing was written.
     Stale,
 }
@@ -358,7 +364,8 @@ impl Lease {
             KeyEnd::Failed { source, .. }
             | KeyEnd::SignInRequired { source, .. }
             | KeyEnd::HostPaused { source, .. }
-            | KeyEnd::Cancelled { source } => source.clone(),
+            | KeyEnd::Cancelled { source }
+            | KeyEnd::NotEnrolled { source } => source.clone(),
             _ => String::new(),
         };
         let source = if source.is_empty() {
@@ -380,6 +387,9 @@ impl Lease {
             }
             KeyEnd::Cancelled { .. } => {
                 Some((RunOutcome::Cancelled, "cancelled".to_string(), false))
+            }
+            KeyEnd::NotEnrolled { .. } => {
+                Some((RunOutcome::Waiting, "not-enrolled".to_string(), false))
             }
         };
         Ending {
@@ -844,7 +854,7 @@ impl SyncEngine {
             && !state.plan.iter().any(|candidate| {
                 candidate.held.is_none()
                     && planner::hold(
-                        candidate.key.dataset,
+                        &candidate.key,
                         candidate.priority,
                         &state.inputs,
                         &state.facts,
@@ -1029,7 +1039,7 @@ impl SyncEngine {
                 && candidate.held.is_none()
                 && !state.leases.contains_key(&candidate.key)
                 && planner::hold(
-                    candidate.key.dataset,
+                    &candidate.key,
                     candidate.priority,
                     &state.inputs,
                     &state.facts,
@@ -1114,7 +1124,7 @@ impl SyncEngine {
                 Box::pin(engine.read_lms_key(&mut reader, &lease));
             let end = bounded(&lease, read).await;
             let keep = match &end {
-                KeyEnd::Done { .. } => true,
+                KeyEnd::Done { .. } | KeyEnd::NotEnrolled { .. } => true,
                 KeyEnd::Failed { kind, .. } => kind != "timeout",
                 _ => false,
             };
@@ -1245,8 +1255,12 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
     match end {
         KeyEnd::Done { .. } => {
             state.facts.paused.remove(&host);
-            // Its assignment states wait for the outline (planner rule).
-            if key.dataset == Dataset::LmsCourse {
+            // Keys held for this one (`planner::prerequisite`) are due now.
+            if state
+                .plan
+                .iter()
+                .any(|candidate| planner::prerequisite(&candidate.key).as_ref() == Some(key))
+            {
                 state.evaluate = true;
             }
             if host == Host::Kyomu {
@@ -1261,6 +1275,8 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
                 .retain(|candidate| planner::profile_of(candidate.key.dataset) != Some(*profile));
             state.evaluate = true;
         }
+        // The stored course list changed under the read: plan from it again.
+        KeyEnd::NotEnrolled { .. } => state.evaluate = true,
         KeyEnd::HostPaused {
             host,
             until,
@@ -1278,7 +1294,7 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
         _ => {}
     }
     // A read that ended for a reason of its own uses up the button press;
-    // a paused host or a cancel leaves the key wanted.
+    // a paused host, a cancel or a missing course leaves the key wanted.
     if matches!(
         end,
         KeyEnd::Done { .. }
@@ -1322,7 +1338,10 @@ fn settle(state: &mut State, lease: &Lease, end: &KeyEnd, after: Option<KeyState
                 batch.failed.insert(key.clone(), ("sign-in".into(), None));
             }
             // Still due: the next plan holds or reads it again.
-            KeyEnd::HostPaused { .. } | KeyEnd::Cancelled { .. } | KeyEnd::Stale => {}
+            KeyEnd::HostPaused { .. }
+            | KeyEnd::Cancelled { .. }
+            | KeyEnd::NotEnrolled { .. }
+            | KeyEnd::Stale => {}
         }
         if batch.idle() {
             batch.finished_at = Some(instant);

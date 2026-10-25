@@ -106,6 +106,7 @@ fun heldText(held: Held): String = when (held) {
     is Held.HostPaused -> t("{{host}} is paused until {{time}}", "host" to held.host, "time" to Format.due(held.until))
     is Held.SignInRequired -> t("Sign in required")
     is Held.Resetting -> t("Resetting")
+    is Held.Prerequisite -> t("Waiting for the data it depends on")
 }
 
 private fun retryAt(raw: String): String = t("Retry at {{time}}", "time" to Format.due(raw))

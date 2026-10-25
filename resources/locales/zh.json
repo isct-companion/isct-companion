@@ -1492,6 +1492,7 @@
   "Paused: power saver": "已暂停：省电模式",
   "Resetting": "正在重置",
   "Sign in required": "需要登录",
+  "Waiting for the data it depends on": "正在等待所依赖的数据",
   "Retry at {{time}}": "{{time}} 重试",
   "{{host}} is paused until {{time}}": "{{host}} 暂停至 {{time}}",
   "settings.reset.group": "重置",

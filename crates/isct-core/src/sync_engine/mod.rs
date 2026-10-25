@@ -143,6 +143,10 @@ pub enum Held {
         profile: SchoolAuthProfile,
     },
     Resetting,
+    /// Reads once the data it lands on is stored (`planner::prerequisite`):
+    /// a course after the enrolment list, its assignments after the course.
+    /// Not a failure.
+    Prerequisite,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

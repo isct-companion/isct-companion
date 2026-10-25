@@ -85,6 +85,8 @@ export function heldText(held: SyncHeld, locale: string) {
       return t("Sign-in required");
     case "resetting":
       return t("Resetting…");
+    case "prerequisite":
+      return t("Waiting for the data it depends on");
   }
 }
 

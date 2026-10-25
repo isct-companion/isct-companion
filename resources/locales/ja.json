@@ -1492,6 +1492,7 @@
   "Paused: power saver": "一時停止: 省電力",
   "Resetting": "リセット中",
   "Sign in required": "サインインが必要です",
+  "Waiting for the data it depends on": "前提となるデータの取得を待っています",
   "Retry at {{time}}": "{{time}}に再試行",
   "{{host}} is paused until {{time}}": "{{host}}は{{time}}まで一時停止中",
   "settings.reset.group": "リセット",

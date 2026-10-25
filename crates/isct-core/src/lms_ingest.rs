@@ -23,6 +23,10 @@ pub enum IngestError {
     InvalidPayload(String),
     #[error("{0}")]
     Storage(String),
+    /// The stored enrolment list does not hold this course (yet, or any
+    /// more): its content waits for the list instead of failing.
+    #[error("LMS course {0} is not enrolled")]
+    NotEnrolled(u64),
 }
 
 impl From<String> for IngestError {
@@ -430,7 +434,7 @@ pub fn apply_lms_course(
 ) -> Result<usize, IngestError> {
     let course_id = content.course_id;
     let lms_course_id = format!("lms-course:{course_id}");
-    let stored = enrolled_course(tx, course_id)?.ok_or("LMS course is not enrolled")?;
+    let stored = enrolled_course(tx, course_id)?.ok_or(IngestError::NotEnrolled(course_id))?;
     let linked = linked_course(tx, course_id, &stored)?;
     let mut changed = 0;
 

@@ -56,6 +56,7 @@ enum SyncText {
         case let .hostPaused(host, until): return t("{{host}} is paused until {{time}}", ["host": host, "time": Format.due(until)])
         case .signInRequired: return t("Sign in required")
         case .resetting: return t("Resetting")
+        case .prerequisite: return t("Waiting for the data it depends on")
         }
     }
 

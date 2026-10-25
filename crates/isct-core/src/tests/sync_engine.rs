@@ -203,8 +203,14 @@ fn due_keys_are_planned_missing_first_within_each_tier() {
     }
     // A course whose outline was never stored is read first; its assignment
     // states wait, since they land on the rows the outline creates.
-    assert!(find(&plan, &key(Dataset::LmsCourse, "104")).is_some());
-    assert!(find(&plan, &key(Dataset::LmsAssign, "104")).is_none());
+    assert_eq!(
+        find(&plan, &key(Dataset::LmsCourse, "104")).unwrap().held,
+        None
+    );
+    assert_eq!(
+        find(&plan, &key(Dataset::LmsAssign, "104")).unwrap().held,
+        Some(Held::Prerequisite)
+    );
     // Search is local only, so the catalog covers the course families no
     // department owns (liberal arts, entrepreneurship, cross-departmental).
     let prefixes = planner::department_prefixes();
@@ -330,7 +336,10 @@ fn finder_catalog_keys_read_new_departments_first_and_english_after_japanese() {
     assert!(find(&plan_now(&inputs, &facts()), &english).is_none());
     // English content: only once the Japanese rows it names are stored.
     inputs.english = true;
-    assert!(find(&plan_now(&inputs, &facts()), &english).is_none());
+    assert_eq!(
+        priority(&plan_now(&inputs, &facts()), &english),
+        Some((Priority::Interactive, Some(Held::Prerequisite)))
+    );
     let (state_key, state) = stored(
         Dataset::CatalogOfficial,
         &japanese.key,
@@ -347,6 +356,99 @@ fn finder_catalog_keys_read_new_departments_first_and_english_after_japanese() {
     assert_eq!(priority(&plan, &japanese), Some((Priority::Visible, None)));
     assert_eq!(planner::japanese_key(&english), Some(japanese.clone()));
     assert_eq!(planner::japanese_key(&japanese), None);
+}
+
+/// After a reset the open course page asks for its course before the
+/// enrolment list that course lands on exists (2026-10-25: three courses
+/// failed `parse` and backed off five minutes). The course waits for the
+/// list, pulls it forward, is read the moment it lands, and a course the
+/// list drops while its read is in flight waits again without a failure.
+#[tokio::test]
+async fn a_course_page_opened_before_the_enrolment_list_waits_for_it() {
+    let opens = [View::Course {
+        lms_course_id: 12470,
+    }];
+    let outline = key(Dataset::LmsCourse, "12470");
+    let assign = key(Dataset::LmsAssign, "12470");
+    let enrolment = key(Dataset::LmsEnrolment, "all");
+    // Nothing stored, not even 教務, on cellular: only the page's reads go.
+    let mut empty = inputs(Vec::new());
+    empty.states.clear();
+    empty.courses.clear();
+    let cellular = Facts {
+        network: Network::Cellular,
+        ..facts()
+    };
+    let before = plan(&empty, &cellular, &opens, &[]);
+    let held = |plan: &[Candidate], wanted: &Key| {
+        find(plan, wanted).map(|candidate| (candidate.priority, candidate.held.clone()))
+    };
+    for waiting in [&outline, &assign] {
+        assert_eq!(
+            held(&before, waiting),
+            Some((Priority::Interactive, Some(Held::Prerequisite)))
+        );
+    }
+    assert_eq!(
+        held(&before, &enrolment),
+        Some((Priority::Interactive, None))
+    );
+    let first = before
+        .iter()
+        .find(|candidate| candidate.lane == Lane::Moodle && candidate.held.is_none())
+        .unwrap();
+    assert_eq!(first.key, enrolment);
+
+    // The list landed with the course: it is read now, its assignments
+    // after its outline.
+    let mut listed = empty.clone();
+    listed.states.extend([stored(
+        Dataset::LmsEnrolment,
+        "all",
+        SCIENCE,
+        Some(now()),
+        None,
+    )]);
+    listed.courses.push(course(12470, 2026, 3));
+    let after = plan(&listed, &cellular, &opens, &[]);
+    assert_eq!(held(&after, &outline), Some((Priority::Interactive, None)));
+    assert_eq!(
+        held(&after, &assign),
+        Some((Priority::Interactive, Some(Held::Prerequisite)))
+    );
+    assert!(find(&after, &enrolment).is_none());
+    // A list without the course: nothing can read it, so nothing waits.
+    listed.courses.clear();
+    assert!(find(&plan(&listed, &cellular, &opens, &[]), &outline).is_none());
+
+    // A course the list dropped while its outline was read: no failure,
+    // no backoff, and the source shows none.
+    let (engine, store) = engine("not-enrolled");
+    engine
+        .settle_for_test(
+            Lease::detached(&store, outline.clone(), SCIENCE),
+            KeyEnd::NotEnrolled {
+                source: String::new(),
+            },
+        )
+        .await;
+    let (state, run): (Option<KeyState>, (String, Option<String>)) = store
+        .write(None, |transaction| {
+            let state = sync_state::get(transaction, &outline)?;
+            let run = transaction
+                .query_row("SELECT outcome, error_kind FROM sync_runs", [], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })
+                .map_err(crate::data::DataError::from)?;
+            Ok::<_, crate::data::DataError>((state, run))
+        })
+        .unwrap();
+    assert_eq!(state.map_or(0, |state| state.failures), 0);
+    assert_eq!(
+        (run.0.as_str(), run.1.as_deref()),
+        ("waiting", Some("not-enrolled"))
+    );
+    assert!(engine.snapshot().sources[0].failure.is_none());
 }
 
 #[test]

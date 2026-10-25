@@ -50,7 +50,8 @@ export type SyncHeld =
   | { kind: "backoff"; until: string }
   | { kind: "host-paused"; host: string; until: string }
   | { kind: "sign-in-required"; profile: SchoolAuthProfile }
-  | { kind: "resetting" };
+  | { kind: "resetting" }
+  | { kind: "prerequisite" };
 
 export type SyncFailure = {
   /** `sync_runs.error_kind`: `timeout`, `http-503`, … */
