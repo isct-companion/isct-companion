@@ -375,17 +375,22 @@ impl Session {
             })
         })
     }
-    pub fn save_credentials(
+    /// Settings' "Save and connect": Core keeps the entered credentials as
+    /// this device's candidate, lifts any pause and signs in with them. The
+    /// result carries Core's reason when the school turned them down.
+    pub fn connect_school(
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
     ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let profile = project_input(profile)?;
-            let value = i
+        self.start(false, move |i, _| async move {
+            let result = i
                 .core
-                .save_credentials(profile, project_input(credentials)?)?;
-            Ok(OperationResult::Flag { value })
+                .connect_school(project_input(profile)?, project_input(credentials)?)
+                .await?;
+            Ok(OperationResult::SchoolConnect {
+                result: project(result)?,
+            })
         })
     }
     /// The saved (or drafted) school OTP setup as an `otpauth://` link for

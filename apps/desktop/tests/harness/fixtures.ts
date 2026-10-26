@@ -5,7 +5,11 @@ import type {
   LectureSearch,
   TimetableAxis,
 } from "@app/generated/persistence";
-import type { SchoolRecords } from "@app/platform/desktop-bridge";
+import type {
+  SchoolRecords,
+  SchoolSessionSnapshot,
+  SchoolSessionState,
+} from "@app/platform/desktop-bridge";
 
 /**
  * Data builders shared by the suites.
@@ -19,6 +23,19 @@ export const TERM_RANGE = { from: "2026-09-28", to: "2026-12-02" };
 export const SYLLABUS_SCOPE = "4/0-904-342300-0-0";
 export const DEVICE = "device:test";
 export const UPDATED_AT = "2026-10-01T00:00:00.000Z";
+
+/** Both accounts' sessions in a snapshot, with no sign-in failure recorded. */
+export function schoolProfiles(
+  science: SchoolSessionState,
+  tokyoTech: SchoolSessionState,
+): SchoolSessionSnapshot["profiles"] {
+  const session = (state: SchoolSessionState) => ({
+    state,
+    problem: null,
+    auto: "allowed" as const,
+  });
+  return { science: session(science), tokyoTech: session(tokyoTech) };
+}
 
 export function emptySchoolRecords(): SchoolRecords {
   return {

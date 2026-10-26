@@ -774,7 +774,7 @@ async fn callback_errors_keep_their_category_and_last_session_drop_releases_port
     .unwrap();
     drop(vault);
     let result = session
-        .save_credentials(
+        .connect_school(
             SchoolAuthProfile::TokyoTech,
             SchoolCredentials {
                 username: "fixture".into(),

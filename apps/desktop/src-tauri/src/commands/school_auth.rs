@@ -1,8 +1,5 @@
 //! Credential commands keep potentially interactive OS vault calls off the UI thread.
-use crate::{
-    require_local_main,
-    school_web::{SchoolWebController, SchoolWebResult, WebBounds},
-};
+use crate::{require_local_main, school_web::SchoolWebController};
 use isct_core::school_auth::{
     SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentialStatus,
     SchoolCredentials,
@@ -84,19 +81,22 @@ pub(crate) async fn school_credential_status(
     with_credentials(service.inner().clone(), |service| service.status()).await
 }
 
+/// Settings' "Save and connect": Core keeps the entered credentials, signs
+/// in with them and says why if the school turned them down.
 #[tauri::command]
-pub(crate) async fn save_school_credentials(
+pub(crate) async fn connect_school(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
-) -> Result<bool, String> {
+) -> Result<isct_core::school_browser::SchoolConnectResult, String> {
     require_local_main(&webview)?;
     let core = crate::core_ports::core(&app);
-    tauri::async_runtime::spawn_blocking(move || core.save_credentials(profile, credentials))
+    crate::core_ports::runtime(&app)
+        .run(async move { core.connect_school(profile, credentials).await })
         .await
-        .map_err(|_| "The credential operation stopped unexpectedly.".to_string())?
-        .map_err(|error| error.to_string())
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -164,28 +164,6 @@ pub(crate) async fn copy_school_matrix(
 }
 
 #[tauri::command]
-pub(crate) async fn login_school(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
-    controller: tauri::State<'_, SchoolWebController>,
-    profile: SchoolAuthProfile,
-    bounds: Option<WebBounds>,
-) -> Result<SchoolWebResult, String> {
-    require_local_main(&webview)?;
-    let _ = bounds;
-    let credentials = with_credentials(auth.inner().clone(), move |auth| auth.load(profile))
-        .await?
-        .ok_or_else(|| "Save this school account before signing in.".to_string())?;
-    let engine = controller.engine.clone();
-    crate::core_ports::runtime(&app)
-        .run(async move { engine.login(profile, credentials).await })
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub(crate) fn school_session_snapshot(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
@@ -213,28 +191,6 @@ pub(crate) async fn school_session_lifecycle(
                 .lifecycle(isct_core::school_browser::SchoolSessionLifecycle { kind, visible })
                 .await
         })
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub(crate) async fn test_school_connection(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
-    controller: tauri::State<'_, SchoolWebController>,
-    profile: SchoolAuthProfile,
-    credentials: SchoolCredentials,
-) -> Result<SchoolWebResult, String> {
-    require_local_main(&webview)?;
-    let credentials = with_credentials(auth.inner().clone(), move |auth| {
-        auth.resolve(profile, credentials)
-    })
-    .await?;
-    let engine = controller.engine.clone();
-    crate::core_ports::runtime(&app)
-        .run(async move { engine.login(profile, credentials).await })
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())

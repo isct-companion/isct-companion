@@ -619,27 +619,35 @@ fn engine_with_auth(
 
 #[derive(Clone)]
 struct BlockingVault {
-    value: Arc<Mutex<Option<String>>>,
+    value: Arc<Mutex<HashMap<String, String>>>,
     block: Arc<AtomicBool>,
     started: mpsc::Sender<()>,
     release: Arc<Mutex<mpsc::Receiver<()>>>,
 }
 
 impl SecretVault for BlockingVault {
-    fn store(&self, _account: &str, secret: &str) -> Result<(), SecretError> {
-        self.value.lock().unwrap().replace(secret.into());
+    fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
+        self.value
+            .lock()
+            .unwrap()
+            .insert(account.into(), secret.into());
         Ok(())
     }
-    fn load(&self, _account: &str) -> Result<Option<String>, SecretError> {
-        if self.block.load(Ordering::Acquire) {
+    fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
+        // One vault read holds: a sign-in reads several items.
+        if self.block.swap(false, Ordering::AcqRel) {
             let _ = self.started.send(());
             let _ = self.release.lock().unwrap().recv();
         }
-        Ok(self.value.lock().unwrap().clone())
+        Ok(self.value.lock().unwrap().get(account).cloned())
     }
-    fn delete(&self, _account: &str) -> Result<(), SecretError> {
-        self.value.lock().unwrap().take();
+    fn delete(&self, account: &str) -> Result<(), SecretError> {
+        self.value.lock().unwrap().remove(account);
         Ok(())
+    }
+    /// As on an Apple device: iCloud Keychain may replace the item.
+    fn shared(&self, account: &str) -> bool {
+        account == "school-accounts"
     }
 }
 
@@ -816,7 +824,7 @@ async fn heartbeat_loads_the_vault_only_after_login_and_settles_missing_credenti
     });
     assert!(!check.await.unwrap().unwrap());
     assert_eq!(
-        engine.session_snapshot().unwrap().states.science,
+        engine.session_snapshot().unwrap().profiles.science.state,
         SchoolSessionState::NotConfigured
     );
     engine.shutdown().await;
@@ -911,7 +919,7 @@ async fn heartbeat_timeout_publishes_failed_releases_the_lane_and_allows_retry()
     let error = first.await.unwrap().unwrap_err();
     assert!(matches!(error, SchoolBrowserError::Timeout(_)));
     assert_eq!(
-        engine.session_snapshot().unwrap().states.tokyo_tech,
+        engine.session_snapshot().unwrap().profiles.tokyo_tech.state,
         SchoolSessionState::Failed
     );
 
@@ -930,7 +938,7 @@ async fn heartbeat_timeout_publishes_failed_releases_the_lane_and_allows_retry()
     });
     assert!(!retry.await.unwrap().unwrap());
     assert_eq!(
-        engine.session_snapshot().unwrap().states.tokyo_tech,
+        engine.session_snapshot().unwrap().profiles.tokyo_tech.state,
         SchoolSessionState::NotConfigured
     );
     engine.shutdown().await;
@@ -962,7 +970,7 @@ async fn manual_login_timeout_emits_error_and_failed_session() {
         Err(SchoolBrowserError::Timeout(_))
     ));
     assert_eq!(
-        engine.session_snapshot().unwrap().states.science,
+        engine.session_snapshot().unwrap().profiles.science.state,
         SchoolSessionState::Failed
     );
     assert!(events.0.lock().unwrap().iter().any(|event| matches!(
@@ -978,13 +986,13 @@ async fn heartbeat_timeout_rejects_the_old_login_relay_and_retry_can_connect() {
     let (started_send, _started_receive) = mpsc::channel();
     let (_release_send, release_receive) = mpsc::channel();
     let vault = BlockingVault {
-        value: Arc::new(Mutex::new(None)),
+        value: Arc::default(),
         block: Arc::new(AtomicBool::new(false)),
         started: started_send,
         release: Arc::new(Mutex::new(release_receive)),
     };
     SchoolAuthService::new(vault.clone())
-        .save(
+        .stage(
             SchoolAuthProfile::Science,
             SchoolCredentials {
                 username: "student".into(),
@@ -1061,7 +1069,7 @@ async fn heartbeat_timeout_rejects_the_old_login_relay_and_retry_can_connect() {
     });
     assert!(retry.await.unwrap().unwrap());
     assert_eq!(
-        engine.session_snapshot().unwrap().states.science,
+        engine.session_snapshot().unwrap().profiles.science.state,
         SchoolSessionState::Active
     );
     engine.shutdown().await;
@@ -1109,16 +1117,15 @@ async fn visible_preemption_requeues_one_heartbeat_and_resumes_after_hide() {
 async fn late_vault_result_cannot_start_login_after_another_site_preempts_the_heartbeat() {
     let (started_send, started_receive) = mpsc::channel();
     let (release_send, release_receive) = mpsc::channel();
-    let value = Arc::new(Mutex::new(None));
     let block = Arc::new(AtomicBool::new(false));
     let vault = BlockingVault {
-        value,
+        value: Arc::default(),
         block: block.clone(),
         started: started_send,
         release: Arc::new(Mutex::new(release_receive)),
     };
     SchoolAuthService::new(vault.clone())
-        .save(
+        .stage(
             SchoolAuthProfile::Science,
             SchoolCredentials {
                 username: "student".into(),
@@ -1186,13 +1193,13 @@ async fn tokyo_saved_credentials_reach(visible: bool, login_url: &str) {
     let (started_send, _started_receive) = mpsc::channel();
     let (_release_send, release_receive) = mpsc::channel();
     let vault = BlockingVault {
-        value: Arc::new(Mutex::new(None)),
+        value: Arc::default(),
         block: Arc::new(AtomicBool::new(false)),
         started: started_send,
         release: Arc::new(Mutex::new(release_receive)),
     };
     SchoolAuthService::new(vault.clone())
-        .save(
+        .stage(
             SchoolAuthProfile::TokyoTech,
             SchoolCredentials {
                 username: "student".into(),
@@ -1296,8 +1303,8 @@ async fn two_profile_requests_coalesce_per_profile_without_overwriting_the_activ
     }
     for _ in 0..1_000 {
         let snapshot = engine.session_snapshot().unwrap();
-        if snapshot.states.science == SchoolSessionState::NotConfigured
-            && snapshot.states.tokyo_tech == SchoolSessionState::NotConfigured
+        if snapshot.profiles.science.state == SchoolSessionState::NotConfigured
+            && snapshot.profiles.tokyo_tech.state == SchoolSessionState::NotConfigured
         {
             engine.shutdown().await;
             return;
@@ -1311,13 +1318,13 @@ fn saved_science_vault() -> BlockingVault {
     let (started_send, _started_receive) = mpsc::channel();
     let (_release_send, release_receive) = mpsc::channel();
     let vault = BlockingVault {
-        value: Arc::new(Mutex::new(None)),
+        value: Arc::default(),
         block: Arc::new(AtomicBool::new(false)),
         started: started_send,
         release: Arc::new(Mutex::new(release_receive)),
     };
     SchoolAuthService::new(vault.clone())
-        .save(
+        .stage(
             SchoolAuthProfile::Science,
             SchoolCredentials {
                 username: "student".into(),
@@ -1349,7 +1356,7 @@ async fn a_closed_view_fails_its_session_check_and_is_recreated_next_time() {
         SchoolBrowserError::Platform("The school view was closed.".into())
     );
     assert_eq!(
-        engine.session_snapshot().unwrap().states.science,
+        engine.session_snapshot().unwrap().profiles.science.state,
         SchoolSessionState::Failed
     );
     let retry = {
@@ -1491,5 +1498,299 @@ async fn a_panic_while_state_was_locked_does_not_stop_the_engine() {
         cause: None,
         url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx").unwrap(),
     });
+    engine.shutdown().await;
+}
+
+/// Drives hidden session checks to the Science sign-in page, one after
+/// another on the same view, as launch and focus do.
+struct Checks {
+    engine: Arc<SchoolBrowserEngine>,
+    browser: Arc<FakeBrowser>,
+    navigations: usize,
+    sequence: u64,
+}
+
+impl Checks {
+    fn new(engine: &Arc<SchoolBrowserEngine>, browser: &Arc<FakeBrowser>) -> Self {
+        Self {
+            engine: engine.clone(),
+            browser: browser.clone(),
+            navigations: 0,
+            sequence: 0,
+        }
+    }
+
+    async fn load(&mut self, url: &str) -> PageId {
+        let navigation = self.browser.navigation(self.navigations).await;
+        self.navigations += 1;
+        self.sequence += 1;
+        let page = PageId {
+            browser: navigation.browser,
+            sequence: self.sequence,
+        };
+        self.browser.listener().page_loaded(PageLoaded {
+            page,
+            cause: None,
+            url: Url::parse(url).unwrap(),
+        });
+        page
+    }
+
+    /// The page the school opens by itself after a form, in the same view.
+    fn follow(&mut self, page: PageId, url: &str) {
+        self.sequence += 1;
+        self.browser.listener().page_loaded(PageLoaded {
+            page: PageId {
+                browser: page.browser,
+                sequence: self.sequence,
+            },
+            cause: None,
+            url: Url::parse(url).unwrap(),
+        });
+    }
+
+    /// A session check whose page is the sign-in form.
+    async fn reach_login(
+        &mut self,
+    ) -> (
+        tokio::task::JoinHandle<Result<bool, SchoolBrowserError>>,
+        PageId,
+    ) {
+        let check = {
+            let engine = self.engine.clone();
+            tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+        };
+        let page = self.load("https://isct.ex-tic.com/auth/session").await;
+        (check, page)
+    }
+
+    fn scripts(&self) -> Vec<serde_json::Value> {
+        self.browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|command| match &command.command {
+                BrowserAction::Eval(script) if script.contains("isct-companion-login") => {
+                    Some(login_config(script))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// What the injected script reports through the page title.
+    fn relay(&self, page: PageId, state: &str, message: &str, submitted: &[&str]) {
+        let config = self.scripts().pop().unwrap();
+        let payload = serde_json::json!({
+            "profile": config["profile"],
+            "run": config["run"],
+            "seq": 1,
+            "state": state,
+            "message": message,
+            "submitted": submitted,
+        });
+        self.browser.listener().title_changed(
+            page,
+            format!(
+                "{}{}",
+                config["authRelay"].as_str().unwrap(),
+                URL_SAFE_NO_PAD.encode(payload.to_string())
+            ),
+        );
+    }
+
+    fn science(&self) -> SchoolProfileSession {
+        self.engine.session_snapshot().unwrap().profiles.science
+    }
+}
+
+fn vault_item(vault: &BlockingVault, account: &str) -> Option<String> {
+    vault.value.lock().unwrap().get(account).cloned()
+}
+
+// A wrong password must never loop until the school locks the account: not on
+// the next check, not after a relaunch. New credentials, typed here or synced
+// from another device, are what lifts the pause.
+#[tokio::test]
+async fn a_wrong_password_pauses_automatic_sign_in_until_the_credentials_change() {
+    let vault = saved_science_vault();
+    let (engine, browser, _, _) = engine_with_auth(Arc::new(SchoolAuthService::new(vault.clone())));
+    let mut checks = Checks::new(&engine, &browser);
+    let (check, page) = checks.reach_login().await;
+    browser.eval(0).await;
+    checks.relay(
+        page,
+        "invalid-credentials",
+        "Login failed.",
+        &["identifier", "password"],
+    );
+    assert!(!check.await.unwrap().unwrap());
+    let science = checks.science();
+    assert_eq!(science.state, SchoolSessionState::Failed);
+    assert_eq!(science.auto, SchoolAutoSignIn::Paused);
+    assert_eq!(
+        science.problem,
+        Some(SchoolSignInProblem {
+            kind: SchoolSignInProblemKind::InvalidCredentials,
+            message: "Login failed.".into(),
+        })
+    );
+
+    let (check, _) = checks.reach_login().await;
+    assert!(!check.await.unwrap().unwrap());
+    assert_eq!(checks.scripts().len(), 1);
+    for attempt in 0..6_000 {
+        if vault_item(&vault, "school-candidates")
+            .is_some_and(|item| item.contains("invalid-credentials"))
+        {
+            break;
+        }
+        settle(attempt).await;
+    }
+    engine.shutdown().await;
+
+    // Relaunched: the candidate remembers why the school turned it down.
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    let (engine, browser, _, _) = engine_with_auth(auth.clone());
+    let mut checks = Checks::new(&engine, &browser);
+    let (check, _) = checks.reach_login().await;
+    assert!(!check.await.unwrap().unwrap());
+    assert!(checks.scripts().is_empty());
+    assert_eq!(checks.science().auto, SchoolAutoSignIn::Paused);
+
+    // Another device signs in with the right password: iCloud Keychain
+    // replaces the synchronized item, and the next check uses it at once.
+    let other = SchoolAuthService::new(vault.clone());
+    let corrected = SchoolCredentials {
+        username: "student".into(),
+        password: "corrected".into(),
+        otp_secret: "JBSWY3DPEHPK3PXP".into(),
+        matrix: String::new(),
+    };
+    other
+        .import_sync_payload(
+            &serde_json::json!({
+                "version": 1,
+                "accounts": { "science": corrected },
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let (check, page) = checks.reach_login().await;
+    let config = login_config(&browser.eval(0).await);
+    assert_eq!(config["password"], "corrected");
+    assert_eq!(checks.science().auto, SchoolAutoSignIn::Allowed);
+
+    // The same verdict on new credentials typed here pauses again, and the
+    // person's next change in Settings lifts it again.
+    checks.relay(page, "invalid-credentials", "Login failed.", &["password"]);
+    assert!(!check.await.unwrap().unwrap());
+    auth.stage(SchoolAuthProfile::Science, manual_credentials())
+        .unwrap();
+    engine
+        .credentials_changed(SchoolAuthProfile::Science, true)
+        .unwrap();
+    assert_eq!(checks.science().problem, None);
+    let (check, _) = checks.reach_login().await;
+    assert_eq!(
+        login_config(&browser.eval(1).await)["username"],
+        "typed-in-settings"
+    );
+    engine.shutdown().await;
+    assert_eq!(check.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+// A turned-down one-time password is often a clock matter: Core tries once
+// a later window has started, a few times, then waits for the person.
+#[tokio::test(start_paused = true)]
+async fn a_rejected_code_is_retried_in_a_later_window_a_few_times() {
+    let (engine, browser, _, _) =
+        engine_with_auth(Arc::new(SchoolAuthService::new(saved_science_vault())));
+    let mut checks = Checks::new(&engine, &browser);
+    for round in 1..=3usize {
+        let (check, page) = checks.reach_login().await;
+        browser.eval(round - 1).await;
+        checks.relay(
+            page,
+            "invalid-otp",
+            "Invalid code.",
+            &["identifier", "password", "otp"],
+        );
+        assert!(!check.await.unwrap().unwrap());
+        let science = checks.science();
+        assert_eq!(
+            science.problem.unwrap().kind,
+            SchoolSignInProblemKind::InvalidOtp
+        );
+        if round == 3 {
+            assert_eq!(science.auto, SchoolAutoSignIn::Paused);
+            break;
+        }
+        assert_eq!(science.auto, SchoolAutoSignIn::RetryLater);
+        // Within the window the code was turned down in, nothing is sent.
+        let (check, _) = checks.reach_login().await;
+        assert!(!check.await.unwrap().unwrap());
+        assert_eq!(checks.scripts().len(), round);
+        tokio::time::advance(std::time::Duration::from_secs(30 * round as u64 + 1)).await;
+    }
+    tokio::time::advance(std::time::Duration::from_secs(600)).await;
+    let (check, _) = checks.reach_login().await;
+    assert!(!check.await.unwrap().unwrap());
+    assert_eq!(checks.scripts().len(), 3);
+    engine.shutdown().await;
+}
+
+// Only a sign-in that submitted every saved secret and reached the school
+// proves them; a portal session that was still valid proves nothing. Until
+// then nothing reaches the synchronized item other devices read.
+#[tokio::test]
+async fn connect_promotes_only_credentials_the_school_saw_in_full() {
+    let vault = saved_science_vault();
+    let auth = Arc::new(SchoolAuthService::new(vault.clone()));
+    let (engine, browser, _, _) = engine_with_auth(auth.clone());
+    let credentials = auth.load(SchoolAuthProfile::Science).unwrap().unwrap();
+    let mut checks = Checks::new(&engine, &browser);
+
+    let connect = {
+        let engine = engine.clone();
+        let credentials = credentials.clone();
+        tokio::spawn(async move {
+            engine
+                .connect(SchoolAuthProfile::Science, credentials)
+                .await
+        })
+    };
+    checks.load("https://lms.s.isct.ac.jp/2025/").await;
+    let result = connect.await.unwrap().unwrap();
+    assert_eq!(result.state, SchoolSessionState::Active);
+    assert!(!result.verified);
+    assert!(vault_item(&vault, "school-accounts").is_none());
+
+    let connect = {
+        let engine = engine.clone();
+        let credentials = credentials.clone();
+        tokio::spawn(async move {
+            engine
+                .connect(SchoolAuthProfile::Science, credentials)
+                .await
+        })
+    };
+    let page = checks.load("https://isct.ex-tic.com/auth/session").await;
+    browser.eval(0).await;
+    checks.relay(page, "progress", "password", &["identifier", "password"]);
+    checks.relay(page, "progress", "otp", &[]);
+    checks.follow(page, "https://isct.ex-tic.com/idm/user/portal");
+    let result = connect.await.unwrap().unwrap();
+    assert_eq!(
+        result,
+        SchoolConnectResult {
+            state: SchoolSessionState::Active,
+            problem: None,
+            verified: true,
+        }
+    );
+    assert!(vault_item(&vault, "school-accounts").is_some_and(|item| item.contains("student")));
+    assert!(vault_item(&vault, "school-candidates").is_none());
     engine.shutdown().await;
 }

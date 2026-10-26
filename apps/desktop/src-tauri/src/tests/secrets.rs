@@ -4,27 +4,9 @@ use super::{
 };
 
 #[test]
-fn school_accounts_use_stable_portal_keychain_ids() {
-    assert_eq!(
-        secure_key("school-accounts").unwrap(),
-        "app.isctcompanion.passwords.school-accounts"
-    );
-    assert_eq!(
-        secure_key("school-science").unwrap(),
-        "app.isctcompanion.passwords.isct-portal"
-    );
-    assert_eq!(
-        secure_key("school-tokyo-tech").unwrap(),
-        "app.isctcompanion.passwords.titech-portal"
-    );
-}
-
-#[test]
 fn previous_bundle_and_individual_keys_are_supported() {
     for (account, suffix) in [
         ("school-accounts", "school-accounts"),
-        ("school-science", "isct-portal"),
-        ("school-tokyo-tech", "titech-portal"),
         ("google-drive", "google-drive"),
         ("onedrive", "onedrive"),
     ] {

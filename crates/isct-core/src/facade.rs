@@ -1,5 +1,7 @@
 //! One application service owner, shared by native shells and agent adapters.
-use crate::school_browser::{SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError};
+use crate::school_browser::{
+    SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError, SchoolConnectResult,
+};
 use crate::{
     agent::AgentService,
     data::{CommitObserver, DataStore, WorkspaceChangeSource},
@@ -279,14 +281,22 @@ impl Core {
             .ok_or_else(|| SchoolBrowserError::Platform("School browser is unavailable.".into()))
     }
 
-    pub fn save_credentials(
+    /// The one way a shell connects a school account: keep the entered
+    /// credentials as this device's candidate (blank fields keep what is
+    /// saved), lift any pause on automatic sign-in, and sign in with them.
+    /// They reach the synchronized Keychain item and cloud sync only once
+    /// the school accepts them.
+    pub async fn connect_school(
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
-    ) -> Result<bool, CredentialMutationError> {
-        let saved = self.auth.save(profile, credentials)?;
+    ) -> Result<SchoolConnectResult, CredentialMutationError> {
+        let auth = self.auth.clone();
+        let credentials = tokio::task::spawn_blocking(move || auth.stage(profile, credentials))
+            .await
+            .map_err(|_| SchoolBrowserError::Stopped)??;
         self.credentials_changed(profile, true)?;
-        Ok(saved)
+        Ok(self.school_browser()?.connect(profile, credentials).await?)
     }
 
     pub fn delete_credentials(

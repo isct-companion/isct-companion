@@ -68,7 +68,7 @@ fn validates_matrix_shape_and_normalizes_case() {
 #[test]
 fn reports_invalid_input_and_incompatible_storage_separately() {
     let invalid = SchoolAuthService::new(MemoryVault::default())
-        .save(
+        .stage(
             SchoolAuthProfile::TokyoTech,
             SchoolCredentials {
                 username: "user".into(),
@@ -94,7 +94,7 @@ fn otp_export_prefers_a_valid_draft_without_mutating_saved_credentials() {
     assert!(service.otp_setup_text(None).is_err());
     let saved = "otpauth://totp/School?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=60";
     service
-        .save(
+        .stage(
             SchoolAuthProfile::Science,
             SchoolCredentials {
                 username: "user".into(),
@@ -174,7 +174,9 @@ fn enrollment_promotes_only_the_matching_confirmed_candidate() {
         )
         .unwrap();
     assert_eq!(resolved.otp_secret, first);
-    reopened.save(SchoolAuthProfile::Science, resolved).unwrap();
+    reopened
+        .stage(SchoolAuthProfile::Science, resolved)
+        .unwrap();
     reopened.confirm_enrollment_otp("two", "student").unwrap();
     assert_eq!(
         reopened
@@ -195,7 +197,7 @@ fn matrix_text_follows_the_editors_visual_row_order() {
     // Row-major A1…J1, A2…: cell i holds the i-th letter, wrapping after Z.
     let matrix: String = (0..70u8).map(|i| (b'A' + i % 26) as char).collect();
     service
-        .save(
+        .stage(
             SchoolAuthProfile::TokyoTech,
             SchoolCredentials {
                 username: "user".into(),
@@ -234,40 +236,128 @@ fn matches_rfc_6238_sha1_vector() {
     assert_eq!(otp_at(uri, 59).unwrap(), "94287082");
 }
 
+fn science_credentials(username: &str, password: &str) -> SchoolCredentials {
+    SchoolCredentials {
+        username: username.into(),
+        password: password.into(),
+        otp_secret: "JBSWY3DPEHPK3PXP".into(),
+        matrix: String::new(),
+    }
+}
+
+fn synced_accounts(vault: &MemoryVault) -> HashMap<SchoolAuthProfile, SchoolCredentials> {
+    vault
+        .load(SCHOOL_CREDENTIAL_ACCOUNT)
+        .unwrap()
+        .map(|payload| {
+            serde_json::from_str::<SchoolCredentialBundle>(&payload)
+                .unwrap()
+                .accounts
+        })
+        .unwrap_or_default()
+}
+
+// Credentials typed on a device stay on it until the school accepts them, so
+// a mistyped password or OTP never reaches the person's other devices through
+// iCloud Keychain or credential sync. Both profiles share one synchronized
+// item once verified.
 #[test]
-fn stores_both_school_profiles_in_one_item() {
+fn candidates_stay_local_until_promoted_into_the_one_synchronized_item() {
     let vault = MemoryVault::default();
     let inspect = vault.clone();
     let service = SchoolAuthService::new(vault);
     service
-        .save(
+        .stage(
             SchoolAuthProfile::Science,
-            SchoolCredentials {
-                username: "science".into(),
-                password: "password".into(),
-                otp_secret: "JBSWY3DPEHPK3PXP".into(),
-                matrix: String::new(),
-            },
+            science_credentials("science", "password"),
         )
         .unwrap();
+    let tokyo = SchoolCredentials {
+        username: "tokyo".into(),
+        password: "password".into(),
+        otp_secret: String::new(),
+        matrix: "A".repeat(70),
+    };
     service
-        .save(
-            SchoolAuthProfile::TokyoTech,
-            SchoolCredentials {
-                username: "tokyo".into(),
-                password: "password".into(),
-                otp_secret: String::new(),
-                matrix: "A".repeat(70),
-            },
-        )
+        .stage(SchoolAuthProfile::TokyoTech, tokyo.clone())
         .unwrap();
     let status = service.status().unwrap();
     assert!(status.science.has_otp);
     assert_eq!(status.science.username, "science");
     assert!(status.tokyo_tech.has_matrix);
     assert!(!status.tokyo_tech.has_otp);
-    assert_eq!(inspect.0.lock().unwrap().len(), 1);
-    assert!(inspect.load(SCHOOL_CREDENTIAL_ACCOUNT).unwrap().is_some());
+    // Both sign in from the device-local item; nothing is synchronized yet.
+    assert_eq!(
+        service.load(SchoolAuthProfile::TokyoTech).unwrap(),
+        Some(tokyo.clone())
+    );
+    assert!(
+        !crate::ports::vault_item(SCHOOL_CANDIDATE_ACCOUNT)
+            .unwrap()
+            .synchronized
+    );
+    assert!(synced_accounts(&inspect).is_empty());
+    assert!(!service.export_sync_payload().unwrap().contains("password"));
+
+    // A failed candidate keeps its reason here and still never syncs.
+    let failure = SchoolSignInProblem {
+        kind: crate::school_browser::SchoolSignInProblemKind::InvalidCredentials,
+        message: "The ID or password was not accepted.".into(),
+    };
+    service
+        .record_failure(SchoolAuthProfile::TokyoTech, &tokyo, &failure)
+        .unwrap();
+    let relaunched = SchoolAuthService::new(inspect.clone());
+    assert_eq!(
+        relaunched
+            .sign_in_credentials(SchoolAuthProfile::TokyoTech)
+            .unwrap()
+            .unwrap()
+            .failure,
+        Some(failure)
+    );
+    assert!(!relaunched.export_sync_payload().unwrap().contains("tokyo"));
+
+    // Only the credentials that signed in are promoted, and only once.
+    assert!(!service
+        .promote(
+            SchoolAuthProfile::Science,
+            &science_credentials("science", "other"),
+        )
+        .unwrap());
+    assert!(service
+        .promote(
+            SchoolAuthProfile::Science,
+            &science_credentials("science", "password"),
+        )
+        .unwrap());
+    assert!(!service
+        .promote(
+            SchoolAuthProfile::Science,
+            &science_credentials("science", "password"),
+        )
+        .unwrap());
+    assert_eq!(
+        synced_accounts(&inspect),
+        HashMap::from([(
+            SchoolAuthProfile::Science,
+            science_credentials("science", "password")
+        )])
+    );
+    assert!(service
+        .is_verified(
+            SchoolAuthProfile::Science,
+            &science_credentials("science", "password")
+        )
+        .unwrap());
+    let exported = service.export_sync_payload().unwrap();
+    assert!(exported.contains("science") && !exported.contains("tokyo"));
+    service
+        .promote(SchoolAuthProfile::TokyoTech, &tokyo)
+        .unwrap();
+    assert_eq!(synced_accounts(&inspect).len(), 2);
+    assert!(inspect.load(SCHOOL_CANDIDATE_ACCOUNT).unwrap().is_none());
+
     service.delete(SchoolAuthProfile::Science).unwrap();
     assert!(service.load(SchoolAuthProfile::Science).unwrap().is_none());
     assert_eq!(
@@ -280,11 +370,102 @@ fn stores_both_school_profiles_in_one_item() {
     );
 }
 
+/// A Keychain item iCloud Keychain may replace from another device.
+#[derive(Clone, Default)]
+struct SyncedVault(MemoryVault);
+
+impl SecretVault for SyncedVault {
+    fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
+        self.0.store(account, secret)
+    }
+    fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
+        self.0.load(account)
+    }
+    fn delete(&self, account: &str) -> Result<(), SecretError> {
+        self.0.delete(account)
+    }
+    fn shared(&self, account: &str) -> bool {
+        crate::ports::vault_item(account).is_ok_and(|item| item.synchronized)
+    }
+}
+
+// Keychain is the source of truth: another device replacing the synchronized
+// item (a new OTP set on the Mac) must reach this running process at its next
+// session check, replace a candidate it was still trying, and be what blank
+// fields fill from, so saving only a password can never write an old OTP back.
+#[test]
+fn an_external_keychain_change_is_used_from_the_next_session_check() {
+    let vault = SyncedVault::default();
+    let inspect = vault.0.clone();
+    let service = SchoolAuthService::new(vault);
+    service
+        .stage(
+            SchoolAuthProfile::Science,
+            science_credentials("student", "password"),
+        )
+        .unwrap();
+    service
+        .promote(
+            SchoolAuthProfile::Science,
+            &science_credentials("student", "password"),
+        )
+        .unwrap();
+    service
+        .stage(
+            SchoolAuthProfile::Science,
+            science_credentials("student", "typo"),
+        )
+        .unwrap();
+
+    let mac_vault = MemoryVault::default();
+    let mac = SchoolAuthService::new(mac_vault.clone());
+    let mut renewed = science_credentials("student", "password");
+    renewed.otp_secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".into();
+    mac.stage(SchoolAuthProfile::Science, renewed.clone())
+        .unwrap();
+    mac.promote(SchoolAuthProfile::Science, &renewed).unwrap();
+    // What iCloud Keychain does: the item changes under the running app.
+    inspect
+        .store(
+            SCHOOL_CREDENTIAL_ACCOUNT,
+            &mac_vault.load(SCHOOL_CREDENTIAL_ACCOUNT).unwrap().unwrap(),
+        )
+        .unwrap();
+
+    // Between checks the copy in memory answers.
+    assert_eq!(
+        service.load(SchoolAuthProfile::Science).unwrap(),
+        Some(science_credentials("student", "typo"))
+    );
+    service.refresh();
+    assert_eq!(
+        service.load(SchoolAuthProfile::Science).unwrap(),
+        Some(renewed.clone())
+    );
+    assert!(inspect.load(SCHOOL_CANDIDATE_ACCOUNT).unwrap().is_none());
+    let password_only = service
+        .stage(
+            SchoolAuthProfile::Science,
+            SchoolCredentials {
+                username: String::new(),
+                password: "changed".into(),
+                otp_secret: String::new(),
+                matrix: String::new(),
+            },
+        )
+        .unwrap();
+    assert_eq!(password_only.otp_secret, renewed.otp_secret);
+    assert_eq!(
+        synced_accounts(&inspect)[&SchoolAuthProfile::Science],
+        renewed
+    );
+}
+
 #[test]
 fn blank_secret_fields_keep_the_saved_encrypted_values() {
     let service = SchoolAuthService::new(MemoryVault::default());
     service
-        .save(
+        .stage(
             SchoolAuthProfile::Science,
             SchoolCredentials {
                 username: "first-user".into(),
@@ -295,7 +476,7 @@ fn blank_secret_fields_keep_the_saved_encrypted_values() {
         )
         .unwrap();
     service
-        .save(
+        .stage(
             SchoolAuthProfile::Science,
             SchoolCredentials {
                 username: "renamed-user".into(),
@@ -320,8 +501,8 @@ fn persisted_account_status_does_not_unlock_keychain_or_persist_secrets() {
     vault
         .inner
         .store(
-            SchoolAuthProfile::Science.account(),
-            &serde_json::to_string(&test_credentials()).unwrap(),
+            SCHOOL_CREDENTIAL_ACCOUNT,
+            &verified_bundle(&test_credentials()),
         )
         .unwrap();
     let service = SchoolAuthService::with_status_cache(vault, path.clone());
@@ -359,8 +540,8 @@ fn missing_vault_entry_replaces_stale_saved_metadata() {
     let vault = MemoryVault::default();
     vault
         .store(
-            SchoolAuthProfile::Science.account(),
-            &serde_json::to_string(&test_credentials()).unwrap(),
+            SCHOOL_CREDENTIAL_ACCOUNT,
+            &verified_bundle(&test_credentials()),
         )
         .unwrap();
     let original = SchoolAuthService::with_status_cache(vault, path.clone());
@@ -405,6 +586,13 @@ impl SecretVault for CountingVault {
         self.inner.delete(account)
     }
 }
+fn verified_bundle(credentials: &SchoolCredentials) -> String {
+    serde_json::json!({
+        "version": 1,
+        "accounts": { "science": credentials },
+    })
+    .to_string()
+}
 fn test_credentials() -> SchoolCredentials {
     SchoolCredentials {
         username: "test-user".into(),
@@ -414,13 +602,13 @@ fn test_credentials() -> SchoolCredentials {
     }
 }
 #[test]
-fn repeated_login_reads_keychain_once_and_does_not_rewrite_unchanged_values() {
+fn repeated_login_does_not_rewrite_unchanged_values() {
     let vault = CountingVault::default();
     vault
         .inner
         .store(
-            SchoolAuthProfile::Science.account(),
-            &serde_json::to_string(&test_credentials()).unwrap(),
+            SCHOOL_CREDENTIAL_ACCOUNT,
+            &verified_bundle(&test_credentials()),
         )
         .unwrap();
     let inspect = vault.clone();
@@ -428,76 +616,47 @@ fn repeated_login_reads_keychain_once_and_does_not_rewrite_unchanged_values() {
     for _ in 0..3 {
         let saved = service.load(SchoolAuthProfile::Science).unwrap().unwrap();
         service
-            .save(SchoolAuthProfile::Science, saved.clone())
+            .stage(SchoolAuthProfile::Science, saved.clone())
             .unwrap();
         service.status().unwrap();
         service.resolve(SchoolAuthProfile::Science, saved).unwrap();
     }
-    assert_eq!(inspect.reads.load(SeqCst), 4); // bundle, two legacy items, verified replacement
-    assert_eq!(inspect.writes.load(SeqCst), 1); // migration only
-}
-#[test]
-fn failed_migration_keeps_legacy_credentials_and_can_retry() {
-    let vault = CountingVault::default();
-    vault
+    // Connecting again with the verified credentials writes nothing.
+    assert_eq!(inspect.writes.load(SeqCst), 0);
+    assert!(inspect
         .inner
-        .store(
-            SchoolAuthProfile::Science.account(),
-            &serde_json::to_string(&test_credentials()).unwrap(),
-        )
+        .load(SCHOOL_CANDIDATE_ACCOUNT)
+        .unwrap()
+        .is_none());
+    // An item nothing else replaces is read once per process, whatever
+    // asks: on the macOS login keychain every read of an item another build
+    // wrote asks for the password, and a read per use asked endlessly.
+    let reads = inspect.reads.load(SeqCst);
+    service.refresh();
+    service.load(SchoolAuthProfile::Science).unwrap();
+    service
+        .stage(SchoolAuthProfile::Science, test_credentials())
         .unwrap();
-    vault.fail_write.store(true, SeqCst);
-    let inspect = vault.clone();
-    let service = SchoolAuthService::new(vault);
-    assert!(matches!(
-        service.load(SchoolAuthProfile::Science),
-        Err(SchoolAuthError::Vault(SecretError::Access(_)))
-    ));
-    assert!(inspect
-        .inner
-        .load(SchoolAuthProfile::Science.account())
-        .unwrap()
-        .is_some());
-    assert!(inspect
-        .inner
-        .load(SCHOOL_CREDENTIAL_ACCOUNT)
-        .unwrap()
-        .is_none());
-    inspect.fail_write.store(false, SeqCst);
-    assert_eq!(
-        service.load(SchoolAuthProfile::Science).unwrap(),
-        Some(test_credentials())
-    );
-    assert!(inspect
-        .inner
-        .load(SchoolAuthProfile::Science.account())
-        .unwrap()
-        .is_none());
-    assert!(inspect
-        .inner
-        .load(SCHOOL_CREDENTIAL_ACCOUNT)
-        .unwrap()
-        .is_some());
+    assert_eq!(inspect.reads.load(SeqCst), reads);
 }
-
 #[test]
 fn changed_credentials_update_cache_only_after_a_successful_write() {
     let vault = CountingVault::default();
     let inspect = vault.clone();
     let service = SchoolAuthService::new(vault);
     service
-        .save(SchoolAuthProfile::Science, test_credentials())
+        .stage(SchoolAuthProfile::Science, test_credentials())
         .unwrap();
     let mut changed = test_credentials();
     changed.password = "new-test-password".into();
     inspect.fail_write.store(true, SeqCst);
     assert!(service
-        .save(SchoolAuthProfile::Science, changed.clone())
+        .stage(SchoolAuthProfile::Science, changed.clone())
         .is_err());
     assert!(service.load(SchoolAuthProfile::Science).unwrap().unwrap() == test_credentials());
     inspect.fail_write.store(false, SeqCst);
     service
-        .save(SchoolAuthProfile::Science, changed.clone())
+        .stage(SchoolAuthProfile::Science, changed.clone())
         .unwrap();
     assert!(service.load(SchoolAuthProfile::Science).unwrap().unwrap() == changed);
 }
@@ -507,8 +666,8 @@ fn denied_unlock_can_be_retried_and_forget_clears_the_session_copy() {
     vault
         .inner
         .store(
-            SchoolAuthProfile::Science.account(),
-            &serde_json::to_string(&test_credentials()).unwrap(),
+            SCHOOL_CREDENTIAL_ACCOUNT,
+            &verified_bundle(&test_credentials()),
         )
         .unwrap();
     let inspect = vault.clone();
@@ -519,14 +678,11 @@ fn denied_unlock_can_be_retried_and_forget_clears_the_session_copy() {
     assert!(service.load(SchoolAuthProfile::Science).unwrap().is_some());
     service.delete(SchoolAuthProfile::Science).unwrap();
     assert!(service.load(SchoolAuthProfile::Science).unwrap().is_none());
-    assert_eq!(inspect.reads.load(SeqCst), 5);
-    // A new application/service instance performs its own unlock.
     let relaunched = SchoolAuthService::new(inspect.clone());
     assert!(relaunched
         .load(SchoolAuthProfile::Science)
         .unwrap()
         .is_none());
-    assert_eq!(inspect.reads.load(SeqCst), 6);
 }
 
 #[test]
@@ -549,7 +705,7 @@ fn lms_token_belongs_to_the_account_that_obtained_it() {
     let vault = MemoryVault::default();
     let service = SchoolAuthService::new(vault.clone());
     let science = SchoolAuthProfile::Science;
-    service.save(science, test_credentials()).unwrap();
+    service.stage(science, test_credentials()).unwrap();
     let token = MoodleToken::new("0123456789abcdef".into());
     service.store_moodle_token(science, &token).unwrap();
     // Its own device-only vault item, naming the account it belongs to.
@@ -570,7 +726,7 @@ fn lms_token_belongs_to_the_account_that_obtained_it() {
 
     // Another account signs in: the old account's token is dropped, not used.
     service
-        .save(
+        .stage(
             science,
             SchoolCredentials {
                 username: "other-user".into(),

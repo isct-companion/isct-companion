@@ -1366,7 +1366,7 @@
   "Checking": "确认中",
   "Student ID": "学号",
   "Password (enter only to change)": "密码（仅在更改时填写）",
-  "The password is saved in this device’s Keychain and shared with the desktop app through iCloud Keychain.": "密码保存在此设备的钥匙串中，并通过 iCloud 钥匙串与桌面版共享。",
+  "The password is saved in this device’s Keychain. Once the school accepts it, iCloud Keychain shares it with the desktop app.": "密码保存在此设备的钥匙串中。学校接受后，才会通过 iCloud 钥匙串与桌面版共享。",
   "One-time password": "一次性密码",
   "Save and connect": "保存并连接",
   "Remove sign-in details from this device": "从此设备删除登录信息",
@@ -1636,5 +1636,14 @@
   "Published now: {{value}}": "现在的官方：{{value}}",
   "When you edited: {{value}}": "修改时的官方：{{value}}",
   "Count quizzes as exams": "小测视同考试",
-  "Quizzes appear in upcoming exams and get exam reminders.": "小测会显示在即将考试中，并按考试提醒。"
+  "Quizzes appear in upcoming exams and get exam reminders.": "小测会显示在即将考试中，并按考试提醒。",
+  "The ID or password was not accepted.": "学号或密码未被接受。",
+  "The school locked this account.": "学校已锁定此账号。",
+  "The one-time password was not accepted.": "一次性密码未被接受。",
+  "The Matrix answer was not accepted.": "Matrix 答案未被接受。",
+  "The sign-in page showed a warning.": "登录页面显示了警告。",
+  "This sign-in step needs you.": "这一步登录需要你亲自完成。",
+  "Automatic sign-in waits until you change these details.": "在你修改这些信息之前不会自动登录。",
+  "Automatic sign-in tries again shortly.": "稍后会自动重试登录。",
+  "Sign-in failed: {{reason}}": "登录失败：{{reason}}"
 }

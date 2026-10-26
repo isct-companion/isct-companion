@@ -67,6 +67,7 @@ import {
   workspaceFixture,
   type FakeCore,
   type FakeCoreOptions,
+  schoolProfiles,
 } from "@tests/harness";
 
 /**
@@ -1262,7 +1263,8 @@ describe("Tauri bridge contract", () => {
   it("maps credential, session and webview calls to narrow commands", async () => {
     const { invoke, calls } = invokeSeam((command) => {
       switch (command) {
-        case "save_school_credentials":
+        case "connect_school":
+          return { state: "failed", problem: null, verified: false };
         case "navigate_school_web":
         case "set_school_web_zoom":
         case "school_web_forward":
@@ -1270,7 +1272,7 @@ describe("Tauri bridge contract", () => {
         case "school_session_snapshot":
           return {
             revision: 4,
-            states: { science: "active", tokyoTech: "pending" },
+            profiles: schoolProfiles("active", "pending"),
           };
         case "school_session_lifecycle":
           return null;
@@ -1294,10 +1296,12 @@ describe("Tauri bridge contract", () => {
       matrix: "A".repeat(70),
     };
 
-    await bridge.saveSchoolCredentials("science", credentials);
+    await expect(
+      bridge.connectSchool("science", credentials),
+    ).resolves.toMatchObject({ state: "failed", verified: false });
     await expect(bridge.schoolSessionSnapshot()).resolves.toEqual({
       revision: 4,
-      states: { science: "active", tokyoTech: "pending" },
+      profiles: schoolProfiles("active", "pending"),
     });
     await bridge.schoolSessionLifecycle({ kind: "focus", visible: true });
     await bridge.openSchoolSite("science-portal", "body{}", "window.x=1", {
@@ -1316,7 +1320,7 @@ describe("Tauri bridge contract", () => {
 
     expect(calls).toEqual([
       {
-        command: "save_school_credentials",
+        command: "connect_school",
         payload: { profile: "science", credentials },
       },
       { command: "school_session_snapshot", payload: undefined },

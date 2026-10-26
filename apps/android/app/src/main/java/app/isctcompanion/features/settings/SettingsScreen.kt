@@ -92,6 +92,8 @@ import app.isctcompanion.core.CredentialSummary
 import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolBrowserHost
+import app.isctcompanion.core.SchoolAutoSignIn
+import app.isctcompanion.core.SchoolProfileSession
 import app.isctcompanion.core.SchoolSessionState
 import app.isctcompanion.core.SyncState
 import app.isctcompanion.core.WebRouter
@@ -469,7 +471,7 @@ private fun WebCard() {
 private fun AccountRow(
     name: String,
     credential: CredentialSummary?,
-    session: SchoolSessionState?,
+    session: SchoolProfileSession?,
     lastRun: String?,
     onClick: () -> Unit,
 ) {
@@ -477,11 +479,14 @@ private fun AccountRow(
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
         !connected -> t("Not connected") to Theme.colors.muted
-        session == SchoolSessionState.ACTIVE -> (
+        session?.state == SchoolSessionState.ACTIVE -> (
             lastRun?.let { t("Connected · updated {{time}}", "time" to Format.due(it)) } ?: t("Connected")
             ) to Theme.colors.ok
-        session == SchoolSessionState.FAILED -> t("Sign-in failed") to Theme.colors.danger
-        session == SchoolSessionState.MAINTENANCE -> t("Under maintenance") to Theme.colors.warn
+        session?.state == SchoolSessionState.FAILED -> (
+            session.problem?.let { t("Sign-in failed: {{reason}}", "reason" to AppModel.reason(it).lines().first()) }
+                ?: t("Sign-in failed")
+            ) to Theme.colors.danger
+        session?.state == SchoolSessionState.MAINTENANCE -> t("Under maintenance") to Theme.colors.warn
         else -> t("Checking") to Theme.colors.muted
     }
     Row(
@@ -512,6 +517,15 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val saved = summary?.saved == true
+    val session = if (profile == SchoolAuthProfile.SCIENCE) model.sessions?.science else model.sessions?.tokyoTech
+    // Why the last sign-in failed, as Core recorded it, while it still applies.
+    val problem = session?.problem?.takeIf { session.state != SchoolSessionState.ACTIVE }?.let {
+        AppModel.reason(it) + when (session.auto) {
+            SchoolAutoSignIn.PAUSED -> "\n" + t("Automatic sign-in waits until you change these details.")
+            SchoolAutoSignIn.RETRY_LATER -> "\n" + t("Automatic sign-in tries again shortly.")
+            SchoolAutoSignIn.ALLOWED -> ""
+        }
+    }
     Page {
         OutlinedTextField(
             username, { username = it }, label = { Text(t("Student ID")) }, singleLine = true,
@@ -530,15 +544,21 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
             SectionLabel(t("Matrix card"))
             MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
         }
-        error?.let { Footer(it, Theme.colors.danger) }
+        (error ?: problem.takeUnless { saving })?.let { Footer(it, Theme.colors.danger) }
         Button(
             onClick = {
                 scope.launch {
                     saving = true
                     error = null
                     try {
-                        model.saveCredentials(profile, SchoolCredentials(username, password, otpSecret, matrix))
-                        done()
+                        val result = model.connect(profile, SchoolCredentials(username, password, otpSecret, matrix))
+                        // Stay on the page with the reason, so the person can correct it.
+                        if (result != null && result.state != SchoolSessionState.ACTIVE) {
+                            error = result.problem?.let(AppModel::reason)
+                                ?: t(if (result.state == SchoolSessionState.MAINTENANCE) "Under maintenance" else "Sign-in failed")
+                        } else {
+                            done()
+                        }
                     } catch (failure: Exception) {
                         error = AppModel.describe(failure)
                     }

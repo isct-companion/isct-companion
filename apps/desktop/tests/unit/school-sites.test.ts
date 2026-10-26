@@ -21,7 +21,7 @@ import { bootstrapReminders } from "@app/platform/reminders";
 import { schoolSessions } from "@app/platform/school-session";
 import { schoolWebBounds } from "@app/platform/school-web-bounds";
 import { networkHint } from "@app/platform/sync";
-import { readRepoFile } from "@tests/harness";
+import { readRepoFile, schoolProfiles } from "@tests/harness";
 
 /**
  * Every school-web contract reachable from the webview: child-webview geometry,
@@ -271,6 +271,7 @@ type Relay = {
   seq: number;
   state: string;
   message: string;
+  submitted: string[];
 };
 
 type LoginPage = {
@@ -500,6 +501,23 @@ describe("Science Tokyo sign-in", () => {
     expect(page.relays.at(-1)).toMatchObject({
       state: "invalid-credentials",
       message: "Login failed.",
+      submitted: ["password"],
+    });
+
+    // The same warning before this run submitted anything is the page's own
+    // notice, not a verdict on the saved password: Core retries it later.
+    const notice = loadLoginPage(
+      identifierPage.replace(
+        '<div class="message warning" style="display: none">',
+        '<div class="message warning">',
+      ),
+    );
+    notice.start();
+    await settle();
+    expect(notice.submitted).toHaveLength(0);
+    expect(notice.relays.at(-1)).toMatchObject({
+      state: "error",
+      submitted: [],
     });
   });
 
@@ -625,7 +643,24 @@ describe("Science Tokyo sign-in", () => {
     page.$("#totp-form .message.warning").style.display = "";
     await settle();
     expect(page.submitted).toHaveLength(1);
-    expect(page.relays.at(-1)?.state).toBe("invalid-otp");
+    expect(page.relays.at(-1)).toMatchObject({
+      state: "invalid-otp",
+      submitted: ["otp"],
+    });
+
+    // A warning already on the form before any code was sent says nothing
+    // about the saved secret.
+    const stale = loadLoginPage(
+      secondFactorPage(false).replace(
+        '<div class="message warning" style="display: none">',
+        '<div class="message warning">',
+      ),
+      { url: SECOND_FACTOR },
+    );
+    stale.start();
+    await settle();
+    expect(stale.submitted).toHaveLength(0);
+    expect(stale.relays.at(-1)?.state).toBe("error");
   });
 
   it("hands an email-only second factor to the person", async () => {
@@ -840,7 +875,7 @@ describe("Tokyo Tech sign-in", () => {
 
 const INITIAL_SESSION: SchoolSessionSnapshot = {
   revision: 1,
-  states: { science: "pending", tokyoTech: "not-configured" },
+  profiles: schoolProfiles("pending", "not-configured"),
 };
 
 function sessionBridge(snapshot: SchoolSessionSnapshot = INITIAL_SESSION) {
@@ -906,7 +941,7 @@ describe("school session projection", () => {
     native.emit({ profile: "science", state: "active", revision: 3 });
     resolveSnapshot({
       revision: 2,
-      states: { science: "failed", tokyoTech: "active" },
+      profiles: schoolProfiles("failed", "active"),
     });
     await vi.waitFor(() =>
       expect(schoolSessions.get("tokyo-tech")).toBe("active"),
@@ -917,7 +952,7 @@ describe("school session projection", () => {
   it("ignores stale and duplicate revisions for each profile", async () => {
     const native = sessionBridge({
       revision: 4,
-      states: { science: "active", tokyoTech: "failed" },
+      profiles: schoolProfiles("active", "failed"),
     });
     schoolSessions.attach(native);
     await vi.waitFor(() =>
@@ -952,7 +987,7 @@ describe("school session projection", () => {
   it("rejects late events from an old bridge and accepts a new revision epoch", async () => {
     const first = sessionBridge({
       revision: 8,
-      states: { science: "active", tokyoTech: "failed" },
+      profiles: schoolProfiles("active", "failed"),
     });
     schoolSessions.attach(first);
     await vi.waitFor(() =>
@@ -961,7 +996,7 @@ describe("school session projection", () => {
 
     const second = sessionBridge({
       revision: 0,
-      states: { science: "pending", tokyoTech: "not-configured" },
+      profiles: schoolProfiles("pending", "not-configured"),
     });
     schoolSessions.attach(second);
     await vi.waitFor(() =>
@@ -978,7 +1013,7 @@ describe("school session projection", () => {
   it("preserves revisions across a brief reconnect to the same bridge", async () => {
     const native = sessionBridge({
       revision: 5,
-      states: { science: "failed", tokyoTech: "pending" },
+      profiles: schoolProfiles("failed", "pending"),
     });
     const detach = schoolSessions.attach(native);
     await vi.waitFor(() =>
@@ -988,7 +1023,7 @@ describe("school session projection", () => {
     detach();
     native.schoolSessionSnapshot.mockResolvedValue({
       revision: 0,
-      states: { science: "failed", tokyoTech: "failed" },
+      profiles: schoolProfiles("failed", "failed"),
     });
 
     schoolSessions.attach(native);

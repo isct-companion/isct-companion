@@ -121,13 +121,36 @@ export type SchoolSessionEvent = {
   state: SchoolSessionState;
   revision: number;
 };
+export type SchoolSignInProblem = {
+  kind:
+    | "invalid-credentials"
+    | "locked"
+    | "invalid-otp"
+    | "invalid-matrix"
+    | "page-warning"
+    | "needs-user"
+    | "unavailable";
+  message: string;
+};
+/** One account's session, Core's last failure reason and retry policy. */
+export type SchoolProfileSession = {
+  state: SchoolSessionState;
+  problem: SchoolSignInProblem | null;
+  auto: "allowed" | "retry-later" | "paused";
+};
 export type SchoolSessionSnapshot = {
   revision: number;
   kyomuMaintenance?: string | null;
-  states: {
-    science: SchoolSessionState;
-    tokyoTech: SchoolSessionState;
+  profiles: {
+    science: SchoolProfileSession;
+    tokyoTech: SchoolProfileSession;
   };
+};
+/** What "Save and connect" ended with; `verified` credentials now sync. */
+export type SchoolConnectResult = {
+  state: SchoolSessionState;
+  problem: SchoolSignInProblem | null;
+  verified: boolean;
 };
 export type SchoolSessionLifecycle = {
   kind: "launch" | "focus";
@@ -399,25 +422,17 @@ export interface DesktopBridge {
   cancelSchoolOtpSetup(operationId: number): Promise<void>;
   schoolOtpSetup(operationId: number): Promise<SchoolOtpSetup>;
   completeSchoolOtpSetup(operationId: number, reset: boolean): Promise<void>;
-  saveSchoolCredentials(
+  /** Keeps the entered credentials, then signs in with them. */
+  connectSchool(
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
-  ): Promise<boolean>;
+  ): Promise<SchoolConnectResult>;
   deleteSchoolCredentials(profile: SchoolAuthProfile): Promise<boolean>;
   /** Copies the saved Matrix to the system clipboard without exposing it to the WebView. */
   copySchoolMatrix(): Promise<boolean>;
   copySchoolOtp(setup?: string): Promise<boolean>;
   /** SVG QR code of the OTP setup, for another authenticator to scan. */
   schoolOtpQr(setup?: string): Promise<string>;
-  testSchoolConnection(
-    profile: SchoolAuthProfile,
-    credentials: SchoolCredentials,
-  ): Promise<{ site: SchoolSite; url: string; phase: string }>;
-  loginSchool(profile: SchoolAuthProfile): Promise<{
-    site: SchoolSite;
-    url: string;
-    phase: string;
-  }>;
   openSchoolSite(
     site: SchoolSite,
     css: string,
@@ -672,8 +687,8 @@ export function createTauriDesktopBridge(
         onStep: steps,
       });
     },
-    saveSchoolCredentials: (profile, credentials) =>
-      booleanCommand("save_school_credentials", { profile, credentials }),
+    connectSchool: (profile, credentials) =>
+      result("connect_school", { profile, credentials }),
     deleteSchoolCredentials: (profile) =>
       booleanCommand("delete_school_credentials", { profile }),
     copySchoolMatrix: () => booleanCommand("copy_school_matrix"),
@@ -683,9 +698,6 @@ export function createTauriDesktopBridge(
         "school_otp_qr",
         await invokeCommand("school_otp_qr", { setup }),
       ),
-    testSchoolConnection: (profile, credentials) =>
-      result("test_school_connection", { profile, credentials }),
-    loginSchool: (profile) => result("login_school", { profile, bounds: null }),
     schoolSessionSnapshot: async () => {
       const snapshot = await result<SchoolSessionSnapshot>(
         "school_session_snapshot",
@@ -693,9 +705,9 @@ export function createTauriDesktopBridge(
       if (
         !Number.isSafeInteger(snapshot.revision) ||
         snapshot.revision < 0 ||
-        !snapshot.states ||
-        !isSchoolSessionState(snapshot.states.science) ||
-        !isSchoolSessionState(snapshot.states.tokyoTech)
+        !snapshot.profiles ||
+        !isSchoolSessionState(snapshot.profiles.science?.state) ||
+        !isSchoolSessionState(snapshot.profiles.tokyoTech?.state)
       )
         throw new Error("school_session_snapshot returned an invalid result.");
       return snapshot;

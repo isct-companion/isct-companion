@@ -39,6 +39,10 @@ impl core::SecretVault for Vault {
     fn delete(&self, account: &str) -> Result<(), core::SecretError> {
         self.0.delete(account.into()).map_err(vault_error)
     }
+    /// Only Apple devices synchronize Keychain items between devices.
+    fn shared(&self, account: &str) -> bool {
+        cfg!(target_os = "ios") && core::vault_item(account).is_ok_and(|item| item.synchronized)
+    }
 }
 
 #[derive(Clone, Debug, uniffi::Enum)]
@@ -699,7 +703,7 @@ pub fn vault_item(account: String) -> Result<VaultItem, SdkError> {
 pub struct OtpImportAccount {
     pub label: String,
     pub issuer: String,
-    /// Sensitive: pass only the chosen account's value to `saveCredentials`.
+    /// Sensitive: pass only the chosen account's value to `connectSchool`.
     pub setup: String,
 }
 

@@ -50,8 +50,8 @@ const applyEvent = (event: SchoolSessionEvent) =>
   apply(event.profile, event.state, event.revision);
 
 const applySnapshot = (snapshot: SchoolSessionSnapshot) => {
-  apply("science", snapshot.states.science, snapshot.revision);
-  apply("tokyo-tech", snapshot.states.tokyoTech, snapshot.revision);
+  apply("science", snapshot.profiles.science.state, snapshot.revision);
+  apply("tokyo-tech", snapshot.profiles.tokyoTech.state, snapshot.revision);
 };
 
 const stop = (attachment: Attachment) => {

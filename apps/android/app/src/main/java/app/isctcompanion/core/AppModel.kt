@@ -72,7 +72,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
     var credentials: SchoolCredentialStatus? by mutableStateOf(null)
         private set
-    var sessions: SchoolSessionStates? by mutableStateOf(null)
+    var sessions: SchoolSessionProfiles? by mutableStateOf(null)
         private set
     /** Core's sync planner: its runs and sources, rendered as they are. */
     var syncSnapshot: SyncSnapshot? by mutableStateOf(null)
@@ -395,7 +395,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         runCatching { (session.credentialStatus().value() as? OperationResult.Credentials)?.status }
             .getOrNull()?.let { credentials = it }
         runCatching { (session.schoolSession().value() as? OperationResult.SchoolSession)?.snapshot }
-            .getOrNull()?.let { sessions = it.states }
+            .getOrNull()?.let { sessions = it.profiles }
     }
 
     /** On start and after a missed stream; `sync-snapshot` events carry every
@@ -718,12 +718,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         refresh(SyncScope.Everything)
     }
 
-    suspend fun saveCredentials(profile: SchoolAuthProfile, credentials: SchoolCredentials) {
-        val session = session ?: return
-        session.saveCredentials(profile, credentials).value()
+    /** "Save and connect": Core keeps the entered details, signs in with
+     * them and returns why the school turned them down, if it did. */
+    suspend fun connect(profile: SchoolAuthProfile, credentials: SchoolCredentials): SchoolConnectResult? {
+        val session = session ?: return null
+        val value = session.connectSchool(profile, credentials).value()
         refreshAccounts()
-        runCatching { session.ensureSchoolSession(profile) }
-        hint(Hint.SignedIn(profile))
+        return (value as? OperationResult.SchoolConnect)?.result
     }
 
     /** The saved school OTP setup as an `otpauth://` link, read only when the
@@ -875,6 +876,20 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     }
 
     companion object {
+        /** Core's sign-in failure in the person's words, then the page's own. */
+        fun reason(problem: SchoolSignInProblem): String {
+            val reason = when (problem.kind) {
+                SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("The ID or password was not accepted.")
+                SchoolSignInProblemKind.LOCKED -> t("The school locked this account.")
+                SchoolSignInProblemKind.INVALID_OTP -> t("The one-time password was not accepted.")
+                SchoolSignInProblemKind.INVALID_MATRIX -> t("The Matrix answer was not accepted.")
+                SchoolSignInProblemKind.PAGE_WARNING -> t("The sign-in page showed a warning.")
+                SchoolSignInProblemKind.NEEDS_USER -> t("This sign-in step needs you.")
+                SchoolSignInProblemKind.UNAVAILABLE -> t("The school site is not responding.")
+            }
+            return if (problem.message.isEmpty() || problem.message == reason) reason else "$reason\n${problem.message}"
+        }
+
         fun describe(error: Throwable): String {
             Log.w("isct", "core error", error)
             return when (error) {

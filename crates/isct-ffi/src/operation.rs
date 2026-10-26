@@ -32,6 +32,9 @@ pub enum OperationResult {
     SchoolWeb {
         result: SchoolWebResult,
     },
+    SchoolConnect {
+        result: SchoolConnectResult,
+    },
     Sync {
         snapshot: SyncSnapshot,
     },

@@ -21,6 +21,7 @@ import {
   type FakeCore,
   type FakeCoreOptions,
   type MountedApp,
+  schoolProfiles,
 } from "@tests/harness";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
 import type {
@@ -179,7 +180,7 @@ const saved = (overrides: Partial<Portal> = {}): Portal => ({
 
 const noSession = {
   revision: 0,
-  states: { science: "pending", tokyoTech: "pending" },
+  profiles: schoolProfiles("pending", "pending"),
 };
 
 function account(
@@ -296,7 +297,7 @@ describe("School accounts", () => {
           "School OTP is configured and saved.",
         ),
       );
-      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      expect(mounted.core.commands("connect_school")).toHaveLength(0);
       expect(mounted.core.commands("delete_school_credentials")).toHaveLength(
         0,
       );
@@ -338,13 +339,8 @@ describe("School accounts", () => {
               },
               { label: "School account", issuer: "School", setup },
             ];
-          if (command === "save_school_credentials") return true;
-          if (command === "test_school_connection")
-            return {
-              site: "science-portal",
-              url: "https://example.test",
-              phase: "login",
-            };
+          if (command === "connect_school")
+            return { state: "active", problem: null, verified: true };
           return undefined;
         },
       });
@@ -372,7 +368,7 @@ describe("School accounts", () => {
           "Choose your school account",
         ),
       );
-      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      expect(mounted.core.commands("connect_school")).toHaveLength(0);
       await clickButton(document.body, "School · School account");
       expect(
         science.querySelector<HTMLInputElement>("#school-otp-setup")!.value,
@@ -388,12 +384,12 @@ describe("School accounts", () => {
           setup,
         }),
       );
-      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      expect(mounted.core.commands("connect_school")).toHaveLength(0);
       await clickButton(science, "Connect");
       await wait(() =>
-        expect(
-          mounted.core.commands("save_school_credentials")[0].args,
-        ).toMatchObject({ credentials: { otpSecret: setup } }),
+        expect(mounted.core.commands("connect_school")[0].args).toMatchObject({
+          credentials: { otpSecret: setup },
+        }),
       );
     },
     TIMEOUT,
@@ -423,7 +419,7 @@ describe("School accounts", () => {
       const stop = vi.fn();
       await act(async () => resolveCamera({ stop }));
       await wait(() => expect(stop).toHaveBeenCalled());
-      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      expect(mounted.core.commands("connect_school")).toHaveLength(0);
     },
     TIMEOUT,
   );
@@ -465,7 +461,7 @@ describe("School accounts", () => {
   );
 
   it(
-    "saves the portal credentials before it starts the tested login",
+    "connects with the saved ID in one call that saves and signs in",
     async () => {
       const status: SchoolCredentialStatus = {
         science: saved({ username: "saved-id", hasOtp: true }),
@@ -475,38 +471,33 @@ describe("School accounts", () => {
         handle: (command) => {
           if (command === "school_credential_status") return status;
           if (command === "school_session_snapshot") return noSession;
-          if (command === "save_school_credentials") return true;
-          if (command === "test_school_connection")
+          if (command === "connect_school")
             return {
-              site: "science-portal",
-              url: "https://example.test",
-              phase: "login",
+              state: "failed",
+              problem: {
+                kind: "invalid-otp",
+                message: "The one-time password was not accepted.",
+              },
+              verified: false,
             };
           return undefined;
         },
       });
 
-      await clickButton(account(mounted, "science"), "Connect");
+      const science = account(mounted, "science");
+      await clickButton(science, "Connect");
       await wait(() =>
-        expect(mounted.core.commands("test_school_connection")).toHaveLength(1),
+        expect(mounted.core.commands("connect_school")).toHaveLength(1),
       );
-
-      const saves = mounted.core.commands("save_school_credentials");
-      expect(saves).toHaveLength(1);
-      expect(saves[0].args).toMatchObject({
+      expect(mounted.core.commands("connect_school")[0].args).toMatchObject({
         profile: "science",
         credentials: { username: "saved-id" },
       });
-      expect(
-        mounted.core.commands("test_school_connection")[0].args,
-      ).toMatchObject({
-        profile: "science",
-        credentials: { username: "saved-id" },
-      });
-
-      const order = mounted.core.calls.map((call) => call.command);
-      expect(order.indexOf("save_school_credentials")).toBeLessThan(
-        order.indexOf("test_school_connection"),
+      // Core's reason ends the checking state when no sign-in event did.
+      await wait(() =>
+        expect(science.textContent).toContain(
+          "The one-time password was not accepted.",
+        ),
       );
     },
     TIMEOUT,
@@ -523,13 +514,8 @@ describe("School accounts", () => {
         handle: (command) => {
           if (command === "school_credential_status") return status;
           if (command === "school_session_snapshot") return noSession;
-          if (command === "save_school_credentials") return true;
-          if (command === "test_school_connection")
-            return {
-              site: "science-portal",
-              url: "https://example.test",
-              phase: "login",
-            };
+          if (command === "connect_school")
+            return { state: "active", problem: null, verified: true };
           return undefined;
         },
       });
@@ -667,13 +653,8 @@ describe("School accounts", () => {
         handle: (command) => {
           if (command === "school_credential_status") return status;
           if (command === "school_session_snapshot") return noSession;
-          if (command === "save_school_credentials") return true;
-          if (command === "test_school_connection")
-            return {
-              site: "science-portal",
-              url: "https://example.test",
-              phase: "login",
-            };
+          if (command === "connect_school")
+            return { state: "active", problem: null, verified: true };
           return undefined;
         },
       });
@@ -1028,13 +1009,8 @@ describe("Matrix scan and paste", () => {
               text: "A",
               confidence: index === 0 ? 0.96 : index === 1 ? 0.82 : 0.7,
             }));
-          if (command === "save_school_credentials") return true;
-          if (command === "test_school_connection")
-            return {
-              site: "tokyo-portal",
-              url: "https://example.test",
-              phase: "login",
-            };
+          if (command === "connect_school")
+            return { state: "active", problem: null, verified: true };
           return undefined;
         },
       });
@@ -1056,19 +1032,12 @@ describe("Matrix scan and paste", () => {
       status.tokyoTech = saved({ username: "id", hasMatrix: true });
       await clickButton(card, "Connect");
       await wait(() =>
-        expect(mounted.core.commands("save_school_credentials")).toHaveLength(
-          1,
-        ),
+        expect(mounted.core.commands("connect_school")).toHaveLength(1),
       );
-      expect(
-        mounted.core.commands("save_school_credentials")[0].args,
-      ).toMatchObject({
+      expect(mounted.core.commands("connect_school")[0].args).toMatchObject({
         profile: "tokyo-tech",
         credentials: { matrix: "A".repeat(70) },
       });
-      expect(
-        mounted.core.commands("test_school_connection").length,
-      ).toBeGreaterThan(0);
 
       // A saved Matrix keeps its 7×10 shape with every letter and confidence
       // hidden; typing over a cell is how it is replaced.
@@ -1128,7 +1097,7 @@ describe("Matrix scan and paste", () => {
       await wait(() =>
         expect(document.body.textContent).toContain("Fill all 70 matrix cells"),
       );
-      expect(mounted.core.commands("save_school_credentials")).toHaveLength(0);
+      expect(mounted.core.commands("connect_school")).toHaveLength(0);
       // The readable cell survives the refusal.
       expect(matrixInput(card, 0).value).toBe("L");
       expect(
@@ -1149,7 +1118,7 @@ describe("Matrix scan and paste", () => {
           if (command === "school_session_snapshot") return noSession;
           if (command === "recognize_matrix_image")
             return recognitions("C", 0.94);
-          if (command === "save_school_credentials")
+          if (command === "connect_school")
             throw new Error("Vault unavailable");
           return undefined;
         },

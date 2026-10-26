@@ -138,20 +138,6 @@ impl Session {
             Ok(OperationResult::Done)
         })
     }
-    pub fn ensure_school_session(
-        &self,
-        profile: SchoolAuthProfile,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.start(false, move |i, _| async move {
-            Ok(OperationResult::Flag {
-                value: i
-                    .core
-                    .school_browser()?
-                    .ensure_session(project_input(profile)?)
-                    .await?,
-            })
-        })
-    }
     pub fn school_browsing(&self, site: Option<SchoolSite>) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             i.core

@@ -1366,7 +1366,7 @@
   "Checking": "確認中",
   "Student ID": "学籍番号",
   "Password (enter only to change)": "パスワード（変更する場合のみ）",
-  "The password is saved in this device’s Keychain and shared with the desktop app through iCloud Keychain.": "パスワードはこの端末のキーチェーンに保存され、iCloud キーチェーンでデスクトップ版と共有されます。",
+  "The password is saved in this device’s Keychain. Once the school accepts it, iCloud Keychain shares it with the desktop app.": "パスワードはこの端末のキーチェーンに保存されます。学校で受け付けられると、iCloud キーチェーンでデスクトップ版と共有されます。",
   "One-time password": "ワンタイムパスワード",
   "Save and connect": "保存して接続",
   "Remove sign-in details from this device": "この端末からログイン情報を削除",
@@ -1636,5 +1636,14 @@
   "Published now: {{value}}": "現在の公式：{{value}}",
   "When you edited: {{value}}": "修正時の公式：{{value}}",
   "Count quizzes as exams": "小テストを試験として扱う",
-  "Quizzes appear in upcoming exams and get exam reminders.": "小テストを今後の試験に表示し、試験と同じ通知を送ります。"
+  "Quizzes appear in upcoming exams and get exam reminders.": "小テストを今後の試験に表示し、試験と同じ通知を送ります。",
+  "The ID or password was not accepted.": "IDまたはパスワードが受け付けられませんでした。",
+  "The school locked this account.": "学校がこのアカウントをロックしました。",
+  "The one-time password was not accepted.": "ワンタイムパスワードが受け付けられませんでした。",
+  "The Matrix answer was not accepted.": "マトリクスの回答が受け付けられませんでした。",
+  "The sign-in page showed a warning.": "ログインページに警告が表示されました。",
+  "This sign-in step needs you.": "このログイン手順は手動で行ってください。",
+  "Automatic sign-in waits until you change these details.": "この情報を変更するまで自動ログインは行いません。",
+  "Automatic sign-in tries again shortly.": "まもなく自動ログインを再試行します。",
+  "Sign-in failed: {{reason}}": "ログインに失敗しました：{{reason}}"
 }
