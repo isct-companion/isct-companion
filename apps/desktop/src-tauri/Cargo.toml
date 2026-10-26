@@ -1,6 +1,6 @@
 [package]
 name = "isct-companion"
-version = "1.2.1"
+version = "1.2.2"
 description = "IsctCompanion desktop shell"
 authors = ["IsctCompanion contributors"]
 edition = "2021"
