@@ -1,10 +1,12 @@
 use super::policy::{browsing_url, is_identity_login, is_login_step, sanitize_school_url};
 use super::{
     assets::SCHOOL_LOGIN, ActionId, BrowserAction, BrowserCommand, BrowserError, BrowserId,
-    LoadFailed, NavigationDecision, NewWindowDecision, PageId, PageLoaded, SchoolBrowser,
-    SchoolBrowserError, SchoolBrowserListener, SchoolLoginEvent, SchoolPageCustomization,
-    SchoolSessionEvent, SchoolSessionLifecycle, SchoolSessionLifecycleKind, SchoolSessionSnapshot,
-    SchoolSessionState, SchoolSessionStates, SchoolWebResult,
+    LoadFailed, NavigationDecision, NewWindowDecision, PageId, PageLoaded, SchoolAutoSignIn,
+    SchoolBrowser, SchoolBrowserError, SchoolBrowserListener, SchoolConnectResult,
+    SchoolLoginEvent, SchoolPageCustomization, SchoolProfileSession, SchoolSessionEvent,
+    SchoolSessionLifecycle, SchoolSessionLifecycleKind, SchoolSessionProfiles,
+    SchoolSessionSnapshot, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind,
+    SchoolWebResult,
 };
 use crate::{
     data::WorkspaceChangeSource,
@@ -91,7 +93,9 @@ struct State {
     views: HashMap<SchoolSite, ViewState>,
     browsing: Option<SchoolSite>,
     login: Option<ActiveLogin>,
-    auto_blocked: HashSet<SchoolAuthProfile>,
+    /// The last failed sign-in per profile and what automatic sign-in does
+    /// about it; cleared by a successful sign-in or a credential change.
+    sign_in: HashMap<SchoolAuthProfile, SignInRecord>,
     sessions: HashMap<SchoolAuthProfile, SchoolSessionState>,
     kyomu_maintenance: Option<String>,
     revision: u64,
@@ -592,23 +596,7 @@ impl Inner {
         }
         if let Some(active) = login {
             if login_succeeded(event.url.as_str(), active.profile) {
-                {
-                    let mut state = self.state.guard();
-                    if state
-                        .login
-                        .as_ref()
-                        .is_some_and(|login| login.run == active.run)
-                    {
-                        state.login = None;
-                        state.auto_blocked.remove(&active.profile);
-                    }
-                }
-                let _ = self.events.emit(CoreEvent::SchoolLogin(SchoolLoginEvent {
-                    profile: active.profile,
-                    state: "connected".into(),
-                    message: "Connected".into(),
-                }));
-                self.set_session_from_inner(active.profile, SchoolSessionState::Active);
+                self.finish_login(active);
             } else if let Some(script) = login_script(event.url.as_str(), &active, &auth_relay) {
                 let _ = self.dispatch_eval(event.page.browser, script, true);
             }

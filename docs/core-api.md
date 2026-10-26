@@ -237,8 +237,9 @@ The desktop manages one `Arc<Core>`. Its compatibility `DataStore` and auth stat
 entries are clones of those same services, not additional coordinators.
 
 `Core::services(events, executor, exporter)` creates operation-scoped ports for
-school, references and scheduling. `Core::{save_credentials,delete_credentials}` also notify the attached browser
-engine; shells do not repeat this orchestration. `Core::workspace_records(changes)`
+school, references and scheduling. `Core::connect_school` keeps entered credentials as a device-local candidate,
+lifts any automatic sign-in pause and signs in; `Core::delete_credentials` also
+notifies the attached browser engine. Shells do not repeat this orchestration. `Core::workspace_records(changes)`
 returns the snapshot fields a set of change names feed. `Core::attach_school_browser` installs the single Core-owned
 login/session/extraction engine over a native `SchoolBrowser` port. Its callback
 identity and lifecycle contracts are documented in

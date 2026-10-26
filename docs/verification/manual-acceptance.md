@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 110 checks must be re-run before the next release.**
+**10 of 113 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**100 checks have never been run or could not be run:**
+**103 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -132,6 +132,9 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-NATIVE-CHROME` — never verified
 - `DESKTOP-EXAM-MARKS` — never verified
 - `SCHOOL-COURSE-AFTER-ENROLMENT` — never verified
+- `IOS-SIGNIN-REASON-AND-RETRY` — never verified
+- `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
+- `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
 
 ## Status
 
@@ -247,6 +250,9 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
 | `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/exams/ExamEditor.tsx<br>apps/desktop/src/app/notify.ts<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
 | `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/sync_engine/planner.rs<br>crates/isct-core/src/sync_engine/runner.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>apps/desktop/src/app/sync-text.ts |
+| `IOS-SIGNIN-REASON-AND-RETRY` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>crates/isct-core/src/school_browser/assets/school-login.js |
+| `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
+| `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/school_auth/otp_enrollment.rs<br>crates/isct-core/src/school_browser/engine/login.rs |
 
 ## Personas
 
@@ -6597,5 +6603,177 @@ covered by Core's sync_engine and lms_ingest tests.
 - `crates/isct-core/src/sync_engine/runner.rs`
 - `crates/isct-core/src/school_browser/engine/pull.rs`
 - `apps/desktop/src/app/sync-text.ts`
+
+**Last recorded** never run
+
+### iPad names why sign-in failed, and a corrected OTP signs in without the web tab (`IOS-SIGNIN-REASON-AND-RETRY`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The iPad app built from this commit on a physical iPad, a live Science
+Tokyo account whose password and authenticator are at hand, and a second
+valid-looking TOTP secret that is not registered with the school (any
+authenticator test secret). No school web session: sign out of the
+school in the ウェブ tab or wait for the session to expire.
+
+**Steps**
+
+1. Open 設定 → 学校アカウント → Science Tokyo, keep the student ID and
+   password, replace the OTP setup with the unregistered secret and tap
+   保存して接続.
+   - *Why:* The page must wait for Core's sign-in and stay open with the reason
+     (ワンタイムパスワードが受け付けられませんでした plus the school's own
+     words), not close and leave only ログインに失敗しました. Closing at
+     once means the shell still saves and hopes instead of connecting.
+2. Go back to 設定 and read the Science Tokyo row, then reopen the
+   account page.
+   - *Why:* The row shows ログインに失敗しました：<reason>, and the page shows the
+     same reason with whether automatic sign-in retries shortly or waits.
+     A bare "Sign-in failed" means the snapshot's problem never reached
+     the shell.
+3. Paste the real OTP setup, tap 保存して接続, then open ウェブ → LMS
+   without signing in by hand.
+   - *Why:* The connect must lift the pause the bad code left: before, one
+     failure blocked automatic sign-in until the app quit, and only a
+     manual sign-in on the web tab got in.
+4. Background the app until the school session expires (or sign out on
+   the school page), return to it, and open LMS again.
+   - *Why:* The hidden session check must sign in again on its own with the
+     corrected credentials, which is where the old block resurfaced.
+
+**Where to look**
+
+The Science Tokyo account page and its row in 設定, and the LMS page in
+the ウェブ tab.
+
+**Expected**
+
+A wrong code keeps the page open with a named reason; the row shows the
+reason. After the corrected code the account signs in from 設定, and LMS
+opens signed in, now and after the session expires, without ever typing
+on a school page.
+
+**Why this is manual**
+
+Needs the live Extic identity provider, a real account and OTP window,
+and the iPad's WKWebView. The retry policy and the lifting of a pause
+are covered by Core's school_browser tests; what remains is the live
+school's answer and the native page a person reads.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+- `crates/isct-core/src/school_browser/assets/school-login.js`
+
+**Last recorded** never run
+
+### Credentials typed wrong on iPad never reach the Mac (`SCHOOL-CREDENTIALS-VERIFIED-SYNC`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A signed Mac app and the iPad app from this commit, both signed in to
+the same Apple Account with iCloud Keychain on, and the Science Tokyo
+account connected and working on both.
+
+**Steps**
+
+1. On the iPad, change the password to a wrong one in 設定 → 学校アカウント
+   → Science Tokyo and tap 保存して接続. Wait for the reason.
+   - *Why:* The wrong password stays a device-local candidate. Before, saving
+     wrote it into the synchronized Keychain item at once, so every
+     device started submitting it.
+2. Wait five minutes with both apps open, then on the Mac quit and
+   reopen the app and open the LMS in the Web page.
+   - *Why:* iCloud Keychain needs time to sync; the Mac must still sign in with
+     the old, working password because nothing was promoted.
+3. On the iPad, enter the correct password and tap 保存して接続 so the
+   school accepts it.
+   - *Why:* Only a sign-in that submitted the password and the code and reached
+     the school promotes credentials to the synchronized item.
+
+**Where to look**
+
+The Mac's Settings → School accounts badge and its LMS page; the iPad's
+account page.
+
+**Expected**
+
+The Mac stays signed in with the working password the whole time and
+never shows a failed sign-in caused by the iPad's typo.
+
+**Why this is manual**
+
+iCloud Keychain sync between two signed apps on real Apple devices
+cannot run in CI. Promotion and the sync payload are covered by Core's
+school_auth and school_browser tests.
+
+**Covers**
+
+- `crates/isct-core/src/school_auth.rs`
+- `crates/isct-core/src/ports.rs`
+- `apps/ios/IsctCompanion/Core/KeychainVault.swift`
+- `apps/desktop/src-tauri/src/secrets.rs`
+
+**Last recorded** never run
+
+### A new OTP set on the Mac is used on iPad without restarting the app (`SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Same pair of devices as SCHOOL-CREDENTIALS-VERIFIED-SYNC, with an OTP
+change the account owner authorizes (re-registering App OTP at the
+school), and the iPad app left running in the background.
+
+**Steps**
+
+1. On the Mac, register a new App OTP (Settings → School accounts →
+   Science Tokyo, let the app set it up) and confirm the Mac signs in
+   with it.
+   - *Why:* The new secret is verified on the Mac and written to the
+     synchronized item; the old secret stops working at the school.
+2. Wait for iCloud Keychain, then bring the iPad app to the front
+   without quitting it, and open LMS after the school session expired.
+   - *Why:* The running iPad process must re-read the Keychain and sign in with
+     the new secret. Before, it kept the old one in memory until it was
+     killed, and saving only a password there could even write the old
+     secret back to iCloud.
+3. On the iPad, change only the password field (to the same password)
+   and tap 保存して接続; then check the Mac still signs in.
+   - *Why:* Blank fields fill from the freshest Keychain value, never from a
+     stale copy, so the Mac's new OTP survives an edit on the iPad.
+
+**Where to look**
+
+The iPad's LMS page and Science Tokyo row; the Mac's sign-in badge.
+
+**Expected**
+
+The iPad signs in with the new OTP without a relaunch, and after its own
+save the Mac still signs in with the new OTP.
+
+**Why this is manual**
+
+Needs the live school OTP registration and iCloud Keychain sync between
+real devices. Re-reading a changed vault item is covered by Core's
+school_auth tests.
+
+**Covers**
+
+- `crates/isct-core/src/school_auth.rs`
+- `crates/isct-core/src/school_auth/otp_enrollment.rs`
+- `crates/isct-core/src/school_browser/engine/login.rs`
 
 **Last recorded** never run

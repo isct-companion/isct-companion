@@ -50,13 +50,13 @@ apps/ios, apps/android  Native mobile shells over the Core FFI (crates/isct-ffi)
 
 School sync (hints in, one snapshot out) is described in [`school-refresh.md`](school-refresh.md).
 
-| Layer | Owner | Responsibilities |
-|---|---|---|
-| Intent and policy | Core | launch checks, TTL, academic year, debounce, admission policy |
-| Pull coordination | Core | exact-key joining, priority, lanes, cancellation, retry, snapshots |
-| Domain executors | Core | reference materialization, school session/extraction orchestration, persistence |
-| Platform mechanisms | Shell ports | WebView operations, secure storage, CloudKit, lifecycle facts, OS wakeups |
-| Presentation | Shell | rendering, layout, localization, user intents, cached core read models |
+| Layer               | Owner       | Responsibilities                                                                |
+| ------------------- | ----------- | ------------------------------------------------------------------------------- |
+| Intent and policy   | Core        | launch checks, TTL, academic year, debounce, admission policy                   |
+| Pull coordination   | Core        | exact-key joining, priority, lanes, cancellation, retry, snapshots              |
+| Domain executors    | Core        | reference materialization, school session/extraction orchestration, persistence |
+| Platform mechanisms | Shell ports | WebView operations, secure storage, CloudKit, lifecycle facts, OS wakeups       |
+| Presentation        | Shell       | rendering, layout, localization, user intents, cached core read models          |
 
 Keep domain-specific state machines for school sessions/navigation and cloud
 sync where they describe different resources and outcomes. They belong in
@@ -99,7 +99,7 @@ Preserve these contracts:
 ## Rules for the consolidated code
 
 1. **Core decides, shells render.** A conditional in TS, Swift or Kotlin that
-   decides *what* the data means (due, stale, merged, valid) belongs in core.
+   decides _what_ the data means (due, stale, merged, valid) belongs in core.
 2. **Platform capabilities are ports.** Core defines a trait; each shell
    implements it. Core never names a shell type.
 3. **Native differences at compile time.** Inside core use `#[cfg(...)]`;
@@ -287,20 +287,20 @@ until the frontend is updated to read the typed form.
 Group the ~90 commands into services on `Core`. Tauri commands and UniFFI
 exports both call these.
 
-| Service | Current commands (examples) |
-|---|---|
-| `workspace` | `load_workspace`, `put_user_record`, `delete_user_record`, `put_workspace_setting`, `export_data`, `import_data` |
-| `reset` | `reset_caches`, `reset_caches_preview` (`Core::reset`: one lease, admission gate, generation) |
-| `catalog` | `catalog_*`, `preview_plan_recurrence` |
-| `sync` | `sync_hint`, `sync_snapshot` (the planner decides every school and reference read) |
-| `school` | `school_records`, `login_school`, `ensure_school_session`, credentials, `set_kyomu_guide`, `test_school_connection` |
-| `school_browser` | `open_school_site`, `navigate/back/forward/reload_school_web`, `set_school_web_zoom`, `resolve_school_url` (layout commands stay in the shell) |
-| `course_files` | `course_storage_info`, `*_course_note*`, `open_course_*`, `clean_course_materials` |
-| `workspaces` (desktop cfg) | `assignment_workspace`, `*_workspace*` |
-| `cloud` | `cloud_*`, `connect/disconnect_cloud`, credential sync |
-| `scheduler` | `run_scheduled_task`, `write_scheduled_export`, `tick` |
-| `ocr` | `recognize_matrix_image` |
-| `agent` | `agent_command` |
+| Service                    | Current commands (examples)                                                                                                                    |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace`                | `load_workspace`, `put_user_record`, `delete_user_record`, `put_workspace_setting`, `export_data`, `import_data`                               |
+| `reset`                    | `reset_caches`, `reset_caches_preview` (`Core::reset`: one lease, admission gate, generation)                                                  |
+| `catalog`                  | `catalog_*`, `preview_plan_recurrence`                                                                                                         |
+| `sync`                     | `sync_hint`, `sync_snapshot` (the planner decides every school and reference read)                                                             |
+| `school`                   | `school_records`, `connect_school`, credentials, `set_kyomu_guide`                                                                             |
+| `school_browser`           | `open_school_site`, `navigate/back/forward/reload_school_web`, `set_school_web_zoom`, `resolve_school_url` (layout commands stay in the shell) |
+| `course_files`             | `course_storage_info`, `*_course_note*`, `open_course_*`, `clean_course_materials`                                                             |
+| `workspaces` (desktop cfg) | `assignment_workspace`, `*_workspace*`                                                                                                         |
+| `cloud`                    | `cloud_*`, `connect/disconnect_cloud`, credential sync                                                                                         |
+| `scheduler`                | `run_scheduled_task`, `write_scheduled_export`, `tick`                                                                                         |
+| `ocr`                      | `recognize_matrix_image`                                                                                                                       |
+| `agent`                    | `agent_command`                                                                                                                                |
 
 Desktop-only system integrations stay in `apps/desktop/src-tauri` as shell code:
 `school_webkit`, `set_school_web_bounds`, `hide_school_web`,

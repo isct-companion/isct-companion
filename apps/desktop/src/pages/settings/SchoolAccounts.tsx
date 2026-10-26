@@ -535,11 +535,29 @@ function Account({
     setConnection({ state: "checking", step: "", message: "" });
     armTimeout();
     try {
-      await desktopBridge.saveSchoolCredentials(profile, nextCredentials);
+      const result = await desktopBridge.connectSchool(
+        profile,
+        nextCredentials,
+      );
       setDraft({ ...emptyDraft(), username: draft.username.trim() });
       setMatrixReplacing(false);
       await refresh();
-      await desktopBridge.testSchoolConnection(profile, nextCredentials);
+      // The sign-in events already showed the school's own words; a result
+      // they did not cover still ends the checking state.
+      if (result.state !== "active" && result.problem?.kind !== "needs-user") {
+        if (timeout.current) window.clearTimeout(timeout.current);
+        started.current = false;
+        setConnection((current) =>
+          current.state === "checking" || current.state === "progress"
+            ? {
+                state: result.state === "maintenance" ? "maintenance" : "error",
+                step: current.step,
+                message: result.problem?.message ?? t("Sign-in failed"),
+              }
+            : current,
+        );
+        setBusy(false);
+      }
     } catch (error) {
       if (timeout.current) window.clearTimeout(timeout.current);
       started.current = false;

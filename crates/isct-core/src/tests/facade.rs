@@ -128,8 +128,9 @@ async fn credential_mutations_work_without_a_school_browser() {
     let core = Core::new(store, auth.clone());
     let profile = SchoolAuthProfile::TokyoTech;
 
-    assert!(core
-        .save_credentials(
+    // Connecting needs the browser to sign in, but keeps what was entered.
+    assert!(matches!(
+        core.connect_school(
             profile,
             SchoolCredentials {
                 username: "student".into(),
@@ -138,7 +139,9 @@ async fn credential_mutations_work_without_a_school_browser() {
                 matrix: "A".repeat(70),
             },
         )
-        .unwrap());
+        .await,
+        Err(CredentialMutationError::Browser(_))
+    ));
     assert!(auth.load(profile).unwrap().is_some());
     assert!(core.delete_credentials(profile).unwrap());
     assert!(auth.load(profile).unwrap().is_none());

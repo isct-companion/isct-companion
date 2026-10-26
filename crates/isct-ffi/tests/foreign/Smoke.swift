@@ -105,7 +105,7 @@ func require(_ condition: Bool, _ detail: String) throws {
 
         let credentials = SchoolCredentials(username: "fixture", password: "not-a-real-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
         vault.blockNextStore()
-        let cancelledOperation = try session.saveCredentials(profile: .tokyoTech, credentials: credentials)
+        let cancelledOperation = try session.connectSchool(profile: .tokyoTech, credentials: credentials)
         try require(vault.waitUntilStoreBlocked(), "Credential save did not reach the vault")
         try cancelledOperation.detach()
         do {
@@ -123,9 +123,14 @@ func require(_ condition: Bool, _ detail: String) throws {
             case .pending:
                 try require(completionClock.now < completionDeadline, "Detached credential save did not settle")
                 await Task.yield()
-            case let .completed(result):
-                guard case let .flag(value) = result else { throw NSError(domain: "cancelled-operation-result", code: 1) }
-                try require(value, "Detached credential save did not complete")
+            case .completed:
+                throw NSError(domain: "cancelled-operation-result", code: 1)
+            // No school browser here: connecting keeps the credentials, then cannot sign in.
+            case .failed(SdkError.Unavailable):
+                guard case let .credentials(status) = try await session.credentialStatus().value() else {
+                    throw NSError(domain: "credential-status", code: 1)
+                }
+                try require(status.tokyoTech.saved, "Detached credential save did not complete")
                 break operationCompletion
             case let .failed(error):
                 throw error
@@ -138,10 +143,13 @@ func require(_ condition: Bool, _ detail: String) throws {
         let updatedCredentials = SchoolCredentials(username: "fixture", password: "changed-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
         vault.failNextStore()
         do {
-            _ = try await session.saveCredentials(profile: .tokyoTech, credentials: updatedCredentials).value()
+            _ = try await session.connectSchool(profile: .tokyoTech, credentials: updatedCredentials).value()
             throw NSError(domain: "missing-callback-error", code: 1)
         } catch SdkError.Callback { }
-        _ = try await session.saveCredentials(profile: .tokyoTech, credentials: updatedCredentials).value()
+        do {
+            _ = try await session.connectSchool(profile: .tokyoTech, credentials: updatedCredentials).value()
+            throw NSError(domain: "missing-browser-error", code: 1)
+        } catch SdkError.Unavailable { }
         _ = try await session.deleteCredentials(profile: .tokyoTech).value()
         let stream = try session.subscribe()
         guard case let .workspace(first) = try await session.snapshot().value() else { throw NSError(domain:"snapshot",code:1) }

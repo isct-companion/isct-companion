@@ -27,6 +27,13 @@ pub trait SecretVault: Send + Sync {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError>;
     fn load(&self, account: &str) -> Result<Option<String>, SecretError>;
     fn delete(&self, account: &str) -> Result<(), SecretError>;
+    /// Whether another device can replace `account` while this process runs
+    /// (iCloud Keychain). Only such an item is read again after the first
+    /// read: on the macOS login keychain each read of an item another build
+    /// wrote asks the person for their password.
+    fn shared(&self, _account: &str) -> bool {
+        false
+    }
 }
 
 /// Keychain service every shell stores its secrets under.
@@ -49,8 +56,7 @@ pub struct VaultItem {
 pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
     let suffix = match account {
         "school-accounts" => "passwords.school-accounts",
-        "school-science" => "passwords.isct-portal",
-        "school-tokyo-tech" => "passwords.titech-portal",
+        "school-candidates" => "passwords.school-candidates",
         "google-drive" => "passwords.google-drive",
         "onedrive" => "passwords.onedrive",
         "icloud" => "passwords.icloud",
@@ -65,9 +71,6 @@ pub fn vault_item(account: &str) -> Result<VaultItem, SecretError> {
     Ok(VaultItem {
         service: VAULT_SERVICE,
         key: vault_key(VAULT_SERVICE, account)?,
-        synchronized: matches!(
-            account,
-            "school-accounts" | "school-science" | "school-tokyo-tech"
-        ),
+        synchronized: account == "school-accounts",
     })
 }

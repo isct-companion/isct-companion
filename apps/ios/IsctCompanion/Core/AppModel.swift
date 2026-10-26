@@ -30,7 +30,7 @@ final class AppModel {
         didSet { Localizer.shared.use(records.settings.text("locale")) }
     }
     private(set) var credentials: SchoolCredentialStatus?
-    private(set) var sessions: SchoolSessionStates?
+    private(set) var sessions: SchoolSessionProfiles?
     /// Core's sync planner: what runs, waits or failed, and when each source
     /// was last read. Rendered as is; Core decides what is due and when.
     private(set) var syncSnapshot: SyncSnapshot?
@@ -374,7 +374,7 @@ final class AppModel {
             credentials = status
         }
         if case let .schoolSession(snapshot)? = try? await session.schoolSession().value() {
-            sessions = snapshot.states
+            sessions = snapshot.profiles
         }
     }
 
@@ -589,12 +589,29 @@ final class AppModel {
         syncHint(.refresh(scope: .everything))
     }
 
-    func saveCredentials(_ profile: SchoolAuthProfile, _ credentials: SchoolCredentials) async throws {
-        guard let session else { return }
-        _ = try await session.saveCredentials(profile: profile, credentials: credentials).value()
+    /// "Save and connect": Core keeps the entered details, signs in with
+    /// them and returns why the school turned them down, if it did.
+    func connect(_ profile: SchoolAuthProfile, _ credentials: SchoolCredentials) async throws -> SchoolConnectResult? {
+        guard let session else { return nil }
+        let value = try await session.connectSchool(profile: profile, credentials: credentials).value()
         await refreshAccounts()
-        _ = try? session.ensureSchoolSession(profile: profile)
-        syncHint(.signedIn(profile: profile))
+        guard case let .schoolConnect(result) = value else { return nil }
+        return result
+    }
+
+    /// Core's sign-in failure in the person's words, then the page's own.
+    static func reason(_ problem: SchoolSignInProblem) -> String {
+        let reason: String
+        switch problem.kind {
+        case .invalidCredentials: reason = t("The ID or password was not accepted.")
+        case .locked: reason = t("The school locked this account.")
+        case .invalidOtp: reason = t("The one-time password was not accepted.")
+        case .invalidMatrix: reason = t("The Matrix answer was not accepted.")
+        case .pageWarning: reason = t("The sign-in page showed a warning.")
+        case .needsUser: reason = t("This sign-in step needs you.")
+        case .unavailable: reason = t("The school site is not responding.")
+        }
+        return problem.message.isEmpty || problem.message == reason ? reason : "\(reason)\n\(problem.message)"
     }
 
     /// The saved school OTP setup as an `otpauth://` link, read only when the

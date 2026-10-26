@@ -98,6 +98,11 @@
       .replace(/=+$/, "");
   };
 
+  // Steps this run filled in and submitted, on any page. Core trusts a
+  // success to prove the saved credentials only when the school saw them all.
+  const submitted = () =>
+    Object.keys(LIMITS).filter((step) => (attempts()[step] || 0) > 0);
+
   // Reports go through the title, not a navigation, so they can never cancel
   // the page's own form POST or redirect.
   const relay = (state, message) => {
@@ -109,6 +114,7 @@
         seq: ++sequence,
         state,
         message,
+        submitted: submitted(),
       });
   };
 
@@ -228,10 +234,15 @@
   const science = () => {
     const login = document.querySelector("form#login");
     if (login) {
+      // A warning answers what this run submitted: the password, or the ID
+      // before it. One shown before either is the page's own notice; Core
+      // retries that later instead of treating it as wrong credentials.
       const warning = login.querySelector(".message.warning");
       if (shown(warning))
         return report(
-          attempts().password ? "invalid-credentials" : "error",
+          attempts().password || attempts().identifier
+            ? "invalid-credentials"
+            : "error",
           text(warning),
         );
       if (!shown(login)) {
@@ -262,8 +273,10 @@
 
     const totpForm = document.querySelector("form#totp-form");
     if (!totpForm) return;
+    // Only a warning after this run sent a code says the code was wrong.
     const warning = totpForm.querySelector(".message.warning");
-    if (shown(warning)) return report("invalid-otp", text(warning));
+    if (shown(warning))
+      return report(attempts().otp ? "invalid-otp" : "error", text(warning));
     const otp = otpNow();
     if (shown(totpForm)) {
       if (otp.wait) {

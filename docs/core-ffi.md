@@ -85,16 +85,16 @@ before work is admitted. `awaitResult()` returns a typed `OperationResult`;
 
 ## Services
 
-| Surface               | Main methods                                                                                                                            |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace/read models | `snapshot`, `mutate`, `scheduleQuery`, `finderQuery`                                                                                    |
-| Accounts              | `credentialStatus`, `saveCredentials`, `deleteCredentials`                                                                              |
-| School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `ensureSchoolSession`, `schoolBrowsing`, navigation/back/forward/reload, `pullSchool` |
-| References/pulls      | `refreshReferences`, `pullState`, `cancelPull`                                                                                          |
-| Files/notes           | `openMaterial`, `cleanMaterials`, `saveNote`, `readNote`, `listNotes`, `parseLmsResource`                                               |
-| Backup/cloud          | `exportBackup`, `applyBackup`, `cloudState`, `syncCloud`, `setCloudEnabled`, `setCloudAutomatic`, `restoreCloud`                        |
-| Lifecycle             | `lifecycle`, `suspend`, `resume`, `wake`, `shutdown`                                                                                    |
-| Optional OCR          | `capabilities`, `prepareScanner`, `scanMatrix`                                                                                          |
+| Surface               | Main methods                                                                                                     |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Workspace/read models | `snapshot`, `mutate`, `scheduleQuery`, `finderQuery`                                                             |
+| Accounts              | `credentialStatus`, `connectSchool`, `deleteCredentials`                                                         |
+| School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `schoolBrowsing`, navigation/back/forward/reload, `pullSchool` |
+| References/pulls      | `refreshReferences`, `pullState`, `cancelPull`                                                                   |
+| Files/notes           | `openMaterial`, `cleanMaterials`, `saveNote`, `readNote`, `listNotes`, `parseLmsResource`                        |
+| Backup/cloud          | `exportBackup`, `applyBackup`, `cloudState`, `syncCloud`, `setCloudEnabled`, `setCloudAutomatic`, `restoreCloud` |
+| Lifecycle             | `lifecycle`, `suspend`, `resume`, `wake`, `shutdown`                                                             |
+| Optional OCR          | `capabilities`, `prepareScanner`, `scanMatrix`                                                                   |
 
 Core decides due work. The shell supplies network/foreground/browser facts,
 periodic wakeups, and native background opportunities. Suspend/resume uses the

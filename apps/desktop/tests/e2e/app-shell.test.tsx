@@ -32,6 +32,7 @@ import {
   type Mounted,
   type MountedApp,
   type QueryTable,
+  schoolProfiles,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
 import { notify } from "@app/app/notify";
@@ -173,7 +174,7 @@ const baseHandle: Handle = (command, args) => {
     case "school_session_snapshot":
       return {
         revision: 0,
-        states: { science: "pending", tokyoTech: "pending" },
+        profiles: schoolProfiles("pending", "pending"),
       };
     default:
       return undefined;

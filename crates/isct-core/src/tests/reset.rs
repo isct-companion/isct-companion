@@ -179,7 +179,7 @@ fn seed(fixture: &Fixture) {
         .unwrap();
     fixture
         .auth
-        .save(
+        .stage(
             SchoolAuthProfile::TokyoTech,
             SchoolCredentials {
                 username: "student".into(),

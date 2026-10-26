@@ -70,15 +70,70 @@ pub struct SchoolSessionEvent {
 #[serde(rename_all = "camelCase")]
 pub struct SchoolSessionSnapshot {
     pub revision: u64,
-    pub states: SchoolSessionStates,
+    pub profiles: SchoolSessionProfiles,
     pub kyomu_maintenance: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SchoolSessionStates {
-    pub science: SchoolSessionState,
-    pub tokyo_tech: SchoolSessionState,
+pub struct SchoolSessionProfiles {
+    pub science: SchoolProfileSession,
+    pub tokyo_tech: SchoolProfileSession,
+}
+
+/// One school account's session as shells render it: the state, why the
+/// last sign-in failed, and whether Core will sign in on its own.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolProfileSession {
+    pub state: SchoolSessionState,
+    pub problem: Option<SchoolSignInProblem>,
+    pub auto: SchoolAutoSignIn,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolSignInProblem {
+    pub kind: SchoolSignInProblemKind,
+    /// The school page's own words, or Core's when the page said nothing.
+    pub message: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SchoolSignInProblemKind {
+    InvalidCredentials,
+    Locked,
+    InvalidOtp,
+    InvalidMatrix,
+    /// The sign-in page showed a warning this run did not cause.
+    PageWarning,
+    NeedsUser,
+    /// The page did not answer in time or the view went away.
+    Unavailable,
+}
+
+/// Whether the hidden session check and visible pages may sign in with the
+/// saved credentials.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SchoolAutoSignIn {
+    #[default]
+    Allowed,
+    /// Tried again once a later one-time-password window has started.
+    RetryLater,
+    /// Waits for new credentials: from Settings, a connect, or another device.
+    Paused,
+}
+
+/// What `Core::connect_school` ended with. `verified` says the school accepted
+/// exactly these credentials in this run, so they now sync to other devices.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchoolConnectResult {
+    pub state: SchoolSessionState,
+    pub problem: Option<SchoolSignInProblem>,
+    pub verified: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

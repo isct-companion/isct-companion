@@ -90,7 +90,7 @@ impl SchoolCookiePort for NativeSession {
             .and_then(|engine| engine.session_snapshot())
             .map_err(|_| unavailable("state is unavailable"))?;
         use isct_core::school_browser::SchoolSessionState;
-        Ok(match snapshot.states.science {
+        Ok(match snapshot.profiles.science.state {
             SchoolSessionState::Active => SessionState::Active,
             SchoolSessionState::Pending => SessionState::Pending,
             SchoolSessionState::Maintenance => return Err(unavailable("is under maintenance")),

@@ -23,9 +23,12 @@ fun main(args:Array<String>) = runBlocking {
     check(schoolBrowserInitialization().isNotEmpty())
     val credentials=SchoolCredentials("fixture","not-a-real-password","","A".repeat(70))
     vault.failNextStore()
-    try {session.saveCredentials(SchoolAuthProfile.TOKYO_TECH,credentials).value();error("Missing callback error")}
+    try {session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value();error("Missing callback error")}
     catch(_:SdkException.Callback) {}
-    session.saveCredentials(SchoolAuthProfile.TOKYO_TECH,credentials).value()
+    // No school browser here: connecting keeps the credentials, then cannot sign in.
+    try {session.connectSchool(SchoolAuthProfile.TOKYO_TECH,credentials).value();error("Missing browser error")}
+    catch(_:SdkException.Unavailable) {}
+    check((session.credentialStatus().value() as OperationResult.Credentials).status.tokyoTech.saved)
     session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value()
     val stream=session.subscribe()
     val first=(session.snapshot().value() as OperationResult.Workspace).snapshot

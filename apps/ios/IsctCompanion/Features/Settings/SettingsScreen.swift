@@ -219,12 +219,15 @@ struct SettingsScreen: View {
     }
 
     private func accountRow(
-        _ name: String, _ credential: CredentialSummary?, _ session: SchoolSessionState?, _ lastRun: String?
+        _ name: String, _ credential: CredentialSummary?, _ session: SchoolProfileSession?, _ lastRun: String?
     ) -> some View {
         let connected = credential?.availability == .available || credential?.availability == .savedLocked
         let state: (String, Color) = {
             guard connected else { return (t("Not connected"), Theme.muted) }
-            switch session {
+            if session?.state == .failed, let problem = session?.problem {
+                return (t("Sign-in failed: {{reason}}", ["reason": AppModel.reason(problem).components(separatedBy: "\n")[0]]), Theme.danger)
+            }
+            switch session?.state {
             case .active?:
                 if let lastRun { return (t("Connected · updated {{time}}", ["time": Format.due(lastRun)]), Theme.ok) }
                 return (t("Connected"), Theme.ok)
@@ -277,6 +280,19 @@ private struct AccountScreen: View {
         profile == .science ? model.credentials?.science : model.credentials?.tokyoTech
     }
 
+    /// Why the last sign-in failed, as Core recorded it, while it still applies.
+    private var problem: String? {
+        let session = profile == .science ? model.sessions?.science : model.sessions?.tokyoTech
+        guard let session, session.state != .active, let problem = session.problem else { return nil }
+        var text = AppModel.reason(problem)
+        if session.auto == .paused {
+            text += "\n" + t("Automatic sign-in waits until you change these details.")
+        } else if session.auto == .retryLater {
+            text += "\n" + t("Automatic sign-in tries again shortly.")
+        }
+        return text
+    }
+
     var body: some View {
         Form {
             Section {
@@ -288,7 +304,7 @@ private struct AccountScreen: View {
                 SecureField(summary?.saved == true ? t("Password (enter only to change)") : t("Password"), text: $password)
                     .textContentType(.password)
             } footer: {
-                Text(t("The password is saved in this device’s Keychain and shared with the desktop app through iCloud Keychain."))
+                Text(t("The password is saved in this device’s Keychain. Once the school accepts it, iCloud Keychain shares it with the desktop app."))
             }
             // Pasted keys, not passwords: a second secure field makes AutoFill
             // read the form as a sign-up and offer new credentials instead of
@@ -300,8 +316,8 @@ private struct AccountScreen: View {
             } else {
                 MatrixImportSection(saved: summary?.hasMatrix == true, matrix: $matrix)
             }
-            if let error {
-                Section { Text(error).foregroundStyle(Theme.danger) }
+            if let message = error ?? (saving ? nil : problem) {
+                Section { Text(message).foregroundStyle(Theme.danger) }
             }
             Section {
                 Button {
@@ -332,9 +348,14 @@ private struct AccountScreen: View {
         defer { saving = false }
         error = nil
         do {
-            try await model.saveCredentials(
+            let result = try await model.connect(
                 profile,
                 SchoolCredentials(username: username, password: password, otpSecret: otpSecret, matrix: matrix))
+            // Stay on the page with the reason, so the person can correct it.
+            if let result, result.state == .failed || result.state == .maintenance {
+                error = result.problem.map(AppModel.reason) ?? t(result.state == .maintenance ? "Under maintenance" : "Sign-in failed")
+                return
+            }
             dismiss()
         } catch {
             self.error = AppModel.describe(error)

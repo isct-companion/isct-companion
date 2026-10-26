@@ -78,14 +78,10 @@ impl SchoolAuthService {
                 "School account identity could not be read.",
             ));
         }
-        let mut unlocked = self
-            .unlocked
-            .lock()
-            .map_err(|_| SchoolAuthError::storage("Credential cache unavailable"))?;
-        self.unlock_accounts(&mut unlocked)?;
-        if unlocked
-            .get(&SchoolAuthProfile::Science)
-            .and_then(Option::as_ref)
+        let mut accounts = self.lock()?;
+        self.unlock_accounts(&mut accounts)?;
+        if accounts
+            .active(SchoolAuthProfile::Science)
             .is_some_and(|saved| saved.username != username)
         {
             return Err(SchoolAuthError::invalid(
@@ -93,12 +89,8 @@ impl SchoolAuthService {
             ));
         }
         let stored = self.enrollment_bundle()?;
-        let accounts = unlocked
-            .iter()
-            .filter_map(|(profile, value)| value.clone().map(|value| (*profile, value)))
-            .collect();
-        self.write_credential_bundle(
-            &accounts,
+        let payload = self.write_credential_bundle(
+            &accounts.verified,
             stored.science_otp,
             Some(EnrollmentOtp {
                 username: username.into(),
@@ -106,7 +98,8 @@ impl SchoolAuthService {
                 operation: operation.into(),
                 confirmed: false,
             }),
-        )
+        )?;
+        self.adopt(&mut accounts, Some(payload))
     }
 
     pub(crate) fn confirm_enrollment_otp(
@@ -114,11 +107,8 @@ impl SchoolAuthService {
         operation: &str,
         username: &str,
     ) -> Result<(), SchoolAuthError> {
-        let mut unlocked = self
-            .unlocked
-            .lock()
-            .map_err(|_| SchoolAuthError::storage("Credential cache unavailable"))?;
-        self.unlock_accounts(&mut unlocked)?;
+        let mut accounts = self.lock()?;
+        self.unlock_accounts(&mut accounts)?;
         let mut candidate = self
             .enrollment_bundle()?
             .pending_science_otp
@@ -126,22 +116,32 @@ impl SchoolAuthService {
             .ok_or_else(|| {
                 SchoolAuthError::invalid("The OTP enrollment no longer belongs to this operation.")
             })?;
-        let mut accounts: HashMap<_, _> = unlocked
-            .iter()
-            .filter_map(|(profile, value)| value.clone().map(|value| (*profile, value)))
-            .collect();
-        if let Some(saved) = accounts.get_mut(&SchoolAuthProfile::Science) {
-            if saved.username != username {
-                return Err(SchoolAuthError::invalid(
-                    "The school page is signed in to a different account.",
-                ));
-            }
+        if accounts
+            .active(SchoolAuthProfile::Science)
+            .is_some_and(|saved| saved.username != username)
+        {
+            return Err(SchoolAuthError::invalid(
+                "The school page is signed in to a different account.",
+            ));
+        }
+        let mut verified = accounts.verified.clone();
+        if let Some(saved) = verified.get_mut(&SchoolAuthProfile::Science) {
             saved.otp_secret = candidate.setup.clone();
         }
         candidate.confirmed = true;
-        self.write_credential_bundle(&accounts, Some(candidate.clone()), None)?;
-        let saved = accounts.get(&SchoolAuthProfile::Science).cloned();
-        unlocked.insert(SchoolAuthProfile::Science, saved.clone());
+        let payload = self.write_credential_bundle(&verified, Some(candidate.clone()), None)?;
+        // A credential candidate keeps its other fields with the new secret,
+        // against the verified value it now replaces.
+        let mut candidates = accounts.candidates().clone();
+        if let Some(pending) = candidates.get_mut(&SchoolAuthProfile::Science) {
+            pending.credentials.otp_secret = candidate.setup.clone();
+            pending.base = digest(verified.get(&SchoolAuthProfile::Science));
+            pending.failure = None;
+            self.write_candidates(&candidates)?;
+        }
+        accounts.candidates = Some(candidates);
+        self.adopt(&mut accounts, Some(payload))?;
+        let saved = accounts.active(SchoolAuthProfile::Science).cloned();
         if let Some(saved) = saved {
             self.record_summary(
                 SchoolAuthProfile::Science,

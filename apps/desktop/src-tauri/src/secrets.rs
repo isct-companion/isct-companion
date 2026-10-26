@@ -71,6 +71,10 @@ impl SecretVault for OsSecretVault {
             .map_err(|_| access("OS credential vault write failed."))
     }
 
+    fn shared(&self, account: &str) -> bool {
+        apple_keychain_sync(account)
+    }
+
     fn load(&self, account: &str) -> Result<Option<String>, SecretError> {
         let stored = self.load_current(account)?;
         if stored.is_some() {
