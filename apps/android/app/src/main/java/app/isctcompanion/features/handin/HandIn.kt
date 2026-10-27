@@ -1,5 +1,7 @@
 package app.isctcompanion.features.handin
 
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
@@ -31,12 +33,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.RemoveCircleOutline
-import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.RemoveCircleOutline
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -78,6 +80,7 @@ import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.SharedFile
 import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.WebRouter
+import app.isctcompanion.design.ActionButton
 import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
@@ -120,6 +123,7 @@ private fun InboxSheet(close: () -> Unit) {
     val navigator = LocalNavigator.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     LaunchedEffect(SharedInbox.items.isEmpty()) { if (SharedInbox.items.isEmpty()) close() }
     ModalBottomSheet(onDismissRequest = close, containerColor = Theme.colors.bg) {
         Text(
@@ -136,8 +140,11 @@ private fun InboxSheet(close: () -> Unit) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(80.dp)) {
                             Box {
                                 Thumbnail(item.file, Modifier.size(72.dp, 92.dp))
-                                IconButton(onClick = { SharedInbox.remove(context, item) }, modifier = Modifier.align(Alignment.TopEnd).size(28.dp)) {
-                                    Icon(Icons.Outlined.Delete, t("Delete"), tint = Theme.colors.muted, modifier = Modifier.size(16.dp))
+                                IconButton(onClick = {
+                                    SharedInbox.remove(context, item)
+                                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                }, modifier = Modifier.align(Alignment.TopEnd).size(28.dp)) {
+                                    Icon(Icons.Rounded.Delete, t("Delete"), tint = Theme.colors.muted, modifier = Modifier.size(16.dp))
                                 }
                             }
                             Text(item.name, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -193,6 +200,7 @@ fun HandInCard(assignment: AssignmentDetail) {
     val navigator = LocalNavigator.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     var files by remember { mutableStateOf<List<LocalFile>>(emptyList()) }
     var targeted by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
@@ -256,7 +264,7 @@ fun HandInCard(assignment: AssignmentDetail) {
                             .onSuccess { files = it }
                             .onFailure { error = AppModel.describe(it) }
                     }
-                }) { Icon(Icons.Outlined.RemoveCircleOutline, t("Delete"), tint = Theme.colors.danger) }
+                }) { Icon(Icons.Rounded.RemoveCircleOutline, t("Delete"), tint = Theme.colors.danger) }
             }
             RowDivider(16.dp)
         }
@@ -265,7 +273,7 @@ fun HandInCard(assignment: AssignmentDetail) {
             verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth().clickable { documents.launch(arrayOf("*/*")) }.padding(vertical = 18.dp),
         ) {
-            Icon(Icons.Outlined.UploadFile, null, tint = Theme.colors.accent)
+            Icon(Icons.Rounded.UploadFile, null, tint = Theme.colors.accent)
             Text(t("Drop files here, or tap to choose"), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
             Text(t("Up to 32 files, 20 MB in all"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
         }
@@ -274,36 +282,31 @@ fun HandInCard(assignment: AssignmentDetail) {
             modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, bottom = 12.dp),
         ) {
             TextButton(onClick = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                Icon(Icons.Outlined.PhotoLibrary, null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.PhotoLibrary, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(t("Photos"), fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.weight(1f))
             if (files.isNotEmpty()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(Theme.colors.accent)
-                        .clickable(enabled = !working) {
-                            scope.launch {
-                                working = true
-                                try {
-                                    val url = model.handIn(id)
-                                    navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title))
-                                } catch (failure: Exception) {
-                                    error = AppModel.describe(failure)
-                                } finally {
-                                    working = false
-                                }
+                ActionButton(
+                    t("Upload to LMS"),
+                    {
+                        scope.launch {
+                            working = true
+                            try {
+                                val url = model.handIn(id)
+                                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title))
+                            } catch (failure: Exception) {
+                                error = AppModel.describe(failure)
+                            } finally {
+                                working = false
                             }
                         }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(16.dp))
-                    Text(t("Upload to LMS"), color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.SemiBold)
-                }
+                    },
+                    icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                    enabled = !working,
+                )
             }
         }
     }
@@ -342,7 +345,7 @@ fun Thumbnail(file: File, modifier: Modifier = Modifier, corner: Dp = 8.dp) {
     ) {
         bitmap?.let {
             Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-        } ?: Icon(Icons.Outlined.Description, null, tint = Theme.colors.muted)
+        } ?: Icon(Icons.Rounded.Description, null, tint = Theme.colors.muted)
     }
 }
 

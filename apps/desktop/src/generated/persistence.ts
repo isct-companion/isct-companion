@@ -535,6 +535,10 @@ export type Settings = {
   autoCleanDays?: number;
   agentAccess?: AgentAccess;
   appearance: "system" | "light" | "dark";
+  /**
+   * The background theme: neutrals only; absent reads as `warm`.
+   */
+  theme?: "warm" | "cool" | "paper" | "mist" | "moss";
   density: "comfortable" | "compact";
   textSize?: "small" | "medium" | "large";
   automaticAppUpdates?: boolean;
@@ -902,6 +906,19 @@ export type ClassGroupChoice = {
 
 export type OccurrenceKind = "course" | "event" | "plan" | "exam";
 
+export type GridSlot = {
+  startTime: string;
+  endTime: string;
+  /**
+   * The block's column among the blocks it overlaps, from 0 on the left.
+   */
+  lane: number;
+  /**
+   * How many columns the overlapping blocks share; 1 when it is alone.
+   */
+  lanes: number;
+};
+
 export type Occurrence = {
   key: string;
   id: string;
@@ -941,6 +958,11 @@ export type Occurrence = {
    * exam timetable; the block keeps the user's values until they choose.
    */
   sourceChanged?: boolean | null;
+  /**
+   * Where the block sits on the period grid, when that differs from its
+   * own times or it shares the time with another block.
+   */
+  grid?: GridSlot | null;
 };
 
 export type ScheduleProblemKind = "courseMeeting" | "plan" | "scheduleOverride";

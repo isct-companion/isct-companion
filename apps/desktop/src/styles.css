@@ -1,5 +1,6 @@
 @import "./generated/design/tokens.css";
 @import "./generated/design/tokens.dark.css";
+@import "./generated/design/themes.css";
 @import "./components/workspace-chrome.css";
 @import "./components/ui/ui.css";
 
@@ -7,7 +8,7 @@
 :root {
   color-scheme: light;
   font-family: var(--font-sans);
-  font-size: calc(14px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   --radius: var(--radius-surface);
@@ -80,7 +81,7 @@ summary,
   background: var(--surface-3);
   border-color: var(--line);
   color: var(--ink);
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   border-radius: var(--radius-control);
   cursor: default;
 }
@@ -101,7 +102,7 @@ summary,
   box-shadow: var(--shadow);
 }
 .uiSelectDropdown .uiSelectOption {
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   border-radius: var(--radius-control);
 }
 .uiSelectDropdown .uiSelectOption[data-highlighted],
@@ -156,7 +157,7 @@ summary,
   justify-items: center;
   gap: 4px;
   padding: 8px 0 7px;
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
 }
 .rail nav button svg,
@@ -165,7 +166,7 @@ summary,
   height: 20px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.7;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -188,7 +189,7 @@ summary,
   justify-items: center;
   gap: 4px;
   padding: 8px 0 7px;
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
 }
 .railUtility svg {
@@ -196,7 +197,7 @@ summary,
   height: 20px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.7;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -210,10 +211,10 @@ summary,
 }
 .workspaceMain {
   min-width: 0;
-  padding: 20px 20px 72px;
-  padding-inline-start: calc(var(--rail) + 20px);
+  padding: 20px var(--space-gutter) 72px;
+  padding-inline-start: calc(var(--rail) + var(--space-gutter));
   display: flex;
-  transition: margin-right 0.18s ease;
+  transition: margin-right var(--motion-duration-base) var(--motion-easing-standard);
 }
 .workspaceMain.settingsMain {
   height: 100dvh;
@@ -244,7 +245,7 @@ summary,
   display: flex;
   flex-direction: column;
   gap: 12px;
-  animation: enter 0.18s ease;
+  animation: enter var(--motion-duration-base) var(--motion-easing-standard);
 }
 @keyframes enter {
   from {
@@ -260,14 +261,14 @@ summary,
   gap: 12px;
 }
 .pageBar h1 {
-  font-size: calc(19px * var(--text));
+  font-size: calc(var(--type-title-size) * var(--text));
   font-weight: 700;
   letter-spacing: -0.01em;
 }
 .pageBar h1 + span {
   display: block;
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   margin-top: 2px;
 }
 .pageBarRight {
@@ -280,41 +281,6 @@ summary,
 .search {
   width: 240px;
   background: var(--surface-2);
-}
-.empty {
-  padding: 40px 16px;
-  text-align: center;
-  color: var(--muted);
-}
-.empty.small {
-  padding: 22px 12px;
-  font-size: calc(12px * var(--text));
-}
-.appNotifications[data-position="bottom-center"] {
-  bottom: 66px;
-  width: max-content;
-  max-width: 80vw;
-}
-.workspaceNotice {
-  background: var(--ink);
-  color: var(--bg);
-  border: 0;
-  border-radius: 9px;
-  padding: 9px 14px;
-  box-shadow: var(--shadow);
-}
-.workspaceNotice::before {
-  display: none;
-}
-.workspaceNoticeText {
-  color: var(--bg);
-  font-size: calc(12.5px * var(--text));
-}
-/* The notice inverts the theme, so its action takes the inverted ink too. */
-.workspaceNotice .uiToastAction {
-  background: color-mix(in srgb, var(--bg) 16%, transparent);
-  color: var(--bg);
-  font-size: calc(12.5px * var(--text));
 }
 
 /* ---------- school status ---------- */
@@ -378,7 +344,7 @@ summary,
 .schoolStatusAccount b,
 .lmsStatus b {
   color: var(--ink);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 700;
 }
 .schoolStatusAccount small {
@@ -386,7 +352,7 @@ summary,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(10px * var(--text));
+  font-size: calc(var(--type-tick-size) * var(--text));
 }
 .lmsStatus {
   min-width: 0;
@@ -398,7 +364,7 @@ summary,
   gap: 9px;
   min-width: 0;
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .lmsStatusLine > span {
   min-width: 0;
@@ -465,7 +431,7 @@ summary,
 .lmsStatus progress::-webkit-progress-value {
   border-radius: 999px;
   background: var(--accent);
-  transition: width 0.2s ease;
+  transition: width var(--motion-duration-base) var(--motion-easing-standard);
 }
 .lmsStatus progress::-moz-progress-bar {
   border-radius: 999px;
@@ -508,7 +474,7 @@ summary,
   padding: 0;
   list-style: none;
   color: var(--danger);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .syncFailures li {
   display: flex;
@@ -529,7 +495,7 @@ summary,
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-variant-numeric: tabular-nums;
 }
 
@@ -554,21 +520,27 @@ summary,
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   color: var(--muted);
 }
 .ttHead b {
-  font-weight: 650;
+  font-weight: 600;
   color: var(--ink);
 }
 .ttHead small {
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
-.ttHead.today {
+/* Today is the filled date and the now line; the column itself stays plain. */
+/* A planning week has no dates: its weekday name carries today. */
+.ttHead.today:not(:has(small)) b {
   color: var(--accent);
 }
-.ttHead.today b {
-  color: var(--accent);
+.ttHead.today small {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
 }
 .ttAxis,
 .ttCol {
@@ -590,30 +562,25 @@ summary,
   gap: 1px;
 }
 .ttAxis b {
-  font-size: calc(11px * var(--text));
-  font-weight: 650;
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: 600;
   color: var(--ink);
 }
 .ttAxis small {
-  font-size: calc(9.5px * var(--text));
+  font-size: calc(var(--type-tick-size) * var(--text));
+  font-weight: var(--type-tick-weight);
 }
 .ttAxis .lunch {
   background: var(--surface-2);
 }
 .ttAxis .lunch b {
   color: var(--muted);
-  font-size: calc(9.5px * var(--text));
+  font-size: calc(var(--type-tick-size) * var(--text));
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .ttAxis .lunch small {
   display: none;
-}
-.ttCol.today {
-  background: color-mix(in srgb, var(--accent-soft) 78%, transparent);
-  box-shadow:
-    inset 1px 0 color-mix(in srgb, var(--accent) 18%, transparent),
-    inset -1px 0 color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .ttSlot {
   position: absolute;
@@ -653,7 +620,7 @@ summary,
   right: 3px;
   overflow: hidden;
   border: 0;
-  border-radius: var(--radius-chip);
+  border-radius: var(--radius-block);
   background: color-mix(
     in srgb,
     var(--course) var(--course-tint-fill),
@@ -666,15 +633,15 @@ summary,
   align-content: start;
   gap: 2px;
   transition:
-    filter 0.12s,
-    opacity 0.12s;
+    filter var(--motion-duration-fast) var(--motion-easing-standard),
+    opacity var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .ttBlock:hover {
   filter: brightness(0.97);
 }
 .ttBlock b {
-  font-size: calc(12px * var(--text));
-  font-weight: 650;
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: var(--type-block-weight);
   line-height: 1.3;
   overflow: hidden;
   display: -webkit-box;
@@ -683,7 +650,7 @@ summary,
 }
 .ttBlock span,
 .ttBlock small {
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: inherit;
   opacity: 0.8;
   white-space: nowrap;
@@ -694,14 +661,17 @@ summary,
   background: color-mix(in srgb, var(--surface-2) 82%, var(--surface));
   color: var(--ink);
 }
-/* A plan is intent, not a booked class: outline only, as on the phone. */
-.ttBlock.plan {
-  background: transparent;
+/* A plan, or a course only planned for the quarter, is intent, not a
+   booked class: an outline in the course colour, no fill. */
+.ttBlock.plan,
+.ttBlock.planned {
+  background: var(--surface);
   box-shadow: inset 0 0 0 1.5px
     color-mix(in srgb, var(--course) 45%, var(--surface));
 }
-/* An exam is the one stronger fill, ringed in the course colour; a quiz is a
-   little weaker, never striped: stripes mean cancelled (design/README.md). */
+/* An exam is the one deeper fill, a quiz a class's fill; neither is ringed
+   (a ring means the class in progress) nor striped (stripes mean the class
+   is not held). Each says what it is with a tag before its title. */
 .ttBlock.exam {
   z-index: 4;
   background: color-mix(
@@ -709,34 +679,26 @@ summary,
     var(--course) var(--course-tint-exam),
     var(--surface)
   );
-  box-shadow: inset 0 0 0 2px var(--course);
-}
-.ttBlock.exam b {
-  color: var(--ink);
 }
 .ttBlock.exam.quiz {
   background: color-mix(
     in srgb,
-    var(--course) var(--course-tint-quiz),
+    var(--course) var(--course-tint-fill),
     var(--surface)
   );
-  box-shadow: inset 0 0 0 1.5px
-    color-mix(in srgb, var(--course) var(--course-tint-outline), var(--surface));
 }
-/* An inline tag after the course code, solid in the course's own colour; a
-   quiz's is outlined. It never takes a line of its own. */
+/* Solid in the course's own colour; a quiz's is outlined. */
 .ttExamTag,
 .ttBlock .ttExamTag {
   display: inline-block;
-  margin-left: 5px;
+  margin-right: 4px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   background: var(--course);
-  /* The course palette is mid-tone in both themes. */
-  color: #fff;
-  font-size: calc(9px * var(--text));
-  font-weight: 750;
-  line-height: 1.5;
+  color: var(--course-on-solid);
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: var(--type-block-weight);
+  line-height: 1.4;
   opacity: 1;
   vertical-align: 1px;
   white-space: nowrap;
@@ -750,24 +712,17 @@ summary,
    details are in the exam editor. */
 .ttBlock .ttSourceChanged {
   display: inline-block;
-  margin-left: 4px;
+  margin-right: 4px;
   min-width: 1.5em;
   border-radius: 999px;
   background: var(--warn);
   color: var(--surface);
-  font-size: calc(9px * var(--text));
-  font-weight: 800;
-  line-height: 1.5;
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: 700;
+  line-height: 1.4;
   text-align: center;
   opacity: 1;
   vertical-align: 1px;
-}
-.ttBlock .ttConflict {
-  color: var(--danger);
-  font-weight: 700;
-}
-.ttBlock.conflict {
-  box-shadow: inset 0 0 0 1.5px var(--danger);
 }
 .ttBlock.dim {
   opacity: 0.28;
@@ -828,10 +783,10 @@ summary,
   gap: 8px;
 }
 .listCard > header b {
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .listCard > header span {
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
 }
 .courseListTools {
@@ -844,7 +799,7 @@ summary,
   background: transparent;
   color: var(--muted);
   padding: 5px 7px;
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .courseListTools button:hover,
 .courseListTools button.active {
@@ -921,11 +876,11 @@ summary,
   gap: 3px;
 }
 .sheetDangerZone b {
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .sheetDangerZone span {
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .sheetColHead {
   grid-column: 1 / -1;
@@ -934,7 +889,7 @@ summary,
   align-items: center;
 }
 .sheetColHead b {
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .field {
   display: grid;
@@ -942,8 +897,8 @@ summary,
   min-width: 0;
 }
 .field > span {
-  font-size: calc(11px * var(--text));
-  font-weight: 650;
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: 600;
   color: var(--muted);
   letter-spacing: 0.02em;
 }
@@ -998,7 +953,7 @@ summary,
 .formError {
   grid-column: 1 / -1;
   color: var(--danger);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .termForm {
   display: grid;
@@ -1013,7 +968,7 @@ summary,
 .termForm small {
   color: var(--danger);
   min-height: 1em;
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .termForm .sheetActions {
   justify-content: flex-end;
@@ -1031,7 +986,7 @@ summary,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
   text-align: right;
 }
@@ -1065,7 +1020,7 @@ summary,
 }
 .webFallback p {
   color: var(--muted);
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 
 /* ---------- settings ---------- */
@@ -1089,7 +1044,7 @@ summary,
   border-radius: 8px;
   color: var(--muted);
   font-weight: 600;
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .settingsNav button:hover {
   background: var(--surface-3);
@@ -1113,7 +1068,7 @@ summary,
   padding: 12px 2px 2px;
   border-top: 1px solid var(--line);
   color: var(--ink);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1131,7 +1086,7 @@ summary,
   margin-bottom: 10px;
 }
 .settingsPane h3 {
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1148,13 +1103,13 @@ summary,
 }
 .row > span:first-child b {
   display: block;
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   font-weight: 600;
 }
 .row > span:first-child small {
   display: block;
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   margin-top: 2px;
   line-height: 1.4;
 }
@@ -1182,11 +1137,11 @@ summary,
   gap: 10px;
 }
 .schoolAccount > header > b {
-  font-size: calc(14px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .schoolAccount > header em {
   font-style: normal;
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 99px;
@@ -1200,7 +1155,7 @@ summary,
   min-height: 24px;
   margin-top: 8px;
   color: var(--danger);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .schoolConnection {
   flex-wrap: wrap;
@@ -1213,7 +1168,7 @@ summary,
   background: transparent;
   color: inherit;
   font: inherit;
-  font-weight: 650;
+  font-weight: 600;
   cursor: default;
 }
 .schoolConnection[data-state="checking"],
@@ -1243,7 +1198,7 @@ summary,
 }
 .credentialFields label > span {
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
 }
 .credentialFields input {
@@ -1266,7 +1221,7 @@ summary,
   min-height: 30px;
 }
 .matrixTools > b {
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .matrixTools > span {
   color: var(--muted);
@@ -1334,7 +1289,7 @@ summary,
   flex-wrap: wrap;
   gap: 6px 12px;
   margin: 8px 0;
-  font-size: 11px;
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
 }
 .matrixConfidenceLegend [data-confidence]::before {
@@ -1366,7 +1321,7 @@ summary,
 }
 .actions small {
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .alert {
   margin-top: 10px;
@@ -1384,11 +1339,11 @@ summary,
 .logList b,
 .logList span {
   display: block;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .logList span {
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   margin-top: 2px;
 }
 .editor {
@@ -1397,7 +1352,7 @@ summary,
   margin-top: 12px;
 }
 .editor > span {
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
 }
 .editor textarea,
@@ -1441,13 +1396,13 @@ summary,
 }
 .siteEditor summary b {
   flex: 1;
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .siteEditor label {
   display: grid;
   gap: 4px;
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
 }
 
@@ -1460,10 +1415,83 @@ summary,
   padding: 4px 6px;
 }
 
+/* Reduced motion (slotledger approach/motion-reduced): nothing moves, but
+   changes still read. Every animation and transition runs at the fast
+   duration without delay; the keyframes that move or scale become plain
+   fades, and the indicators that slide jump instead. */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
+    animation-duration: var(--motion-duration-fast) !important;
+    animation-delay: 0s !important;
+    transition-duration: var(--motion-duration-fast) !important;
+    transition-delay: 0s !important;
+  }
+  /* Looping indicators would flicker at that length: they hold still. */
+  .schoolStatusAccount[data-state="checking"] > i,
+  .skeleton {
     animation: none !important;
-    transition: none !important;
+  }
+  .weekStrip::before,
+  .lmsRailIndicator,
+  .uiProgressIndicator,
+  .moreOptions > summary::before {
+    transition-property: opacity !important;
+  }
+  @keyframes enter {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes todayRise {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes todayRailIn {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes daySwap {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes weekSlide {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pageIn {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes lmsPopIn {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes lmsPaneEnter {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes todayPaneIn {
+    from {
+      opacity: 0;
+    }
+  }
+  /* A view transition's group would still morph; it jumps, and the old and
+     new views cross-fade. */
+  ::view-transition-group(*) {
+    animation: none !important;
+  }
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: var(--motion-duration-fast) !important;
   }
 }
 
@@ -1488,7 +1516,7 @@ summary,
 .syllabusStatus {
   margin: 0 0 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(var(--type-row-size) * var(--text));
   line-height: 1.5;
 }
 /* The school's syllabus page, as the school renders it, with a way out. */
@@ -1508,7 +1536,7 @@ summary,
 }
 .syllabusOutside {
   align-self: flex-end;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 /* ---------- task workspace ---------- */
 .todayPage {
@@ -1526,8 +1554,8 @@ summary,
 .todayEyebrow {
   margin-bottom: 3px;
   color: var(--muted);
-  font-size: calc(12px * var(--text));
-  font-weight: 650;
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1535,11 +1563,11 @@ summary,
   font-size: clamp(34px, 4.2vw, 58px);
   line-height: 0.98;
   letter-spacing: -0.055em;
-  font-weight: 720;
+  font-weight: 700;
 }
 .teachingState {
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   padding-bottom: 4px;
 }
 .todayFlow {
@@ -1565,11 +1593,11 @@ summary,
   border-left: 1px solid var(--line);
 }
 .importantDates b {
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .importantDates small {
   color: var(--muted);
-  font-size: calc(10px * var(--text));
+  font-size: calc(var(--type-tick-size) * var(--text));
 }
 .todaySection {
   padding: 24px 0 8px;
@@ -1588,12 +1616,12 @@ summary,
   margin-bottom: 5px;
 }
 .todaySection > header h2 {
-  font-size: calc(14px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   letter-spacing: -0.01em;
 }
 .todaySection > header > span {
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .dayAgenda,
 .dueList {
@@ -1646,7 +1674,7 @@ summary,
 }
 .agendaState {
   color: var(--muted);
-  font-size: calc(10px * var(--text));
+  font-size: calc(var(--type-tick-size) * var(--text));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1669,14 +1697,14 @@ summary,
   color: var(--course);
 }
 .dayAgendaRow time {
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   font-variant-numeric: tabular-nums;
 }
 .dayAgendaRow time small {
   display: block;
   color: var(--course);
-  font-size: calc(9px * var(--text));
-  font-weight: 800;
+  font-size: calc(var(--type-tick-size) * var(--text));
+  font-weight: 700;
   white-space: nowrap;
 }
 .dayAgendaRow.exam {
@@ -1686,9 +1714,9 @@ summary,
   color: var(--danger);
 }
 .agendaLine {
-  width: 2px;
-  height: 34px;
-  border-radius: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
   background: var(--course);
   justify-self: center;
 }
@@ -1704,17 +1732,17 @@ summary,
   white-space: nowrap;
 }
 .agendaCourse b {
-  font-size: calc(14px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .agendaCourse small {
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .dueRow {
   width: 100%;
   min-height: 60px;
   display: grid;
-  grid-template-columns: 3px minmax(0, 1fr) auto;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
   align-items: center;
   gap: 13px;
   padding: 9px 10px 9px 0;
@@ -1726,9 +1754,10 @@ summary,
 .dueRow:hover {
   background: color-mix(in srgb, var(--surface) 58%, transparent);
 }
+/* "Belongs to this course": the small square every platform uses. */
 .dueRow > i {
-  width: 3px;
-  height: 26px;
+  width: 10px;
+  height: 10px;
   border-radius: 3px;
 }
 .dueRow > span {
@@ -1743,15 +1772,15 @@ summary,
   white-space: nowrap;
 }
 .dueRow b {
-  font-size: calc(13.5px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .dueRow small {
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .dueRow time {
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   white-space: nowrap;
 }
 .dueRow time.warning {
@@ -1759,11 +1788,6 @@ summary,
 }
 .dueRow time.overdue {
   color: var(--danger);
-}
-.quietEmpty {
-  padding: 24px 0;
-  color: var(--muted);
-  font-size: calc(13px * var(--text));
 }
 .scheduleControls {
   display: flex;
@@ -1777,7 +1801,7 @@ summary,
   border-radius: 7px;
   background: transparent;
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
 }
 .scheduleControls button:hover {
@@ -1817,7 +1841,7 @@ summary,
 }
 .webSecure {
   color: var(--muted);
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   line-height: 1;
 }
 .webToolbar input {
@@ -1863,7 +1887,7 @@ summary,
   padding: 0 3px;
   border-radius: 6px;
   color: var(--muted);
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   text-align: center;
 }
 .zoomValue:hover {
@@ -1908,7 +1932,7 @@ summary,
   background: transparent;
   color: var(--muted);
   text-align: left;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -1959,7 +1983,7 @@ summary,
   white-space: normal;
   word-break: normal;
   overflow-wrap: anywhere;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   line-height: 1.35;
 }
 .ttBlock span,
@@ -1994,11 +2018,6 @@ summary,
 .courseFinder .courseListTools button {
   white-space: nowrap;
 }
-.finderEmpty {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-}
 .finderStatus .textButton,
 .finderFoot .textButton {
   border: 0;
@@ -2028,7 +2047,7 @@ summary,
 .intensiveLane > b,
 .intensiveToggle {
   font: inherit;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
@@ -2058,19 +2077,29 @@ summary,
 }
 .intensiveLane > div button {
   font: inherit;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 3px 8px;
   border: 0;
-  border-left: 3px solid var(--course, var(--accent));
-  border-radius: 4px;
+  border-radius: var(--radius-chip);
   background: var(--surface-2);
   color: var(--ink);
   cursor: default;
 }
+.intensiveLane > div button::before {
+  content: "";
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--course, var(--accent));
+}
 .intensiveLane > div small {
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .finderOmni {
   position: relative;
@@ -2099,7 +2128,7 @@ summary,
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: calc(14px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   padding: 4px 2px;
 }
 .finderPillGroup {
@@ -2109,24 +2138,24 @@ summary,
 }
 .finderOr {
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .finderPill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   padding: 2px 8px;
   cursor: default;
   font: inherit;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   background: var(--accent-soft);
   color: var(--accent);
 }
 .finderPill b {
   font-weight: 500;
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   opacity: 0.75;
 }
 .finderPill span {
@@ -2171,7 +2200,7 @@ summary,
 }
 .finderLocal {
   font-style: normal;
-  font-size: calc(9.5px * var(--text));
+  font-size: calc(var(--type-tick-size) * var(--text));
   border-radius: 3px;
   padding: 0 3px;
   background: var(--surface);
@@ -2192,7 +2221,7 @@ summary,
   padding-block: 4px;
 }
 .finderHead {
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -2205,21 +2234,21 @@ summary,
   gap: 10px;
   padding: 5px 12px;
   cursor: default;
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .finderSuggestion[aria-selected="true"] {
   background: var(--accent-soft);
 }
 .finderSuggestion b {
   font-weight: 500;
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
   margin-right: 6px;
 }
 .finderSuggestion em {
   font-style: normal;
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   margin-left: 6px;
 }
 .finderSuggestion small {
@@ -2237,9 +2266,13 @@ summary,
   border-radius: 2px;
 }
 .finderCheck {
-  font-style: normal;
   color: var(--ok);
   margin-right: 5px;
+  vertical-align: -1px;
+}
+.finderSuggestion > svg {
+  flex: none;
+  color: var(--muted);
 }
 .finderKeys {
   display: flex;
@@ -2248,7 +2281,7 @@ summary,
   padding: 6px 12px 2px;
   margin-top: 4px;
   border-top: 1px solid var(--line);
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
 }
 .finderKeys kbd {
@@ -2263,7 +2296,7 @@ summary,
   gap: 8px;
   justify-content: space-between;
   padding: 2px 14px 6px;
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
 }
 .finderError {
@@ -2318,7 +2351,7 @@ summary,
 }
 .finderAdd {
   font: inherit;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   padding: 3px 10px;
   border-radius: 6px;
   border: 1px solid var(--accent);
@@ -2333,7 +2366,7 @@ summary,
 }
 .finderPlaced {
   font-style: normal;
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--ok);
   white-space: nowrap;
   padding-inline: 4px;
@@ -2343,11 +2376,11 @@ summary,
 }
 .finderMain b {
   font-weight: 500;
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .finderMain small {
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .finderMain code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -2364,7 +2397,7 @@ summary,
 }
 .finderBadges i {
   font-style: normal;
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   border-radius: 4px;
   padding: 0 6px;
   white-space: nowrap;
@@ -2391,7 +2424,7 @@ summary,
   gap: 8px;
   padding: 8px 12px;
   border-top: 1px solid var(--line);
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-variant-numeric: tabular-nums;
 }
 .finderFoot > span {
@@ -2409,7 +2442,7 @@ summary,
 .todayNavigation .todayHeader h1 {
   font-size: 15px;
   line-height: 1.3;
-  font-weight: 550;
+  font-weight: 500;
 }
 .todayNavigation .todayEyebrow {
   display: none;
@@ -2427,7 +2460,7 @@ summary,
   margin-bottom: 10px;
 }
 .todayNavigation .todaySection h2 {
-  font-size: 11px;
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
   letter-spacing: 0.04em;
 }
@@ -2453,7 +2486,7 @@ summary,
   color: var(--accent);
 }
 .todayNavigation .dayAgendaRow time {
-  font-size: 10px;
+  font-size: calc(var(--type-tick-size) * var(--text));
   color: var(--muted);
   width: auto;
 }
@@ -2463,9 +2496,9 @@ summary,
   display: none;
 }
 .todayNavigation .agendaCourse b {
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.5;
-  font-weight: 550;
+  font-weight: 500;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -2489,19 +2522,18 @@ summary,
   width: 100%;
 }
 .todayNavigation .dueAssignment b {
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.5;
-  font-weight: 550;
+  font-weight: 500;
 }
 .todayNavigation .dueAssignment small {
   display: none;
 }
 .todayNavigation .dueAssignment time {
-  font-size: 10px;
+  font-size: calc(var(--type-tick-size) * var(--text));
 }
-.todayNavigation .quietEmpty,
 .todayNavigation .moreToggle {
-  font-size: 11px;
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 
 /* ---------- Courses: syllabus side panel and course details over it ---------- */
@@ -2530,7 +2562,7 @@ summary,
   inset: 0;
   z-index: 5;
   display: flex;
-  animation: enter 0.14s ease;
+  animation: enter var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .coursesSidePanel > .coursePanel {
   flex: 1;
@@ -2541,7 +2573,7 @@ summary,
 }
 .coursePanel .courseListTools a {
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   padding: 5px 7px;
   text-decoration: none;
   white-space: nowrap;
@@ -2569,7 +2601,7 @@ summary,
   grid-template-columns: auto 1fr;
   gap: 4px 12px;
   margin: 0;
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .coursePanelBody > dl > dt {
   color: var(--muted);
@@ -2606,7 +2638,7 @@ summary,
   border-radius: var(--radius-chip);
   background: var(--danger-soft);
   color: var(--danger);
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .coursePanelConflict ul {
   display: grid;
@@ -2638,24 +2670,13 @@ summary,
 .finderTitle b small {
   font-weight: 400;
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 
+/* A crashed page keeps its place: the banner sits where the page's top was. */
 .pageError {
-  flex: 1;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 10px;
-  padding: 24px;
-  color: var(--ink);
-  background: var(--bg, transparent);
-}
-.pageError code {
-  max-width: 60ch;
-  white-space: pre-wrap;
-  color: var(--danger);
-  font-size: calc(12px * var(--text));
+  align-self: flex-start;
+  width: 100%;
 }
 .finderAdd.replace {
   border-color: var(--warn);
@@ -2669,7 +2690,7 @@ summary,
   margin-right: auto;
   align-self: center;
   color: var(--warn);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 
 .dueGroup {
@@ -2686,7 +2707,7 @@ summary,
 .dueGroup > small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
   padding-bottom: 4px;
 }
 
@@ -2709,7 +2730,7 @@ summary,
   padding: 2px 9px;
   border-radius: 5px;
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   line-height: 1.5;
 }
 .dueScope > button[aria-pressed="true"] {
@@ -2735,7 +2756,7 @@ summary,
 
 /* Today: assignment rows (title + course stacked, deadline aligned right) */
 .dueRow {
-  grid-template-columns: 3px minmax(0, 1fr) auto;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
 }
 .dueAssignment {
   min-width: 0;
@@ -2757,7 +2778,7 @@ summary,
 }
 .dueRow .textButton {
   opacity: 0;
-  transition: opacity 120ms;
+  transition: opacity var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .dueRow .textButton:focus-visible {
   opacity: 1;
@@ -2776,20 +2797,13 @@ summary,
   justify-self: start;
   margin-top: 4px;
 }
-.quietEmpty.compact {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 14px;
-  padding: 8px 0 10px;
-}
 .nextClass time {
   display: grid;
   gap: 3px;
 }
 .nextClass time small {
   color: var(--muted);
-  font-size: calc(10px * var(--text));
+  font-size: calc(var(--type-tick-size) * var(--text));
 }
 /* Smaller date header so classes and deadlines start higher. */
 .todayHeader {
@@ -2841,8 +2855,8 @@ summary,
   min-height: 0;
 }
 
-/* Timetable blocks fill their schedule cell. Conflicts stay legible as an
-   explicit warning instead of shrinking every card into narrow lanes. */
+/* Timetable blocks fill their schedule cell; blocks that overlap share it
+   side by side (Core's grid lanes). */
 .ttCol {
   container-type: inline-size;
 }
@@ -2887,9 +2901,6 @@ summary,
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tt .ttBlock.conflict {
-  z-index: 3;
-}
 .tt .ttBlock.exam {
   z-index: 4;
 }
@@ -2899,7 +2910,7 @@ summary,
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 2px 8px;
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
   background: transparent;
 }
@@ -2928,7 +2939,7 @@ summary,
   display: block;
   margin-top: 3px;
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .unifiedSchedule .pageBar {
   flex-wrap: wrap;
@@ -2946,7 +2957,7 @@ summary,
   border-bottom: 1px solid var(--line);
 }
 .timetableViewBar > b {
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .coursesSide {
   gap: 12px;
@@ -2967,7 +2978,7 @@ summary,
 }
 .academicPanel header h2 {
   margin: 0;
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   font-weight: 700;
 }
 .academicTermCredits {
@@ -2977,7 +2988,7 @@ summary,
   gap: 12px;
   padding: 14px 0;
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .academicTermCredits b {
   color: var(--ink);
@@ -2986,12 +2997,12 @@ summary,
 }
 .academicTermCredits small {
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 400;
 }
 .academicGradeDetails {
   margin-top: 14px;
-  animation: enter 0.14s ease;
+  animation: enter var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .academicAvailability {
   display: grid;
@@ -3001,7 +3012,7 @@ summary,
   border-radius: 6px;
   background: var(--surface-2);
   color: var(--ink);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .academicAvailability small {
   color: var(--muted);
@@ -3009,7 +3020,7 @@ summary,
 .academicGradeDetails table {
   width: 100%;
   border-collapse: collapse;
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .academicGradeDetails th,
 .academicGradeDetails td {
@@ -3031,7 +3042,7 @@ summary,
   display: block;
   margin-top: 10px;
   color: var(--muted);
-  font-size: calc(10.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .academicPanel footer {
   display: flex;
@@ -3055,7 +3066,7 @@ summary,
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   white-space: nowrap;
   overflow: hidden;
 }
@@ -3079,19 +3090,19 @@ summary,
 }
 .courseStorageSettings p {
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: calc(var(--type-row-size) * var(--text));
   margin: 8px 0;
 }
 .courseStorageSettings small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .numberSetting {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
   white-space: nowrap;
 }
 .cleanWorkspaces {
@@ -3099,7 +3110,7 @@ summary,
   align-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .numberSetting input {
   width: 72px;
@@ -3129,8 +3140,8 @@ summary,
   background: var(--surface-2);
   overflow: hidden;
   transition:
-    background-color 160ms,
-    border-color 160ms;
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    border-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .yearQuarterGroup.expanded {
   background: var(--surface);
@@ -3144,8 +3155,8 @@ summary,
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: calc(12.5px * var(--text));
-  font-weight: 550;
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-weight: 500;
   cursor: default;
   white-space: nowrap;
 }
@@ -3159,7 +3170,7 @@ summary,
   color: var(--ink);
 }
 .yearQuarterYear small {
-  font-size: 10px;
+  font-size: calc(var(--type-tick-size) * var(--text));
   color: var(--accent);
 }
 .yearQuarterDrawer {
@@ -3167,8 +3178,8 @@ summary,
   grid-template-columns: 0fr;
   opacity: 0;
   transition:
-    grid-template-columns 200ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    opacity 140ms;
+    grid-template-columns var(--motion-duration-base) var(--motion-easing-standard),
+    opacity var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .expanded .yearQuarterDrawer {
   grid-template-columns: 1fr;
@@ -3209,7 +3220,7 @@ summary,
 .yearQuarterStep button.active {
   color: var(--accent);
   background: var(--accent-soft);
-  font-weight: 650;
+  font-weight: 600;
 }
 .yearQuarterStep button i {
   width: 5px;
@@ -3218,12 +3229,10 @@ summary,
   background: var(--accent);
 }
 .yearQuarterChevron {
+  flex: none;
   color: var(--muted);
   opacity: 0.45;
-  padding: 0 2px;
-  font-family: ui-monospace, monospace;
-  font-size: 17px;
-  font-weight: 400;
+  margin: 0 2px;
 }
 .yearQuarterAdd {
   border: 1px dashed var(--line);
@@ -3237,12 +3246,6 @@ summary,
 .yearQuarterPicker button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .yearQuarterDrawer,
-  .yearQuarterGroup {
-    transition: none;
-  }
 }
 
 .tt.hasCalendarNotice .ttGrid {
@@ -3259,7 +3262,7 @@ summary,
   flex-basis: 100%;
   min-width: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: calc(var(--type-tick-size) * var(--text));
   line-height: 1.4;
   text-align: center;
   white-space: nowrap;
@@ -3275,18 +3278,25 @@ summary,
 .ttHead.noClasses {
   color: var(--muted);
 }
-.ttBlock.course.cancelled {
+/* A class not held: grey, striped and struck through; stripes mean nothing
+   else. A holiday column is flat grey and draws its classes this way. */
+.ttBlock.cancelled {
   --course: var(--muted) !important;
-  background: color-mix(in srgb, var(--muted) 14%, var(--surface));
+  background:
+    repeating-linear-gradient(135deg, var(--line) 0 3px, transparent 3px 8px),
+    color-mix(in srgb, var(--muted) 10%, var(--surface));
   color: var(--muted);
   box-shadow: none;
+}
+.ttBlock.cancelled b {
+  text-decoration: line-through;
 }
 /* ---------- settings: lists, configs ---------- */
 /* One-time notice on data accuracy. */
 .dataNotice {
   display: grid;
   gap: 10px;
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   line-height: 1.6;
 }
 .dataNotice p {
@@ -3297,12 +3307,6 @@ summary,
   margin-top: 6px;
 }
 
-.paneEmpty {
-  padding: 28px 0;
-  color: var(--muted);
-  text-align: center;
-  font-size: calc(12.5px * var(--text));
-}
 .row > .actions.reverse,
 .actions.reverse {
   flex-direction: row-reverse;
@@ -3323,7 +3327,7 @@ summary,
   min-width: 0;
   overflow-x: auto;
   white-space: nowrap;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .profileForm {
   display: grid;
@@ -3346,7 +3350,7 @@ summary,
 .profileTimes.columnHeads,
 .profileFields small {
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .profileForm section {
   display: grid;
@@ -3358,7 +3362,7 @@ summary,
   justify-content: space-between;
 }
 .profileForm header b {
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .profileLine {
   display: grid;
@@ -3386,7 +3390,7 @@ summary,
   padding: 0 4px;
   color: var(--accent);
   font: inherit;
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   cursor: default;
 }
 .codeArea textarea,
@@ -3404,12 +3408,12 @@ textarea.codeArea {
   padding: 8px 0;
 }
 .configField > span {
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
 }
 .configField a {
   overflow-wrap: anywhere;
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
 }
 .row > button:not(.uiSwitch) {
@@ -3424,7 +3428,7 @@ textarea.codeArea {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
   cursor: default;
 }
@@ -3433,7 +3437,7 @@ textarea.codeArea {
 }
 .profileLine.columnHeads span {
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   font-weight: 600;
   padding-left: 2px;
 }
@@ -3488,12 +3492,12 @@ textarea.codeArea {
   gap: 1px;
 }
 .weekDay small {
-  font-size: calc(10px * var(--text));
+  font-size: calc(var(--type-tick-size) * var(--text));
   font-weight: 600;
   letter-spacing: 0.04em;
 }
 .weekDay b {
-  font-size: calc(13.5px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -3509,7 +3513,7 @@ textarea.codeArea {
 }
 .weekDay.active small,
 .weekDay.active b {
-  color: #fff;
+  color: var(--accent-ink);
 }
 .weekDay.busy::after {
   content: "";
@@ -3535,7 +3539,7 @@ textarea.codeArea {
 .courseFinder input {
   width: 100%;
   height: 30px;
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .courseFinderList {
   position: fixed;
@@ -3556,8 +3560,8 @@ textarea.codeArea {
   display: block;
   padding: 6px 8px 4px;
   color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 650;
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: 600;
   letter-spacing: 0.04em;
 }
 .courseFinderList button {
@@ -3573,7 +3577,7 @@ textarea.codeArea {
   color: var(--ink);
   text-align: left;
   font: inherit;
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
   cursor: default;
 }
 .courseFinderList button.active {
@@ -3592,12 +3596,12 @@ textarea.codeArea {
 }
 .courseFinderList code {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .courseFinderList p {
   padding: 10px 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 
 /* ---------- today: motion ----------
@@ -3623,7 +3627,7 @@ textarea.codeArea {
 }
 .todayPage:not(.todayNavigation) > .todayHeader,
 .todayPage:not(.todayNavigation) > .todayFlow > * {
-  animation: todayRise 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: todayRise var(--motion-duration-slow) var(--motion-easing-emphasized) both;
 }
 .todayPage:not(.todayNavigation) > .todayFlow > :nth-child(1) {
   animation-delay: 50ms;
@@ -3636,7 +3640,7 @@ textarea.codeArea {
 }
 .todayNavigation > *,
 .todayNavigation > .todayFlow > * {
-  animation: todayRailIn 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: todayRailIn var(--motion-duration-slow) var(--motion-easing-emphasized) both;
 }
 .todayNavigation > .todayFlow {
   animation: none;
@@ -3655,7 +3659,25 @@ textarea.codeArea {
 }
 .daySwap,
 .weekDay b {
-  animation: daySwap 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: daySwap var(--motion-duration-slow) var(--motion-easing-emphasized) both;
+}
+/* Stepping weeks slides the grid in from the arrow's side (approach/
+   motion-week-swipe); the first draw and a reload do not move. */
+.weekPane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.weekSlide {
+  animation: weekSlide var(--motion-duration-slow)
+    var(--motion-easing-emphasized) both;
+}
+@keyframes weekSlide {
+  from {
+    opacity: 0;
+    transform: translate3d(calc(var(--slide, 0) * 24px), 0, 0);
+  }
 }
 /* Sliding highlight behind the picked day. */
 .weekStrip {
@@ -3670,7 +3692,7 @@ textarea.codeArea {
   width: 34px;
   border-radius: 8px;
   background: var(--accent);
-  transition: left 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: left var(--motion-duration-slow) var(--motion-easing-emphasized);
 }
 .weekDay.active {
   background: none;
@@ -3680,17 +3702,6 @@ textarea.codeArea {
 }
 .weekDay.active:hover {
   background: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .todayPage > *,
-  .todayFlow > *,
-  .daySwap,
-  .weekDay b {
-    animation: none !important;
-  }
-  .weekStrip::before {
-    transition: none;
-  }
 }
 
 /* ---------- Home: the day beside the week ---------- */
@@ -3722,7 +3733,7 @@ textarea.codeArea {
 .homeSetup p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .homeSetup > button {
   flex-shrink: 0;
@@ -3781,35 +3792,6 @@ textarea.codeArea {
 }
 
 /* Remaining time before a deadline; tone rises inside three days and one day. */
-.dueChip {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 7px;
-  border-radius: var(--radius-chip);
-  background: var(--surface-3);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.dueChip.soon {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-.dueChip.urgent {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-.dueChip.done {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-.dueChip.overdue {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
 .finderLoadMore {
   display: flex;
   justify-content: center;
@@ -3861,10 +3843,27 @@ textarea.codeArea {
   animation: none;
 }
 ::view-transition-old(app-page) {
-  animation: 120ms ease-in both pageOut;
+  animation: var(--motion-duration-fast) var(--motion-easing-standard) both pageOut;
 }
 ::view-transition-new(app-page) {
-  animation: 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both pageIn;
+  animation: var(--motion-duration-slow) var(--motion-easing-emphasized) both pageIn;
+}
+/* Course zoom (app/course-zoom.ts): the clicked block or row and the course
+   page's title share one name while paired, and the group morphs between
+   them. */
+[data-course-zoom] .lmsCourseIdentity {
+  view-transition-name: course-zoom;
+}
+::view-transition-group(course-zoom) {
+  animation-duration: var(--motion-duration-slow);
+  animation-timing-function: var(--motion-easing-emphasized);
+}
+::view-transition-old(course-zoom),
+::view-transition-new(course-zoom) {
+  animation-duration: var(--motion-duration-slow);
+  animation-timing-function: var(--motion-easing-emphasized);
+  height: 100%;
+  object-fit: cover;
 }
 @keyframes pageOut {
   to {
@@ -3877,10 +3876,4 @@ textarea.codeArea {
     transform: translateY(8px) scale(0.995);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation: none !important;
-  }
-}
+

@@ -1328,5 +1328,11 @@
   "error.matrix-unreadable": "无法读取卡片。请在光线充足处保持稳定。",
   "error.guide-too-many-courses": "履修登记指南中的课程过多。",
   "error.logs-unavailable": "应用日志不可用。",
-  "error.lms-not-enrolled": "你未加入该 LMS 课程。"
+  "error.lms-not-enrolled": "你未加入该 LMS 课程。",
+  "Light and dark": "浅色与深色",
+  "Warm": "暖灰",
+  "Cool": "冷灰",
+  "Paper": "米白",
+  "Mist": "淡蓝",
+  "Moss": "淡绿"
 }

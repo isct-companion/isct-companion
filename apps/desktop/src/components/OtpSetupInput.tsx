@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -210,7 +211,7 @@ export function OtpSetupInput({
     >
       {!choosing ? (
         <div className="otpSaved" role="status">
-          <span aria-hidden="true">✓</span>
+          <Check size={16} strokeWidth={1.75} aria-hidden />
           <Text size="sm">{t("Codes are filled in for you at sign-in.")}</Text>
           {exportButtons}
           <Button

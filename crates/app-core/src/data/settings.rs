@@ -13,7 +13,9 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
             "classLeadMinutes": settings.pointer("/notifications/classLeadMinutes"),
             "assignmentLeadMinutes": settings.pointer("/notifications/assignmentLeadMinutes")
         },
-        "customization": settings.get("customization")
+        "customization": settings.get("customization"),
+        // The background theme follows the user to every device.
+        "theme": settings.get("theme")
     });
     let device = json!({
         "lmsBilingualFilter": settings.get("lmsBilingualFilter"),
@@ -56,6 +58,7 @@ pub(super) fn retire_providers(cloud: &Value) -> Value {
 /// Core is the one owner of which values may be stored.
 const PREFERENCE_CHOICES: &[(&str, &[&str])] = &[
     ("/appearance", &["system", "light", "dark"]),
+    ("/theme", &["warm", "cool", "paper", "mist", "moss"]),
     ("/density", &["comfortable", "compact"]),
     ("/textSize", &["small", "medium", "large"]),
     ("/locale", &["en", "ja", "zh"]),

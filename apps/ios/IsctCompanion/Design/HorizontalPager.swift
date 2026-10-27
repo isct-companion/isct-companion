@@ -46,7 +46,7 @@ struct HorizontalPager: ViewModifier {
         if open, abs(dx) > width / 3 || flick > Self.flickVelocity {
             turn(step)
         }
-        withAnimation(.snappy) { offset = 0 }
+        withAnimation(.smooth(duration: Theme.motionBase)) { offset = 0 }
     }
 
     /// One to one up to a third of the width, then a third of the rest; only

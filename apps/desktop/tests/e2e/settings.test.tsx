@@ -444,7 +444,7 @@ describe("School accounts", () => {
         cardButtons(science.querySelector(".schoolAccountActions")!),
       ).toEqual(["Connect", "Forget"]);
       // Saved, but no session has been reported yet in this launch.
-      expect(science.querySelector(".uiBadge")).toBeNull();
+      expect(science.querySelector(".uiTag")).toBeNull();
       expect(
         [
           ...settingsPane(mounted).querySelectorAll<HTMLElement>(

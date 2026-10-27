@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Modal, Stack, Text } from "./ui";
+import { ErrorBanner, Modal, Stack, Text } from "./ui";
 import { CameraPreview } from "./CameraPreview";
 import { t } from "../i18n";
 
@@ -82,14 +82,9 @@ export function QrCamera({
         </Text>
         <CameraPreview ref={setVideo} />
         {error && (
-          <Alert color="red" role="alert">
+          <ErrorBanner onRetry={() => setAttempt((n) => n + 1)}>
             {error}
-          </Alert>
-        )}
-        {error && (
-          <Button onClick={() => setAttempt((n) => n + 1)}>
-            {t("Try again")}
-          </Button>
+          </ErrorBanner>
         )}
       </Stack>
     </Modal>

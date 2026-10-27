@@ -36,7 +36,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
 }
 .lmsReaderToolSlot {
@@ -100,7 +100,7 @@
   background: var(--surface);
   overflow: hidden;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .lmsWebAddress > span {
   flex: 0 0 auto;
@@ -111,7 +111,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .lmsWebForward svg {
   transform: scaleX(-1);

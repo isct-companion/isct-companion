@@ -18,6 +18,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +32,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.hypot
 import app.isct.design.IsctTokens
+import app.isct.design.IsctNeutrals
+import app.isct.design.IsctThemes
 import app.isct.design.IsctTokensDark
 
 /** Adaptive roles over the generated light/dark tokens (design/tokens). System
@@ -44,6 +47,8 @@ data class Palette(
     val muted: Color,
     val line: Color,
     val accent: Color,
+    /** Text and icons on the solid accent. */
+    val accentInk: Color,
     val accentSoft: Color,
     val danger: Color,
     val dangerSoft: Color,
@@ -61,7 +66,7 @@ data class Palette(
 private val light = with(IsctTokens) {
     Palette(
         colorBg, colorSurface, colorSurface2, colorInk, colorMuted, colorLine, colorAccent,
-        colorAccentSoft, colorDanger, colorDangerSoft, colorWarn, colorWarnSoft, colorOk, colorOkSoft,
+        colorAccentInk, colorAccentSoft, colorDanger, colorDangerSoft, colorWarn, colorWarnSoft, colorOk, colorOkSoft,
         heroLightness.toFloat(), heroChroma.toFloat(), heroFade.toFloat(),
     )
 }
@@ -69,7 +74,7 @@ private val light = with(IsctTokens) {
 private val dark = with(IsctTokensDark) {
     Palette(
         colorBg, colorSurface, colorSurface2, colorInk, colorMuted, colorLine, colorAccent,
-        colorAccentSoft, colorDanger, colorDangerSoft, colorWarn, colorWarnSoft, colorOk, colorOkSoft,
+        colorAccentInk, colorAccentSoft, colorDanger, colorDangerSoft, colorWarn, colorWarnSoft, colorOk, colorOkSoft,
         heroLightness.toFloat(), heroChroma.toFloat(), heroFade.toFloat(),
     )
 }
@@ -83,15 +88,40 @@ object Theme {
     val radiusSurface: Dp = IsctTokens.radiusSurface
     val radiusPanel: Dp = IsctTokens.radiusPanel
     val radiusChip: Dp = IsctTokens.radiusChip
+    val radiusBlock: Dp = IsctTokens.radiusBlock
+    val radiusColumn: Dp = IsctTokens.radiusColumn
+    val radiusControl: Dp = IsctTokens.radiusControl
 
-    /** Course colour strength of a block that occupies time. */
+    /** Page side margin. */
+    val gutter: Dp = IsctTokens.spaceGutter
+    /** A list row's padding, and the gap between rows and a row's mark and text. */
+    val rowX: Dp = IsctTokens.spaceRowX
+    val rowY: Dp = IsctTokens.spaceRowY
+    val rowGap: Dp = IsctTokens.spaceRowGap
+    val cardPadding: Dp = IsctTokens.spaceCard
+
+    /** Course colour strength of a block that occupies time, a quiz included. */
     val tintFill = IsctTokens.courseTintFill.toFloat()
 
-    /** An exam block's stronger fill, a quiz block's slightly weaker one,
-     * and the quiz's ring. */
+    /** An exam block's deeper fill; it takes no ring (a ring means now). */
     val tintExam = IsctTokens.courseTintExam.toFloat()
-    val tintQuiz = IsctTokens.courseTintQuiz.toFloat()
-    val tintOutline = IsctTokens.courseTintOutline.toFloat()
+
+    /** Text on a fill: the course colour mixed into ink. */
+    val tintInk = IsctTokens.courseTintInk.toFloat()
+
+    /** Text on the solid course colour, such as an exam tag. */
+    val onSolid: Color = IsctTokens.courseOnSolid
+}
+
+/** [course] mixed into [base] at [share], opaque, so row rules and the lunch
+ * band never show through a block and a course reads the same on any surface
+ * (slotledger `approach/course-tint-opaque-mix`). Mixed in sRGB like the
+ * desktop's `color-mix(in srgb, …)`; Compose's own `lerp` mixes in Oklab. */
+fun courseMix(course: Color, share: Float, base: Color): Color {
+    val from = base.convert(ColorSpaces.Srgb)
+    val to = course.convert(ColorSpaces.Srgb)
+    fun mix(a: Float, b: Float) = a + (b - a) * share
+    return Color(mix(from.red, to.red), mix(from.green, to.green), mix(from.blue, to.blue), 1f)
 }
 
 /** The 'now' tint: [tint]'s hue at the theme's hero lightness, its chroma
@@ -116,10 +146,23 @@ fun Modifier.nowTint(tint: Color, palette: Palette, shape: Shape): Modifier = th
     )
     .border(0.5.dp, tint.copy(alpha = Theme.tintFill), shape)
 
+/** [base] with the neutrals of a background theme; accent, status, course
+ * and hero values stay the token files' (slotledger `approach/neutral-themes`). */
+private fun Palette.with(neutrals: IsctNeutrals) = copy(
+    bg = neutrals.bg, surface = neutrals.surface, surface2 = neutrals.surface2,
+    ink = neutrals.ink, muted = neutrals.muted, line = neutrals.line,
+)
+
+/** The app's theme: the system's light or dark choice of the background
+ * theme [themeId] (`settings.theme`, synced; `warm` when unknown). */
 @Composable
-fun IsctTheme(content: @Composable () -> Unit) {
-    val palette = if (isSystemInDarkTheme()) dark else light
-    val scheme = if (palette === dark) {
+fun IsctTheme(themeId: String = "warm", content: @Composable () -> Unit) {
+    val darkMode = isSystemInDarkTheme()
+    val palette = remember(themeId, darkMode) {
+        val (lightNeutrals, darkNeutrals) = IsctThemes[themeId] ?: IsctThemes.getValue("warm")
+        if (darkMode) dark.with(darkNeutrals) else light.with(lightNeutrals)
+    }
+    val scheme = if (darkMode) {
         darkColorScheme(
             primary = palette.accent, background = palette.bg, surface = palette.surface,
             onBackground = palette.ink, onSurface = palette.ink, error = palette.danger,

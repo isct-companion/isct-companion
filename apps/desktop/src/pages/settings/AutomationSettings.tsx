@@ -1,10 +1,11 @@
+import { Clock } from "lucide-react";
 import { notify as appNotify } from "../../app/notify";
 import { errorText } from "../../app/shared";
 import { useState } from "react";
 import { t } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../lib/model";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
-import { UiButton } from "../../components/ui";
+import { UiButton, EmptyState } from "../../components/ui";
 import { Row, SettingsGroup, Toggle } from "../../components/forms";
 import { formatDay } from "./subscription-status";
 
@@ -82,7 +83,9 @@ export function AutomationSettings({
     <>
       <SettingsGroup title="Scheduled tasks">
         {tasks.length === 0 && (
-          <p className="paneEmpty">{t("No scheduled tasks")}</p>
+          <EmptyState compact icon={Clock}>
+            {t("No scheduled tasks")}
+          </EmptyState>
         )}
         {tasks.map((task, index) => {
           const known = TASKS[task.action];

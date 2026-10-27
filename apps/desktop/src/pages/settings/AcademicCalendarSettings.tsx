@@ -1,3 +1,4 @@
+import { CalendarDays } from "lucide-react";
 import { formatJst, tokyoDate } from "../../lib/civil-date";
 import { useClock } from "../../platform/use-clock";
 import { refresh, useSync } from "../../app/useSync";
@@ -19,7 +20,7 @@ import {
   type CalendarOrigin,
 } from "../../platform/core-query";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
-import { UiButton, UiInput, UiSelect } from "../../components/ui";
+import { UiButton, UiInput, UiSelect, EmptyState } from "../../components/ui";
 import { SettingsGroup, SettingsHeader, Status } from "../../components/forms";
 import {
   formatDay,
@@ -404,7 +405,9 @@ export function AcademicCalendarSettings({
         {editing?.id === "new" && !editing.fixedDate && editor}
         <div data-setting="days" className="calendarDays">
           {view.days.length === 0 && (
-            <p className="paneEmpty">{t("No holidays or make-up days yet.")}</p>
+            <EmptyState compact icon={CalendarDays}>
+              {t("No holidays or make-up days yet.")}
+            </EmptyState>
           )}
           {past.length > 0 && (
             <UiButton
@@ -460,9 +463,9 @@ export function AcademicCalendarSettings({
       <SettingsGroup title="Important dates">
         <div data-setting="important-dates" className="calendarDays">
           {view.importantDates.length === 0 ? (
-            <p className="paneEmpty">
+            <EmptyState compact icon={CalendarDays}>
               {t("No important dates for this year.")}
-            </p>
+            </EmptyState>
           ) : (
             view.importantDates.map((row) => (
               <div className="calendarDay" key={row.id}>

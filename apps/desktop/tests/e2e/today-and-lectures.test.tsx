@@ -970,7 +970,7 @@ describe("the lecture desk", () => {
       return found.length ? found : null;
     }, "the session menu");
     expect(
-      items.map((item) => item.textContent?.replace(/[✓\s]+/, "")),
+      items.map((item) => item.textContent?.trim()),
     ).toEqual(["Mark as exam", "Mark as quiz", "Mark as cancelled"]);
     // A running class carries no mark.
     expect(items.some((item) => item.textContent?.includes("✓"))).toBe(false);

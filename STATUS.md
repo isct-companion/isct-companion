@@ -245,7 +245,7 @@
 | 登录运行时收尾：connect 并入会话任务、放弃的尝试真正停下、会话任务总时限 | implemented | not verified |
 | 前后端轻量通讯：拆掉整份工作区快照，按视图查询 SQLite | implemented | not verified |
 | 全仓库审计并清除冗余代码、死代码与过期文档（不改行为） | verified | ref: reported passing, 第二轮门禁在全部改动上通过：cargo test 496、vitest 427、tsc ×2、fmt、manual-acceptance validate/render。之后修正的 clippy 警告已单独复查为 0。iOS arm64 模拟器 BUILD SUCCEEDED。Android 未构建；中间提交没有单独跑门禁。 [/private/tmp/claude-501/-Users-miaozean-Desktop-workspace-IsctApp--claude-worktrees-dead-code-audit-20b1db/4f800bba-04df-42b9-afa5-42d677ff3c00/tasks/bgciio4un.output (sha256 b802c2fbefc1), /private/tmp/claude-501/-Users-miaozean-Desktop-workspace-IsctApp--claude-worktrees-dead-code-audit-20b1db/4f800bba-04df-42b9-afa5-42d677ff3c00/scratchpad/ios-build.log (sha256 f6367e644a73); cargo_tests=496, vitest=427, clippy_warnings=0, prod_lines_net=-334, test_lines_net=-157] (2026-10-27 01:17) |
-| 按已定视觉语言实现 tokens、时间表块、组件与动效（三端） | todo | not verified |
+| 按已定视觉语言实现 tokens、时间表块、组件与动效（三端） | implemented | not verified |
 
 ## Change history
 

@@ -15,6 +15,8 @@ struct TimetableScreen: View {
     @State private var year: TimetableYear?
     @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
+    @State private var gridWidth: CGFloat = 390
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Core's equal-row axis for the shown week.
     @State private var axis: TimetableAxis?
@@ -35,12 +37,15 @@ struct TimetableScreen: View {
             TipView(TimetableMarkTip())
             grid
                 .frame(maxHeight: .infinity, alignment: .top)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { gridHeight = $0 }
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                    gridHeight = size.height
+                    gridWidth = size.width
+                }
                 .offset(x: dragOffset)
                 // Alongside taps, so a block answers the moment it is touched.
                 .simultaneousGesture(swipe)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Theme.gutter)
         .padding(.bottom, 8)
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
@@ -75,7 +80,7 @@ struct TimetableScreen: View {
         }
         .sheet(isPresented: $showsPicker) {
             WeekPicker(year: year, monday: monday) { picked in
-                withAnimation(.snappy) { monday = picked }
+                withAnimation(Motion.base(reduceMotion)) { monday = picked }
                 showsPicker = false
             }
             .presentationDetents([.medium, .large])
@@ -122,7 +127,6 @@ struct TimetableScreen: View {
             }
         }
         .padding(.top, 12)
-        .padding(.horizontal, 4)
     }
 
     private var range: String {
@@ -152,16 +156,14 @@ struct TimetableScreen: View {
         let thisWeek = TimetableScreen.monday(of: Date())
         let atThisWeek = monday == thisWeek
         return Button {
-            withAnimation(.snappy) { monday = thisWeek }
+            withAnimation(Motion.base(reduceMotion)) { monday = thisWeek }
         } label: {
             Text(t("Today"))
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 16)
                 .frame(height: 40)
-                .background(Theme.accentSoft, in: Capsule())
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(Theme.accent)
+        .buttonStyle(CapsuleButtonStyle(level: .secondary))
         .disabled(atThisWeek)
         .opacity(atThisWeek ? 0.35 : 1)
         .accessibilityLabel(t("Back to this week"))
@@ -171,20 +173,39 @@ struct TimetableScreen: View {
         monday = Calendar.tokyo.date(byAdding: .day, value: 7 * weeks, to: monday) ?? monday
     }
 
+    /// The grid follows the finger; past the threshold the week slides out
+    /// and the next one slides in from the other side, otherwise it settles
+    /// back (slotledger `approach/motion-week-swipe`). With Reduce Motion the
+    /// grid stays put and the week cross-fades.
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 24)
             .onChanged { value in
-                if abs(value.translation.width) > abs(value.translation.height) {
-                    dragOffset = value.translation.width / 3
+                if !reduceMotion, abs(value.translation.width) > abs(value.translation.height) {
+                    dragOffset = value.translation.width
                 }
             }
             .onEnded { value in
-                withAnimation(.snappy) { dragOffset = 0 }
-                guard abs(value.translation.width) > abs(value.translation.height),
-                    abs(value.translation.width) > 60
-                else { return }
-                shift(value.translation.width < 0 ? 1 : -1)
+                let width = value.translation.width
+                let flung = abs(value.predictedEndTranslation.width) > gridWidth / 2
+                guard abs(width) > abs(value.translation.height), abs(width) > 60 || flung else {
+                    withAnimation(Motion.base(reduceMotion)) { dragOffset = 0 }
+                    return
+                }
+                turn(width < 0 ? 1 : -1)
             }
+    }
+
+    private func turn(_ step: Int) {
+        guard !reduceMotion else {
+            withAnimation(Motion.fast(true)) { shift(step) }
+            return
+        }
+        let out = -CGFloat(step) * gridWidth
+        withAnimation(.smooth(duration: Theme.motionFast)) { dragOffset = out } completion: {
+            shift(step)
+            dragOffset = -out
+            withAnimation(.smooth(duration: Theme.motionSlow)) { dragOffset = 0 }
+        }
     }
 
     // MARK: Grid
@@ -221,7 +242,7 @@ struct TimetableScreen: View {
                 .foregroundStyle(Theme.muted)
             Text("\(parts.day ?? 0)")
                 .font(.headline.monospacedDigit())
-                .foregroundStyle(today ? .white : Theme.ink)
+                .foregroundStyle(today ? Theme.accentInk : Theme.ink)
                 .frame(width: 30, height: 30)
                 .background(today ? Theme.accent : .clear, in: Circle())
         }
@@ -248,7 +269,7 @@ struct TimetableScreen: View {
             Text("\(period)").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
             if first {
                 Text(row.startTime.replacingOccurrences(of: "^0", with: "", options: .regularExpression))
-                    .font(.system(size: 9).monospacedDigit())
+                    .font(.tick.monospacedDigit())
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -266,69 +287,112 @@ struct TimetableScreen: View {
         let agenda = agenda(day)
         let today = Calendar.tokyo.isDateInToday(day)
         let blocks = (agenda?.occurrences ?? []).filter { [.course, .exam].contains($0.kind) }
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let holiday = agenda?.noClasses == true
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusColumn, style: .continuous)
+        // A day without classes is a flat grey column; stripes belong to the
+        // classes that do not take place.
         return ZStack(alignment: .top) {
-            shape.fill(Theme.surface)
+            shape.fill(holiday ? Theme.mix(Theme.muted, 0.08, into: Theme.surface) : Theme.surface)
             if let axis { RowRules(axis: axis, rowHeight: rowHeight).clipShape(shape) }
-            if agenda?.noClasses == true {
-                Hatch().clipShape(shape)
-            }
-            if today {
-                shape.stroke(Theme.accent.opacity(0.5), lineWidth: 1.5)
+            if week == nil {
+                skeleton(day).clipShape(shape)
             }
             if let axis {
-                ForEach(blocks, id: \.key) { block in
-                    let top = axis.offset(block.startTime) * rowHeight
-                    let bottom = axis.offset(block.endTime) * rowHeight
-                    blockView(block, height: max(bottom - top - 4, 24), holiday: agenda?.noClasses == true)
-                        // Placed by layout, not by offset, so where a block is
-                        // drawn is where it answers a tap.
-                        .padding(.top, top + 2)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                GeometryReader { column in
+                    ForEach(blocks, id: \.key) { block in
+                        // Core's grid: a block timed inside periods fills the
+                        // periods it touches, overlapping blocks share lanes.
+                        let top = axis.offset(block.grid?.startTime ?? block.startTime) * rowHeight
+                        let bottom = axis.offset(block.grid?.endTime ?? block.endTime) * rowHeight
+                        let lanes = CGFloat(block.grid?.lanes ?? 1)
+                        let width = column.size.width / lanes
+                        blockView(block, height: max(bottom - top - 4, 24), holiday: holiday, narrow: lanes > 1)
+                            .frame(width: width)
+                            // Placed by layout, not by offset, so where a block
+                            // is drawn is where it answers a tap.
+                            .padding(.leading, width * CGFloat(block.grid?.lane ?? 0))
+                            .padding(.top, top + 2)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
                 }
                 if today { NowLine(axis: axis, rowHeight: rowHeight) }
             }
         }
     }
 
-    private func blockView(_ block: Occurrence, height: CGFloat, holiday: Bool) -> some View {
+    /// Grey stand-ins for a week not read yet, two blocks a day at rows that
+    /// shift by weekday so the grid does not read as a real timetable.
+    private func skeleton(_ day: Date) -> some View {
+        let weekday = Calendar.tokyo.component(.weekday, from: day)
+        return ZStack(alignment: .topLeading) {
+            ForEach([weekday % 3 * 2, weekday % 3 * 2 + 4], id: \.self) { row in
+                RoundedRectangle(cornerRadius: Theme.radiusBlock, style: .continuous)
+                    .fill(Theme.surface2)
+                    .frame(height: max(rowHeight * 2 - 4, 24))
+                    .padding(.horizontal, 2)
+                    .padding(.top, CGFloat(row) * rowHeight + 2)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .transition(.opacity)
+        .accessibilityHidden(true)
+    }
+
+    /// One block (slotledger `approach/timetable-*`): a solid course fill,
+    /// deeper for an exam; a ring only for the class in progress; an exam or
+    /// quiz tag above the title; a class that does not take place striped.
+    private func blockView(_ block: Occurrence, height: CGFloat, holiday: Bool, narrow: Bool) -> some View {
         let planned = block.planned == true
-        let cancelled = block.cancelled == true
+        let cancelled = block.cancelled == true || holiday
         let exam = block.kind == .exam && !cancelled
         let quiz = exam && block.quiz == true
-        let faded = holiday || cancelled
         let current = isCurrent(block)
         let tint = Color(hex: block.color)
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusBlock, style: .continuous)
+        let tagged = exam && !narrow
         let content = VStack(alignment: .leading, spacing: BlockText.spacing) {
+            if tagged {
+                HStack(spacing: 3) {
+                    ExamTag(quiz: quiz, tint: tint)
+                    if block.sourceChanged == true {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundStyle(Theme.warn)
+                            .accessibilityLabel(t("Timetable changed"))
+                    }
+                }
+                .font(BlockText.titleFont)
+            }
             Text(block.title)
                 .strikethrough(cancelled)
                 .font(BlockText.titleFont)
-                .lineLimit(BlockText.titleLines(height: height))
-            Spacer(minLength: 0)
-            bottomLine(block, planned: planned, exam: exam, quiz: quiz, cancelled: cancelled)
-                .font(BlockText.roomFont)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .lineLimit(BlockText.titleLines(height: height, tagged: tagged, footer: !narrow))
+            if !narrow {
+                Spacer(minLength: 0)
+                bottomLine(block, planned: planned, cancelled: cancelled)
+                    .font(BlockText.roomFont)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
-        .foregroundStyle(faded ? Theme.muted : Theme.ink)
+        .foregroundStyle(cancelled ? Theme.muted : Theme.courseInk(tint))
         .padding(BlockText.padding)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: height)
         .background {
-            // An exam is the strongest fill, a quiz a little weaker; neither is
-            // striped, which means cancelled.
-            shape.fill(planned ? Theme.surface : tint.opacity(faded ? 0.08 : quiz ? Theme.tintQuiz : exam ? Theme.tintExam : Theme.tintFill))
+            if cancelled {
+                shape.fill(Theme.mix(Theme.muted, 0.10, into: Theme.surface))
+                    .overlay { Stripes().clipShape(shape) }
+            } else if planned {
+                shape.fill(Theme.surface)
+            } else {
+                shape.fill(Theme.mix(tint, exam && !quiz ? Theme.tintExam : Theme.tintFill, into: Theme.surface))
+            }
         }
         .overlay {
-            // The class in progress and an exam ring in the course colour,
-            // which outranks a quiz's lighter ring.
-            if current || (exam && !quiz) {
+            if current && !cancelled {
                 shape.stroke(tint, lineWidth: 2)
-            } else if quiz {
-                shape.stroke(tint.opacity(Theme.tintOutline), lineWidth: 1.5)
-            } else if planned {
-                shape.stroke(Theme.line, lineWidth: 1)
+            } else if planned && !cancelled {
+                shape.stroke(Theme.mix(tint, 0.45, into: Theme.surface), lineWidth: 1.5)
             }
         }
         .contentShape(shape)
@@ -346,29 +410,26 @@ struct TimetableScreen: View {
         .sessionMarks(block, enabled: !planned)
     }
 
-    /// 計画, 休講, or the first room (an exam or quiz tags it first, with a
-    /// warning when the published exam changed); every room stays on the
-    /// course page.
+    /// 計画, 休講, the real times of a block drawn over whole periods, or the
+    /// first room; every room stays on the course page.
     @ViewBuilder
-    private func bottomLine(_ block: Occurrence, planned: Bool, exam: Bool, quiz: Bool, cancelled: Bool) -> some View {
-        let room = BlockText.firstRoom(block.room)
+    private func bottomLine(_ block: Occurrence, planned: Bool, cancelled: Bool) -> some View {
         if planned {
             Text(t("Planned"))
         } else if cancelled {
             Text(t("No class"))
-        } else if exam {
-            HStack(spacing: 3) {
-                ExamTag(quiz: quiz, tint: Color(hex: block.color))
-                if block.sourceChanged == true {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(Theme.warn)
-                        .accessibilityLabel(t("Timetable changed"))
-                }
-                Text(room)
-            }
+        } else if let grid = block.grid,
+            grid.startTime != block.startTime || grid.endTime != block.endTime
+        {
+            Text("\(Self.clock(block.startTime))–\(Self.clock(block.endTime))").monospacedDigit()
         } else {
-            Text(room)
+            Text(BlockText.firstRoom(block.room))
         }
+    }
+
+    /// "09:30" as 9:30, as the period column writes times.
+    private static func clock(_ time: String) -> String {
+        time.replacingOccurrences(of: "^0", with: "", options: .regularExpression)
     }
 
     private func isCurrent(_ block: Occurrence) -> Bool {
@@ -472,6 +533,7 @@ private struct RowRules: View {
 private struct NowLine: View {
     let axis: TimetableAxis
     let rowHeight: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -482,15 +544,15 @@ private struct NowLine: View {
                 }
                 .padding(.top, offset * rowHeight - 4)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .animation(.smooth, value: offset)
+                .animation(reduceMotion ? nil : .smooth(duration: Theme.motionSlow), value: offset)
             }
         }
         .allowsHitTesting(false)
     }
 }
 
-/// Diagonal hatch for a day without classes.
-private struct Hatch: View {
+/// Diagonal stripes on a class that does not take place.
+private struct Stripes: View {
     var body: some View {
         Canvas { context, size in
             var path = Path()
@@ -498,9 +560,10 @@ private struct Hatch: View {
             while x < size.width {
                 path.move(to: CGPoint(x: x, y: size.height))
                 path.addLine(to: CGPoint(x: x + size.height, y: 0))
-                x += 10
+                x += 8
             }
-            context.stroke(path, with: .color(Theme.line), lineWidth: 4)
+            context.stroke(path, with: .color(Theme.line), lineWidth: 3)
         }
+        .allowsHitTesting(false)
     }
 }

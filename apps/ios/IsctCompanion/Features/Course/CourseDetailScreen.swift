@@ -46,6 +46,8 @@ struct CourseDetailScreen: View {
                     pages
                 } else if detail != nil {
                     ContentUnavailableView(t("No materials yet"), systemImage: "doc.text")
+                } else {
+                    SkeletonRows(rows: 4)
                 }
             }
             .padding(.horizontal, 16)
@@ -57,7 +59,6 @@ struct CourseDetailScreen: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .sensoryFeedback(.selection, trigger: lesson)
         .sensoryFeedback(.success, trigger: marks)
         .task(id: "\(courseId)-\(model.contentRevision)") {
             guard let loaded = await model.courseDetail(courseId), !Task.isCancelled else { return }
@@ -133,7 +134,7 @@ struct CourseDetailScreen: View {
         // The leaving page takes its removal from `step`: let it render with
         // the new step once before it is removed.
         DispatchQueue.main.async {
-            withAnimation(.snappy) { lesson = target }
+            withAnimation(.smooth(duration: Theme.motionBase)) { lesson = target }
         }
     }
 
@@ -300,7 +301,7 @@ private struct LessonChips: View {
                 }
             }
             .onAppear { proxy.scrollTo(selection, anchor: .center) }
-            .onChange(of: selection) { withAnimation(.snappy) { proxy.scrollTo(selection, anchor: .center) } }
+            .onChange(of: selection) { withAnimation(.smooth(duration: Theme.motionBase)) { proxy.scrollTo(selection, anchor: .center) } }
         }
         .popoverTip(LessonMarkTip(), arrowEdge: .top)
     }
@@ -316,7 +317,7 @@ private struct LessonChips: View {
                     .frame(minWidth: 34)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .foregroundStyle(selected ? .white : Theme.ink)
+                    .foregroundStyle(selected ? Theme.accentInk : Theme.ink)
                     .background(selected ? Theme.accent : Theme.surface, in: Capsule())
                     .contentShape(.contextMenuPreview, Capsule())
             }

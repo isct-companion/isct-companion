@@ -1,7 +1,8 @@
+import { ChevronDown } from "lucide-react";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
 import { useRef, useLayoutEffect, type ReactNode } from "react";
-import { Badge, Button, Menu, Paper } from "../../components/ui";
+import { Badge, Button, Menu, Paper, Tag } from "../../components/ui";
 import {
   useLocalStorage,
   useDebounceCallback,
@@ -229,11 +230,9 @@ function CoursesBody({
             </Badge>
           )}
           {conflictCount > 0 && (
-            <Badge
+            <Tag
               component="button"
-              type="button"
-              variant="light"
-              color="red"
+              tone="danger"
               className="conflictBadge"
               title={t("Show the first conflict")}
               onClick={() => {
@@ -242,7 +241,7 @@ function CoursesBody({
               }}
             >
               {t("Conflicts: {{count}}", { count: conflictCount })}
-            </Badge>
+            </Tag>
           )}
 
           {removable && canEdit && (
@@ -273,7 +272,7 @@ function CoursesBody({
                   px={6}
                   aria-label={t("Calendar export options")}
                 >
-                  ▾
+                  <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
                 </Button>
               </Menu.Target>
               <Menu.Dropdown>

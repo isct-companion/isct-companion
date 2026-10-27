@@ -65,8 +65,8 @@ pub use occurrence::{
     course_terms, course_timeline, intensive_days, next_plan_occurrences, occurrences_on_date,
     plan_start, planning_week, resolve_day_agenda, schedule_problems, scheduled_courses,
     term_courses, validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline,
-    Occurrence, OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek, ScheduleProblem,
-    ScheduleProblemKind,
+    GridSlot, Occurrence, OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek,
+    ScheduleProblem, ScheduleProblemKind,
 };
 pub use range::calendar_between;
 pub use reminders::{
@@ -653,12 +653,15 @@ pub fn query(
             let courses = overview.courses.clone();
             let mut agendas = calendar_between(workspace, school, &from, &to)?;
             if !include_personal {
+                let periods = teaching_periods(workspace)?;
                 for agenda in &mut agendas {
                     agenda.occurrences.retain(|block| {
                         matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
                     });
-                    agenda.occurrences =
-                        occurrence::finalize_agenda(std::mem::take(&mut agenda.occurrences))?;
+                    agenda.occurrences = occurrence::finalize_agenda(
+                        std::mem::take(&mut agenda.occurrences),
+                        &periods,
+                    )?;
                 }
             }
             Ok(WorkspaceQueryResult::ScheduleView(ScheduleView {
@@ -1012,6 +1015,7 @@ pub fn declarations() -> Vec<String> {
         ClassGroupSession::decl(),
         ClassGroupChoice::decl(),
         OccurrenceKind::decl(),
+        GridSlot::decl(),
         Occurrence::decl(),
         ScheduleProblemKind::decl(),
         ScheduleProblem::decl(),

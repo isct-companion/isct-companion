@@ -18,7 +18,7 @@ struct TodayScreen: View {
     @State private var exams: [ExamView] = []
 
     /// The dashboard's list margin, which its header lines up with.
-    private static let margin: CGFloat = 24
+    private static let margin = Theme.gutter
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -85,8 +85,12 @@ struct TodayScreen: View {
             }
             if let today = model.today {
                 TodayContent(today: today, now: now, exams: exams, spread: columns)
+                    .transition(.opacity)
+            } else if !model.needsAccount {
+                SkeletonRows(rows: 4).transition(.opacity)
             }
         }
+        .animation(.smooth(duration: Theme.motionBase), value: model.today == nil)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
@@ -279,14 +283,13 @@ private struct ClassStack: View {
                     pull = open ? travel : travel * 0.2
                 },
                 ended: { travel, velocity in
-                    withAnimation(.snappy) {
+                    withAnimation(.smooth(duration: Theme.motionBase)) {
                         if travel < -Self.turn / 2 || velocity < -500 { front = min(index + 1, items.count - 1) }
                         if travel > Self.turn / 2 || velocity > 500 { front = max(index - 1, 0) }
                         pull = 0
                     }
                 }))
-            .accessibilityAction(named: t("Next class")) { withAnimation(.snappy) { front = min(index + 1, items.count - 1) } }
-            .sensoryFeedback(.selection, trigger: front)
+            .accessibilityAction(named: t("Next class")) { withAnimation(.smooth(duration: Theme.motionBase)) { front = min(index + 1, items.count - 1) } }
             .onChange(of: items.first?.startsAt) { front = 0 }
         }
     }
@@ -343,7 +346,7 @@ private struct StackCard: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(item.occurrence.startTime)
-                    .font(.system(size: 40, weight: .bold).monospacedDigit())
+                    .font(.display.monospacedDigit())
                 Text(item.occurrence.room)
                     .font(.title2.bold())
             }
@@ -447,7 +450,7 @@ private struct CurrentClassHero: View {
                     Text(before).font(.title3.weight(.semibold))
                 }
                 Text("\(minutes)")
-                    .font(.system(size: 48, weight: .bold).monospacedDigit())
+                    .font(.display.monospacedDigit())
                     .countingFigure(minutes)
                 if words.count > 1, case let after = words[1].trimmingCharacters(in: .whitespaces), !after.isEmpty {
                     Text(after).font(.title3.weight(.semibold))
@@ -456,7 +459,7 @@ private struct CurrentClassHero: View {
             .foregroundStyle(Theme.ink)
             ProgressView(value: progress)
                 .tint(tint)
-                .animation(.smooth(duration: 0.8), value: progress)
+                .animation(.smooth(duration: Theme.motionSlow), value: progress)
             Text(item.occurrence.title)
                 .font(.title3.weight(.semibold))
                 .lineLimit(2)
@@ -489,7 +492,7 @@ private struct TonightHero: View {
                 DeadlineChip(item: item, now: now)
             }
             Text(Format.date(item.dueAt).map(Format.time) ?? Format.due(item.dueAt, now: now))
-                .font(.system(size: 48, weight: .bold).monospacedDigit())
+                .font(.display.monospacedDigit())
                 .foregroundStyle(Theme.ink)
             Text(item.title).font(.title3.weight(.semibold)).foregroundStyle(Theme.ink)
             if let course = item.courseTitle {
@@ -501,12 +504,10 @@ private struct TonightHero: View {
                 } label: {
                     Label(t("Open submission page"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(Theme.danger, in: Capsule())
                 }
-                .buttonStyle(PressableStyle())
+                .buttonStyle(CapsuleButtonStyle(level: .danger))
             }
         }
         .padding(18)
@@ -733,15 +734,17 @@ struct ProblemBanner: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        // One line and one way out (slotledger `approach/feedback-banner-toast`).
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
-            Text(text).font(.subheadline).foregroundStyle(Theme.ink)
+            Text(text).font(.subheadline).foregroundStyle(Theme.ink).lineLimit(2)
             Spacer()
-            Button {
+            Button(t("Retry")) {
                 model.dismissProblem()
-            } label: {
-                Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
+                model.refreshFromSchool()
             }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Theme.accent)
         }
         .padding(14)
         .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
@@ -765,10 +768,8 @@ private struct ConnectCard: View {
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .foregroundStyle(.white)
-                    .background(Theme.accent, in: Capsule())
             }
-            .buttonStyle(PressableStyle())
+            .buttonStyle(CapsuleButtonStyle())
         }
         .padding(18)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
@@ -786,15 +787,17 @@ struct UndoToast: View {
                 Button(t("Undo")) { Task { await model.undoHide() } }.fontWeight(.semibold)
             }
             .font(.subheadline)
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.ink)
+            .tint(Theme.accent)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.black.opacity(0.85), in: Capsule())
-            .padding(.horizontal, 16)
+            // A floating layer takes the system material, not a black pill.
+            .floatingGlass(in: Capsule())
+            .padding(.horizontal, Theme.gutter)
             .padding(.bottom, 8)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(4))
                 model.dismissUndo()
             }
         }

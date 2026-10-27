@@ -31,14 +31,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.DocumentScanner
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.DocumentScanner
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
@@ -199,14 +199,14 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
 
     if (saved && !changing && setup.isEmpty()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Outlined.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
+            Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
             Text(t("Codes are filled in for you at sign-in."), color = Theme.colors.ink, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("Change")) }
         }
         // A QR on this screen cannot be scanned by this phone, so the
         // `otpauth://` link goes straight to the installed authenticator.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceChip(t("Add to authenticator"), Icons.Outlined.Key) {
+            SourceChip(t("Add to authenticator"), Icons.Rounded.Key) {
                 scope.launch {
                     error = null
                     runCatching { model.otpSetupLink() }
@@ -220,7 +220,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
                         .onFailure { error = AppModel.describe(it) }
                 }
             }
-            SourceChip(if (copied) t("Copied") else t("Copy setup"), Icons.Outlined.ContentCopy) {
+            SourceChip(if (copied) t("Copied") else t("Copy setup"), Icons.Rounded.ContentCopy) {
                 scope.launch {
                     error = null
                     runCatching { model.otpSetupLink() }
@@ -241,7 +241,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
     Choices(listOf("export" to t("From an authenticator app"), "paste" to t("Setup link or secret")), path) { path = it }
     if (path == "export") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceChip(t("Scan QR"), Icons.Outlined.QrCodeScanner) {
+            SourceChip(t("Scan QR"), Icons.Rounded.QrCodeScanner) {
                 scope.launch {
                     when (val result = scanQr(context)) {
                         null -> Unit
@@ -249,7 +249,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
                     }
                 }
             }
-            SourceChip(t("From photo"), Icons.Outlined.Image) {
+            SourceChip(t("From photo"), Icons.Rounded.Image) {
                 photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
         }
@@ -266,7 +266,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
             ),
             modifier = Modifier.fillMaxWidth(),
         )
-        SourceChip(t("Paste"), Icons.Outlined.ContentPaste) {
+        SourceChip(t("Paste"), Icons.Rounded.ContentPaste) {
             clipboardText(context)?.let(::read) ?: run { error = t("The clipboard is empty.") }
         }
         Hint(t("Not the six-digit code that changes every 30 seconds."))
@@ -421,7 +421,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (canScan) {
             if (hasCamera) {
-                SourceChip(t("Auto scan"), Icons.Outlined.DocumentScanner, enabled = !reading) {
+                SourceChip(t("Auto scan"), Icons.Rounded.DocumentScanner, enabled = !reading) {
                     error = null
                     note = null
                     runCatching { model.beginMatrixCamera() }
@@ -430,7 +430,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 }
             }
             Box {
-                SourceChip(t("Upload image"), Icons.Outlined.Image, enabled = !reading) { choosing = true }
+                SourceChip(t("Upload image"), Icons.Rounded.Image, enabled = !reading) { choosing = true }
                 DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
                     if (hasCamera) {
                         DropdownMenuItem(text = { Text(t("Take photo")) }, onClick = {
@@ -450,7 +450,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 }
             }
         }
-        SourceChip(t("Paste"), Icons.Outlined.ContentPaste, enabled = !reading) {
+        SourceChip(t("Paste"), Icons.Rounded.ContentPaste, enabled = !reading) {
             // An image on the clipboard is read like a photo, as on iOS;
             // otherwise its text must be the 70 letters.
             clipboardImage(context)?.takeIf { canScan }?.let {
@@ -473,7 +473,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 editing = true
             }
         }
-        if (!editing) SourceChip(t("Enter manually"), Icons.Outlined.Keyboard) { editing = true }
+        if (!editing) SourceChip(t("Enter manually"), Icons.Rounded.Keyboard) { editing = true }
     }
     if (reading) {
         Text(t("Reading {{done}}/70", "done" to model.ocrProgress), style = MaterialTheme.typography.bodySmall)

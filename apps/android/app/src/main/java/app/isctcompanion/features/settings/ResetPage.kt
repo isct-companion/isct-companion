@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -126,8 +126,8 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
                 }
             }
         }
-        Items(t("settings.reset.deletes"), deletes, Icons.Outlined.Delete)
-        Items(t("settings.reset.keeps"), keeps, Icons.Outlined.Check)
+        Items(t("settings.reset.deletes"), deletes, Icons.Rounded.Delete)
+        Items(t("settings.reset.keeps"), keeps, Icons.Rounded.Check)
         Card {
             Row(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text(t("settings.reset.freed"), color = Theme.colors.ink, modifier = Modifier.weight(1f))

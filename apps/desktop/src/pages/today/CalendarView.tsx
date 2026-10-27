@@ -1,5 +1,6 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { Paper, Input } from "../../components/ui";
+import { Paper, Input, Skeleton } from "../../components/ui";
 import { UiButton } from "../../components/ui";
 import {
   WeekTimetable,
@@ -61,6 +62,12 @@ function CalendarViewBody({
   const now = useClock();
   const today = tokyoDate(new Date(now));
   const [anchor, setAnchor] = useState<string>();
+  // Which way the last step went: the grid slides in from that side.
+  const [slide, setSlide] = useState(0);
+  const step = (next: string | undefined, direction: number) => {
+    setSlide(direction);
+    setAnchor(next);
+  };
   const date = anchor ?? today;
   const from = addCivilDays(date, 1 - civilWeekday(date));
   const to = addCivilDays(from, 6);
@@ -97,32 +104,51 @@ function CalendarViewBody({
               aria-label={t("Date")}
               value={date}
               onChange={(event) =>
-                event.target.value && setAnchor(event.target.value)
+                event.target.value &&
+                step(
+                  event.target.value,
+                  Math.sign(event.target.value.localeCompare(date)),
+                )
               }
             />
             <UiButton
               aria-label={t("Previous week")}
-              onClick={() => setAnchor(addCivilDays(date, -7))}
+              onClick={() => step(addCivilDays(date, -7), -1)}
             >
-              ←
+              <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
             </UiButton>
-            <UiButton onClick={() => setAnchor(undefined)}>
+            <UiButton
+              onClick={() =>
+                step(undefined, Math.sign(today.localeCompare(date)))
+              }
+            >
               {t("This week")}
             </UiButton>
             <UiButton
               aria-label={t("Next week")}
-              onClick={() => setAnchor(addCivilDays(date, 7))}
+              onClick={() => step(addCivilDays(date, 7), 1)}
             >
-              →
+              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
             </UiButton>
           </div>
         </header>
-        <WeekTimetable
-          days={agendaColumns(view.value?.agendas ?? [], today)}
-          onSelect={open}
-          actionsFor={actionsFor}
-          now={now}
-        />
+        {view.pending && !view.value ? (
+          <Skeleton shape="week" />
+        ) : (
+          <div
+            key={from}
+            className={`weekPane${slide ? " weekSlide" : ""}`}
+            style={{ "--slide": slide } as React.CSSProperties}
+          >
+            <WeekTimetable
+              days={agendaColumns(view.value?.agendas ?? [], today)}
+              onSelect={open}
+              actionsFor={actionsFor}
+              now={now}
+              zoom
+            />
+          </div>
+        )}
       </Paper>
     </section>
   );

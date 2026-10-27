@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Modal, Progress, Stack, Text } from "./ui";
+import { Button, ErrorBanner, Modal, Progress, Stack, Text } from "./ui";
 import type { MatrixScanOutline } from "../generated/persistence";
 import type { Recognition } from "../lib/matrix-ocr";
 import { openMatrixCamera } from "../platform/matrix-camera";
@@ -92,9 +92,7 @@ export function MatrixCamera({
             />
           </CameraPreview>
           {error ? (
-            <Alert color="red" role="alert">
-              {error}
-            </Alert>
+            <ErrorBanner>{error}</ErrorBanner>
           ) : (
             <Text size="sm" role="status">
               {outline
@@ -127,18 +125,9 @@ export function MatrixCamera({
             aria-label={t("Matrix processing progress")}
           />
           {error && (
-            <>
-              <Alert color="red" role="alert">
-                {error}
-              </Alert>
-              <Button
-                variant="default"
-                size="compact-xs"
-                onClick={() => setAttempt((value) => value + 1)}
-              >
-                {t("Try again")}
-              </Button>
-            </>
+            <ErrorBanner onRetry={() => setAttempt((value) => value + 1)}>
+              {error}
+            </ErrorBanner>
           )}
           <Button variant="default" size="compact-xs" onClick={onClose}>
             {t("Cancel")}

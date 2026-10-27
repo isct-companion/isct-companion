@@ -1,3 +1,5 @@
+import { EmptyState } from "../../components/ui";
+import { Globe } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   claimSchoolView,
@@ -159,17 +161,18 @@ export function OfficialLmsView({
       </ReaderTools>
       <div className="lmsOfficialHost" ref={host}>
         {!available ? (
-          <div className="lmsViewerEmpty">
-            <b>{t("Official LMS")}</b>
-            <p>
-              {t(
-                "The desktop app opens the signed-in LMS here. Browser preview cannot embed LMS.",
-              )}
-            </p>
-            <a href={url} target="_blank" rel="noopener noreferrer">
-              {t("Open LMS in browser")} ↗
-            </a>
-          </div>
+          <EmptyState
+            icon={Globe}
+            action={
+              <a href={url} target="_blank" rel="noopener noreferrer">
+                {t("Open LMS in browser")} ↗
+              </a>
+            }
+          >
+            {t(
+              "The desktop app opens the signed-in LMS here. Browser preview cannot embed LMS.",
+            )}
+          </EmptyState>
         ) : (
           status && <p role="status">{t(status)}</p>
         )}

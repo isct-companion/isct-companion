@@ -1,5 +1,7 @@
 package app.isctcompanion.design
 
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
@@ -16,9 +18,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.PauseCircle
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,8 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -204,8 +204,8 @@ fun SyncIndicatorView(indicator: SyncIndicator) {
         is SyncIndicator.Spinner -> CircularProgressIndicator(
             Modifier.size(18.dp), strokeWidth = 2.dp, color = if (indicator.emphasized) Theme.colors.accent else Theme.colors.muted,
         )
-        SyncIndicator.Failed -> Icon(Icons.Outlined.ErrorOutline, null, tint = Theme.colors.danger)
-        SyncIndicator.Held -> Icon(Icons.Outlined.PauseCircle, null, tint = Theme.colors.muted)
+        SyncIndicator.Failed -> Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger)
+        SyncIndicator.Held -> Icon(Icons.Rounded.PauseCircle, null, tint = Theme.colors.muted)
     }
 }
 
@@ -216,7 +216,6 @@ fun SyncIndicatorView(indicator: SyncIndicator) {
 @Composable
 fun SyncRingButton() {
     val model = LocalModel.current
-    val haptics = LocalHapticFeedback.current
     var sheet by remember { mutableStateOf(false) }
     var done by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -226,7 +225,6 @@ fun SyncRingButton() {
         val finished = busy && !nowBusy && snapshot?.indicator == null
         busy = nowBusy
         if (!finished) return@LaunchedEffect
-        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
         done = true
         delay(1_600)
         done = false
@@ -237,9 +235,14 @@ fun SyncRingButton() {
             SyncIndicatorView(indicator)
         }
     } else {
-        AnimatedVisibility(done, enter = scaleIn(), exit = scaleOut()) {
+        val reduced = LocalReducedMotion.current
+        AnimatedVisibility(
+            done,
+            enter = if (reduced) fadeIn(Motion.fast()) else scaleIn(Motion.baseSpring()) + fadeIn(Motion.base()),
+            exit = if (reduced) fadeOut(Motion.fast()) else scaleOut(Motion.baseSpring()) + fadeOut(Motion.base()),
+        ) {
             Box(Modifier.size(48.dp).semantics { contentDescription = t("Updated") }, Alignment.Center) {
-                Icon(Icons.Outlined.CheckCircle, null, tint = Theme.colors.ok)
+                Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok)
             }
         }
     }
@@ -374,7 +377,7 @@ fun SyncProblemBanner(problem: SyncProblem) {
             .background(Theme.colors.dangerSoft)
             .padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
     ) {
-        Icon(Icons.Outlined.ErrorOutline, null, tint = Theme.colors.danger)
+        Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger)
         Text(problem.text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink, modifier = Modifier.weight(1f).padding(vertical = 10.dp))
         val profile = problem.signIn
         val retry = problem.retry

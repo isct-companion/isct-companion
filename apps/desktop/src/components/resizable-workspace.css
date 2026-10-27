@@ -30,7 +30,7 @@
   inset: 4px 9px;
   border-radius: 2px;
   background: var(--line);
-  transition: background 120ms ease;
+  transition: background var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .workspaceSeparator:focus-visible { outline: none; }
 .workspaceSeparator:hover::after,

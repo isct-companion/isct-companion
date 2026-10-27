@@ -79,10 +79,10 @@ struct TabPressPanel<Choice: Hashable, Rows: View>: View {
                 ZStack(alignment: .topLeading) {
                     Color.black.opacity(0.08)
                         .contentShape(Rectangle())
-                        .onTapGesture { withAnimation(.snappy) { press.dismiss() } }
+                        .onTapGesture { withAnimation(.smooth(duration: Theme.motionBase)) { press.dismiss() } }
                     VStack(spacing: 0) {
                         rows(press.highlighted, { press.rows[$0] = $1 }) { choice in
-                            withAnimation(.snappy) { press.dismiss() }
+                            withAnimation(.smooth(duration: Theme.motionBase)) { press.dismiss() }
                             pick(choice)
                         }
                     }
@@ -97,9 +97,8 @@ struct TabPressPanel<Choice: Hashable, Rows: View>: View {
             }
         }
         .ignoresSafeArea()
-        .animation(.snappy, value: press.isOpen)
+        .animation(.smooth(duration: Theme.motionBase), value: press.isOpen)
         .sensoryFeedback(.impact(weight: .medium), trigger: press.opened)
-        .sensoryFeedback(.selection, trigger: press.highlighted)
     }
 }
 

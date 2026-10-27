@@ -91,10 +91,60 @@ extension View {
     }
 
     /// Figures that count (minutes left, the ring's percentage) roll instead
-    /// of jumping.
+    /// of jumping; with Reduce Motion they jump.
     func countingFigure<Value: Equatable>(_ value: Value, down: Bool = true) -> some View {
-        contentTransition(.numericText(countsDown: down))
-            .animation(.snappy, value: value)
+        modifier(CountingFigure(value: value, down: down))
+    }
+}
+
+private struct CountingFigure<Value: Equatable>: ViewModifier {
+    let value: Value
+    let down: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            content
+                .contentTransition(.numericText(countsDown: down))
+                .animation(.smooth(duration: Theme.motionBase), value: value)
+        }
+    }
+}
+
+/// Motion that serves continuity (slotledger `approach/motion-*`): no
+/// overshoot, the token lengths, and with Reduce Motion a cross-fade of the
+/// fast length in place of any movement.
+enum Motion {
+    static func fast(_ reduce: Bool) -> Animation { reduce ? .easeInOut(duration: Theme.motionFast) : .smooth(duration: Theme.motionFast) }
+    static func base(_ reduce: Bool) -> Animation { reduce ? .easeInOut(duration: Theme.motionFast) : .smooth(duration: Theme.motionBase) }
+    static func slow(_ reduce: Bool) -> Animation { reduce ? .easeInOut(duration: Theme.motionFast) : .smooth(duration: Theme.motionSlow) }
+}
+
+// MARK: Skeleton
+
+/// Grey stand-ins shaped like the rows that are coming, shown only while a
+/// screen has nothing to draw yet (slotledger `approach/loading-skeleton`).
+struct SkeletonRows: View {
+    var rows = 3
+
+    var body: some View {
+        Card(padding: Theme.cardPadding) {
+            VStack(alignment: .leading, spacing: Theme.rowGap) {
+                ForEach(0..<rows, id: \.self) { index in
+                    HStack(spacing: Theme.rowGap) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous).frame(width: 10, height: 10)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Capsule().frame(width: index.isMultiple(of: 2) ? 180 : 140, height: 12)
+                            Capsule().frame(width: 96, height: 9)
+                        }
+                    }
+                }
+            }
+        }
+        .foregroundStyle(Theme.surface2)
+        .accessibilityHidden(true)
     }
 }
 
@@ -128,9 +178,12 @@ private struct CourseZoomSource: ViewModifier {
 private struct CourseZoomDestination: ViewModifier {
     let id: String?
     @Environment(\.courseZoom) private var namespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        if let id, let namespace {
+        // With Reduce Motion the course page arrives with the system's own
+        // push, which the setting already tones down, not a zoom.
+        if let id, let namespace, !reduceMotion {
             content.navigationTransition(.zoom(sourceID: id, in: namespace))
         } else {
             content

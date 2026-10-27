@@ -134,23 +134,73 @@ export function Text({
     />
   );
 }
-export function Badge({
+export type TagRole = "neutral" | "accent" | "ok" | "warn" | "danger" | "course";
+/**
+ * The one tag: a soft role tint with role-coloured text by default, an
+ * outline (a quiz), or solid (an exam, in its course colour). A `course` tag
+ * takes the course colour through `--course`.
+ */
+export function Tag({
+  variant = "soft",
+  tone = "neutral",
+  course,
   component = "span",
-  color = "campus",
-  variant,
-  children,
   className,
+  style,
+  children,
   ...props
-}: Omit<SurfaceProps, "color"> & {
-  color?: string;
-  variant?: string;
-  type?: "button";
+}: HTMLAttributes<HTMLElement> & {
+  variant?: "soft" | "outline" | "solid";
+  /** The colour role; named `tone` so it never shadows ARIA's `role`. */
+  tone?: TagRole;
+  course?: string;
+  component?: "span" | "time" | "button";
+  title?: string;
   children?: ReactNode;
 }) {
   return createElement(
     component,
-    { ...props, "data-color": color, className: cx("uiBadge", className) },
+    {
+      ...(component === "button" && { type: "button" }),
+      ...props,
+      className: cx("uiTag", className),
+      "data-variant": variant,
+      "data-role": tone,
+      style: course
+        ? ({ "--course": course, ...style } as CSSProperties)
+        : style,
+    },
     children,
+  );
+}
+const badgeRoles: Record<string, TagRole> = {
+  red: "danger",
+  green: "ok",
+  yellow: "warn",
+  orange: "warn",
+  gray: "neutral",
+};
+/** A status tag in the older colour names; drawn as a soft `Tag`. */
+export function Badge({
+  color = "campus",
+  children,
+  className,
+  title,
+}: {
+  color?: string;
+  variant?: string;
+  className?: string;
+  title?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <Tag
+      tone={badgeRoles[color] ?? "accent"}
+      className={className}
+      title={title}
+    >
+      {children}
+    </Tag>
   );
 }
 export function Alert({

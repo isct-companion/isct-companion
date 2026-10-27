@@ -1,7 +1,8 @@
 package app.isctcompanion.features.today
 
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
+import app.isctcompanion.design.SkeletonRows
+import app.isctcompanion.design.Skeleton
+import app.isctcompanion.design.Motion
 import androidx.compose.animation.core.Animatable
 import kotlin.math.abs
 import app.isctcompanion.features.assignments.todayAssignments
@@ -10,11 +11,9 @@ import app.isctcompanion.design.t
 import app.isctcompanion.core.OccurrenceKind
 import app.isctcompanion.core.SchoolAuthProfile
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.runtime.rememberUpdatedState
@@ -44,9 +43,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -70,7 +69,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.DeadlineItem
@@ -95,7 +93,7 @@ import app.isctcompanion.design.Format
 import app.isctcompanion.design.PageSubtitle
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.MaterialRow
-import app.isctcompanion.design.PillButton
+import app.isctcompanion.design.ActionButton
 import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
@@ -104,7 +102,7 @@ import app.isctcompanion.design.SyncProblemBanner
 import app.isctcompanion.design.SyncRingButton
 import app.isctcompanion.design.activeRuns
 import app.isctcompanion.design.problem
-import app.isctcompanion.design.TagChip
+import app.isctcompanion.design.Tag
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseColor
@@ -146,13 +144,13 @@ fun TodayScreen() {
         actions = { SyncRingButton() },
         onRefresh = { model.refreshFromSchool() },
     ) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = 24.dp)) {
             item(key = "today") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PageSubtitle(subtitle(model.today))
                     val problem = model.syncSnapshot?.problem
                     if (model.problem != null) {
-                        ProblemBanner(model.problem!!)
+                        ProblemBanner(model.problem!!) { model.refreshFromSchool() }
                     } else if (problem != null) {
                         SyncProblemBanner(problem)
                     }
@@ -165,7 +163,14 @@ fun TodayScreen() {
                             FirstLoadCard(snapshot)
                         }
                     }
-                    model.today?.let { TodayContent(it, now, exams) }
+                    val today = model.today
+                    if (today != null) {
+                        TodayContent(today, now, exams)
+                    } else if (!model.needsAccount) {
+                        // Before Core's first answer: the shape of a class card and a list.
+                        Skeleton(Modifier.fillMaxWidth().height(140.dp), RoundedCornerShape(Theme.radiusPanel))
+                        SkeletonRows(3)
+                    }
                 }
             }
             if (model.today != null) todayAssignments(model.board, now) { navigator.openRecord() }
@@ -256,7 +261,6 @@ private fun ClassStack(items: List<TodayClass>, now: Instant) {
     val index = front.coerceAtMost(items.lastIndex)
     val current by rememberUpdatedState(index)
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
     val turn = with(LocalDensity.current) { 60.dp.toPx() }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) { SectionLabel(stackTitle(items[index], index == 0, now)) }
@@ -298,9 +302,8 @@ private fun ClassStack(items: List<TodayClass>, now: Instant) {
                         else -> current
                     }
                     stretch = 0f
-                    if (next != current) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     front = next
-                    scope.launch { position.animateTo(next.toFloat(), spring(stiffness = Spring.StiffnessMediumLow)) }
+                    scope.launch { position.animateTo(next.toFloat(), Motion.slowSpring()) }
                 }
             },
     ) {
@@ -383,15 +386,15 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             HeroLine(listOfNotNull(if (quiz) t("Quiz") else if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
                 if (leads && today && starts != null) {
                     val minutes = maxOf(Format.minutes(starts, now), 0)
-                    TagChip(
+                    Tag(
                         if (minutes < 60) t("{{count}} min left", "count" to minutes) else Format.time(starts),
-                        ink = if (exam) Theme.colors.warn else tint, fill = Theme.colors.surface, counting = true,
+                        color = if (exam) Theme.colors.warn else tint, soft = Theme.colors.surface, counting = true,
                     )
                 }
             }
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    item.occurrence.startTime, fontSize = 40.sp, fontWeight = FontWeight.Bold,
+                    item.occurrence.startTime, fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink, maxLines = 1,
                 )
                 Text(
@@ -422,7 +425,7 @@ private fun Hero(
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusPanel))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(18.dp),
+            .padding(Theme.cardPadding),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) { content() }
 }
@@ -437,8 +440,6 @@ private fun HeroLine(text: String, tint: Color, trailing: @Composable () -> Unit
         trailing()
     }
 }
-
-private val bigFigure = 48.sp
 
 /** The current class card's zoom id; one hero shows at a time. */
 private const val HERO_ZOOM = "hero"
@@ -485,8 +486,8 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
                 Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
             }
             CountingText(
-                "${maxOf(Format.minutes(ends, now), 0)}", fontSize = bigFigure, fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.displayMedium.tabular(), color = Theme.colors.ink,
+                "${maxOf(Format.minutes(ends, now), 0)}", fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink,
             )
             words.getOrNull(1)?.takeIf { it.isNotEmpty() }?.let {
                 Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
@@ -507,15 +508,18 @@ private fun TonightHero(item: DeadlineItem, now: Instant) {
     Hero(Modifier.background(Theme.colors.dangerSoft, RoundedCornerShape(Theme.radiusPanel))) {
         HeroLine(t("Due tonight"), Theme.colors.danger) { DeadlineChip(item, now) }
         Text(
-            Format.date(item.dueAt)?.let(Format::time) ?: Format.due(item.dueAt, now), fontSize = bigFigure, fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.displayMedium.tabular(), color = Theme.colors.ink,
+            Format.date(item.dueAt)?.let(Format::time) ?: Format.due(item.dueAt, now), fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink,
         )
         Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         item.courseTitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
         item.sourceUrl?.let { url ->
-            PillButton(t("Open submission page"), Icons.AutoMirrored.Outlined.OpenInNew, Theme.colors.danger) {
-                navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title))
-            }
+            ActionButton(
+                t("Open submission page"),
+                { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title)) },
+                icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                danger = true,
+            )
         }
     }
 }
@@ -548,7 +552,7 @@ private fun ThisClassCard(materials: List<MaterialItem>, assignments: List<Deadl
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
-                    Icon(Icons.Outlined.Description, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Description, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(Format.due(item.dueAt, now), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
@@ -610,11 +614,11 @@ private fun RecentCard(items: List<RecentItem>) {
                 is RecentItem.Grade -> RecentRow(
                     item.v1.color, listOfNotNull(item.v1.title, item.v1.grade).joinToString(" · "), item.v1.courseTitle,
                     item.v1.courseId, RecentKind.GRADE to item.v1.assignmentId,
-                ) { TagChip(t("Graded"), ink = Theme.colors.ok, fill = Theme.colors.okSoft) }
+                ) { Tag(t("Graded"), color = Theme.colors.ok, soft = Theme.colors.okSoft) }
                 is RecentItem.Material -> RecentRow(
                     item.v1.color, item.v1.title, item.v1.courseTitle, item.v1.courseId,
                     RecentKind.MATERIAL to item.v1.materialId,
-                ) { TagChip(t("Material")) }
+                ) { Tag(t("Material")) }
             }
         }
     }
@@ -675,17 +679,7 @@ private fun ConnectCard(onConnect: () -> Unit) {
             t("Reads your timetable, assignments and materials from the school sites. Your password is encrypted in this device’s keystore and sent only to the school sites."),
             style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted,
         )
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(CircleShape)
-                .background(Theme.colors.accent)
-                .clickable(onClick = onConnect)
-                .padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(t("Connect with Science Tokyo"), color = Color.White, fontWeight = FontWeight.SemiBold)
-        }
+        ActionButton(t("Connect with Science Tokyo"), onConnect, Modifier.fillMaxWidth())
     }
 }
 

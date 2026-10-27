@@ -38,7 +38,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -220,7 +220,7 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
                     onClick = { finish(null) },
                     modifier = Modifier.padding(12.dp).size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)),
                 ) {
-                    Icon(Icons.Outlined.Close, t("Cancel"), tint = Color.White)
+                    Icon(Icons.Rounded.Close, t("Cancel"), tint = Color.White)
                 }
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     // Where to hold the card: an ID-1 card's outline.

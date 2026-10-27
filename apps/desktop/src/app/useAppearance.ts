@@ -18,6 +18,8 @@ export function useAppearance(data: Workspace | undefined) {
   useEffect(() => {
     if (!data) return;
     document.documentElement.dataset.appearance = data.settings.appearance;
+    // Background theme (generated/design/themes.css): neutrals only.
+    document.documentElement.dataset.theme = data.settings.theme ?? "warm";
     if (material) {
       const { appearance } = data.settings;
       void getCurrentWindow()
@@ -33,6 +35,7 @@ export function useAppearance(data: Workspace | undefined) {
     document.getElementById("user-app-css")?.remove();
   }, [
     data?.settings.appearance,
+    data?.settings.theme,
     data?.settings.textSize,
     data?.settings.customization,
   ]);

@@ -174,7 +174,7 @@ struct SyncRing: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: 20, height: 20)
-        .animation(.easeOut(duration: 0.3), value: progress)
+        .animation(.smooth(duration: Theme.motionSlow), value: progress)
     }
 }
 
@@ -200,7 +200,6 @@ struct SyncIndicatorView: View {
 struct SyncRingButton: View {
     @Environment(AppModel.self) private var model
     @State private var showsSheet = false
-    @State private var finished = 0
     @State private var showsDone = false
 
     var body: some View {
@@ -223,12 +222,10 @@ struct SyncRingButton: View {
                     .accessibilityLabel(t("Updated"))
             }
         }
-        .animation(.snappy, value: showsDone)
-        .sensoryFeedback(.success, trigger: finished)
+        .animation(.smooth(duration: Theme.motionBase), value: showsDone)
         .sheet(isPresented: $showsSheet) { SyncStatusSheet() }
         .onChange(of: model.syncSnapshot?.isBusy) { old, new in
             guard old == true, new == false, model.syncSnapshot?.indicator == nil else { return }
-            finished += 1
             showsDone = true
             Task {
                 try? await Task.sleep(for: .seconds(1.6))

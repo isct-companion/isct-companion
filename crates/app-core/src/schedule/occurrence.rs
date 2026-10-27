@@ -1,7 +1,7 @@
 use super::SchoolReads;
 use std::collections::HashSet;
 
-use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 #[cfg(feature = "ts")]
@@ -74,6 +74,26 @@ pub struct Occurrence {
     /// exam timetable; the block keeps the user's values until they choose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_changed: Option<bool>,
+    /// Where the block sits on the period grid, when that differs from its
+    /// own times or it shares the time with another block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid: Option<GridSlot>,
+}
+
+/// A timetable block's place on the period grid. A block whose times fall
+/// inside periods (an exam at 09:30–10:20) fills the periods it touches, and
+/// blocks that overlap sit side by side; the block keeps its own times for
+/// its label.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct GridSlot {
+    pub start_time: String,
+    pub end_time: String,
+    /// The block's column among the blocks it overlaps, from 0 on the left.
+    pub lane: u8,
+    /// How many columns the overlapping blocks share; 1 when it is alone.
+    pub lanes: u8,
 }
 
 impl Occurrence {
@@ -276,6 +296,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
                 planned: None,
                 quiz: None,
                 source_changed: None,
+                grid: None,
             });
         }
         for left in 0..blocks.len() {
@@ -719,6 +740,7 @@ pub(crate) fn personal_occurrences(
             planned: None,
             quiz: None,
             source_changed: None,
+            grid: None,
         });
     }
     for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
@@ -798,6 +820,7 @@ fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, Sched
         planned: None,
         quiz: None,
         source_changed: None,
+        grid: None,
     }))
 }
 
@@ -905,6 +928,7 @@ fn course_occurrence(
         planned: None,
         quiz: None,
         source_changed: None,
+        grid: None,
     }
 }
 
@@ -1111,6 +1135,7 @@ pub(crate) fn resolve_day_agenda_with(
             planned: None,
             quiz: (exam.kind == "quiz").then_some(true),
             source_changed: exam.conflict.is_some().then_some(true),
+            grid: None,
         });
     }
     blocks.extend(exams);
@@ -1129,11 +1154,12 @@ pub(crate) fn resolve_day_agenda_with(
                 .then_some(true);
         }
     }
-    finalize_agenda(blocks)
+    finalize_agenda(blocks, &teaching_periods)
 }
 
 pub(crate) fn finalize_agenda(
     mut blocks: Vec<Occurrence>,
+    periods: &[TeachingPeriod],
 ) -> Result<Vec<Occurrence>, ScheduleError> {
     let exam_ids: HashSet<_> = blocks
         .iter()
@@ -1186,7 +1212,97 @@ pub(crate) fn finalize_agenda(
             .then((a.kind == OccurrenceKind::Exam).cmp(&(b.kind == OccurrenceKind::Exam)))
             .then(a.key.cmp(&b.key))
     });
+    place_on_grid(&mut blocks, periods);
     Ok(blocks)
+}
+
+/// The grid a timetable draws: a class or exam whose times fall inside
+/// teaching blocks fills the whole blocks it touches (an exam at 09:30–10:20
+/// fills 1–2限), and blocks that then overlap sit side by side, the earlier
+/// one on the left. `grid` stays empty for a block drawn at its own times
+/// on its own.
+fn place_on_grid(blocks: &mut [Occurrence], periods: &[TeachingPeriod]) {
+    let clock = |raw: &str| {
+        NaiveTime::parse_from_str(raw, "%H:%M")
+            .ok()
+            .map(|time| time.hour() * 60 + time.minute())
+    };
+    let teaching: Vec<_> = periods
+        .iter()
+        .filter_map(|period| Some((clock(&period.start_time)?, clock(&period.end_time)?, period)))
+        .collect();
+    let spans: Vec<Option<(String, String, u32, u32)>> = blocks
+        .iter()
+        .map(|block| {
+            let (start, end) = (clock(&block.start_time)?, clock(&block.end_time)?);
+            if end <= start || block.end_date.is_some() {
+                return None;
+            }
+            let snaps = matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam);
+            let from = teaching
+                .iter()
+                .find(|(from, to, _)| snaps && start >= *from && start < *to);
+            let to = teaching
+                .iter()
+                .find(|(from, to, _)| snaps && end > *from && end <= *to);
+            Some((
+                from.map_or_else(|| block.start_time.clone(), |p| p.2.start_time.clone()),
+                to.map_or_else(|| block.end_time.clone(), |p| p.2.end_time.clone()),
+                from.map_or(start, |p| p.0),
+                to.map_or(end, |p| p.1),
+            ))
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..blocks.len()).filter(|&i| spans[i].is_some()).collect();
+    order.sort_by_key(|&i| spans[i].as_ref().map(|span| (span.2, u32::MAX - span.3)));
+    let mut lanes = vec![(0u8, 1u8); blocks.len()];
+    let mut cluster: Vec<usize> = Vec::new();
+    let mut lane_ends: Vec<u32> = Vec::new();
+    let mut cluster_end = 0;
+    let close = |lanes: &mut [(u8, u8)], cluster: &mut Vec<usize>, lane_ends: &mut Vec<u32>| {
+        let count = u8::try_from(lane_ends.len().max(1)).unwrap_or(u8::MAX);
+        for &member in cluster.iter() {
+            lanes[member].1 = count;
+        }
+        cluster.clear();
+        lane_ends.clear();
+    };
+    for &i in &order {
+        let Some((_, _, start, end)) = spans[i] else {
+            continue;
+        };
+        if !cluster.is_empty() && start >= cluster_end {
+            close(&mut lanes, &mut cluster, &mut lane_ends);
+        }
+        let lane = match lane_ends.iter().position(|&lane_end| lane_end <= start) {
+            Some(free) => {
+                lane_ends[free] = end;
+                free
+            }
+            None => {
+                lane_ends.push(end);
+                lane_ends.len() - 1
+            }
+        };
+        lanes[i].0 = u8::try_from(lane).unwrap_or(u8::MAX);
+        cluster.push(i);
+        cluster_end = cluster_end.max(end);
+        if cluster.len() == 1 {
+            cluster_end = end;
+        }
+    }
+    close(&mut lanes, &mut cluster, &mut lane_ends);
+    for (i, block) in blocks.iter_mut().enumerate() {
+        block.grid = spans[i].as_ref().and_then(|(from, to, _, _)| {
+            let (lane, count) = lanes[i];
+            (count > 1 || *from != block.start_time || *to != block.end_time).then(|| GridSlot {
+                start_time: from.clone(),
+                end_time: to.clone(),
+                lane,
+                lanes: count,
+            })
+        });
+    }
 }
 
 /// The user's mark on a class session: an exam or quiz takes the class's

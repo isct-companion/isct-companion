@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 123 checks must be re-run before the next release.**
+**10 of 126 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**113 checks have never been run or could not be run:**
+**116 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -87,6 +87,9 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-STORAGE-SPLIT` — never verified
 - `DESKTOP-CALENDAR-MARK-LATENCY` — never verified
 - `IOS-TIMETABLE-WEEK-AND-MARKS` — never verified
+- `TIMETABLE-BLOCK-STATES` — never verified
+- `BACKGROUND-THEMES` — never verified
+- `MOTION-AND-LOADING` — never verified
 - `IOS-NATIVE-CHROME` — never verified
 - `IOS-TODAY-EXAMS` — never verified
 - `IOS-ASSIGNMENT-ROWS` — never verified
@@ -215,6 +218,9 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CALENDAR-MARK-LATENCY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/lms_ingest.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
+| `TIMETABLE-BLOCK-STATES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
+| `BACKGROUND-THEMES` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/theme.json<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx<br>crates/app-core/src/data/settings.rs |
+| `MOTION-AND-LOADING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/desktop/src/styles.css |
 | `IOS-NATIVE-CHROME` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
@@ -4027,10 +4033,11 @@ between the first period's start and the last period's end (Tokyo time).
      over blank space or a room list ending in … is the old layout.
 4. Long press a class and choose 試験にする, then 休講にする, then
    通常の授業に戻す, reopening the menu each time.
-   - *Why:* Each mark is Core's MarkSession and must redraw at once: a warn
-     border with 試験 before the room, then a faded struck-through title
-     with 休講, then the plain block; the tick must follow the state.
-     Plan blocks must offer no menu.
+   - *Why:* Each mark is Core's MarkSession and must redraw at once: a deeper
+     fill with a solid 試験 tag above the title and no ring, then a grey
+     striped block with a struck-through title and 休講, then the plain
+     block; the tick must follow the state. Plan blocks must offer no
+     menu.
 5. Look at today's column during a teaching hour.
    - *Why:* The red now line with its dot sits at the current time and moves
      every half minute; outside the axis, and on weekends when the grid
@@ -4069,6 +4076,205 @@ and the desktop `nowPercent` unit tests.
 - `apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift`
 - `apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift`
 - `apps/ios/IsctCompanion/Core/AppModel.swift`
+
+**Last recorded** never run
+
+### Timetable blocks read the same on iPhone, Android and desktop (`TIMETABLE-BLOCK-STATES`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The three apps on the same account with 2026 2Q pulled, each opened on
+時間割 for the week of 7/20 (2Q week 7), light appearance, then dark.
+
+**Steps**
+
+1. Look at Wednesday's スペイン語初級２ exam.
+   - *Why:* The published exam is 09:30–10:20 with no periods. It must fill
+     periods 1–2 like a class, with a solid 試験 tag above the title and
+     9:30–10:20 on its bottom line. A short block floating between the
+     rows, or one with a thick course-coloured ring, is the old rule.
+2. Compare an ordinary class with the exam and with a class marked as a
+   quiz (long press or right-click → 小テストにする).
+   - *Why:* A class is a solid light course fill with course-tinted text; the
+     exam is visibly deeper; the quiz keeps the class fill with an
+     outlined tag. No block except the class in progress has a ring, so a
+     ring on an exam or quiz means the ring still has two meanings.
+3. Look at Monday 7/20 (a holiday) and at a class marked 休講.
+   - *Why:* The holiday column is flat grey without stripes, and every class in
+     it, like the cancelled one, is grey, striped, struck through and
+     labelled 休講. Stripes on the whole column, or a faded block without
+     stripes, are the old drawing.
+4. Plan a course whose period clashes with an enrolled class (desktop
+   時間割 planning), then look at that day on all three apps.
+   - *Why:* The two blocks sit side by side, each half the column, the earlier
+     on the left, without a red ring. One block hiding the other means
+     the shell ignores Core's lanes.
+5. Look at today's column and at the planned course's other blocks.
+   - *Why:* Today is marked only by the filled date and the red now line, not by
+     an outline around the column. A planned course is an outline in its
+     own colour on the surface, not a grey line.
+6. Switch the system to dark appearance and look at the same week.
+   - *Why:* Fills are mixed into the dark surface, so blocks stay quiet and the
+     row rules never show through a block; a block that lets the rules or
+     the lunch band through is still translucent.
+
+**Where to look**
+
+時間割 on the iPhone, the Android phone and the desktop app.
+
+**Expected**
+
+All three draw the exam over periods 1–2 with its tag and real times,
+the same fills, stripes only on classes that do not take place,
+overlapping blocks side by side, and no ring except the class in
+progress.
+
+**Why this is manual**
+
+The look of the blocks is read at a glance on each device; where a block
+sits and which lane it takes come from Core (`GridSlot`), which the
+schedule tests pin.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift`
+- `apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift`
+- `apps/ios/IsctCompanion/Design/Theme.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt`
+- `apps/desktop/src/components/timetable/timetable.tsx`
+- `apps/desktop/src/styles.css`
+- `design/tokens/course.json`
+
+**Last recorded** never run
+
+### Background themes change only the neutrals and follow the account to every device (`BACKGROUND-THEMES`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Desktop, iPhone and Android signed in to the same account with cloud
+backup on; each shows Today and 時間割 with some classes.
+
+**Steps**
+
+1. On the iPhone open Settings and look for the Theme row, then tap
+   each of the five swatches in turn while watching the page behind.
+   - *Why:* The row is one line of five swatches next to Language; a tap applies
+     at once, without leaving Settings. A swatch that needs a restart,
+     or a list of names instead of swatches, is not the agreed control.
+2. Pick Paper, return to Today and 時間割, and compare the accent
+   buttons, deadline tags and course blocks with the Warm theme.
+   - *Why:* Only the background, surfaces, lines and text greys change. A blue
+     button, a red deadline tag or a course colour that shifts means the
+     theme reaches colours it must not touch.
+3. Switch the system to dark appearance with Paper still chosen.
+   - *Why:* Every theme has its own dark set; dark Paper is a warm near-black,
+     not Warm's dark grey and not the light Paper colours on black.
+4. Wait for the next sync, then open the desktop app and the Android
+   app (Settings → Appearance / Theme).
+   - *Why:* The theme is a user preference that syncs; both show Paper chosen
+     and drawn. Another device still on Warm means the setting stayed
+     local.
+
+**Where to look**
+
+Settings, Today and 時間割 on the three devices.
+
+**Expected**
+
+Five swatches apply at once, change only the neutrals, have their own
+dark sets, and the choice reaches the other devices.
+
+**Why this is manual**
+
+Whether a theme reads right is seen at a glance on each device, and the
+cross-device step needs real cloud sync; Core's settings tests pin that
+the value is stored, validated and kept in the synced preferences.
+
+**Covers**
+
+- `design/tokens/theme.json`
+- `apps/ios/IsctCompanion/Design/Theme.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/desktop/src/pages/settings/AppearanceSettings.tsx`
+- `crates/app-core/src/data/settings.rs`
+
+**Last recorded** never run
+
+### Quiet motion, the week slide, the course zoom, skeletons and Reduce Motion (`MOTION-AND-LOADING`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Desktop, iPhone and Android with the current quarter pulled; then the
+same three with a fresh install or cleared data before the first read.
+
+**Steps**
+
+1. On each phone swipe 時間割 slowly half a week to the left and let go,
+   then swipe quickly; on desktop click the next-week arrow.
+   - *Why:* A slow half swipe follows the finger and settles back; a full swipe
+     or a fling slides the week out and the next one in from the right.
+     A grid that moves a third of the finger's distance and then swaps
+     content in place is the old behaviour. Nothing may bounce past its
+     rest position.
+2. Open a course from a timetable block, then go back; repeat from a
+   Today row.
+   - *Why:* The course page grows out of the block or row and returns into it,
+     on desktop too (View Transitions). A plain push or fade on desktop
+     means the shared element is missing.
+3. Clear the data (or install fresh) and open Today, 時間割 and a
+   course page before the first read completes.
+   - *Why:* Grey stand-ins shaped like rows and blocks show until content fades
+     in; once anything is cached, the cached content shows at once with
+     no stand-ins. A spinner in the middle of an empty page is the old
+     loading state.
+4. Turn on Reduce Motion (iOS), Remove animations (Android) or Reduce
+   motion (macOS/Windows), then repeat the week change and the course
+   open.
+   - *Why:* Movement becomes a short cross-fade: the week does not slide, the
+     course does not zoom, figures jump; something still changes visibly
+     so the state change is not lost.
+5. On a phone, pin and hide an assignment, mark a class as an exam,
+   then swipe the Today card stack and change weeks.
+   - *Why:* Only the writes (pin, hide, mark) give a haptic tap; swiping cards
+     and changing weeks are silent.
+
+**Where to look**
+
+時間割, Today and a course page on the three devices.
+
+**Expected**
+
+Motion follows the finger, never overshoots, keeps the clicked element
+continuous, gives way to cross-fades under Reduce Motion, loading shows
+stand-ins only without cache, and haptics mark writes only.
+
+**Why this is manual**
+
+Motion, haptics and system accessibility settings are felt on the real
+devices; no headless suite renders springs or vibrates.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift`
+- `apps/ios/IsctCompanion/Design/Polish.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt`
+- `apps/desktop/src/styles.css`
 
 **Last recorded** never run
 

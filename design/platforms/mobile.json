@@ -2,9 +2,29 @@
   "radius": {
     "$type": "dimension",
     "$description": "Phone values for the same roles: larger touch surfaces, capsule controls.",
-    "chip": { "$value": "6px" },
-    "control": { "$value": "999px" },
-    "surface": { "$value": "22px" },
-    "panel": { "$value": "26px" }
+    "chip": {
+      "$value": "8px"
+    },
+    "block": {
+      "$value": "8px"
+    },
+    "column": {
+      "$value": "12px"
+    },
+    "control": {
+      "$value": "999px"
+    },
+    "surface": {
+      "$value": "22px"
+    },
+    "panel": {
+      "$value": "26px"
+    }
+  },
+  "space": {
+    "$type": "dimension",
+    "gutter": {
+      "$value": "16px"
+    }
   }
 }

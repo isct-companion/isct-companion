@@ -20,11 +20,11 @@
   border-color: var(--line-strong);
 }
 .welcomeLink b {
-  font-size: calc(13px * var(--text, 1));
+  font-size: calc(var(--type-row-size) * var(--text, 1));
 }
 .welcomeLink span {
   color: var(--accent);
-  font-size: calc(12px * var(--text, 1));
+  font-size: calc(var(--type-note-size) * var(--text, 1));
 }
 .guideTip {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--line));

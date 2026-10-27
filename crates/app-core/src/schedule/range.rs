@@ -13,8 +13,8 @@ use super::occurrence::{
     finalize_agenda, personal_occurrences, resolve_day_agenda_with, scheduled_courses,
 };
 use super::{
-    array, parse_civil_date, placement_terms, text, visible, AgendaOptions, DatedAgenda,
-    OccurrenceKind, ScheduleError, Term,
+    array, parse_civil_date, placement_terms, teaching_periods, text, visible, AgendaOptions,
+    DatedAgenda, OccurrenceKind, ScheduleError, Term,
 };
 
 /// Inclusive civil-date range. Cancelled classes remain in the content so each
@@ -33,6 +33,7 @@ pub fn calendar_between(
             "date range must be ordered and no longer than 367 days".into(),
         ));
     }
+    let periods = teaching_periods(workspace)?;
     let mut terms: BTreeSet<String> = placement_terms(workspace).map(str::to_owned).collect();
     for event in array(workspace, "events").iter().filter(|row| visible(row)) {
         if let Some(term) = text(event, "termId") {
@@ -152,7 +153,7 @@ pub fn calendar_between(
             let label = localized(row.get("label"), locale, "");
             (!label.is_empty()).then_some(label)
         }));
-        let occurrences = finalize_agenda(blocks)?;
+        let occurrences = finalize_agenda(blocks, &periods)?;
         // Exams and timetable classes still happen when the weekly pattern
         // stops; such a day must not read as a day without classes.
         let no_classes = weekly_classes_stop

@@ -1,5 +1,7 @@
 package app.isctcompanion.features.assignments
 
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import app.isctcompanion.core.AssignmentBoard
 import app.isctcompanion.core.SyncView
 import app.isctcompanion.design.t
@@ -25,12 +27,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.rounded.CheckCircle
+import app.isctcompanion.design.EmptyState
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -110,14 +113,7 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
     group(t("Overdue"), today.pastRecent, now, Format.OverdueStyle.Elapsed)
     if (today.isEmpty()) {
         item(key = "assignments-empty") {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
-            ) {
-                Icon(Icons.Outlined.CheckCircle, null, tint = Theme.colors.muted, modifier = Modifier.size(20.dp))
-                Text(t("No unsubmitted assignments"), color = Theme.colors.muted)
-            }
+            EmptyState(Icons.Rounded.CheckCircle, t("No unsubmitted assignments"))
         }
     }
 }
@@ -163,14 +159,21 @@ private fun GroupCard(content: @Composable () -> Unit) {
 private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     // Row swipes leave the left 20 dp to the system back gesture (slotledger `approach/mobile-gestures`).
     val edge = with(LocalDensity.current) { 20.dp.toPx() }
     var fromEdge by remember { mutableStateOf(false) }
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> scope.launch { model.setPinned(item, !item.pinned) }
-                SwipeToDismissBoxValue.EndToStart -> scope.launch { model.setHidden(item, true) }
+                SwipeToDismissBoxValue.StartToEnd -> scope.launch {
+                    model.setPinned(item, !item.pinned)
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                }
+                SwipeToDismissBoxValue.EndToStart -> scope.launch {
+                    model.setHidden(item, true)
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                }
                 SwipeToDismissBoxValue.Settled -> Unit
             }
             false
@@ -191,9 +194,9 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
         backgroundContent = {
             when (state.dismissDirection) {
                 SwipeToDismissBoxValue.StartToEnd ->
-                    SwipeAction(Theme.colors.accent, if (item.pinned) t("Unpin") else t("Pin"), Icons.Outlined.PushPin, Alignment.CenterStart)
+                    SwipeAction(Theme.colors.accent, if (item.pinned) t("Unpin") else t("Pin"), Icons.Rounded.PushPin, Alignment.CenterStart)
                 SwipeToDismissBoxValue.EndToStart ->
-                    SwipeAction(Theme.colors.muted, t("Hide"), Icons.Outlined.VisibilityOff, Alignment.CenterEnd)
+                    SwipeAction(Theme.colors.muted, t("Hide"), Icons.Rounded.VisibilityOff, Alignment.CenterEnd, Theme.colors.surface)
                 SwipeToDismissBoxValue.Settled -> Unit
             }
         },
@@ -220,7 +223,7 @@ private fun RestoreRow(item: DeadlineItem, now: Instant) {
     SwipeToDismissBox(
         state = state,
         enableDismissFromStartToEnd = false,
-        backgroundContent = { SwipeAction(Theme.colors.accent, t("Restore"), Icons.Outlined.Visibility, Alignment.CenterEnd) },
+        backgroundContent = { SwipeAction(Theme.colors.accent, t("Restore"), Icons.Rounded.Visibility, Alignment.CenterEnd) },
     ) {
         Box(Modifier.background(Theme.colors.surface)) {
             DeadlineLink(item, hidden = true) { DeadlineRow(item, now) }
@@ -229,11 +232,11 @@ private fun RestoreRow(item: DeadlineItem, now: Instant) {
 }
 
 @Composable
-private fun SwipeAction(fill: Color, label: String, icon: ImageVector, alignment: Alignment) {
+private fun SwipeAction(fill: Color, label: String, icon: ImageVector, alignment: Alignment, ink: Color = Theme.colors.accentInk) {
     Box(Modifier.fillMaxSize().background(fill).padding(horizontal = 20.dp), contentAlignment = alignment) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(icon, null, tint = Color.White)
-            Text(label, color = Color.White, fontWeight = FontWeight.SemiBold)
+            Icon(icon, null, tint = ink)
+            Text(label, color = ink, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -253,7 +256,7 @@ fun RecordScreen() {
         TopAppBar(
             title = { Text(t("All assignments")) },
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) }
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )

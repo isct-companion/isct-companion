@@ -135,7 +135,7 @@ pub fn sanitize_setting(row: &mut Value) {
             value.retain(|key, _| {
                 matches!(
                     key.as_str(),
-                    "departmentId" | "notifications" | "customization"
+                    "departmentId" | "notifications" | "customization" | "theme"
                 )
             });
             if let Some(notifications) = value

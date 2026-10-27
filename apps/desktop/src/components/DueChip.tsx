@@ -1,6 +1,7 @@
 import type { TaskDeadlineView } from "../generated/persistence";
 import { deadlineText } from "../lib/deadline-text";
 import { t } from "../i18n";
+import { Tag, type TagRole } from "./ui";
 
 /** The right-hand state of an assignment row, shared by Today and Lecture
  * Desk: a submitted assignment says so instead of repeating its deadline; an
@@ -17,15 +18,27 @@ export function DueChip({
   const text = deadlineText(due, locale);
   if (submitted)
     return (
-      <time className="dueChip done" title={text.label}>
+      <Tag component="time" tone="ok" className="dueChip done" title={text.label}>
         {t("Submitted")}
-      </time>
+      </Tag>
     );
   return due.overdue ? (
-    <time className="dueChip overdue">{text.label}</time>
+    <Tag component="time" tone="danger" className="dueChip overdue">
+      {text.label}
+    </Tag>
   ) : (
-    <time className={`dueChip ${due.countdownTone}`} title={text.label}>
+    <Tag
+      component="time"
+      tone={dueRole(due.countdownTone)}
+      className={`dueChip ${due.countdownTone}`}
+      title={text.label}
+    >
       {text.countdownLabel}
-    </time>
+    </Tag>
   );
 }
+
+/** A countdown's tone as a tag role: today's deadline is danger, a close
+ * one warn, anything further off neutral. */
+export const dueRole = (tone: string): TagRole =>
+  tone === "urgent" ? "danger" : tone === "soon" ? "warn" : "neutral";

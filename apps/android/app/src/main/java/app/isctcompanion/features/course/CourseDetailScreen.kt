@@ -1,5 +1,6 @@
 package app.isctcompanion.features.course
 
+import app.isctcompanion.design.SkeletonRows
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,11 +25,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Campaign
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.FolderOpen
+import app.isctcompanion.design.EmptyState
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -109,7 +112,7 @@ fun CourseDetailScreen(courseId: String) {
     TabPage(
         title,
         navigationIcon = {
-            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) }
+            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) }
         },
         onRefresh = { lmsCourseId?.let { model.refresh(SyncScope.Course(it)) } },
     ) {
@@ -137,7 +140,10 @@ fun CourseDetailScreen(courseId: String) {
             if (lessons.isNotEmpty()) {
                 Lessons(courseId, content!!, lessons, assignments, detail?.files) { reread -> content = reread }
             } else if (detail != null) {
-                Text(t("No materials yet"), color = Theme.colors.muted, modifier = Modifier.padding(vertical = 24.dp).fillMaxWidth())
+                EmptyState(Icons.Rounded.FolderOpen, t("No materials yet"))
+            } else {
+                // Nothing read yet: rows in the shape of the materials to come.
+                SkeletonRows(4)
             }
         }
     }
@@ -160,12 +166,6 @@ private fun Lessons(
     val opening = lessons.indexOfFirst { it.section == content.currentSection }.coerceAtLeast(0)
     val pager = rememberPagerState(opening) { lessons.size }
     var expanded by remember { mutableStateOf(emptySet<String>()) }
-    // A tick per lesson turned, not for the page it opens on.
-    var settled by remember { mutableStateOf(pager.settledPage) }
-    LaunchedEffect(pager.settledPage) {
-        if (pager.settledPage != settled) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-        settled = pager.settledPage
-    }
     GuideTip("lesson-marks", "Today's lesson", "Long-press a lesson to make it the lesson of today's class.")
     LessonChips(lessons, pager, content) { marked ->
         val classAt = content.classAt ?: return@LessonChips
@@ -207,7 +207,7 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
                     Text(
                         chipLabel(lesson),
                         style = MaterialTheme.typography.bodyMedium.tabular(), fontWeight = FontWeight.SemiBold,
-                        color = if (selected) Color.White else Theme.colors.ink,
+                        color = if (selected) Theme.colors.accentInk else Theme.colors.ink,
                         modifier = Modifier
                             .clip(CircleShape)
                             .background(if (selected) Theme.colors.accent else Theme.colors.surface)
@@ -221,7 +221,7 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
                             text = { Text(t("Make this the {{day}} class", "day" to classDay.orEmpty())) },
-                            leadingIcon = { Icon(Icons.Outlined.CheckCircle, null) },
+                            leadingIcon = { Icon(Icons.Rounded.CheckCircle, null) },
                             onClick = {
                                 menu = false
                                 mark(lesson)
@@ -285,7 +285,7 @@ private fun LessonPage(
             }
         }
         if (lesson.items.isEmpty() && lesson.summaryHtml.isEmpty() && work.isEmpty()) {
-            Text(t("No materials for this lesson"), color = Theme.colors.muted, modifier = Modifier.padding(vertical = 24.dp))
+            EmptyState(Icons.Rounded.Description, t("No materials for this lesson"))
         }
     }
 }
@@ -320,7 +320,7 @@ private fun InlineItem(item: LessonItem) {
         when (item.kind) {
             LessonItemKind.PAGE -> Text(item.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
             LessonItemKind.FORUM -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Outlined.Campaign, null, tint = Theme.colors.ink, modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.Campaign, null, tint = Theme.colors.ink, modifier = Modifier.size(18.dp))
                 Text(item.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
             }
             else -> Unit
@@ -371,10 +371,10 @@ private fun Links(detail: CourseDetail?, title: String) {
     val navigator = LocalNavigator.current
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         detail?.lmsUrl?.let { url ->
-            LinkChip("LMS", Icons.Outlined.Language) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, title)) }
+            LinkChip("LMS", Icons.Rounded.Language) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, title)) }
         }
         detail?.syllabusUrl?.let { url ->
-            LinkChip(t("Syllabus"), Icons.Outlined.Description) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SYLLABUS, url, title)) }
+            LinkChip(t("Syllabus"), Icons.Rounded.Description) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SYLLABUS, url, title)) }
         }
     }
 }

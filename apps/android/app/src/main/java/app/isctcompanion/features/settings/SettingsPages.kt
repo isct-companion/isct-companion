@@ -22,9 +22,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.UnfoldMore
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -266,7 +266,7 @@ internal fun AssignmentLeadsPage() {
                         ReminderLeads.label(minutes), color = if (enabled || on) Theme.colors.ink else Theme.colors.muted,
                         modifier = Modifier.weight(1f),
                     )
-                    if (on) Icon(Icons.Outlined.Check, null, tint = Theme.colors.accent)
+                    if (on) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent)
                 }
             }
         }
@@ -420,13 +420,13 @@ internal fun <T> PickerRow(title: String, selected: T, options: List<Pair<T, Str
         ) {
             Text(title, color = Theme.colors.ink, modifier = Modifier.weight(1f))
             Text(options.firstOrNull { it.first == selected }?.second.orEmpty(), color = Theme.colors.muted)
-            Icon(Icons.Outlined.UnfoldMore, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.UnfoldMore, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.align(Alignment.TopEnd)) {
             for ((value, label) in options) {
                 DropdownMenuItem(
                     text = { Text(label) },
-                    trailingIcon = { if (value == selected) Icon(Icons.Outlined.Check, null, tint = Theme.colors.accent) },
+                    trailingIcon = { if (value == selected) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent) },
                     onClick = {
                         menu = false
                         if (value != selected) choose(value)
@@ -472,6 +472,6 @@ internal fun NavRow(title: String, detail: String?, icon: ImageVector? = null, t
             Text(title, color = Theme.colors.ink)
             detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 2) }
         }
-        Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted)
+        Icon(Icons.Rounded.ChevronRight, null, tint = Theme.colors.muted)
     }
 }

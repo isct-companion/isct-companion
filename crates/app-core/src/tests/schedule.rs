@@ -469,6 +469,37 @@ fn exams_and_single_occurrence_overrides_preserve_identity_and_conflicts() {
             .clone(),
         Some(vec!["Interview".to_string()])
     );
+    // Overlapping blocks share the grid side by side, the exam drawn last.
+    let lanes: Vec<_> = rows
+        .iter()
+        .map(|row| row.grid.as_ref().map(|slot| (slot.lane, slot.lanes)))
+        .collect();
+    assert_eq!(lanes, [Some((0, 2)), Some((1, 2))]);
+
+    // An exam timed inside periods fills the periods it touches and keeps
+    // its own times for the label.
+    data["exams"][0]["periods"] = Value::Null;
+    data["exams"][0]["startTime"] = json!("09:30");
+    data["exams"][0]["endTime"] = json!("10:20");
+    data["events"] = json!([]);
+    let rows = resolve_day_agenda(
+        &data,
+        &SchoolReads::fixture(&data),
+        "2026-1Q",
+        "2026-04-13",
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(rows[0].start_time, "09:30");
+    assert_eq!(
+        rows[0].grid,
+        Some(GridSlot {
+            start_time: "08:50".into(),
+            end_time: "10:30".into(),
+            lane: 0,
+            lanes: 1,
+        })
+    );
 
     data["exams"] = json!([]);
     data["events"] = json!([]);
