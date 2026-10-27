@@ -1187,7 +1187,7 @@ checks:
 
   - id: DESKTOP-SCHOOL-NATIVE-CONFIRM
     area: desktop
-    title: School pages get the browser's own confirm and alert, and file dialogs still open
+    title: School pages get native confirm, alert and prompt, and file dialogs still open
     persona: undergraduate-senior
     preconditions: |
       macOS desktop build of this commit, signed in to the Tokyo Tech Portal
@@ -1199,15 +1199,26 @@ checks:
         reason: |
           A plugin init script once replaced window.confirm in every webview
           with an async function, so `if (!confirm(...))` never stopped and
-          logout happened with no question. A native confirm that keeps the
-          session on Cancel means the school view runs no plugin script.
+          logout happened with no question. Without that plugin, macOS WebKit
+          answers confirm() with Cancel unseen unless the view's UI delegate
+          shows it; the school view's delegate (school_webkit.rs) now does, as
+          a sheet naming the page's origin. A confirm that keeps the session
+          on Cancel means the sheet's answer reaches the page.
       - action: |
           On TSUBAME, open the password change form and press its submit
           button; stop at the confirmation without changing the password.
         reason: |
           The page tests `confirm(...) == true`; with the replaced confirm
-          the comparison was always false and the button did nothing. A
-          native confirmation box is the evidence.
+          the comparison was always false and the button did nothing, and
+          on macOS WebKit's unseen Cancel did the same. A native
+          confirmation sheet is the evidence.
+      - action: |
+          On any school page that raises an alert, read it and press OK;
+          then leave the school view and let a background refresh run.
+        reason: |
+          alert() goes through the same delegate and must show and return.
+          A view the person is not looking at raises no dialog and gets
+          Cancel, so background work must never put a sheet over the app.
       - action: |
           In Settings, choose another course folder, then cancel the
           picker; export a backup and save it.
@@ -1217,10 +1228,12 @@ checks:
           backup's name and extension means the replacement lost a setting.
     observe: |
       The dialogs on the Portal and TSUBAME pages, whether the Portal session
-      survives Cancel, and the folder picker and save panel attached to the
-      main window.
+      survives Cancel, any sheet during the background refresh, and the
+      folder picker and save panel attached to the main window.
     expected: |
-      Both school pages show the native confirmation and honour Cancel; the
+      Both school pages show the native confirmation sheet and honour
+      Cancel; the alert shows and closes on OK; no sheet appears while the
+      school view is hidden; the
       folder picker titled "Course materials and notes" keeps the old folder
       on Cancel, and the save panel offers the backup's file name with its
       extension filter and writes the file.
@@ -1232,6 +1245,8 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/native_dialog.rs
       - apps/desktop/src-tauri/src/school_web.rs
+      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_downloads.rs
       - apps/desktop/src-tauri/src/commands/backup.rs
       - apps/desktop/src-tauri/src/lms_files.rs
     verified: null

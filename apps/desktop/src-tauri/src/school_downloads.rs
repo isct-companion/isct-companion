@@ -181,9 +181,20 @@ impl SchoolDownloads {
                     SchoolDownloads(downloads).save_viewer_data(&app, site, saved);
                 }
             });
+            // The site the presentation shows (`set_visible`) is the only one
+            // whose page dialogs reach the person.
+            let downloads_for_dialogs = downloads.clone();
+            let foreground = Box::new(move || {
+                downloads_for_dialogs.upgrade().is_some_and(|downloads| {
+                    downloads
+                        .state
+                        .lock()
+                        .is_ok_and(|state| state.active == Some(site))
+                })
+            });
             // SAFETY: `inner()` is this view's live WKWebView, and
             // `with_webview` invokes this closure on the main thread.
-            let delegate = unsafe { webkit::install(platform.inner(), on_save) };
+            let delegate = unsafe { webkit::install(platform.inner(), on_save, foreground) };
             if let (Some(downloads), Some(delegate)) = (downloads.upgrade(), delegate) {
                 if let Ok(mut state) = downloads.state.lock() {
                     state.delegates.insert(site, delegate);

@@ -9,6 +9,10 @@
 //!   `_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:` and
 //!   does nothing when the delegate lacks it. Private API: if WebKit renames
 //!   the selector the button goes back to doing nothing; nothing crashes.
+//!   The same shim answers the page's `alert()`, `confirm()` and `prompt()`,
+//!   which WebKit otherwise dismisses unseen (wry's delegate implements none
+//!   of them): a sheet on the window for the view the person is looking at,
+//!   Cancel for a hidden view.
 //! - Navigation delegate: wry allows every response WebKit can display, but
 //!   WebKit commits a displayable `Content-Disposition: attachment` response
 //!   (Moodle submissions, `?forcedownload=1`) as an empty page. The shim
@@ -20,25 +24,30 @@
 //! WebKit caches which delegate methods exist when a delegate is set, so each
 //! shim also answers `respondsToSelector:` for wry's methods and forwards them.
 
-use block2::DynBlock;
-use objc2::rc::Retained;
+use block2::{DynBlock, RcBlock};
+use objc2::rc::{Retained, Weak};
 use objc2::runtime::{
     AnyObject, AnyProtocol, Bool, NSObject, NSObjectProtocol, ProtocolObject, Sel,
 };
 use objc2::{
     define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message,
 };
+use objc2_app_kit::{
+    NSAlert, NSAlertFirstButtonReturn, NSModalResponse, NSResponder, NSTextField, NSView,
+};
 use objc2_foundation::{
-    ns_string, NSData, NSError, NSHTTPURLResponse, NSString, NSURLRequest, NSURLResponse, NSURL,
+    ns_string, NSData, NSError, NSHTTPURLResponse, NSPoint, NSRect, NSSize, NSString,
+    NSURLRequest, NSURLResponse, NSURL,
 };
 use objc2_web_kit::{
-    WKDownload, WKDownloadDelegate, WKNavigationDelegate, WKNavigationResponse,
+    WKDownload, WKDownloadDelegate, WKFrameInfo, WKNavigationDelegate, WKNavigationResponse,
     WKNavigationResponsePolicy, WKUIDelegate, WKWebView,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::ptr::null_mut;
+use std::rc::Rc;
 
 /// What the PDF viewer asked to save.
 pub struct SavedData {
@@ -54,6 +63,9 @@ pub struct UiIvars {
     /// reference too; this one keeps forwarding valid regardless.
     original: Retained<ProtocolObject<dyn WKUIDelegate>>,
     on_save: Box<dyn Fn(SavedData)>,
+    /// Whether this is the school view the person is looking at, as the
+    /// shell's presentation decided it.
+    foreground: Box<dyn Fn() -> bool>,
 }
 
 pub struct NavigationIvars {
@@ -99,6 +111,55 @@ fn displayable_attachment(navigation: &WKNavigationResponse) -> bool {
         })
 }
 
+/// A page dialog's answer, given to WebKit exactly once: `Some` is OK (with
+/// the entered text for `prompt()`), `None` is Cancel. A dialog that ends
+/// without an answer, never shown or torn down with its window, answers
+/// Cancel when its last reference goes.
+struct Reply(Cell<Option<SendAnswer>>);
+
+type SendAnswer = Box<dyn FnOnce(Option<&NSString>)>;
+
+impl Reply {
+    fn new(send: impl FnOnce(Option<&NSString>) + 'static) -> Rc<Self> {
+        Rc::new(Self(Cell::new(Some(Box::new(send)))))
+    }
+
+    fn send(&self, answer: Option<&NSString>) {
+        if let Some(send) = self.0.take() {
+            send(answer);
+        }
+    }
+}
+
+impl Drop for Reply {
+    fn drop(&mut self) {
+        self.send(None);
+    }
+}
+
+enum Dialog<'a> {
+    Alert,
+    Confirm,
+    /// `prompt()` with its default text.
+    Prompt(Option<&'a NSString>),
+}
+
+/// The initiating frame's origin, the dialog's title as in Safari, so an
+/// embedded page cannot pass its text off as the school's. None for a frame
+/// without a host (`about:blank`, `data:`).
+fn origin_label(frame: &WKFrameInfo) -> Option<Retained<NSString>> {
+    let origin = unsafe { frame.securityOrigin() };
+    let (protocol, host, port) = unsafe { (origin.protocol(), origin.host(), origin.port()) };
+    if host.length() == 0 {
+        return None;
+    }
+    let label = match port {
+        0 => format!("{protocol}://{host}"),
+        port => format!("{protocol}://{host}:{port}"),
+    };
+    Some(NSString::from_str(&label))
+}
+
 define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
@@ -107,9 +168,51 @@ define_class!(
 
     unsafe impl NSObjectProtocol for SchoolUiDelegate {}
 
-    // Every WKUIDelegate method is optional: the shim implements none of them
-    // itself and forwards them all to wry's delegate.
-    unsafe impl WKUIDelegate for SchoolUiDelegate {}
+    // Every WKUIDelegate method is optional: the shim implements the page
+    // dialogs itself and forwards the rest to wry's delegate.
+    unsafe impl WKUIDelegate for SchoolUiDelegate {
+        #[unsafe(method(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))]
+        fn run_alert(
+            &self,
+            web_view: &WKWebView,
+            message: &NSString,
+            frame: &WKFrameInfo,
+            handler: &DynBlock<dyn Fn()>,
+        ) {
+            let handler = handler.copy();
+            let reply = Reply::new(move |_| handler.call(()));
+            self.present(web_view, message, frame, Dialog::Alert, reply);
+        }
+
+        #[unsafe(method(webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:))]
+        fn run_confirm(
+            &self,
+            web_view: &WKWebView,
+            message: &NSString,
+            frame: &WKFrameInfo,
+            handler: &DynBlock<dyn Fn(Bool)>,
+        ) {
+            let handler = handler.copy();
+            let reply = Reply::new(move |answer| handler.call((Bool::new(answer.is_some()),)));
+            self.present(web_view, message, frame, Dialog::Confirm, reply);
+        }
+
+        #[unsafe(method(webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:))]
+        fn run_prompt(
+            &self,
+            web_view: &WKWebView,
+            prompt: &NSString,
+            default_text: Option<&NSString>,
+            frame: &WKFrameInfo,
+            handler: &DynBlock<dyn Fn(*mut NSString)>,
+        ) {
+            let handler = handler.copy();
+            let reply = Reply::new(move |answer| {
+                handler.call((answer.map_or(null_mut(), |text| text as *const _ as *mut _),))
+            });
+            self.present(web_view, prompt, frame, Dialog::Prompt(default_text), reply);
+        }
+    }
 
     impl SchoolUiDelegate {
         #[unsafe(method(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:))]
@@ -157,6 +260,69 @@ define_class!(
 impl SchoolUiDelegate {
     fn original(&self) -> &AnyObject {
         self.ivars().original.as_ref()
+    }
+
+    /// Shows a page dialog as a sheet on the window hosting the view, only
+    /// for the school view the person is looking at. A hidden view (background
+    /// work) raises no UI: dropping `reply` answers Cancel, as WebKit does
+    /// without a delegate.
+    fn present(
+        &self,
+        web_view: &WKWebView,
+        message: &NSString,
+        frame: &WKFrameInfo,
+        dialog: Dialog<'_>,
+        reply: Rc<Reply>,
+    ) {
+        if !(self.ivars().foreground)() {
+            return;
+        }
+        let Some(window) = web_view.window().filter(|window| window.isVisible()) else {
+            return;
+        };
+        let alert = NSAlert::new(self.mtm());
+        match origin_label(frame) {
+            Some(origin) => {
+                alert.setMessageText(&origin);
+                alert.setInformativeText(message);
+            }
+            None => alert.setMessageText(message),
+        }
+        alert.addButtonWithTitle(ns_string!("OK"));
+        if !matches!(dialog, Dialog::Alert) {
+            alert.addButtonWithTitle(ns_string!("Cancel"));
+        }
+        let field = match dialog {
+            Dialog::Prompt(default_text) => {
+                let field = NSTextField::initWithFrame(
+                    self.mtm().alloc(),
+                    NSRect::new(NSPoint::new(0., 0.), NSSize::new(260., 24.)),
+                );
+                field.setStringValue(default_text.unwrap_or(ns_string!("")));
+                let view: &NSView = &field;
+                alert.setAccessoryView(Some(view));
+                Some(field)
+            }
+            Dialog::Alert | Dialog::Confirm => None,
+        };
+        let focus = field.clone();
+        let web_view = Weak::new(web_view);
+        let done = RcBlock::new(move |response: NSModalResponse| {
+            // A view closed or detached meanwhile has no page left to answer.
+            let attached = web_view.load().is_some_and(|view| view.window().is_some());
+            if response != NSAlertFirstButtonReturn || !attached {
+                reply.send(None);
+            } else if let Some(field) = &field {
+                reply.send(Some(&field.stringValue()));
+            } else {
+                reply.send(Some(ns_string!("")));
+            }
+        });
+        alert.beginSheetModalForWindow_completionHandler(&window, Some(&done));
+        if let Some(field) = focus {
+            let responder: &NSResponder = &field;
+            alert.window().makeFirstResponder(Some(responder));
+        }
     }
 }
 
@@ -357,6 +523,7 @@ unsafe impl Send for DelegateHandle {}
 pub unsafe fn install(
     web_view: *mut c_void,
     on_save: Box<dyn Fn(SavedData)>,
+    foreground: Box<dyn Fn() -> bool>,
 ) -> Option<DelegateHandle> {
     let mtm = MainThreadMarker::new()?;
     let web_view = unsafe { (web_view as *const WKWebView).as_ref() }?;
@@ -364,7 +531,11 @@ pub unsafe fn install(
     let ui = unsafe { web_view.UIDelegate() }.map(|original| {
         let shim = mtm
             .alloc::<SchoolUiDelegate>()
-            .set_ivars(UiIvars { original, on_save });
+            .set_ivars(UiIvars {
+                original,
+                on_save,
+                foreground,
+            });
         let shim: Retained<SchoolUiDelegate> = unsafe { msg_send![super(shim), init] };
         unsafe { web_view.setUIDelegate(Some(ProtocolObject::from_ref(&*shim))) };
         shim
@@ -387,9 +558,10 @@ pub unsafe fn install(
         let ui_object = ui.as_deref().map(|shim| shim.as_ref());
         let navigation_object = navigation.as_deref().map(|shim| shim.as_ref());
         log::info!(
-            "[school-download] WebKit hooks installed: new-window forwarded={}, pdf-save={}, attachment={}, page-load forwarded={}",
+            "[school-download] WebKit hooks installed: new-window forwarded={}, pdf-save={}, confirm={}, attachment={}, page-load forwarded={}",
             check(ui_object, sel!(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:)),
             check(ui_object, sel!(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:)),
+            check(ui_object, sel!(webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:)),
             check(navigation_object, sel!(webView:navigationResponse:didBecomeDownload:)),
             check(navigation_object, sel!(webView:didFinishNavigation:)),
         );

@@ -174,7 +174,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
-| `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
+| `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
@@ -1478,7 +1478,7 @@ Recorded in docs/verification/core-consolidation.md.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
 
-### School pages get the browser's own confirm and alert, and file dialogs still open (`DESKTOP-SCHOOL-NATIVE-CONFIRM`)
+### School pages get native confirm, alert and prompt, and file dialogs still open (`DESKTOP-SCHOOL-NATIVE-CONFIRM`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -1495,14 +1495,23 @@ and TSUBAME.
    dialog that appears.
    - *Why:* A plugin init script once replaced window.confirm in every webview
      with an async function, so `if (!confirm(...))` never stopped and
-     logout happened with no question. A native confirm that keeps the
-     session on Cancel means the school view runs no plugin script.
+     logout happened with no question. Without that plugin, macOS WebKit
+     answers confirm() with Cancel unseen unless the view's UI delegate
+     shows it; the school view's delegate (school_webkit.rs) now does, as
+     a sheet naming the page's origin. A confirm that keeps the session
+     on Cancel means the sheet's answer reaches the page.
 2. On TSUBAME, open the password change form and press its submit
    button; stop at the confirmation without changing the password.
    - *Why:* The page tests `confirm(...) == true`; with the replaced confirm
-     the comparison was always false and the button did nothing. A
-     native confirmation box is the evidence.
-3. In Settings, choose another course folder, then cancel the
+     the comparison was always false and the button did nothing, and
+     on macOS WebKit's unseen Cancel did the same. A native
+     confirmation sheet is the evidence.
+3. On any school page that raises an alert, read it and press OK;
+   then leave the school view and let a background refresh run.
+   - *Why:* alert() goes through the same delegate and must show and return.
+     A view the person is not looking at raises no dialog and gets
+     Cancel, so background work must never put a sheet over the app.
+4. In Settings, choose another course folder, then cancel the
    picker; export a backup and save it.
    - *Why:* The file dialogs now come from rfd instead of the dialog plugin; a
      picker that does not open, ignores Cancel, or saves without the
@@ -1511,12 +1520,14 @@ and TSUBAME.
 **Where to look**
 
 The dialogs on the Portal and TSUBAME pages, whether the Portal session
-survives Cancel, and the folder picker and save panel attached to the
-main window.
+survives Cancel, any sheet during the background refresh, and the
+folder picker and save panel attached to the main window.
 
 **Expected**
 
-Both school pages show the native confirmation and honour Cancel; the
+Both school pages show the native confirmation sheet and honour
+Cancel; the alert shows and closes on OK; no sheet appears while the
+school view is hidden; the
 folder picker titled "Course materials and notes" keeps the old folder
 on Cancel, and the save panel offers the backup's file name with its
 extension filter and writes the file.
@@ -1532,6 +1543,8 @@ headless suite runs.
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/native_dialog.rs`
 - `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_downloads.rs`
 - `apps/desktop/src-tauri/src/commands/backup.rs`
 - `apps/desktop/src-tauri/src/lms_files.rs`
 
