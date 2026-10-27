@@ -1,7 +1,9 @@
 #[cfg(matrix_ocr)]
 use crate::matrix_ocr;
 use crate::require_local_main;
-use crate::{coded, shell, CommandError};
+#[cfg(matrix_ocr)]
+use crate::shell;
+use crate::{coded, CommandError};
 #[cfg(matrix_ocr)]
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
