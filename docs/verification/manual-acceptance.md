@@ -8115,7 +8115,8 @@ whether an alert appears is a glance.
 
 **Preconditions**
 
-An iPhone and an iPad build of this commit, signed in to 教務Web.
+An iPhone and an iPad build of this commit, signed in to 教務Web and
+the LMS, with a course whose material includes a PDF.
 
 **Steps**
 
@@ -8135,17 +8136,28 @@ An iPhone and an iPad build of this commit, signed in to 教務Web.
    - *Why:* A `target=_blank` PDF opens as a popup now; the toolbar and the page
      menu act on the popup in front, and the page behind must still be
      there after closing.
+3. On an LMS course page, open a PDF material that opens in a new
+   window, close the preview, and look at the web screen. If the
+   course offers a Word or other file, open it the same way.
+   - *Why:* The LMS sends files as attachments, which the iOS host saves and
+     previews. The popup opened for the file never commits a page, so
+     it used to stay empty over the course page until closed. The host
+     now reports the download for the popup it happened in, Core closes
+     that empty popup, and the transfer must still finish after the
+     popup is gone.
 
 **Where to look**
 
 The web screen while the popup is open, the Popup window bar under the
-navigation bar, and the opener page after closing.
+navigation bar, the opener page after closing, and the file preview.
 
 **Expected**
 
 Each popup fills the web screen under a Popup window bar with Close
 window; Back, Forward and Share act on the popup; closing either way
-returns to the opener exactly as it was, with no reload.
+returns to the opener exactly as it was, with no reload. An LMS file
+opens in the preview with its content, and after the preview closes
+the course page shows with no empty popup and no Popup window bar.
 
 **Why this is manual**
 

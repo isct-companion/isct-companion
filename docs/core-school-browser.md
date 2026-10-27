@@ -207,8 +207,9 @@ reaches Core's GET. `onCreateWindow` names no URL, so a popup is requested as
 `about:blank` and its first navigation is decided from inside it; a popup
 whose first page went to the system browser or was refused is closed.
 
-Neither mobile host reports `becameDownload` yet, so an empty popup whose
-file is saved stays open there until closed. The Windows WebView2 host
+The iOS host reports `becameDownload` as `Saved`: it writes every file and
+previews it outside the web view. Android does not report it yet, so an empty
+popup whose file is saved stays open there until closed. The Windows WebView2 host
 (`NavigationStarting`, `NewWindowRequested` with a deferral and the same
 environment, `ScriptDialogOpening`, `DownloadStarting`, its own record of
 POST entries) replaces the interim later.

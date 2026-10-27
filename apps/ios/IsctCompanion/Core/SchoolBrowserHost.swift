@@ -34,6 +34,9 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     @MainActor private var views: [SchoolSite: SchoolPage] = [:]
     /// Open popups in opening order, so every popup follows its opener.
     @MainActor private var popups: [SchoolPage] = []
+    /// Disposed views and popups whose files are still being written; each
+    /// leaves once its last transfer ends.
+    @MainActor private var finishing: Set<SchoolPage> = []
     @MainActor private lazy var parking: UIView = {
         let view = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         view.isUserInteractionEnabled = false
@@ -82,11 +85,13 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             urls.removeAll()
         }
         DispatchQueue.main.async {
-            for page in self.popups.reversed() + Array(self.views.values) {
+            for page in self.popups.reversed() + Array(self.views.values) + Array(self.finishing) {
+                page.cancelDownloads()
                 page.tearDown()
             }
             self.popups.removeAll()
             self.views.removeAll()
+            self.finishing.removeAll()
         }
     }
 
@@ -269,6 +274,7 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     @MainActor private func forget(_ page: SchoolPage) {
         page.tearDown()
+        if page.downloading { finishing.insert(page) }
         lock.withLock { _ = urls.removeValue(forKey: page.id) }
     }
 
@@ -319,6 +325,17 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         case (NSURLErrorDomain, NSURLErrorClientCertificateRequired...NSURLErrorSecureConnectionFailed): .insecure
         default: .other
         }
+    }
+
+    /// A navigation of `page` became a download, saved to a file. Core
+    /// disposes a popup that had nothing else to show; its transfer goes on.
+    @MainActor fileprivate func becameDownload(_ page: SchoolPage, hadPage: Bool) {
+        try? listener()?.becameDownload(page: page.page, hadPage: hadPage, disposition: .saved)
+    }
+
+    /// A transfer of `page` ended; a disposed page goes once it has none left.
+    @MainActor fileprivate func transferEnded(_ page: SchoolPage) {
+        if !page.downloading { finishing.remove(page) }
     }
 
     @MainActor fileprivate func titled(_ page: SchoolPage, _ title: String) {
@@ -494,9 +511,11 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
         return page
     }
 
-    /// Stops the page, cancels its transfers and takes it off the screen.
+    var downloading: Bool { !downloads.isEmpty }
+
+    /// Stops the page and takes it off the screen. Its transfers go on until
+    /// their files are written.
     func tearDown() {
-        cancelDownloads()
         webView.stopLoading()
         webView.removeFromSuperview()
     }
@@ -641,9 +660,13 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
         receive(download)
     }
 
+    /// Reported for this page, the one whose navigation it was, never
+    /// `download.webView`: for a popup with nothing committed WebKit names
+    /// the opener there.
     private func receive(_ download: WKDownload) {
         downloads[ObjectIdentifier(download)] = (download, nil)
         download.delegate = self
+        host?.becameDownload(self, hadPage: committed != nil)
     }
 
     func download(
@@ -665,18 +688,20 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
     }
 
     func downloadDidFinish(_ download: WKDownload) {
-        guard let item = downloads.removeValue(forKey: ObjectIdentifier(download)), let file = item.file else { return }
-        host?.onDownload?(file)
+        let file = downloads.removeValue(forKey: ObjectIdentifier(download))?.file
+        host?.transferEnded(self)
+        if let file { host?.onDownload?(file) }
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         if let file = downloads.removeValue(forKey: ObjectIdentifier(download))?.file {
             try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
         }
+        host?.transferEnded(self)
         host?.onDownloadError?(error)
     }
 
-    private func cancelDownloads() {
+    func cancelDownloads() {
         for item in downloads.values {
             item.download.delegate = nil
             item.download.cancel { _ in
