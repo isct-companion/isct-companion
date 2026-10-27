@@ -128,20 +128,6 @@ impl Session {
             Ok(OperationResult::Done)
         })
     }
-    pub fn navigate_school(
-        &self,
-        site: SchoolSite,
-        url: String,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            Ok(OperationResult::Flag {
-                value: i
-                    .core
-                    .school_browser()?
-                    .navigate(project_input(site)?, &url)?,
-            })
-        })
-    }
     pub fn reload_school(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             Ok(OperationResult::Flag {

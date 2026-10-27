@@ -1,4 +1,4 @@
-//! Settings → "Clear school caches and resync" and "Full reset" (design §10).
+//! Settings → "Clear school caches and resync" and "Full reset" (`docs/data-ownership.md`).
 //!
 //! A reset is a Core operation with one lease: it closes the planner's
 //! admission (which cancels in-flight reads and moves the generation on, so

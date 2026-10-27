@@ -30,6 +30,7 @@ const DATASETS: Record<
   { title: string; follows: "academic" | "admission" }
 > = {
   calendar: { title: "Academic calendar", follows: "academic" },
+  departments: { title: "Study guide", follows: "admission" },
   "important-dates": { title: "Important dates", follows: "academic" },
   exams: { title: "Exam timetable", follows: "academic" },
   "class-schedules": {

@@ -61,12 +61,13 @@ paths must be absolute and supplied by the native shell. The SDK keeps `user.db`
 `cache.db` and `sync.db` in that directory and splits a `school.db` found there once
 (`crates/app-core/src/data/migrations.rs`); it does not migrate an installed
 desktop app's container. The vault implements Core account names and must preserve the app's
-Keychain/Keystore identity. Credentials do not appear in workspace snapshots.
+Keychain/Keystore identity. Credentials never appear in query results.
 
 All service methods return an `Operation` immediately. Its identity is assigned
 before work is admitted. `awaitResult()` returns a typed `OperationResult`;
-`status()` recovers the current pending/terminal result. Snapshots retain both
-`revision` (user writes) and `contentRevision` (all content/read-model caches).
+`status()` recovers the current pending/terminal result. `mutateCommit` answers
+the changes it made, the next `revision` (user writes) and the commit `seq`;
+`scheduleQuery` results carry the `seq` they were read at.
 
 - A Swift/Kotlin task stopping its wait does not abort admitted work.
 - The supplied `value()` helpers detach when their native task is cancelled.
@@ -74,8 +75,8 @@ before work is admitted. `awaitResult()` returns a typed `OperationResult`;
   cooperative-cancellation result when the Swift task itself is still active.
 - `detach()` stops this handle's waiters; the underlying operation continues.
 - `cancel()` cooperates with cancellable capabilities such as OCR and returns
-  false for transactions/shared pulls. Use `cancelPull(id)` for domain pull
-  cancellation. An admitted database/file commit always finishes.
+  false for transactions and school reads, which Core's sync planner owns. An
+  admitted database/file commit always finishes.
 - `shutdown()` closes admission and waits for owned work and native browser
   shutdown. A 15-second wait expiry returns typed Timeout while the drain keeps
   running; call shutdown again to wait. Repeated successful shutdown is safe.
@@ -87,13 +88,14 @@ before work is admitted. `awaitResult()` returns a typed `OperationResult`;
 
 | Surface               | Main methods                                                                                                     |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Workspace/read models | `snapshot`, `mutate`, `scheduleQuery`, `finderQuery`                                                             |
-| Accounts              | `credentialStatus`, `connectSchool`, `deleteCredentials`                                                         |
-| School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `schoolBrowsing`, navigation/back/forward/reload, `pullSchool` |
-| References/pulls      | `refreshReferences`, `pullState`, `cancelPull`                                                                   |
+| Workspace/read models | `workspaceRevision`, `mutateCommit`, `scheduleQuery` (view queries, including `records(fields)`), `finderQuery`   |
+| Accounts              | `credentialStatus`, `connectSchool`, `schoolOtpLink`, `deleteCredentials`                                        |
+| School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `schoolBrowsing`, back/forward/reload                          |
+| Reads                 | `syncHint` (the planner decides what is read), `syncSnapshot`                                                    |
 | Files/notes           | `openMaterial`, `cleanMaterials`, `saveNote`, `readNote`, `listNotes`, `parseLmsResource`                        |
+| Hand-in               | `waitingHandIns`, `assignmentSubmitFiles`, `addAssignmentFiles`, `removeAssignmentFile`, `handInAssignment`      |
 | Backup/cloud          | `exportBackup`, `applyBackup`, `cloudState`, `syncCloud`, `setCloudEnabled`, `setCloudAutomatic`, `restoreCloud` |
-| Lifecycle             | `lifecycle`, `suspend`, `resume`, `wake`, `shutdown`                                                             |
+| Lifecycle             | `suspend`, `resume`, `wake`, `backgroundWake`, `shutdown`, `checkAndroidUpdate`                                  |
 | Optional OCR          | `capabilities`, `prepareScanner`, `scanMatrix`                                                                   |
 
 Core decides due work. The shell supplies network/foreground/browser facts,
@@ -111,16 +113,15 @@ typed. Arrays become foreign lists and Core's deserializer rechecks fixed length
 Business validation, timestamps, revision checking and commits remain in Core.
 Foreign callers supply complete records, including default field values; Core's
 custom serde defaults are not automatically foreign constructor defaults.
-`openSchool` returns `SchoolWeb { result: SchoolWebResult }`; `pullSchool`
-returns `SchoolPull { outcomes: List<IngestOutcome> }`. Dynamic document fields
-do not erase these result or outcome discriminants.
+`openSchool` returns `SchoolWeb { result: SchoolWebResult }`. Dynamic document
+fields do not erase result discriminants.
 
 `SdkError` distinguishes InvalidInput, Conflict, Storage, Compatibility,
 Authentication, Network, Timeout, Busy, Unavailable, Callback, Cancelled, Closed and
 Internal. Match variants, not diagnostic text. Unexpected native vault callback
 exceptions retain Callback; denied vault access remains Unavailable. Browser and
 cloud service errors retain their existing Core platform/transport categories.
-After an Internal failure, recover a snapshot before deciding whether to retry;
+After an Internal failure, query again before deciding whether to retry;
 the SDK never automatically replays a mutation. Invalid foreign input maps to
 InvalidInput; an impossible Core-to-SDK projection maps to Internal. OCR Busy
 means retry after the active scan, while Unavailable means the capability cannot
@@ -130,22 +131,22 @@ compatibility, task and native-delivery categories.
 
 ## Subscriptions and native callbacks
 
-Call `subscribe()` before reading initial snapshots, then consume queued
+Call `subscribe()` before the first queries, then consume queued
 `next()` updates. Events retain Core's existing event names and full payloads,
 with a per-session sequence. Every commit that changes a row emits
 `workspace-changed` with its source (`user-intent` for mutations) and the
 `changes` it made, published by Core's commit path after the commit in every
 shell; background changes are coalesced to at most one event per source per
-250 ms. `Session.workspaceRecords(changes)` returns only the snapshot fields
-those names feed. The mobile shells skip an event whose `changes` are only
-`freshness` and otherwise refresh as before. Delivery failure does not turn that committed mutation into an operation
+250 ms. Query answers name the `reads` they depend on; re-run the queries whose
+`reads` meet the event's `changes`. The mobile shells skip an event whose
+`changes` are only `freshness`. Delivery failure does not turn that committed mutation into an operation
 failure. `applyBackup` imports through the cloud journal like the desktop
 (recovery point, new restore generation, replayable apply), so it and cloud
 recovery both emit `cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
-Snapshots are authoritative; events are hints.
+Query results are authoritative; events are hints.
 
 The bounded queue holds 128 events. A slow consumer receives `SnapshotRequired`
-and must reread relevant snapshots. `unsubscribe()` wakes pending next calls and
+and must re-run its queries and `syncSnapshot`. `unsubscribe()` wakes pending next calls and
 returns Closed; it does not free the Kotlin object handle, which also has the
 generated `close()` resource method. Session shutdown closes subscriptions.
 

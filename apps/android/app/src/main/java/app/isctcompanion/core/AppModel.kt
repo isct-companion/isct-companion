@@ -357,7 +357,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             val result = (
                 session.scheduleQuery(
                     listOf(
-                        WorkspaceQuery.Records(listOf("courses", "materials", "assignments")),
+                        WorkspaceQuery.Records(listOf("courses", "assignments")),
                         WorkspaceQuery.Today(now),
                         WorkspaceQuery.AssignmentBoard(now, null),
                         WorkspaceQuery.TeachingPeriods,

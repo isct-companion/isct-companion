@@ -41,16 +41,7 @@ macro_rules! captures {
         RE.as_ref().and_then(|regex| regex.captures($text))
     }};
 }
-fn text<'a>(value: &'a Value, key: &str) -> &'a str {
-    value.get(key).and_then(Value::as_str).unwrap_or("")
-}
-fn array<'a>(value: &'a Value, key: &str) -> &'a [Value] {
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or(&[])
-}
+use crate::schedule::{array, text_or_empty as text};
 fn normalized(value: &str) -> String {
     value.nfkc().collect()
 }

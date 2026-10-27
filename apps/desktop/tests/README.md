@@ -78,8 +78,7 @@ path usually misses the bug it was written for.
 import {
   mountApp, // real shell + scripted host, returns { host, core, go, unmount }
   installFakeCore, // the scripted host alone, for non-UI suites
-  installComponentHost, // scripted host + adopted snapshot, for one-component suites
-  freshRevision, // a unique snapshot revision, for a suite that mounts twice
+  installComponentHost, // scripted host + reloaded workspace store, for one-component suites
   mount,
   flush,
   advance,
@@ -117,7 +116,7 @@ a table. A commit answers the whole live store under every change name
 
 ```ts
 const core = installFakeCore({
-  workspace,                      // the snapshot Core would return
+  workspace,                      // the stored workspace Core reads
   queries: {                      // answer schedule_query by kind
     workspaceOverview: (_query, core) => overviewFor(core.workspace),
   },

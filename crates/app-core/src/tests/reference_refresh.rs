@@ -166,6 +166,12 @@ fn empty_fetch(kind: &str, year: i32) -> TransportFetch {
             entries: Vec::new(),
         }),
         "exams" => ReferencePayload::Exams(Vec::new()),
+        "departments" => ReferencePayload::Departments(Departments {
+            schema_version: 1,
+            admission_year: year,
+            source: Vec::new(),
+            departments: Vec::new(),
+        }),
         _ => ReferencePayload::ClassSchedules(ClassSchedules {
             schema_version: 1,
             academic_year: year,
@@ -641,11 +647,86 @@ async fn cancellation_before_applying_writes_no_data_or_metadata() {
     assert!(state(&store, "calendar", 2026).is_none_or(|state| state.fetched_at.is_none()));
 }
 
+#[tokio::test]
+async fn the_study_guide_follows_the_admission_year_and_stays_fresh_for_a_year() {
+    let store = store("study-guide");
+    store
+        .put_workspace_setting("selectedTerm", json!("2026-3Q"))
+        .unwrap();
+    // No admission year: the guide is not read, and no other cohort's
+    // guide stands in for it.
+    let followed_kinds = |store: &DataStore| {
+        followed(&store.load_workspace().unwrap())
+            .into_iter()
+            .map(|(kind, year, _)| (kind, year))
+            .collect::<Vec<_>>()
+    };
+    assert!(!followed_kinds(&store)
+        .iter()
+        .any(|(kind, _)| kind == "departments"));
+    store
+        .put_workspace_setting("academicProfile", json!({"admissionYear": 2025}))
+        .unwrap();
+    assert!(followed_kinds(&store).contains(&("departments".into(), 2025)));
+
+    let guide = subscriptions::validate_departments(include_str!(
+        "../../tests/fixtures/subscriptions/data/2025/departments.json"
+    ))
+    .unwrap();
+    let published = guide.departments.len()
+        + guide
+            .departments
+            .iter()
+            .map(|department| department.recommended.len())
+            .sum::<usize>();
+    assert!(published > 0);
+    let transport = Arc::new(FakeTransport::default());
+    transport.respond(
+        "departments",
+        [FakeResponse::Ok(TransportFetch {
+            value: Some(ReferencePayload::Departments(guide)),
+            ..not_modified_fetch()
+        })],
+    );
+    assert!(matches!(
+        read(
+            &store,
+            &reader(transport.clone()),
+            &IndexProbes::default(),
+            "departments",
+            2025
+        )
+        .await,
+        KeyEnd::Done { .. }
+    ));
+    assert_eq!(transport.calls()[0].1, 2025);
+    assert_eq!(rows(&store, "departments", 2025), published);
+
+    let due_at = |now: &str| {
+        store
+            .write(None, |transaction| {
+                reference_due(
+                    transaction,
+                    &reference_key("departments", 2025),
+                    "departments",
+                    2025,
+                    INDEX,
+                    now.parse().unwrap(),
+                )
+            })
+            .unwrap()
+    };
+    // Read at 2026-10-13T03:15Z; other references go stale after a day.
+    assert_eq!(due_at("2027-10-12T03:15:00Z"), Due::Fresh);
+    assert_eq!(due_at("2027-10-13T03:16:00Z"), Due::Stale);
+}
+
 #[test]
 fn subscription_views_follow_the_selected_year_and_reject_bad_fetch_dates() {
     let mut workspace = json!({"selectedTerm":"2026-3Q","currentTerm":"2025-4Q","academicProfile":{"admissionYear":2024},"subscriptions":[{"kind":"calendar","year":2026,"fetchedAt":"not-a-date"}]});
     let views = subscription_views(&workspace);
-    assert!(views.get("departments").is_none());
+    // The study guide follows the cohort, not the term being viewed.
+    assert_eq!(views["departments"]["year"], 2024);
     assert_eq!(views["calendar"]["year"], 2026);
     assert_eq!(views["calendar"]["state"]["state"], "pending");
     workspace["subscriptions"][0]["fetchedAt"] = json!("2026-10-06T12:00:00Z");

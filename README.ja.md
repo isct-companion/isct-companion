@@ -75,6 +75,7 @@
 | パス | 内容 |
 | --- | --- |
 | [`crates/app-core`](crates/app-core) | Rust コア：同期、学内サイトとの通信、時間割と試験のロジック、MCP サーバー |
+| [`crates/adpt-isct`](crates/adpt-isct) | コアが使う Science Tokyo のページ解析・ページスクリプト・URL |
 | [`crates/app-ocr`](crates/app-ocr) | 端末内で動くマトリクス表の読み取り |
 | [`crates/app-ffi`](crates/app-ffi) | モバイルアプリ向け FFI |
 | [`apps/desktop`](apps/desktop) | macOS・Windows 版（Tauri 2 · React） |
@@ -82,7 +83,7 @@
 | [`apps/android`](apps/android) | Android 版（Jetpack Compose） |
 
 [開発ガイド](docs/development.md)から始めてください。[ドキュメント一覧](docs/README.md)に
-Core の契約、ネイティブ SDK、データ取り込み、[リリース手順](docs/desktop-release.md)をまとめています。
+ネイティブ SDK、データの保存先、[リリース手順](docs/desktop-release.md)をまとめています。
 
 ## 開発に参加
 

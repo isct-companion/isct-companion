@@ -92,8 +92,4 @@ final class InboxModel {
         SharedInbox.remove(item)
         items = SharedInbox.items()
     }
-
-    func items(_ ids: [String]) -> [SharedInbox.Item] {
-        items.filter { ids.contains($0.id) }
-    }
 }

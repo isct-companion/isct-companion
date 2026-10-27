@@ -7,7 +7,7 @@
 //! in full instead of renewing an empty copy by validator or freeze.
 use crate::data::{versioned::content_hash, DataError};
 use crate::sync_state::{self, Dataset, Key, KeyState, Term};
-use chrono::{DateTime, Datelike, Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection};
 use serde_json::Value;
 
@@ -113,8 +113,8 @@ fn course_row(connection: &Connection, lms_id: i64) -> Result<Option<Value>, Dat
 /// quarters. Quarter bounds by month are approximate; gc only acts on content
 /// unused for half a year, which a course of the running term never is.
 fn course_term(course: &Value, now: DateTime<Utc>) -> Term {
-    let today = (now + Duration::hours(9)).date_naive();
-    let academic_year = i64::from(today.year() - i32::from(today.month() < 4));
+    let term = crate::schedule::Term::by_month(crate::schedule::japan_today(now));
+    let academic_year = i64::from(term.year);
     let Some(year) = course.get("year").and_then(Value::as_i64) else {
         return Term::Current;
     };
@@ -124,12 +124,7 @@ fn course_term(course: &Value, now: DateTime<Utc>) -> Term {
     if year > academic_year {
         return Term::Current;
     }
-    let current_quarter = match today.month() {
-        4 | 5 => 1,
-        6..=9 => 2,
-        10 | 11 => 3,
-        _ => 4,
-    };
+    let current_quarter = u32::from(term.quarter);
     let last_quarter = course
         .get("quarters")
         .and_then(Value::as_array)

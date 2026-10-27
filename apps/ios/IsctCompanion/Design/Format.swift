@@ -16,11 +16,6 @@ enum Format {
         return written(date, "MMMdEEE")
     }
 
-    /// `木`, `Thu`, `周四`
-    static func weekday(_ date: Date) -> String {
-        written(date, "EEE")
-    }
-
     /// Short weekday names from Sunday, as Core numbers days (`日`, `Sun`, `周日`).
     static var weekdays: [String] {
         let formatter = DateFormatter()

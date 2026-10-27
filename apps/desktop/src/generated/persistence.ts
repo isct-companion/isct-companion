@@ -2224,6 +2224,7 @@ export const PUBLIC_DATA_INDEX =
 
 export const REFERENCE_KINDS = [
   "calendar",
+  "departments",
   "important-dates",
   "exams",
   "class-schedules",

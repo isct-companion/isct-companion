@@ -183,27 +183,3 @@ export function resolveCapabilities(
           },
   };
 }
-export type SchoolImportResult = {
-  state: "fresh" | "cached" | "reconnect-required" | "error";
-  courses: {
-    externalId: string;
-    code: string;
-    title: string;
-    url: string;
-    assignments?: {
-      externalId: string;
-      courseExternalId: string;
-      title: string;
-      dueAt?: string;
-      url: string;
-    }[];
-    materials?: {
-      externalId: string;
-      courseExternalId: string;
-      title: string;
-      url: string;
-    }[];
-  }[];
-  fetchedAt?: string;
-  message: string;
-};

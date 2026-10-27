@@ -3009,3 +3009,36 @@ fn every_query_lists_the_changes_its_result_reads() {
         }
     }
 }
+
+#[test]
+fn the_month_rule_puts_january_to_march_in_the_previous_academic_year() {
+    use chrono::{NaiveDate, TimeZone, Utc};
+    let term = |y, m, d| Term::by_month(NaiveDate::from_ymd_opt(y, m, d).unwrap()).to_string();
+    assert_eq!(term(2027, 3, 31), "2026-4Q");
+    assert_eq!(term(2026, 4, 1), "2026-1Q");
+    assert_eq!(term(2026, 5, 31), "2026-1Q");
+    assert_eq!(term(2026, 6, 1), "2026-2Q");
+    assert_eq!(term(2026, 9, 30), "2026-2Q");
+    assert_eq!(term(2026, 10, 1), "2026-3Q");
+    assert_eq!(term(2026, 11, 30), "2026-3Q");
+    assert_eq!(term(2026, 12, 1), "2026-4Q");
+    assert_eq!(term(2027, 1, 1), "2026-4Q");
+    // 15:00 UTC on 31 March is already 1 April in Japan; a minute earlier
+    // is still the last day of the previous academic year.
+    let in_japan = |h, m| {
+        let now = Utc.with_ymd_and_hms(2026, 3, 31, h, m, 0).unwrap();
+        Term::by_month(japan_today(now)).to_string()
+    };
+    assert_eq!(in_japan(14, 59), "2025-4Q");
+    assert_eq!(in_japan(15, 0), "2026-1Q");
+}
+
+#[test]
+fn calendar_uids_keep_unreserved_marks_and_escape_every_other_byte() {
+    // Exported UIDs must not change between releases, or calendars that
+    // imported an earlier export duplicate every event.
+    assert_eq!(
+        super::ics::percent_encode("plan:2026-4Q/a_b.c!~*'(x) y–é"),
+        "plan%3A2026-4Q%2Fa_b.c!~*'(x)%20y%E2%80%93%C3%A9"
+    );
+}

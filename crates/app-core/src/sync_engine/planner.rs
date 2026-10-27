@@ -9,7 +9,7 @@ use crate::{
     school_auth::SchoolAuthProfile,
     sync_state::{self, Dataset, Due, Key, KeyState, Term},
 };
-use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, Utc};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet},
@@ -339,20 +339,14 @@ fn course_keys(id: u64) -> [Key; 2] {
     ]
 }
 
-fn japan_today(now: DateTime<Utc>) -> NaiveDate {
-    FixedOffset::east_opt(9 * 3600)
-        .map(|offset| now.with_timezone(&offset).date_naive())
-        .unwrap_or_else(|| now.date_naive())
-}
-
 fn japan_month(now: DateTime<Utc>) -> (i32, u32) {
-    let today = japan_today(now);
+    let today = crate::schedule::japan_today(now);
     (today.year(), today.month())
 }
 
 /// The course and assignment keys of every current-term course.
 pub(crate) fn current_course_keys(inputs: &Inputs, now: DateTime<Utc>) -> Vec<Key> {
-    let current = current_lms_term(None, now);
+    let current = current_lms_term(now);
     inputs
         .courses
         .iter()
@@ -491,7 +485,7 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
             let id: u64 = key.key.parse().ok().filter(|id| *id > 0)?;
             match inputs.course(id) {
                 Some(course) => {
-                    watch.term = lms_course_term(course, current_lms_term(None, now));
+                    watch.term = lms_course_term(course, current_lms_term(now));
                     watch.title = Some(course.title.clone());
                 }
                 // The stored enrolment list lacks it: not (or no longer) the
@@ -528,7 +522,7 @@ fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Ke
     let mut keys = Vec::new();
     if facts.signed_in.contains(&SchoolAuthProfile::Science) {
         keys.extend(lms_all().map(|key| (key, Priority::Visible)));
-        let current = current_lms_term(None, now);
+        let current = current_lms_term(now);
         for course in &inputs.courses {
             let priority = if lms_course_term(course, current) == Term::Current {
                 Priority::Visible
@@ -537,7 +531,7 @@ fn automatic_keys(inputs: &Inputs, facts: &Facts, now: DateTime<Utc>) -> Vec<(Ke
             };
             keys.extend(course_keys(course.id).map(|key| (key, priority)));
         }
-        let today = japan_today(now);
+        let today = crate::schedule::japan_today(now);
         let mut years: Vec<i32> = inputs
             .courses
             .iter()

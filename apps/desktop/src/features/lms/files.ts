@@ -67,28 +67,6 @@ export function lmsFileUrl(
   return `${origin}/get?${query}`;
 }
 
-export async function lmsFileResponse(
-  source: string,
-  context: Pick<CourseFolder, "term" | "course">,
-  options: { download?: boolean; foreground?: boolean; range?: boolean } = {},
-) {
-  const response = await fetch(lmsFileUrl(source, context, options), {
-    headers: options.range ? { Range: "bytes=0-0" } : undefined,
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as {
-      reason?: LmsFileReason;
-      bytes?: number;
-    };
-    throw new LmsFileError(
-      body.reason ??
-        ((response.headers.get("X-Isct-Reason") as LmsFileReason | null) ||
-          "network"),
-      body.bytes,
-    );
-  }
-  return response;
-}
 const boundedInteger = (
   value: number | undefined,
   policy: { default: number; min: number; max: number },

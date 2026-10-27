@@ -165,18 +165,6 @@ private struct HandInTargetModifier: ViewModifier {
     }
 }
 
-/// In-app drags of inbox items carry their ids as text with this prefix.
-enum InboxDrag {
-    static let prefix = "isct-inbox:"
-
-    static func payload(_ ids: [String]) -> String { prefix + ids.joined(separator: ",") }
-
-    static func ids(_ text: String) -> [String]? {
-        guard text.hasPrefix(prefix) else { return nil }
-        return text.dropFirst(prefix.count).split(separator: ",").map(String.init)
-    }
-}
-
 /// The upload panel: what waits in the inbox, then the quarter's unsubmitted
 /// assignments as 今日 groups them. Picking one puts the files in its upload
 /// card and opens its page, where 「LMS にアップロード」 is the next step.
@@ -393,8 +381,9 @@ struct HandInCard: View {
 }
 
 private extension View {
-    /// The card's drop: the inbox stack or files from another app join the
-    /// assignment's `submit/`; `listed` receives what is there afterwards.
+    /// The card's drop: files from another app join the assignment's
+    /// `submit/`; `listed` receives what is there afterwards. The inbox stack
+    /// lands through `InboxModel.targets` instead.
     func handInDrop(_ assignment: String, targeted: Binding<Bool>, listed: @escaping ([LocalFile]) -> Void) -> some View {
         modifier(HandInDrop(assignment: assignment, targeted: targeted, listed: listed))
     }
@@ -405,26 +394,16 @@ private struct HandInDrop: ViewModifier {
     @Binding var targeted: Bool
     let listed: ([LocalFile]) -> Void
     @Environment(AppModel.self) private var model
-    @Environment(InboxModel.self) private var inbox
 
     func body(content: Content) -> some View {
         content
-            .onDrop(of: [.plainText, .data], isTargeted: $targeted) { providers in
+            .onDrop(of: [.data], isTargeted: $targeted) { providers in
                 Task { await receive(providers) }
                 return true
             }
     }
 
     private func receive(_ providers: [NSItemProvider]) async {
-        // The inbox stack, dragged inside the app.
-        if providers.count == 1, providers[0].hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
-            let text = await Self.text(providers[0]), let ids = InboxDrag.ids(text)
-        {
-            if await inbox.give(inbox.items(ids), to: assignment, model) {
-                listed(await model.submitFiles(assignment))
-            }
-            return
-        }
         // Files from another app: copied out of each provider while it lasts.
         var files: [SharedFile] = []
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -435,12 +414,6 @@ private struct HandInDrop: ViewModifier {
         }
         guard !files.isEmpty, let added = try? await model.addSubmitFiles(assignment, files) else { return }
         listed(added)
-    }
-
-    private static func text(_ provider: NSItemProvider) async -> String? {
-        await withCheckedContinuation { continuation in
-            _ = provider.loadObject(ofClass: String.self) { text, _ in continuation.resume(returning: text) }
-        }
     }
 
     private static func file(_ provider: NSItemProvider, into folder: URL) async -> SharedFile? {

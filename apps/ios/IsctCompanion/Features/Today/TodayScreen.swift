@@ -477,7 +477,6 @@ private struct CurrentClassHero: View {
 private struct TonightHero: View {
     let item: DeadlineItem
     let now: Date
-    @Environment(WebRouter.self) private var web
     @Environment(\.push) private var push
 
     var body: some View {

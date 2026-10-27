@@ -30,8 +30,8 @@ Use these names consistently when registering providers:
 
 The registered IsctCompanion client IDs (desktop, iOS, Android) are committed
 in `config/oauth-clients.yaml`. The desktop build reads the desktop entry through
-`scripts/lib/oauth-config.mjs`. Native SwiftUI/Compose configuration will use the
-same client-ID registry when those apps are implemented.
+`scripts/lib/oauth-config.mjs`. The iOS app carries its registered entry
+(`apps/ios/project.yml`), which a tooling test keeps in step with that file.
 OAuth client IDs are public and appear in every authorization URL. `VITE_GOOGLE_DRIVE_CLIENT_ID` and the Settings field remain
 available only as development overrides. Google's token endpoint also
 requires the Desktop client's secret, even with PKCE; set it as

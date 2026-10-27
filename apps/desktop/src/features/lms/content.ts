@@ -214,10 +214,6 @@ export function safeUrl(raw?: string | null): string | undefined {
   }
 }
 
-export function textPreview(html?: string): string {
-  return contentText(html).trim().replace(/\s+/g, " ").slice(0, 110);
-}
-
 export function contentText(html?: string): string {
   if (!html) return "";
   const body = new DOMParser().parseFromString(

@@ -1,4 +1,4 @@
-//! The database half of a reset (design §10, `docs/data-ownership.md`).
+//! The database half of a reset (`docs/data-ownership.md`).
 //! School caches are cache.db and its bookkeeping in sync.db, whole, plus
 //! the settings rows below; the rest of user.db belongs to the person.
 use super::*;

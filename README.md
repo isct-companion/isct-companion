@@ -85,6 +85,7 @@ One shared Rust core, three native apps.
 | Path | What |
 | --- | --- |
 | [`crates/app-core`](crates/app-core) | Rust core: sync engine, school site access, timetable and exam logic, MCP server |
+| [`crates/adpt-isct`](crates/adpt-isct) | Science Tokyo parsers, page scripts and URLs the core uses |
 | [`crates/app-ocr`](crates/app-ocr) | On-device Matrix card reader |
 | [`crates/app-ffi`](crates/app-ffi) | FFI bindings for the mobile apps |
 | [`apps/desktop`](apps/desktop) | macOS and Windows app (Tauri 2 · React) |
@@ -92,8 +93,8 @@ One shared Rust core, three native apps.
 | [`apps/android`](apps/android) | Android app (Jetpack Compose) |
 
 Start with the [development guide](docs/development.md); the
-[documentation index](docs/README.md) links the Core contract, native SDK, data
-imports and [release workflow](docs/desktop-release.md).
+[documentation index](docs/README.md) links the native SDK, data ownership and
+the [release workflow](docs/desktop-release.md).
 
 ## Contributing
 

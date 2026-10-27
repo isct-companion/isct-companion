@@ -337,7 +337,7 @@ final class AppModel {
             revision = current
             // The rows screens look up, with the read models, from one read.
             guard case let .schedule(result) = try await session.scheduleQuery(queries: [
-                .records(fields: ["courses", "materials", "assignments"]),
+                .records(fields: ["courses", "assignments"]),
                 .today(now: now), .assignmentBoard(now: now, term: nil), .teachingPeriods,
             ]).value() else { return }
             // An answer read before the newest change heard is stale: ask again

@@ -1456,7 +1456,7 @@ fn load_inputs(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let english = crate::schedule::content_language(&workspace) == "en";
-    let year = crate::reference_refresh::subscription_year(&workspace)
+    let year = crate::reference_refresh::academic_year(&workspace)
         .and_then(|year| u16::try_from(year).ok());
     let account = |profile: SchoolAuthProfile| match auth.sync_account(profile) {
         Ok(account) => Some(account),

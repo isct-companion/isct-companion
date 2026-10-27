@@ -209,8 +209,7 @@ impl Session {
                 .await
                 .unwrap_or_else(|_| {
                     Err(SdkError::Internal {
-                        detail: "Owned operation unwound; recover a snapshot before retrying"
-                            .into(),
+                        detail: "Owned operation unwound; query again before retrying".into(),
                     })
                 });
             sender.send_replace(Some(result));

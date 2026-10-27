@@ -272,7 +272,7 @@ pub fn apply_kyomu_payload(
         "registrations" => {
             let mut state_ids = HashSet::new();
             if let Some(state) = payload.data.get("state") {
-                let current = (Utc::now() + chrono::Duration::hours(9)).date_naive();
+                let current = crate::schedule::japan_today(Utc::now());
                 let year = chrono::Datelike::year(&current)
                     - i32::from(chrono::Datelike::month(&current) < 4);
                 let id = "kyomu-registration-state";
@@ -330,7 +330,7 @@ pub fn apply_kyomu_payload(
                 changed += usize::from(upsert(tx, "registrations", &id, &value)?);
             }
             // This page covers one academic year. Never expire previous years.
-            let current = (Utc::now() + chrono::Duration::hours(9)).date_naive();
+            let current = crate::schedule::japan_today(Utc::now());
             let year = payload.data["courses"]
                 .as_array()
                 .into_iter()

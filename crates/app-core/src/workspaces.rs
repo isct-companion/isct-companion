@@ -224,7 +224,7 @@ impl Workspaces {
 
     /// Assignments with files waiting to be handed in: a workspace whose
     /// `submit/` holds files, for an assignment LMS does not show as submitted
-    /// or graded in `workspace` (Core's workspace snapshot). By assignment id.
+    /// or graded in `workspace` (the stored workspace fields Core reads). By assignment id.
     pub fn waiting(&self, workspace: &serde_json::Value) -> Vec<(String, usize)> {
         let done: std::collections::HashSet<&str> = workspace
             .get("assignments")

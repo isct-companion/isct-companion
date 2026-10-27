@@ -135,9 +135,7 @@ fn now_jst() -> Result<chrono::DateTime<chrono::FixedOffset>, AgentError> {
     Ok(chrono::Utc::now().with_timezone(&offset))
 }
 
-fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
-    row.get(key).and_then(Value::as_str)
-}
+use crate::schedule::text;
 
 /// Courses on the timetable of `term`: registered at school or planned.
 /// Uses the shared schedule read model for the agent's course list.
@@ -236,19 +234,7 @@ fn slim(value: &mut Value) {
 }
 
 fn fallback_term(date: chrono::NaiveDate) -> String {
-    use chrono::Datelike;
-    let year = if date.month() < 4 {
-        date.year() - 1
-    } else {
-        date.year()
-    };
-    let quarter = match date.month() {
-        4 | 5 => "1Q",
-        6..=9 => "2Q",
-        10 | 11 => "3Q",
-        _ => "4Q",
-    };
-    format!("{year}-{quarter}")
+    crate::schedule::Term::by_month(date).to_string()
 }
 
 fn write_result(details: Value) -> Value {

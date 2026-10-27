@@ -119,17 +119,19 @@ fn escape(value: &str) -> String {
         .replace(',', "\\,")
         .replace(';', "\\;")
 }
-fn percent_encode(value: &str) -> String {
-    let mut encoded = String::new();
-    for byte in value.as_bytes() {
-        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(byte) {
-            encoded.push(char::from(*byte));
-        } else {
-            use std::fmt::Write;
-            let _ = write!(encoded, "%{byte:02X}");
-        }
-    }
-    encoded
+/// Letters, digits and `-_.!~*'()` stay; every other byte is `%XX`.
+pub(super) fn percent_encode(value: &str) -> String {
+    const KEEP: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.')
+        .remove(b'!')
+        .remove(b'~')
+        .remove(b'*')
+        .remove(b'\'')
+        .remove(b'(')
+        .remove(b')');
+    percent_encoding::utf8_percent_encode(value, KEEP).to_string()
 }
 fn fold(line: &str) -> String {
     let mut parts = Vec::new();

@@ -32,9 +32,7 @@ keyring = { version = "3.6", default-features = false, features = ["apple-native
 rand = "0.9"
 # TLS comes from Core: build clients with `app_core::net::client_builder()`.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy", "json", "form", "stream", "cookies"] }
-sha2 = "0.10"
 url = "2.5"
-percent-encoding = "2"
 scraper = "0.24"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"

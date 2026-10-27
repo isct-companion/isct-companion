@@ -43,7 +43,7 @@ pub use calendar::{
     TimetableYear,
 };
 pub(crate) use calendar::{content_language, localized};
-pub use civil::{add_days, parse_civil_date, tokyo_date, Term};
+pub use civil::{add_days, japan_today, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use course_content::{
     course_content, lesson_number, CourseContent, LessonContent, LessonItem, LessonItemKind,
@@ -969,6 +969,17 @@ pub(crate) fn array<'a>(workspace: &'a Value, key: &str) -> &'a [Value] {
 
 pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
+}
+
+/// A string field, or "" when it is missing or not a string.
+pub(crate) fn text_or_empty<'a>(value: &'a Value, key: &str) -> &'a str {
+    text(value, key).unwrap_or_default()
+}
+
+/// Not tombstoned. Unlike [`visible`], a row the school no longer lists
+/// still counts: course details keep cached rows until they are deleted.
+pub(super) fn not_deleted(row: &Value) -> bool {
+    row.get("deletedAt").is_none_or(Value::is_null)
 }
 
 pub(crate) fn visible(value: &Value) -> bool {

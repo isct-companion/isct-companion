@@ -29,9 +29,6 @@ import androidx.compose.ui.unit.dp
  * kept in this device's preferences and never synced.
  */
 object Guide {
-    /** Every tip, as desktop's `TIPS`; only the hidden gestures this shell has. */
-    val TIPS = listOf("timetable-marks", "assignment-swipe")
-
     private var preferences: SharedPreferences? = null
 
     /** Whether the welcome sheet was closed on this device. Tips wait for it. */

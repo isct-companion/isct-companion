@@ -4,15 +4,6 @@ pub(super) fn now() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-pub(super) fn quarter_for_month(month: u32) -> &'static str {
-    match month {
-        12 | 1..=3 => "4Q",
-        10 | 11 => "3Q",
-        6..=9 => "2Q",
-        _ => "1Q",
-    }
-}
-
 /// One authoritative resolver for every native consumer. User-configured
 /// starts intentionally override subscribed calendar boundaries. When no
 /// usable boundary exists, keep the user's selected term instead of guessing
@@ -90,19 +81,14 @@ pub fn initial_workspace(
 
 pub(super) fn empty_workspace() -> Value {
     initial_workspace_value(
-        (Utc::now() + chrono::Duration::hours(9)).date_naive(),
+        crate::schedule::japan_today(Utc::now()),
         &Uuid::new_v4().to_string(),
         &now(),
     )
 }
 
 fn initial_workspace_value(date: chrono::NaiveDate, device_id: &str, updated_at: &str) -> Value {
-    let year = if date.month() < 4 {
-        date.year() - 1
-    } else {
-        date.year()
-    };
-    let term = format!("{year}-{}", quarter_for_month(date.month()));
+    let term = crate::schedule::Term::by_month(date).to_string();
     let mut workspace = json!({
         "schemaVersion": 3,
         "deviceId": device_id,

@@ -131,13 +131,7 @@ fn submission_url(raw: &str) -> Result<String, SubmissionError> {
         )
     };
     let mut url = Url::parse(raw).map_err(|_| invalid())?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("lms.s.isct.ac.jp")
-        || url.port().is_some()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || !url.path().ends_with("/mod/assign/view.php")
-    {
+    if !adpt_isct::lms::is_lms_origin(&url) || !url.path().ends_with("/mod/assign/view.php") {
         return Err(invalid());
     }
     if url.query_pairs().filter(|(key, _)| key == "id").count() != 1 {

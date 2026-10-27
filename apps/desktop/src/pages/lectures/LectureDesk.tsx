@@ -17,6 +17,7 @@ import { AssignmentGroupList } from "../../components/assignments/AssignmentGrou
 import {
   addCivilDays as addDays,
   civilWeekday,
+  jstClock,
   jstMinutes,
   tokyoDate,
 } from "../../lib/civil-date";
@@ -185,7 +186,7 @@ function LectureDeskBody({
 
   const lectures = useMemo(() => {
     const minutes = jstMinutes(now);
-    const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    const clock = jstClock(now);
     const next = new Map<
       string,
       { rank: number; when: string; room?: string }

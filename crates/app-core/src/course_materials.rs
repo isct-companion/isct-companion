@@ -402,12 +402,7 @@ pub fn material_name(url: &Url) -> String {
 
 pub fn lms_resource_url(raw: &str) -> Result<(Url, LmsResourceKind), MaterialError> {
     let url = Url::parse(raw).map_err(|_| MaterialError::Input("Invalid material URL".into()))?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("lms.s.isct.ac.jp")
-        || url.port().is_some()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
+    if !adpt_isct::lms::is_lms_origin(&url) {
         return Err(MaterialError::Input(
             "Only allowlisted LMS resource URLs are accepted".into(),
         ));

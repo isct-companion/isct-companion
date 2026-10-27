@@ -29,16 +29,6 @@ pub enum IngestState {
     Error,
 }
 
-impl IngestState {
-    /// Unavailable is a complete capability observation, not a failed read.
-    pub fn is_problem(self) -> bool {
-        matches!(
-            self,
-            Self::Maintenance | Self::ReconnectRequired | Self::Error
-        )
-    }
-}
-
 #[cfg(feature = "ts")]
 pub fn declarations() -> Vec<String> {
     vec![

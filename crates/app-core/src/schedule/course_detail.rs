@@ -5,7 +5,7 @@ use serde_json::Value;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
-/// IDs project the authoritative snapshot without copying cached school records.
+/// IDs into the stored records, without copying cached school records.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
@@ -286,6 +286,4 @@ fn attachments(html: &str) -> Vec<AssignmentAttachment> {
 }
 
 // Course details retain cached rows until tombstoned; exam freshness is checked separately.
-fn visible(row: &Value) -> bool {
-    row.get("deletedAt").is_none_or(Value::is_null)
-}
+use super::not_deleted as visible;

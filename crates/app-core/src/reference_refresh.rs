@@ -4,8 +4,8 @@
 use crate::{
     data::{DataError, WorkspaceChangeSource},
     subscriptions::{
-        self, AcademicCalendar, ClassSchedules, ImportantDates, PublishedExamFeed, ReferenceFetch,
-        SubscriptionClient, SubscriptionError,
+        self, AcademicCalendar, ClassSchedules, Departments, ImportantDates, PublishedExamFeed,
+        ReferenceFetch, SubscriptionClient, SubscriptionError,
     },
     sync_engine::{Gated, KeyEnd, Lease},
     sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, RunOutcome, Term},
@@ -26,7 +26,16 @@ use tokio::sync::Mutex;
 pub const PUBLIC_INDEX: &str =
     "https://raw.githubusercontent.com/isct-companion/Isct-Data/main/index.json";
 /// Every reference dataset kind a subscription can follow.
-pub const REFERENCE_KINDS: [&str; 4] = ["calendar", "important-dates", "exams", "class-schedules"];
+pub const REFERENCE_KINDS: [&str; 5] = [
+    "calendar",
+    "departments",
+    "important-dates",
+    "exams",
+    "class-schedules",
+];
+/// How long a cohort's study guide (`departments`) stays fresh. It is
+/// published once per admission year and almost never corrected.
+const DEPARTMENTS_TTL: chrono::Duration = chrono::Duration::days(365);
 /// `error_kind` of a public file held back because it shrank suspiciously.
 pub(crate) const SUSPICIOUS_SHRINK: &str = "suspicious-shrink";
 type ReferenceTransportFuture<'a, T> =
@@ -77,6 +86,7 @@ impl From<SubscriptionError> for ReferenceError {
 #[derive(Clone, Debug)]
 enum ReferencePayload {
     Calendar(AcademicCalendar),
+    Departments(Departments),
     ImportantDates(ImportantDates),
     Exams(Vec<PublishedExamFeed>),
     ClassSchedules(ClassSchedules),
@@ -109,6 +119,11 @@ impl From<AcademicCalendar> for ReferencePayload {
         Self::Calendar(value)
     }
 }
+impl From<Departments> for ReferencePayload {
+    fn from(value: Departments) -> Self {
+        Self::Departments(value)
+    }
+}
 impl From<ImportantDates> for ReferencePayload {
     fn from(value: ImportantDates) -> Self {
         Self::ImportantDates(value)
@@ -130,6 +145,11 @@ impl ReferencePayload {
     fn rows(&self) -> usize {
         match self {
             Self::Calendar(calendar) => calendar.quarters.len() * 2 + calendar.days.len(),
+            Self::Departments(guide) => guide
+                .departments
+                .iter()
+                .map(|department| 1 + department.recommended.len())
+                .sum(),
             Self::ImportantDates(dates) => dates.entries.len(),
             Self::Exams(feeds) => feeds.iter().map(|feed| feed.feed.entries.len()).sum(),
             Self::ClassSchedules(schedules) => schedules.entries.len(),
@@ -145,6 +165,10 @@ impl ReferencePayload {
         Ok(match self {
             Self::Calendar(value) => (
                 subscriptions::apply_reference(transaction, Some(value), None)?,
+                None,
+            ),
+            Self::Departments(value) => (
+                subscriptions::apply_reference(transaction, None, Some(value))?,
                 None,
             ),
             Self::ImportantDates(value) => (
@@ -210,6 +234,10 @@ impl ReferenceTransport for HttpReferenceTransport {
                     .fetch_calendar(index_url, year, Some(expected_index_hash), known_hash)
                     .await?
                     .into()),
+                "departments" => Ok(client
+                    .fetch_departments(index_url, year, Some(expected_index_hash), known_hash)
+                    .await?
+                    .into()),
                 "important-dates" => Ok(client
                     .fetch_important_dates(index_url, year, Some(expected_index_hash), known_hash)
                     .await?
@@ -262,15 +290,13 @@ impl IndexProbes {
     }
 }
 
-/// The reference files the person follows: every enabled kind for the
-/// academic year being viewed, from its subscription's index.
+/// The reference files the person follows: every enabled kind for its
+/// year (`subscription_year`), from its subscription's index.
 pub(crate) fn followed(workspace: &Value) -> Vec<(String, i32, String)> {
-    let Some(year) = subscription_year(workspace) else {
-        return Vec::new();
-    };
     REFERENCE_KINDS
         .iter()
         .filter_map(|kind| {
+            let year = subscription_year(workspace, kind)?;
             let row = subscription_row(workspace, kind);
             if row.is_some_and(|row| row["enabled"].as_bool() == Some(false)) {
                 return None;
@@ -310,7 +336,11 @@ pub(crate) fn reference_due(
     now: DateTime<Utc>,
 ) -> Result<Due, DataError> {
     let stored = StoredFile::read(connection, key, kind, year)?;
-    let ttl = sync_state::ttl(Dataset::Reference, Term::Current);
+    let ttl = if kind == "departments" {
+        Some(DEPARTMENTS_TTL)
+    } else {
+        sync_state::ttl(Dataset::Reference, Term::Current)
+    };
     Ok(match sync_state::due(stored.state.as_ref(), ttl, "", now) {
         Due::Fresh if stored.held.is_some() || stored.validator(index_url).is_none() => Due::Stale,
         due => due,
@@ -702,11 +732,12 @@ pub(crate) fn reference_key(kind: &str, year: i32) -> Key {
 
 /// Live rows one reference file published.
 fn stored_rows(connection: &Connection, kind: &str, year: i32) -> Result<usize, DataError> {
-    let (table, prefixes): (&str, &[&str]) = match kind {
-        "calendar" => ("academic_calendar", &["calendar"]),
-        "important-dates" => ("important_dates", &["important-date"]),
-        "exams" => ("exams", &["exam", "exam-week-class"]),
-        "class-schedules" => ("class_schedules", &["class-schedule"]),
+    let sources: &[(&str, &str)] = match kind {
+        "calendar" => &[("academic_calendar", "calendar")],
+        "departments" => &[("departments", "cohort"), ("recommended_courses", "cohort")],
+        "important-dates" => &[("important_dates", "important-date")],
+        "exams" => &[("exams", "exam"), ("exams", "exam-week-class")],
+        "class-schedules" => &[("class_schedules", "class-schedule")],
         _ => {
             return Err(DataError::InvalidInput(
                 "unsupported subscription type".into(),
@@ -714,7 +745,7 @@ fn stored_rows(connection: &Connection, kind: &str, year: i32) -> Result<usize, 
         }
     };
     let mut rows = 0;
-    for prefix in prefixes {
+    for (table, prefix) in sources {
         let count: i64 = connection
             .query_row(
                 &format!(
@@ -747,8 +778,23 @@ fn error_kind(error: &ReferenceError) -> &'static str {
     }
 }
 
-/// References follow the term the person is viewing for every kind of run.
-pub(crate) fn subscription_year(workspace: &Value) -> Option<i32> {
+/// The year a kind's file is chosen by: the admission year for the study
+/// guide (`departments`), never falling back to another cohort's
+/// (`constraint/subscription-cohort-axes`); the academic year of the term
+/// being viewed for everything else.
+pub(crate) fn subscription_year(workspace: &Value, kind: &str) -> Option<i32> {
+    if kind == "departments" {
+        return workspace
+            .pointer("/academicProfile/admissionYear")
+            .and_then(Value::as_i64)
+            .and_then(|year| i32::try_from(year).ok())
+            .filter(|year| *year > 0);
+    }
+    academic_year(workspace)
+}
+
+/// The academic year of the term being viewed.
+pub(crate) fn academic_year(workspace: &Value) -> Option<i32> {
     workspace["selectedTerm"]
         .as_str()
         .and_then(|term| term.get(..4))
@@ -761,7 +807,7 @@ pub fn subscription_views(workspace: &Value) -> Value {
     let mut views = serde_json::Map::new();
     for kind in REFERENCE_KINDS {
         let row = subscription_row(workspace, kind);
-        let year = subscription_year(workspace);
+        let year = subscription_year(workspace, kind);
         let enabled = row.and_then(|row| row["enabled"].as_bool()).unwrap_or(true);
         let state = if !enabled {
             json!({"state":"off"})

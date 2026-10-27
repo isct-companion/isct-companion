@@ -5,15 +5,7 @@
 use super::*;
 use std::collections::BTreeMap;
 
-fn text<'a>(row: &'a Value, key: &str) -> &'a str {
-    row.get(key).and_then(Value::as_str).unwrap_or_default()
-}
-fn array<'a>(row: &'a Value, key: &str) -> &'a [Value] {
-    row.get(key)
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or(&[])
-}
+use crate::schedule::{array, text_or_empty as text};
 
 /// Fills the department and a fresh study profile from the 教務 academic
 /// identity; choices the person made win.

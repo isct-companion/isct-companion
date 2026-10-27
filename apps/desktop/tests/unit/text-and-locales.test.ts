@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import i18n, { intlLocale, relativeTimeAgo, t } from "@app/i18n";
 import { EMPTY_WORKSPACE } from "@app/generated/persistence";
-import { termForDate } from "@app/lib/academic";
 import {
   LMS_BACKGROUND_REFRESH_TASK_ID,
   REFERENCE_REFRESH_TASK_ID,
@@ -163,14 +162,9 @@ describe("workspace seeding", () => {
     }
   });
 
-  it("seeds the term from the Tokyo academic calendar and selects it", () => {
+  it("keeps the term Core chose for its first-launch workspace and selects it", () => {
     const workspace = seedWorkspace();
-    const now = Date.now();
-    const around = [
-      termForDate(new Date(now - 1000)),
-      termForDate(new Date(now + 1000)),
-    ];
-    expect(around).toContain(workspace.selectedTerm);
+    expect(workspace.selectedTerm).toBe(EMPTY_WORKSPACE.selectedTerm);
     expect(workspace.selectedTerm).toMatch(/^\d{4}-[1-4]Q$/);
     expect(workspace.currentTerm).toBe(workspace.selectedTerm);
     expect(workspace.terms).toEqual([workspace.selectedTerm]);

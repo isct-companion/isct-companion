@@ -5,6 +5,10 @@ Desktop Core consolidation (Phases 0–5) is complete. Implementation checkpoint
 mobile adoption are deferred. The public contract is recorded in slotledger.
 This document keeps final evidence and material observations.
 
+The architecture paragraphs below describe the checkpoint as it was. Since then
+the whole-workspace snapshot has been replaced by per-view queries on SQLite
+(TanStack Query on desktop); slotledger records the current contract.
+
 ## Completed scope
 
 | Phase | Result |

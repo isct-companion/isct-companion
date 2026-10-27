@@ -1,4 +1,4 @@
-//! The connections of one store (design §07). Every commit queues on one
+//! The connections of one store. Every commit queues on one
 //! long-lived write connection; reads use a few long-lived read-only
 //! connections. Each connection opens user.db as `main` and attaches
 //! cache.db as `cache` and sync.db as `sync`. Table names are unique across

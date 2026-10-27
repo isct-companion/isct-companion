@@ -633,7 +633,7 @@ export function createTauriDesktopBridge(
           string,
           unknown
         >;
-        // Unknown future sources must still trigger snapshot recovery.
+        // Unknown future sources must still make the queries refetch.
         if (
           typeof source !== "string" ||
           typeof seq !== "number" ||

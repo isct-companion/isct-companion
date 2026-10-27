@@ -19,7 +19,7 @@ import {
   addCivilDays as addDays,
   civilWeekday,
   formatJst,
-  jstMinutes,
+  jstClock,
   tokyoDate,
 } from "../../lib/civil-date";
 import {
@@ -118,8 +118,7 @@ export function TodayBody({
       ),
     };
   });
-  const minutes = jstMinutes(now);
-  const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  const clock = jstClock(now);
   const activeIndex = isToday
     ? blocks.findIndex(
         (block) => block.startTime <= clock && block.endTime > clock,

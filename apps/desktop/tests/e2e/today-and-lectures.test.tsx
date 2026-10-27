@@ -43,7 +43,7 @@ import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
  * through the shipped routes and the harness answers the real query path, so a
  * passing test says something about the app instead of about a mock.
  *
- * Three local helpers stand in where the harness has no equivalent:
+ * Two local helpers stand in where the harness has no equivalent:
  *
  * - `mountCompactToday`: the shipped `Today` is never rendered with `compact`
  *   (only the dev-only `?preview=lms` workbench passes it), so the Today course
@@ -51,10 +51,6 @@ import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
  *   same shell tokens.
  * - `taskViewFor`: the harness has no `TaskView` builder, so the scripted Core
  *   derives one from the workspace the same way Core decides those sets.
- *
- * `freshRevision` exists because the real query caches key a read by the
- * snapshot revision and the module graph stays warm across a file: without a
- * new revision per mount, one test's scripted answer would render in the next.
  */
 
 let app: MountedApp | undefined;
@@ -71,7 +67,6 @@ beforeAll(async () => {
   const warm = await mountApp(
     {
       workspace: workspaceFixture(),
-      revision: freshRevision(),
       queries: homeQueries,
     },
     { route: paths.home() },
@@ -106,17 +101,6 @@ function required<T>(
 /** The native hide is not what these suites are about; answer it quietly. */
 function nativeNoise(command: string): unknown {
   return command === "hide_school_web" ? true : undefined;
-}
-
-/**
- * The real query caches key a read by the snapshot revision, and the module
- * graph stays warm across a file. A distinct revision per mount keeps one
- * test's scripted answer out of the next test's render.
- */
-let revisionCounter = 0;
-function freshRevision(): string {
-  revisionCounter += 1;
-  return `revision:test-${revisionCounter}`;
 }
 
 function courseRow(
@@ -275,7 +259,6 @@ async function mountToday(workspace: Workspace): Promise<MountedApp> {
   const mounted = await mountApp(
     {
       workspace,
-      revision: freshRevision(),
       queries: {
         ...homeQueries,
         taskView: (_query, core) => taskViewFor(core.workspace),
@@ -415,7 +398,6 @@ async function mountCompactToday(opened: string[]): Promise<Mounted> {
   });
   const core = installFakeCore({
     workspace: data,
-    revision: freshRevision(),
     queries: {
       scheduleView: (_query, fake) => scheduleViewFor(fake.workspace),
       taskView: (_query, fake) => taskViewFor(fake.workspace),
@@ -618,7 +600,6 @@ async function mountLectures(workspace: Workspace): Promise<MountedApp> {
   const mounted = await mountApp(
     {
       workspace,
-      revision: freshRevision(),
       queries: {
         ...homeQueries,
         scheduleView: (_query, core) => lectureSchedule(core.workspace),
@@ -725,7 +706,6 @@ describe("the lecture desk", () => {
     app = await mountApp(
       {
         workspace,
-        revision: freshRevision(),
         queries: {
           ...homeQueries,
           scheduleView: (query, core) => ({
@@ -931,7 +911,6 @@ describe("the lecture desk", () => {
     app = await mountApp(
       {
         workspace,
-        revision: freshRevision(),
         queries: {
           ...homeQueries,
           scheduleView: (_query, core) => lectureSchedule(core.workspace),
@@ -1100,7 +1079,6 @@ describe("the lecture desk", () => {
     const mounted = await mountApp(
       {
         workspace: lectureWorkspace(),
-        revision: freshRevision(),
         queries: {
           ...homeQueries,
           scheduleView: (_query, core) => ({
@@ -1247,7 +1225,6 @@ async function mountGrades(
     {
       workspace,
       schoolRecords,
-      revision: freshRevision(),
       queries: homeQueries,
       handle: nativeNoise,
     },

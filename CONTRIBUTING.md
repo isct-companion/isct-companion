@@ -59,7 +59,7 @@ Include the app version, operating system, steps and expected behaviour. Use sam
 5. Open a pull request explaining the user-visible result and verification. Include screenshots for visible interface changes.
 
 All frontend tests live under `apps/desktop/tests/`; extend the existing behaviour suite.
-Native checks requiring real credentials or signed packages belong in the [manual verification record](docs/verification/manual-acceptance.md).
+Native checks requiring real credentials or signed packages belong in [`docs/verification/manual-checks.yaml`](docs/verification/manual-checks.yaml); the [manual verification record](docs/verification/manual-acceptance.md) is rendered from it.
 Run `yarn core:types` after changing exported Rust contracts. Generate design outputs with `yarn design:tokens`.
 
 ## Documentation

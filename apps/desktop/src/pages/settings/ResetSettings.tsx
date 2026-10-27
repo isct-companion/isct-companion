@@ -55,7 +55,7 @@ function Items({ title, items }: { title: string; items: string[] }) {
 }
 
 /**
- * Settings → Reset (design §10): clear the school caches and read them
+ * Settings → Reset (`docs/data-ownership.md`): clear the school caches and read them
  * again, or return the device to its first-launch state. Each opens a
  * confirmation panel that lists what goes, what stays and about how much
  * space is freed; a full reset needs one more confirmation.

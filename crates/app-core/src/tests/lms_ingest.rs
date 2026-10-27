@@ -1,8 +1,7 @@
 use super::*;
 use crate::data::{commit_on, migrations};
-use crate::sync_state::KeyState;
 use adpt_isct::lms::{validate_assign, validate_course, validate_deadlines, validate_enrolment};
-use chrono::{Duration, TimeZone};
+use chrono::TimeZone;
 use serde_json::json;
 
 const ACCOUNT: &str = "science:student";
@@ -377,7 +376,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
 }
 
 #[test]
-fn planning_reads_current_courses_on_demand_and_the_rest_when_due() {
+fn course_terms_follow_the_grid_and_the_month_in_japan() {
     let now = Utc.with_ymd_and_hms(2026, 10, 20, 3, 0, 0).unwrap();
     let course = |id: u64, year: i32, quarter: u8, shown: &[&str]| StoredLmsCourse {
         id,
@@ -387,15 +386,14 @@ fn planning_reads_current_courses_on_demand_and_the_rest_when_due() {
         shown_in: shown.iter().map(|term| term.to_string()).collect(),
     };
     // 3Q now; course 2 started in 2Q but the current grid lists it.
-    let courses = vec![
+    let courses = [
         course(1, 2026, 3, &[]),
         course(2, 2026, 2, &["2026-3Q"]),
         course(3, 2026, 1, &[]),
         course(4, 2025, 3, &[]),
     ];
-    let current = current_lms_term(Some("2026-3Q"), now);
+    let current = current_lms_term(now);
     assert_eq!(current, (2026, 3));
-    assert_eq!(current_lms_term(None, now), (2026, 3));
     let terms: Vec<Term> = courses
         .iter()
         .map(|course| lms_course_term(course, current))
@@ -403,74 +401,5 @@ fn planning_reads_current_courses_on_demand_and_the_rest_when_due() {
     assert_eq!(
         terms,
         [Term::Current, Term::Current, Term::Past, Term::Frozen]
-    );
-
-    let keys = |manual: bool, states: &HashMap<Key, KeyState>, at| {
-        plan_lms_keys(&courses, states, ACCOUNT, manual, Some("2026-3Q"), at)
-            .into_iter()
-            .map(|(key, _)| key.to_string())
-            .collect::<Vec<_>>()
-    };
-    // Nothing stored: everything is missing, courses before assignments
-    // before history months.
-    let all = keys(false, &HashMap::new(), now);
-    assert_eq!(
-        &all[..5],
-        [
-            "lms.course/1",
-            "lms.course/2",
-            "lms.course/3",
-            "lms.course/4",
-            "lms.assign/1"
-        ]
-    );
-    assert!(all[8..].iter().all(|key| key.starts_with("lms.history/")));
-    assert!(all.contains(&"lms.history/2025-04".to_string()));
-    assert!(all.contains(&"lms.history/2026-10".to_string()));
-    assert!(!all.contains(&"lms.history/2026-11".to_string()));
-
-    let fetched: HashMap<Key, KeyState> =
-        plan_lms_keys(&courses, &HashMap::new(), ACCOUNT, false, None, now)
-            .into_iter()
-            .map(|(key, _)| {
-                let state = KeyState {
-                    dataset: key.dataset.name().into(),
-                    key: key.key.clone(),
-                    account: ACCOUNT.into(),
-                    fetched_at: Some(now),
-                    validator: None,
-                    outcome: Some(sync_state::Outcome::Complete),
-                    message: None,
-                    failures: 0,
-                    next_eligible: None,
-                    last_error: None,
-                    last_used: None,
-                };
-                (key, state)
-            })
-            .collect();
-    // All fresh: an automatic pull reads nothing; a manual one the current
-    // courses.
-    assert!(keys(false, &fetched, now).is_empty());
-    assert_eq!(
-        keys(true, &fetched, now),
-        [
-            "lms.course/1",
-            "lms.course/2",
-            "lms.assign/1",
-            "lms.assign/2"
-        ]
-    );
-    // A day later the current courses and month are stale; the past course
-    // waits 30 days, last year's course and past months stay frozen.
-    assert_eq!(
-        keys(false, &fetched, now + Duration::hours(25)),
-        [
-            "lms.course/1",
-            "lms.course/2",
-            "lms.assign/1",
-            "lms.assign/2",
-            "lms.history/2026-10"
-        ]
     );
 }

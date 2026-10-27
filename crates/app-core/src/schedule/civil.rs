@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate};
+use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
@@ -18,6 +18,30 @@ impl Term {
     pub fn parse(raw: &str) -> Result<Self, ScheduleError> {
         raw.parse()
     }
+
+    /// The quarter `date` falls in by month: April–May 1Q, June–September
+    /// 2Q, October–November 3Q, December–March 4Q of the academic year that
+    /// started in April. Approximate; the academic calendar sets the real
+    /// bounds.
+    pub fn by_month(date: NaiveDate) -> Self {
+        let quarter = match date.month() {
+            4 | 5 => 1,
+            6..=9 => 2,
+            10 | 11 => 3,
+            _ => 4,
+        };
+        Self {
+            year: date.year() - i32::from(date.month() < 4),
+            quarter,
+        }
+    }
+}
+
+/// Today's date in Japan.
+pub fn japan_today(now: DateTime<Utc>) -> NaiveDate {
+    FixedOffset::east_opt(9 * 3600)
+        .map(|offset| now.with_timezone(&offset).date_naive())
+        .unwrap_or_else(|| now.date_naive())
 }
 
 impl FromStr for Term {

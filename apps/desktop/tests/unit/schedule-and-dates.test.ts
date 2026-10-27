@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
-import { termForDate } from "@app/lib/academic";
 import {
   formatTimestamp,
   isCivilDate,
   parseIsoTimestamp,
   tokyoDate,
 } from "@app/lib/civil-date";
-import { seedWorkspace } from "@app/lib/model";
 import {
   axisPosition,
   axisSpan,
@@ -29,7 +27,7 @@ import {
 } from "@app/platform/use-clock";
 
 /**
- * Dates, Japan academic quarters, timetable geometry and the day formatting the
+ * Dates, timetable geometry and the day formatting the
  * subscription status view renders. Everything here is pure logic, so the suite
  * runs in plain node.
  */
@@ -107,37 +105,11 @@ describe("ISO timestamp parsing", () => {
   });
 });
 
-describe("Japan academic quarters", () => {
-  it("selects the quarter and academic year from the Japan-time date", () => {
-    const cases: [instant: string, term: string][] = [
-      ["2026-03-31T14:59:00Z", "2025-4Q"], // 31 March, 23:59 JST
-      ["2026-03-31T15:00:00Z", "2026-1Q"], // 1 April, 00:00 JST
-      ["2026-05-31T15:00:00Z", "2026-2Q"], // 1 June
-      ["2026-09-30T15:00:00Z", "2026-3Q"], // 1 October
-      ["2026-11-30T15:00:00Z", "2026-4Q"], // 1 December
-      ["2026-12-31T15:00:00Z", "2026-4Q"], // 1 January, still the 2026 academic year
-    ];
-    for (const [instant, term] of cases)
-      expect(termForDate(new Date(instant))).toBe(term);
-  });
-
-  it("starts a fresh workspace in the Japan quarter even when the device is still in the previous month", () => {
-    // 2026-09-30T15:00:00Z is already 1 October in Japan.
-    vi.useFakeTimers({ now: new Date("2026-09-30T15:00:00Z") });
-    expect(seedWorkspace().currentTerm).toBe("2026-3Q");
-  });
-});
-
 describe("machine dates under a non-Gregorian device locale", () => {
   it("keeps the Japan calendar date Gregorian and its digits Latin", () => {
     installNonGregorianDefaultLocale();
     expect(tokyoDate(new Date("2026-04-12T14:59:00Z"))).toBe("2026-04-12");
     expect(tokyoDate(new Date("2026-04-12T15:01:00Z"))).toBe("2026-04-13");
-  });
-
-  it("picks the academic quarter from the Gregorian Japan date", () => {
-    installNonGregorianDefaultLocale();
-    expect(termForDate(new Date("2026-03-31T15:00:00Z"))).toBe("2026-1Q");
   });
 });
 

@@ -1,10 +1,6 @@
 import { t } from "../i18n";
-import { Badge, SegmentedControl, Switch } from "./ui";
+import { SegmentedControl, Switch } from "./ui";
 import { useId } from "react";
-import {
-  resolveCapabilities,
-  type CapabilityId,
-} from "../platform/capabilities";
 
 /** Page title and one plain-language sentence about what the page is for. */
 export function SettingsHeader({
@@ -172,42 +168,3 @@ export function Status({
   );
 }
 
-export function Capability({
-  name,
-  value,
-  children,
-}: {
-  name: string;
-  value: ReturnType<typeof resolveCapabilities>[CapabilityId];
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="row" title={t(value.reason)}>
-      <span>
-        <b>{t(name)}</b>
-        <small>{t(value.reason)}</small>
-      </span>
-      <span className="capState">
-        {children}
-        <Badge
-          variant="light"
-          color={
-            value.support !== "supported"
-              ? "gray"
-              : value.readiness === "ready"
-                ? "green"
-                : value.readiness === "temporarily-unavailable"
-                  ? "red"
-                  : "yellow"
-          }
-        >
-          {t(
-            value.support === "supported"
-              ? value.readiness.replaceAll("-", " ")
-              : value.support,
-          )}
-        </Badge>
-      </span>
-    </div>
-  );
-}

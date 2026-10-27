@@ -302,6 +302,4 @@ pub fn course_content(
     })
 }
 
-fn visible(row: &Value) -> bool {
-    row.get("deletedAt").is_none_or(Value::is_null)
-}
+use super::not_deleted as visible;

@@ -82,7 +82,7 @@ export type FakeCore = {
   seq: number;
   workspace: Workspace;
   schoolRecords: SchoolRecords;
-  /** Replaces the stored snapshot, as another client would. */
+  /** Replaces the stored workspace, as another client would. */
   publish(workspace: Workspace, revision?: string): void;
   /** What `mutate_workspace` answers for the live store, for a `handle`
    * that commits by itself; `revision` overrides the one it reports. */
@@ -122,18 +122,6 @@ const EVERY_CHANGE: WorkspaceChange[] = [
 ];
 
 let nextCallbackId = 1;
-let nextRevision = 1;
-
-/**
- * A fresh snapshot revision for each install.
- *
- * The real query caches key their answers by snapshot revision and live in
- * module scope, so a suite that mounts more than once would otherwise let the
- * first test's scripted answers satisfy the second test's reads.
- */
-export function freshRevision(): string {
-  return `revision:${nextRevision++}`;
-}
 
 export function installFakeCore(options: FakeCoreOptions): FakeCore {
   const calls: CommandCall[] = [];
@@ -146,7 +134,7 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     calls,
     intents,
     mutations,
-    revision: options.revision ?? freshRevision(),
+    revision: options.revision ?? "revision:1",
     seq: 0,
     workspace: structuredClone(options.workspace),
     schoolRecords: structuredClone(

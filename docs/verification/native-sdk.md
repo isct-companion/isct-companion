@@ -1,7 +1,8 @@
 # Native Core SDK checkpoint
 
-The shared facade is `crates/app-ffi`; native SwiftUI/Compose applications are
-the next integration stage. See [SDK integration](../core-ffi.md) and the slotledger decisions for the
+The shared facade is `crates/app-ffi`, used by the SwiftUI and Compose apps in
+`apps/ios` and `apps/android`. The record below is from 2026-10-15, before
+those apps existed. See [SDK integration](../core-ffi.md) and the slotledger decisions for the
 implemented contract.
 
 ## Local verification — 2026-10-15

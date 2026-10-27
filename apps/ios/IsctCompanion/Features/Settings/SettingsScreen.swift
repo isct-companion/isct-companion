@@ -6,7 +6,6 @@ import UIKit
 /// desktop's settings sections are pages of their own. A group with more than
 /// two controls gets a page; smaller ones stay on the root list.
 enum SettingsRoute: Hashable {
-    case root
     case account(SchoolAuthProfile)
     case notifications
     case assignmentLeads
@@ -21,8 +20,6 @@ struct SettingsDestination: View {
 
     var body: some View {
         switch route {
-        case .root:
-            SettingsScreen()
         case let .account(profile):
             AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : t("Tokyo Tech (former)"))
         case .notifications:

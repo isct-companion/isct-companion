@@ -12,15 +12,7 @@ use super::*;
 use rusqlite::hooks::Action;
 use std::collections::{BTreeMap, HashMap};
 
-fn text<'a>(row: &'a Value, key: &str) -> &'a str {
-    row.get(key).and_then(Value::as_str).unwrap_or_default()
-}
-fn array<'a>(row: &'a Value, key: &str) -> &'a [Value] {
-    row.get(key)
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or(&[])
-}
+use crate::schedule::{array, text_or_empty as text};
 
 /// A row a transaction inserted, updated or deleted, as the update hook
 /// reported it.

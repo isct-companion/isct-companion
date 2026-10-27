@@ -34,9 +34,6 @@ export type CoreAnswer<T> = {
 
 let latestSeq = 0;
 
-/** The newest commit sequence heard from a write or an event. */
-export const latestKnownSeq = () => latestSeq;
-
 const readsAny = (query: Query, changes: ReadonlySet<WorkspaceChange>) => {
   const answer = query.state.data as Partial<CoreAnswer<unknown>> | undefined;
   // An answer not here yet cannot say what it read; it is fetched again.

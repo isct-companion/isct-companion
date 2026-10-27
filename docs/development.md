@@ -56,20 +56,23 @@ apps/desktop/
   tests/                   every frontend test: harness, unit, e2e and live
   public/                  desktop web assets
 crates/app-core/           authoritative domain state, services and storage
+crates/adpt-isct/          stateless school parsers, page scripts and URLs
 crates/app-ocr/            independent optional OCR engine and model
 crates/app-ffi/            native Core facade and generated contract bridge
+apps/ios/                  SwiftUI app over the native SDK
+apps/android/              Compose app over the native SDK
 bindings/                  Swift package and Kotlin/AAR packaging
 resources/locales/         shared UI translation resources
-resources/design/          original icon artwork; future shared visual tokens
+resources/design/          original icon artwork
+design/                    design tokens generated for every shell
 config/                    cross-platform build configuration (OAuth clients)
 scripts/                   desktop, bindings, checks, data and shared build tools
-docs/                      contracts, design and verification records
+docs/                      runbooks, user pages, legal texts, LMS API and verification evidence
 ```
 
-Future SwiftUI and Compose applications belong in `apps/ios/` and
-`apps/android/`. Swift/Kotlin SDK packages live under `bindings/`, backed by
-the shared Rust facade in `crates/app-ffi/`.
-The native UI projects are created when implemented.
+The SwiftUI and Compose applications live in `apps/ios/` and `apps/android/`.
+Swift/Kotlin SDK packages live under `bindings/`, backed by the shared Rust
+facade in `crates/app-ffi/`.
 
 Platform manifests and build configuration stay beside the owning app. The
 root Yarn/Cargo workspaces retain one lockfile each and the Rust build output
@@ -79,14 +82,13 @@ belongs to Core and does not require compiling Tauri. Subscription test data
 remains in `crates/app-core/tests/fixtures/subscriptions/`.
 
 Desktop releases build independently; platform checks continue to compile
-shared Core for iOS and Android. Historical plans and verification records may
-use paths from before this directory move, including the removed Tauri mobile
-adapters.
+shared Core for iOS and Android.
 
 ## Desktop Core checkpoint
 
 Desktop consolidation through Phase 5 is complete. The frontend renders Core
-read models, caches snapshots and forwards typed intents; Rust owns validation,
+read models, caches per-view query answers (TanStack Query) and forwards typed
+intents; Rust owns validation,
 revisions and domain state. Academic date calculations use JST, and stored
 plan timestamps use explicit offsets. The signed macOS checkpoint and its
 verification coverage are recorded in
@@ -101,7 +103,7 @@ is configured in Settings → AI agent access.
 The native SDK is implemented in `crates/app-ffi`, with generated Swift/Kotlin
 packages under `bindings/`. See [native SDK integration](core-ffi.md) for
 service operations, cancellation, native ports, build commands and verification
-boundaries. SwiftUI/Compose interfaces and real-account acceptance remain separate work.
+boundaries.
 
 Debug builds display the base version plus a UTC build timestamp and Git revision.
 `dirty` records uncommitted working-tree changes at build time, including documents.
@@ -132,7 +134,8 @@ school import rules are slotledger decisions (`approach/school-parser-boundary`,
 
 ## Scope
 
-The app reads school data and helps organize local plans. It does not submit
-assignments, change enrollment, publish official calendar data or provide a
+The app reads school data and helps organize local plans. It may fill an
+assignment's LMS draft area, which the user saves; it never submits
+assignments, changes enrollment, publishes official calendar data or provides a
 server-side polling service. Distribution signing, notarization and public
 hosting remain release configuration.

@@ -7,12 +7,12 @@ use crate::data::{
     versioned::{content_hash, keep_unchanged},
     DataError,
 };
-use crate::sync_state::{self, Commit, Dataset, Due, Key, KeyState, Outcome, Term};
+use crate::sync_state::{self, Commit, Dataset, Key, Outcome, Term};
 use adpt_isct::lms::{
     id_of, lms_url, LmsAssignStates, LmsCourseContent, LmsDeadlines, LmsEnrolment, LmsHistoryMonth,
     StoredModule,
 };
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -858,37 +858,11 @@ pub fn stored_courses(connection: &Connection) -> Result<Vec<StoredLmsCourse>, I
         .collect())
 }
 
-fn japan_today(now: DateTime<Utc>) -> NaiveDate {
-    FixedOffset::east_opt(9 * 3600)
-        .map(|offset| now.with_timezone(&offset).date_naive())
-        .unwrap_or_else(|| now.date_naive())
-}
-
-fn parse_term(term: &str) -> Option<(i32, u8)> {
-    let (year, quarter) = term.split_once('-')?;
-    let quarter = quarter
-        .strip_suffix('Q')?
-        .parse::<u8>()
-        .ok()
-        .filter(|quarter| (1..=4).contains(quarter))?;
-    Some((year.parse().ok()?, quarter))
-}
-
-/// The LMS quarter now, as `(academic year, quarter)`: the term of the
-/// dashboard grid when this pull read it, else the month in Japan.
-pub fn current_lms_term(grid_term: Option<&str>, now: DateTime<Utc>) -> (i32, u8) {
-    if let Some(term) = grid_term.and_then(parse_term) {
-        return term;
-    }
-    let today = japan_today(now);
-    let year = today.year();
-    match today.month() {
-        4 | 5 => (year, 1),
-        6..=9 => (year, 2),
-        10 | 11 => (year, 3),
-        12 => (year, 4),
-        _ => (year - 1, 4),
-    }
+/// The LMS quarter now, as `(academic year, quarter)`, by the month in
+/// Japan.
+pub fn current_lms_term(now: DateTime<Utc>) -> (i32, u8) {
+    let term = crate::schedule::Term::by_month(crate::schedule::japan_today(now));
+    (term.year, term.quarter)
 }
 
 /// The term a course's keys age by. A course the current grid lists, or
@@ -905,72 +879,6 @@ pub fn lms_course_term(course: &StoredLmsCourse, current: (i32, u8)) -> Term {
         Some(year) if year == current.0 && course.quarter == Some(current.1) => Term::Current,
         _ => Term::Past,
     }
-}
-
-/// The keys a pull reads after `lms.enrolment` and `lms.deadlines`, in
-/// order: `lms.course` keys, then `lms.assign` keys, then `lms.history`
-/// months. A manual pull reads every current-term course; otherwise a key
-/// is read when it is due, missing before stale. A manual pull ignores
-/// backoff.
-pub fn plan_lms_keys<'c>(
-    courses: &'c [StoredLmsCourse],
-    states: &HashMap<Key, KeyState>,
-    account: &str,
-    manual: bool,
-    grid_term: Option<&str>,
-    now: DateTime<Utc>,
-) -> Vec<(Key, Option<&'c StoredLmsCourse>)> {
-    let current = current_lms_term(grid_term, now);
-    let due = |key: &Key, term: Term| {
-        sync_state::due(
-            states.get(key),
-            sync_state::ttl(key.dataset, term),
-            account,
-            now,
-        )
-    };
-    let rank = |due: Due| match due {
-        Due::Missing => Some(1u8),
-        Due::Stale => Some(2),
-        Due::BackingOff(_) if manual => Some(2),
-        _ => None,
-    };
-    let mut planned = Vec::new();
-    for dataset in [Dataset::LmsCourse, Dataset::LmsAssign] {
-        let mut keys: Vec<(u8, &StoredLmsCourse, Key)> = courses
-            .iter()
-            .filter_map(|course| {
-                let term = lms_course_term(course, current);
-                let key = Key::new(dataset, course.id.to_string());
-                let order = if manual && term == Term::Current {
-                    0
-                } else {
-                    rank(due(&key, term))?
-                };
-                Some((order, course, key))
-            })
-            .collect();
-        keys.sort_by_key(|(order, course, _)| (*order, course.id));
-        planned.extend(keys.into_iter().map(|(_, course, key)| (key, Some(course))));
-    }
-    let today = japan_today(now);
-    let mut years: Vec<i32> = courses.iter().filter_map(|course| course.year).collect();
-    years.sort_unstable_by(|a, b| b.cmp(a));
-    let mut months: Vec<(u8, Key)> = crate::net::moodle::months_to_read(&years, today)
-        .into_iter()
-        .filter_map(|(year, month)| {
-            let key = Key::new(Dataset::LmsHistory, format!("{year:04}-{month:02}"));
-            let term = if (year, month) < (today.year(), today.month()) {
-                Term::Frozen
-            } else {
-                Term::Current
-            };
-            Some((rank(due(&key, term))?, key))
-        })
-        .collect();
-    months.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.key.cmp(&b.1.key)));
-    planned.extend(months.into_iter().map(|(_, key)| (key, None)));
-    planned
 }
 
 #[cfg(test)]
