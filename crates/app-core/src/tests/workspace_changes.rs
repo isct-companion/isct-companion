@@ -75,68 +75,48 @@ fn tables_map_to_change_names_and_cloud_capture() {
     assert_eq!(WorkspaceChange::parse("lectures"), None);
 }
 
+/// A records query reads again on every change that feeds one of its
+/// fields (`feeding`): the course projection rewrites more than courses,
+/// calendar rows move the current term, and settings feed everything.
 #[test]
-fn a_patch_carries_only_the_fields_its_changes_feed() {
-    let snapshot = WorkspaceSnapshot {
-        revision: "r1".into(),
-        content_revision: "c1".into(),
-        workspace: serde_json::json!({
-            "courses": [1], "memberships": [], "assignments": [], "materials": [],
-            "planItems": [], "terms": [], "currentTerm": "2026-3Q",
-            "settings": {"locale": "ja"},
-        })
-        .into(),
-        school_records: serde_json::json!({
-            "lmsCourses": [], "grades": [], "freshness": {}, "pageAvailability": {},
-        })
-        .into(),
-        school: Default::default(),
+fn records_read_again_on_every_change_that_feeds_their_fields() {
+    let feeding = |fields: &[&str]| -> BTreeSet<WorkspaceChange> {
+        feeding(
+            &fields
+                .iter()
+                .map(|field| (*field).to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .into_iter()
+        .collect()
     };
-    let keys = |value: &Value| {
-        let mut keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
-        keys.sort();
-        keys
-    };
-
-    let freshness = patch(snapshot.clone(), &[Freshness]);
+    let set = |changes: &[WorkspaceChange]| changes.iter().copied().collect::<BTreeSet<_>>();
     assert_eq!(
-        (
-            freshness.revision.as_str(),
-            freshness.content_revision.as_str()
-        ),
-        ("r1", "c1")
+        feeding(&["freshness", "pageAvailability"]),
+        set(&[Freshness, Settings])
     );
-    assert!(keys(&freshness.workspace).is_empty());
-    assert_eq!(
-        keys(&freshness.school_records),
-        ["freshness", "pageAvailability"]
-    );
-
-    // Courses re-read everything the projection rewrites, not just courses;
-    // the exam timetable stays in Core and adds nothing.
-    let courses = patch(snapshot.clone(), &[Courses, Exams]);
-    assert_eq!(
-        keys(&courses.workspace),
-        [
-            "assignments",
-            "courses",
-            "currentTerm",
-            "materials",
-            "memberships",
-            "planItems",
-            "terms"
-        ]
-    );
-    assert_eq!(keys(&courses.school_records), ["lmsCourses"]);
-
-    // Calendar rows feed no course; quarter-start days move the current term.
-    let calendar = patch(snapshot.clone(), &[Calendar]);
-    assert_eq!(keys(&calendar.workspace), ["currentTerm"]);
-
-    // Settings shape every projected field: the whole workspace, no records.
-    let settings = patch(snapshot.clone(), &[Settings]);
-    assert_eq!(settings.workspace, *snapshot.workspace);
-    assert!(keys(&settings.school_records).is_empty());
+    // The projection rewrites course ids in the rows that point at courses;
+    // the exam timetable stays in Core and feeds no record.
+    for field in [
+        "assignments",
+        "courses",
+        "currentTerm",
+        "materials",
+        "memberships",
+        "planItems",
+        "terms",
+    ] {
+        let fed = feeding(&[field]);
+        assert!(fed.contains(&Courses), "{field}");
+        assert!(!fed.contains(&Exams), "{field}");
+    }
+    assert_eq!(fed_fields(Exams), Some(vec![]));
+    assert!(feeding(&["currentTerm"]).contains(&Calendar));
+    assert!(!feeding(&["courses"]).contains(&Calendar));
+    assert_eq!(feeding(&["lmsCourses"]), set(&[Courses, Settings]));
+    // Settings shape every projected field.
+    assert_eq!(fed_fields(Settings), None);
+    assert!(feeding(&["settings"]).contains(&Settings));
 }
 
 /// The first background change goes out at once; the rest of its window is

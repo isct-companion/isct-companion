@@ -1,4 +1,5 @@
 use crate::require_local_main;
+use crate::{coded, shell, CommandError};
 use app_core::notification::NotificationContent;
 #[cfg(target_os = "windows")]
 use tauri::Manager;
@@ -23,11 +24,11 @@ pub(crate) fn unavailable_reason() -> Option<&'static str> {
 #[tauri::command]
 pub(crate) async fn notification_permission(
     webview: tauri::Webview,
-) -> Result<&'static str, String> {
+) -> Result<&'static str, CommandError> {
     require_local_main(&webview)?;
     #[cfg(target_os = "macos")]
     {
-        crate::notifications_macos::permission().await
+        Ok(crate::notifications_macos::permission().await?)
     }
     #[cfg(target_os = "windows")]
     {
@@ -43,7 +44,7 @@ pub(crate) async fn notification_permission(
 pub(crate) fn open_notification_settings(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     require_local_main(&webview)?;
     use tauri_plugin_opener::OpenerExt;
     #[cfg(target_os = "macos")]
@@ -54,10 +55,7 @@ pub(crate) fn open_notification_settings(
     #[cfg(target_os = "windows")]
     let url = "ms-settings:notifications";
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    return app
-        .opener()
-        .open_url(url, None::<&str>)
-        .map_err(|error| error.to_string());
+    return app.opener().open_url(url, None::<&str>).map_err(shell);
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     Err("Notification settings are unavailable on this platform.".into())
 }
@@ -74,23 +72,23 @@ impl app_core::schedule::NotificationSink for DesktopNotifications {
         >,
     > {
         Box::pin(async move {
-            let content = NotificationContent::new(item.title, item.body)
-                .map_err(|error| error.to_string())
-                .map_err(app_core::schedule::NotificationSinkError::Delivery)?;
-            show(&self.0, &content)
-                .await
-                .map_err(app_core::schedule::NotificationSinkError::Delivery)
+            let content = NotificationContent::new(item.title, item.body).map_err(|error| {
+                app_core::schedule::NotificationSinkError::Delivery(error.to_string())
+            })?;
+            show(&self.0, &content).await.map_err(|error| {
+                app_core::schedule::NotificationSinkError::Delivery(error.to_string())
+            })
         })
     }
 }
 
 #[cfg(target_os = "macos")]
-async fn show(_app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), String> {
-    crate::notifications_macos::show(content.title(), content.body()).await
+async fn show(_app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), CommandError> {
+    Ok(crate::notifications_macos::show(content.title(), content.body()).await?)
 }
 
 #[cfg(target_os = "windows")]
-async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), String> {
+async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(), CommandError> {
     let app = app.clone();
     let title = content.title().to_owned();
     let body = content.body().to_owned();
@@ -116,7 +114,7 @@ async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-async fn show(_app: &tauri::AppHandle, _content: &NotificationContent) -> Result<(), String> {
+async fn show(_app: &tauri::AppHandle, _content: &NotificationContent) -> Result<(), CommandError> {
     Err("Native desktop notifications are available on macOS and Windows.".into())
 }
 
@@ -126,9 +124,9 @@ pub(crate) async fn notify(
     app: tauri::AppHandle,
     title: String,
     body: String,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    let content = NotificationContent::new(title, body).map_err(|error| error.to_string())?;
+    let content = NotificationContent::new(title, body).map_err(coded)?;
     show(&app, &content).await?;
     Ok(true)
 }
@@ -138,28 +136,28 @@ pub(crate) async fn bootstrap_reminders(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     fired: serde_json::Value,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     crate::core_ports::core(&app)
         .import_legacy_reminders(fired, chrono::Utc::now().fixed_offset())
         .await
-        .map_err(|error| error.to_string())
+        .map_err(coded)
 }
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub(crate) async fn request_notification_permission(
     webview: tauri::Webview,
-) -> Result<&'static str, String> {
+) -> Result<&'static str, CommandError> {
     require_local_main(&webview)?;
-    crate::notifications_macos::request_permission().await
+    Ok(crate::notifications_macos::request_permission().await?)
 }
 
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub(crate) fn request_notification_permission(
     webview: tauri::Webview,
-) -> Result<&'static str, String> {
+) -> Result<&'static str, CommandError> {
     require_local_main(&webview)?;
     // Windows desktop has no per-call consent prompt. Native delivery below
     // returns the actual WinRT error instead of reporting a detached attempt as
@@ -171,7 +169,7 @@ pub(crate) fn request_notification_permission(
 #[tauri::command]
 pub(crate) fn request_notification_permission(
     webview: tauri::Webview,
-) -> Result<&'static str, String> {
+) -> Result<&'static str, CommandError> {
     require_local_main(&webview)?;
     Ok("denied")
 }

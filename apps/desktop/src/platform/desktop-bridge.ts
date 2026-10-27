@@ -1,13 +1,12 @@
 import type {
   CoreWorkspaceCommit,
-  CoreWorkspacePatch,
-  CoreWorkspaceSnapshot,
   WorkspaceMutation,
 } from "../lib/workspace-intents";
 import type { FinderRequest, FinderPage } from "./finder-query";
 import type { Localized } from "../lib/model";
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
+import { nativeError } from "./native-error";
 import type {
   SchoolPageAvailability,
   SchoolOtpSetup,
@@ -32,8 +31,11 @@ export type WorkspaceChangedEvent = {
     | "reset";
   /** The committed user-intent revision, when the source can provide it. */
   revision?: string;
-  /** What changed; `workspaceRecords` reads the records these feed. */
+  /** What changed; answers that read one of these are fetched again. */
   changes: WorkspaceChange[];
+  /** Core's commit sequence once these commits landed; a query answer
+   * with an older `seq` is stale. */
+  seq: number;
 };
 export const nativeOs = (): NativeOs | undefined =>
   typeof window === "undefined"
@@ -382,17 +384,17 @@ export interface DesktopBridge {
   ): Promise<AppUpdateStatus>;
   appUpdateState?(): Promise<AppUpdateStatus>;
   installAppUpdate?(): Promise<void>;
-  workspaceSnapshot(): Promise<CoreWorkspaceSnapshot>;
-  /** Only the records the named changes feed, to patch the snapshot with. */
-  workspaceRecords(
-    changes: readonly WorkspaceChange[],
-  ): Promise<CoreWorkspacePatch>;
-  /** Commits one intent; answers what it changed, to merge like a patch. */
+  /** The revision the next intent is made against. */
+  workspaceRevision(): Promise<string>;
+  /** Commits one intent; answers what it changed and the next revision. */
   mutateWorkspace(mutation: WorkspaceMutation): Promise<CoreWorkspaceCommit>;
   finderQuery(request: FinderRequest): Promise<FinderPage>;
   scheduleQuery(queries: readonly unknown[]): Promise<{
-    revision: string;
     values: { kind: string; value: unknown }[];
+    /** The changes the values read (`WorkspaceQuery::reads`). */
+    reads: WorkspaceChange[];
+    /** Core's commit sequence read before the values' data. */
+    seq: number;
   }>;
   runtime: DesktopRuntime;
   /** The build's operating system; see `nativeOs`. */
@@ -562,9 +564,7 @@ export function createTauriDesktopBridge(
     try {
       return (await invoke(command, payload)) as T;
     } catch (error) {
-      throw error instanceof Error
-        ? error
-        : new Error(typeof error === "string" ? error : `${command} failed`);
+      throw nativeError(error, `${command} failed`);
     }
   };
   const result = async <T>(
@@ -591,8 +591,12 @@ export function createTauriDesktopBridge(
       result("application_error", { message }),
     appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
     installAppUpdate: () => invokeCommand<void>("install_app_update"),
-    workspaceSnapshot: () => result("workspace_snapshot"),
-    workspaceRecords: (changes) => result("workspace_records", { changes }),
+    workspaceRevision: async () => {
+      const revision = await invokeCommand("workspace_revision");
+      if (typeof revision !== "string")
+        throw new Error("workspace_revision returned an invalid result.");
+      return revision;
+    },
     mutateWorkspace: (mutation) => result("mutate_workspace", { mutation }),
     finderQuery: (request) => result("finder_query", { request }),
     scheduleQuery: (queries) => result("schedule_query", { queries }),
@@ -625,10 +629,14 @@ export function createTauriDesktopBridge(
     onWorkspaceChanged: async (callback) => {
       const unlisten = await listen<unknown>("workspace-changed", (event) => {
         if (!event || typeof event !== "object") return;
-        const { source, revision, changes } = event as Record<string, unknown>;
+        const { source, revision, changes, seq } = event as Record<
+          string,
+          unknown
+        >;
         // Unknown future sources must still trigger snapshot recovery.
         if (
           typeof source !== "string" ||
+          typeof seq !== "number" ||
           (revision !== undefined && typeof revision !== "string") ||
           !Array.isArray(changes) ||
           changes.some((change) => typeof change !== "string")
@@ -638,6 +646,7 @@ export function createTauriDesktopBridge(
           source: source as WorkspaceChangedEvent["source"],
           ...(revision === undefined ? {} : { revision }),
           changes: changes as WorkspaceChange[],
+          seq,
         });
       });
       return () => quietly(unlisten);
@@ -663,19 +672,19 @@ export function createTauriDesktopBridge(
     },
     schoolCredentialStatus: () => result("school_credential_status"),
     beginSchoolOtpSetup: async () => {
-      const id = await invoke("begin_school_otp_setup");
+      const id = await invokeCommand("begin_school_otp_setup");
       if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0)
         throw new Error("begin_school_otp_setup returned an invalid result.");
       return id;
     },
     cancelSchoolOtpSetup: (operationId) =>
-      invoke("cancel_school_otp_setup", { operationId }).then(() => {}),
+      invokeCommand("cancel_school_otp_setup", { operationId }).then(() => {}),
     schoolOtpSetup: (operationId) =>
-      invoke("school_otp_setup", { operationId }).then((value) =>
+      invokeCommand("school_otp_setup", { operationId }).then((value) =>
         requireObject<SchoolOtpSetup>("school_otp_setup", value),
       ),
     completeSchoolOtpSetup: (operationId, reset) =>
-      invoke("complete_school_otp_setup", { operationId, reset }).then(
+      invokeCommand("complete_school_otp_setup", { operationId, reset }).then(
         () => {},
       ),
     campusWifiStatus: () => invokeCommand("campus_wifi_status"),

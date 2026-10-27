@@ -1,6 +1,7 @@
 #[cfg(matrix_ocr)]
 use crate::matrix_ocr;
 use crate::require_local_main;
+use crate::{coded, shell, CommandError};
 #[cfg(matrix_ocr)]
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
@@ -25,12 +26,12 @@ pub(crate) async fn recognize_matrix_image(
     scan: tauri::State<'_, crate::commands::matrix_camera::MatrixScan>,
     image: String,
     on_progress: tauri::ipc::Channel<matrix_ocr::OcrProgress>,
-) -> Result<Vec<matrix_ocr::Recognition>, String> {
+) -> Result<Vec<matrix_ocr::Recognition>, CommandError> {
     require_local_main(&webview)?;
     let driver = scan.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         // Tauri's JSON transport carries base64; OCR owns the size limit.
-        matrix_ocr::check_base64_image_len(image.len()).map_err(|error| error.to_string())?;
+        matrix_ocr::check_base64_image_len(image.len()).map_err(shell)?;
         let image = STANDARD
             .decode(image)
             .map_err(|_| "Invalid image encoding".to_string())?;
@@ -40,7 +41,7 @@ pub(crate) async fn recognize_matrix_image(
                     .send(matrix_ocr::OcrProgress { completed, total })
                     .is_ok()
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(coded)?;
         Ok(scan
             .cells
             .into_iter()
@@ -57,7 +58,7 @@ pub(crate) async fn recognize_matrix_image(
 /// Intel macOS has no prebuilt ONNX Runtime; manual matrix entry still works.
 #[cfg(not(matrix_ocr))]
 #[tauri::command]
-pub(crate) fn recognize_matrix_image(webview: tauri::Webview) -> Result<(), String> {
+pub(crate) fn recognize_matrix_image(webview: tauri::Webview) -> Result<(), CommandError> {
     require_local_main(&webview)?;
     Err(
         "Scan image is not available on Intel Macs yet. Type or paste the 70 letters instead."
@@ -66,7 +67,9 @@ pub(crate) fn recognize_matrix_image(webview: tauri::Webview) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub(crate) fn runtime_capabilities(webview: tauri::Webview) -> Result<RuntimeCapabilities, String> {
+pub(crate) fn runtime_capabilities(
+    webview: tauri::Webview,
+) -> Result<RuntimeCapabilities, CommandError> {
     require_local_main(&webview)?;
     let notification_unavailable_reason = super::notifications::unavailable_reason();
     Ok(RuntimeCapabilities {
@@ -86,47 +89,47 @@ pub(crate) async fn check_app_update(
     app: tauri::AppHandle,
     manual: bool,
     download: bool,
-) -> Result<crate::desktop_updates::UpdateStatus, String> {
+) -> Result<crate::desktop_updates::UpdateStatus, CommandError> {
     crate::require_local_main(&webview)?;
-    crate::core_ports::runtime(&app)
+    Ok(crate::core_ports::runtime(&app)
         .run(crate::desktop_updates::check(app.clone(), manual, download))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(coded)??)
 }
 #[tauri::command]
 pub(crate) fn app_update_state(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-) -> Result<crate::desktop_updates::UpdateStatus, String> {
+) -> Result<crate::desktop_updates::UpdateStatus, CommandError> {
     crate::require_local_main(&webview)?;
-    crate::desktop_updates::snapshot(&app)
+    Ok(crate::desktop_updates::snapshot(&app)?)
 }
 #[tauri::command]
 pub(crate) fn install_app_update(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     crate::require_local_main(&webview)?;
-    crate::desktop_updates::request_install(&app)
+    Ok(crate::desktop_updates::request_install(&app)?)
 }
 
 #[tauri::command]
 pub(crate) fn application_logs(
     webview: tauri::Webview,
     after: Option<u64>,
-) -> Result<app_core::diagnostics::LogSnapshot, String> {
+) -> Result<app_core::diagnostics::LogSnapshot, CommandError> {
     require_local_main(&webview)?;
-    app_core::diagnostics::snapshot(after).map_err(|error| error.to_string())
+    app_core::diagnostics::snapshot(after).map_err(coded)
 }
 
-fn application_logs_text(app: &tauri::AppHandle) -> Result<String, String> {
+fn application_logs_text(app: &tauri::AppHandle) -> Result<String, CommandError> {
     let about = format!(
         "IsctCompanion {} · {} {}",
         app.package_info().version,
         std::env::consts::OS,
         std::env::consts::ARCH
     );
-    app_core::diagnostics::export_text(&about).map_err(|error| error.to_string())
+    app_core::diagnostics::export_text(&about).map_err(coded)
 }
 
 /// The retained log as text, for the Save dialog.
@@ -134,7 +137,7 @@ fn application_logs_text(app: &tauri::AppHandle) -> Result<String, String> {
 pub(crate) fn export_application_logs(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     require_local_main(&webview)?;
     application_logs_text(&app)
 }
@@ -145,7 +148,7 @@ pub(crate) fn export_application_logs(
 pub(crate) fn copy_application_logs(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
     require_local_main(&webview)?;
     app.clipboard()
@@ -155,7 +158,10 @@ pub(crate) fn copy_application_logs(
 }
 
 #[tauri::command]
-pub(crate) fn application_error(webview: tauri::Webview, message: String) -> Result<(), String> {
+pub(crate) fn application_error(
+    webview: tauri::Webview,
+    message: String,
+) -> Result<(), CommandError> {
     require_local_main(&webview)?;
     let message: String = message.chars().take(2048).collect();
     app_core::diagnostics::report("frontend", &message);

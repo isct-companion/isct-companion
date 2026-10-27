@@ -21,6 +21,7 @@ import {
   workspaceFixture,
   type FakeCore,
   type MountedApp,
+  FINDER_READS,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
 import type {
@@ -156,6 +157,8 @@ function finderPage(
     ineligibleCodes: [],
     catalogVersion: 1,
     contentRevision: core.revision,
+    reads: FINDER_READS,
+    seq: 0,
   };
 }
 
@@ -1595,9 +1598,7 @@ type OfficialDepartments = {
 
 const parsedCourses = () =>
   JSON.parse(
-    readRepoFile(
-      "crates/app-core/tests/fixtures/catalog/course-examples.json",
-    ),
+    readRepoFile("crates/app-core/tests/fixtures/catalog/course-examples.json"),
   ) as PublicCourse[];
 const departments = (year: 2025 | 2026) =>
   JSON.parse(

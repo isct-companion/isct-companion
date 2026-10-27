@@ -4,6 +4,7 @@
 mod contracts;
 pub use contracts::*;
 
+use crate::workspace_changes::WorkspaceChange;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1153,7 +1154,26 @@ pub struct FinderPage {
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub catalog_version: u64,
     pub content_revision: String,
+    /// The changes the page reads besides the catalog (`FINDER_READS`); a
+    /// change of the shown year's catalog arrives as its own event.
+    pub reads: Vec<WorkspaceChange>,
+    /// `DataStore::commit_seq` read before the page's data.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub seq: u64,
 }
+
+/// What a finder page reads besides the catalog: placed and registered
+/// courses, earned credits, terms, plans, busy events and settings.
+pub const FINDER_READS: &[WorkspaceChange] = &[
+    WorkspaceChange::Courses,
+    WorkspaceChange::Registrations,
+    WorkspaceChange::Grades,
+    WorkspaceChange::Finder,
+    WorkspaceChange::Calendar,
+    WorkspaceChange::Plans,
+    WorkspaceChange::Events,
+    WorkspaceChange::Settings,
+];
 #[derive(Debug, thiserror::Error)]
 pub enum FinderError {
     #[error("{0}")]
@@ -1669,6 +1689,8 @@ fn page(
         ineligible_codes,
         catalog_version,
         content_revision: content_revision.into(),
+        reads: FINDER_READS.to_vec(),
+        seq: 0,
     })
 }
 

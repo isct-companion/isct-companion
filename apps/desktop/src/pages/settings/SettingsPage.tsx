@@ -40,6 +40,7 @@ import {
   type SectionContext,
 } from "./registry";
 import "./settings.css";
+import { withRecords } from "../../platform/records";
 
 type Update = (f: (d: Workspace) => Workspace) => void;
 
@@ -77,7 +78,7 @@ function searchSettings(
   return [...pages, ...settings].slice(0, 12);
 }
 
-export function Settings({
+function SettingsBody({
   otpSetupRevision = 0,
   platform,
   data,
@@ -336,3 +337,23 @@ export function Settings({
     </div>
   );
 }
+
+/** Settings with the records it shows (`platform/records`). */
+export const Settings = withRecords(
+  [
+    "academicProfile",
+    "exceptions",
+    "scheduledTasks",
+    "subscriptions",
+    "intensiveSchedules",
+    "importStatus",
+    "syncStatus",
+    "logs",
+    "classGroups",
+    "courses",
+    "plans",
+    "events",
+    "academicCalendar",
+  ],
+  SettingsBody,
+);

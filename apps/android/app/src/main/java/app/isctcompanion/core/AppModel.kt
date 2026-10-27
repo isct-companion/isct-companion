@@ -103,6 +103,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     val web = WebRouter(browser, scope, context)
     private var session: Session? = null
     private var revision = ""
+    /** The newest commit sequence heard from an event or a write; an answer
+     * read before it is asked for again. */
+    private var latestSeq: ULong = 0u
     private var boundaryJob: Job? = null
     private var refreshJob: Job? = null
     private var wakeJob: Job? = null
@@ -301,7 +304,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     "school-web-url", "school-download", "catalog-changed" -> Unit
                     // A key re-read with nothing new renews only its freshness,
                     // which no screen here shows.
-                    "workspace-changed" -> if (!onlyFreshness(update.event.payload)) scheduleRefresh()
+                    "workspace-changed" -> {
+                        latestSeq = maxOf(latestSeq, seqOf(update.event.payload))
+                        if (!onlyFreshness(update.event.payload)) scheduleRefresh()
+                    }
                     else -> scheduleRefresh()
                 }
                 is StreamUpdate.SnapshotRequired -> {
@@ -311,6 +317,17 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 }
             }
         }
+    }
+
+    /** The commit sequence a `workspace-changed` names. */
+    private fun seqOf(payload: String): ULong =
+        runCatching { JSONObject(payload).optLong("seq").toULong() }.getOrDefault(0u)
+
+    /** What a committed intent says: where the next one starts, and the
+     * sequence answers must not be older than. */
+    private fun adopt(commit: WorkspaceCommit) {
+        revision = commit.revision
+        latestSeq = maxOf(latestSeq, commit.seq)
     }
 
     /** Whether a `workspace-changed` names sync freshness and nothing else.
@@ -335,18 +352,27 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val session = session ?: return
         val now = Format.timestamp(Instant.now())
         try {
-            val snapshot = (session.snapshot().value() as? OperationResult.Workspace)?.snapshot ?: return
-            revision = snapshot.revision
-            if (snapshot.contentRevision != contentRevision) {
-                records = WorkspaceRecords(snapshot.workspace)
-            }
+            revision = (session.workspaceRevision().value() as? OperationResult.Text)?.value ?: return
+            // The rows screens look up, with the read models, from one read.
             val result = (
                 session.scheduleQuery(
-                    listOf(WorkspaceQuery.Today(now), WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods),
+                    listOf(
+                        WorkspaceQuery.Records(listOf("courses", "materials", "assignments")),
+                        WorkspaceQuery.Today(now),
+                        WorkspaceQuery.AssignmentBoard(now, null),
+                        WorkspaceQuery.TeachingPeriods,
+                    ),
                 ).value() as? OperationResult.Schedule
                 )?.snapshot ?: return
+            // An answer read before the newest change heard is stale: ask again
+            // (`approach/query-cache-consistency`).
+            if (result.seq < latestSeq) {
+                scheduleRefresh()
+                return
+            }
             for (value in result.values) {
                 when (value) {
+                    is WorkspaceQueryResult.Records -> records = WorkspaceRecords(value.v1)
                     is WorkspaceQueryResult.Today -> today = value.v1
                     is WorkspaceQueryResult.AssignmentBoard -> {
                         board = value.v1
@@ -362,8 +388,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 val value = (overview as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
                 if (value is WorkspaceQueryResult.WorkspaceOverview) colors = value.v1.colors
             }
-            val changed = contentRevision != snapshot.contentRevision
-            contentRevision = snapshot.contentRevision
+            val changed = contentRevision != result.seq.toString()
+            contentRevision = result.seq.toString()
             scheduleBoundary()
             if (changed || weeks.isEmpty()) {
                 weeks.clear()
@@ -643,7 +669,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Marks one session (`Occurrence.key`) as `exam`, `quiz`, `cancelled` or
      * `class` (a plain class; Core clears the mark when that is the default).
-     * Core republishes the schedule; the new content revision re-reads the week. */
+     * The commit names `calendar`, which re-queries the week. */
     suspend fun markSession(key: String, mark: String) {
         commit(WorkspaceIntent.MarkSession(key, mark))
     }
@@ -660,8 +686,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val session = session ?: return false
         var committed = false
         try {
-            (session.mutate(WorkspaceMutation(revision, intent)).value() as? OperationResult.Workspace)
-                ?.let { revision = it.snapshot.revision }
+            (session.mutateCommit(WorkspaceMutation(revision, intent)).value() as? OperationResult.Committed)
+                ?.let { adopt(it.commit) }
             committed = true
         } catch (error: SdkException.Conflict) {
             // Re-read below.
@@ -677,8 +703,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     suspend fun studyProfile(): StudyProfile? {
         val session = session ?: return null
-        val snapshot = runCatching { (session.snapshot().value() as? OperationResult.Workspace)?.snapshot }.getOrNull() ?: return null
-        val profile = runCatching { JSONObject(snapshot.workspace).optJSONObject("academicProfile") }.getOrNull() ?: JSONObject()
+        val records = runCatching {
+            val result = session.scheduleQuery(listOf(WorkspaceQuery.Records(listOf("academicProfile")))).value()
+            (result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull() as? WorkspaceQueryResult.Records
+        }.getOrNull() ?: return null
+        val profile = runCatching { JSONObject(records.v1).optJSONObject("academicProfile") }.getOrNull() ?: JSONObject()
         val rows = profile.optJSONArray("studyEnrollments")
         return StudyProfile(
             admissionYear = if (profile.has("admissionYear") && !profile.isNull("admissionYear")) profile.getInt("admissionYear") else null,
@@ -707,7 +736,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Saves the cohort and degree history through the desktop's intent. */
     suspend fun setStudyProfile(profile: StudyProfile) {
         val session = session ?: return
-        session.mutate(WorkspaceMutation(revision, WorkspaceIntent.SetStudyProfile(profile.admissionYear, profile.enrollments))).value()
+        (session.mutateCommit(WorkspaceMutation(revision, WorkspaceIntent.SetStudyProfile(profile.admissionYear, profile.enrollments))).value() as? OperationResult.Committed)
+            ?.let { adopt(it.commit) }
         refresh()
     }
 
@@ -752,10 +782,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         edit(settings)
         val mutation = WorkspaceMutation(revision, WorkspaceIntent.ReplaceSettings(settings.toString()))
         try {
-            (session.mutate(mutation).value() as? OperationResult.Workspace)?.snapshot?.let {
-                revision = it.revision
-                records = WorkspaceRecords(it.workspace)
-            }
+            (session.mutateCommit(mutation).value() as? OperationResult.Committed)?.let { adopt(it.commit) }
         } catch (error: Exception) {
             problem = describe(error)
         }
@@ -892,15 +919,40 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
         fun describe(error: Throwable): String {
             Log.w("isct", "core error", error)
+            // A failure Core raised carries its stable code as `detail`; its
+            // copy is the shared catalog's `error.<code>`. Other details are
+            // never shown.
+            coreCode(error)?.let { code ->
+                val key = "error.$code"
+                val copy = t(key)
+                if (copy != key) return copy
+            }
             return when (error) {
                 is SdkException.Network -> t("You're offline. Showing saved data.")
                 is SdkException.Authentication -> t("Sign in to your school account again.")
                 is SdkException.Maintenance -> t("The school site is under maintenance.")
                 is SdkException.Timeout -> t("The school site is not responding.")
                 is SdkException.Busy -> t("The previous task has not finished yet.")
-                is SdkException.Unavailable -> error.detail.ifEmpty { t("This is not available right now.") }
+                is SdkException.Unavailable -> t("This is not available right now.")
+                is SdkException -> t("error.internal")
                 else -> error.message ?: error.toString()
             }
+        }
+
+        private fun coreCode(error: Throwable): String? = when (error) {
+            is SdkException.InvalidInput -> error.detail
+            is SdkException.Conflict -> error.detail
+            is SdkException.Storage -> error.detail
+            is SdkException.Compatibility -> error.detail
+            is SdkException.Authentication -> error.detail
+            is SdkException.Maintenance -> error.detail
+            is SdkException.Network -> error.detail
+            is SdkException.Timeout -> error.detail
+            is SdkException.Unavailable -> error.detail
+            is SdkException.Busy -> error.detail
+            is SdkException.Callback -> error.detail
+            is SdkException.Internal -> error.detail
+            else -> null
         }
     }
 }

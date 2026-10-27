@@ -25,8 +25,7 @@ const MAX_UNPACK_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 50_000;
 const STALE_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-#[derive(Debug, thiserror::Error, Serialize)]
-#[serde(tag = "kind", content = "message", rename_all = "camelCase")]
+#[derive(Debug, thiserror::Error)]
 pub enum WorkspaceError {
     #[error("{0}")]
     Input(String),
@@ -37,6 +36,21 @@ pub enum WorkspaceError {
     /// The folder was removed outside the app, for example in Finder.
     #[error("The workspace folder no longer exists")]
     Missing,
+}
+
+/// Why files cannot be handed in, beside the workspace's own failures.
+#[derive(Debug, thiserror::Error)]
+pub enum HandInError {
+    #[error(transparent)]
+    Workspace(#[from] WorkspaceError),
+    #[error("Only files can be handed in.")]
+    FilesOnly,
+    #[error("The submit folder is empty")]
+    Empty,
+    #[error("Use ZIP to upload folders.")]
+    NeedsZip,
+    #[error("Upload assistance supports at most 20 MiB.")]
+    TooLarge,
 }
 
 impl From<StorageError> for WorkspaceError {
@@ -266,7 +280,7 @@ impl Workspaces {
         &self,
         target: &HandInTarget,
         files: Vec<(PathBuf, String)>,
-    ) -> Result<Vec<LocalFile>, WorkspaceError> {
+    ) -> Result<Vec<LocalFile>, HandInError> {
         let info = match self.find(&target.course, &target.assignment)? {
             Some(info) => info,
             None => self.create(
@@ -283,12 +297,12 @@ impl Workspaces {
         for (source, name) in files {
             let kind = fs::symlink_metadata(&source).map_err(storage_error)?;
             if !kind.is_file() {
-                return Err(WorkspaceError::Input("Only files can be handed in.".into()));
+                return Err(HandInError::FilesOnly);
             }
             let destination = unused_name(&submit, &safe_name(&name, "file"));
             fs::copy(&source, destination).map_err(storage_error)?;
         }
-        submit_listing(&dir)
+        Ok(submit_listing(&dir)?)
     }
 
     /// Removes one file from the assignment's `submit/`.
@@ -338,11 +352,11 @@ impl Workspaces {
         Ok(info(&dir, &meta))
     }
 
-    pub fn prepare(&self, path: &str) -> Result<PreparedSubmission, WorkspaceError> {
+    pub fn prepare(&self, path: &str) -> Result<PreparedSubmission, HandInError> {
         let (dir, meta) = self.workspace_dir(path)?;
         let current = info(&dir, &meta);
         if current.submit_files.is_empty() {
-            return Err(WorkspaceError::Input("The submit folder is empty".into()));
+            return Err(HandInError::Empty);
         }
         let submit = dir.join(SUBMIT_DIR);
         let target = if meta.zip {
@@ -363,12 +377,13 @@ impl Workspaces {
         &self,
         path: &str,
         assignment: &str,
-    ) -> Result<PreparedUpload, WorkspaceError> {
+    ) -> Result<PreparedUpload, HandInError> {
         let (_, meta) = self.workspace_dir(path)?;
         if meta.assignment != assignment {
             return Err(WorkspaceError::Input(
                 "This workspace belongs to a different assignment.".into(),
-            ));
+            )
+            .into());
         }
         let prepared = self.prepare(path)?;
         let paths = match prepared.target {
@@ -381,17 +396,16 @@ impl Workspaces {
                 .collect(),
         };
         if paths.len() > MAX_SUBMISSION_FILES {
-            return Err(WorkspaceError::Input(
-                "Upload up to 32 files, or use ZIP.".into(),
-            ));
+            return Err(WorkspaceError::Input("Upload up to 32 files, or use ZIP.".into()).into());
         }
         let mut total = 0;
         let mut files = Vec::new();
         for path in paths {
             if fs::symlink_metadata(&path).map_err(storage_error)?.is_dir() {
-                return Err(WorkspaceError::Input("Use ZIP to upload folders.".into()));
+                return Err(HandInError::NeedsZip);
             }
-            let path = storage::stored_file(&self.root, &path.to_string_lossy())?;
+            let path = storage::stored_file(&self.root, &path.to_string_lossy())
+                .map_err(WorkspaceError::from)?;
             let mut bytes = Vec::new();
             fs::File::open(&path)
                 .map_err(storage_error)?
@@ -400,7 +414,7 @@ impl Workspaces {
                 .map_err(storage_error)?;
             total += bytes.len();
             if total > MAX_SUBMISSION_BYTES {
-                return Err(WorkspaceError::Input("Upload assistance supports at most 20 MiB. Use the LMS file picker for larger files.".into()));
+                return Err(HandInError::TooLarge);
             }
             let name = path
                 .file_name()

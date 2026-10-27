@@ -1111,6 +1111,11 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     // After classes: tonight's deadline leads, then the next class day.
     let evening = today("2026-04-13T21:10:00+09:00");
     assert_eq!(evening.phase, TodayPhase::AfterClasses);
+    // The deadline shown leaves at its due time, before midnight's boundary.
+    assert_eq!(
+        evening.next_boundary.as_deref(),
+        Some("2026-04-13T23:59:00+09:00")
+    );
     assert_eq!(evening.deadline_hero.unwrap().assignment_id, "tonight");
     assert_eq!(evening.upcoming[0].occurrence.date, "2026-04-20");
 
@@ -2938,4 +2943,69 @@ fn course_content_follows_the_desktop_lecture_desk() {
             .current_section,
         Some(2)
     );
+}
+
+/// A shell keeps a result until an event names a change in its `reads`, so
+/// a query must list every change whose records alter its answer. Without
+/// the fields a change feeds, a query that does not read it must answer the
+/// same.
+#[test]
+fn every_query_lists_the_changes_its_result_reads() {
+    let mut data = phone_workspace();
+    data["events"] = json!([{"id":"event","title":"Club","start":"2026-04-13T18:00:00+09:00","end":"2026-04-13T19:00:00+09:00"}]);
+    data["plans"] = json!([{"id":"plan","title":"Gym","start":"2026-04-13T07:00:00+09:00","durationMinutes":60,"rrule":"FREQ=WEEKLY"}]);
+    data["courses"].as_array_mut().unwrap().push(json!({"id":"planned","termId":"2026-1Q","title":"Planned","code":"CSC.T400","meetings":[{"days":[2],"startTime":"10:45","endTime":"12:25"}]}));
+    data["planItems"] = json!([{"id":"item","termId":"2026-1Q","courseId":"planned"}]);
+    data["exceptions"] =
+        json!([{"id":"mine","date":"2026-04-20","type":"no-class","label":"Trip"}]);
+    data["registrations"] = json!([{"id":"r","termId":"2026-1Q","code":"CSC.T241","credits":2}]);
+    data["grades"] =
+        json!([{"id":"g","termId":"2026-1Q","code":"CSC.T241","credits":2,"grade":"A"}]);
+    let now = "2026-04-13T10:00:00+09:00";
+    let queries = [
+        json!({"kind":"workspaceOverview","term":"2026-1Q"}),
+        json!({"kind":"planningWeek","term":"2026-1Q"}),
+        json!({"kind":"scheduleView","term":"2026-1Q","from":"2026-04-12","to":"2026-04-25"}),
+        json!({"kind":"dayAgenda","term":"2026-1Q","date":"2026-04-13"}),
+        json!({"kind":"taskView","now":now}),
+        json!({"kind":"today","now":now}),
+        json!({"kind":"assignmentBoard","now":now}),
+        json!({"kind":"courseDetail","courseId":"course"}),
+        json!({"kind":"courseContent","courseId":"course","now":now}),
+        json!({"kind":"courseTimeline","courseId":"course","now":now}),
+        json!({"kind":"lectureSearch","term":"2026-1Q","query":"slides"}),
+        json!({"kind":"scheduledCourses","term":"2026-1Q"}),
+        json!({"kind":"quarterRange","term":"2026-1Q"}),
+        json!({"kind":"academicYear","year":2026}),
+        json!({"kind":"declaredCredits","term":"2026-1Q"}),
+        json!({"kind":"glance","now":now}),
+        json!({"kind":"notificationPlan","now":now,"horizon":"2026-04-20T10:00:00+09:00"}),
+        json!({"kind":"classGroups","today":"2026-04-13"}),
+        json!({"kind":"records","fields":["plans","events","exceptions"]}),
+    ];
+    let answer = |data: &Value, request: &WorkspaceQuery| {
+        serde_json::to_value(query(data, &SchoolReads::fixture(data), request.clone()).unwrap())
+            .unwrap()
+    };
+    for raw in queries {
+        let request: WorkspaceQuery = serde_json::from_value(raw).unwrap();
+        let full = answer(&data, &request);
+        for change in crate::workspace_changes::WorkspaceChange::ALL {
+            if request.reads().contains(&change) {
+                continue;
+            }
+            let Some(fields) = crate::workspace_changes::fed_fields(change) else {
+                panic!("{request:?} must read {change:?}, which re-reads every field");
+            };
+            let mut without = data.clone();
+            for field in fields {
+                without.as_object_mut().unwrap().remove(field);
+            }
+            assert_eq!(
+                answer(&without, &request),
+                full,
+                "{request:?} depends on {change:?} but does not read it"
+            );
+        }
+    }
 }

@@ -41,9 +41,10 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                 source: WorkspaceChangeSource::CloudRestore,
                 revision: None,
                 changes: vec![WorkspaceChange::Plans, WorkspaceChange::ScheduledTasks],
+                seq: 3,
             },
             "workspace-changed",
-            json!({"source":"cloud-restore","changes":["plans","scheduled-tasks"]}),
+            json!({"source":"cloud-restore","changes":["plans","scheduled-tasks"],"seq":3}),
         ),
         (
             CoreEvent::CatalogChanged {

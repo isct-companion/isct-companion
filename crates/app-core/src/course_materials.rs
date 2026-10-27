@@ -291,7 +291,7 @@ impl CourseMaterials {
 
     fn automatic_download_limit(&self) -> u64 {
         self.store
-            .load_workspace()
+            .load_fields(&[])
             .ok()
             .and_then(|workspace| {
                 workspace

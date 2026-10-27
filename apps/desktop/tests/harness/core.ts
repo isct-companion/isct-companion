@@ -7,7 +7,11 @@ import type { WorkspaceChange } from "@app/generated/persistence";
 import type { Workspace } from "@app/lib/model";
 import type { SchoolRecords } from "@app/platform/desktop-bridge";
 import type { SyncSnapshot } from "@app/platform/sync";
-import { DEFAULT_TIMETABLE_AXIS, emptySchoolRecords } from "./fixtures";
+import {
+  DEFAULT_TIMETABLE_AXIS,
+  SCHEDULE_READS,
+  emptySchoolRecords,
+} from "./fixtures";
 
 /**
  * A scripted stand-in for the Tauri host.
@@ -74,6 +78,8 @@ export type FakeCore = {
   /** Every `mutate_workspace` payload, including the expected revision. */
   mutations: { expectedRevision: string; intent: WorkspaceIntent }[];
   revision: string;
+  /** Core's commit sequence; each `commit` advances it. */
+  seq: number;
   workspace: Workspace;
   schoolRecords: SchoolRecords;
   /** Replaces the stored snapshot, as another client would. */
@@ -82,8 +88,8 @@ export type FakeCore = {
    * that commits by itself; `revision` overrides the one it reports. */
   commit(revision?: string): CoreWorkspaceCommit;
   /** Delivers a native event to every registered listener. A background
-   * `workspace-changed` names its `changes`, which the shell patches by
-   * reading `workspace_records`. */
+   * `workspace-changed` names its `changes`; the shell queries again what
+   * reads them. */
   emit(event: string, payload: unknown): void;
   listenerCount(event: string): number;
   commands(name: string): CommandCall[];
@@ -141,6 +147,7 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     intents,
     mutations,
     revision: options.revision ?? freshRevision(),
+    seq: 0,
     workspace: structuredClone(options.workspace),
     schoolRecords: structuredClone(
       options.schoolRecords ?? emptySchoolRecords(),
@@ -150,9 +157,12 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
       if (revision) core.revision = revision;
     },
     commit(revision) {
-      const patch = snapshot();
-      if (revision) patch.revision = patch.contentRevision = revision;
-      return { changes: [...EVERY_CHANGE], patch };
+      if (revision) core.revision = revision;
+      return {
+        changes: [...EVERY_CHANGE],
+        revision: core.revision,
+        seq: ++core.seq,
+      };
     },
     emit(event, payload) {
       // Tauri hands the listener its `Event` envelope, and the bridge adapter
@@ -172,17 +182,37 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     },
   };
 
-  const snapshot = () => ({
-    revision: core.revision,
-    contentRevision: core.revision,
-    workspace: structuredClone(core.workspace),
-    schoolRecords: structuredClone(core.schoolRecords),
-  });
+  /** Core's `records` answer: the named fields of the live store, with the
+   * ones every answer carries. */
+  const records = (fields: string[]) => {
+    const live = {
+      ...structuredClone(core.workspace),
+      lmsCourses: structuredClone(core.schoolRecords.lmsCourses),
+      freshness: structuredClone(core.schoolRecords.freshness),
+      pageAvailability: structuredClone(core.schoolRecords.pageAvailability),
+    } as Record<string, unknown>;
+    const named = [
+      ...fields,
+      "settings",
+      "academicProfile",
+      "deviceId",
+      "selectedTerm",
+      "currentTerm",
+      "terms",
+    ];
+    return Object.fromEntries(
+      named
+        .filter((field) => field in live)
+        .map((field) => [field, live[field]]),
+    );
+  };
 
   const answerQuery = (query: unknown): unknown => {
     if (!query || typeof query !== "object") return null;
     const kind = (query as { kind?: string }).kind;
     if (!kind) return null;
+    if (kind === "records" && !options.queries?.records)
+      return records((query as { fields: string[] }).fields);
     const entry =
       options.queries?.[kind] ??
       // Every timetable asks for Core's axis; the default periods answer it.
@@ -222,12 +252,8 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
       case "plugin:event|emit_to":
         core.emit(String(args.event), args.payload);
         return null;
-      case "workspace_snapshot":
-        return snapshot();
-      case "workspace_records":
-        // Core answers only the fields the named changes feed; the scripted
-        // host answers all of them, which a shell merges the same way.
-        return snapshot();
+      case "workspace_revision":
+        return core.revision;
       case "mutate_workspace": {
         const mutation = args.mutation as {
           expectedRevision: string;
@@ -248,6 +274,8 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
       case "schedule_query":
         return {
           revision: core.revision,
+          reads: SCHEDULE_READS,
+          seq: core.seq,
           values: (args.queries as unknown[]).map((query) => ({
             // These requests return a normalized value with a different tag,
             // matching WorkspaceQueryResult on the native side.

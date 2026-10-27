@@ -52,6 +52,8 @@ pub enum NoteError {
     Storage(String),
     #[error("Storage lock unavailable")]
     Lock,
+    #[error("Notes are limited to 1 MB")]
+    TooLarge,
 }
 
 /// One process-wide note store shared across storage-root selections.
@@ -137,7 +139,7 @@ impl Notes {
         device_id: &str,
     ) -> Result<LocalFile, NoteError> {
         if text.len() as u64 > MAX_NOTE_BYTES {
-            return Err(NoteError::Input("Notes are limited to 1 MB".into()));
+            return Err(NoteError::TooLarge);
         }
         let id = if id.is_empty() {
             uuid::Uuid::now_v7().to_string()

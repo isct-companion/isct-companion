@@ -6,7 +6,7 @@
 //! catalog with its search index. sync.db holds the sync engine's
 //! bookkeeping about those records: freshness and run records. A sync that
 //! finds nothing new commits to sync.db only, so cache.db's data version,
-//! which the snapshot cache is keyed on, moves only when records change.
+//! which the view cache is keyed on, moves only when records change.
 //! Everything in cache.db and sync.db is fetched again when it is lost, so
 //! a file of another schema version is deleted and created again rather
 //! than migrated; freshness without its records would say they are fresh,
@@ -19,8 +19,13 @@ use std::path::Path;
 pub(super) const USER_FILE: &str = "user.db";
 pub(super) const CACHE_FILE: &str = "cache.db";
 pub(super) const SYNC_FILE: &str = "sync.db";
-pub const USER_SCHEMA_VERSION: i64 = 1;
-pub const CACHE_SCHEMA_VERSION: i64 = 4;
+pub const USER_SCHEMA_VERSION: i64 = 2;
+/// user.db with `course_identity_map`, before `course_keys`; new and legacy
+/// files are created at it and upgraded at once.
+const USER_IDENTITY_MAP_VERSION: i64 = 1;
+pub const CACHE_SCHEMA_VERSION: i64 = 5;
+/// cache.db before merged courses: upgraded in place (`MERGED_SCHEMA`).
+const CACHE_WITHOUT_MERGE_VERSION: i64 = 4;
 pub const SYNC_SCHEMA_VERSION: i64 = 1;
 /// cache.db with the sync bookkeeping still inside: moved to sync.db once.
 const CACHE_WITH_SYNC_VERSION: i64 = 3;
@@ -34,10 +39,28 @@ const LEGACY_BACKUP: &str = "school.db.pre-split";
 const STAGING_FILE: &str = "user.db.migrating";
 
 /// Tables of user.db (`docs/data-ownership.md`): records the person made,
-/// settings, and `course_identity_map`, which pins the course ids plans,
+/// settings, and `course_keys`, which pins the internal course ids plans,
 /// plan items and overrides refer to; rebuilding it from a later sync that
 /// has not seen an offering id yet would give the same course another id.
 pub(crate) const USER_TABLES: &[&str] = &[
+    "manual_courses",
+    "course_keys",
+    "manual_memberships",
+    "course_overrides",
+    "plan_items",
+    "personal_events",
+    "calendar_exceptions",
+    "assignment_marks",
+    "settings",
+    "intensive_schedules",
+    "plans",
+    "subscriptions",
+    "schedule_overrides",
+    "scheduled_tasks",
+];
+
+/// The user tables of schema 1, which a legacy file is copied into.
+const LEGACY_USER_TABLES: &[&str] = &[
     "manual_courses",
     "course_identity_map",
     "manual_memberships",
@@ -53,6 +76,15 @@ pub(crate) const USER_TABLES: &[&str] = &[
     "schedule_overrides",
     "scheduled_tasks",
 ];
+
+/// user.db 1 → 2: one internal id per course with its external keys
+/// (`data::course_keys`).
+const COURSE_KEYS_SCHEMA: &str = r#"
+CREATE TABLE course_keys (
+  key TEXT PRIMARY KEY, course_id TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX course_keys_by_course ON course_keys(course_id);
+"#;
 
 /// Tables of cache.db: school and reference records, the catalog and its
 /// index.
@@ -76,7 +108,13 @@ pub(crate) const CACHE_TABLES: &[&str] = &[
     "important_dates",
     "exams",
     "class_schedules",
+    "merged_rows",
+    "merge_state",
 ];
+
+/// Tables of cache.db derived from the others (`data::course_merge`): a reset
+/// does not count them as removed records.
+pub(crate) const DERIVED_TABLES: &[&str] = &["merged_rows", "merge_state"];
 
 /// Tables of sync.db: freshness per key and one row per read.
 pub(crate) const SYNC_TABLES: &[&str] = &["dataset_state", "sync_runs"];
@@ -292,6 +330,17 @@ CREATE TABLE cache.class_schedules (
 );
 "#;
 
+/// Courses merged when their sources are written (`data::course_merge`),
+/// and whether every course has been merged once.
+const MERGED_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS cache.merged_rows (
+  kind TEXT NOT NULL, ord TEXT NOT NULL, course_id TEXT NOT NULL, value TEXT NOT NULL,
+  PRIMARY KEY (kind, ord)
+);
+CREATE INDEX IF NOT EXISTS cache.merged_rows_by_course ON merged_rows(course_id);
+CREATE TABLE IF NOT EXISTS cache.merge_state (built INTEGER NOT NULL);
+"#;
+
 /// Created through the connection that has sync.db attached as `sync`.
 /// Freshness per (dataset, key) and one row per read: see `crate::sync_state`.
 const SYNC_SCHEMA: &str = r#"
@@ -312,11 +361,13 @@ CREATE INDEX sync.sync_runs_by_finished ON sync_runs(finished_at);
 CREATE INDEX sync.sync_runs_by_key ON sync_runs(dataset, key, finished_at);
 "#;
 
-/// Creates the user schema in a new user.db. A file of another version, or
-/// one with tables but no version, is refused and left intact.
+/// Creates the user schema in a new user.db, at schema 1; `upgrade_user`
+/// brings it to the current one once the caches are attached. A file of
+/// another version, or one with tables but no version, is refused and left
+/// intact.
 pub(super) fn migrate_user(connection: &mut Connection) -> Result<bool, DataError> {
     let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    if version == USER_SCHEMA_VERSION {
+    if (USER_IDENTITY_MAP_VERSION..=USER_SCHEMA_VERSION).contains(&version) {
         return Ok(false);
     }
     let populated: bool = connection.query_row(
@@ -331,8 +382,29 @@ pub(super) fn migrate_user(connection: &mut Connection) -> Result<bool, DataErro
     }
     let transaction = connection.transaction()?;
     transaction.execute_batch(USER_SCHEMA)?;
-    transaction.pragma_update(None, "user_version", USER_SCHEMA_VERSION)?;
+    transaction.pragma_update(None, "user_version", USER_IDENTITY_MAP_VERSION)?;
     transaction.commit()?;
+    Ok(true)
+}
+
+/// Upgrades user.db in place, in one transaction with cache.db attached
+/// (moving a course id rewrites the school rows that name it); on failure
+/// the file stays as it was. Returns whether it changed.
+pub(super) fn upgrade_user(connection: &mut Connection) -> Result<bool, DataError> {
+    let version: i64 = connection.query_row("PRAGMA main.user_version", [], |row| row.get(0))?;
+    if version == USER_SCHEMA_VERSION {
+        return Ok(false);
+    }
+    let transaction = connection.transaction()?;
+    if version == USER_IDENTITY_MAP_VERSION {
+        transaction.execute_batch(COURSE_KEYS_SCHEMA)?;
+        super::course_keys::migrate_identity_map(&transaction)?;
+        super::course_keys::key_manual_courses(&transaction)?;
+        transaction.execute_batch("DROP TABLE course_identity_map;")?;
+    }
+    transaction.pragma_update(Some("main"), "user_version", USER_SCHEMA_VERSION)?;
+    transaction.commit()?;
+    log::info!(target: "app_core::data", "Upgraded user.db from schema {version}");
     Ok(true)
 }
 
@@ -376,6 +448,14 @@ pub(super) fn attach_caches(
             recreate_sync(&transaction)?;
             true
         }
+        Attached::WithoutMerge => {
+            transaction.execute_batch(MERGED_SCHEMA)?;
+            transaction.execute_batch(&format!(
+                "PRAGMA cache.user_version={CACHE_SCHEMA_VERSION};"
+            ))?;
+            log::info!(target: "app_core::data", "Added merged courses to cache.db");
+            sync_created == Attached::Created
+        }
         Attached::Old => {
             if sync_created == Attached::Created {
                 // `SELECT *` matches: the bookkeeping kept its columns.
@@ -388,6 +468,7 @@ pub(super) fn attach_caches(
             for table in SYNC_TABLES {
                 transaction.execute_batch(&format!("DROP TABLE cache.{table};"))?;
             }
+            transaction.execute_batch(MERGED_SCHEMA)?;
             transaction.execute_batch(&format!(
                 "PRAGMA cache.user_version={CACHE_SCHEMA_VERSION};"
             ))?;
@@ -404,6 +485,9 @@ enum Attached {
     Current,
     /// cache.db of schema 3: its bookkeeping moves to sync.db.
     Old,
+    /// cache.db of schema 4: its school rows stay and merged courses are
+    /// added; they are merged on the store's first write.
+    WithoutMerge,
     /// A new empty file, without its schema yet.
     Created,
 }
@@ -430,6 +514,7 @@ fn attach_checked(
     match found {
         Ok(version) if version == current => return Ok(Attached::Current),
         Ok(CACHE_WITH_SYNC_VERSION) if schema == "cache" => return Ok(Attached::Old),
+        Ok(CACHE_WITHOUT_MERGE_VERSION) if schema == "cache" => return Ok(Attached::WithoutMerge),
         Ok(0) => {}
         Ok(version) => log::info!(
             target: "app_core::data",
@@ -450,6 +535,7 @@ fn attach_checked(
 
 fn create_cache_schema(connection: &Connection) -> Result<(), DataError> {
     connection.execute_batch(CACHE_SCHEMA)?;
+    connection.execute_batch(MERGED_SCHEMA)?;
     connection.execute_batch(&format!(
         "PRAGMA cache.user_version={CACHE_SCHEMA_VERSION};"
     ))?;
@@ -503,6 +589,7 @@ pub fn open_in_memory() -> Result<Connection, DataError> {
     connection.execute("ATTACH DATABASE ':memory:' AS sync", [])?;
     create_cache_schema(&connection)?;
     create_sync_schema(&connection)?;
+    upgrade_user(&mut connection)?;
     super::connection::forbid_truncate(&connection);
     Ok(connection)
 }
@@ -571,14 +658,14 @@ fn copy_user_tables(legacy: &Path, staging: &Path) -> Result<(), DataError> {
     }
     let transaction = connection.transaction()?;
     transaction.execute_batch(USER_SCHEMA)?;
-    for table in USER_TABLES {
+    for table in LEGACY_USER_TABLES {
         let columns = shared_columns(&transaction, table)?;
         transaction.execute(
             &format!("INSERT INTO main.{table} ({columns}) SELECT {columns} FROM legacy.{table}"),
             [],
         )?;
     }
-    transaction.pragma_update(None, "user_version", USER_SCHEMA_VERSION)?;
+    transaction.pragma_update(None, "user_version", USER_IDENTITY_MAP_VERSION)?;
     transaction.commit()?;
     connection.execute("DETACH DATABASE legacy", [])?;
     Ok(())

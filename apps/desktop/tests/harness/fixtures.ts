@@ -4,6 +4,7 @@ import type {
   FinderCourse,
   LectureSearch,
   TimetableAxis,
+  WorkspaceChange,
 } from "@app/generated/persistence";
 import type {
   SchoolRecords,
@@ -335,3 +336,34 @@ export const DEFAULT_TIMETABLE_AXIS: TimetableAxis = {
     },
   ],
 };
+
+/** What a scripted host says every schedule answer read: each change but
+ * sync freshness. Core names fewer per query (`WorkspaceQuery::reads`); a
+ * host that over-reads only refetches more often. */
+export const SCHEDULE_READS: WorkspaceChange[] = [
+  "courses",
+  "materials",
+  "assignments",
+  "registrations",
+  "grades",
+  "finder",
+  "calendar",
+  "exams",
+  "plans",
+  "events",
+  "subscriptions",
+  "scheduled-tasks",
+  "settings",
+];
+
+/** What Core's finder pages read besides the catalog (`FINDER_READS`). */
+export const FINDER_READS: WorkspaceChange[] = [
+  "courses",
+  "registrations",
+  "grades",
+  "finder",
+  "calendar",
+  "plans",
+  "events",
+  "settings",
+];

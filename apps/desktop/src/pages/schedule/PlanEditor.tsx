@@ -1,4 +1,11 @@
-import { Button, Group, Modal, Select, Stack, TextInput } from "../../components/ui";
+import {
+  Button,
+  Group,
+  Modal,
+  Select,
+  Stack,
+  TextInput,
+} from "../../components/ui";
 import { useMemo, useRef, useState } from "react";
 import type { Plan } from "../../lib/model";
 import { useEffect } from "react";

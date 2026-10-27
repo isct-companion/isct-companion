@@ -42,7 +42,7 @@ mod otp_setup;
 mod pull;
 mod restore;
 
-use self::{history::*, jobs::*, login::*, pull::*};
+use self::{history::*, jobs::*, lane::*, login::*, pull::*};
 
 const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
 const LAUNCH_INTERVAL: Duration = Duration::from_secs(90);
@@ -129,6 +129,9 @@ struct ViewState {
     auth_relay: String,
     navigation: Option<ActionId>,
     actions: HashMap<ActionId, bool>,
+    /// The stop sent to this view for an abandoned attempt, until the view
+    /// confirms it. Hidden work does not lease the view meanwhile.
+    stopping: Option<ActionId>,
 }
 
 #[derive(Clone, Debug)]
@@ -143,6 +146,8 @@ enum Trace {
     /// A school page finished loading in any view (hidden or visible).
     Loaded(PageLoaded),
     Closed(BrowserId),
+    /// The view confirmed the stop sent for an abandoned attempt.
+    Halted(BrowserId),
     Stopped,
 }
 
@@ -388,6 +393,7 @@ impl SchoolBrowserEngine {
                     auth_relay: format!("isct-companion-auth:{nonce}:"),
                     navigation: None,
                     actions: HashMap::new(),
+                    stopping: None,
                 },
             );
             id
@@ -460,6 +466,11 @@ impl SchoolBrowserListener for Listener {
     fn closed(&self, browser: BrowserId) {
         if let Some(inner) = self.0.upgrade() {
             inner.closed(browser);
+        }
+    }
+    fn stopped(&self, page: PageId, action: ActionId) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.stopped(page, action);
         }
     }
 }
@@ -640,7 +651,11 @@ impl Inner {
         } else if let Some(heartbeat) =
             heartbeat.filter(|heartbeat| login_succeeded(event.url.as_str(), heartbeat.profile))
         {
-            self.set_session_from_inner(heartbeat.profile, SchoolSessionState::Active);
+            self.publish_session(
+                heartbeat.profile,
+                SchoolSessionState::Active,
+                Some(heartbeat.attempt),
+            );
         } else if is_identity_login(&event.url) {
             self.arm_saved_login(event.page, event.url.clone(), auth_relay);
         }
@@ -684,7 +699,11 @@ impl Inner {
                     .filter(|heartbeat| heartbeat.browser == event.page.browser)
             });
             if let Some(heartbeat) = heartbeat {
-                self.set_session_from_inner(heartbeat.profile, SchoolSessionState::Failed);
+                self.publish_session(
+                    heartbeat.profile,
+                    SchoolSessionState::Failed,
+                    Some(heartbeat.attempt),
+                );
             }
         }
     }
@@ -794,6 +813,71 @@ impl Inner {
             }
         }
         let _ = self.traces.send(Trace::Closed(browser));
+    }
+
+    /// Forgets a view and asks the shell to close it, so the next request
+    /// creates a new generation.
+    fn forget(&self, browser: BrowserId) {
+        self.closed(browser);
+        let _ = self.browser.dispose(browser);
+    }
+
+    /// Stops the view an abandoned attempt left mid-way: its loads end and
+    /// Core's scripts in it stand down. A view the person is looking at is
+    /// theirs and keeps going.
+    fn halt(&self, browser: BrowserId) {
+        // Shutting down closes every view anyway.
+        if self.tasks.is_closed() {
+            return;
+        }
+        let action = ActionId(self.next_action.fetch_add(1, Ordering::Relaxed));
+        let marked = self.state.with(|state| {
+            if state.browsing == Some(browser.site) {
+                return false;
+            }
+            match state.views.get_mut(&browser.site) {
+                Some(view) if view.id == browser => {
+                    view.stopping = Some(action);
+                    true
+                }
+                _ => false,
+            }
+        });
+        if !marked {
+            return;
+        }
+        let sent = self.sent(
+            browser,
+            self.browser.dispatch(BrowserCommand {
+                browser,
+                action,
+                command: BrowserAction::Stop,
+            }),
+        );
+        if let Err(error) = sent {
+            // A view that cannot take the stop is replaced, never reused.
+            log::warn!(target: "app_core::school_browser", "stop not sent site={:?}: {error}", browser.site);
+            self.forget(browser);
+        }
+    }
+
+    fn stopped(&self, page: PageId, action: ActionId) {
+        let confirmed = self.state.with(|state| {
+            let Some(view) = state.views.get_mut(&page.browser.site) else {
+                return false;
+            };
+            if view.id != page.browser || view.stopping != Some(action) {
+                return false;
+            }
+            view.stopping = None;
+            // Pages up to the stop that report late were the abandoned
+            // attempt's; the next attempt must not take them for its own.
+            view.last_page = view.last_page.max(page.sequence);
+            true
+        });
+        if confirmed {
+            let _ = self.traces.send(Trace::Halted(page.browser));
+        }
     }
 
     fn sent(

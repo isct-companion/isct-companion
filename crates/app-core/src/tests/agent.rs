@@ -415,12 +415,17 @@ fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
         .unwrap();
     assert_eq!(added["terms"], json!(["2026-3Q", "2026-4Q"]));
     assert_eq!(added["planItemId"], "mcp-plan:2026-4Q:202612346");
-    for quarter in ["3Q", "4Q"] {
-        let courses = service
-            .call("courses", &json!({"year":2026,"quarter":quarter}), WRITES)
-            .unwrap();
-        assert_eq!(courses[0]["id"], "2026-202612346", "{quarter}");
-    }
+    // One course, the same in each of its quarters.
+    let ids: Vec<_> = ["3Q", "4Q"]
+        .map(|quarter| {
+            let courses = service
+                .call("courses", &json!({"year":2026,"quarter":quarter}), WRITES)
+                .unwrap();
+            assert_eq!(courses[0]["offeringId"], "202612346", "{quarter}");
+            courses[0]["id"].clone()
+        })
+        .into();
+    assert_eq!(ids[0], ids[1]);
     // Planned in another of its quarters is no reason to refuse.
     service
         .call(
@@ -436,7 +441,7 @@ fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
             WRITES,
         )
         .unwrap();
-    assert_eq!(again["courseId"], "2026-202612346");
+    assert_eq!(again["courseId"], ids[0]);
     assert_eq!(fixture.store.user_rows("manual_courses").unwrap().len(), 1);
     let live = fixture
         .store
@@ -469,15 +474,18 @@ fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
     let mut school = course.clone();
     school["id"] = json!("2026-school-202612345");
     school["source"] = json!({"provider":"kyomu"});
-    let connection = fixture.store.test_connection();
-    connection
-        .execute(
-            "INSERT INTO timetable_courses (id,value,hash,updated_at,updated_by,rev)
-             VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','kyomu',1)",
-            rusqlite::params!["2026-school-202612345", school.to_string()],
-        )
+    fixture
+        .store
+        .write(None, |transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO timetable_courses (id,value,hash,updated_at,updated_by,rev)
+                     VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','kyomu',1)",
+                    rusqlite::params!["2026-school-202612345", school.to_string()],
+                )
+                .map_err(crate::data::DataError::from)
+        })
         .unwrap();
-    drop(connection);
     let added = service
         .call(
             "plan_add",
@@ -489,4 +497,55 @@ fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
     assert!(fixture.store.user_rows("manual_courses").unwrap()[0]
         .get("deletedAt")
         .is_some());
+}
+
+// A read tool loads only the fields its declared changes name. A field it
+// uses but does not declare would read as missing and silently empty its
+// answer, so each read tool must answer exactly as it does over every field.
+#[test]
+fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
+    let fixture = Fixture::new();
+    fixture.seed_offering();
+    let service = fixture.service();
+    service
+        .call(
+            "plan_add",
+            &json!({"offeringId":"202612345","term":"2026-3Q"}),
+            WRITES,
+        )
+        .unwrap();
+    service
+        .call(
+            "plan_event_create",
+            &json!({"title":"Review","start":"2026-10-19T09:00:00+09:00","duration":45}),
+            WRITES,
+        )
+        .unwrap();
+    let courses = service
+        .call("courses", &json!({"year":2026,"quarter":"3Q"}), WRITES)
+        .unwrap();
+    let course = courses[0]["id"].as_str().unwrap().to_string();
+    let every = || -> Result<View, AgentError> { Ok(fixture.store.load_reads()?) };
+    for (name, args) in [
+        ("today", json!({})),
+        ("schedule", json!({"from":"2026-10-01","to":"2026-10-31"})),
+        ("courses", json!({"year":2026,"quarter":"3Q"})),
+        ("course", json!({"id": course})),
+        ("recommended", json!({"departmentId":"math"})),
+    ] {
+        // `today` stamps the moment it answered; only that may differ.
+        let answer = |view: &dyn Fn() -> Result<View, AgentError>| {
+            let mut value = call_inner(&fixture.store, name, &args, view).unwrap();
+            if let Some(map) = value.as_object_mut() {
+                map.remove("now");
+            }
+            value
+        };
+        assert_eq!(
+            answer(&|| tool_view(&fixture.store, name)),
+            answer(&every),
+            "{name}"
+        );
+    }
+    assert!(!courses.as_array().unwrap().is_empty());
 }

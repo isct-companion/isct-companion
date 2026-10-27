@@ -261,6 +261,148 @@ pub enum WorkspaceQuery {
     ClassGroups {
         today: String,
     },
+    /// Workspace records as stored, only the fields named (e.g. `settings`,
+    /// `plans`), for a page that edits them; settings, terms and the current
+    /// term come with every answer.
+    Records {
+        fields: Vec<String>,
+    },
+}
+
+use crate::workspace_changes::WorkspaceChange::{self, *};
+
+/// Dated agendas: courses and everything else placed on a day.
+const AGENDA: &[WorkspaceChange] = &[
+    Courses,
+    Registrations,
+    Finder,
+    Calendar,
+    Exams,
+    Plans,
+    Events,
+    Subscriptions,
+    Settings,
+];
+const CALENDAR: &[WorkspaceChange] = &[Calendar, Settings];
+
+impl WorkspaceQuery {
+    /// The changes whose records this query's result is computed from. A
+    /// shell keeps the result until a `workspace-changed` names one of them;
+    /// a query of only its own input reads none.
+    pub fn reads(&self) -> Vec<WorkspaceChange> {
+        if let Self::Records { fields } = self {
+            let mut named = fields.clone();
+            named.extend(ALWAYS_RECORDS.map(str::to_owned));
+            return crate::workspace_changes::feeding(&named);
+        }
+        self.fixed_reads().to_vec()
+    }
+
+    fn fixed_reads(&self) -> &'static [WorkspaceChange] {
+        match self {
+            Self::Records { .. } => &[Settings],
+            Self::PlanCivilStart { .. }
+            | Self::DisplayColor { .. }
+            | Self::NextPlanOccurrences { .. }
+            | Self::ValidateAcademicProfile { .. }
+            | Self::AcademicTermForDate { .. } => &[],
+            Self::TeachingPeriods
+            | Self::TimetableAxis { .. }
+            | Self::IntensiveDays { .. }
+            | Self::AcademicYears { .. }
+            | Self::CalendarState { .. }
+            | Self::QuarterRange { .. }
+            | Self::AcademicYear { .. }
+            | Self::TimetableYear { .. } => CALENDAR,
+            Self::SubscriptionViews => &[Subscriptions, Settings],
+            Self::DeclaredCredits { .. } => &[Registrations, Settings],
+            Self::ScheduledCourses { .. } | Self::ClassGroups { .. } => {
+                &[Courses, Registrations, Finder, Calendar, Plans, Settings]
+            }
+            Self::WorkspaceOverview { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Grades,
+                Exams,
+                Plans,
+                Settings,
+            ],
+            Self::ScheduleView { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Grades,
+                Exams,
+                Plans,
+                Events,
+                Subscriptions,
+                Settings,
+            ],
+            Self::PlanningWeek { .. } | Self::DayAgenda { .. } | Self::QuarterIcs { .. } => AGENDA,
+            Self::ExamAssociation { .. } => {
+                &[Courses, Registrations, Finder, Calendar, Exams, Settings]
+            }
+            Self::TaskView { .. } | Self::AssignmentBoard { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Assignments,
+                Settings,
+            ],
+            Self::AssignmentDetail { .. } | Self::LectureSearch { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Materials,
+                Assignments,
+                Settings,
+            ],
+            Self::CourseDetail { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Materials,
+                Assignments,
+                Exams,
+                Settings,
+            ],
+            Self::CourseTimeline { .. }
+            | Self::Today { .. }
+            | Self::CourseContent { .. }
+            | Self::Glance { .. }
+            | Self::NotificationPlan { .. } => &[
+                Courses,
+                Registrations,
+                Finder,
+                Calendar,
+                Materials,
+                Assignments,
+                Exams,
+                Plans,
+                Events,
+                Subscriptions,
+                Settings,
+            ],
+        }
+    }
+}
+
+/// The union of what `queries` read, sorted, for a page that caches them
+/// together.
+pub fn reads_of<'a>(queries: impl IntoIterator<Item = &'a WorkspaceQuery>) -> Vec<WorkspaceChange> {
+    let mut reads: Vec<_> = queries
+        .into_iter()
+        .flat_map(WorkspaceQuery::reads)
+        .collect();
+    reads.sort();
+    reads.dedup();
+    reads
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -369,6 +511,7 @@ pub enum WorkspaceQueryResult {
     Glance(GlanceSnapshot),
     NotificationPlan(NotificationPlan),
     ClassGroups(Vec<ClassGroupChoice>),
+    Records(#[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))] Value),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -634,6 +777,15 @@ pub fn query(
             parse_timestamp(&horizon)?,
             locale,
         )?)),
+        WorkspaceQuery::Records { fields } => {
+            let mut records = serde_json::Map::new();
+            for field in fields.iter().map(String::as_str).chain(ALWAYS_RECORDS) {
+                if let Some(value) = workspace.get(field) {
+                    records.insert(field.to_owned(), value.clone());
+                }
+            }
+            Ok(WorkspaceQueryResult::Records(Value::Object(records)))
+        }
         WorkspaceQuery::ClassGroups { today } => {
             parse_civil_date(&today)?;
             Ok(WorkspaceQueryResult::ClassGroups(class_group_choices(
@@ -763,6 +915,16 @@ fn workspace_overview(
         default_finder_keys,
     })
 }
+
+/// Fields every `Records` answer carries.
+const ALWAYS_RECORDS: [&str; 6] = [
+    "settings",
+    "academicProfile",
+    "deviceId",
+    "selectedTerm",
+    "currentTerm",
+    "terms",
+];
 
 fn default_true() -> bool {
     true

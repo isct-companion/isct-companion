@@ -20,6 +20,7 @@ import { useClock } from "../../platform/use-clock";
 import { workspaceActions } from "../../store/workspace";
 import { ClassGroupSwitch } from "./ClassGroupPicker";
 import { SyllabusFrame } from "./syllabus-frame";
+import { withRecords } from "../../platform/records";
 
 /**
  * The Timetable's planning panel. A timetable course and a search result open
@@ -102,7 +103,7 @@ function OfficialLink({
  * A timetable course. Removing lives only here, at the bottom, so it always
  * takes two clicks.
  */
-export function CoursePanel({
+function CoursePanelBody({
   course,
   data,
   readOnly,
@@ -360,3 +361,19 @@ export function OfferingPanel({
     </PlanningPanel>
   );
 }
+
+/** CoursePanel with the records it shows (`platform/records`). */
+export const CoursePanel = withRecords(
+  [
+    "assignments",
+    "courses",
+    "materials",
+    "events",
+    "plans",
+    "memberships",
+    "planItems",
+    "intensiveSchedules",
+    "academicProfile",
+  ],
+  CoursePanelBody,
+);

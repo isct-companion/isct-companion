@@ -47,9 +47,18 @@ impl core::SecretVault for Vault {
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum BrowserAction {
-    Navigate { url: String },
+    Navigate {
+        url: String,
+    },
     Reload,
-    Evaluate { script: String },
+    Evaluate {
+        script: String,
+    },
+    /// Stop loading, evaluate `script`, then confirm with
+    /// `BrowserEvents::stopped` once the script has run.
+    Stop {
+        script: String,
+    },
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct BrowserCommand {
@@ -172,6 +181,12 @@ impl BrowserEvents {
         self.listener()?.closed(project_input(browser)?);
         Ok(())
     }
+    /// `page` is the last page the view had reported when it stopped.
+    pub fn stopped(&self, page: PageId, action_id: u64) -> Result<(), SdkError> {
+        self.listener()?
+            .stopped(project_input(page)?, browser::ActionId(action_id));
+        Ok(())
+    }
 }
 pub(crate) struct Browser {
     native: Arc<dyn NativeBrowser>,
@@ -216,6 +231,9 @@ impl browser::SchoolBrowser for Browser {
             browser::BrowserAction::Navigate(url) => BrowserAction::Navigate { url: url.into() },
             browser::BrowserAction::Reload => BrowserAction::Reload,
             browser::BrowserAction::Eval(script) => BrowserAction::Evaluate { script },
+            browser::BrowserAction::Stop => BrowserAction::Stop {
+                script: browser::SCHOOL_STOP.to_owned(),
+            },
         };
         self.native
             .dispatch(BrowserCommand {
@@ -483,9 +501,7 @@ impl DriveAuth {
                             secret: None,
                         },
                     )
-                    .map_err(|e| SdkError::Internal {
-                        detail: e.to_string(),
-                    })?,
+                    .map_err(|e| crate::error::coded(&e))?,
                     web,
                 })
             }
@@ -503,9 +519,7 @@ impl DriveAuth {
                 .map(|saved| saved.as_deref() == Some(DRIVE_CONNECTED))
                 .map_err(|e| DocumentError::Transport(e.to_string())),
         };
-        saved.map_err(|e| SdkError::Storage {
-            detail: e.to_string(),
-        })
+        saved.map_err(|e| crate::error::coded(&e))
     }
     /// The interactive sign-in behind turning Drive on.
     pub(crate) async fn connect(&self) -> Result<(), SdkError> {
@@ -514,9 +528,7 @@ impl DriveAuth {
                 let client = web.google_client();
                 let pending = pkce
                     .begin(&client.client_id, &client.redirect_uri)
-                    .map_err(|e| SdkError::InvalidInput {
-                        detail: e.to_string(),
-                    })?;
+                    .map_err(|e| crate::error::coded(&e))?;
                 let scheme = Url::parse(&client.redirect_uri)
                     .map_err(|e| SdkError::InvalidInput {
                         detail: e.to_string(),
@@ -526,17 +538,12 @@ impl DriveAuth {
                 let callback = web.authenticate(pending.url.clone(), scheme).await?;
                 pkce.finish(&client.client_id, &pending, &callback)
                     .await
-                    .map_err(|e| SdkError::Authentication {
-                        detail: e.to_string(),
-                    })
+                    .map_err(|e| crate::error::coded(&e))
             }
             Self::Tokens { tokens, vault } => {
                 tokens.access_token(SCOPE.into(), true).await?;
-                core::SecretVault::store(vault, VAULT_ACCOUNT, DRIVE_CONNECTED).map_err(|e| {
-                    SdkError::Storage {
-                        detail: e.to_string(),
-                    }
-                })
+                core::SecretVault::store(vault, VAULT_ACCOUNT, DRIVE_CONNECTED)
+                    .map_err(|e| crate::error::coded(&e))
             }
         }
     }
@@ -593,9 +600,7 @@ pub(crate) fn cloud_stores(
     if let Some(drive) = drive {
         stores = stores.with(
             app_core::cloud_sync::CloudProvider::GoogleDrive,
-            GoogleDrive::new(SharedDrive(drive)).map_err(|e| SdkError::Internal {
-                detail: e.to_string(),
-            })?,
+            GoogleDrive::new(SharedDrive(drive)).map_err(|e| crate::error::coded(&e))?,
         );
     }
     Ok(DocumentCloud::new(stores, name))

@@ -1,10 +1,11 @@
 //! Backup command adapters and native file dialogs.
 use crate::{cloud_sync, data, lms_files, require_local_main};
+use crate::{coded, shell, CommandError};
 use app_core::backup::BackupService;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
-pub(crate) fn service(app: &tauri::AppHandle) -> Result<BackupService, String> {
+pub(crate) fn service(app: &tauri::AppHandle) -> Result<BackupService, CommandError> {
     Ok(BackupService::new(
         app.state::<data::DataStore>().inner().clone(),
         lms_files::notes(app)?,
@@ -15,13 +16,13 @@ pub(crate) fn service(app: &tauri::AppHandle) -> Result<BackupService, String> {
 pub(crate) async fn export_data(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     require_local_main(&webview)?;
     let backup = service(&app)?;
     // A slow notes volume must not hold the workspace database command gate.
-    tauri::async_runtime::spawn_blocking(move || backup.export().map_err(|error| error.to_string()))
+    tauri::async_runtime::spawn_blocking(move || backup.export().map_err(coded))
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(shell)?
 }
 
 /// Saves a file the person exported (calendar, backup) where they choose.
@@ -33,7 +34,7 @@ pub(crate) async fn save_file(
     app: tauri::AppHandle,
     name: String,
     contents: String,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     if name.trim().is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
         return Err("invalid file name".into());
@@ -41,7 +42,7 @@ pub(crate) async fn save_file(
     if contents.len() > 64 * 1024 * 1024 {
         return Err("file exceeds the 64 MiB limit".into());
     }
-    tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<bool, CommandError> {
         let mut dialog = app.dialog().file().set_file_name(&name);
         if let Some((_, extension)) = name.rsplit_once('.') {
             dialog = dialog.add_filter(extension.to_uppercase(), &[extension]);
@@ -49,24 +50,24 @@ pub(crate) async fn save_file(
         let Some(chosen) = dialog.blocking_save_file() else {
             return Ok(false);
         };
-        let path = chosen.into_path().map_err(|e| e.to_string())?;
-        std::fs::write(path, contents).map_err(|e| e.to_string())?;
+        let path = chosen.into_path().map_err(shell)?;
+        std::fs::write(path, contents).map_err(shell)?;
         Ok(true)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(shell)?
 }
 
-pub(crate) fn write_scheduled_export_inner(app: &tauri::AppHandle) -> Result<String, String> {
+pub(crate) fn write_scheduled_export_inner(app: &tauri::AppHandle) -> Result<String, CommandError> {
     service(app)?
         .write_scheduled(
             &app.path()
                 .app_data_dir()
-                .map_err(|error| error.to_string())?
+                .map_err(shell)?
                 .join("scheduled-exports"),
         )
         .map(|path| path.display().to_string())
-        .map_err(|error| error.to_string())
+        .map_err(coded)
 }
 
 #[tauri::command]
@@ -74,13 +75,12 @@ pub(crate) async fn import_data(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     document: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<(), CommandError> {
     require_local_main(&webview)?;
-    let parsed = data::parse_import(&document).map_err(|error| error.to_string())?;
+    let parsed = data::parse_import(&document).map_err(coded)?;
+    // The restore's own commit tells the window what to query again.
     app.state::<cloud_sync::CloudSync>()
         .restore_document(&app, &parsed)
-        .await?;
-    app.state::<data::DataStore>()
-        .load_workspace()
-        .map_err(|error| error.to_string())
+        .await
+        .map(|_| ())
 }

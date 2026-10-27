@@ -1,5 +1,5 @@
 use super::*;
-use crate::workspace::{WorkspaceIntent, WorkspaceMutation, WorkspaceSnapshot};
+use crate::workspace::{tests::ReadBack, WorkspaceIntent, WorkspaceMutation};
 use crate::{
     agent::AgentPolicy,
     cloud_sync::{
@@ -223,6 +223,8 @@ type Published = (WorkspaceChangeSource, Option<String>, Vec<WorkspaceChange>);
 #[derive(Default)]
 struct WorkspaceEvents {
     changes: Mutex<Vec<Published>>,
+    /// The `seq` of each published event, in order.
+    seqs: Mutex<Vec<u64>>,
     fail: AtomicBool,
 }
 
@@ -249,8 +251,10 @@ impl EventSink for WorkspaceEvents {
             source,
             revision,
             changes,
+            seq,
         } = event
         {
+            self.seqs.lock().unwrap().push(seq);
             self.changes
                 .lock()
                 .unwrap()
@@ -358,8 +362,8 @@ fn admission_year(
     core: &Core,
     expected_revision: String,
     year: i32,
-) -> Result<WorkspaceSnapshot, WorkspaceError> {
-    core.workspace.mutate(WorkspaceMutation {
+) -> Result<ReadBack, WorkspaceError> {
+    core.workspace.apply(WorkspaceMutation {
         expected_revision,
         intent: WorkspaceIntent::SetAdmissionYear {
             admission_year: Some(year),
@@ -382,9 +386,15 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
         events.clone(),
     );
     let changes = || events.published();
+    let query_seq = || {
+        core.schedule_query(vec![crate::schedule::WorkspaceQuery::TeachingPeriods])
+            .unwrap()
+            .seq
+    };
+    let before = query_seq();
 
     let committed =
-        admission_year(&core, core.workspace.snapshot().unwrap().revision, 2026).unwrap();
+        admission_year(&core, core.workspace.read_back().unwrap().revision, 2026).unwrap();
     let [(source, revision, names)] = &changes()[..] else {
         panic!("one event per committed intent: {:?}", changes());
     };
@@ -396,14 +406,21 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
         )
     );
     assert!(names.contains(&WorkspaceChange::Settings), "{names:?}");
+    // The event names the commit's sequence: an answer read before it is
+    // older, one read after it is not.
+    let heard = events.seqs.lock().unwrap()[0];
+    assert!(before < heard, "{before} < {heard}");
+    assert_eq!(query_seq(), heard);
 
-    // A rejected intent and one that changes no row publish nothing.
+    // A rejected intent and one that changes no row publish nothing and
+    // leave the sequence where it was.
     assert!(matches!(
         admission_year(&core, "stale".into(), 2025),
         Err(WorkspaceError::Conflict(_))
     ));
     admission_year(&core, committed.revision.clone(), 2026).unwrap();
     assert_eq!(changes().len(), 1);
+    assert_eq!(query_seq(), heard);
 
     // An MCP tool writes outside WorkspaceService and is still published,
     // at once: it is the first background change.
@@ -421,7 +438,7 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
 
     // A failed delivery neither fails nor undoes the committed write.
     events.fail.store(true, Ordering::Relaxed);
-    let after = admission_year(&core, core.workspace.snapshot().unwrap().revision, 2027).unwrap();
+    let after = admission_year(&core, core.workspace.read_back().unwrap().revision, 2027).unwrap();
     assert_eq!(after.workspace["academicProfile"]["admissionYear"], 2027);
     assert_eq!(changes().len(), 3);
 }
@@ -556,21 +573,33 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
 }
 
 /// A sync commits key after key. The shell hears the first commit at once
-/// and the rest of its window merged, each event naming what changed; the
-/// records those names read back cover every field the commits changed,
-/// without the rest of the workspace.
+/// and the rest of its window merged, each event naming what changed; those
+/// names feed every field the commits changed.
 #[test]
 fn background_commits_reach_shells_merged_with_the_records_they_changed() {
     use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
     use WorkspaceChangeSource::SchoolPull;
     let store = store("background-writes");
     let events = Arc::new(WorkspaceEvents::default());
-    let core = Core::with_events(
+    // Held so the store's commits reach `events`.
+    let _core = Core::with_events(
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
         events.clone(),
     );
-    let before = core.workspace.snapshot().unwrap();
+    // Every workspace field with the sync records, as one view reads them.
+    let whole = || {
+        let mut whole = serde_json::Value::clone(&store.load_reads().unwrap().0);
+        let sync = store
+            .view(&["freshness", "pageAvailability"].into_iter().collect())
+            .unwrap()
+            .0;
+        for field in ["freshness", "pageAvailability"] {
+            whole[field] = sync[field].clone();
+        }
+        whole
+    };
+    let before = whole();
     let renew = |transaction: &rusqlite::Transaction<'_>, at: &str| {
         sync_state::commit(
             transaction,
@@ -624,37 +653,29 @@ fn background_commits_reach_shells_merged_with_the_records_they_changed() {
         )
     );
 
-    let after = core.workspace.snapshot().unwrap();
-    let patch = core
-        .workspace_records(&[WorkspaceChange::Registrations, WorkspaceChange::Freshness])
-        .unwrap();
-    assert_eq!(patch.content_revision, after.content_revision);
-    for (part, old, new, patched) in [
-        (
-            "workspace",
-            &before.workspace,
-            &after.workspace,
-            &patch.workspace,
-        ),
-        (
-            "schoolRecords",
-            &before.school_records,
-            &after.school_records,
-            &patch.school_records,
-        ),
-    ] {
-        for (field, value) in new.as_object().unwrap() {
-            if old.get(field) != Some(value) {
-                assert_eq!(
-                    patched.get(field),
-                    Some(value),
-                    "{part}.{field} not patched"
-                );
-            }
+    // Every field the commits changed is fed by a change they named, so a
+    // shell that re-queries what reads those names misses none of it.
+    let after = whole();
+    let heard: Vec<WorkspaceChange> = events
+        .published()
+        .into_iter()
+        .flat_map(|(_, _, names)| names)
+        .collect();
+    for (field, value) in after.as_object().unwrap() {
+        if before.get(field) != Some(value) {
+            assert!(
+                crate::workspace_changes::feeding(std::slice::from_ref(field))
+                    .iter()
+                    .any(|change| heard.contains(change)),
+                "{field} changed, but no heard change feeds it"
+            );
         }
     }
-    assert_eq!(patch.school_records["registrations"][0]["code"], "CSC.T251");
-    assert!(patch.workspace.get("settings").is_none());
+    assert_eq!(after["registrations"][0]["code"], "CSC.T251");
+    assert!(after["freshness"]
+        .as_object()
+        .unwrap()
+        .contains_key("lms.deadlines/all"));
 }
 
 /// Cloud capture follows local changes without a shell asking for it: a
@@ -700,7 +721,7 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
 
     assert!(wake());
     settle(&wake).await;
-    admission_year(&core, core.workspace.snapshot().unwrap().revision, 2026).unwrap();
+    admission_year(&core, core.workspace.read_back().unwrap().revision, 2026).unwrap();
     assert!(captures(&wake).await);
 
     settle(&wake).await;
@@ -720,4 +741,172 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
 
     core.shutdown().await;
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// A store filled the way the app fills one: an LMS read with its outline
+/// and deadlines, a catalog download, the quarter's calendar, and the
+/// person's plans, events, exceptions, a placed course and a session mark.
+fn seeded_store(name: &str) -> DataStore {
+    use adpt_isct::lms::{validate_course, validate_deadlines, validate_enrolment, LmsDeadlines};
+    let store = store(name);
+    let enrolment = validate_enrolment(json!({
+        "language":"en",
+        "courses":[
+            {"id":42,"fullname":"演習 / Exercise","shortname":"SYN.T001[2026]","idnumber":"202602440",
+             "coursecategory":"3","viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=42","hidden":false},
+            {"id":43,"fullname":"講義 / Lecture","shortname":"SYN.T002[2026]","idnumber":"",
+             "coursecategory":"3","viewurl":"https://lms.s.isct.ac.jp/2025/course/view.php?id=43","hidden":false}
+        ],
+        "timetables":[{"year":2026,"quarter":"3","slots":[
+            {"courseId":42,"day":1,"period":1},{"courseId":42,"day":1,"period":2},
+            {"courseId":43,"day":3,"period":5},{"courseId":43,"day":3,"period":6}],"unscheduled":[]}]
+    }))
+    .unwrap();
+    let outline = validate_course(
+        42,
+        json!({"section":[{"id":"7","title":"Week 1","number":1}],"cm":[
+            {"id":"1001","sectionid":"7","module":"assign","name":"Report","visible":true,"uservisible":true,
+             "url":"https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=1001"},
+            {"id":"1002","sectionid":"7","module":"resource","name":"Handout","visible":true,"uservisible":true,
+             "url":"https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=1002"}]}),
+    )
+    .unwrap();
+    let deadlines = validate_deadlines(LmsDeadlines {
+        action_events: vec![json!({"instance":1001,"modulename":"assign","course":{"id":42},
+            "timesort":1791900000,"url":"https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=1001"})],
+        dated_events: vec![json!({"instance":1001,"modulename":"assign","course":{"id":42},
+            "eventtype":"due","timesort":1791900000})],
+    })
+    .unwrap();
+    store
+        .write(Some(WorkspaceChangeSource::SchoolPull), |tx| {
+            let now = chrono::Utc::now();
+            crate::lms_ingest::apply_lms_enrolment(tx, &enrolment, "science:student", now)?;
+            crate::lms_ingest::apply_lms_course(tx, &outline, "science:student", now)?;
+            crate::lms_ingest::apply_lms_deadlines(tx, &deadlines, "science:student", now)?;
+            for (id, date, kind) in [
+                ("calendar:2026:quarter-start:3Q", "2026-09-28", "quarter-start"),
+                ("calendar:2026:quarter-end:3Q", "2026-12-02", "quarter-end"),
+            ] {
+                let value = json!({"id":id,"academicYear":2026,"quarter":"3Q","date":date,"type":kind,
+                    "label":{"en":kind},"rev":1,"updatedAt":"2026-09-01T00:00:00Z","updatedBy":"reference"});
+                tx.execute(
+                    "INSERT INTO academic_calendar(id,value,hash,updated_at,updated_by,rev)
+                     VALUES (?1,?2,'seed','2026-09-01T00:00:00Z','reference',1)",
+                    rusqlite::params![id, value.to_string()],
+                )
+                .map_err(crate::data::DataError::from)?;
+            }
+            Ok::<_, crate::lms_ingest::IngestError>(())
+        })
+        .unwrap();
+    store
+        .catalog_upsert_offerings(&[json!({
+            "id":"202602440", "year":2026, "quarters":["3Q"], "code":"SYN.T001",
+            "title":{"en":"Exercise","ja":"演習"}, "instructors":[],
+            "credits":{"lecture":1,"exercise":1,"lab":0}, "instructionLanguage":"ja",
+            "format":{"kinds":["exercise"]}, "media":{}, "academicUnit":{}, "intensive":false,
+            "fetchedAt":{}, "schedule":[{"kind":"weekly","day":1,"periods":[1,2],"room":{"en":"W1"}}],
+            "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202602440"
+        })])
+        .unwrap();
+    let course = store.load_workspace().unwrap()["courses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|course| course["lmsCourseId"] == 42)
+        .unwrap()["id"]
+        .clone();
+    for (table, value) in [
+        (
+            "plans",
+            json!({"title":"Gym","start":"2026-10-06T07:00:00+09:00","duration":60,"exdates":[],"rrule":"FREQ=WEEKLY"}),
+        ),
+        (
+            "personal_events",
+            json!({"kind":"event","termId":"2026-3Q","title":"Club","room":"",
+            "date":"2026-10-07","startTime":"18:00","endTime":"19:00","blocking":true}),
+        ),
+        (
+            "calendar_exceptions",
+            json!({"date":"2026-10-14","type":"no-class","label":"Trip"}),
+        ),
+        (
+            "schedule_overrides",
+            json!({"targetKey":format!("{}-weekly-0-2026-10-05", course.as_str().unwrap()),
+            "targetKind":"course","courseId":course,"hidden":false,"mark":"cancelled"}),
+        ),
+    ] {
+        store.put_user_record(table, value).unwrap();
+    }
+    store
+}
+
+/// Queries read only the tables their reads name (`DataStore::view`); each
+/// answer must be the one the whole workspace gives.
+#[test]
+fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
+    let store = seeded_store("views");
+    let core = Core::new(
+        store.clone(),
+        Arc::new(SchoolAuthService::new(MemoryVault::default())),
+    );
+    let snapshot = core.workspace.read_back().unwrap();
+    let course = snapshot.workspace["courses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|course| course["lmsCourseId"] == 42)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(snapshot.workspace["materials"]
+        .as_array()
+        .is_some_and(|rows| !rows.is_empty()));
+    let now = "2026-10-05T09:00:00+09:00";
+    let queries = [
+        json!({"kind":"teachingPeriods"}),
+        json!({"kind":"timetableAxis"}),
+        json!({"kind":"workspaceOverview","term":"2026-3Q"}),
+        json!({"kind":"subscriptionViews"}),
+        json!({"kind":"planningWeek","term":"2026-3Q"}),
+        json!({"kind":"academicYears","date":"2026-10-05","selectedYear":2026}),
+        json!({"kind":"courseTimeline","courseId":course,"now":now}),
+        json!({"kind":"taskView","now":now}),
+        json!({"kind":"today","now":now}),
+        json!({"kind":"today","now":"2026-10-14T12:00:00+09:00"}),
+        json!({"kind":"assignmentBoard","now":now}),
+        json!({"kind":"courseDetail","courseId":course}),
+        json!({"kind":"courseContent","courseId":course,"now":now}),
+        json!({"kind":"assignmentDetail","assignmentId":"lms-assignment:1001"}),
+        json!({"kind":"lectureSearch","term":"2026-3Q","query":"handout"}),
+        json!({"kind":"scheduleView","term":"2026-3Q","from":"2026-09-28","to":"2026-10-25"}),
+        json!({"kind":"dayAgenda","term":"2026-3Q","date":"2026-10-05"}),
+        json!({"kind":"calendarState","date":"2026-10-14"}),
+        json!({"kind":"quarterRange","term":"2026-3Q"}),
+        json!({"kind":"scheduledCourses","term":"2026-3Q"}),
+        json!({"kind":"academicYear","year":2026}),
+        json!({"kind":"timetableYear","year":2026}),
+        json!({"kind":"quarterIcs","term":"2026-3Q","generatedAt":now}),
+        json!({"kind":"declaredCredits","term":"2026-3Q"}),
+        json!({"kind":"intensiveDays","from":"2026-10-01","to":"2026-10-31","periods":[1,2]}),
+        json!({"kind":"glance","now":now}),
+        json!({"kind":"notificationPlan","now":now,"horizon":"2026-10-12T09:00:00+09:00"}),
+        json!({"kind":"classGroups","today":"2026-10-05"}),
+    ];
+    for raw in queries {
+        let request: crate::schedule::WorkspaceQuery = serde_json::from_value(raw).unwrap();
+        let whole = serde_json::to_value(
+            crate::schedule::query(&snapshot.workspace, &snapshot.school, request.clone()).unwrap(),
+        )
+        .unwrap();
+        let viewed = core.schedule_query(vec![request.clone()]).unwrap();
+        assert_eq!(
+            serde_json::to_value(&viewed.values[0]).unwrap(),
+            whole,
+            "{request:?}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(store.directory());
 }

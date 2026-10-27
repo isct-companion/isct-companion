@@ -25,6 +25,7 @@ pub mod course_query;
 pub mod data;
 pub mod diagnostics;
 pub mod downloads;
+pub mod error_code;
 pub mod events;
 pub mod kyomu_guide;
 pub mod kyomu_ingest;

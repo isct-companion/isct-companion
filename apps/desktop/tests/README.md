@@ -132,8 +132,8 @@ const core = installFakeCore({
 });
 core.calls                        // every command sent, in order
 core.intents                      // every accepted intent, in order
-core.emit("workspace-changed", { source: "school-pull", changes: ["courses"] });
-                                  // the shell patches through `workspace_records`
+core.emit("workspace-changed", { source: "school-pull", changes: ["courses"], seq: 1 });
+                                  // the shell re-queries what reads those changes
 ```
 
 Answer read models from `core.workspace` rather than closing over a literal, or

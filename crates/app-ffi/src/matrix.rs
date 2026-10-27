@@ -94,15 +94,7 @@ impl From<MatrixCameraSnapshot> for MatrixCameraState {
 }
 #[cfg(feature = "ocr")]
 pub(crate) fn scan_error(e: MatrixScanError) -> SdkError {
-    match e {
-        MatrixScanError::Ended => SdkError::Cancelled,
-        MatrixScanError::InvalidFrame(_) | MatrixScanError::Unreadable(_) => {
-            SdkError::InvalidInput {
-                detail: e.to_string(),
-            }
-        }
-        MatrixScanError::Backend(detail) => SdkError::Unavailable { detail },
-    }
+    crate::error::coded(&e)
 }
 
 /// One camera session. Its OCR consumer runs on its own thread from

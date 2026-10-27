@@ -13,6 +13,7 @@ import {
   official,
 } from "../../app/native";
 import { errorText, type Platform } from "../../app/shared";
+import { withRecords } from "../../platform/records";
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -28,7 +29,7 @@ const normalizeAddress = (raw: string) => {
   return url.toString();
 };
 
-export function Web({
+function WebBody({
   platform,
   data,
   update,
@@ -566,3 +567,6 @@ export function Web({
     </div>
   );
 }
+
+/** Web with the records it shows (`platform/records`). */
+export const Web = withRecords([], WebBody);

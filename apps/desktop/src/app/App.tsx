@@ -20,8 +20,7 @@ import {
 } from "../platform/core-query";
 import { useFinder } from "../pages/courses/useFinder";
 import type { FinderRowView } from "../platform/finder-query";
-import { contentLanguage, pickLocalized } from "../lib/model";
-import { decodeEntities } from "../lib/text";
+import { contentLanguage } from "../lib/model";
 import { Notifications } from "./notifications";
 import {
   createHashRouter,
@@ -98,6 +97,8 @@ import type {
   Workspace,
 } from "../lib/model";
 import { tokyoDate } from "../lib/civil-date";
+import { errorCode } from "../platform/native-error";
+import { useRecords } from "../platform/records";
 import { ClassGroupPrompt } from "../pages/courses/ClassGroupPicker";
 import type { WorkspaceIntent } from "../lib/workspace-intents";
 
@@ -150,13 +151,36 @@ const icons: Record<Page, React.ReactElement> = {
   ),
 };
 
+/** What the shell itself renders: course names and colours, the editors it
+ * opens, sync and import state, and the school records its status line
+ * shows. */
+const SHELL_RECORDS = [
+  "courses",
+  "memberships",
+  "plans",
+  "events",
+  "intensiveSchedules",
+  "assignments",
+  "gpaSummary",
+  "importStatus",
+  "syncStatus",
+  "academicProfile",
+  "lmsCourses",
+  "freshness",
+  "pageAvailability",
+] as const;
+
 export function WorkspaceApp() {
   useTranslation();
   const wideHome = useMediaQuery("(min-width: 1001px)");
   const scienceSession = useSchoolSession(desktopBridge, "science");
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
-  const store = useWorkspace((state) => state);
-  const sourceData = store.workspace;
+  // The shell reads only the records it renders itself; each page asks
+  // Core for its own (`platform/records`).
+  const storeReady = useWorkspace((state) => state.status === "ready");
+  const storeError = useWorkspace((state) => state.error);
+  const data = useRecords(SHELL_RECORDS, storeReady);
+  const sourceData = data;
   useDesktopUpdates(
     Boolean(sourceData),
     sourceData?.settings.automaticAppUpdates,
@@ -165,31 +189,6 @@ export function WorkspaceApp() {
     { kind: "workspaceOverview", term: "" },
     Boolean(sourceData),
   );
-  const data = sourceData
-    ? {
-        ...sourceData,
-        courses: sourceData.courses.map((course) => ({
-          ...course,
-          color: overview.value?.colors[course.id] ?? course.color,
-          title:
-            course.overrides?.title ??
-            decodeEntities(
-              pickLocalized(
-                course.names?.title,
-                contentLanguage(sourceData.settings),
-                course.title,
-              ),
-            ),
-          instructor:
-            course.overrides?.instructor ??
-            pickLocalized(
-              course.names?.instructor,
-              contentLanguage(sourceData.settings),
-              course.instructor,
-            ),
-        })),
-      }
-    : undefined;
   const [lectureRailHovered, setLectureRailHovered] = useState(false);
   // Today's "All assignments" asks Lecture Desk for the quarter's list.
   const [assignmentsRequest, setAssignmentsRequest] = useState<number>();
@@ -341,12 +340,7 @@ export function WorkspaceApp() {
     } catch (error) {
       if (otpSetupRequest.current !== request) return;
       otpSetupRequest.current = null;
-      if (!(
-        error &&
-        typeof error === "object" &&
-        "kind" in error &&
-        error.kind === "cancelled"
-      ))
+      if (errorCode(error) !== "cancelled")
         notify.error(
           t("Could not finish OTP setup. Check the school page and try again."),
         );
@@ -469,7 +463,7 @@ export function WorkspaceApp() {
   const [offeringPanel, setOfferingPanel] = useState<FinderRowView | null>(
     null,
   );
-  const schoolRecords = useWorkspace((state) => state.schoolRecords);
+  const schoolRecords = data;
   const sync = useSync();
   // Pages only render Core's runs; the planner decides what is read.
   const kyomuProgress = pageProgress(runsFor(sync, ["kyomu"]));
@@ -502,9 +496,9 @@ export function WorkspaceApp() {
     useWorkspaceRuntime(sourceData);
   useAppearance(data);
   useEffect(() => {
-    if (store.error && sourceData)
-      notify.error(store.error, () => void workspaceStore.reload());
-  }, [store.error, Boolean(sourceData)]);
+    if (storeError && sourceData)
+      notify.error(storeError, () => void workspaceStore.reload());
+  }, [storeError, Boolean(sourceData)]);
   useEffect(() => {
     if (pageRef.current !== "web" && !params.courseId)
       void hideNativeSchoolWeb().catch(notify.error);
@@ -581,13 +575,11 @@ export function WorkspaceApp() {
   if (!data || !overview.value)
     return (
       <div className="loading">
-        {t(store.error ?? overview.error ?? "Opening your workspace…")}
-        {(store.error || overview.error) && (
+        {t(storeError ?? overview.error ?? "Opening your workspace…")}
+        {(storeError || overview.error) && (
           <UiButton
             onClick={() =>
-              store.error
-                ? void workspaceStore.initialize()
-                : overview.retry?.()
+              storeError ? void workspaceStore.initialize() : overview.retry?.()
             }
           >
             {t("Retry")}
@@ -828,7 +820,6 @@ export function WorkspaceApp() {
   const lecturesPage = (
     <LectureDesk
       railHovered={lectureRailHovered}
-      data={data}
       term={todayTerm}
       examEntry={renderedRoutes.current.examEntry}
       selectExam={openExam}
@@ -865,7 +856,6 @@ export function WorkspaceApp() {
           <Suspense fallback={<p role="status">{t("Loading…")}</p>}>
             <LmsWorkspace
               course={course}
-              data={data}
               record={record}
               entry={entry}
               active={active}
@@ -985,7 +975,6 @@ export function WorkspaceApp() {
         <div className="homeDay">
           <Today
             active={page === "home"}
-            data={data}
             term={todayTerm}
             openExam={openExam}
             open={(courseId, _tab, context) => openLecture(courseId, context)}
@@ -1022,7 +1011,6 @@ export function WorkspaceApp() {
             ‹ {t("Today")}
           </UiButton>
           <CalendarView
-            data={data}
             mark={
               readOnly
                 ? undefined
@@ -1120,7 +1108,6 @@ export function WorkspaceApp() {
             <CoursePanel
               key={panelCourse.id}
               course={panelCourse}
-              data={data}
               readOnly={readOnly}
               close={() => setPanelCourseId(null)}
               remove={() => void removeFromTimetable(panelCourse)}
@@ -1150,7 +1137,6 @@ export function WorkspaceApp() {
             />
           )
         }
-        data={data}
         currentTerm={currentTerm}
         term={courseTerm}
         overview={workspaceView}
@@ -1223,7 +1209,6 @@ export function WorkspaceApp() {
       key={webContext?.url ?? "web"}
       active={page === "web"}
       platform={platform}
-      data={data}
       update={update}
       notify={notify.info}
       schoolWebAvailable={nativeCapabilities?.schoolWeb === true}
@@ -1246,7 +1231,6 @@ export function WorkspaceApp() {
       otpSetupRevision={otpSetupRevision}
       mutate={workspaceActions.mutate}
       platform={platform}
-      data={data}
       update={update}
       advancedCalendarUpdate={advancedCalendarUpdate}
       caps={caps}

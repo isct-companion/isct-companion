@@ -136,7 +136,16 @@ impl ReminderService {
                         // A later import still merges into it.
                         write_fired(&fired_path, &BTreeMap::new())?;
                     }
-                    let (workspace, school) = store.load_reads()?;
+                    // Only what the notification plan reads.
+                    let fields = crate::workspace_changes::loaded_fields(
+                        super::WorkspaceQuery::NotificationPlan {
+                            now: String::new(),
+                            horizon: String::new(),
+                            locale: None,
+                        }
+                        .reads(),
+                    );
+                    let (workspace, school, _) = store.view(&fields)?;
                     let permission = workspace
                         .pointer("/settings/notifications/localPermission")
                         .and_then(Value::as_str)

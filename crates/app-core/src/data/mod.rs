@@ -2,18 +2,20 @@ mod backup_store;
 mod catalog_store;
 mod changes;
 mod connection;
+pub(crate) mod course_keys;
+mod course_merge;
 mod defaults;
 mod lms_store;
 mod records;
 mod reset_store;
 mod school_projection;
 mod settings;
-mod snapshot;
+mod views;
 
 pub use defaults::initial_workspace;
 use defaults::*;
 use records::*;
-pub(crate) use records::{canonical_course_id, lms_course_code, resolve_course_id};
+pub(crate) use records::{lms_course_code, offering_course_id, resolve_course_id};
 use settings::*;
 
 pub mod cloud_merge;
@@ -22,7 +24,7 @@ pub mod migrations;
 pub mod versioned;
 
 pub use changes::{CommitObserver, WorkspaceChangeSource};
-pub(crate) use connection::commit_on;
+pub(crate) use connection::{commit_on, commit_then};
 pub use error::DataError;
 
 use crate::contracts::{SchoolPageAvailability, SchoolPageAvailabilityState};
@@ -40,7 +42,6 @@ use uuid::Uuid;
 use versioned::{content_hash, VersionedValue};
 
 const COLLECTIONS: &[(&str, &str)] = &[
-    ("courses", "timetable_courses"),
     ("memberships", "memberships"),
     ("assignments", "assignments"),
     ("materials", "lms_items"),
@@ -308,22 +309,16 @@ fn put_user_record_in_transaction(
             .and_then(Value::as_str)
             .and_then(|term| term.get(..4))
             .and_then(|year| year.parse::<i32>().ok());
-        if let (Some(offering), Some(year)) = (offering, year) {
-            let source_provider = object
-                .get("source")
-                .and_then(|source| source.get("provider"))
-                .and_then(Value::as_str);
-            let provider = source_provider
-                .filter(|provider| matches!(*provider, "lms" | "kyomu"))
-                .unwrap_or("manual");
-            let external = object
-                .get("source")
-                .and_then(|source| source.get("externalId"))
+        if let Some(key) = offering
+            .zip(year)
+            .and_then(|(offering, year)| course_keys::offering_key(year, &offering))
+        {
+            // The course its offering already names, or this record's own id.
+            let own = object
+                .get("id")
                 .and_then(Value::as_str)
-                .unwrap_or(&offering)
-                .to_string();
-            let course_id =
-                resolve_course_id(transaction, provider, &external, year, Some(&offering))?;
+                .filter(|id| !id.is_empty());
+            let course_id = course_keys::resolve_or(transaction, &[key], own)?;
             object.insert("id".into(), Value::String(course_id));
         }
     }
@@ -376,6 +371,10 @@ fn put_user_record_in_transaction(
     let id = requested_id
         .or(overlay_id)
         .unwrap_or_else(|| Uuid::now_v7().to_string());
+    if table == "manual_courses" {
+        // Known everywhere by its own id (`course_keys`).
+        course_keys::resolve_or(transaction, &[course_keys::manual_key(&id)], Some(&id))?;
+    }
     let previous: Option<(String, i64)> = transaction
         .query_row(
             &format!("SELECT value, rev FROM {table} WHERE id=?1"),
@@ -533,6 +532,15 @@ pub(crate) struct WorkspaceWrite<'transaction, 'connection> {
 }
 
 impl WorkspaceWrite<'_, '_> {
+    /// The internal course id of a catalog offering (`course_keys`).
+    pub(crate) fn offering_course_id(
+        &self,
+        academic_year: i32,
+        offering_id: &str,
+    ) -> Result<String, DataError> {
+        offering_course_id(self.transaction, academic_year, offering_id)
+    }
+
     pub(crate) fn put(
         &self,
         table: &str,
@@ -755,18 +763,38 @@ fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
 /// from that row; a crash between cache.db and sync.db can keep a key's
 /// freshness without its rows, which then read stale until the key is read
 /// again. Readers may likewise see one file's commit before another's; the
-/// snapshot cache is keyed on every file's data version, so the next read
+/// view cache is keyed on every file's data version, so the next read
 /// shows all of them.
 #[derive(Clone)]
 pub struct DataStore {
     // Before `connections`: its read connection must close before the write
     // connection does (see `connection::Connections`).
-    snapshot_reader: Arc<Mutex<snapshot::SnapshotReader>>,
+    view_reader: Arc<Mutex<views::ViewReader>>,
     connections: Arc<connection::Connections>,
     observer: changes::Observer,
     /// Moves after every commit that changed `offerings`; catalog read
     /// caches key on it (see [`DataStore::catalog_version`]).
     catalog_version: Arc<AtomicU64>,
+    commit_seq: CommitSeq,
+}
+
+/// Counts this store's commits that changed rows, from 0 when it opened. It
+/// moves after the commit has landed, so a reader that reads it before the
+/// rows stamps them with a sequence no newer than what they hold: a query
+/// result carries the sequence read before its data, an event or a write's
+/// result the one read after its commit, and a shell drops a result older
+/// than the newest change it has heard of.
+#[derive(Clone, Default)]
+pub struct CommitSeq(Arc<AtomicU64>);
+
+impl CommitSeq {
+    pub fn get(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
+    }
+
+    fn advance(&self) {
+        self.0.fetch_add(1, Ordering::AcqRel);
+    }
 }
 
 impl DataStore {
@@ -781,12 +809,13 @@ impl DataStore {
         let split = migrations::migrate_legacy(&directory)?;
         let (connections, created) =
             connection::Connections::open(connection::Files::in_directory(directory))?;
-        let snapshot_reader = snapshot::SnapshotReader::new(connections.open_reader()?);
+        let view_reader = views::ViewReader::new(connections.open_reader()?);
         let store = Self {
             connections: Arc::new(connections),
-            snapshot_reader: Arc::new(Mutex::new(snapshot_reader)),
+            view_reader: Arc::new(Mutex::new(view_reader)),
             observer: changes::Observer::default(),
             catalog_version: Arc::default(),
+            commit_seq: CommitSeq::default(),
         };
         store.write(None, ensure_defaults_in)?;
         Ok((store, split || created))
@@ -847,7 +876,20 @@ impl DataStore {
         self.catalog_version.load(Ordering::Acquire)
     }
 
+    /// The sequence of the latest commit that changed rows (`CommitSeq`).
+    pub fn commit_seq(&self) -> u64 {
+        self.commit_seq.get()
+    }
+
+    /// A handle that reads `commit_seq` without holding the store.
+    pub(crate) fn commit_seq_handle(&self) -> CommitSeq {
+        self.commit_seq.clone()
+    }
+
     fn committed_tables(&self, tables: &BTreeSet<String>) {
+        if !tables.is_empty() {
+            self.commit_seq.advance();
+        }
         if tables.contains("offerings") {
             self.catalog_version.fetch_add(1, Ordering::AcqRel);
         }
@@ -935,7 +977,7 @@ impl DataStore {
             if !agent_access_enabled_in(transaction)? {
                 return Err(AgentWriteError::Disabled);
             }
-            let current = Self::load_workspace_from(transaction)?;
+            let current = Self::whole_view_from(transaction)?;
             let write = WorkspaceWrite {
                 transaction,
                 actor: source.actor(),

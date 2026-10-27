@@ -2,6 +2,8 @@
 //! their configuration placeholders; shells only run what Core hands them.
 
 pub const SCHOOL_LOGIN: &str = include_str!("../assets/school-login.js");
+/// Runs in a view whose attempt Core abandoned, before the view confirms the stop.
+pub const SCHOOL_STOP: &str = include_str!("../assets/school-stop.js");
 pub const SCHOOL_LINKS: &str = include_str!("../assets/school-links.js");
 pub const KYOMU_POPUP: &str = include_str!("../assets/kyomu-popup.js");
 /// Android injects this support shim, while the shared bytes remain owned by Core.

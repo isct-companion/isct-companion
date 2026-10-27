@@ -17,9 +17,10 @@ import {
 } from "../../lib/civil-date";
 import type { Workspace } from "../../lib/model";
 import { t } from "../../i18n";
+import { withRecords } from "../../platform/records";
 
 /** Date navigation is independent of the quarter used for course planning. */
-export function CalendarView({
+function CalendarViewBody({
   data,
   open,
   mark,
@@ -126,3 +127,20 @@ export function CalendarView({
     </section>
   );
 }
+
+/** CalendarView with the records it shows (`platform/records`). */
+export const CalendarView = withRecords(
+  [
+    "assignments",
+    "courses",
+    "events",
+    "plans",
+    "memberships",
+    "planItems",
+    "exceptions",
+    "scheduleOverrides",
+    "intensiveSchedules",
+    "academicProfile",
+  ],
+  CalendarViewBody,
+);

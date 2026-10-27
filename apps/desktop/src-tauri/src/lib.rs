@@ -12,6 +12,8 @@ mod agent_server;
 mod campus_wifi;
 mod cloud;
 mod cloud_sync;
+mod command_error;
+pub(crate) use command_error::{coded, shell, CommandError};
 mod commands;
 mod desktop_updates;
 pub use app_core::contracts;
@@ -62,7 +64,7 @@ fn window_material() -> Option<&'static str> {
     None
 }
 
-fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
+fn require_local_main(webview: &tauri::Webview) -> Result<(), CommandError> {
     if webview.label() != "main" {
         return Err("native commands are restricted to the local main webview".into());
     }
@@ -87,23 +89,23 @@ fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
 /// SQLite-backed commands run on a blocking thread so a slow query never stalls
 /// WebView frames on the main thread. They stay serialized with each other, as
 /// they were when Tauri ran them on the main thread.
-async fn run_data_command<T, F>(work: F) -> Result<T, String>
+async fn run_data_command<T, F>(work: F) -> Result<T, CommandError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, CommandError> + Send + 'static,
 {
     static DATA_COMMANDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
     run_blocking(Some(&DATA_COMMANDS), work).await
 }
 
-/// Read models Core answers from its pooled read connections, its snapshot
+/// Read models Core answers from its pooled read connections, its view
 /// cache and its own caches, all safe to share with a commit in progress.
 /// They run outside the data command lock, so a write such as adding a
 /// course never queues behind the searches typing sends.
-async fn run_read_command<T, F>(work: F) -> Result<T, String>
+async fn run_read_command<T, F>(work: F) -> Result<T, CommandError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, CommandError> + Send + 'static,
 {
     run_blocking(None, work).await
 }
@@ -111,10 +113,10 @@ where
 async fn run_blocking<T, F>(
     serialized: Option<&'static std::sync::Mutex<()>>,
     work: F,
-) -> Result<T, String>
+) -> Result<T, CommandError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, CommandError> + Send + 'static,
 {
     let queued_at = std::time::Instant::now();
     tauri::async_runtime::spawn_blocking(move || {
@@ -136,7 +138,7 @@ where
         result
     })
     .await
-    .map_err(|_| "The native data command stopped unexpectedly.".to_string())?
+    .map_err(|_| CommandError::from("The native data command stopped unexpectedly."))?
 }
 
 #[cfg(target_os = "macos")]
@@ -302,9 +304,7 @@ pub fn run() {
             commands::cloud::set_cloud_credential_sync_password,
             commands::cloud::sync_cloud_credentials,
             commands::cloud::clear_cloud_credential_sync_password,
-            commands::workspace::load_workspace,
-            commands::workspace::workspace_snapshot,
-            commands::workspace::workspace_records,
+            commands::workspace::workspace_revision,
             commands::read_models::schedule_query,
             commands::read_models::finder_query,
             commands::workspace::mutate_workspace,

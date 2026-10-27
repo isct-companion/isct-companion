@@ -39,7 +39,7 @@ impl ScheduledExporter for DesktopExport {
     fn export(&self) -> Result<(), ExportError> {
         crate::commands::backup::write_scheduled_export_inner(&self.0)
             .map(|_| ())
-            .map_err(ExportError::Failed)
+            .map_err(|error| ExportError::Failed(error.to_string()))
     }
 }
 

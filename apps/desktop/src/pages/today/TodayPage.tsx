@@ -28,13 +28,14 @@ import {
   type TaskView,
 } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
+import { withRecords } from "../../platform/records";
 
 const timeLabel = (value: string) => value.replace(/^0/, "");
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** Rows shown before a list folds behind "+N more". */
 const CLASS_ROWS = 6;
 const DUE_ROWS = 8;
-export function Today({
+export function TodayBody({
   data,
   term,
   open,
@@ -518,3 +519,21 @@ export function Today({
     </div>
   );
 }
+
+/** Today with the records it shows (`platform/records`). */
+export const Today = withRecords(
+  [
+    "assignments",
+    "courses",
+    "materials",
+    "events",
+    "plans",
+    "memberships",
+    "planItems",
+    "exceptions",
+    "scheduleOverrides",
+    "intensiveSchedules",
+    "academicProfile",
+  ],
+  TodayBody,
+);

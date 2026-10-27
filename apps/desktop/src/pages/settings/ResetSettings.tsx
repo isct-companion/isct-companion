@@ -1,5 +1,5 @@
 import { Checkbox, Radio } from "../../components/ui";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../platform/native-error";
 import { useEffect, useState } from "react";
 import { intlLocale, t } from "../../i18n";
 import { errorText } from "../../app/shared";
@@ -223,9 +223,7 @@ export function ResetSettings({
             disabled={resetting}
             label={t("settings.reset.caches.downloads")}
             description={t("settings.reset.caches.downloadsHint")}
-            onCheckedChange={(checked) =>
-              setDeleteDownloads(checked === true)
-            }
+            onCheckedChange={(checked) => setDeleteDownloads(checked === true)}
           />
         </>
       )}

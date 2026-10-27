@@ -156,22 +156,9 @@ pub(super) fn read_visible_rows(
     rows
 }
 
-pub(crate) fn canonical_course_id(
-    academic_year: i32,
-    offering_id: &str,
-) -> Result<String, DataError> {
-    if !(1000..=9999).contains(&academic_year)
-        || offering_id.len() != 9
-        || !offering_id.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return Err("course identity requires an academic year and 9-digit offering id".into());
-    }
-    Ok(format!("{academic_year}-{offering_id}"))
-}
-
-/// Resolve every school-facing identifier through one internal course id.
-/// Offering ids are authoritative; source-only courses keep a deterministic
-/// provider-scoped id until an offering becomes known.
+/// The internal course id of a school-facing source (`course_keys`): the
+/// course its offering id names when there is one, else the one its own key
+/// names, else a new one. Every key it names is kept for that course.
 pub(crate) fn resolve_course_id(
     transaction: &Transaction<'_>,
     provider: &str,
@@ -182,48 +169,30 @@ pub(crate) fn resolve_course_id(
     if !matches!(provider, "lms" | "kyomu" | "manual") || external_id.trim().is_empty() {
         return Err("invalid course identity source".into());
     }
-    let stored: Option<(String, Option<String>)> = transaction
-        .query_row(
-            "SELECT course_id, offering_id FROM course_identity_map
-             WHERE provider=?1 AND external_id=?2 AND academic_year=?3",
-            params![provider, external_id, academic_year],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()
-        .map_err(DataError::from)?;
-    let course_id = if let Some(offering_id) = offering_id {
-        canonical_course_id(academic_year, offering_id)?
-    } else if let Some((stored, _)) = &stored {
-        stored.clone()
-    } else {
-        format!("{academic_year}-{provider}-{external_id}")
+    let offering =
+        offering_id.and_then(|offering| course_keys::offering_key(academic_year, offering));
+    let source = match provider {
+        "lms" => Some(course_keys::lms_key(external_id)),
+        "kyomu" => Some(course_keys::kyomu_key(academic_year, external_id)),
+        // A course made on a device is known by its offering alone.
+        _ => None,
     };
-    // Every school read resolves its courses again; an unchanged identity is
-    // not written, so the read does not change user.db.
-    if stored.as_ref().is_some_and(|(stored, stored_offering)| {
-        *stored == course_id && stored_offering.as_deref() == offering_id
-    }) {
-        return Ok(course_id);
+    let keys: Vec<String> = offering.into_iter().chain(source).collect();
+    if keys.is_empty() {
+        return Err("course identity requires an academic year and 9-digit offering id".into());
     }
-    transaction
-        .execute(
-            "INSERT INTO course_identity_map
-             (provider,external_id,academic_year,course_id,offering_id,updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6)
-             ON CONFLICT(provider,external_id,academic_year) DO UPDATE SET
-               course_id=excluded.course_id,offering_id=excluded.offering_id,
-               updated_at=excluded.updated_at",
-            params![
-                provider,
-                external_id,
-                academic_year,
-                course_id,
-                offering_id,
-                now()
-            ],
-        )
-        .map_err(DataError::from)?;
-    Ok(course_id)
+    course_keys::resolve(transaction, &keys)
+}
+
+/// The internal course id of a catalog offering of `academic_year`.
+pub(crate) fn offering_course_id(
+    transaction: &Transaction<'_>,
+    academic_year: i32,
+    offering_id: &str,
+) -> Result<String, DataError> {
+    let key = course_keys::offering_key(academic_year, offering_id)
+        .unwrap_or_else(|| format!("catalog:{academic_year}:{offering_id}"));
+    course_keys::resolve(transaction, &[key])
 }
 
 type StoredRow = (String, u64, String, String, Option<String>, Option<String>);

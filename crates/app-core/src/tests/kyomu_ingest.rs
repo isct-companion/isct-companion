@@ -4,6 +4,19 @@ use uuid::Uuid;
 const ACCOUNT: &str = "tokyotech:student";
 const LMS_ACCOUNT: &str = "science:24B00001";
 
+/// The internal id of the workspace course whose `field` is `value`.
+fn course_with(workspace: &Value, field: &str, value: Value) -> String {
+    workspace["courses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|course| course[field] == value)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 fn page_state(store: &crate::data::DataStore, kind: &str) -> Option<sync_state::KeyState> {
     let connection = store.test_connection();
     sync_state::get(&connection, &Key::new(Dataset::KyomuPage, kind)).unwrap()
@@ -137,13 +150,18 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
         })
         .unwrap();
     let service = crate::workspace::WorkspaceService::new(store.clone());
+    let earlier = course_with(
+        &service.read_back().unwrap().workspace,
+        "offeringId",
+        json!("202600001"),
+    );
     let saved = service
-        .mutate(crate::workspace::WorkspaceMutation {
-            expected_revision: service.snapshot().unwrap().revision,
+        .apply(crate::workspace::WorkspaceMutation {
+            expected_revision: service.read_back().unwrap().revision,
             intent: crate::workspace::WorkspaceIntent::SaveCourse {
                 draft: json!({"title":"My course name","color":"#abcdef","onTimetable":true}),
                 term_id: "2026-1Q".into(),
-                existing_id: Some("2026-202600001".into()),
+                existing_id: Some(earlier.clone()),
             },
         })
         .unwrap();
@@ -152,7 +170,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
             .as_array()
             .unwrap()
             .iter()
-            .find(|c| c["id"] == "2026-202600001")
+            .find(|c| c["id"] == earlier.as_str())
             .unwrap()["overrides"]["title"],
         "My course name"
     );
@@ -296,7 +314,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     let workspace = store.load_workspace().unwrap();
     let first = crate::schedule::scheduled_courses(&workspace, "2026-1Q");
     assert_eq!(first.len(), 1);
-    assert_eq!(first[0]["id"], "2026-202600041");
+    assert_eq!(first[0]["offeringId"], "202600041");
     assert_eq!(first[0]["lmsCourseId"], 41);
     assert_eq!(first[0]["meetings"][0]["startTime"], "10:45");
     assert_eq!(first[0]["meetings"][0]["termIds"], json!(["2026-1Q"]));
@@ -316,23 +334,23 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     assert!(store.user_rows("manual_courses").unwrap().is_empty());
     assert!(store.user_rows("manual_memberships").unwrap().is_empty());
     let service = crate::workspace::WorkspaceService::new(store.clone());
-    let snapshot = service.snapshot().unwrap();
+    let snapshot = service.read_back().unwrap();
     service
-        .mutate(crate::workspace::WorkspaceMutation {
+        .apply(crate::workspace::WorkspaceMutation {
             expected_revision: snapshot.revision,
             intent: crate::workspace::WorkspaceIntent::SaveCourse {
                 draft: json!({"title":"My earlier course","color":"#abcdef","onTimetable":true}),
                 term_id: "2026-1Q".into(),
-                existing_id: Some("2026-202600041".into()),
+                existing_id: Some(course_with(&workspace, "lmsCourseId", json!(41))),
             },
         })
         .unwrap();
-    let snapshot = service.snapshot().unwrap();
+    let snapshot = service.read_back().unwrap();
     service
-        .mutate(crate::workspace::WorkspaceMutation {
+        .apply(crate::workspace::WorkspaceMutation {
             expected_revision: snapshot.revision,
             intent: crate::workspace::WorkspaceIntent::SetCourseOnTimetable {
-                course_id: "2026-lms-42".into(),
+                course_id: course_with(&workspace, "lmsCourseId", json!(42)),
                 on_timetable: false,
             },
         })
@@ -376,13 +394,16 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
         .write(None, |tx| apply_kyomu_payload(tx, &unavailable, ACCOUNT))
         .is_err());
     // Recorded instead, the page is current but unavailable and its rows
-    // stay; the snapshot shows both under the keys the shells read.
+    // stay; the views show both under the keys the shells read.
     store
         .write(None, |tx| {
             record_kyomu_unavailable(tx, &unavailable, ACCOUNT)
         })
         .unwrap();
-    let ((_, records, _, _), _) = store.workspace_snapshot().unwrap();
+    let records = store
+        .view(&["freshness", "pageAvailability"].into_iter().collect())
+        .unwrap()
+        .0;
     let availability = &records["pageAvailability"]["kyomu:registrations"];
     assert_eq!(availability["state"], "unavailable");
     assert_eq!(availability["message"], "Registration is closed");

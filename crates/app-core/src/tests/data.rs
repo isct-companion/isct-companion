@@ -417,8 +417,8 @@ fn seeing_a_recent_item_records_its_version_and_drops_entries_past_the_window() 
     transaction.commit().unwrap();
     let service = crate::workspace::WorkspaceService::new(store.clone());
     let mark = |id: &str| {
-        service.mutate(crate::workspace::WorkspaceMutation {
-            expected_revision: service.snapshot().unwrap().revision,
+        service.apply(crate::workspace::WorkspaceMutation {
+            expected_revision: service.revision().unwrap(),
             intent: crate::workspace::WorkspaceIntent::MarkRecentSeen {
                 list: crate::schedule::RecentKind::Grade,
                 id: id.into(),
@@ -440,27 +440,270 @@ fn seeing_a_recent_item_records_its_version_and_drops_entries_past_the_window() 
     assert!(mark("missing").is_err());
 }
 
+/// One internal id per course (`course_keys`). A source first seen without
+/// its offering id gets an id of its own; when a later record names that
+/// LMS course together with an offering another source already holds, the
+/// offering's course absorbs it in the same transaction: its keys, the local
+/// records that named it and the schedule overrides keyed on it move over,
+/// keeping their revisions, and the old id stays an alias.
 #[test]
-fn course_identity_is_shared_by_every_provider() {
+fn course_identity_is_shared_by_every_provider_and_merges_by_offering() {
     let store = store("course-identity");
     let mut connection = store.test_connection();
     let transaction = connection.transaction().unwrap();
-    let lms = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
-    let kyomu =
+    let early = resolve_course_id(&transaction, "lms", "42", 2026, None).unwrap();
+    assert!(Uuid::parse_str(&early).is_ok(), "{early}");
+    let record = |table: &str, id: &str, value: Value| {
+        upsert_row(
+            &transaction,
+            table,
+            &json!({"id": id, "rev": 3, "updatedAt": "2026-10-01T00:00:00Z", "updatedBy": "device-a"})
+                .as_object()
+                .unwrap()
+                .clone()
+                .into_iter()
+                .chain(value.as_object().unwrap().clone())
+                .collect::<serde_json::Map<_, _>>()
+                .into(),
+            true,
+        )
+        .unwrap();
+    };
+    record(
+        "plan_items",
+        "plan",
+        json!({"termId": "2026-3Q", "courseId": early}),
+    );
+    record(
+        "schedule_overrides",
+        "mark",
+        json!({"targetKey": format!("{early}-weekly-0-2026-10-05"), "courseId": early, "hidden": false}),
+    );
+    record(
+        "assignments",
+        "work",
+        json!({"courseId": early, "title": "Work"}),
+    );
+    let official =
         resolve_course_id(&transaction, "kyomu", "202602440", 2026, Some("202602440")).unwrap();
-    transaction.commit().unwrap();
-    assert_eq!(lms, "2026-202602440");
-    assert_eq!(kyomu, lms);
-    let rows: i64 = store
-        .open()
-        .unwrap()
+    assert_ne!(official, early);
+
+    // The LMS course's idnumber now names the offering 教務 already holds.
+    let merged = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
+    assert_eq!(merged, official);
+    for key in ["lms:42", "offering:2026:202602440", "kyomu:2026:202602440"] {
+        assert_eq!(
+            course_keys::lookup(&transaction, key).unwrap().as_deref(),
+            Some(official.as_str()),
+            "{key}"
+        );
+    }
+    assert_eq!(
+        course_keys::lookup(&transaction, &format!("internal:{early}")).unwrap(),
+        Some(official.clone())
+    );
+    let value = |table: &str, id: &str| -> (Value, i64) {
+        transaction
+            .query_row(
+                &format!("SELECT value, rev FROM {table} WHERE id=?1"),
+                [id],
+                |row| {
+                    Ok((
+                        serde_json::from_str(&row.get::<_, String>(0)?).unwrap(),
+                        row.get(1)?,
+                    ))
+                },
+            )
+            .unwrap()
+    };
+    assert_eq!(
+        value("plan_items", "plan"),
+        (value("plan_items", "plan").0, 3)
+    );
+    assert_eq!(value("plan_items", "plan").0["courseId"], official);
+    let (mark, _) = value("schedule_overrides", "mark");
+    assert_eq!(mark["courseId"], official);
+    assert_eq!(mark["targetKey"], format!("{official}-weekly-0-2026-10-05"));
+    let target: String = transaction
         .query_row(
-            "SELECT count(*) FROM course_identity_map WHERE course_id='2026-202602440'",
+            "SELECT target_key FROM schedule_overrides WHERE id='mark'",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(rows, 2);
+    assert_eq!(target, format!("{official}-weekly-0-2026-10-05"));
+    assert_eq!(value("assignments", "work").0["courseId"], official);
+
+    // Resolving known keys again changes nothing and keeps the id.
+    assert_eq!(
+        resolve_course_id(&transaction, "kyomu", "202602440", 2026, Some("202602440")).unwrap(),
+        official
+    );
+    transaction.commit().unwrap();
+    let _ = fs::remove_dir_all(store.directory());
+}
+
+/// Synced copies name courses by external key, never by the internal ids
+/// each device mints (`approach/synced-records-use-course-keys`). Another
+/// device maps a key it has not seen to a course of its own, which its school
+/// data joins under the same key; an id from before course keys reads as the
+/// key it was made from; and a copy read back is the copy that was sent.
+#[test]
+fn synced_copies_name_courses_by_external_key() {
+    let a = store("keys-sender");
+    let b = store("keys-receiver");
+    let mut connection = a.test_connection();
+    let transaction = connection.transaction().unwrap();
+    let course = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
+    transaction.commit().unwrap();
+    drop(connection);
+    a.put_user_record(
+        "plan_items",
+        json!({"kind":"plan-item","courseId":course,"termId":"2026-3Q","state":"planned"}),
+    )
+    .unwrap();
+    a.put_user_record(
+        "schedule_overrides",
+        json!({"targetKey":format!("{course}-weekly-0-2026-10-05"),"courseId":course,"hidden":true}),
+    )
+    .unwrap();
+    a.put_user_record(
+        "plan_items",
+        json!({"id":"legacy","kind":"plan-item","courseId":"2026-202600041","termId":"2026-1Q","state":"planned"}),
+    )
+    .unwrap();
+    let sent = a.export_document(json!([])).unwrap();
+    let plans = sent["tables"]["plan_items"].as_array().unwrap();
+    assert!(plans
+        .iter()
+        .any(|row| row["courseId"] == "offering:2026:202602440"));
+    let mark = &sent["tables"]["schedule_overrides"][0];
+    assert_eq!(mark["courseId"], "offering:2026:202602440");
+    assert_eq!(
+        mark["targetKey"],
+        "offering:2026:202602440-weekly-0-2026-10-05"
+    );
+
+    b.merge_cloud_data(&sent, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    let mut connection = b.test_connection();
+    let transaction = connection.transaction().unwrap();
+    let placeholder = course_keys::lookup(&transaction, "offering:2026:202602440")
+        .unwrap()
+        .unwrap();
+    assert_ne!(placeholder, course);
+    // The receiver's LMS read names the same offering and lands on that course.
+    assert_eq!(
+        resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap(),
+        placeholder
+    );
+    let legacy = course_keys::lookup(&transaction, "offering:2026:202600041")
+        .unwrap()
+        .unwrap();
+    transaction.commit().unwrap();
+    drop(connection);
+    let stored = b.user_rows("schedule_overrides").unwrap();
+    assert_eq!(stored[0]["courseId"], placeholder);
+    assert_eq!(
+        stored[0]["targetKey"],
+        format!("{placeholder}-weekly-0-2026-10-05")
+    );
+    assert!(b
+        .user_rows("plan_items")
+        .unwrap()
+        .iter()
+        .any(|row| row["id"] == "legacy" && row["courseId"] == legacy));
+
+    let returned = b.export_document(json!([])).unwrap();
+    for table in ["plan_items", "schedule_overrides"] {
+        let rows = |document: &Value| {
+            let mut rows = document["tables"][table].as_array().unwrap().clone();
+            rows.sort_by_key(|row| row["id"].to_string());
+            rows
+        };
+        let mut expected = rows(&sent);
+        for row in &mut expected {
+            if row["courseId"] == "2026-202600041" {
+                row["courseId"] = "offering:2026:202600041".into();
+            }
+        }
+        assert_eq!(rows(&returned), expected, "{table}");
+    }
+    let _ = fs::remove_dir_all(a.directory());
+    let _ = fs::remove_dir_all(b.directory());
+}
+
+/// Courses are merged when a source is written, never when read
+/// (`approach/derived-rows-in-write-transaction`). An LMS read merges its
+/// course; a catalog download of that course's offering merges it again
+/// although no LMS row changed; a write that changes no merged course
+/// commits no merged row, so it announces no course change.
+#[test]
+fn courses_merge_when_any_of_their_sources_is_written() {
+    let store = store("merge-on-write");
+    let heard = Arc::new(HeardCommits::default());
+    store.observe(heard.clone());
+    let enrolment: adpt_isct::lms::LmsEnrolment = serde_json::from_value(json!({
+        "language":"en",
+        "courses":[{"id":99,"idnumber":"202602431","shortname":"CSC.T273[2026]","fullname":"Compilers","coursecategory":3}],
+        "timetables":[{"term":"2026-3Q","meetings":{"99":[{"day":2,"periods":[3,4]}]},"unscheduled":[]}]
+    }))
+    .unwrap();
+    let ingest = || {
+        store
+            .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
+                crate::lms_ingest::apply_lms_enrolment(
+                    transaction,
+                    &enrolment,
+                    "science:student",
+                    Utc::now(),
+                )
+                .map_err(|error| DataError::from(error.to_string()))
+            })
+            .unwrap()
+    };
+    ingest();
+    let course = |workspace: &Value| {
+        workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["lmsCourseId"] == 99)
+            .cloned()
+            .unwrap()
+    };
+    let before = course(&store.load_workspace().unwrap());
+    assert_eq!(before["credits"], 0);
+    assert_eq!(before["meetings"][0]["periods"], json!([3, 4]));
+
+    store
+        .catalog_upsert_offerings(&[json!({
+            "id":"202602431", "year":2026, "quarters":["3Q"], "code":"CSC.T273",
+            "title":{"en":"Compilers","ja":"コンパイラ"}, "instructors":[],
+            "credits":{"lecture":2,"exercise":0,"lab":0}, "instructionLanguage":"en",
+            "format":{"kinds":["lecture"]}, "media":{}, "academicUnit":{}, "intensive":false,
+            "fetchedAt":{}, "schedule":[],
+            "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202602431"
+        })])
+        .unwrap();
+    let after = course(&store.load_workspace().unwrap());
+    assert_eq!(after["id"], before["id"]);
+    assert_eq!(after["credits"], 2.0);
+    assert_eq!(after["names"]["title"]["ja"], "コンパイラ");
+
+    // The same enrolment again finds the same course: nothing to announce.
+    heard.0.lock().unwrap().clear();
+    ingest();
+    assert!(
+        heard
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|tables| !tables.contains("merged_rows")),
+        "{:?}",
+        heard.0.lock().unwrap()
+    );
     let _ = fs::remove_dir_all(store.directory());
 }
 
@@ -698,11 +941,10 @@ fn commits_report_the_tables_they_changed() {
     write(
         "INSERT INTO offerings_fts(offering_id,code,title_ja,title_en,instructors_ja,instructors_en)
            VALUES('2026-202601234','MTH.A201','線形代数学第一','Linear Algebra I','','');
-         INSERT INTO course_identity_map
-           VALUES('lms','42',2026,'2026-lms-42',NULL,'2026-10-01T00:00:00Z');",
+         INSERT INTO course_keys VALUES('lms:42','2026-lms-42','2026-10-01T00:00:00Z');",
     );
-    write("DELETE FROM course_identity_map");
-    write("DELETE FROM course_identity_map");
+    write("DELETE FROM course_keys");
+    write("DELETE FROM course_keys");
 
     let names = |tables: &[&str]| -> std::collections::BTreeSet<String> {
         tables.iter().map(|table| (*table).to_string()).collect()
@@ -710,21 +952,24 @@ fn commits_report_the_tables_they_changed() {
     assert_eq!(
         *heard.0.lock().unwrap(),
         vec![
-            names(&["course_identity_map", "offerings_fts"]),
-            names(&["course_identity_map"]),
+            names(&["course_keys", "offerings_fts"]),
+            names(&["course_keys"]),
         ]
     );
     let _ = fs::remove_dir_all(store.directory());
 }
 
 /// Freshness lives in sync.db, so a sync commit that only records it reaches
-/// the next snapshot over the cached workspace: same workspace, new content
-/// revision, same intent revision. A cache.db commit still rebuilds it.
+/// the views that read it and leaves every other view as cached: the same
+/// workspace, the same intent revision. A cache.db commit reads them again.
 #[test]
-fn a_freshness_commit_refreshes_the_snapshot_without_rebuilding_its_workspace() {
+fn a_freshness_commit_refreshes_only_the_views_that_read_it() {
     use crate::sync_state::{Commit, Dataset, Key, Outcome};
     let store = store("sync-records");
-    let ((workspace, _, revision, _), content) = store.workspace_snapshot().unwrap();
+    let records: BTreeSet<&'static str> = ["grades"].into_iter().collect();
+    let freshness: BTreeSet<&'static str> = ["freshness", "pageAvailability"].into_iter().collect();
+    let (workspace, _, revision) = store.view(&records).unwrap();
+    let intent = store.intent_revision().unwrap();
     store
         .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
             let commit = Commit {
@@ -742,14 +987,14 @@ fn a_freshness_commit_refreshes_the_snapshot_without_rebuilding_its_workspace() 
         })
         .unwrap();
 
-    let ((refreshed, records, refreshed_revision, _), refreshed_content) =
-        store.workspace_snapshot().unwrap();
+    let (refreshed, _, refreshed_revision) = store.view(&records).unwrap();
     assert!(Arc::ptr_eq(&workspace, &refreshed));
     assert_eq!(refreshed_revision, revision);
-    assert_ne!(refreshed_content, content);
-    assert!(records["freshness"].get("kyomu.page/grades").is_some());
+    assert_eq!(store.intent_revision().unwrap(), intent);
+    let (synced, _, _) = store.view(&freshness).unwrap();
+    assert!(synced["freshness"].get("kyomu.page/grades").is_some());
     assert_eq!(
-        records["pageAvailability"]["kyomu:grades"]["state"],
+        synced["pageAvailability"]["kyomu:grades"]["state"],
         "available"
     );
 
@@ -763,8 +1008,8 @@ fn a_freshness_commit_refreshes_the_snapshot_without_rebuilding_its_workspace() 
                 .map_err(DataError::from)
         })
         .unwrap();
-    let ((rebuilt, records, _, _), _) = store.workspace_snapshot().unwrap();
+    let (rebuilt, _, _) = store.view(&records).unwrap();
     assert!(!Arc::ptr_eq(&refreshed, &rebuilt));
-    assert_eq!(records["grades"].as_array().map(Vec::len), Some(1));
+    assert_eq!(rebuilt["grades"].as_array().map(Vec::len), Some(1));
     let _ = fs::remove_dir_all(store.directory());
 }

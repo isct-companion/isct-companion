@@ -74,7 +74,7 @@ fn validation_rejects_limits_before_touching_storage() {
             "x".repeat(MAX_NOTE_BYTES as usize + 1),
             "device-a"
         ),
-        Err(NoteError::Input(message)) if message == "Notes are limited to 1 MB"
+        Err(NoteError::TooLarge)
     ));
     let oversized = LocalNoteBackup {
         id: uuid::Uuid::new_v4().to_string(),

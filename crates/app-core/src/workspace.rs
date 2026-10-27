@@ -1,8 +1,8 @@
-//! Authoritative workspace snapshots and user intents.
+//! User intents.
 //!
 //! A mutation checks the revision and applies every row change in one SQLite
-//! IMMEDIATE transaction.  The returned snapshot is assembled and validated
-//! before that transaction commits.
+//! IMMEDIATE transaction; the fields its writes feed are read back and
+//! validated before that transaction commits, and it answers what changed.
 
 mod calendar;
 mod catalog;
@@ -17,7 +17,7 @@ use courses::*;
 use crate::data::{DataError, DataStore, WorkspaceWrite};
 use crate::schedule::{ClassGroup, RecentKind};
 use crate::study_profile::StudyEnrollment;
-use crate::workspace_changes::{self, WorkspaceChange, WorkspacePatch};
+use crate::workspace_changes::{self, WorkspaceChange};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
@@ -27,40 +27,19 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceSnapshot {
-    /// Baseline for `WorkspaceMutation::expected_revision`. It covers only
-    /// user-owned state, so school and reference ingests do not cause
-    /// conflicts.
-    pub revision: String,
-    /// Changes whenever any part of the snapshot changes; read-model caches
-    /// key on it.
-    pub content_revision: String,
-    /// Shared with Core's snapshot cache, so a read never copies it. Beside
-    /// the workspace fields it carries the school records schedule read
-    /// models evaluate: `registrations`, `grades` and `lmsCourses`.
-    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-    pub workspace: Arc<Value>,
-    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-    pub school_records: Arc<Value>,
-    /// The school records read models evaluate with the workspace. Core
-    /// keeps them; no shell receives them.
-    #[serde(skip)]
-    #[cfg_attr(feature = "ts", ts(skip))]
-    pub school: Arc<crate::schedule::SchoolReads>,
-}
-
-/// A committed intent as a shell that holds the snapshot adopts it: what the
-/// commit changed, and only the snapshot fields those changes feed.
+/// A committed intent as a shell that caches query answers hears it: what
+/// the commit changed, the revision the next intent is made against, and the
+/// commit's sequence.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceCommit {
     /// As in a `workspace-changed` event of the same commit.
     pub changes: Vec<WorkspaceChange>,
-    pub patch: WorkspacePatch,
+    pub revision: String,
+    /// `DataStore::commit_seq` after the commit.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub seq: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -343,13 +322,11 @@ impl From<DataError> for WorkspaceError {
 #[cfg(feature = "ts")]
 pub fn declarations() -> Vec<String> {
     vec![
-        WorkspaceSnapshot::decl(),
         WorkspaceCommit::decl(),
         WorkspaceMutation::decl(),
         WorkspaceIntent::decl(),
         CourseBatchChanges::decl(),
         WorkspaceChange::decl(),
-        WorkspacePatch::decl(),
     ]
 }
 
@@ -381,67 +358,39 @@ impl WorkspaceService {
         }
     }
 
-    pub fn snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceError> {
-        let ((workspace, school_records, revision, school), content_revision) =
-            self.store.workspace_snapshot()?;
-        Ok(WorkspaceSnapshot {
-            workspace,
-            school_records,
-            revision,
-            content_revision,
-            school,
-        })
+    /// The revision the next mutation is made against.
+    pub fn revision(&self) -> Result<String, WorkspaceError> {
+        Ok(self.store.intent_revision()?)
     }
 
-    /// Applies `mutation` and returns the whole snapshot as committed.
-    pub fn mutate(&self, mutation: WorkspaceMutation) -> Result<WorkspaceSnapshot, WorkspaceError> {
-        self.commit(mutation).map(|(snapshot, _)| snapshot)
-    }
-
-    /// Applies `mutation` and returns only what it changed, for a shell that
-    /// patches the snapshot it holds instead of receiving it whole.
-    pub fn mutate_patch(
+    /// Applies `mutation` and returns what it changed, for a shell that
+    /// queries again what reads those changes.
+    pub fn mutate_commit(
         &self,
         mutation: WorkspaceMutation,
     ) -> Result<WorkspaceCommit, WorkspaceError> {
-        let (snapshot, changes) = self.commit(mutation)?;
-        Ok(WorkspaceCommit {
-            patch: workspace_changes::patch(snapshot, &changes),
-            changes,
-        })
-    }
-
-    fn commit(
-        &self,
-        mutation: WorkspaceMutation,
-    ) -> Result<(WorkspaceSnapshot, Vec<WorkspaceChange>), WorkspaceError> {
         let mut undo = self
             .catalog_undo
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
-        let ((), (workspace, school_records, revision, school), content_revision, tables) = self
-            .store
-            .workspace_write(&mutation.expected_revision, |write, current, school| {
-                apply_intent(write, current, school, mutation.intent, &mut undo)
-            })?;
+        let ((), revision, tables) =
+            self.store
+                .workspace_write(&mutation.expected_revision, |write, current, school| {
+                    apply_intent(write, current, school, mutation.intent, &mut undo)
+                })?;
         // Only a committed add or undo changes what Undo reverses.
         *self
             .catalog_undo
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = undo;
-        Ok((
-            WorkspaceSnapshot {
-                revision,
-                content_revision,
-                workspace,
-                school_records,
-                school,
-            },
-            workspace_changes::changes_for(&tables)
+        Ok(WorkspaceCommit {
+            changes: workspace_changes::changes_for(&tables)
                 .into_iter()
                 .collect(),
-        ))
+            revision,
+            seq: self.store.commit_seq(),
+        })
     }
 }
 
@@ -966,6 +915,7 @@ fn object_mut<'a>(
         .ok_or_else(|| format!("{label} must be an object").into())
 }
 
+// Other modules' tests read back writes through its `ReadBack`.
 #[cfg(test)]
 #[path = "tests/workspace.rs"]
-mod tests;
+pub(crate) mod tests;

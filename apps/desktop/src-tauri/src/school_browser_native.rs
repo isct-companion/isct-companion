@@ -169,11 +169,34 @@ impl NativeBrowser {
             Operation::Dispatch(command) => {
                 let id = command.browser;
                 let cause = Some(command.action);
+                let stop = matches!(command.command, BrowserAction::Stop);
                 let result = self.with_view(id, |view| match command.command {
                     BrowserAction::Navigate(url) => view.navigate(url).map_err(|e| e.to_string()),
                     BrowserAction::Reload => view.reload().map_err(|e| e.to_string()),
                     BrowserAction::Eval(script) => view.eval(&script).map_err(|e| e.to_string()),
+                    // `window.stop()` in the script ends the loads: Tauri's
+                    // webview has no stop call of its own.
+                    BrowserAction::Stop => view.eval(SCHOOL_STOP).map_err(|e| e.to_string()),
                 });
+                if stop && result.is_ok() {
+                    // Behind the script on the main thread, so the page
+                    // callbacks WebKit delivered before it reach Core first.
+                    let native = self.clone();
+                    let action = command.action;
+                    let confirmed = self.app().and_then(|app| {
+                        app.run_on_main_thread(move || {
+                            if let (Some(page), Some(listener)) =
+                                (native.current_page(id), native.listener())
+                            {
+                                listener.stopped(page, action);
+                            }
+                        })
+                        .map_err(|e| BrowserError::Dispatch(e.to_string()))
+                    });
+                    if let Err(error) = confirmed {
+                        log::warn!("[school-web] stop not confirmed: {error}");
+                    }
+                }
                 (id, cause, result)
             }
             Operation::SameView(id, url) => (
@@ -217,6 +240,18 @@ impl NativeBrowser {
         if let Some(view) = view {
             let _ = view.native.close();
         }
+    }
+    fn current_page(&self, id: BrowserId) -> Option<PageId> {
+        let sequence = self.presentation.lock().ok().and_then(|p| {
+            p.views
+                .get(&id.site)
+                .filter(|v| v.id == id)
+                .map(|v| v.page.load(Ordering::Acquire))
+        })?;
+        Some(PageId {
+            browser: id,
+            sequence,
+        })
     }
     fn next_page(&self, id: BrowserId) -> Option<PageId> {
         let sequence = self.presentation.lock().ok().and_then(|p| {

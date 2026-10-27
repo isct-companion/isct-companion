@@ -29,13 +29,14 @@ import {
   type WorkspaceOverview,
 } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
+import { withRecords } from "../../platform/records";
 
 /**
  * Timetable on the left, syllabus search on the right. Clicking a course opens
  * its details over the search (`panel`); removing happens there, so a stray
  * click on the timetable never deletes anything.
  */
-export function Courses({
+function CoursesBody({
   data,
   currentTerm,
   term,
@@ -386,3 +387,19 @@ export function Courses({
     </div>
   );
 }
+
+/** Courses with the records it shows (`platform/records`). */
+export const Courses = withRecords(
+  [
+    "assignments",
+    "courses",
+    "events",
+    "plans",
+    "memberships",
+    "planItems",
+    "intensiveSchedules",
+    "exceptions",
+    "academicProfile",
+  ],
+  CoursesBody,
+);

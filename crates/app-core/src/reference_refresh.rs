@@ -389,7 +389,7 @@ impl ReferenceReader {
     ) -> Result<Read, ReferenceError> {
         let writer = lease.writer();
         let store = writer.store().clone();
-        let workspace = store.load_workspace()?;
+        let workspace = store.load_fields(&["subscriptions"])?;
         let existing = subscription_row(&workspace, kind);
         let stored = store.write(None, |transaction| {
             StoredFile::read(transaction, &lease.key, kind, year)

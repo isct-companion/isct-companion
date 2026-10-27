@@ -206,8 +206,7 @@ export function retryScope(run: RunView): SyncScope {
     return run.scope && /^\d+$/.test(run.scope)
       ? { kind: "course", lmsCourseId: Number(run.scope) }
       : { kind: "site", site: "science-lms" };
-  if (run.dataset.startsWith("kyomu."))
-    return { kind: "site", site: "kyomu" };
+  if (run.dataset.startsWith("kyomu.")) return { kind: "site", site: "kyomu" };
   if (run.dataset.startsWith("reference")) return { kind: "references" };
   if (run.dataset === "catalog.official" && /^\d{4}$/.test(run.scope ?? ""))
     return { kind: "catalog", year: Number(run.scope) };

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { seedWorkspace, type Course, type Material } from "../../lib/model";
 import type { LmsCourseRecord } from "../../platform/desktop-bridge";
-import { Today } from "../../pages/today/TodayPage";
-import { LmsWorkspace, type CourseEntry } from "./LmsWorkspace";
+import { TodayBody } from "../../pages/today/TodayPage";
+import { LmsWorkspaceBody, type CourseEntry } from "./LmsWorkspace";
 import { TodayWorkbench } from "./TodayWorkbench";
 
 /** Development-only, isolated sample data: never imported into the workspace. */
@@ -211,7 +211,7 @@ export function LmsPreview() {
           <TodayWorkbench
             entry={entry}
             renderWorkspace={(entry, active) => (
-              <LmsWorkspace
+              <LmsWorkspaceBody
                 course={course}
                 data={{
                   ...data,
@@ -227,7 +227,7 @@ export function LmsPreview() {
             )}
           >
             {(compact) => (
-              <Today
+              <TodayBody
                 compact={compact}
                 selection={entry ?? undefined}
                 data={data}

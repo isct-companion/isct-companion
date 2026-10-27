@@ -203,7 +203,7 @@ fn upload_reads_only_the_matching_assignments_submit_files_and_supports_zip() {
     #[cfg(not(feature = "workspace-archives"))]
     assert!(matches!(
         service.prepare_upload(&workspace.path, "a1"),
-        Err(WorkspaceError::Archive(_))
+        Err(HandInError::Workspace(WorkspaceError::Archive(_)))
     ));
     service.set_submission(&workspace.path, false, "").unwrap();
     fs::remove_dir_all(root.join("submit/src")).unwrap();
@@ -238,7 +238,7 @@ fn folder_deleted_outside_the_app_is_missing_and_hand_in_falls_back_to_lms() {
     fs::remove_dir_all(&created.path).unwrap();
     assert!(matches!(
         service.prepare_upload(&created.path, "a"),
-        Err(WorkspaceError::Missing)
+        Err(HandInError::Workspace(WorkspaceError::Missing))
     ));
     assert!(matches!(
         service.workspace_path(&created.path),

@@ -37,6 +37,14 @@ fn main() {
         output.push_str(&declaration);
         output.push_str("\n\n");
     }
+    for declaration in [
+        <app_core::error_code::ErrorCode as ts_rs::TS>::decl(),
+        <app_core::error_code::CoreFailure as ts_rs::TS>::decl(),
+    ] {
+        output.push_str("export ");
+        output.push_str(&declaration);
+        output.push_str("\n\n");
+    }
     output.push_str("export ");
     output.push_str(&<app_core::school_auth::OtpImportAccount as ts_rs::TS>::decl());
     output.push_str("\n\n");

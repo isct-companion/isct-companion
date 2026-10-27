@@ -33,21 +33,24 @@ pub struct SchoolDownloadEvent {
     pub path: Option<String>,
 }
 
-/// Every event a shell forwards to its UI. Events are hints: the UI re-reads
-/// the matching snapshot (`workspace_snapshot`, `sync_snapshot`, `cloud_sync_state`)
+/// Every event a shell forwards to its UI. Events are hints: the UI queries
+/// what it shows (`Core::schedule_query`, `sync_snapshot`, `cloud_sync_state`)
 /// on load, so a delivery that happens before a window exists is not lost state.
 #[derive(Clone, Debug)]
 pub enum CoreEvent {
     WorkspaceChanged {
         source: WorkspaceChangeSource,
         /// Present for user intents so the initiating shell can correlate the
-        /// event with the authoritative snapshot returned by the mutation.
+        /// event with the commit its mutation answered.
         revision: Option<String>,
         /// What the commits behind this event changed, sorted. Background
         /// changes arrive merged, at most once per source and
-        /// `workspace_changes::COALESCE_WINDOW`; `Core::workspace_records`
-        /// reads the records they feed.
+        /// `workspace_changes::COALESCE_WINDOW`; a query reads again when
+        /// one of its reads is named.
         changes: Vec<WorkspaceChange>,
+        /// `DataStore::commit_seq` once the commits behind this event had
+        /// landed; a query result with an older `seq` is stale.
+        seq: u64,
     },
     /// One year's stored catalog changed: its offerings or the official
     /// search form's choices. A finder showing `year` queries again.
@@ -106,8 +109,9 @@ impl CoreEvent {
                 source,
                 revision,
                 changes,
+                seq,
             } => {
-                let mut payload = json!({ "source": source, "changes": changes });
+                let mut payload = json!({ "source": source, "changes": changes, "seq": seq });
                 if let Some(revision) = revision {
                     payload["revision"] = json!(revision);
                 }

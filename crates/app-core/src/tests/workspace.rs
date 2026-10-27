@@ -1,11 +1,52 @@
 use super::*;
 
+/// What a test reads back around a write: the revision the next intent is
+/// made against, every workspace field (`DataStore::load_reads`) and the
+/// commit sequence, read one after another.
+#[derive(Clone)]
+pub(crate) struct ReadBack {
+    pub revision: String,
+    pub workspace: Arc<Value>,
+    pub school: Arc<crate::schedule::SchoolReads>,
+    pub seq: u64,
+}
+
+// Only for `unwrap_err`: the fields that tell two reads apart.
+impl std::fmt::Debug for ReadBack {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ReadBack")
+            .field("revision", &self.revision)
+            .field("seq", &self.seq)
+            .finish_non_exhaustive()
+    }
+}
+
+impl WorkspaceService {
+    pub(crate) fn read_back(&self) -> Result<ReadBack, WorkspaceError> {
+        let revision = self.revision()?;
+        let (workspace, school) = self.store.load_reads()?;
+        Ok(ReadBack {
+            revision,
+            workspace,
+            school,
+            seq: self.store.commit_seq(),
+        })
+    }
+
+    /// Commits `mutation`, then reads back what it left.
+    pub(crate) fn apply(&self, mutation: WorkspaceMutation) -> Result<ReadBack, WorkspaceError> {
+        self.mutate_commit(mutation)?;
+        self.read_back()
+    }
+}
+
 fn service(name: &str) -> WorkspaceService {
     let path = std::env::temp_dir().join(format!("isct-workspace-{name}-{}", Uuid::new_v4()));
     WorkspaceService::new(DataStore::initialize_dir(path).unwrap().0)
 }
 
-fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) -> Value {
+fn settings_with(snapshot: &ReadBack, edit: impl FnOnce(&mut Value)) -> Value {
     let mut settings = snapshot.workspace["settings"].clone();
     edit(&mut settings);
     settings
@@ -14,9 +55,9 @@ fn settings_with(snapshot: &WorkspaceSnapshot, edit: impl FnOnce(&mut Value)) ->
 #[test]
 fn stale_revision_cannot_overwrite_a_newer_settings_change() {
     let service = service("conflict");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let changed = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: original.revision.clone(),
             intent: WorkspaceIntent::ReplaceSettings {
                 settings: settings_with(&original, |s| s["appearance"] = json!("dark")),
@@ -27,7 +68,7 @@ fn stale_revision_cannot_overwrite_a_newer_settings_change() {
     assert_eq!(changed.workspace["settings"]["appearance"], "dark");
 
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: original.revision.clone(),
             intent: WorkspaceIntent::ReplaceSettings {
                 settings: settings_with(&original, |s| s["density"] = json!("compact")),
@@ -36,7 +77,7 @@ fn stale_revision_cannot_overwrite_a_newer_settings_change() {
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::Conflict(_)));
     assert_eq!(
-        service.snapshot().unwrap().workspace["settings"]["density"],
+        service.read_back().unwrap().workspace["settings"]["density"],
         changed.workspace["settings"]["density"]
     );
 }
@@ -44,7 +85,7 @@ fn stale_revision_cannot_overwrite_a_newer_settings_change() {
 #[test]
 fn cached_settings_follow_external_commits_and_core_validates_every_value() {
     let service = service("settings");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let chosen = mutate(
         &service,
         WorkspaceIntent::ReplaceSettings {
@@ -68,16 +109,19 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
     // Warm the reader, then commit through a separately initialized handle.
     // PRAGMA data_version must invalidate the cached projection, even though
     // this background update deliberately keeps the user-intent revision.
-    let warm = service.snapshot().unwrap();
+    let warm = service.read_back().unwrap();
     let external = DataStore::initialize_dir(service.store.directory().to_path_buf())
         .unwrap()
         .0;
     external.record_reference_poll().unwrap();
-    let polled = service.snapshot().unwrap();
+    let polled = service.read_back().unwrap();
     let checked = polled.workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"].clone();
     assert!(checked.is_string());
     assert_eq!(polled.revision, warm.revision);
-    assert_ne!(polled.content_revision, warm.content_revision);
+    assert_ne!(
+        warm.workspace["settings"]["subscriptionRefresh"]["lastCheckedAt"],
+        checked
+    );
 
     // A form built from the earlier snapshot clears the department and
     // cannot roll the Core-owned poll clock back.
@@ -96,7 +140,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
         checked
     );
 
-    let before = service.snapshot().unwrap();
+    let before = service.read_back().unwrap();
     for (pointer, value) in [
         ("/locale", json!("xx")),
         ("/appearance", json!("blue")),
@@ -106,7 +150,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
         ("/cloud/provider", json!("dropbox")),
     ] {
         let error = service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: before.revision.clone(),
                 intent: WorkspaceIntent::ReplaceSettings {
                     settings: settings_with(&before, |s| {
@@ -131,7 +175,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
         },
     ] {
         let error = service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: before.revision.clone(),
                 intent,
             })
@@ -144,13 +188,13 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
             .put_workspace_setting("devicePreferences", json!({"locale":"xx"})),
         Err(DataError::InvalidInput(_))
     ));
-    assert_eq!(service.snapshot().unwrap().revision, before.revision);
+    assert_eq!(service.read_back().unwrap().revision, before.revision);
     let mut invalid_periods = crate::schedule::default_teaching_periods();
     invalid_periods[1].start_time = "08:00".into();
     let mut profile = before.workspace["academicProfile"].clone();
     profile["teachingPeriods"] = serde_json::to_value(invalid_periods).unwrap();
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: before.revision.clone(),
             intent: WorkspaceIntent::EditAcademicCalendar {
                 academic_profile: profile,
@@ -159,7 +203,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
         })
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    assert_eq!(service.snapshot().unwrap().revision, before.revision);
+    assert_eq!(service.read_back().unwrap().revision, before.revision);
     let year = mutate(
         &service,
         WorkspaceIntent::SetAdmissionYear {
@@ -186,7 +230,7 @@ fn study_profile_and_calendar_edits_preserve_the_other_profile_fields() {
         .store
         .put_workspace_setting("academicProfile", profile.clone())
         .unwrap();
-    let old = service.snapshot().unwrap();
+    let old = service.read_back().unwrap();
     assert_eq!(
         old.workspace["academicProfile"]["studyEnrollments"],
         json!([])
@@ -252,7 +296,7 @@ fn study_profile_and_calendar_edits_preserve_the_other_profile_fields() {
 #[test]
 fn invalid_study_history_is_rejected_atomically() {
     let service = service("invalid-study-profile");
-    let before = service.snapshot().unwrap();
+    let before = service.read_back().unwrap();
     for study_enrollments in [
         vec![StudyEnrollment {
             stage: crate::study_profile::StudyStage::Undergraduate,
@@ -276,7 +320,7 @@ fn invalid_study_history_is_rejected_atomically() {
         ],
     ] {
         let error = service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: before.revision.clone(),
                 intent: WorkspaceIntent::SetStudyProfile {
                     admission_year: Some(2026),
@@ -285,7 +329,7 @@ fn invalid_study_history_is_rejected_atomically() {
             })
             .unwrap_err();
         assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-        let after = service.snapshot().unwrap();
+        let after = service.read_back().unwrap();
         assert_eq!(after.revision, before.revision);
         assert_eq!(
             after.workspace["academicProfile"],
@@ -297,9 +341,9 @@ fn invalid_study_history_is_rejected_atomically() {
 #[test]
 fn invalid_record_rolls_back_the_whole_intent() {
     let service = service("rollback");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: original.revision.clone(),
             intent: WorkspaceIntent::SaveEvent {
                 draft: json!({"title":"Missing required event fields"}),
@@ -309,7 +353,7 @@ fn invalid_record_rolls_back_the_whole_intent() {
         })
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    let after = service.snapshot().unwrap();
+    let after = service.read_back().unwrap();
     assert_eq!(after.revision, original.revision);
     assert!(after.workspace["events"].as_array().unwrap().is_empty());
 }
@@ -317,9 +361,9 @@ fn invalid_record_rolls_back_the_whole_intent() {
 #[test]
 fn save_plan_canonicalizes_civil_time_and_rejects_invalid_drafts_atomically() {
     let service = service("plan-validation");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let saved = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: original.revision,
             intent: WorkspaceIntent::SavePlan {
                 draft: json!({
@@ -340,9 +384,9 @@ fn save_plan_canonicalizes_civil_time_and_rejects_invalid_drafts_atomically() {
         json!(["2026-10-21"])
     );
 
-    let before_invalid = service.snapshot().unwrap();
+    let before_invalid = service.read_back().unwrap();
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: before_invalid.revision.clone(),
             intent: WorkspaceIntent::SavePlan {
                 draft: json!({
@@ -353,7 +397,7 @@ fn save_plan_canonicalizes_civil_time_and_rejects_invalid_drafts_atomically() {
         })
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    let after_invalid = service.snapshot().unwrap();
+    let after_invalid = service.read_back().unwrap();
     assert_eq!(after_invalid.revision, before_invalid.revision);
     assert_eq!(
         after_invalid.workspace["plans"].as_array().unwrap().len(),
@@ -361,7 +405,7 @@ fn save_plan_canonicalizes_civil_time_and_rejects_invalid_drafts_atomically() {
     );
 
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: after_invalid.revision.clone(),
             intent: WorkspaceIntent::SavePlan {
                 draft: json!({
@@ -373,7 +417,7 @@ fn save_plan_canonicalizes_civil_time_and_rejects_invalid_drafts_atomically() {
         })
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    let after_rule = service.snapshot().unwrap();
+    let after_rule = service.read_back().unwrap();
     assert_eq!(after_rule.revision, after_invalid.revision);
     assert_eq!(after_rule.workspace["plans"].as_array().unwrap().len(), 1);
 }
@@ -381,14 +425,14 @@ fn save_plan_canonicalizes_civil_time_and_rejects_invalid_drafts_atomically() {
 #[test]
 fn schedule_override_periods_must_name_a_class_slot() {
     let service = service("override-periods");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     for draft in [
         json!({"targetKey":"course-weekly-0-2026-10-14","targetKind":"course","periods":[5,3],"hidden":false}),
         // Exams have their own intents so a link cannot freeze published facts.
         json!({"targetKey":"exam:any","targetKind":"exam","courseId":"course","hidden":false}),
     ] {
         let error = service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: original.revision.clone(),
                 intent: WorkspaceIntent::SaveScheduleOverride {
                     draft,
@@ -397,7 +441,7 @@ fn schedule_override_periods_must_name_a_class_slot() {
             })
             .unwrap_err();
         assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-        assert_eq!(service.snapshot().unwrap().revision, original.revision);
+        assert_eq!(service.read_back().unwrap().revision, original.revision);
     }
 }
 
@@ -437,13 +481,13 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         .unwrap();
     let first = "reference:exams:2026:undergraduate:2q:first";
     let second = "reference:exams:2026:undergraduate:2q:second";
-    let view = |snapshot: &WorkspaceSnapshot, key: &str| {
+    let view = |snapshot: &ReadBack, key: &str| {
         crate::schedule::exam_views(&snapshot.workspace, &snapshot.school, "2026-2Q")
             .into_iter()
             .find(|exam| exam.key == key)
             .unwrap()
     };
-    let stored = |snapshot: &WorkspaceSnapshot| {
+    let stored = |snapshot: &ReadBack| {
         snapshot.workspace["scheduleOverrides"]
             .as_array()
             .unwrap()
@@ -452,7 +496,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
             .cloned()
             .collect::<Vec<_>>()
     };
-    let before = service.snapshot().unwrap();
+    let before = service.read_back().unwrap();
     assert!(view(&before, first).auto_linked);
     // Linking reports the course's other exam but no longer blocks.
     let preview =
@@ -488,12 +532,12 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         .write(None, |tx| apply_exam_feed(tx, &published))
         .unwrap();
     assert_eq!(
-        view(&service.snapshot().unwrap(), second).room,
+        view(&service.read_back().unwrap(), second).room,
         "Updated source room"
     );
 
     // The form submits every field; only the room differs from the source.
-    let exam = view(&service.snapshot().unwrap(), second);
+    let exam = view(&service.read_back().unwrap(), second);
     let edited = mutate(
         &service,
         WorkspaceIntent::EditExam {
@@ -515,7 +559,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         .store
         .write(None, |tx| apply_exam_feed(tx, &published))
         .unwrap();
-    let refreshed = view(&service.snapshot().unwrap(), second);
+    let refreshed = view(&service.read_back().unwrap(), second);
     assert_eq!(
         (
             refreshed.date.as_str(),
@@ -526,7 +570,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     );
     assert_eq!(refreshed.source.room, "Updated source room");
 
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     for (date, start, end) in [
         ("2026-02-30", None, None),
         ("2026-08-05", Some("13:30"), None),
@@ -534,7 +578,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         ("2026-08-05", Some("13:30"), Some("10:30")),
     ] {
         assert!(service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: original.revision.clone(),
                 intent: WorkspaceIntent::EditExam {
                     exam_key: second.into(),
@@ -545,7 +589,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
                 },
             })
             .is_err());
-        assert_eq!(service.snapshot().unwrap().revision, original.revision);
+        assert_eq!(service.read_back().unwrap().revision, original.revision);
     }
 
     // Reset keeps the link; choosing the matched course stores nothing.
@@ -592,27 +636,21 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     // A right-click mark is one more field of the same override, so a later
     // schedule edit keeps it and marking the source kind removes it again.
     let commit = service
-        .mutate_patch(WorkspaceMutation {
-            expected_revision: service.snapshot().unwrap().revision,
+        .mutate_commit(WorkspaceMutation {
+            expected_revision: service.read_back().unwrap().revision,
             intent: WorkspaceIntent::MarkSession {
                 key: second.into(),
                 mark: "cancelled".into(),
             },
         })
         .unwrap();
-    let marked = service.snapshot().unwrap();
+    let marked = service.read_back().unwrap();
     assert_eq!(view(&marked, second).status, "cancelled");
-    // The desktop window hears only what the mark changed, as of the commit.
+    // The desktop window hears only what the mark changed, and the revision
+    // its next intent is made against.
     assert_eq!(commit.changes, [WorkspaceChange::Calendar]);
-    assert_eq!(
-        commit.patch.workspace["scheduleOverrides"],
-        marked.workspace["scheduleOverrides"]
-    );
-    assert!(commit.patch.workspace.get("courses").is_none());
-    assert_eq!(
-        (commit.patch.revision, commit.patch.content_revision),
-        (marked.revision.clone(), marked.content_revision.clone())
-    );
+    assert_eq!(commit.revision, marked.revision);
+    assert_eq!(service.revision().unwrap(), marked.revision);
     let edited = mutate(
         &service,
         WorkspaceIntent::EditExam {
@@ -648,9 +686,9 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
 #[test]
 fn course_batch_validation_happens_before_any_row_is_changed() {
     let service = service("course-batch");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: original.revision.clone(),
             intent: WorkspaceIntent::EditCourseBatch {
                 course_ids: vec!["missing".into()],
@@ -662,23 +700,23 @@ fn course_batch_validation_happens_before_any_row_is_changed() {
         })
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    assert_eq!(service.snapshot().unwrap().revision, original.revision);
+    assert_eq!(service.read_back().unwrap().revision, original.revision);
 }
 
-fn mutate(service: &WorkspaceService, intent: WorkspaceIntent) -> WorkspaceSnapshot {
+fn mutate(service: &WorkspaceService, intent: WorkspaceIntent) -> ReadBack {
     if let WorkspaceIntent::AddCatalogCourses { offerings, .. } = &intent {
         service.store.catalog_upsert_offerings(offerings).unwrap();
     }
-    let expected_revision = service.snapshot().unwrap().revision;
+    let expected_revision = service.read_back().unwrap().revision;
     service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision,
             intent,
         })
         .unwrap()
 }
 
-fn course<'a>(snapshot: &'a WorkspaceSnapshot, id: &str) -> &'a Value {
+fn course<'a>(snapshot: &'a ReadBack, id: &str) -> &'a Value {
     snapshot.workspace["courses"]
         .as_array()
         .unwrap()
@@ -809,9 +847,9 @@ fn catalog_course_preserves_localized_fields_credits_rooms_and_long_period_range
                 "schedule":[{"kind":"weekly","day":2,"periods":[5,8],"room":{"ja":"西講義棟","en":"West Hall"}}]
             })])
             .unwrap();
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let next = service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: original.revision,
                 intent: WorkspaceIntent::AddCatalogCourses {
                     term_id: "2026-3Q".into(),
@@ -863,7 +901,7 @@ fn catalog_course_preserves_localized_fields_credits_rooms_and_long_period_range
             offerings: vec![offering],
         },
     );
-    let before_language = service.snapshot().unwrap();
+    let before_language = service.read_back().unwrap();
     let japanese = mutate(
         &service,
         WorkspaceIntent::ReplaceSettings {
@@ -895,9 +933,9 @@ fn catalog_course_preserves_localized_fields_credits_rooms_and_long_period_range
 #[test]
 fn subscription_toggle_and_reset_are_one_revision_checked_intent() {
     let service = service("subscription");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let created = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: original.revision,
             intent: WorkspaceIntent::SetSubscription {
                 subscription_kind: "calendar".into(),
@@ -914,7 +952,7 @@ fn subscription_toggle_and_reset_are_one_revision_checked_intent() {
     assert!(row.get("remoteHash").is_none());
 
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: created.revision,
             intent: WorkspaceIntent::SetSubscription {
                 subscription_kind: "calendar".into(),
@@ -930,13 +968,13 @@ fn subscription_toggle_and_reset_are_one_revision_checked_intent() {
 #[test]
 fn scheduled_task_run_is_committed_with_the_workspace_revision() {
     let service = service("scheduled-task-run");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let task_id = original.workspace["scheduledTasks"][0]["id"]
         .as_str()
         .unwrap()
         .to_string();
     let next = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: original.revision.clone(),
             intent: WorkspaceIntent::RecordScheduledTaskRun {
                 task_id: task_id.clone(),
@@ -946,9 +984,9 @@ fn scheduled_task_run_is_committed_with_the_workspace_revision() {
             },
         })
         .unwrap();
-    // Run bookkeeping is Core-owned: it changes the content, not the
+    // Run bookkeeping is Core-owned: it commits, but does not move the
     // baseline user edits are checked against.
-    assert_ne!(next.content_revision, original.content_revision);
+    assert!(next.seq > original.seq);
     assert_eq!(next.revision, original.revision);
     let task = next.workspace["scheduledTasks"]
         .as_array()
@@ -959,14 +997,11 @@ fn scheduled_task_run_is_committed_with_the_workspace_revision() {
     assert_eq!(task["lastOccurrenceAt"], "2026-09-29T12:00:00.000Z");
     assert_eq!(task["lastRunAt"], "2026-09-29T12:00:01.000Z");
     assert_eq!(task["lastResult"], "Export completed");
-    assert_eq!(
-        service.snapshot().unwrap().content_revision,
-        next.content_revision
-    );
+    assert_eq!(service.read_back().unwrap().workspace, next.workspace);
 
     // A run claim with a malformed clock, or for a task that is gone, is
     // rejected before any row changes.
-    let before = service.snapshot().unwrap();
+    let before = service.read_back().unwrap();
     let tasks_before = before.workspace["scheduledTasks"].clone();
     for (task, occurrence_at, run_at) in [
         (
@@ -986,7 +1021,7 @@ fn scheduled_task_run_is_committed_with_the_workspace_revision() {
         ),
     ] {
         let error = service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: before.revision.clone(),
                 intent: WorkspaceIntent::RecordScheduledTaskRun {
                     task_id: task.clone(),
@@ -997,9 +1032,9 @@ fn scheduled_task_run_is_committed_with_the_workspace_revision() {
             })
             .unwrap_err();
         assert!(matches!(error, WorkspaceError::InvalidIntent(_)), "{task}");
-        let after = service.snapshot().unwrap();
+        let after = service.read_back().unwrap();
         assert_eq!(after.revision, before.revision);
-        assert_eq!(after.content_revision, before.content_revision);
+        assert_eq!(after.seq, before.seq);
         assert_eq!(after.workspace["scheduledTasks"], tasks_before);
     }
 }
@@ -1007,7 +1042,7 @@ fn scheduled_task_run_is_committed_with_the_workspace_revision() {
 #[test]
 fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
     let service = service("ingest-revision");
-    let before = service.snapshot().unwrap();
+    let before = service.read_back().unwrap();
     // A school ingest, a reference poll and a scheduler run land between
     // the person's snapshot and their edit.
     service
@@ -1035,12 +1070,12 @@ fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
             rev,
         )
         .unwrap();
-    let ingested = service.snapshot().unwrap();
-    assert_ne!(ingested.content_revision, before.content_revision);
+    let ingested = service.read_back().unwrap();
+    assert!(ingested.seq > before.seq);
     assert_eq!(ingested.revision, before.revision);
 
     let edited = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: before.revision.clone(),
             intent: WorkspaceIntent::SelectTerm {
                 term_id: "2026-4Q".into(),
@@ -1071,7 +1106,7 @@ fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
     assert_eq!(saved["lastResult"], "Done");
     // A user edit still conflicts with another user edit.
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: edited.revision,
             intent: WorkspaceIntent::SelectTerm {
                 term_id: "2026-3Q".into(),
@@ -1084,9 +1119,9 @@ fn background_ingest_and_bookkeeping_do_not_conflict_with_user_edits() {
 #[test]
 fn calendar_exception_metadata_and_unique_date_are_core_owned() {
     let service = service("calendar-exception");
-    let original = service.snapshot().unwrap();
+    let original = service.read_back().unwrap();
     let created = service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: original.revision,
                 intent: WorkspaceIntent::SaveCalendarException {
                     draft: json!({"date":"2026-10-13","type":"replacement","replacementDay":2,"label":" Tuesday classes "}),
@@ -1100,7 +1135,7 @@ fn calendar_exception_metadata_and_unique_date_are_core_owned() {
     assert_eq!(row["label"], "Tuesday classes");
 
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: created.revision.clone(),
             intent: WorkspaceIntent::SaveCalendarException {
                 draft: json!({"date":"2026-10-13","type":"holiday","label":"Duplicate"}),
@@ -1109,16 +1144,16 @@ fn calendar_exception_metadata_and_unique_date_are_core_owned() {
         })
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    assert_eq!(service.snapshot().unwrap().revision, created.revision);
+    assert_eq!(service.read_back().unwrap().revision, created.revision);
 }
 
 fn run(service: &WorkspaceService, intent: WorkspaceIntent) -> Result<Value, WorkspaceError> {
     if let WorkspaceIntent::AddCatalogCourses { offerings, .. } = &intent {
         service.store.catalog_upsert_offerings(offerings).unwrap();
     }
-    let expected_revision = service.snapshot()?.revision;
+    let expected_revision = service.read_back()?.revision;
     service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision,
             intent,
         })
@@ -1160,7 +1195,7 @@ fn catalog_add_enforces_first_year_eligibility_atomically_and_preserves_existing
         },
     )
     .unwrap();
-    let before = service.snapshot().unwrap();
+    let before = service.read_back().unwrap();
     let error = run(
         &service,
         WorkspaceIntent::AddCatalogCourses {
@@ -1173,7 +1208,7 @@ fn catalog_add_enforces_first_year_eligibility_atomically_and_preserves_existing
     )
     .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    let rejected = service.snapshot().unwrap();
+    let rejected = service.read_back().unwrap();
     assert_eq!(rejected.revision, before.revision);
     assert!(rows(&rejected.workspace, "courses")
         .unwrap()
@@ -1236,14 +1271,14 @@ fn catalog_add_checks_authoritative_content_in_every_placed_quarter() {
         .store
         .catalog_upsert_offerings(std::slice::from_ref(&canonical))
         .unwrap();
-    let before = service.snapshot().unwrap();
+    let before = service.read_back().unwrap();
 
     // The requested 4Q is a master's term, but the same offering would
     // also be placed into undergraduate 3Q and must be rejected there.
     let mut submitted = canonical;
     submitted["code"] = json!("CSC.T101");
     let error = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: before.revision.clone(),
             intent: WorkspaceIntent::AddCatalogCourses {
                 term_id: "2026-4Q".into(),
@@ -1255,7 +1290,7 @@ fn catalog_add_checks_authoritative_content_in_every_placed_quarter() {
         error.to_string(),
         "LAH.T209-01 is not available to a regular first-year undergraduate student."
     );
-    let after = service.snapshot().unwrap();
+    let after = service.read_back().unwrap();
     assert_eq!(after.revision, before.revision);
     assert!(!rows(&after.workspace, "courses").unwrap().any(is_live));
 }
@@ -1305,16 +1340,26 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
         )
         .unwrap()
     };
+    // Courses are named by their internal id, minted when first added.
+    let id = |offering: &str| -> String {
+        rows(&service.read_back().unwrap().workspace, "courses")
+            .unwrap()
+            .find(|course| course["offeringId"] == offering)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
     // A 3Q–4Q offering added outside its quarters stays in the quarter on screen.
     let outside = add("2026-2Q", offering("202630030", "CCC.C300", &["3Q", "4Q"]));
-    assert_eq!(placed_terms(&outside, "2026-202630030"), vec!["2026-2Q"]);
+    assert_eq!(placed_terms(&outside, &id("202630030")), vec!["2026-2Q"]);
 
     add("2026-3Q", offering("202630010", "AAA.A100", &["3Q"]));
     add("2026-4Q", offering("202630020", "BBB.B200", &["4Q"]));
-    let before = live_plans(&service.snapshot().unwrap().workspace);
+    let before = live_plans(&service.read_back().unwrap().workspace);
     let replaced_id = before
         .iter()
-        .find(|plan| plan.1 == "2026-202630010")
+        .find(|plan| plan.1 == id("202630010"))
         .unwrap()
         .0
         .clone();
@@ -1322,22 +1367,22 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     // draft in 3Q leaves the timetable.
     let added = add("2026-3Q", offering("202630020", "BBB.B200", &["3Q", "4Q"]));
     assert_eq!(
-        placed_terms(&added, "2026-202630020"),
+        placed_terms(&added, &id("202630020")),
         vec!["2026-3Q", "2026-4Q"]
     );
-    assert!(placed_terms(&added, "2026-202630010").is_empty());
+    assert!(placed_terms(&added, &id("202630010")).is_empty());
     let course = rows(&added, "courses")
         .unwrap()
-        .find(|row| row["id"] == "2026-202630020")
+        .find(|row| row["id"] == id("202630020"))
         .unwrap();
     assert_eq!(
         course["termId"], "2026-4Q",
         "an existing course keeps its quarter"
     );
     // The snapshot reads the offering an added course names from the catalog.
-    let snapshot = service.snapshot().unwrap();
+    let snapshot = service.read_back().unwrap();
     let detail =
-        crate::schedule::course_detail(&snapshot.workspace, &snapshot.school, "2026-202630020");
+        crate::schedule::course_detail(&snapshot.workspace, &snapshot.school, &id("202630020"));
     assert_eq!(detail.format.unwrap().kinds, ["lecture"]);
 
     // Undo removes the 3Q plan item the add placed, keeps the earlier 4Q
@@ -1368,25 +1413,25 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     let off = run(
         &service,
         WorkspaceIntent::SetCourseOnTimetable {
-            course_id: "2026-202630020".into(),
+            course_id: id("202630020"),
             on_timetable: false,
         },
     )
     .unwrap();
-    assert!(placed_terms(&off, "2026-202630020").is_empty());
+    assert!(placed_terms(&off, &id("202630020")).is_empty());
 
     // Deleting a catalog course removes it and its placements.
     let deleted = run(
         &service,
         WorkspaceIntent::DeleteCourseBatch {
-            course_ids: vec!["2026-202630010".into()],
+            course_ids: vec![id("202630010")],
         },
     )
     .unwrap();
-    assert!(placed_terms(&deleted, "2026-202630010").is_empty());
+    assert!(placed_terms(&deleted, &id("202630010")).is_empty());
     assert!(rows(&deleted, "courses")
         .unwrap()
-        .any(|row| row["id"] == "2026-202630010" && !is_live(row)));
+        .any(|row| row["id"] == id("202630010") && !is_live(row)));
 }
 
 #[test]
@@ -1399,7 +1444,7 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
             json!({"notifications":{"classes":false,"assignments":true,"classLeadMinutes":30}}),
         )
         .unwrap();
-    let initial = service.snapshot().unwrap();
+    let initial = service.read_back().unwrap();
     assert_eq!(
         initial.workspace["settings"]["notifications"]["exams"],
         false
@@ -1414,16 +1459,17 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
         settings["notifications"]["assignmentLeadMinutes"] = json!([180, 30]);
     });
     let saved = service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: initial.revision,
             intent: WorkspaceIntent::ReplaceSettings { settings },
         })
         .unwrap();
     assert_eq!(
-        service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
+        service.read_back().unwrap().workspace["settings"]["notifications"]
+            ["assignmentLeadMinutes"],
         json!([180, 30])
     );
-    let stored = service.snapshot().unwrap().workspace;
+    let stored = service.read_back().unwrap().workspace;
     assert_eq!(stored["settings"]["notifications"]["examLeadMinutes"], 1440);
     assert_eq!(stored["settings"]["notifications"]["exams"], false);
     for invalid_lead in [json!(0), json!(10081), json!("one day")] {
@@ -1431,13 +1477,13 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
             settings["notifications"]["examLeadMinutes"] = invalid_lead
         });
         assert!(service
-            .mutate(WorkspaceMutation {
+            .apply(WorkspaceMutation {
                 expected_revision: saved.revision.clone(),
                 intent: WorkspaceIntent::ReplaceSettings { settings: invalid },
             })
             .is_err());
         assert_eq!(
-            service.snapshot().unwrap().workspace["settings"]["notifications"]["examLeadMinutes"],
+            service.read_back().unwrap().workspace["settings"]["notifications"]["examLeadMinutes"],
             1440
         );
     }
@@ -1445,13 +1491,14 @@ fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
         settings["notifications"]["assignmentLeadMinutes"] = json!([])
     });
     assert!(service
-        .mutate(WorkspaceMutation {
+        .apply(WorkspaceMutation {
             expected_revision: saved.revision,
             intent: WorkspaceIntent::ReplaceSettings { settings: invalid }
         })
         .is_err());
     assert_eq!(
-        service.snapshot().unwrap().workspace["settings"]["notifications"]["assignmentLeadMinutes"],
+        service.read_back().unwrap().workspace["settings"]["notifications"]
+            ["assignmentLeadMinutes"],
         json!([180, 30])
     );
 }

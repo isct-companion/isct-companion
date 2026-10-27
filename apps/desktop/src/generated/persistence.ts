@@ -1535,7 +1535,8 @@ export type WorkspaceQuery =
       horizon: string;
       locale: NotificationLocale | null;
     }
-  | { kind: "classGroups"; today: string };
+  | { kind: "classGroups"; today: string }
+  | { kind: "records"; fields: Array<string> };
 
 export type WorkspaceQueryResult =
   | { kind: "teachingPeriods"; value: Array<TeachingPeriod> }
@@ -1570,35 +1571,19 @@ export type WorkspaceQueryResult =
   | { kind: "academicTerm"; value: string | null }
   | { kind: "glance"; value: GlanceSnapshot }
   | { kind: "notificationPlan"; value: NotificationPlan }
-  | { kind: "classGroups"; value: Array<ClassGroupChoice> };
-
-export type WorkspaceSnapshot = {
-  /**
-   * Baseline for `WorkspaceMutation::expected_revision`. It covers only
-   * user-owned state, so school and reference ingests do not cause
-   * conflicts.
-   */
-  revision: string;
-  /**
-   * Changes whenever any part of the snapshot changes; read-model caches
-   * key on it.
-   */
-  contentRevision: string;
-  /**
-   * Shared with Core's snapshot cache, so a read never copies it. Beside
-   * the workspace fields it carries the school records schedule read
-   * models evaluate: `registrations`, `grades` and `lmsCourses`.
-   */
-  workspace: unknown;
-  schoolRecords: unknown;
-};
+  | { kind: "classGroups"; value: Array<ClassGroupChoice> }
+  | { kind: "records"; value: Record<string, unknown> };
 
 export type WorkspaceCommit = {
   /**
    * As in a `workspace-changed` event of the same commit.
    */
   changes: Array<WorkspaceChange>;
-  patch: WorkspacePatch;
+  revision: string;
+  /**
+   * `DataStore::commit_seq` after the commit.
+   */
+  seq: number;
 };
 
 export type WorkspaceMutation = {
@@ -1713,22 +1698,6 @@ export type WorkspaceChange =
   | "scheduled-tasks"
   | "settings"
   | "freshness";
-
-export type WorkspacePatch = {
-  /**
-   * As in `WorkspaceSnapshot`, for the whole snapshot this was read from.
-   */
-  revision: string;
-  contentRevision: string;
-  /**
-   * Only the workspace fields the requested changes feed.
-   */
-  workspace: unknown;
-  /**
-   * Only the school-record fields the requested changes feed.
-   */
-  schoolRecords: unknown;
-};
 
 export type TimeValue = { day?: number; from?: number; to?: number };
 
@@ -1883,6 +1852,15 @@ export type FinderPage = {
   ineligibleCodes: Array<string>;
   catalogVersion: number;
   contentRevision: string;
+  /**
+   * The changes the page reads besides the catalog (`FINDER_READS`); a
+   * change of the shown year's catalog arrives as its own event.
+   */
+  reads: Array<WorkspaceChange>;
+  /**
+   * `DataStore::commit_seq` read before the page's data.
+   */
+  seq: number;
 };
 
 export type MatrixPoint = { x: number; y: number };
@@ -1965,6 +1943,90 @@ export type MatrixCameraSnapshot = {
   completedSamples: number;
   totalSamples: number;
   cells: Array<MatrixVote>;
+};
+
+export type ErrorCode =
+  | "invalid-input"
+  | "conflict"
+  | "storage"
+  | "compatibility"
+  | "network"
+  | "offline"
+  | "timeout"
+  | "cancelled"
+  | "stopped"
+  | "busy"
+  | "unavailable"
+  | "internal"
+  | "platform"
+  | "callback"
+  | "write-denied"
+  | "too-large"
+  | "vault-unavailable"
+  | "sign-in-required"
+  | "school-maintenance"
+  | "school-site-changed"
+  | "school-paused"
+  | "host-paused"
+  | "workspace-folder-missing"
+  | "hand-in-files-only"
+  | "hand-in-empty"
+  | "hand-in-needs-zip"
+  | "hand-in-too-large"
+  | "desktop-only"
+  | "note-too-large"
+  | "plan-invalid-start"
+  | "plan-invalid-title"
+  | "plan-invalid-duration"
+  | "plan-invalid-exdate"
+  | "plan-invalid-reminder"
+  | "plan-invalid-rule"
+  | "plan-rule-only"
+  | "plan-rule-frequency"
+  | "plan-repeat-unsupported"
+  | "plan-repeat-subdaily"
+  | "study-admission-term"
+  | "study-entry-grade"
+  | "study-duplicate-term"
+  | "subscription-invalid"
+  | "cloud-password-length"
+  | "cloud-password-wrong"
+  | "cloud-credential-file"
+  | "cloud-conflict"
+  | "cloud-conflict-exhausted"
+  | "cloud-format"
+  | "cloud-version-missing"
+  | "cloud-too-large"
+  | "cloud-retrying"
+  | "cloud-not-attached"
+  | "reset-busy"
+  | "reset-unsupported"
+  | "reset-credentials"
+  | "reset-files"
+  | "reset-sign-out"
+  | "reset-stopped"
+  | "otp-sign-in-required"
+  | "otp-unexpected-page"
+  | "otp-unavailable"
+  | "otp-timed-out"
+  | "otp-rejected"
+  | "otp-already-registered"
+  | "otp-vault"
+  | "otp-import-invalid"
+  | "otp-import-multiple"
+  | "otp-import-unsupported"
+  | "agent-disabled"
+  | "agent-writes-disabled"
+  | "matrix-scan-ended"
+  | "matrix-unreadable"
+  | "guide-too-many-courses"
+  | "logs-unavailable"
+  | "lms-not-enrolled";
+
+export type CoreFailure = {
+  code: ErrorCode;
+  params?: Record<string, string> | undefined;
+  detail: string;
 };
 
 export type OtpImportAccount = {

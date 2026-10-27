@@ -25,6 +25,10 @@ pub enum BrowserAction {
     Navigate(Url),
     Reload,
     Eval(String),
+    /// Ends an abandoned attempt: the view stops loading, runs
+    /// [`SCHOOL_STOP`](crate::school_browser::SCHOOL_STOP), and then answers
+    /// with [`SchoolBrowserListener::stopped`].
+    Stop,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -93,4 +97,7 @@ pub trait SchoolBrowserListener: Send + Sync {
     fn decide_navigation(&self, page: PageId, url: Url, main_frame: bool) -> NavigationDecision;
     fn new_window(&self, page: PageId, url: Url) -> NewWindowDecision;
     fn closed(&self, browser: BrowserId);
+    /// The view carried out `action`'s stop. `page` is the last page it had
+    /// reported then: any later report of that page or an earlier one is late.
+    fn stopped(&self, page: PageId, action: ActionId);
 }

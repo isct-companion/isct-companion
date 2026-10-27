@@ -30,6 +30,7 @@ import {
   type ScheduleView,
   type TaskView,
 } from "../../platform/core-query";
+import { withRecords } from "../../platform/records";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 type Lecture = {
@@ -60,7 +61,7 @@ function useEntrance(request: number | undefined, apply: () => void) {
   }, [request]);
 }
 
-export function LectureDesk({
+function LectureDeskBody({
   data,
   term,
   entry,
@@ -640,3 +641,17 @@ export function LectureDesk({
     </div>
   );
 }
+
+/** LectureDesk with the records it shows (`platform/records`). */
+export const LectureDesk = withRecords(
+  [
+    "assignments",
+    "courses",
+    "materials",
+    "memberships",
+    "planItems",
+    "academicProfile",
+    "lmsCourses",
+  ],
+  LectureDeskBody,
+);

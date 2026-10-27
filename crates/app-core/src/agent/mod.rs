@@ -65,7 +65,7 @@ impl AgentService {
         if is_write_tool(name) && !policy.allow_writes {
             return Err(AgentError::WritesDisabled);
         }
-        let mut value = call_inner(&self.store, name, args)?;
+        let mut value = call_inner(&self.store, name, args, &|| tool_view(&self.store, name))?;
         slim(&mut value);
         Ok(value)
     }
@@ -288,10 +288,62 @@ fn canonicalize_plan(plan: &mut Value) -> Result<(), AgentError> {
     })
 }
 
-fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, AgentError> {
-    let (workspace, school) = store.load_reads()?;
+type View = (
+    std::sync::Arc<Value>,
+    std::sync::Arc<crate::schedule::SchoolReads>,
+);
+
+/// The changes a tool's answer is computed from, as the shared queries
+/// declare theirs. Tools absent here read tables directly or write through
+/// their own transaction, and load no view.
+fn tool_reads(name: &str) -> &'static [crate::workspace_changes::WorkspaceChange] {
+    use crate::workspace_changes::WorkspaceChange::*;
+    match name {
+        "today" => &[
+            Courses,
+            Registrations,
+            Finder,
+            Calendar,
+            Exams,
+            Plans,
+            Events,
+            Subscriptions,
+            Assignments,
+            Grades,
+            Settings,
+        ],
+        "schedule" | "courses" => &[Courses, Registrations, Finder, Calendar, Plans, Settings],
+        "course" => &[
+            Courses,
+            Registrations,
+            Finder,
+            Calendar,
+            Materials,
+            Assignments,
+            Exams,
+            Settings,
+        ],
+        "recommended" => &[Finder, Settings],
+        _ => &[],
+    }
+}
+
+/// The fields `name`'s answer reads, from the shared view cache.
+fn tool_view(store: &DataStore, name: &str) -> Result<View, AgentError> {
+    let fields = crate::workspace_changes::loaded_fields(tool_reads(name).iter().copied());
+    let (workspace, school, _) = store.view(&fields)?;
+    Ok((workspace, school))
+}
+
+fn call_inner(
+    store: &DataStore,
+    name: &str,
+    args: &Value,
+    view: &dyn Fn() -> Result<View, AgentError>,
+) -> Result<Value, AgentError> {
     match name {
         "today" => {
+            let (workspace, _) = view()?;
             let now = now_jst()?;
             let date = now.date_naive();
             let iso = date.to_string();
@@ -325,6 +377,7 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
             }))
         }
         "schedule" => {
+            let (workspace, _) = view()?;
             let (from, to) = date_range(args)?;
             let mut terms = std::collections::BTreeSet::new();
             let mut cursor = from;
@@ -352,10 +405,12 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
                 .ok_or("year is required")?;
             let term = format!("{year}-{}", required(args, "quarter")?);
             parse_term(&term)?;
+            let (workspace, _) = view()?;
             Ok(Value::Array(scheduled_courses(&workspace, &term)))
         }
         "course" => {
             let id = required(args, "id")?;
+            let (workspace, school) = view()?;
             let course = visible_rows(&workspace, "courses")
                 .into_iter()
                 .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
@@ -415,6 +470,7 @@ fn call_inner(store: &DataStore, name: &str, args: &Value) -> Result<Value, Agen
         })),
         "requirements" => Ok(Value::Array(store.table_rows("requirement_progress")?)),
         "recommended" => {
+            let (workspace, _) = view()?;
             let department = args
                 .get("departmentId")
                 .and_then(Value::as_str)

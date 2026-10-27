@@ -2,18 +2,21 @@
 //! this adapter supplies the selected root and desktop openers.
 
 use crate::lms_files::root;
+use crate::{coded, CommandError};
 use app_core::{
     course_materials::CourseKey,
-    school_browser::{SubmissionError, SubmissionMessages},
+    school_browser::SubmissionMessages,
     workspaces::{Attachment, HandInView, WorkspaceError, WorkspaceInfo, Workspaces},
 };
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
 fn service(webview: &tauri::Webview, app: &AppHandle) -> Result<Workspaces, WorkspaceError> {
-    crate::require_local_main(webview).map_err(WorkspaceError::Input)?;
+    crate::require_local_main(webview).map_err(|error| WorkspaceError::Input(error.to_string()))?;
     Ok(Workspaces::new(
-        root(app).map_err(WorkspaceError::Storage)?.0,
+        root(app)
+            .map_err(|error| WorkspaceError::Storage(error.to_string()))?
+            .0,
     ))
 }
 
@@ -42,9 +45,9 @@ pub async fn assignment_workspace(
     context: CourseKey,
     assignment: String,
     closed: bool,
-) -> Result<HandInView, WorkspaceError> {
+) -> Result<HandInView, CommandError> {
     let service = service(&webview, &app)?;
-    run_workspace(&app, move || service.hand_in(&context, &assignment, closed)).await
+    Ok(run_workspace(&app, move || service.hand_in(&context, &assignment, closed)).await?)
 }
 
 #[tauri::command]
@@ -56,12 +59,12 @@ pub async fn create_assignment_workspace(
     title: String,
     brief: String,
     attachments: Vec<Attachment>,
-) -> Result<WorkspaceInfo, WorkspaceError> {
+) -> Result<WorkspaceInfo, CommandError> {
     let service = service(&webview, &app)?;
-    run_workspace(&app, move || {
+    Ok(run_workspace(&app, move || {
         service.create(&context, assignment, title, brief, attachments)
     })
-    .await
+    .await?)
 }
 
 /// `finder`: the workspace in the file manager; `vscode`: the whole folder.
@@ -71,10 +74,10 @@ pub async fn open_workspace(
     app: AppHandle,
     path: String,
     target: String,
-) -> Result<(), WorkspaceError> {
+) -> Result<(), CommandError> {
     let service = service(&webview, &app)?;
     let dir = run_workspace(&app, move || service.workspace_path(&path)).await?;
-    match target.as_str() {
+    Ok(match target.as_str() {
         "finder" => app.opener().open_path(dir.to_string_lossy(), None::<&str>),
         "vscode" => {
             let url = url::Url::from_directory_path(&dir)
@@ -82,9 +85,9 @@ pub async fn open_workspace(
             let url = format!("vscode://file{}", url.path().trim_end_matches('/'));
             app.opener().open_url(url, None::<&str>)
         }
-        _ => return Err(WorkspaceError::Input("Unknown target".into())),
+        _ => return Err(WorkspaceError::Input("Unknown target".into()).into()),
     }
-    .map_err(|error| WorkspaceError::Storage(error.to_string()))
+    .map_err(|error| WorkspaceError::Storage(error.to_string()))?)
 }
 
 #[tauri::command]
@@ -94,9 +97,9 @@ pub async fn set_workspace_submission(
     path: String,
     zip: bool,
     zip_name: String,
-) -> Result<WorkspaceInfo, WorkspaceError> {
+) -> Result<WorkspaceInfo, CommandError> {
     let service = service(&webview, &app)?;
-    run_workspace(&app, move || service.set_submission(&path, zip, &zip_name)).await
+    Ok(run_workspace(&app, move || service.set_submission(&path, zip, &zip_name)).await?)
 }
 
 #[derive(serde::Serialize)]
@@ -116,17 +119,17 @@ pub async fn prepare_workspace_submission(
     assignment: String,
     url: String,
     messages: SubmissionMessages,
-) -> Result<SubmissionReady, SubmissionError> {
+) -> Result<SubmissionReady, CommandError> {
     let service = service(&webview, &app)?;
     let prepared = crate::core_ports::runtime(&app)
         .run(async move {
             tauri::async_runtime::spawn_blocking(move || service.prepare_upload(&path, &assignment))
                 .await
-                .map_err(|error| SubmissionError::Storage(error.to_string()))?
-                .map_err(SubmissionError::from)
+                .map_err(|error| CommandError::from(error.to_string()))?
+                .map_err(coded)
         })
         .await
-        .map_err(|error| SubmissionError::Browser(error.to_string()))??;
+        .map_err(|error| CommandError::from(error.to_string()))??;
     let url = controller
         .engine
         .prepare_submission(&url, prepared.files, messages)?;
@@ -141,16 +144,16 @@ pub async fn delete_workspace(
     webview: tauri::Webview,
     app: AppHandle,
     path: String,
-) -> Result<(), WorkspaceError> {
+) -> Result<(), CommandError> {
     let service = service(&webview, &app)?;
-    run_workspace(&app, move || service.delete(&path)).await
+    Ok(run_workspace(&app, move || service.delete(&path)).await?)
 }
 
 #[tauri::command]
 pub async fn clean_workspaces(
     webview: tauri::Webview,
     app: AppHandle,
-) -> Result<usize, WorkspaceError> {
+) -> Result<usize, CommandError> {
     let service = service(&webview, &app)?;
-    run_workspace(&app, move || service.clean()).await
+    Ok(run_workspace(&app, move || service.clean()).await?)
 }

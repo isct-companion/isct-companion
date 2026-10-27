@@ -89,7 +89,7 @@ pub(super) fn add_catalog_courses(
             .and_then(Value::as_i64)
             .or_else(|| plan_year.parse().ok())
             .ok_or_else(|| "catalog offering is missing academic year".to_string())?;
-        let course_id = offering_course_id(
+        let course_id = write.offering_course_id(
             i32::try_from(year).map_err(|_| "academic year is invalid")?,
             offering_id,
         )?;
@@ -385,13 +385,4 @@ pub(super) fn catalog_meetings(
         meetings.push(json!({"days":[day],"periods":periods,"startTime":start_time,"endTime":end_time,"room":room,"roomNames":room_names}));
     }
     Ok(Value::Array(meetings))
-}
-
-/// The course id of a catalog offering: `{year}-{offeringId}`.
-fn offering_course_id(year: i32, offering_id: &str) -> Result<String, DataError> {
-    if offering_id.len() == 9 && offering_id.bytes().all(|byte| byte.is_ascii_digit()) {
-        crate::data::canonical_course_id(year, offering_id)
-    } else {
-        Ok(format!("{year}-{offering_id}"))
-    }
 }

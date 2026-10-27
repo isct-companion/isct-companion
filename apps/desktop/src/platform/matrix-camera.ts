@@ -1,4 +1,5 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel } from "@tauri-apps/api/core";
+import { invoke, nativeError } from "./native-error";
 import type {
   MatrixCameraSnapshot,
   MatrixCaptureMetrics,
@@ -25,10 +26,10 @@ function cameraError(error: unknown): Error {
         ),
       );
   }
-  if (error instanceof Error) return error;
-  if (error && typeof error === "object" && "detail" in error)
-    return new Error(String(error.detail));
-  return new Error(String(error));
+  return nativeError(
+    error,
+    t("The camera is unavailable. Close other apps using it and try again."),
+  );
 }
 
 /** Frames kept in the capture timeline of one session (about 20 s at 30 fps). */

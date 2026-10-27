@@ -3,7 +3,9 @@ mod policy;
 mod port;
 mod submission;
 
-pub use adpt_isct::scripts::{ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN};
+pub use adpt_isct::scripts::{
+    ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN, SCHOOL_STOP,
+};
 pub use engine::SchoolBrowserEngine;
 pub use policy::{
     browsing_target, browsing_url, is_login_url, is_school_cookie_domain, sanitize_school_url,

@@ -75,6 +75,7 @@ const ACTIVITIES = -1;
 /** The lesson the course is at, for marking rows of schedule tables. */
 
 import { fileFamily, extension } from "./file-types";
+import { withRecords } from "../../platform/records";
 import {
   folderComponent,
   downloadLimit,
@@ -171,7 +172,7 @@ function folderLinks(html: string) {
   return files.length ? files : undefined;
 }
 
-export function LmsWorkspace({
+export function LmsWorkspaceBody({
   course,
   data,
   record,
@@ -1703,3 +1704,17 @@ export function LmsWorkspace({
     </div>
   );
 }
+
+/** LmsWorkspace with the records it shows (`platform/records`). */
+export const LmsWorkspace = withRecords(
+  [
+    "assignments",
+    "courses",
+    "materials",
+    "memberships",
+    "planItems",
+    "academicProfile",
+    "lmsCourses",
+  ],
+  LmsWorkspaceBody,
+);

@@ -84,6 +84,14 @@ fn validated_lms_keys_project_to_workspace_course_material_and_assignment() {
             rusqlite::params![owned_id, owned.to_string()],
         )
         .unwrap();
+    // The course's offering already names it, as for a course stored before.
+    connection
+        .execute(
+            "INSERT INTO course_keys(key,course_id,updated_at)
+             VALUES('offering:2026:202602440',?1,'2026-10-06T00:00:00Z')",
+            [owned_id],
+        )
+        .unwrap();
     let transaction = connection.transaction().unwrap();
     let now = chrono::Utc::now();
     apply_lms_enrolment(&transaction, &enrolment, ACCOUNT, now).expect("enrolment key");

@@ -40,6 +40,8 @@
   let captureTimer;
   let lastCapture = "";
   addEventListener("beforeunload", () => (leaving = true));
+  // Core gave up on this run (a timeout, or new credentials took over).
+  addEventListener("isct-companion-stop", () => (stopped = true));
 
   const storage = (() => {
     try {

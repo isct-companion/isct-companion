@@ -4,7 +4,7 @@
 use crate::{SdkError, Session};
 use app_core::{
     net::BoxFuture,
-    reset::{ResetDevice, ResetError},
+    reset::ResetDevice,
     sync_engine::{ResetReport, ResetScope},
 };
 use std::{path::PathBuf, sync::Arc};
@@ -85,21 +85,6 @@ impl From<ResetReport> for ResetSummary {
         Self {
             removed_rows: report.removed_rows,
             freed_bytes: report.freed_bytes,
-        }
-    }
-}
-
-impl From<ResetError> for SdkError {
-    fn from(error: ResetError) -> Self {
-        let detail = error.to_string();
-        match error {
-            ResetError::Busy => Self::Busy { detail },
-            ResetError::Unsupported(_) => Self::Unavailable { detail },
-            ResetError::SignOut(_) => Self::Callback { detail },
-            ResetError::Stopped => Self::Cancelled,
-            ResetError::Storage(_) | ResetError::Credentials(_) | ResetError::Files(_) => {
-                Self::Storage { detail }
-            }
         }
     }
 }

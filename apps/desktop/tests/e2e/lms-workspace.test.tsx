@@ -298,7 +298,7 @@ async function openWorkspace(
   };
   const view = await mount(
     <>
-      <real.LmsWorkspace {...props} />
+      <real.LmsWorkspaceBody {...props} />
       <real.ConfirmDialogs />
     </>,
   );
@@ -315,7 +315,7 @@ async function openWorkspace(
       await act(async () =>
         view.root.render(
           <>
-            <real.LmsWorkspace {...props} {...overrides} />
+            <real.LmsWorkspaceBody {...props} {...overrides} />
             <real.ConfirmDialogs />
           </>,
         ),
@@ -939,13 +939,16 @@ describe("the LMS reading workspace", () => {
           if (command === "prepare_workspace_submission") {
             if (outcome === "failed")
               return Promise.reject({
-                kind: "invalidInput",
-                message: "The submit folder is empty",
+                code: "hand-in-empty",
+                detail: "The submit folder is empty",
               });
             if (outcome === "missing") {
               // Deleted in Finder after the card was shown.
               present = false;
-              return Promise.reject({ kind: "workspaceMissing" });
+              return Promise.reject({
+                code: "workspace-folder-missing",
+                detail: "The workspace folder no longer exists",
+              });
             }
             return { workspace, url };
           }
@@ -964,7 +967,7 @@ describe("the LMS reading workspace", () => {
         url: f.workspace.assignments[0].sourceUrl,
       });
       if (outcome === "failed") {
-        expect(host.textContent).toContain("The submit folder is empty");
+        expect(host.textContent).toContain("The submit folder is empty.");
         expect(host.querySelector(".lmsViewer")).toBeNull();
       } else if (outcome === "missing") {
         // The card gives way to a notice; the page still opens.
@@ -1223,7 +1226,7 @@ describe("the LMS reading workspace", () => {
     vi.useFakeTimers({ now: new Date("2026-10-08T00:00:00Z") });
 
     const node = (active: boolean) => (
-      <real.LmsWorkspace
+      <real.LmsWorkspaceBody
         course={f.course}
         data={f.workspace}
         record={f.record}

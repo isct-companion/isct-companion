@@ -25,13 +25,14 @@ function placeholders(text: string): string[] {
   return [...text.matchAll(/{{[^}]+}}/g)].map((match) => match[0]).sort();
 }
 
-function loadLocale(name: "ja" | "zh"): Record<string, string> {
+function loadLocale(name: "en" | "ja" | "zh"): Record<string, string> {
   return JSON.parse(readRepoFile(`resources/locales/${name}.json`)) as Record<
     string,
     string
   >;
 }
 
+const en = loadLocale("en");
 const ja = loadLocale("ja");
 const zh = loadLocale("zh");
 
@@ -227,7 +228,9 @@ describe("Chinese translation catalogue", () => {
   it("leaves no key untranslated and keeps every interpolation placeholder", () => {
     for (const [key, value] of Object.entries(zh)) {
       expect(value.trim(), key).not.toBe("");
-      expect(placeholders(value), key).toEqual(placeholders(key));
+      // An English key is its own copy; a namespaced key (`error.*`) has
+      // its English copy in en.json.
+      expect(placeholders(value), key).toEqual(placeholders(en[key] ?? key));
     }
   });
 

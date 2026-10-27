@@ -1,5 +1,6 @@
 //! The shell's whole share of school sync: forward hints, read the snapshot.
 //! Core's planner decides what is due; `sync-snapshot` events carry changes.
+use crate::CommandError;
 use crate::{core_ports, require_local_main};
 use app_core::sync_engine::{Hint, SyncSnapshot};
 
@@ -10,7 +11,7 @@ pub(crate) fn sync_hint(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     hint: Hint,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     require_local_main(&webview)?;
     core_ports::core(&app).sync_hint(hint);
     Ok(())
@@ -21,7 +22,7 @@ pub(crate) fn sync_hint(
 pub(crate) async fn sync_snapshot(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-) -> Result<SyncSnapshot, String> {
+) -> Result<SyncSnapshot, CommandError> {
     require_local_main(&webview)?;
     Ok(core_ports::core(&app).sync_snapshot().await)
 }

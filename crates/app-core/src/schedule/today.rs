@@ -499,6 +499,25 @@ pub fn today_view(
             view.next_boundary = Some(midnight.to_rfc3339());
         }
     }
+    // A shown deadline leaves its list once it passes, so it is a boundary
+    // too when it comes before the phase's own.
+    let shown_due = view
+        .class_assignments
+        .iter()
+        .chain(view.deadline_hero.as_ref())
+        .filter_map(|item| item.due_at.as_deref())
+        .filter_map(|raw| DateTime::parse_from_rfc3339(raw).ok())
+        .filter(|due| *due > now)
+        .min();
+    if let Some(due) = shown_due {
+        let phase_boundary = view
+            .next_boundary
+            .as_deref()
+            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok());
+        if phase_boundary.is_none_or(|boundary| due < boundary) {
+            view.next_boundary = Some(due.to_rfc3339());
+        }
+    }
     Ok(view)
 }
 

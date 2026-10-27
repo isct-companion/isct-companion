@@ -160,9 +160,7 @@ export function AcademicSummary({
                     }
                     onClick={refresh}
                   >
-                    {progress !== null
-                      ? progressLabel(progress)
-                      : t("Refresh")}
+                    {progress !== null ? progressLabel(progress) : t("Refresh")}
                   </Button>
                 )}
               </footer>

@@ -11,7 +11,7 @@ use crate::{
     school_auth::{SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentials},
     sync_engine::{Hint, Network, SyncEngine, SyncHints, SyncSnapshot},
     workspace::{WorkspaceError, WorkspaceService},
-    workspace_changes::{self, Coalescer, WorkspaceChange, WorkspacePatch, COALESCE_WINDOW},
+    workspace_changes::{self, Coalescer, WorkspaceChange, COALESCE_WINDOW},
 };
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -70,6 +70,7 @@ impl EventSink for CoreEvents {
 /// whichever service, executor or agent tool made it.
 struct StoreChanges {
     events: Option<StoreEvents>,
+    seq: crate::data::CommitSeq,
     runtime: Arc<CoreRuntime>,
 }
 
@@ -104,6 +105,7 @@ impl CommitObserver for StoreChanges {
                     source,
                     revision,
                     changes: changes.into_iter().collect(),
+                    seq: self.seq.get(),
                 });
         } else if !changes.is_empty() {
             events.workspace.push(source, changes);
@@ -165,14 +167,18 @@ impl Core {
         }
         let runtime = Arc::new(CoreRuntime::new(sync.hints()));
         let sync = Arc::new(sync);
+        let seq = store.commit_seq_handle();
         store.observe(Arc::new(StoreChanges {
+            seq: seq.clone(),
             events: events.clone().map(|events| {
                 let sink = events.clone();
+                // Delivered after every commit it merges has landed.
                 let workspace = Coalescer::new(COALESCE_WINDOW, move |source, changes| {
                     let _ = sink.emit(crate::events::CoreEvent::WorkspaceChanged {
                         source,
                         revision: None,
                         changes,
+                        seq: seq.get(),
                     });
                 });
                 let sink = events.clone();
@@ -337,18 +343,6 @@ impl Core {
         }
     }
 
-    /// The records `changes` feed, from one snapshot, for a shell that heard
-    /// `workspace-changed` and patches its copy instead of reading it all.
-    pub fn workspace_records(
-        &self,
-        changes: &[WorkspaceChange],
-    ) -> Result<WorkspacePatch, WorkspaceError> {
-        Ok(workspace_changes::patch(
-            self.workspace.snapshot()?,
-            changes,
-        ))
-    }
-
     /// Evaluate a page's related queries against one coherent database snapshot.
     pub fn schedule_query(
         &self,
@@ -359,33 +353,43 @@ impl Core {
                 "Too many schedule queries.".into(),
             ));
         }
-        let snapshot = self.workspace.snapshot()?;
+        // Read before the data, so it is never newer than what was read.
+        let seq = self.store.commit_seq();
+        let reads = crate::schedule::reads_of(&queries);
+        // Only the tables the queries read (`WorkspaceQuery::reads`).
+        let fields = workspace_changes::loaded_fields(reads.iter().copied());
+        let (workspace, school, _) = self.store.view(&fields).map_err(WorkspaceError::from)?;
         let values = queries
             .into_iter()
-            .map(|query| crate::schedule::query(&snapshot.workspace, &snapshot.school, query))
+            .map(|query| crate::schedule::query(&workspace, &school, query))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(ScheduleQuerySnapshot {
-            revision: snapshot.content_revision,
-            values,
-        })
+        Ok(ScheduleQuerySnapshot { values, reads, seq })
     }
 
     pub fn finder_query(
         &self,
         request: crate::course_query::FinderRequest,
     ) -> Result<crate::course_query::FinderPage, ReadModelError> {
-        // Borrowed, not copied: each keystroke reads the cached snapshot.
-        let (parts, content_revision) = self
-            .store
-            .workspace_snapshot()
-            .map_err(WorkspaceError::from)?;
+        let seq = self.store.commit_seq();
+        // Only what a page reads besides the catalog; cached, so each
+        // keystroke reads the same view.
+        let fields =
+            workspace_changes::loaded_fields(crate::course_query::FINDER_READS.iter().copied());
+        let (workspace, _, content_revision) =
+            self.store.view(&fields).map_err(WorkspaceError::from)?;
         let options = self
             .store
             .kyomu_search_options(request.year)
             .map_err(crate::catalog::CatalogError::from)?;
-        Ok(self
-            .finder
-            .page(&self.store, &parts.0, &content_revision, &options, request)?)
+        let mut page = self.finder.page(
+            &self.store,
+            &workspace,
+            &content_revision,
+            &options,
+            request,
+        )?;
+        page.seq = seq;
+        Ok(page)
     }
 
     pub async fn reminder_tick(
@@ -482,8 +486,12 @@ pub enum ReadModelError {
 
 #[derive(serde::Serialize)]
 pub struct ScheduleQuerySnapshot {
-    pub revision: String,
     pub values: Vec<crate::schedule::WorkspaceQueryResult>,
+    /// The changes the values were computed from (`WorkspaceQuery::reads`);
+    /// a shell re-runs the queries when an event names one.
+    pub reads: Vec<WorkspaceChange>,
+    /// `DataStore::commit_seq` read before the values' data.
+    pub seq: u64,
 }
 
 #[cfg(test)]

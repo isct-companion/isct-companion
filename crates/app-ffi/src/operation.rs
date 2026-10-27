@@ -4,18 +4,19 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ScheduleSnapshot {
-    pub revision: String,
     pub values: Vec<WorkspaceQueryResult>,
+    /// The changes the values read; re-query when an event names one.
+    pub reads: Vec<WorkspaceChange>,
+    /// The commit sequence read before the values; drop the answer when a
+    /// `workspace-changed` with a larger `seq` has been heard.
+    pub seq: u64,
 }
 #[derive(Clone, Debug, uniffi::Enum)]
 // UniFFI transports records by value and does not expose Box<T> in this ABI.
 #[allow(clippy::large_enum_variant)]
 pub enum OperationResult {
-    Workspace {
-        snapshot: WorkspaceSnapshot,
-    },
-    WorkspaceRecords {
-        patch: WorkspacePatch,
+    Committed {
+        commit: WorkspaceCommit,
     },
     Schedule {
         snapshot: ScheduleSnapshot,

@@ -56,8 +56,12 @@ fn used_bytes(connection: &Connection, schema: &str) -> Result<u64, DataError> {
 
 /// Rows of cache.db and sync.db, which a reset empties together.
 fn cache_rows(connection: &Connection) -> Result<u64, DataError> {
-    Ok(rows_in(connection, migrations::CACHE_TABLES)?
-        + rows_in(connection, migrations::SYNC_TABLES)?)
+    let school: Vec<&str> = migrations::CACHE_TABLES
+        .iter()
+        .copied()
+        .filter(|table| !migrations::DERIVED_TABLES.contains(table))
+        .collect();
+    Ok(rows_in(connection, &school)? + rows_in(connection, migrations::SYNC_TABLES)?)
 }
 
 fn cache_bytes(connection: &Connection) -> Result<u64, DataError> {
@@ -125,6 +129,8 @@ impl DataStore {
             .map_err(DataError::from)
             .and_then(|transaction| {
                 migrations::recreate_cache(&transaction)?;
+                // The person's own courses stay; they are merged again.
+                super::course_merge::rebuild(&transaction)?;
                 transaction.commit().map_err(DataError::from)
             });
         connection::forbid_truncate(&writer);
@@ -198,6 +204,7 @@ impl DataStore {
     /// Publishes a change committed without a source, once the caller is
     /// ready for shells to read it. A reset may have changed any table.
     pub(crate) fn announce(&self, source: WorkspaceChangeSource) {
+        self.commit_seq.advance();
         self.observer
             .committed(source, None, &migrations::all_tables());
     }

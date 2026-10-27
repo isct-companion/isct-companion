@@ -229,7 +229,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
         return snapshot(&app);
     }
     let core = core_ports::core(&app);
-    let workspace = core.store.load_workspace().map_err(|e| e.to_string())?;
+    let workspace = core.store.load_fields(&[]).map_err(|e| e.to_string())?;
     let checked = updates
         .state
         .lock()
@@ -346,7 +346,7 @@ pub fn request_install(app: &AppHandle) -> Result<(), String> {
 pub fn install_on_exit(app: &AppHandle) {
     let automatic = core_ports::core(app)
         .store
-        .load_workspace()
+        .load_fields(&[])
         .map(|w| app_core::app_updates::automatic_updates(&w))
         .unwrap_or(false);
     let updates = app.state::<DesktopUpdates>();

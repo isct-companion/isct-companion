@@ -1,5 +1,5 @@
 import { t } from "../../i18n";
-import { invoke } from "@tauri-apps/api/core";
+import { errorCode, invoke } from "../../platform/native-error";
 import { openMaterial, type CourseFolder } from "./files";
 import type { AssignmentAttachment } from "../../platform/core-query";
 
@@ -76,10 +76,7 @@ export const findWorkspace = (
 
 /** The workspace folder was deleted outside the app. */
 export const workspaceMissing = (error: unknown) =>
-  typeof error === "object" &&
-  error !== null &&
-  "kind" in error &&
-  (error.kind === "missing" || error.kind === "workspaceMissing");
+  errorCode(error) === "workspace-folder-missing";
 
 /** Download the attachments into the course folder, then build the workspace from them. */
 export async function createWorkspace(

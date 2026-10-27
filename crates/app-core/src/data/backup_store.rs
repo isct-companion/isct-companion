@@ -9,7 +9,7 @@ impl DataStore {
         for table in USER_BACKUP_TABLES {
             tables.insert(
                 (*table).into(),
-                Value::Array(read_rows(&connection, table)?),
+                Value::Array(synced_rows(&connection, table)?),
             );
         }
         let settings = read_settings_export(&connection)?
@@ -61,12 +61,15 @@ impl DataStore {
             }
         }
         for table in USER_BACKUP_TABLES {
-            let local = read_rows(transaction, table)?;
+            // Compared as synced copies, which name courses by external key.
+            let local = synced_rows(transaction, table)?;
             for incoming in remote["tables"][table].as_array().into_iter().flatten() {
                 validate_user_record(table, incoming)?;
                 let old = local.iter().find(|row| row["id"] == incoming["id"]);
                 if old.is_none_or(|old| cloud_merge::compare(incoming, old).is_gt()) {
-                    upsert_row(transaction, table, incoming, true)?;
+                    let mut stored = incoming.clone();
+                    course_keys::from_synced(transaction, table, &mut stored)?;
+                    upsert_row(transaction, table, &stored, true)?;
                 }
             }
         }
@@ -98,4 +101,13 @@ impl DataStore {
         Ok(())
         })
     }
+}
+
+/// `table`'s rows as synced copies carry them (`course_keys::to_synced`).
+fn synced_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, DataError> {
+    let mut rows = read_rows(connection, table)?;
+    for row in &mut rows {
+        course_keys::to_synced(connection, table, row)?;
+    }
+    Ok(rows)
 }

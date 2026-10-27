@@ -1712,8 +1712,11 @@ describe("Study profile", () => {
     await wait(() =>
       expect(mounted.core.workspace.settings.departmentId).toBe("cs"),
     );
-    expect(departmentSelect(pane).textContent?.replace(/⌄$/, "")).toBe(
-      "Computer Science",
+    // The field shows what Core committed once it answers again.
+    await wait(() =>
+      expect(departmentSelect(pane).textContent?.replace(/⌄$/, "")).toBe(
+        "Computer Science",
+      ),
     );
   });
 
@@ -1895,6 +1898,7 @@ describe("Study profile", () => {
       );
       await act(async () =>
         emitNative(mounted.core, "workspace-changed", {
+          seq: 1,
           source: "cloud-sync",
           changes: ["settings"],
         }),
@@ -1958,6 +1962,7 @@ describe("Study profile", () => {
       );
       await act(async () =>
         emitNative(mounted.core, "workspace-changed", {
+          seq: 1,
           source: "cloud-sync",
           changes: ["settings"],
         }),

@@ -50,6 +50,8 @@ struct FakeBrowser {
     current: Mutex<HashMap<BrowserId, Url>>,
     /// Report the next dispatch as sent to a view that no longer exists.
     unavailable: AtomicBool,
+    /// Leave stops unconfirmed, as a native view that hangs would.
+    hold_stop: AtomicBool,
     maintenance: Mutex<Option<String>>,
 }
 
@@ -185,7 +187,17 @@ impl SchoolBrowser for FakeBrowser {
             _ => None,
         };
         let browser = command.browser;
+        let stop = (command.command == BrowserAction::Stop).then_some(command.action);
         self.commands.lock().unwrap().push(command);
+        if let Some(action) = stop.filter(|_| !self.hold_stop.load(Ordering::Acquire)) {
+            self.listener().stopped(
+                PageId {
+                    browser,
+                    sequence: 0,
+                },
+                action,
+            );
+        }
         if let Some((prefix, sequence)) = availability {
             let payload = serde_json::json!({"sequence":sequence,"message":self.maintenance.lock().unwrap().clone()});
             self.listener().title_changed(
@@ -925,7 +937,8 @@ async fn heartbeat_timeout_publishes_failed_releases_the_lane_and_allows_retry()
 
     // A shell wake alone must recover it; no click, focus or restart.
     engine.retry_sessions();
-    assert_eq!(browser.commands.lock().unwrap().len(), 1);
+    // The timed-out check's navigation and the stop of its view.
+    assert_eq!(browser.commands.lock().unwrap().len(), 2);
     tokio::time::advance(std::time::Duration::from_secs(90)).await;
     engine.retry_sessions();
     engine.retry_sessions(); // Repeated wakes cannot queue duplicate checks.
@@ -952,18 +965,156 @@ async fn heartbeat_timeout_publishes_failed_releases_the_lane_and_allows_retry()
     );
     tokio::time::advance(std::time::Duration::from_secs(600)).await;
     engine.retry_sessions();
-    assert_eq!(browser.commands.lock().unwrap().len(), 2);
+    assert_eq!(browser.commands.lock().unwrap().len(), 3);
     engine.shutdown().await;
 }
 
+// A job's time runs from admission: a check queued behind another spends its
+// wait for the lane, so a stuck lane cannot stretch it to twice the timeout.
+// A visible school page holding it back is not its time.
 #[tokio::test(start_paused = true)]
-async fn manual_login_timeout_emits_error_and_failed_session() {
+async fn a_session_job_has_one_deadline_from_admission_that_visible_pages_do_not_spend() {
+    let (engine, browser, _, _) = engine();
+    let check = |profile| {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(profile).await })
+    };
+    let science = check(SchoolAuthProfile::Science);
+    browser.navigation(0).await;
+    tokio::time::advance(std::time::Duration::from_secs(30)).await;
+    let tokyo = check(SchoolAuthProfile::TokyoTech);
+    // Admitted now: `advance` moves the clock before the job first runs.
+    tokio::task::yield_now().await;
+    tokio::time::advance(std::time::Duration::from_secs(61)).await;
+    assert!(matches!(
+        science.await.unwrap(),
+        Err(SchoolBrowserError::Timeout(_))
+    ));
+    assert_eq!(
+        browser.navigation(1).await.browser.site,
+        SchoolSite::TokyoPortal
+    );
+    tokio::time::advance(std::time::Duration::from_secs(31)).await;
+    let tokyo = tokio::time::timeout(std::time::Duration::from_secs(1), tokyo)
+        .await
+        .expect("the wait for the lane counts toward the job's deadline");
+    assert!(matches!(
+        tokyo.unwrap(),
+        Err(SchoolBrowserError::Timeout(_))
+    ));
+
+    engine.user_browsing(Some(SchoolSite::Kyomu)).unwrap();
+    let held = check(SchoolAuthProfile::Science);
+    tokio::task::yield_now().await;
+    tokio::time::advance(std::time::Duration::from_secs(200)).await;
+    assert!(!held.is_finished());
+    engine.user_browsing(None).unwrap();
+    assert_eq!(
+        browser.navigation(2).await.browser.site,
+        SchoolSite::SciencePortal
+    );
+    tokio::time::advance(std::time::Duration::from_secs(60)).await;
+    assert!(
+        !held.is_finished(),
+        "the time behind a visible page did not count"
+    );
+    engine.shutdown().await;
+    assert_eq!(held.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+// An attempt that ran out of time leaves its page mid-way. Its view is
+// stopped, and the next check reuses it only once the view confirms: a page
+// of the abandoned attempt reported late is not the new check's. A view that
+// never confirms is replaced instead of waited on.
+#[tokio::test(start_paused = true)]
+async fn an_abandoned_attempt_stops_its_view_before_the_view_is_used_again() {
+    let (engine, browser, _, _) = engine();
+    browser.hold_stop.store(true, Ordering::Release);
+    let check = || {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::TokyoTech).await })
+    };
+    let last_stop = || {
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .rfind(|command| command.command == BrowserAction::Stop)
+            .cloned()
+            .expect("the timed-out check's view was stopped")
+    };
+    let navigations = || {
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+            .count()
+    };
+    let first = check();
+    let abandoned = browser.navigation(0).await.browser;
+    tokio::time::advance(std::time::Duration::from_secs(91)).await;
+    assert!(matches!(
+        first.await.unwrap(),
+        Err(SchoolBrowserError::Timeout(_))
+    ));
+    let stop = last_stop();
+    assert_eq!(stop.browser, abandoned);
+
+    let second = check();
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(navigations(), 1, "the view has not confirmed its stop");
+    let page = |sequence| PageId {
+        browser: abandoned,
+        sequence,
+    };
+    browser.listener().stopped(page(3), stop.action);
+    assert_eq!(browser.navigation(1).await.browser, abandoned);
+    browser.listener().page_loaded(PageLoaded {
+        page: page(3),
+        cause: None,
+        url: Url::parse("https://portal.nap.gsic.titech.ac.jp/GetAccess/ResourceList").unwrap(),
+    });
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!second.is_finished(), "a page from before the stop is late");
+    browser.listener().page_loaded(PageLoaded {
+        page: page(4),
+        cause: None,
+        url: Url::parse("https://portal.nap.gsic.titech.ac.jp/portal.pl").unwrap(),
+    });
+    assert!(!second.await.unwrap().unwrap());
+
+    let third = check();
+    browser.navigation(2).await;
+    tokio::time::advance(std::time::Duration::from_secs(91)).await;
+    assert!(matches!(
+        third.await.unwrap(),
+        Err(SchoolBrowserError::Timeout(_))
+    ));
+    let fourth = check();
+    tokio::task::yield_now().await;
+    tokio::time::advance(std::time::Duration::from_secs(6)).await;
+    let replaced = browser.navigation(3).await.browser;
+    assert_eq!(replaced.site, abandoned.site);
+    assert!(replaced.generation > abandoned.generation);
+    engine.shutdown().await;
+    assert_eq!(fourth.await.unwrap(), Err(SchoolBrowserError::Stopped));
+}
+
+#[tokio::test(start_paused = true)]
+async fn connect_timeout_emits_error_and_failed_session() {
     let (engine, browser, events, _) = engine();
-    let login = {
+    let connect = {
         let engine = engine.clone();
         tokio::spawn(async move {
             engine
-                .login(
+                .connect(
                     SchoolAuthProfile::Science,
                     SchoolCredentials {
                         username: "student".into(),
@@ -977,14 +1128,13 @@ async fn manual_login_timeout_emits_error_and_failed_session() {
     };
     browser.navigation(0).await;
     tokio::time::advance(std::time::Duration::from_secs(91)).await;
-    assert!(matches!(
-        login.await.unwrap(),
-        Err(SchoolBrowserError::Timeout(_))
-    ));
+    let result = connect.await.unwrap().unwrap();
+    assert_eq!(result.state, SchoolSessionState::Failed);
     assert_eq!(
-        engine.session_snapshot().unwrap().profiles.science.state,
-        SchoolSessionState::Failed
+        result.problem.map(|problem| problem.kind),
+        Some(SchoolSignInProblemKind::Unavailable)
     );
+    assert!(!result.verified);
     assert!(events.0.lock().unwrap().iter().any(|event| matches!(
         event,
         CoreEvent::SchoolLogin(SchoolLoginEvent { profile: SchoolAuthProfile::Science, state, .. })
@@ -1471,11 +1621,11 @@ fn manual_credentials() -> SchoolCredentials {
 async fn sign_in_ended_by_a_credential_change_leaves_no_stale_run() {
     let (engine, browser, _, _) =
         engine_with_auth(Arc::new(SchoolAuthService::new(saved_science_vault())));
-    let login = {
+    let connect = {
         let engine = engine.clone();
         tokio::spawn(async move {
             engine
-                .login(SchoolAuthProfile::Science, manual_credentials())
+                .connect(SchoolAuthProfile::Science, manual_credentials())
                 .await
         })
     };
@@ -1483,10 +1633,9 @@ async fn sign_in_ended_by_a_credential_change_leaves_no_stale_run() {
     engine
         .credentials_changed(SchoolAuthProfile::Science, false)
         .unwrap();
-    assert_eq!(
-        login.await.unwrap(),
-        Err(SchoolBrowserError::Auth("School sign-in failed.".into()))
-    );
+    let result = connect.await.unwrap().unwrap();
+    assert_eq!(result.state, SchoolSessionState::NotConfigured);
+    assert!(!result.verified);
     // The next sign-in page must be answered by a fresh automatic sign-in with
     // the saved credentials, not by the abandoned manual run.
     let check = {
@@ -1510,18 +1659,18 @@ async fn sign_in_ended_by_a_credential_change_leaves_no_stale_run() {
 #[tokio::test]
 async fn manual_sign_in_paused_by_a_visible_page_resumes_after_it_hides() {
     let (engine, browser, events, _) = engine();
-    let login = {
+    let connect = {
         let engine = engine.clone();
         tokio::spawn(async move {
             engine
-                .login(SchoolAuthProfile::Science, manual_credentials())
+                .connect(SchoolAuthProfile::Science, manual_credentials())
                 .await
         })
     };
     browser.navigation(0).await;
     engine.user_browsing(Some(SchoolSite::Kyomu)).unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    assert!(!login.is_finished());
+    assert!(!connect.is_finished());
     engine.user_browsing(None).unwrap();
     let resumed = browser.navigation(1).await;
     browser.listener().page_loaded(PageLoaded {
@@ -1532,7 +1681,10 @@ async fn manual_sign_in_paused_by_a_visible_page_resumes_after_it_hides() {
         cause: None,
         url: Url::parse("https://isct.ex-tic.com/idm/user/portal/").unwrap(),
     });
-    assert_eq!(login.await.unwrap().unwrap().phase, "sessionRestored");
+    assert_eq!(
+        connect.await.unwrap().unwrap().state,
+        SchoolSessionState::Active
+    );
     assert!(!events.0.lock().unwrap().iter().any(|event| matches!(
         event,
         CoreEvent::SchoolLogin(SchoolLoginEvent { state, .. }) if state == "error"
@@ -1865,6 +2017,89 @@ async fn connect_promotes_only_credentials_the_school_saw_in_full() {
     );
     assert!(vault_item(&vault, "school-accounts").is_some_and(|item| item.contains("student")));
     assert!(vault_item(&vault, "school-candidates").is_none());
+    engine.shutdown().await;
+}
+
+// Credentials typed in Settings are the person's answer: a check already
+// running gives way to the connect instead of holding it back with the old
+// saved sign-in, and everyone waiting on the profile, before or during the
+// connect, gets the connect's verdict rather than a second sign-in.
+#[tokio::test]
+async fn a_connect_takes_the_profile_over_and_answers_everyone_waiting_on_it() {
+    let auth = Arc::new(SchoolAuthService::new(saved_science_vault()));
+    auth.stage(SchoolAuthProfile::Science, manual_credentials())
+        .unwrap();
+    let (engine, browser, _, _) = engine_with_auth(auth);
+    let mut checks = Checks::new(&engine, &browser);
+    let connect = || {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .connect(SchoolAuthProfile::Science, manual_credentials())
+                .await
+        })
+    };
+    let check = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    browser.navigation(0).await;
+    checks.navigations = 1;
+    let first = connect();
+    let page = checks.load("https://isct.ex-tic.com/auth/session").await;
+    assert!(
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|command| command.command == BrowserAction::Stop),
+        "the check that gave way was stopped"
+    );
+    assert_eq!(
+        login_config(&browser.eval(0).await)["username"],
+        "typed-in-settings"
+    );
+    checks.relay(
+        page,
+        "invalid-credentials",
+        "Login failed.",
+        &["identifier", "password"],
+    );
+    let result = first.await.unwrap().unwrap();
+    assert_eq!(result.state, SchoolSessionState::Failed);
+    assert_eq!(
+        result.problem.map(|problem| problem.kind),
+        Some(SchoolSignInProblemKind::InvalidCredentials)
+    );
+    assert!(!check.await.unwrap().unwrap());
+
+    let second = connect();
+    let page = checks.load("https://isct.ex-tic.com/auth/session").await;
+    browser.eval(1).await;
+    let joined = {
+        let engine = engine.clone();
+        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
+    };
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    checks.relay(page, "progress", "password", &["identifier", "password"]);
+    checks.relay(page, "progress", "otp", &[]);
+    checks.follow(page, "https://isct.ex-tic.com/idm/user/portal");
+    assert!(second.await.unwrap().unwrap().verified);
+    assert!(joined.await.unwrap().unwrap());
+    assert_eq!(
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+            .count(),
+        3,
+        "the check asked for during the connect joined it"
+    );
     engine.shutdown().await;
 }
 

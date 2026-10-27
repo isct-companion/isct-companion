@@ -1,4 +1,5 @@
-import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
+import { Channel, isTauri } from "@tauri-apps/api/core";
+import { invoke } from "../platform/native-error";
 
 export const MATRIX_ROWS = 7;
 export const MATRIX_COLUMNS = 10;

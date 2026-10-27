@@ -1,3 +1,4 @@
+use crate::{coded, CommandError};
 use crate::{
     kyomu_guide,
     lifecycle::SchoolSite,
@@ -17,9 +18,9 @@ pub(crate) fn resolve_school_url(
     webview: tauri::Webview,
     url: String,
     site: SchoolSite,
-) -> Result<app_core::school_browser::SchoolWebTarget, String> {
+) -> Result<app_core::school_browser::SchoolWebTarget, CommandError> {
     require_local_main(&webview)?;
-    app_core::school_browser::browsing_target(&url, site).map_err(|error| error.to_string())
+    app_core::school_browser::browsing_target(&url, site).map_err(coded)
 }
 
 #[tauri::command]
@@ -27,12 +28,13 @@ pub(crate) fn open_external(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     url: String,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     require_local_main(&webview)?;
     let safe = external_url(&url).ok_or_else(|| "This link cannot be opened.".to_string())?;
-    app.opener()
+    Ok(app
+        .opener()
         .open_url(safe, None::<&str>)
-        .map_err(|_| "external URL could not be opened".to_string())
+        .map_err(|_| "external URL could not be opened".to_string())?)
 }
 
 #[tauri::command]
@@ -41,9 +43,9 @@ pub(crate) fn configure_school_web_policy(
     app: tauri::AppHandle,
     controller: tauri::State<'_, SchoolWebController>,
     policy: SchoolWebPolicy,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller.configure(&app, policy)
+    Ok(controller.configure(&app, policy)?)
 }
 
 #[tauri::command]
@@ -58,12 +60,12 @@ pub(crate) async fn open_school_site(
     js: String,
     bounds: Option<WebBounds>,
     target_url: Option<String>,
-) -> Result<SchoolWebResult, String> {
+) -> Result<SchoolWebResult, CommandError> {
     require_local_main(&webview)?;
     if css.len() > 256 * 1024 || js.len() > 256 * 1024 {
         return Err("school customization exceeds the safe size".into());
     }
-    controller.open(site, css, js, bounds, target_url).await
+    Ok(controller.open(site, css, js, bounds, target_url).await?)
 }
 
 #[tauri::command]
@@ -71,21 +73,21 @@ pub(crate) fn set_school_web_bounds(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
     bounds: WebBounds,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller.set_bounds(bounds)
+    Ok(controller.set_bounds(bounds)?)
 }
 
 #[tauri::command]
 pub(crate) fn hide_school_web(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     if let Err(error) = require_local_main(&webview) {
         log::error!("hide_school_web rejected for {}: {error}", webview.label());
         return Err(error);
     }
-    controller.hide_all()
+    Ok(controller.hide_all()?)
 }
 
 #[tauri::command]
@@ -93,9 +95,9 @@ pub(crate) fn reload_school_web(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
     site: SchoolSite,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller.engine.reload(site).map_err(|e| e.to_string())
+    controller.engine.reload(site).map_err(coded)
 }
 
 #[tauri::command]
@@ -104,12 +106,9 @@ pub(crate) fn navigate_school_web(
     controller: tauri::State<'_, SchoolWebController>,
     site: SchoolSite,
     url: String,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller
-        .engine
-        .navigate(site, &url)
-        .map_err(|e| e.to_string())
+    controller.engine.navigate(site, &url).map_err(coded)
 }
 
 /// The app's own Back for the school view: reloads the previous page as a
@@ -119,9 +118,9 @@ pub(crate) fn school_web_back(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
     site: SchoolSite,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller.engine.back(site).map_err(|e| e.to_string())
+    controller.engine.back(site).map_err(coded)
 }
 
 /// The app's Forward for the school view, the counterpart of Back.
@@ -130,9 +129,9 @@ pub(crate) fn school_web_forward(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
     site: SchoolSite,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller.engine.forward(site).map_err(|e| e.to_string())
+    controller.engine.forward(site).map_err(coded)
 }
 
 /// Shows a file a school page saved this session in Finder; other paths are
@@ -143,9 +142,9 @@ pub(crate) fn reveal_school_download(
     app: tauri::AppHandle,
     controller: tauri::State<'_, SchoolWebController>,
     path: String,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller.reveal_download(&app, &path)
+    Ok(controller.reveal_download(&app, &path)?)
 }
 
 #[tauri::command]
@@ -154,9 +153,9 @@ pub(crate) fn set_school_web_zoom(
     controller: tauri::State<'_, SchoolWebController>,
     site: SchoolSite,
     scale: f64,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller.set_zoom(site, scale)
+    Ok(controller.set_zoom(site, scale)?)
 }
 
 #[tauri::command]
@@ -164,12 +163,9 @@ pub(crate) fn set_kyomu_guide(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
     items: Vec<kyomu_guide::GuideItem>,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    controller
-        .engine
-        .set_guide(items)
-        .map_err(|e| e.to_string())
+    controller.engine.set_guide(items).map_err(coded)
 }
 
 #[cfg(test)]

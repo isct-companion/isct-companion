@@ -10,6 +10,7 @@
 //! Until the splash is passed, macOS keeps Wi-Fi out of the default route and
 //! system DNS, so requests are bound to the Wi-Fi interface and names are
 //! resolved by hickory against the lease's DNS server, from the Wi-Fi address.
+use crate::{coded, shell, CommandError};
 
 use app_core::school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials};
 use hickory_resolver::{
@@ -89,14 +90,14 @@ pub enum CampusWifiStep {
 pub struct CampusWifi(tokio::sync::Mutex<()>);
 
 #[tauri::command]
-pub async fn campus_wifi_status(webview: tauri::Webview) -> Result<CampusWifiStatus, String> {
+pub async fn campus_wifi_status(webview: tauri::Webview) -> Result<CampusWifiStatus, CommandError> {
     crate::require_local_main(&webview)?;
     let result = status().await;
     log::info!("[campus-wifi] status {result:?}");
     result
 }
 
-async fn status() -> Result<CampusWifiStatus, String> {
+async fn status() -> Result<CampusWifiStatus, CommandError> {
     let interface = wifi_interface().ok_or("No Wi-Fi interface found.")?;
     let Some(address) = campus_address(&interface) else {
         return Ok(if on_science_tokyo_x(&interface) {
@@ -120,7 +121,7 @@ pub async fn campus_wifi_connect(
     state: tauri::State<'_, CampusWifi>,
     leave_science_tokyo_x: bool,
     on_step: tauri::ipc::Channel<CampusWifiStep>,
-) -> Result<CampusWifiOutcome, String> {
+) -> Result<CampusWifiOutcome, CommandError> {
     crate::require_local_main(&webview)?;
     let _busy = state
         .0
@@ -138,7 +139,7 @@ async fn connect(
     app: &AppHandle,
     leave_science_tokyo_x: bool,
     step: impl Fn(CampusWifiStep),
-) -> Result<CampusWifiOutcome, String> {
+) -> Result<CampusWifiOutcome, CommandError> {
     let interface = wifi_interface().ok_or("No Wi-Fi interface found.")?;
     let address = match campus_address(&interface) {
         Some(address) => address,
@@ -150,14 +151,14 @@ async fn connect(
             let name = interface.clone();
             tauri::async_runtime::spawn_blocking(move || join(&name))
                 .await
-                .map_err(|error| error.to_string())??;
+                .map_err(shell)??;
             let started = Instant::now();
             loop {
                 if let Some(address) = campus_address(&interface) {
                     break address;
                 }
                 if started.elapsed() > Duration::from_secs(30) {
-                    return Err(format!("{SSID} did not assign an address."));
+                    return Err(format!("{SSID} did not assign an address.").into());
                 }
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
@@ -176,8 +177,8 @@ async fn connect(
             .load(SchoolAuthProfile::TokyoTech)
     })
     .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| error.to_string())?;
+    .map_err(shell)?
+    .map_err(coded)?;
     let Some(credentials) = credentials else {
         return Ok(CampusWifiOutcome::NeedsAccount);
     };
@@ -198,7 +199,7 @@ async fn connect(
 
 /// `None` when online, otherwise the splash page the network redirects to,
 /// with its HTML.
-async fn probe(client: &Client) -> Result<Option<(Url, String)>, String> {
+async fn probe(client: &Client) -> Result<Option<(Url, String)>, CommandError> {
     let response = client
         .get(PROBE_URL)
         .send()
@@ -230,7 +231,7 @@ async fn submit(
     page: &Url,
     html: &str,
     credentials: &SchoolCredentials,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     let (action, mut fields) = {
         let document = Html::parse_document(html);
         let select = |css: &str| Selector::parse(css).expect("static selector");
@@ -331,7 +332,7 @@ fn is_science_tokyo_x_address(ip: IpAddr) -> bool {
     })
 }
 
-fn join(interface: &str) -> Result<(), String> {
+fn join(interface: &str) -> Result<(), CommandError> {
     let output = Command::new("/usr/sbin/networksetup")
         .args(["-setairportnetwork", interface, SSID, PASSPHRASE])
         .output()
@@ -340,14 +341,14 @@ fn join(interface: &str) -> Result<(), String> {
     let message = String::from_utf8_lossy(&output.stdout).trim().to_string();
     match (output.status.success(), message.is_empty()) {
         (true, true) => Ok(()),
-        (_, false) => Err(message),
-        (false, true) => Err(format!("Could not join {SSID}.")),
+        (_, false) => Err(message.into()),
+        (false, true) => Err(format!("Could not join {SSID}.").into()),
     }
 }
 
 /// HTTP over the Wi-Fi interface with a cookie store (the splash keeps its
 /// session in cookies) and a resolver bound to the Wi-Fi address.
-fn client(interface: &str, address: Ipv4Addr) -> Result<Client, String> {
+fn client(interface: &str, address: Ipv4Addr) -> Result<Client, CommandError> {
     // The lease's DNS server, then a public one (the campus allows public DNS
     // before sign-in).
     let lease = Command::new("/usr/sbin/ipconfig")
@@ -374,7 +375,7 @@ fn client(interface: &str, address: Ipv4Addr) -> Result<Client, String> {
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(15))
         .build()
-        .map_err(|error| error.to_string())
+        .map_err(shell)
 }
 
 struct WifiResolver(TokioResolver);

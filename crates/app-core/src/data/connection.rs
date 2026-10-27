@@ -60,6 +60,7 @@ impl Connections {
         )?;
         let user_created = migrations::migrate_user(&mut writer)?;
         let cache_created = migrations::attach_caches(&mut writer, &files.cache, &files.sync)?;
+        let user_upgraded = migrations::upgrade_user(&mut writer)?;
         // Both are fetched again when lost, so they trade the last commits
         // before a power loss for fewer syncs. A power loss can then keep a
         // key's freshness and lose its rows; the key reads stale until it is
@@ -78,7 +79,7 @@ impl Connections {
             let reader = connections.open_reader()?;
             connections.readers.push(Mutex::new(reader));
         }
-        Ok((connections, user_created || cache_created))
+        Ok((connections, user_created || cache_created || user_upgraded))
     }
 
     /// The write connection. Callers use it inside `spawn_blocking`; every
@@ -182,23 +183,54 @@ pub(crate) fn commit_on<T, E: From<DataError>>(
     connection: &mut Connection,
     operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
 ) -> Result<(T, BTreeSet<String>), E> {
-    let touched: Arc<Mutex<BTreeSet<String>>> = Arc::default();
+    commit_then(connection, operation, |_, value, _| Ok(value))
+}
+
+/// As `commit_on`, with `then` run on the transaction once the courses the
+/// operation fed are merged, before it commits: what it reads is what
+/// commits. It hears the tables written so far, merges included.
+pub(crate) fn commit_then<T, U, E: From<DataError>>(
+    connection: &mut Connection,
+    operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
+    then: impl FnOnce(&Transaction<'_>, T, &BTreeSet<String>) -> Result<U, E>,
+) -> Result<(U, BTreeSet<String>), E> {
+    let touched: Arc<Mutex<Vec<super::course_merge::Touched>>> = Arc::default();
     let sink = touched.clone();
-    connection.update_hook(Some(move |_: Action, _: &str, table: &str, _: i64| {
-        sink.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(reported_table(table).to_string());
-    }));
-    let result: Result<T, E> = (|| {
+    connection.update_hook(Some(
+        move |action: Action, _: &str, table: &str, rowid: i64| {
+            sink.lock().unwrap_or_else(PoisonError::into_inner).push((
+                action,
+                reported_table(table).to_string(),
+                rowid,
+            ));
+        },
+    ));
+    let result: Result<U, E> = (|| {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(DataError::from)?;
         let value = operation(&transaction)?;
+        // Courses the write fed are merged again before it commits.
+        let written = touched
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        super::course_merge::refresh(&transaction, &written)?;
+        let tables = touched
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(_, table, _)| table.clone())
+            .collect();
+        let value = then(&transaction, value, &tables)?;
         transaction.commit().map_err(DataError::from)?;
         Ok(value)
     })();
     connection.update_hook(None::<fn(Action, &str, &str, i64)>);
-    let tables = std::mem::take(&mut *touched.lock().unwrap_or_else(PoisonError::into_inner));
+    let tables = std::mem::take(&mut *touched.lock().unwrap_or_else(PoisonError::into_inner))
+        .into_iter()
+        .map(|(_, table, _)| table)
+        .collect();
     result.map(|value| (value, tables))
 }
 

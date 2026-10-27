@@ -4,6 +4,7 @@ use crate::{
     school_auth::SchoolAuthService,
     secrets::OsSecretVault,
 };
+use crate::{coded, CommandError};
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
@@ -12,7 +13,7 @@ pub(crate) async fn cloud_lifecycle(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     kind: String,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     require_local_main(&webview)?;
     if matches!(kind.as_str(), "foreground" | "background") {
         cloud_sync::CloudSync::changed(&app).await;
@@ -25,7 +26,7 @@ pub(crate) async fn cloud_lifecycle(
 pub(crate) fn cloud_sync_state(
     webview: tauri::Webview,
     sync: tauri::State<'_, cloud_sync::CloudSync>,
-) -> Result<cloud_sync::SyncState, String> {
+) -> Result<cloud_sync::SyncState, CommandError> {
     require_local_main(&webview)?;
     sync.state()
 }
@@ -35,7 +36,7 @@ pub(crate) async fn sync_cloud_now(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     direction: cloud_sync::Direction,
-) -> Result<cloud_sync::SyncState, String> {
+) -> Result<cloud_sync::SyncState, CommandError> {
     require_local_main(&webview)?;
     app.state::<cloud_sync::CloudSync>()
         .sync(&app, direction)
@@ -47,7 +48,7 @@ pub(crate) async fn set_cloud_sync_automatic(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     automatic: bool,
-) -> Result<cloud_sync::SyncState, String> {
+) -> Result<cloud_sync::SyncState, CommandError> {
     require_local_main(&webview)?;
     app.state::<cloud_sync::CloudSync>()
         .set_automatic(&app, automatic)
@@ -59,7 +60,7 @@ pub(crate) fn cloud_recovery_document(
     webview: tauri::Webview,
     sync: tauri::State<'_, cloud_sync::CloudSync>,
     id: String,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     require_local_main(&webview)?;
     sync.recovery_document(&id)
 }
@@ -69,7 +70,7 @@ pub(crate) async fn restore_cloud_version(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     id: String,
-) -> Result<cloud_sync::SyncState, String> {
+) -> Result<cloud_sync::SyncState, CommandError> {
     require_local_main(&webview)?;
     app.state::<cloud_sync::CloudSync>()
         .restore(&app, &id)
@@ -82,15 +83,15 @@ pub(crate) async fn set_cloud_sync_provider(
     app: tauri::AppHandle,
     provider: CloudProvider,
     enabled: bool,
-) -> Result<cloud_sync::SyncState, String> {
+) -> Result<cloud_sync::SyncState, CommandError> {
     require_local_main(&webview)?;
     if enabled && provider == CloudProvider::GoogleDrive {
         let service = app.state::<DesktopCloudService<OsSecretVault>>();
         if !service.authorized_providers()?.contains(&provider) {
             let workspace = app
                 .state::<data::DataStore>()
-                .load_workspace()
-                .map_err(|error| error.to_string())?;
+                .load_fields(&[])
+                .map_err(coded)?;
             let override_id = workspace
                 .pointer("/settings/cloud/clientId")
                 .and_then(serde_json::Value::as_str)
@@ -109,7 +110,7 @@ pub(crate) async fn set_cloud_sync_provider(
             {
                 return app
                     .state::<cloud_sync::CloudSync>()
-                    .provider_result(&app, provider, false, Some(error))
+                    .provider_result(&app, provider, false, Some(error.to_string()))
                     .await;
             }
         }
@@ -129,30 +130,30 @@ pub(crate) async fn connect_cloud(
     provider: CloudProvider,
     client_id: String,
     redirect_uri: String,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     if provider == CloudProvider::Icloud {
         #[cfg(target_os = "macos")]
-        return service.connect_icloud().await;
+        return Ok(service.connect_icloud().await?);
         #[cfg(not(target_os = "macos"))]
         return Err("iCloud sync is only available on Apple devices.".into());
     }
-    service
+    Ok(service
         .connect(provider, &client_id, &redirect_uri, move |url| {
             app.opener()
                 .open_url(url, None::<&str>)
                 .map_err(|_| "system browser could not be opened".to_string())
         })
-        .await
+        .await?)
 }
 
 #[tauri::command]
 pub(crate) fn cloud_authorization_status(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-) -> Result<Vec<CloudProvider>, String> {
+) -> Result<Vec<CloudProvider>, CommandError> {
     require_local_main(&webview)?;
-    service.authorized_providers()
+    Ok(service.authorized_providers()?)
 }
 
 #[tauri::command]
@@ -161,7 +162,7 @@ pub(crate) fn disconnect_cloud(
     app: tauri::AppHandle,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
     provider: CloudProvider,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     let _ = app;
     service.disconnect(provider)?;
@@ -172,9 +173,9 @@ pub(crate) fn disconnect_cloud(
 pub(crate) fn cloud_credential_sync_status(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    service.credential_sync_configured()
+    Ok(service.credential_sync_configured()?)
 }
 
 #[tauri::command]
@@ -182,9 +183,9 @@ pub(crate) async fn cloud_credential_backup_status(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
     provider: CloudProvider,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
-    service.credential_backup_exists(provider).await
+    Ok(service.credential_backup_exists(provider).await?)
 }
 
 #[tauri::command]
@@ -192,7 +193,7 @@ pub(crate) fn set_cloud_credential_sync_password(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
     password: String,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     service.set_credential_sync_password(&password)?;
     Ok(true)
@@ -205,21 +206,18 @@ pub(crate) async fn sync_cloud_credentials(
     auth: tauri::State<'_, std::sync::Arc<SchoolAuthService>>,
     provider: CloudProvider,
     restore_existing: bool,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     if provider == CloudProvider::Icloud {
         return Err("iCloud credentials sync through iCloud Keychain.".into());
     }
     if restore_existing {
         if let Some(credentials) = service.pull_credentials(provider).await? {
-            auth.import_sync_payload(&credentials)
-                .map_err(|error| error.to_string())?;
+            auth.import_sync_payload(&credentials).map_err(coded)?;
             return Ok(true);
         }
     }
-    let credentials = auth
-        .export_sync_payload()
-        .map_err(|error| error.to_string())?;
+    let credentials = auth.export_sync_payload().map_err(coded)?;
     service.back_up_credentials(provider, &credentials).await?;
     Ok(true)
 }
@@ -228,7 +226,7 @@ pub(crate) async fn sync_cloud_credentials(
 pub(crate) fn clear_cloud_credential_sync_password(
     webview: tauri::Webview,
     service: tauri::State<'_, DesktopCloudService<OsSecretVault>>,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     service.clear_credential_sync_password()?;
     Ok(true)

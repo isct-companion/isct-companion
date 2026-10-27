@@ -64,7 +64,7 @@ fn legacy_school_db(directory: &Path, version: i64) {
     connection
         .pragma_update(None, "user_version", version)
         .unwrap();
-    for table in USER_TABLES
+    for table in LEGACY_USER_TABLES
         .iter()
         .filter(|table| !matches!(**table, "settings" | "course_identity_map"))
     {
@@ -116,7 +116,11 @@ fn a_legacy_school_db_moves_every_user_row_into_user_db_once() {
         attach_as(&connection, &backup, "legacy").unwrap();
         let count =
             |sql: String| -> i64 { connection.query_row(&sql, [], |row| row.get(0)).unwrap() };
-        for table in USER_TABLES {
+        // The identity map becomes course keys; every other table is copied.
+        for table in LEGACY_USER_TABLES
+            .iter()
+            .filter(|table| **table != "course_identity_map")
+        {
             assert!(
                 count(format!("SELECT COUNT(*) FROM legacy.{table}")) > 0,
                 "{table}"
@@ -129,6 +133,15 @@ fn a_legacy_school_db_moves_every_user_row_into_user_db_once() {
                 "{table} lost or changed rows"
             );
         }
+        // The course keeps the id the map gave it, under both its keys.
+        assert_eq!(
+            count(
+                "SELECT COUNT(*) FROM course_keys WHERE course_id='2026-202602440'
+                 AND key IN ('lms:42','offering:2026:202602440')"
+                    .into()
+            ),
+            2
+        );
         drop(connection);
         assert!(store.table_rows("lms_courses").unwrap().is_empty());
         assert!(store.freshness(None).unwrap().is_empty());
@@ -160,7 +173,7 @@ fn unreadable_databases_are_refused_and_left_intact() {
     assert!(!directory.join(STAGING_FILE).exists());
     fs::remove_dir_all(directory).unwrap();
 
-    for version in [0, 2, 99] {
+    for version in [0, 3, 99] {
         let directory = scratch("user-refused");
         let user = directory.join(USER_FILE);
         Connection::open(&user)
@@ -237,6 +250,79 @@ fn a_cache_db_of_another_version_or_unreadable_is_rebuilt_and_user_data_stays() 
 /// freshness and run records into sync.db once and keeps every school row,
 /// so an existing data folder is not fetched again; a lost sync.db alone
 /// only makes every key read as missing.
+/// A folder from before course keys and merged courses (user.db 1 with its
+/// identity map, cache.db 4) upgrades in place: the course keeps the id the
+/// map gave it, records that name it still do, the school rows stay, and its
+/// merged row is there on the first read.
+#[test]
+fn a_folder_from_before_course_keys_upgrades_in_place() {
+    let directory = scratch("course-keys-upgrade");
+    drop(DataStore::initialize_dir(directory.clone()).unwrap());
+    let user = Connection::open(directory.join(USER_FILE)).unwrap();
+    attach(
+        &user,
+        &directory.join(CACHE_FILE),
+        &directory.join(SYNC_FILE),
+    )
+    .unwrap();
+    let lms = json!({"id":"lms-course:42","lmsId":42,"offeringId":"202602440",
+        "shortname":"CSC.T273[2026]","title":{"en":"Compilers"},"year":2026,"quarters":["3Q"],
+        "timetables":{},"sections":[],"hidden":false,"sourceKey":"lms:default:course:42",
+        "rev":1,"updatedAt":"2026-10-01T00:00:00Z","updatedBy":"lms"});
+    user.execute_batch(&format!(
+        "DROP TABLE cache.merged_rows; DROP TABLE cache.merge_state; PRAGMA cache.user_version=4;
+         DROP TABLE course_keys;
+         CREATE TABLE course_identity_map (
+           provider TEXT NOT NULL, external_id TEXT NOT NULL, academic_year INTEGER NOT NULL,
+           course_id TEXT NOT NULL, offering_id TEXT, updated_at TEXT NOT NULL,
+           PRIMARY KEY (provider, external_id, academic_year));
+         INSERT INTO course_identity_map
+           VALUES('lms','42',2026,'2026-202602440','202602440','2026-10-01T00:00:00Z');
+         INSERT INTO cache.lms_courses(id,value,hash,updated_at,updated_by,rev)
+           VALUES('lms-course:42','{lms}','hash','2026-10-01T00:00:00Z','lms',1);
+         INSERT INTO plan_items(id,value,hash,updated_at,updated_by,rev,source)
+           VALUES('plan','{plan}','hash','2026-10-01T00:00:00Z','device-a',3,'manual');
+         PRAGMA main.user_version=1;",
+        plan = json!({"id":"plan","kind":"plan-item","courseId":"2026-202602440",
+            "termId":"2026-3Q","state":"planned","rev":3,
+            "updatedAt":"2026-10-01T00:00:00Z","updatedBy":"device-a"}),
+    ))
+    .unwrap();
+    drop(user);
+
+    let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
+    assert!(changed);
+    let workspace = store.load_workspace().unwrap();
+    let course = workspace["courses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|course| course["lmsCourseId"] == 42)
+        .unwrap();
+    assert_eq!(course["id"], "2026-202602440");
+    assert!(workspace["planItems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["id"] == "plan" && row["courseId"] == "2026-202602440"));
+    let connection = store.test_connection();
+    assert_eq!(tables_of(&connection, "main"), listed(USER_TABLES));
+    assert_eq!(tables_of(&connection, "cache"), listed(CACHE_TABLES));
+    let keys: Vec<String> = connection
+        .prepare("SELECT key FROM course_keys WHERE course_id='2026-202602440' ORDER BY key")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(keys, ["lms:42", "offering:2026:202602440"]);
+    drop(connection);
+    drop(store);
+    let (_, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
+    assert!(!changed);
+    fs::remove_dir_all(directory).unwrap();
+}
+
 #[test]
 fn a_cache_db_with_its_bookkeeping_moves_it_into_sync_db_once() {
     let directory = scratch("cache-v3");

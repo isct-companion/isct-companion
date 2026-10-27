@@ -2,20 +2,19 @@
 //!
 //! Every commit reports the tables it touched (`data::CommitObserver`). This
 //! module is the one table that turns them into the change names a
-//! `workspace-changed` event carries, and each name into the snapshot fields
-//! a shell re-reads (`Core::workspace_records`). It also coalesces bursts: a
+//! `workspace-changed` event carries, and each name into the workspace fields
+//! it feeds, which decide what a query reads (`loaded_fields`) and when it
+//! reads again (`feeding`). It also coalesces bursts: a
 //! sync commits many keys within seconds, and a shell should hear them as a
 //! few events, not dozens.
 use crate::data::WorkspaceChangeSource;
-use crate::workspace::WorkspaceSnapshot;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-/// A group of snapshot records that changed together. Shells re-read the
-/// records and re-run the views that depend on a name; names are stable.
+/// A group of workspace records that changed together. Shells re-run the
+/// queries that read a name; names are stable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
@@ -151,6 +150,55 @@ impl WorkspaceChange {
     }
 }
 
+/// The workspace fields a query reading `changes` loads (`DataStore::view`):
+/// each change's own fields, and the merged courses with their memberships
+/// for a change that feeds them. Settings, terms, the current term and the
+/// calendar are always loaded.
+pub(crate) fn loaded_fields(
+    changes: impl IntoIterator<Item = WorkspaceChange>,
+) -> BTreeSet<&'static str> {
+    let mut loaded = BTreeSet::new();
+    for change in changes {
+        let Some(fields) = change.fields() else {
+            continue;
+        };
+        if fields.projected {
+            loaded.extend(["courses", "memberships"]);
+        }
+        loaded.extend(fields.workspace.iter().copied());
+        loaded.extend(fields.records.iter().copied().filter(|field| {
+            matches!(
+                *field,
+                "registrations" | "grades" | "lmsCourses" | "freshness" | "pageAvailability"
+            )
+        }));
+    }
+    loaded
+}
+
+/// The changes that feed any of `fields`; settings feed every field.
+pub(crate) fn feeding(fields: &[String]) -> Vec<WorkspaceChange> {
+    WorkspaceChange::ALL
+        .into_iter()
+        .filter(|change| {
+            fed_fields(*change)
+                .is_none_or(|fed| fields.iter().any(|field| fed.contains(&field.as_str())))
+        })
+        .collect()
+}
+
+/// The workspace fields `change` feeds, or `None` for all of them.
+pub(crate) fn fed_fields(change: WorkspaceChange) -> Option<Vec<&'static str>> {
+    change.fields().map(|fields| {
+        let mut fed = fields.workspace.to_vec();
+        fed.extend(fields.records);
+        if fields.projected {
+            fed.extend(PROJECTED);
+        }
+        fed
+    })
+}
+
 struct Fields {
     /// The course projection merges LMS, 教務, catalog and calendar rows into
     /// courses and rewrites course ids in the rows that point at them, so a
@@ -191,7 +239,9 @@ const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("manual_courses", &[Courses], Owner::User),
     ("manual_memberships", &[Courses], Owner::User),
     ("course_overrides", &[Courses], Owner::User),
-    ("course_identity_map", &[Courses], Owner::User),
+    ("course_keys", &[Courses], Owner::User),
+    ("merged_rows", &[Courses], Owner::Cache),
+    ("merge_state", &[], Owner::Cache),
     ("lms_items", &[Materials], Owner::Cache),
     ("assignments", &[Assignments], Owner::Cache),
     ("assignment_marks", &[Assignments], Owner::User),
@@ -256,58 +306,6 @@ pub(crate) fn touches_user_data(tables: &BTreeSet<String>) -> bool {
     tables
         .iter()
         .any(|table| entry(table).is_none_or(|(_, _, owner)| *owner == Owner::User))
-}
-
-/// The snapshot fields that `changes` feed, from one coherent snapshot. A
-/// shell merges `workspace` and `schoolRecords` over its copy, field by field.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspacePatch {
-    /// As in `WorkspaceSnapshot`, for the whole snapshot this was read from.
-    pub revision: String,
-    pub content_revision: String,
-    /// Only the workspace fields the requested changes feed.
-    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-    pub workspace: Value,
-    /// Only the school-record fields the requested changes feed.
-    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-    pub school_records: Value,
-}
-
-pub(crate) fn patch(snapshot: WorkspaceSnapshot, changes: &[WorkspaceChange]) -> WorkspacePatch {
-    let mut workspace_fields = BTreeSet::new();
-    let mut record_fields = BTreeSet::new();
-    let mut whole_workspace = false;
-    for change in changes {
-        match change.fields() {
-            Some(fields) => {
-                if fields.projected {
-                    workspace_fields.extend(PROJECTED.iter().copied());
-                }
-                workspace_fields.extend(fields.workspace.iter().copied());
-                record_fields.extend(fields.records.iter().copied());
-            }
-            None => whole_workspace = true,
-        }
-    }
-    let pick = |value: &Value, all: bool, fields: &BTreeSet<&str>| -> Value {
-        match value {
-            Value::Object(map) if !all => Value::Object(
-                map.iter()
-                    .filter(|(key, _)| fields.contains(key.as_str()))
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect::<Map<_, _>>(),
-            ),
-            value => value.clone(),
-        }
-    };
-    WorkspacePatch {
-        workspace: pick(&snapshot.workspace, whole_workspace, &workspace_fields),
-        school_records: pick(&snapshot.school_records, false, &record_fields),
-        revision: snapshot.revision,
-        content_revision: snapshot.content_revision,
-    }
 }
 
 /// How long a shell waits at most to hear a background change, and how

@@ -168,7 +168,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
 fn course_link(connection: &Connection) -> Value {
     connection
         .query_row(
-            "SELECT course_id FROM course_identity_map WHERE provider='lms' AND external_id='42'",
+            "SELECT course_id FROM course_keys WHERE key='lms:42'",
             [],
             |row| row.get::<_, String>(0),
         )

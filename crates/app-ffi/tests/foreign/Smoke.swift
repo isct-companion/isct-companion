@@ -152,19 +152,19 @@ func require(_ condition: Bool, _ detail: String) throws {
         } catch SdkError.Unavailable { }
         _ = try await session.deleteCredentials(profile: .tokyoTech).value()
         let stream = try session.subscribe()
-        guard case let .workspace(first) = try await session.snapshot().value() else { throw NSError(domain:"snapshot",code:1) }
-        let write = try session.mutate(mutation: WorkspaceMutation(expectedRevision: first.revision, intent: .setAdmissionYear(admissionYear: 2026)))
+        guard case let .text(first) = try await session.workspaceRevision().value() else { throw NSError(domain:"revision",code:1) }
+        let write = try session.mutateCommit(mutation: WorkspaceMutation(expectedRevision: first, intent: .setAdmissionYear(admissionYear: 2026)))
         try require(try !write.cancel(), "Transactions must not be aborted")
-        guard case let .workspace(committed) = try await write.value() else { throw NSError(domain:"mutation",code:1) }
-        try require(committed.revision != first.revision, "Mutation did not commit")
+        guard case let .committed(committed) = try await write.value() else { throw NSError(domain:"mutation",code:1) }
+        try require(committed.revision != first, "Mutation did not commit")
         do {
-            _ = try await session.mutate(mutation: WorkspaceMutation(expectedRevision:first.revision,intent:.setAdmissionYear(admissionYear:2025))).value()
+            _ = try await session.mutateCommit(mutation: WorkspaceMutation(expectedRevision:first,intent:.setAdmissionYear(admissionYear:2025))).value()
             throw NSError(domain:"missing-conflict",code:1)
         } catch SdkError.Conflict { }
         guard case .event = try await stream.next() else { throw NSError(domain:"missing-event",code:1) }
         let queries: [WorkspaceQuery] = [.glance(now:"2026-10-15T09:00:00+09:00"), .notificationPlan(now:"2026-10-15T09:00:00+09:00",horizon:"2026-10-16T09:00:00+09:00",locale:nil)]
         guard case let .schedule(result) = try await session.scheduleQuery(queries:queries).value() else { throw NSError(domain:"query",code:1) }
-        try require(result.revision == committed.contentRevision && result.values.count == 2, "Snapshot contract differs")
+        try require(result.seq >= committed.seq && result.values.count == 2, "Query contract differs")
         guard case let .schedule(clockResult) = try await session.scheduleQuery(queries:[.teachingPeriods]).value(),
               case let .some(.teachingPeriods(periods)) = clockResult.values.first else { throw NSError(domain:"teaching-periods",code:1) }
         try require(periods.count == 6 && periods[5].periods == Data([11,12]) && periods[5].startTime == "19:05" && periods[5].endTime == "20:45", "Native teaching clock differs")
@@ -184,7 +184,7 @@ func require(_ condition: Bool, _ detail: String) throws {
         do { _ = try await stream.next(); throw NSError(domain:"expected-closed-stream",code:1) } catch SdkError.Closed { }
         try await session.shutdown()
         try await session.shutdown()
-        do { _ = try session.snapshot(); throw NSError(domain:"expected-closed",code:1) } catch SdkError.Closed { }
+        do { _ = try session.workspaceRevision(); throw NSError(domain:"expected-closed",code:1) } catch SdkError.Closed { }
         try FileManager.default.removeItem(at:directory)
         print("SWIFT_CORE_SDK_SMOKE_PASSED")
     }

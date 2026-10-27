@@ -469,6 +469,18 @@ describe("Science Tokyo sign-in", () => {
     expect(page.submitted).toHaveLength(1);
   });
 
+  it("stops acting once Core abandons the run", async () => {
+    const page = loadLoginPage(identifierPage);
+    page.$("form#login button").setAttribute("disabled", "");
+    page.start();
+    await settle();
+    page.window.eval(readScript("school-stop.js"));
+    page.$("form#login button").removeAttribute("disabled");
+    await settle();
+    expect(page.submitted).toHaveLength(0);
+    expect(page.relays).toHaveLength(0);
+  });
+
   it("never resubmits a rejected password", async () => {
     const page = loadLoginPage(
       identifierPage.replace('class=" move-off-screen" ', ""),

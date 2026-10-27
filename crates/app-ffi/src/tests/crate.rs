@@ -77,16 +77,43 @@ impl Fixture {
         .unwrap();
         Self { root, session }
     }
-    async fn snapshot(&self) -> WorkspaceSnapshot {
+    /// The revision the next intent is made against.
+    async fn revision(&self) -> String {
         match self
             .session
-            .snapshot()
+            .workspace_revision()
             .unwrap()
             .await_result()
             .await
             .unwrap()
         {
-            OperationResult::Workspace { snapshot } => snapshot,
+            OperationResult::Text { value } => value,
+            _ => panic!("wrong result"),
+        }
+    }
+    /// The workspace fields `fields` names, as a screen's `records` query
+    /// reads them.
+    async fn records(&self, fields: &[&str]) -> serde_json::Value {
+        let OperationResult::Schedule { snapshot } = self
+            .session
+            .schedule_query(vec![WorkspaceQuery::Records {
+                fields: fields.iter().map(|field| (*field).into()).collect(),
+            }])
+            .unwrap()
+            .await_result()
+            .await
+            .unwrap()
+        else {
+            panic!("wrong result")
+        };
+        match snapshot.values.into_iter().next() {
+            Some(WorkspaceQueryResult::Records(records)) => records.0,
+            _ => panic!("wrong query result"),
+        }
+    }
+    async fn commit(&self, mutation: WorkspaceMutation) -> Result<WorkspaceCommit, SdkError> {
+        match self.session.mutate_commit(mutation)?.await_result().await? {
+            OperationResult::Committed { commit } => Ok(commit),
             _ => panic!("wrong result"),
         }
     }
@@ -100,26 +127,17 @@ impl Fixture {
 async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
     let f = Fixture::new().await;
     let events = f.session.subscribe().unwrap();
-    let first = f.snapshot().await;
+    let first = f.revision().await;
     let mutation = WorkspaceMutation {
-        expected_revision: first.revision.clone(),
+        expected_revision: first.clone(),
         intent: WorkspaceIntent::SetAdmissionYear {
             admission_year: Some(2026),
         },
     };
-    let result = f
-        .session
-        .mutate(mutation.clone())
-        .unwrap()
-        .await_result()
-        .await
-        .unwrap();
-    let OperationResult::Workspace { snapshot } = result else {
-        panic!("wrong result")
-    };
-    assert_ne!(first.revision, snapshot.revision);
+    let committed = f.commit(mutation.clone()).await.unwrap();
+    assert_ne!(first, committed.revision);
     assert_eq!(
-        snapshot.workspace.0["academicProfile"]["admissionYear"],
+        f.records(&[]).await["academicProfile"]["admissionYear"],
         2026
     );
     // Sync snapshots stream on the same channel; the mutation's own event is
@@ -133,9 +151,7 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
         }
     };
     assert_eq!(event.payload.0["source"], "user-intent");
-    assert_eq!(event.payload.0["revision"], json!(snapshot.revision));
-    let changes: Vec<WorkspaceChange> =
-        serde_json::from_value(event.payload.0["changes"].clone()).unwrap();
+    assert_eq!(event.payload.0["revision"], json!(committed.revision));
     assert!(
         event.payload.0["changes"]
             .as_array()
@@ -144,21 +160,13 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
         "{}",
         event.payload.0
     );
-    // The event's names read back only what they feed, from the same state.
-    let OperationResult::WorkspaceRecords { patch } = f
-        .session
-        .workspace_records(changes)
-        .unwrap()
-        .await_result()
-        .await
-        .unwrap()
-    else {
-        panic!("wrong result")
-    };
-    assert_eq!(patch.content_revision, snapshot.content_revision);
-    assert_eq!(patch.workspace.0["academicProfile"]["admissionYear"], 2026);
+    // The commit answers the changes its event names.
+    assert_eq!(
+        serde_json::to_value(&committed.changes).unwrap(),
+        event.payload.0["changes"]
+    );
     assert!(matches!(
-        f.session.mutate(mutation).unwrap().await_result().await,
+        f.commit(mutation).await,
         Err(SdkError::Conflict { .. })
     ));
     // Independent sync progress may arrive after the mutation's event; a
@@ -194,19 +202,61 @@ async fn revision_conflict_and_core_queries_cross_the_typed_boundary() {
     let OperationResult::Schedule { snapshot: result } = result else {
         panic!("wrong result")
     };
-    assert_eq!(result.revision, snapshot.content_revision);
     assert_eq!(result.values.len(), 2);
+    // A shell that keeps no workspace reads the revision alone and hears a
+    // commit as its changes, next revision and sequence.
+    let OperationResult::Text { value: current } = f
+        .session
+        .workspace_revision()
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    assert_eq!(current, committed.revision);
+    let OperationResult::Committed { commit } = f
+        .session
+        .mutate_commit(WorkspaceMutation {
+            expected_revision: current,
+            intent: WorkspaceIntent::SetAdmissionYear {
+                admission_year: Some(2027),
+            },
+        })
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    assert!(commit
+        .changes
+        .iter()
+        .any(|change| matches!(change, WorkspaceChange::Settings)));
+    assert!(commit.seq >= event.payload.0["seq"].as_u64().unwrap());
+    let OperationResult::Text { value: next } = f
+        .session
+        .workspace_revision()
+        .unwrap()
+        .await_result()
+        .await
+        .unwrap()
+    else {
+        panic!("wrong result")
+    };
+    assert_eq!(commit.revision, next);
     f.finish().await;
 }
 
 #[tokio::test]
 async fn typed_study_profile_round_trips_and_rejects_invalid_terms_atomically() {
     let f = Fixture::new().await;
-    let first = f.snapshot().await;
+    let first = f.revision().await;
     let saved = f
-        .session
-        .mutate(WorkspaceMutation {
-            expected_revision: first.revision,
+        .commit(WorkspaceMutation {
+            expected_revision: first,
             intent: WorkspaceIntent::SetStudyProfile {
                 admission_year: Some(2026),
                 study_enrollments: vec![StudyEnrollment {
@@ -217,16 +267,12 @@ async fn typed_study_profile_round_trips_and_rejects_invalid_terms_atomically() 
                 }],
             },
         })
-        .unwrap()
-        .await_result()
         .await
         .unwrap();
-    let OperationResult::Workspace { snapshot: saved } = saved else {
-        panic!("wrong result")
-    };
-    assert_eq!(saved.workspace.0["academicProfile"]["admissionYear"], 2026);
+    let committed_records = f.records(&[]).await;
+    assert_eq!(committed_records["academicProfile"]["admissionYear"], 2026);
     assert_eq!(
-        saved.workspace.0["academicProfile"]["studyEnrollments"],
+        committed_records["academicProfile"]["studyEnrollments"],
         json!([{
             "stage":"master",
             "entryKind":"regular",
@@ -234,13 +280,9 @@ async fn typed_study_profile_round_trips_and_rejects_invalid_terms_atomically() 
             "admittedTerm":"2026-3Q"
         }])
     );
-    let committed_workspace = saved.workspace.0.clone();
-    let committed_revision = saved.revision.clone();
-
     let invalid = f
-        .session
-        .mutate(WorkspaceMutation {
-            expected_revision: saved.revision,
+        .commit(WorkspaceMutation {
+            expected_revision: saved.revision.clone(),
             intent: WorkspaceIntent::SetStudyProfile {
                 admission_year: Some(2027),
                 study_enrollments: vec![StudyEnrollment {
@@ -251,24 +293,20 @@ async fn typed_study_profile_round_trips_and_rejects_invalid_terms_atomically() 
                 }],
             },
         })
-        .unwrap()
-        .await_result()
         .await;
     assert!(matches!(invalid, Err(SdkError::InvalidInput { .. })));
-    let after = f.snapshot().await;
-    assert_eq!(after.revision, committed_revision);
-    assert_eq!(after.workspace.0, committed_workspace);
+    assert_eq!(f.revision().await, saved.revision);
+    assert_eq!(f.records(&[]).await, committed_records);
     f.finish().await;
 }
 
 #[tokio::test]
 async fn graduate_teaching_calendar_crosses_ffi_and_invalid_tables_roll_back() {
     let f = Fixture::new().await;
-    let first = f.snapshot().await;
-    let OperationResult::Workspace { snapshot: saved } = f
-        .session
-        .mutate(WorkspaceMutation {
-            expected_revision: first.revision,
+    let first = f.revision().await;
+    let saved = f
+        .commit(WorkspaceMutation {
+            expected_revision: first,
             intent: WorkspaceIntent::SetStudyProfile {
                 admission_year: Some(2026),
                 study_enrollments: vec![StudyEnrollment {
@@ -279,57 +317,43 @@ async fn graduate_teaching_calendar_crosses_ffi_and_invalid_tables_roll_back() {
                 }],
             },
         })
-        .unwrap()
-        .await_result()
         .await
-        .unwrap()
-    else {
-        panic!("wrong result")
-    };
+        .unwrap();
     let mut periods: Vec<TeachingPeriod> =
         crate::json::project(app_core::schedule::default_teaching_periods()).unwrap();
     assert_eq!(periods[5].periods, vec![11, 12]);
     periods[5].start_time = "20:00".into();
     periods[5].end_time = "21:40".into();
-    let mut profile = saved.workspace.0["academicProfile"].clone();
+    let mut profile = f.records(&[]).await["academicProfile"].clone();
     profile["teachingPeriods"] = serde_json::to_value(&periods).unwrap();
-    let OperationResult::Workspace { snapshot: saved } = f
-        .session
-        .mutate(WorkspaceMutation {
+    let saved = f
+        .commit(WorkspaceMutation {
             expected_revision: saved.revision,
             intent: WorkspaceIntent::EditAcademicCalendar {
                 academic_profile: JsonValue(profile.clone()),
                 exceptions: vec![],
             },
         })
-        .unwrap()
-        .await_result()
         .await
-        .unwrap()
-    else {
-        panic!("wrong result")
-    };
-    assert_eq!(saved.workspace.0["academicProfile"], profile);
+        .unwrap();
+    let saved_records = f.records(&["exceptions"]).await;
+    assert_eq!(saved_records["academicProfile"], profile);
     assert_eq!(profile["studyEnrollments"][0]["stage"], "professional");
 
     // Foreign vectors can have a shape Core's fixed pair cannot represent.
     profile["teachingPeriods"][5]["periods"] = json!([11, 12, 13]);
     let invalid = f
-        .session
-        .mutate(WorkspaceMutation {
+        .commit(WorkspaceMutation {
             expected_revision: saved.revision.clone(),
             intent: WorkspaceIntent::EditAcademicCalendar {
                 academic_profile: JsonValue(profile),
                 exceptions: vec![],
             },
         })
-        .unwrap()
-        .await_result()
         .await;
     assert!(matches!(invalid, Err(SdkError::InvalidInput { .. })));
-    let after = f.snapshot().await;
-    assert_eq!(after.revision, saved.revision);
-    assert_eq!(after.workspace.0, saved.workspace.0);
+    assert_eq!(f.revision().await, saved.revision);
+    assert_eq!(f.records(&["exceptions"]).await, saved_records);
     let OperationResult::Schedule { snapshot: queried } = f
         .session
         .schedule_query(vec![WorkspaceQuery::TeachingPeriods])
@@ -352,25 +376,25 @@ async fn graduate_teaching_calendar_crosses_ffi_and_invalid_tables_roll_back() {
 #[tokio::test]
 async fn dropping_foreign_wait_does_not_abort_an_admitted_transaction() {
     let f = Fixture::new().await;
-    let first = f.snapshot().await;
+    let first = f.revision().await;
     let gate = Arc::new(tokio::sync::Notify::new());
     let release = gate.clone();
-    let revision = first.revision;
+    let revision = first;
     let op = f
         .session
         .start(false, move |i, _| async move {
             release.notified().await;
-            let snapshot = i
-                .core
-                .workspace
-                .mutate(app_core::workspace::WorkspaceMutation {
-                    expected_revision: revision,
-                    intent: app_core::workspace::WorkspaceIntent::SetAdmissionYear {
-                        admission_year: Some(2025),
-                    },
-                })?;
-            Ok(OperationResult::Workspace {
-                snapshot: crate::json::project(snapshot)?,
+            let commit =
+                i.core
+                    .workspace
+                    .mutate_commit(app_core::workspace::WorkspaceMutation {
+                        expected_revision: revision,
+                        intent: app_core::workspace::WorkspaceIntent::SetAdmissionYear {
+                            admission_year: Some(2025),
+                        },
+                    })?;
+            Ok(OperationResult::Committed {
+                commit: crate::json::project(commit)?,
             })
         })
         .unwrap();
@@ -387,7 +411,7 @@ async fn dropping_foreign_wait_does_not_abort_an_admitted_transaction() {
         OperationStatus::Completed { .. }
     ));
     assert_eq!(
-        f.snapshot().await.workspace.0["academicProfile"]["admissionYear"],
+        f.records(&[]).await["academicProfile"]["admissionYear"],
         2025
     );
     f.finish().await;
@@ -407,13 +431,15 @@ async fn stream_lag_disposal_and_shutdown_are_recoverable() {
         stream.next().await.unwrap(),
         StreamUpdate::SnapshotRequired { .. }
     ));
-    let first = f.snapshot().await;
-    assert!(!first.content_revision.is_empty());
+    assert!(!f.revision().await.is_empty());
     stream.unsubscribe().unwrap();
     assert!(matches!(stream.next().await, Err(SdkError::Closed)));
     f.session.shutdown().await.unwrap();
     f.session.shutdown().await.unwrap();
-    assert!(matches!(f.session.snapshot(), Err(SdkError::Closed)));
+    assert!(matches!(
+        f.session.workspace_revision(),
+        Err(SdkError::Closed)
+    ));
     assert!(matches!(f.session.subscribe(), Err(SdkError::Closed)));
     f.finish().await;
 }
@@ -422,22 +448,22 @@ async fn shutdown_waits_for_a_started_commit_and_settles_cooperative_work() {
     let f = Fixture::new().await;
     let gate = Arc::new(tokio::sync::Notify::new());
     let release = gate.clone();
-    let revision = f.snapshot().await.revision;
+    let revision = f.revision().await;
     let write = f
         .session
         .start(false, move |i, _| async move {
             release.notified().await;
-            let s = i
-                .core
-                .workspace
-                .mutate(app_core::workspace::WorkspaceMutation {
-                    expected_revision: revision,
-                    intent: app_core::workspace::WorkspaceIntent::SetAdmissionYear {
-                        admission_year: Some(2024),
-                    },
-                })?;
-            Ok(OperationResult::Workspace {
-                snapshot: crate::json::project(s)?,
+            let commit =
+                i.core
+                    .workspace
+                    .mutate_commit(app_core::workspace::WorkspaceMutation {
+                        expected_revision: revision,
+                        intent: app_core::workspace::WorkspaceIntent::SetAdmissionYear {
+                            admission_year: Some(2024),
+                        },
+                    })?;
+            Ok(OperationResult::Committed {
+                commit: crate::json::project(commit)?,
             })
         })
         .unwrap();
@@ -455,7 +481,7 @@ async fn shutdown_waits_for_a_started_commit_and_settles_cooperative_work() {
     close.await.unwrap().unwrap();
     assert!(matches!(
         write.await_result().await.unwrap(),
-        OperationResult::Workspace { .. }
+        OperationResult::Committed { .. }
     ));
     assert!(matches!(
         cancellable.await_result().await,
@@ -476,7 +502,7 @@ async fn callback_failure_and_worker_panic_settle_without_killing_the_process() 
         bad.await_result().await,
         Err(SdkError::Internal { .. })
     ));
-    let _ = f.snapshot().await;
+    let _ = f.revision().await;
     assert!(matches!(
         f.session.school_session().unwrap().await_result().await,
         Err(SdkError::Unavailable { .. })
@@ -719,8 +745,7 @@ async fn backup_import_restores_through_the_journal_without_a_cloud_store() {
         "{}",
         event.payload.0
     );
-    let snapshot = f.snapshot().await;
-    assert!(snapshot.workspace.0["plans"]
+    assert!(f.records(&["plans"]).await["plans"]
         .as_array()
         .unwrap()
         .iter()
@@ -805,22 +830,22 @@ async fn shutdown_timeout_keeps_ownership_of_the_pending_commit() {
     let f = Fixture::new().await;
     let gate = Arc::new(tokio::sync::Notify::new());
     let release = gate.clone();
-    let revision = f.snapshot().await.revision;
+    let revision = f.revision().await;
     let write = f
         .session
         .start(false, move |i, _| async move {
             release.notified().await;
-            let snapshot = i
-                .core
-                .workspace
-                .mutate(app_core::workspace::WorkspaceMutation {
-                    expected_revision: revision,
-                    intent: app_core::workspace::WorkspaceIntent::SetAdmissionYear {
-                        admission_year: Some(2023),
-                    },
-                })?;
-            Ok(OperationResult::Workspace {
-                snapshot: crate::json::project(snapshot)?,
+            let commit =
+                i.core
+                    .workspace
+                    .mutate_commit(app_core::workspace::WorkspaceMutation {
+                        expected_revision: revision,
+                        intent: app_core::workspace::WorkspaceIntent::SetAdmissionYear {
+                            admission_year: Some(2023),
+                        },
+                    })?;
+            Ok(OperationResult::Committed {
+                commit: crate::json::project(commit)?,
             })
         })
         .unwrap();
@@ -834,7 +859,7 @@ async fn shutdown_timeout_keeps_ownership_of_the_pending_commit() {
     f.session.shutdown().await.unwrap();
     assert!(matches!(
         write.await_result().await.unwrap(),
-        OperationResult::Workspace { .. }
+        OperationResult::Committed { .. }
     ));
     f.finish().await;
 }
@@ -926,7 +951,7 @@ async fn ocr_progress_correlates_to_the_operation_and_bad_images_leave_core_usab
     };
     assert_eq!(event.name, "ocr-progress");
     assert_eq!(event.payload.0["operationId"], operation.id());
-    let _ = f.snapshot().await;
+    let _ = f.revision().await;
     f.finish().await;
 }
 
@@ -1037,7 +1062,7 @@ async fn sessions_sharing_one_cloud_record_load_each_others_data() {
         state.providers.iter().all(|p| p.error.is_none()),
         "{state:?}"
     );
-    assert!(phone.snapshot().await.workspace.0["plans"]
+    assert!(phone.records(&["plans"]).await["plans"]
         .as_array()
         .unwrap()
         .iter()
@@ -1088,7 +1113,7 @@ async fn sessions_sharing_one_cloud_record_load_each_others_data() {
     assert!(!record.race_next_write.load(Ordering::SeqCst));
     assert!(record.writes.load(Ordering::SeqCst) >= before + 2);
     cloud_op(mac.session.sync_cloud(Direction::Pull).unwrap()).await;
-    let plans = mac.snapshot().await.workspace.0["plans"].clone();
+    let plans = mac.records(&["plans"]).await["plans"].clone();
     assert!(plans
         .as_array()
         .unwrap()

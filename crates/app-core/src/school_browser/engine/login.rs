@@ -55,10 +55,38 @@ impl ActiveLogin {
 pub(super) struct Heartbeat {
     pub(super) profile: SchoolAuthProfile,
     pub(super) browser: BrowserId,
+    /// What the check's pages find counts only while this attempt is current.
+    pub(super) attempt: u64,
+}
+
+/// Stops the view of an attempt that ends without the page's answer: it ran
+/// out of time, or a connect took the profile over and dropped it.
+struct Abandoned<'a> {
+    inner: &'a Inner,
+    browser: BrowserId,
+    answered: bool,
+}
+
+impl<'a> Abandoned<'a> {
+    fn new(inner: &'a Inner, browser: BrowserId) -> Self {
+        Self {
+            inner,
+            browser,
+            answered: false,
+        }
+    }
+}
+
+impl Drop for Abandoned<'_> {
+    fn drop(&mut self) {
+        if !self.answered {
+            self.inner.halt(self.browser);
+        }
+    }
 }
 
 /// Starts a new attempt for `profile`; results of earlier ones stop counting.
-fn begin_attempt(state: &mut State, profile: SchoolAuthProfile) -> u64 {
+pub(super) fn begin_attempt(state: &mut State, profile: SchoolAuthProfile) -> u64 {
     let attempt = state.attempts.entry(profile).or_default();
     *attempt = attempt.wrapping_add(1);
     *attempt
@@ -204,41 +232,56 @@ impl SchoolBrowserEngine {
         self.session_snapshot()
     }
 
-    pub async fn login(
+    /// The body of a connect job: the sign-in on the lane, paused while a
+    /// school page is visible and resumed once it hides.
+    pub(super) async fn connect_session(
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
-    ) -> Result<SchoolWebResult, SchoolBrowserError> {
+        deadline: &mut Deadline,
+    ) -> Result<bool, SchoolBrowserError> {
         loop {
-            // Waiting for a visible page to hide never holds the lane.
-            self.wait_until_hidden_without_context().await?;
-            let lane = self.acquire_lane().await?;
-            let result = self.login_locked(profile, credentials.clone()).await;
+            let lane = match self.hidden_lane(deadline).await {
+                Ok(lane) => lane,
+                Err(error) => {
+                    if matches!(error, SchoolBrowserError::Timeout(_)) {
+                        self.unavailable(profile, credentials, &error);
+                    }
+                    return Err(error);
+                }
+            };
+            let result = self
+                .login_locked(profile, credentials.clone(), deadline.at())
+                .await;
             drop(lane);
             match result {
                 // A visible page paused this sign-in. Resume it once the page
                 // hides instead of reporting the pause as a sign-in failure.
                 Err(SchoolBrowserError::Preempted) => continue,
-                result => return result,
+                Ok(_) => return Ok(true),
+                Err(SchoolBrowserError::Auth(_)) => return Ok(false),
+                Err(error) => return Err(error),
             }
         }
     }
 
-    /// Signs in with the credentials the person just entered. A failure is
-    /// a result, with Core's reason, not an error.
+    /// Signs in with the credentials the person just entered, as the
+    /// profile's session job: a check already running gives way to it, and
+    /// every caller waiting on the profile gets its answer. A failure is a
+    /// result, with Core's reason, not an error.
     pub async fn connect(
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
     ) -> Result<SchoolConnectResult, SchoolBrowserError> {
-        let outcome = self.login(profile, credentials.clone()).await;
+        let outcome = self.connect_job(profile, credentials.clone()).await;
         if let Err(error @ (SchoolBrowserError::Stopped | SchoolBrowserError::InvalidInput(_))) =
             outcome
         {
             return Err(error);
         }
         let auth = self.0.auth.clone();
-        let verified = outcome.is_ok()
+        let verified = matches!(outcome, Ok(true))
             && tokio::task::spawn_blocking(move || auth.is_verified(profile, &credentials))
                 .await
                 .is_ok_and(|verified| verified.unwrap_or(false));
@@ -263,14 +306,14 @@ impl SchoolBrowserEngine {
     pub(super) async fn portal_session(
         &self,
         profile: SchoolAuthProfile,
+        deadline: &mut Deadline,
     ) -> Result<bool, SchoolBrowserError> {
         loop {
-            self.wait_until_hidden_without_context().await?;
             let started = Instant::now();
             log::info!(target: "app_core::school_browser", "session check waiting profile={profile:?}");
-            let lane = self.acquire_lane().await?;
+            let lane = self.hidden_lane(deadline).await?;
             log::info!(target: "app_core::school_browser", "session check acquired profile={profile:?} waited_ms={}", started.elapsed().as_millis());
-            let result = self.ensure_session_once(profile).await;
+            let result = self.ensure_session_once(profile, deadline.at()).await;
             drop(lane);
             log::info!(target: "app_core::school_browser", "session check finished profile={profile:?} elapsed_ms={} result={result:?}", started.elapsed().as_millis());
             match result {
@@ -350,9 +393,12 @@ impl SchoolBrowserEngine {
         &self,
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
+        deadline: tokio::time::Instant,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
         let run = new_id();
-        let result = self.login_attempt(profile, credentials, run.clone()).await;
+        let result = self
+            .login_attempt(profile, credentials, run.clone(), deadline)
+            .await;
         // No exit may leave this run active: a stale run blocks automatic
         // sign-in for the profile. A completed sign-in has already cleared it.
         self.clear_login(&run);
@@ -364,12 +410,22 @@ impl SchoolBrowserEngine {
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
         run: String,
+        deadline: tokio::time::Instant,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
         let run = &run;
         let site = profile.start_site();
         let url = safe_url(site.start_url())?;
+        let leased = self.lease_view(site, url.clone(), deadline).await;
+        let browser = match leased {
+            Ok(browser) => browser,
+            Err(error) => {
+                if matches!(error, SchoolBrowserError::Timeout(_)) {
+                    self.unavailable(profile, credentials, &error);
+                }
+                return Err(error);
+            }
+        };
         let mut traces = self.hidden_traces()?;
-        let browser = self.ensure_browser(site, url.clone())?;
         {
             let mut state = self.0.state.guard();
             if state.browsing.is_some() {
@@ -385,7 +441,8 @@ impl SchoolBrowserEngine {
             self.fail_login(profile, run, &error);
             return Err(error);
         }
-        let state = tokio::time::timeout(SESSION_TIMEOUT, async {
+        let mut attempt = Abandoned::new(&self.0, browser);
+        let waited = tokio::time::timeout_at(deadline, async {
             loop {
                 match traces.recv().await {
                     // Pending only restates that this attempt is under way.
@@ -405,11 +462,9 @@ impl SchoolBrowserEngine {
                 }
             }
         })
-        .await
-        .map_err(|_| {
-            SchoolBrowserError::Timeout("The queued school sign-in did not start in time.".into())
-        });
-        let state = match state {
+        .await;
+        attempt.answered = waited.is_ok();
+        let state = match waited.map_err(|_| not_in_time()) {
             Ok(Ok(state)) => state,
             Ok(Err(error)) => {
                 if !matches!(
@@ -453,9 +508,18 @@ impl SchoolBrowserEngine {
         run: &str,
         error: &SchoolBrowserError,
     ) {
-        let Some(login) = self.take_login(run) else {
-            return;
-        };
+        if let Some(login) = self.take_login(run) {
+            self.unavailable(profile, login.credentials, error);
+        }
+    }
+
+    /// A sign-in with `credentials` ended without the school's verdict.
+    fn unavailable(
+        &self,
+        profile: SchoolAuthProfile,
+        credentials: SchoolCredentials,
+        error: &SchoolBrowserError,
+    ) {
         if !matches!(error, SchoolBrowserError::Maintenance(_)) {
             // A page that did not answer is not the school's verdict: keep
             // what the school said before, or note the outage without
@@ -475,7 +539,7 @@ impl SchoolBrowserEngine {
                         auto: SchoolAutoSignIn::Allowed,
                         retry_at: None,
                         retries: 0,
-                        credentials: login.credentials,
+                        credentials,
                     },
                 );
             }
@@ -513,14 +577,14 @@ impl SchoolBrowserEngine {
     pub(super) async fn service_session(
         &self,
         profile: SchoolAuthProfile,
+        deadline: &mut Deadline,
     ) -> Result<bool, SchoolBrowserError> {
-        if !self.portal_session(profile).await? {
+        if !self.portal_session(profile, deadline).await? {
             return Ok(false);
         }
         loop {
-            self.wait_until_hidden_without_context().await?;
-            let lane = self.acquire_lane().await?;
-            let result = self.enter_service_once(profile).await;
+            let lane = self.hidden_lane(deadline).await?;
+            let result = self.enter_service_once(profile, deadline.at()).await;
             drop(lane);
             log::info!(target: "app_core::school_browser", "service entry profile={profile:?} result={result:?}");
             match result {
@@ -533,14 +597,15 @@ impl SchoolBrowserEngine {
     async fn enter_service_once(
         &self,
         profile: SchoolAuthProfile,
+        deadline: tokio::time::Instant,
     ) -> Result<bool, SchoolBrowserError> {
         let (site, entry) = match profile {
             SchoolAuthProfile::Science => (SchoolSite::ScienceLms, crate::lms_session::LMS_HOME),
             SchoolAuthProfile::TokyoTech => (SchoolSite::Kyomu, KYOMU_ENTRY),
         };
         let url = safe_url(entry)?;
+        let browser = self.lease_view(site, url.clone(), deadline).await?;
         let mut traces = self.hidden_traces()?;
-        let browser = self.ensure_browser(site, url.clone())?;
         let baseline = {
             let mut state = self.0.state.guard();
             if state.browsing.is_some() {
@@ -554,7 +619,8 @@ impl SchoolBrowserEngine {
             .unwrap_or_default()
         };
         self.dispatch(browser, BrowserAction::Navigate(url.clone()))?;
-        tokio::time::timeout(SESSION_TIMEOUT, async {
+        let mut attempt = Abandoned::new(&self.0, browser);
+        let waited = tokio::time::timeout_at(deadline, async {
             loop {
                 match traces.recv().await {
                     Ok(Trace::Loaded(event))
@@ -590,25 +656,32 @@ impl SchoolBrowserEngine {
                 }
             }
         })
-        .await
-        .map_err(|_| SchoolBrowserError::Timeout(format!("{site:?} did not open in time.")))?
+        .await;
+        attempt.answered = waited.is_ok();
+        waited
+            .map_err(|_| SchoolBrowserError::Timeout(format!("{site:?} did not open in time.")))?
     }
 
     pub(super) async fn ensure_session_once(
         &self,
         profile: SchoolAuthProfile,
+        deadline: tokio::time::Instant,
     ) -> Result<bool, SchoolBrowserError> {
         let site = profile.start_site();
         let url = safe_url(site.start_url())?;
+        let browser = self.lease_view(site, url.clone(), deadline).await?;
         let mut traces = self.hidden_traces()?;
-        let browser = self.ensure_browser(site, url.clone())?;
         {
             let mut state = self.0.state.guard();
             if state.browsing.is_some() {
                 return Err(SchoolBrowserError::Preempted);
             }
-            begin_attempt(&mut state, profile);
-            state.heartbeat = Some(Heartbeat { profile, browser });
+            let attempt = begin_attempt(&mut state, profile);
+            state.heartbeat = Some(Heartbeat {
+                profile,
+                browser,
+                attempt,
+            });
         }
         // Credentials another device saved since the last check sign in here.
         self.0.auth.refresh();
@@ -617,7 +690,8 @@ impl SchoolBrowserEngine {
             self.fail_heartbeat(profile);
             return Err(error);
         }
-        let result = tokio::time::timeout(SESSION_TIMEOUT, async {
+        let mut attempt = Abandoned::new(&self.0, browser);
+        let waited = tokio::time::timeout_at(deadline, async {
             loop {
                 match traces.recv().await {
                     Ok(Trace::Session {
@@ -635,11 +709,9 @@ impl SchoolBrowserEngine {
                 }
             }
         })
-        .await
-        .map_err(|_| {
-            SchoolBrowserError::Timeout("The queued school sign-in did not start in time.".into())
-        });
-        let result = match result {
+        .await;
+        attempt.answered = waited.is_ok();
+        let result = match waited.map_err(|_| not_in_time()) {
             Ok(result) => result,
             Err(error) => {
                 self.fail_heartbeat(profile);

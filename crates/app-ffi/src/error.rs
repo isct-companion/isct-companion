@@ -1,3 +1,8 @@
+/// A failure across the SDK boundary. When Core raised it, `detail` is its
+/// stable `ErrorCode` name (e.g. `plan-invalid-title`): shells show the copy
+/// `error.<detail>` from the shared locale catalogs, and the variant says how
+/// to react. Failures shells raise into Core carry free text, which Core
+/// only logs.
 #[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
 pub enum SdkError {
     #[error("Invalid input: {detail}")]
@@ -29,179 +34,113 @@ pub enum SdkError {
     #[error("Internal worker failed: {detail}")]
     Internal { detail: String },
 }
-impl From<app_core::schedule::ReminderError> for SdkError {
-    fn from(e: app_core::schedule::ReminderError) -> Self {
-        use app_core::schedule::ReminderError as E;
-        match e {
-            E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Data(e) => e.into(),
-            E::Storage(detail) => Self::Storage { detail },
-            E::Policy(e) => e.into(),
-            E::Task(e) => e.into(),
-            E::Delivery(e) => Self::Callback {
-                detail: e.to_string(),
-            },
+use app_core::error_code::{Coded, ErrorCode as C};
+
+/// The SDK failure for a Core error: its code as `detail`, under the variant
+/// a shell reacts to.
+pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
+    let code = error.code();
+    let detail = code.name().to_owned();
+    match code {
+        C::Conflict | C::CloudConflict | C::CloudConflictExhausted => SdkError::Conflict { detail },
+        C::Storage
+        | C::WriteDenied
+        | C::VaultUnavailable
+        | C::OtpVault
+        | C::ResetCredentials
+        | C::ResetFiles => SdkError::Storage { detail },
+        C::Compatibility | C::CloudFormat | C::CloudVersionMissing => {
+            SdkError::Compatibility { detail }
         }
+        C::SignInRequired | C::OtpSignInRequired => SdkError::Authentication { detail },
+        C::SchoolMaintenance => SdkError::Maintenance { detail },
+        C::Network | C::Offline | C::HostPaused => SdkError::Network { detail },
+        C::Timeout | C::OtpTimedOut | C::CloudRetrying => SdkError::Timeout { detail },
+        C::Busy | C::ResetBusy => SdkError::Busy { detail },
+        C::Cancelled | C::SchoolPaused | C::ResetStopped => SdkError::Cancelled,
+        C::Stopped => SdkError::Closed,
+        C::Callback | C::ResetSignOut => SdkError::Callback { detail },
+        C::Internal => SdkError::Internal { detail },
+        C::Unavailable
+        | C::Platform
+        | C::DesktopOnly
+        | C::LogsUnavailable
+        | C::CloudNotAttached
+        | C::SchoolSiteChanged
+        | C::OtpUnavailable
+        | C::OtpUnexpectedPage
+        | C::ResetUnsupported
+        | C::MatrixScanEnded
+        | C::AgentDisabled
+        | C::AgentWritesDisabled => SdkError::Unavailable { detail },
+        C::InvalidInput
+        | C::TooLarge
+        | C::NoteTooLarge
+        | C::PlanInvalidStart
+        | C::PlanInvalidTitle
+        | C::PlanInvalidDuration
+        | C::PlanInvalidExdate
+        | C::PlanInvalidReminder
+        | C::PlanInvalidRule
+        | C::PlanRuleOnly
+        | C::PlanRuleFrequency
+        | C::PlanRepeatUnsupported
+        | C::PlanRepeatSubdaily
+        | C::StudyAdmissionTerm
+        | C::StudyEntryGrade
+        | C::StudyDuplicateTerm
+        | C::SubscriptionInvalid
+        | C::CloudPasswordLength
+        | C::CloudPasswordWrong
+        | C::CloudCredentialFile
+        | C::CloudTooLarge
+        | C::OtpRejected
+        | C::OtpAlreadyRegistered
+        | C::OtpImportInvalid
+        | C::OtpImportMultiple
+        | C::OtpImportUnsupported
+        | C::MatrixUnreadable
+        | C::GuideTooManyCourses
+        | C::LmsNotEnrolled
+        | C::WorkspaceFolderMissing
+        | C::HandInFilesOnly
+        | C::HandInEmpty
+        | C::HandInNeedsZip
+        | C::HandInTooLarge => SdkError::InvalidInput { detail },
     }
 }
-impl From<app_core::schedule::ScheduleError> for SdkError {
-    fn from(e: app_core::schedule::ScheduleError) -> Self {
-        match e {
-            app_core::schedule::ScheduleError::InvalidInput(detail) => {
-                Self::InvalidInput { detail }
+
+macro_rules! from_coded {
+    ($($error:ty),* $(,)?) => {
+        $(impl From<$error> for SdkError {
+            fn from(e: $error) -> Self {
+                coded(&e)
             }
-            app_core::schedule::ScheduleError::Compatibility(detail) => {
-                Self::Compatibility { detail }
-            }
-        }
-    }
+        })*
+    };
 }
-impl From<app_core::facade::CredentialMutationError> for SdkError {
-    fn from(e: app_core::facade::CredentialMutationError) -> Self {
-        match e {
-            app_core::facade::CredentialMutationError::Auth(e) => e.into(),
-            app_core::facade::CredentialMutationError::Browser(e) => e.into(),
-        }
-    }
-}
-impl From<app_core::runtime::CloudWakeError> for SdkError {
-    fn from(e: app_core::runtime::CloudWakeError) -> Self {
-        match e {
-            app_core::runtime::CloudWakeError::Sync(e) => e.into(),
-            app_core::runtime::CloudWakeError::NotAttached => Self::Unavailable {
-                detail: e.to_string(),
-            },
-        }
-    }
-}
+
+from_coded!(
+    app_core::schedule::ReminderError,
+    app_core::schedule::ScheduleError,
+    app_core::facade::CredentialMutationError,
+    app_core::runtime::CloudWakeError,
+    app_core::data::DataError,
+    app_core::workspace::WorkspaceError,
+    app_core::runtime_tasks::RuntimeTaskError,
+    app_core::facade::ReadModelError,
+    app_core::school_auth::SchoolAuthError,
+    app_core::school_browser::SchoolBrowserError,
+    app_core::catalog::CatalogError,
+    app_core::reference_refresh::ReferenceError,
+    app_core::cloud_sync::CloudSyncError,
+    app_core::reset::ResetError,
+);
+
 impl From<uniffi::UnexpectedUniFFICallbackError> for SdkError {
     fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
         Self::Callback {
             detail: e.to_string(),
-        }
-    }
-}
-impl From<app_core::data::DataError> for SdkError {
-    fn from(e: app_core::data::DataError) -> Self {
-        use app_core::data::DataError as E;
-        match e {
-            E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Conflict(detail) => Self::Conflict { detail },
-            E::Compatibility(detail) => Self::Compatibility { detail },
-            E::Storage(detail) => Self::Storage { detail },
-        }
-    }
-}
-impl From<app_core::workspace::WorkspaceError> for SdkError {
-    fn from(e: app_core::workspace::WorkspaceError) -> Self {
-        use app_core::workspace::WorkspaceError as E;
-        match e {
-            E::InvalidIntent(detail) => Self::InvalidInput { detail },
-            E::Conflict(detail) => Self::Conflict { detail },
-            E::Storage(detail) => Self::Storage { detail },
-        }
-    }
-}
-impl From<app_core::runtime_tasks::RuntimeTaskError> for SdkError {
-    fn from(e: app_core::runtime_tasks::RuntimeTaskError) -> Self {
-        use app_core::runtime_tasks::RuntimeTaskError as E;
-        match e {
-            E::Stopped => Self::Closed,
-            other => Self::Internal {
-                detail: other.to_string(),
-            },
-        }
-    }
-}
-impl From<app_core::facade::ReadModelError> for SdkError {
-    fn from(e: app_core::facade::ReadModelError) -> Self {
-        use app_core::facade::ReadModelError as E;
-        match e {
-            E::Workspace(e) => e.into(),
-            E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Schedule(e) => e.into(),
-            E::Finder(e) => match e {
-                app_core::course_query::FinderError::InvalidInput(detail) => {
-                    Self::InvalidInput { detail }
-                }
-                app_core::course_query::FinderError::Schedule(e) => e.into(),
-                app_core::course_query::FinderError::Data(e) => e.into(),
-                app_core::course_query::FinderError::Compatibility(e) => Self::Compatibility {
-                    detail: e.to_string(),
-                },
-            },
-            E::Catalog(e) => e.into(),
-        }
-    }
-}
-impl From<app_core::school_auth::SchoolAuthError> for SdkError {
-    fn from(e: app_core::school_auth::SchoolAuthError) -> Self {
-        use app_core::school_auth::SchoolAuthError as E;
-        match e {
-            E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Compatibility(detail) => Self::Compatibility { detail },
-            E::Storage(detail) => Self::Storage { detail },
-            E::Vault(app_core::ports::SecretError::Callback(detail)) => Self::Callback { detail },
-            E::Vault(e) => Self::Unavailable {
-                detail: e.to_string(),
-            },
-        }
-    }
-}
-impl From<app_core::school_browser::SchoolBrowserError> for SdkError {
-    fn from(e: app_core::school_browser::SchoolBrowserError) -> Self {
-        use app_core::school_browser::SchoolBrowserError as E;
-        match e {
-            E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Storage(detail) => Self::Storage { detail },
-            E::Auth(detail) => Self::Authentication { detail },
-            E::Timeout(detail) => Self::Timeout { detail },
-            E::Cancelled | E::Preempted => Self::Cancelled,
-            E::Stopped => Self::Closed,
-            E::Maintenance(detail) => Self::Maintenance { detail },
-            E::Platform(detail) | E::SiteChanged(detail) => Self::Unavailable { detail },
-        }
-    }
-}
-impl From<app_core::catalog::CatalogError> for SdkError {
-    fn from(e: app_core::catalog::CatalogError) -> Self {
-        use app_core::catalog::CatalogError as E;
-        match e {
-            E::Data(e) => e.into(),
-            E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Json(e) => Self::Compatibility {
-                detail: e.to_string(),
-            },
-        }
-    }
-}
-impl From<app_core::reference_refresh::ReferenceError> for SdkError {
-    fn from(e: app_core::reference_refresh::ReferenceError) -> Self {
-        use app_core::reference_refresh::ReferenceError as E;
-        match e {
-            E::InvalidInput(detail) => Self::InvalidInput { detail },
-            E::Network(detail) => Self::Network { detail },
-            E::Storage(detail) => Self::Storage { detail },
-            E::Conflict(detail) => Self::Conflict { detail },
-            E::Compatibility(detail) => Self::Compatibility { detail },
-            E::Cancelled => Self::Cancelled,
-            E::Superseded => Self::Cancelled,
-        }
-    }
-}
-impl From<app_core::cloud_sync::CloudSyncError> for SdkError {
-    fn from(e: app_core::cloud_sync::CloudSyncError) -> Self {
-        use app_core::cloud_sync::CloudSyncError as E;
-        match e {
-            E::Storage(detail) => Self::Storage { detail },
-            E::Compatibility(detail) => Self::Compatibility { detail },
-            E::Conflict(detail) => Self::Conflict { detail },
-            E::Transport(detail) => Self::Network { detail },
-            E::Interrupted => Self::Timeout {
-                detail: e.to_string(),
-            },
-            E::Stopped => Self::Closed,
-            E::Task(e) | E::StorageTask(e) => e.into(),
         }
     }
 }

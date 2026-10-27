@@ -78,7 +78,7 @@ impl BackupService {
     }
 
     pub fn device_id(&self) -> Result<String, BackupError> {
-        self.store.load_workspace()?["deviceId"]
+        self.store.load_fields(&[])?["deviceId"]
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| BackupError::Invalid("Device id missing".into()))

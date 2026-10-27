@@ -31,17 +31,17 @@ fun main(args:Array<String>) = runBlocking {
     check((session.credentialStatus().value() as OperationResult.Credentials).status.tokyoTech.saved)
     session.deleteCredentials(SchoolAuthProfile.TOKYO_TECH).value()
     val stream=session.subscribe()
-    val first=(session.snapshot().value() as OperationResult.Workspace).snapshot
-    val op=session.mutate(WorkspaceMutation(first.revision,WorkspaceIntent.SetAdmissionYear(2026)))
+    val first=(session.workspaceRevision().value() as OperationResult.Text).value
+    val op=session.mutateCommit(WorkspaceMutation(first,WorkspaceIntent.SetAdmissionYear(2026)))
     check(!op.cancel())
-    val committed=(op.value() as OperationResult.Workspace).snapshot
-    check(first.revision!=committed.revision)
-    try {session.mutate(WorkspaceMutation(first.revision,WorkspaceIntent.SetAdmissionYear(2025))).value();error("Missing conflict")}
+    val committed=(op.value() as OperationResult.Committed).commit
+    check(first!=committed.revision)
+    try {session.mutateCommit(WorkspaceMutation(first,WorkspaceIntent.SetAdmissionYear(2025))).value();error("Missing conflict")}
     catch(_:SdkException.Conflict) {}
     check(stream.next() is StreamUpdate.Event)
     val queries=listOf(WorkspaceQuery.Glance("2026-10-15T09:00:00+09:00"),WorkspaceQuery.NotificationPlan("2026-10-15T09:00:00+09:00","2026-10-16T09:00:00+09:00",null))
     val result=(session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot
-    check(result.revision==committed.contentRevision && result.values.size==2)
+    check(result.seq>=committed.seq && result.values.size==2)
     val clockResult=(session.scheduleQuery(listOf(WorkspaceQuery.TeachingPeriods)).value() as OperationResult.Schedule).snapshot
     val periods=(clockResult.values.single() as WorkspaceQueryResult.TeachingPeriods).v1
     check(periods.size==6 && periods[5].periods.contentEquals(byteArrayOf(11,12)) && periods[5].startTime=="19:05" && periods[5].endTime=="20:45")
@@ -59,7 +59,7 @@ fun main(args:Array<String>) = runBlocking {
     stream.unsubscribe()
     try {stream.next();error("Expected closed stream")}catch(_:SdkException.Closed){}
     session.shutdown();session.shutdown()
-    try {session.snapshot();error("Expected closed")}catch(_:SdkException.Closed){}
+    try {session.workspaceRevision();error("Expected closed")}catch(_:SdkException.Closed){}
     session.close();stream.close();directory.deleteRecursively()
     println("KOTLIN_CORE_SDK_SMOKE_PASSED")
 }

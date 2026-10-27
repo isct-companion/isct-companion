@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 114 checks must be re-run before the next release.**
+**10 of 123 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**104 checks have never been run or could not be run:**
+**113 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -74,6 +74,8 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-DEV-BUILD-UPDATES` — never verified
 - `DESKTOP-WINDOWS-SCHOOL-PULL` — never verified
 - `DESKTOP-LMS-SESSION-RECOVERY` — never verified
+- `SCHOOL-CONNECT-TAKES-OVER` — never verified
+- `SCHOOL-ABANDONED-VIEW-STOPS` — never verified
 - `DESKTOP-WINDOWS-SIGNED-INSTALL` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
 - `SCHOOL-OTP-QR` — never verified
@@ -136,6 +138,13 @@ an unverified area becomes an assumed-good one.
 - `IOS-LMS-ATTACHMENT-SESSION` — never verified
 - `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
 - `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
+- `DESKTOP-ERROR-CODE-COPY` — never verified
+- `MOBILE-ERROR-CODE-COPY` — never verified
+- `DESKTOP-COURSE-KEYS-UPGRADE` — never verified
+- `DESKTOP-VIEWS-FROM-TABLES` — never verified
+- `DESKTOP-QUERY-CACHE-INVALIDATION` — never verified
+- `MOBILE-VIEW-QUERIES` — never verified
+- `DESKTOP-BACKUP-IMPORT-REQUERIES` — never verified
 
 ## Status
 
@@ -193,6 +202,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-DEV-BUILD-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs |
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/kyomu.rs |
 | `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/app-core/src/lms_session.rs<br>crates/app-core/src/net/sign_in.rs<br>crates/app-core/src/school_browser/engine/jobs.rs |
+| `SCHOOL-CONNECT-TAKES-OVER` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/school_browser_native.rs<br>crates/app-core/src/school_browser/engine/jobs.rs<br>crates/app-core/src/school_browser/engine/login.rs |
+| `SCHOOL-ABANDONED-VIEW-STOPS` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>crates/app-ffi/src/ports.rs<br>crates/adpt-isct/assets/school-stop.js |
 | `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/app-core/src/school_auth/otp_setup.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>crates/adpt-isct/assets/*.js<br>crates/app-core/src/school_browser/engine/*.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
@@ -202,7 +213,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>crates/app-core/src/school_browser/engine/pull.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-STORAGE-SPLIT` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/connection.rs<br>apps/desktop/src-tauri/src/lib.rs |
-| `DESKTOP-CALENDAR-MARK-LATENCY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>crates/app-core/src/data/snapshot.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/lms_ingest.rs |
+| `DESKTOP-CALENDAR-MARK-LATENCY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/lms_ingest.rs |
 | `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
 | `IOS-NATIVE-CHROME` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt |
@@ -255,6 +266,13 @@ an unverified area becomes an assumed-good one.
 | `IOS-LMS-ATTACHMENT-SESSION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>crates/app-core/src/school_browser/engine/login.rs |
+| `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
+| `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
+| `DESKTOP-COURSE-KEYS-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/course_keys.rs<br>crates/app-core/src/data/course_merge.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/backup_store.rs |
+| `DESKTOP-VIEWS-FROM-TABLES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/views.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/workspace_changes.rs |
+| `DESKTOP-QUERY-CACHE-INVALIDATION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/platform/view-query.ts<br>apps/desktop/src/platform/records.ts<br>apps/desktop/src/store/workspace.ts |
+| `MOBILE-VIEW-QUERIES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/session.rs |
+| `DESKTOP-BACKUP-IMPORT-REQUERIES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src/storage/repository.ts<br>apps/desktop/src/store/workspace.ts |
 
 ## Personas
 
@@ -2150,16 +2168,16 @@ the Japanese input method on, the year's catalog stored.
 
 1. In the course search type ぶつり and convert it to 物理 without
    confirming, watching the terminal.
-   - *Why:* Each search prints one [workspace-snapshot] line. Lines while the
-     text is still underlined mean every keystroke of the composition
-     was searched, which stalls typing.
+   - *Why:* Each search prints one [native-data] line whose op names
+     finder_query. Lines while the text is still underlined mean every
+     keystroke of the composition was searched, which stalls typing.
 2. Confirm the conversion with Enter.
    - *Why:* The confirming Enter belongs to the IME: exactly one search must
      follow with 物理, and no condition pill may appear.
 
 **Where to look**
 
-The terminal's [workspace-snapshot] lines and the results count.
+The terminal's [native-data] finder_query lines and the results count.
 
 **Expected**
 
@@ -2202,7 +2220,8 @@ terminal, Microsoft Pinyin on, the year's catalog stored.
 
 **Where to look**
 
-The terminal's [workspace-snapshot] lines, the results and the pills.
+The terminal's [native-data] finder_query lines, the results and the
+pills.
 
 **Expected**
 
@@ -3320,6 +3339,98 @@ Needs the school's real sign-on and the native WebKit or WebView2 cookie store t
 
 **Last recorded** never run
 
+### Connecting new credentials does not wait behind a running check (`SCHOOL-CONNECT-TAKES-OVER`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS or Windows build from this source with Science Tokyo
+credentials saved, the student id, password and current OTP factor at
+hand, and a way to cut the network (Wi-Fi off).
+
+**Steps**
+
+1. Open Settings > Diagnostics and clear the log. Quit the app, turn Wi-Fi off, launch the app, wait ten seconds and turn Wi-Fi back on.
+   - *Why:* Leaves the launch session check holding the hidden school view on a page that will not answer, the state in which a connect used to queue behind it for the whole session timeout.
+2. Within the next minute, open Settings > Accounts and connect the Science Tokyo account again with the same id, password and OTP secret.
+   - *Why:* The connect must take the profile over at once and sign in with what was typed, not with the saved sign-in the stuck check would have used.
+3. Copy the diagnostics log.
+   - *Why:* The log shows whether the connect waited for the lane and whether a second sign-in ran after it.
+
+**Where to look**
+
+The Accounts row's state and the copied log.
+
+**Expected**
+
+The account shows connected within about half a minute of pressing
+connect, not after the launch check's 90 s. The log has one `session
+check` started at launch, no `did not confirm its stop`, and no session
+check sign-in after the connect.
+
+**Why this is manual**
+
+Needs the school's real sign-in with a live OTP factor and a network that drops mid-check; Core's takeover is covered by `a_connect_takes_the_profile_over_and_answers_everyone_waiting_on_it`, but no headless suite drives the real WebView through it.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
+- `crates/app-core/src/school_browser/engine/jobs.rs`
+- `crates/app-core/src/school_browser/engine/login.rs`
+
+**Last recorded** never run
+
+### A timed-out sign-in stops its view on every shell (`SCHOOL-ABANDONED-VIEW-STOPS`)
+
+**Area** school · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Builds from this source on macOS (or Windows), an iPhone and an Android
+phone (the Android build made on Windows), each with Science Tokyo
+credentials saved, and a way to make the school portal stop answering
+(Wi-Fi on with the router's uplink unplugged, or a Network Link
+Conditioner profile with 100% loss).
+
+**Steps**
+
+1. On each device, start from a cold launch with the uplink cut, so the launch session check opens the portal and gets no answer. Wait two minutes.
+   - *Why:* Passes the job's 90 s deadline, so Core abandons the attempt and sends its view a stop. Only the native view can show that the stop really ended the loads and the sign-in script.
+2. Restore the uplink, then bring the app to the front (desktop focus, iOS and Android foreground) and wait for the account state to settle.
+   - *Why:* The next check reuses the stopped view only after the shell confirmed the stop. A shell that never confirms makes Core replace the view after 5 s, which the log names.
+3. Copy the log (desktop Settings > Diagnostics; Xcode console or `adb logcat` for the phones).
+   - *Why:* Tells a confirmed stop from a replaced view, and shows whether the abandoned run submitted anything after the stop.
+
+**Where to look**
+
+The account state on each device and the copied logs.
+
+**Expected**
+
+Each device returns to signed in on the check after the network comes
+back, without the person signing in. No log has `view did not confirm
+its stop` or `stop not sent`, and no sign-in form submission happens
+between the timeout and the next check.
+
+**Why this is manual**
+
+The stop runs in WKWebView, WebView2/WebKitGTK and Android WebView, none of which has a headless mode here, and needs a network that stops answering mid-load; Core's lease and fence are covered by `an_abandoned_attempt_stops_its_view_before_the_view_is_used_again`.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `crates/app-ffi/src/ports.rs`
+- `crates/adpt-isct/assets/school-stop.js`
+
+**Last recorded** never run
+
 ### Signed Windows installer passes Smart App Control and can save course files (`DESKTOP-WINDOWS-SIGNED-INSTALL`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
@@ -3879,7 +3990,7 @@ snapshot nor the school reads, and "no visible delay" is a glance.
 
 - `apps/desktop/src/store/workspace.ts`
 - `apps/desktop/src-tauri/src/commands/workspace.rs`
-- `crates/app-core/src/data/snapshot.rs`
+- `crates/app-core/src/data/views.rs`
 - `crates/app-core/src/data/migrations.rs`
 - `crates/app-core/src/lms_ingest.rs`
 
@@ -6850,5 +6961,375 @@ school_auth tests.
 - `crates/app-core/src/school_auth.rs`
 - `crates/app-core/src/school_auth/otp_enrollment.rs`
 - `crates/app-core/src/school_browser/engine/login.rs`
+
+**Last recorded** never run
+
+### Core failures show the shared catalog's copy in the UI language (`DESKTOP-ERROR-CODE-COPY`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build with the UI set to 日本語, a quarter with classes,
+and an LMS assignment that has a workspace whose submit folder is
+empty.
+
+**Steps**
+
+1. Open the plan editor, clear the title and save.
+   - *Why:* Core now rejects with the code `plan-invalid-title` instead of an
+     English sentence. English text here means the bridge did not turn
+     the code into the catalog's copy.
+2. On the assignment's card choose Prepare in LMS with the submit
+   folder empty.
+   - *Why:* The hand-in path crosses SubmissionError in the browser layer; a
+     generic "受け付けられませんでした" instead of the empty-folder copy
+     means the hand-in code was lost on the way.
+3. Switch the UI to 中文 and repeat the first step.
+   - *Why:* The copy comes from `error.<code>` in each catalog, so a language
+     switch must change it; Japanese left on screen means the message
+     was built once and cached as text.
+4. Export the application log and look for the two failures.
+   - *Why:* The diagnostic detail moved to the log; a failure that is neither
+     on screen nor in the log has lost its detail entirely.
+
+**Where to look**
+
+The plan editor's error line, the assignment card's notice, and the
+exported log.
+
+**Expected**
+
+Each failure shows the catalog's copy for its code in the current UI
+language (タイトルを入力してください。 / 提出フォルダーが空です。 /
+请输入标题。), never an English sentence from Core.
+
+**Why this is manual**
+
+The copy is a glance at the real screen in two languages; the codes
+and catalogs themselves are pinned by the Core and locale suites.
+
+**Covers**
+
+- `apps/desktop/src/platform/native-error.ts`
+- `apps/desktop/src-tauri/src/command_error.rs`
+- `crates/app-core/src/error_code.rs`
+- `resources/locales/*.json`
+
+**Last recorded** never run
+
+### Mobile shells show Core failures from the shared catalog (`MOBILE-ERROR-CODE-COPY`)
+
+**Area** native · **Persona** International student · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+iOS simulator and Android emulator builds of this commit, UI in
+English, no school account signed in and the network turned off.
+
+**Steps**
+
+1. Pull to refresh on Today with the network off.
+   - *Why:* Core answers with a code as the SDK error's detail; text such as
+     "network" or "offline" on screen means the shell showed the code
+     itself instead of `error.<code>`.
+2. Turn the network on and open an assignment's hand-in with no files
+   chosen, then hand in.
+   - *Why:* A Core validation failure must read as its catalog copy, not as
+     "Invalid input: …" from the SDK error's description.
+
+**Where to look**
+
+The Today status line and the hand-in sheet's error text on each
+device.
+
+**Expected**
+
+Both failures show plain English copy from the catalog on iOS and on
+Android, with no code names or "Invalid input:" prefixes.
+
+**Why this is manual**
+
+Needs the native shells running on a simulator and an emulator; the
+shells' message mapping has no automated suite.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
+- `crates/app-ffi/src/error.rs`
+
+**Last recorded** never run
+
+### Course ids survive the course-keys upgrade and cloud sync between devices (`DESKTOP-COURSE-KEYS-UPGRADE`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Two macOS desktop builds of this commit on two machines, both signed
+in to the same school accounts and the same cloud provider. On the
+first, a data folder from 1.2.2 with courses on the timetable, a
+course renamed or recoloured, a session marked 休講, and a plan item.
+Copy that folder aside first.
+
+**Steps**
+
+1. Launch the new build on the old folder and open the timetable,
+   Today and a renamed course.
+   - *Why:* The first launch turns course_identity_map into course_keys in
+     place. A course that lost its rename, colour or mark means an id
+     moved during the upgrade; an empty timetable means the upgrade
+     failed and fell back to an empty user.db.
+2. Press Refresh in the sync status and wait for LMS and 教務 to
+   finish, then look for a course listed twice on the timetable.
+   - *Why:* LMS courses now join catalog and 教務 courses only by exact
+     offering id; a twin means a key was not matched, or that the
+     removed code-and-quarter match was still needed for this course.
+3. In the course finder, download this year's catalog for one
+   department, then open a course of that department on the
+   timetable and look at its credits and Japanese title.
+   - *Why:* Courses are merged when a source is written; a catalog download
+     writes no LMS row. Credits or titles that appear only after a
+     restart mean the catalog write did not merge its courses again.
+4. Sync to the cloud, then on the second machine pull and open the
+   same course and the marked session.
+   - *Why:* Synced copies name courses by external key; a rename or mark that
+     does not arrive, or arrives on a different course, means a key
+     was not converted on the way out or in.
+
+**Where to look**
+
+The timetable, the course page's title and colour, the marked block on
+the calendar, and the same on the second machine.
+
+**Expected**
+
+Every course keeps its rename, colour, marks and plan items after the
+upgrade, no course appears twice, and the second machine shows the
+same edits on the same courses after a sync.
+
+**Why this is manual**
+
+Needs a real 1.2.2 data folder, real school reads and two machines on
+one cloud account; the key resolution, merge and conversion
+themselves are pinned by the Core data suite.
+
+**Covers**
+
+- `crates/app-core/src/data/course_keys.rs`
+- `crates/app-core/src/data/course_merge.rs`
+- `crates/app-core/src/data/migrations.rs`
+- `crates/app-core/src/data/backup_store.rs`
+
+**Last recorded** never run
+
+### Pages read their own tables and stay current after changes (`DESKTOP-VIEWS-FROM-TABLES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit with signed-in school accounts and
+a quarter with classes, assignments and materials.
+
+**Steps**
+
+1. Open the calendar, Today, the timetable, a course page with its
+   lessons, and the course finder, in that order, right after launch.
+   - *Why:* Each page now reads only the tables its queries name instead of
+     the whole workspace; a page that opens empty or slower than before
+     means its view left out a table it needs.
+2. Mark a session 休講 on the calendar, pin an assignment, then press
+   Refresh in the sync status and wait for LMS to finish.
+   - *Why:* Views are cached per table set until user.db or cache.db changes;
+     a page that keeps the old mark, pin or a removed material means a
+     cached view outlived a commit.
+
+**Where to look**
+
+Each page's content and how fast it appears; the marked block, the
+pinned assignment and the course lessons after the refresh.
+
+**Expected**
+
+Every page shows the same content as before this change, appears at
+least as fast, and shows each change at once.
+
+**Why this is manual**
+
+Felt speed and completeness of real pages over the person's data; the
+view-versus-whole-workspace equality is pinned by the Core facade
+suite and by trace_read_models on a data copy.
+
+**Covers**
+
+- `crates/app-core/src/data/views.rs`
+- `crates/app-core/src/facade.rs`
+- `crates/app-core/src/workspace_changes.rs`
+
+**Last recorded** never run
+
+### Cached pages refresh on the changes Core names and when the window returns (`DESKTOP-QUERY-CACHE-INVALIDATION`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit with signed-in school accounts and
+a quarter with classes and assignments; a second device or the MCP
+agent able to add a plan.
+
+**Steps**
+
+1. Open the calendar, mark a session 試験, then switch to Today and
+   back.
+   - *Why:* A write invalidates only the answers that read what it changed; a
+     mark that Today or the calendar still shows the old way means an
+     answer was kept although its reads named the change.
+2. Hide the window for a minute while the other device or the agent
+   adds a plan, then bring the window back.
+   - *Why:* Coming back refetches every query in use, so a missed event cannot
+     leave a page stale; the plan missing until another change means
+     the window's return was not heard.
+3. Press Refresh in the sync status while the calendar is open.
+   - *Why:* Background reads arrive as merged events; the calendar flickering
+     empty, or answering twice per event, means stale answers replaced
+     fresh ones or were not kept on screen while refreshing.
+4. In Settings change the appearance and the department, then rename
+   a course from its panel.
+   - *Why:* Pages hold no copy of the records; an edit shows once Core answers
+     again. A value that flips back, or a page that keeps the old name,
+     means an answer was not refetched after the commit.
+
+**Where to look**
+
+The marked block, Today's list, the new plan on the calendar, and the
+calendar while the sync runs.
+
+**Expected**
+
+Each change shows at once on every page that reads it, the plan shows
+as soon as the window returns, and the calendar never goes blank.
+
+**Why this is manual**
+
+Window visibility and cross-device events need the real shell and a
+second writer; the invalidation and sequence rules themselves are
+pinned by the workspace-store suite.
+
+**Covers**
+
+- `apps/desktop/src/platform/query-client.ts`
+- `apps/desktop/src/platform/view-query.ts`
+- `apps/desktop/src/platform/records.ts`
+- `apps/desktop/src/store/workspace.ts`
+
+**Last recorded** never run
+
+### Mobile screens read view queries and stay current (`MOBILE-VIEW-QUERIES`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+iOS simulator and Android emulator builds of this commit signed in to
+the same school accounts as a desktop build of this commit.
+
+**Steps**
+
+1. Open Today, the timetable and a course page on the phone, then mark
+   a session 休講 on the desktop and sync.
+   - *Why:* The phone reads records and read models through queries and hears
+     the change by name and sequence; a mark that does not arrive means
+     a change event was not turned into a refresh.
+2. Put the app in the background, change a setting on the desktop,
+   then bring the phone app back.
+   - *Why:* Coming back refetches everything; a stale setting means the
+     foreground refresh did not run.
+3. Change the language and pin an assignment on the phone.
+   - *Why:* Writes now answer only their changes and revision; a value that
+     flips back means the screen kept an answer older than the write.
+
+**Where to look**
+
+Today, the timetable block, the course page and the settings on each
+phone.
+
+**Expected**
+
+Every change shows on the phones without restarting, on iOS and on
+Android, and phone edits stay applied.
+
+**Why this is manual**
+
+Needs the native shells on a simulator and an emulator next to a
+desktop; the FFI calls themselves are covered by the SDK suite.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/AppModel.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
+- `crates/app-ffi/src/session.rs`
+
+**Last recorded** never run
+
+### Importing a backup refreshes every page without a restart (`DESKTOP-BACKUP-IMPORT-REQUERIES`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit with a quarter of classes and a
+backup exported earlier (Settings → Backup) after which a plan and a
+session mark were added.
+
+**Steps**
+
+1. Open the calendar and the planner, then import the earlier backup
+   from Settings → Backup.
+   - *Why:* The import answers nothing now; the pages hear the restore's
+     commit by name. A page still showing the later plan or mark means
+     the restore's changes did not reach its query.
+2. Mark a session 休講 right after the import.
+   - *Why:* The store reads the revision again after an import; a conflict
+     error here means the next intent was made against the revision
+     from before the restore.
+
+**Where to look**
+
+The planner's plans, the calendar's marks, and any error toast after
+the mark.
+
+**Expected**
+
+Without restarting, the later plan and mark are gone, everything from
+the backup shows, and the new mark saves without an error.
+
+**Why this is manual**
+
+A real backup restore goes through cloud sync's restore path and the
+native file picker; the repository's command forwarding is in the
+workspace-store suite, but not the whole round trip in the app.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/commands/backup.rs`
+- `apps/desktop/src/storage/repository.ts`
+- `apps/desktop/src/store/workspace.ts`
 
 **Last recorded** never run

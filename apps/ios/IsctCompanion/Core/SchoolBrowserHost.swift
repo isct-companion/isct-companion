@@ -189,6 +189,14 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
                 else { return }
                 self.fail(resident, cause: command.actionId, detail: error.localizedDescription)
             }
+        case let .stop(script):
+            // Core abandoned this view's attempt and leases it again only
+            // once this confirms; the page reported at that point is the last
+            // one the attempt may claim.
+            resident.webView.stopLoading()
+            resident.webView.evaluateJavaScript(script) { [weak self] _, _ in
+                try? self?.listener()?.stopped(page: resident.page, actionId: command.actionId)
+            }
         }
     }
 

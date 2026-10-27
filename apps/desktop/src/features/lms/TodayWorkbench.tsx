@@ -25,11 +25,22 @@ export function TodayWorkbench({
   const [closing, setClosing] = useState<CourseEntry | null>(null);
   const lastEntry = useRef<CourseEntry | null>(null);
   useLayoutEffect(() => {
-    if (entry) { lastEntry.current = entry; setClosing(null); return; }
+    if (entry) {
+      lastEntry.current = entry;
+      setClosing(null);
+      return;
+    }
     if (!lastEntry.current) return;
     setClosing(lastEntry.current);
-    const delay = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 300; // matches --lms-slow
-    const timer = setTimeout(() => { setClosing(null); lastEntry.current = null; }, delay);
+    const delay =
+      typeof matchMedia === "function" &&
+      matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 0
+        : 300; // matches --lms-slow
+    const timer = setTimeout(() => {
+      setClosing(null);
+      lastEntry.current = null;
+    }, delay);
     return () => clearTimeout(timer);
   }, [entry]);
   const shownEntry = entry || closing;
@@ -72,7 +83,9 @@ export function TodayWorkbench({
     return () => clearTimeout(timer);
   }, [active, entry]);
   return (
-    <div className={`todayWorkbench${entry ? " working" : ""}${closing && !entry ? " leaving" : ""}`}>
+    <div
+      className={`todayWorkbench${entry ? " working" : ""}${closing && !entry ? " leaving" : ""}`}
+    >
       <div
         className={`todayRetained${entry ? " compact" : ""}`}
         ref={todayPane}
@@ -83,7 +96,11 @@ export function TodayWorkbench({
       >
         {children(compact)}
       </div>
-      <div className="todayWorkbenchContent" hidden={!shownEntry} inert={!entry}>
+      <div
+        className="todayWorkbenchContent"
+        hidden={!shownEntry}
+        inert={!entry}
+      >
         {retained.map((item) => (
           <div
             className="todayCourseSlot"

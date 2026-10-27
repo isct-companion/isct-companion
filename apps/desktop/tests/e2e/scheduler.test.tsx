@@ -138,9 +138,9 @@ function modalButton(label: string): HTMLButtonElement | undefined {
 function fieldInput(label: string): HTMLInputElement {
   const root = modal();
   if (!root) throw new Error("The plan editor is not open.");
-  const wrapper = [
-    ...root.querySelectorAll<HTMLElement>(".uiField"),
-  ].find((node) => node.querySelector("label")?.textContent?.trim() === label);
+  const wrapper = [...root.querySelectorAll<HTMLElement>(".uiField")].find(
+    (node) => node.querySelector("label")?.textContent?.trim() === label,
+  );
   const input = wrapper?.querySelector<HTMLInputElement>("input");
   if (!input) throw new Error(`The "${label}" field is not on screen.`);
   return input;
@@ -203,6 +203,16 @@ async function openAutomation(app: MountedApp): Promise<void> {
  * ------------------------------------------------------------------ */
 
 let app: MountedApp | undefined;
+
+/** The editor's Save once Core has answered the plan's start, as a person
+ * sees it: enabled. */
+const enabledSave = () =>
+  until(() => {
+    const button = modalButton("Save");
+    if (!button || button.disabled)
+      throw new Error("The Save button is not enabled yet.");
+    return button;
+  });
 
 afterEach(async () => {
   await app?.unmount();
@@ -273,11 +283,7 @@ describe("The plan editor", () => {
     const { core } = app;
 
     await openPlanEditor(app);
-    const save = await until(() => {
-      const button = modalButton("Save");
-      if (!button) throw new Error("The Save button is not on screen.");
-      return button;
-    });
+    const save = await enabledSave();
 
     // Two clicks in one frame, before React can render the busy state.
     act(() => {
@@ -315,7 +321,7 @@ describe("The plan editor", () => {
     const { core } = app;
 
     await openPlanEditor(app);
-    await click(modalButton("Save"));
+    await click(await enabledSave());
     await until(() =>
       expect(
         modal()?.querySelector('[role="alert"]')?.textContent,
@@ -365,7 +371,9 @@ describe("Scheduled tasks", () => {
 
     await click(toggle);
 
-    await until(() => expect(taskSwitch(host)?.getAttribute("aria-checked")).toBe("true"));
+    await until(() =>
+      expect(taskSwitch(host)?.getAttribute("aria-checked")).toBe("true"),
+    );
     // The page still describes the schedule the task already had.
     expect(host.textContent).toContain("21:00");
 
@@ -407,6 +415,7 @@ describe("Scheduled tasks", () => {
             // publishes the record as a scheduler change.
             core.publish(withTask(core.workspace, durable), "revision:42");
             core.emit("workspace-changed", {
+              seq: 1,
               source: "scheduler",
               changes: ["scheduled-tasks"],
             });

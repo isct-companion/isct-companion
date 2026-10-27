@@ -145,7 +145,9 @@ export function DataUpdatesSettings({
         <Row
           id="cellular"
           title="Update on cellular data"
-          hint={waitingForWifi ? t("Paused until Wi-Fi is available") : undefined}
+          hint={
+            waitingForWifi ? t("Paused until Wi-Fi is available") : undefined
+          }
         >
           <Toggle
             checked={data.settings.subscriptionRefresh.allowCellular}

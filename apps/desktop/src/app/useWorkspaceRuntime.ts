@@ -5,6 +5,7 @@ import type { NativeCapabilitySnapshot } from "../platform/desktop-bridge";
 import { bootstrapReminders } from "../platform/reminders";
 import { cleanMaterials, retentionDays } from "../features/lms/files";
 import { workspaceActions, workspaceStore } from "../store/workspace";
+import { fetchRecords, useRecords } from "../platform/records";
 import { desktopBridge } from "./native";
 import { notify } from "./notify";
 
@@ -40,12 +41,8 @@ export function useWorkspaceRuntime(sourceData: Workspace | undefined) {
         // through Core after launch and when returning from System Settings.
         const permission = await bridge.getNotificationPermission();
         if (cancelled || request !== latest) return;
-        const workspace = workspaceStore.getState().workspace;
-        if (
-          !workspace ||
-          workspace.settings.notifications.localPermission === permission
-        )
-          return;
+        const { settings } = await fetchRecords([]);
+        if (settings.notifications.localPermission === permission) return;
         await workspaceActions.updateSettings((draft) => {
           draft.settings.notifications.localPermission = permission;
           return draft;
@@ -65,40 +62,37 @@ export function useWorkspaceRuntime(sourceData: Workspace | undefined) {
     };
   }, [sourceData?.deviceId, nativeCapabilities?.notifications]);
 
+  const tasks = useRecords(
+    ["scheduledTasks"],
+    Boolean(sourceData),
+  )?.scheduledTasks;
   useEffect(() => {
-    if (!sourceData) return;
-    const updateState = () => {
-      const tasks = workspaceStore.getState().workspace?.scheduledTasks ?? [];
-      setSchedulerState(tasks.some((task) => task.enabled) ? "active" : "off");
-    };
-    updateState();
-    const unsubscribe = workspaceStore.subscribe(updateState);
-    if (desktopBridge?.runScheduledTask) {
-      let cancelled = false;
-      let dispose: (() => void) | undefined;
-      void desktopBridge
-        .onWorkspaceChanged((event) => {
-          void workspaceStore.handleWorkspaceChanged(event).catch(notify.error);
-        })
-        .then((unlisten) => {
-          if (cancelled) {
-            unlisten();
-            return;
-          }
-          dispose = unlisten;
-          // Listening is asynchronous. Recover the snapshot only after actual
-          // registration, closing the startup gap between read and subscribe.
-          return workspaceStore.reload();
-        })
-        .catch(notify.error);
-      return () => {
-        cancelled = true;
-        dispose?.();
-        unsubscribe();
-      };
-    }
+    setSchedulerState(tasks?.some((task) => task.enabled) ? "active" : "off");
+  }, [tasks]);
+  useEffect(() => {
     // Preview has no runtime; all task admission and timing belong to Core.
-    return unsubscribe;
+    if (!sourceData || !desktopBridge?.runScheduledTask) return;
+    let cancelled = false;
+    let dispose: (() => void) | undefined;
+    void desktopBridge
+      .onWorkspaceChanged((event) => {
+        void workspaceStore.handleWorkspaceChanged(event).catch(notify.error);
+      })
+      .then((unlisten) => {
+        if (cancelled) {
+          unlisten();
+          return;
+        }
+        dispose = unlisten;
+        // Listening is asynchronous. Read everything again only after
+        // actual registration, closing the gap between read and subscribe.
+        return workspaceStore.reload();
+      })
+      .catch(notify.error);
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
   }, [sourceData?.deviceId]);
 
   useEffect(() => {

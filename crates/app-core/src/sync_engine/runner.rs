@@ -1450,7 +1450,7 @@ fn load_inputs(
     auth: &SchoolAuthService,
     now: DateTime<Utc>,
 ) -> Result<Inputs, DataError> {
-    let workspace = store.load_workspace()?;
+    let workspace = store.load_fields(&[])?;
     let allow_cellular = workspace
         .pointer("/settings/subscriptionRefresh/allowCellular")
         .and_then(Value::as_bool)

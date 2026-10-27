@@ -424,7 +424,7 @@ async function mountCompactToday(opened: string[]): Promise<Mounted> {
     handle: nativeNoise,
   });
   standaloneCore = core;
-  const { Today } = await import("@app/pages/today/TodayPage");
+  const { TodayBody: Today } = await import("@app/pages/today/TodayPage");
   standalone = await mount(
     <>
       <Today

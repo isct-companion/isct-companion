@@ -33,6 +33,8 @@ import {
   type MountedApp,
   type QueryTable,
   schoolProfiles,
+  FINDER_READS,
+  SCHEDULE_READS,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
 import { notify } from "@app/app/notify";
@@ -226,6 +228,8 @@ const emptyFinder = (request: Record<string, unknown>): FinderPage => ({
   ineligibleCodes: [],
   catalogVersion: 0,
   contentRevision: "",
+  reads: FINDER_READS,
+  seq: 0,
 });
 
 function shellOptions(
@@ -738,7 +742,7 @@ describe("native listener ordering", () => {
     const readsAfterListen = () =>
       core.calls.filter(
         (call, index) =>
-          index > listenIndex() && call.command === "workspace_snapshot",
+          index > listenIndex() && call.command === "workspace_revision",
       ).length;
 
     await until(() => expect(listenIndex()).toBeGreaterThanOrEqual(0));
@@ -752,69 +756,34 @@ describe("native listener ordering", () => {
     await until(() => expect(readsAfterListen()).toBeGreaterThan(0));
   }, 20_000);
 
-  it("patches a school change without a snapshot read, and lets a change heard during a slow read win", async () => {
+  it("queries again only what a school change names, without reading the workspace", async () => {
     const before = workspaceFixture({ courses: [placedCourse] });
     const after = workspaceFixture({ courses: [clashingCourse] });
-    let gateStale = false;
-    let releaseStale!: () => void;
-    const staleGate = new Promise<void>((resolve) => {
-      releaseStale = resolve;
-    });
-    const stalePatch = {
-      revision: "revision:stale",
-      contentRevision: "revision:stale",
-      workspace: before,
-      schoolRecords: emptySchoolRecords(),
-    };
     app = await mountShell(
       shellOptions({
         workspace: before,
-        revision: "rev:stale",
+        revision: "rev:changed",
         finder: emptyFinder,
-        handle: (command, args, core) => {
-          if (command === "workspace_records" && gateStale)
-            return staleGate.then(() => stalePatch);
-          return baseHandle(command, args, core);
-        },
       }),
       { route: paths.timetable() },
     );
     const { host, core } = app;
     // The planner timetable is the person-visible view of the workspace rows.
     await until(() => expect(titles(host)).toEqual(["Placed"]));
-    const snapshotReads = core.commands("workspace_snapshot").length;
+    const revisionReads = core.commands("workspace_revision").length;
 
-    gateStale = true;
-    // A school pull commits: its patch read hangs.
     await act(async () => {
+      core.publish(after);
       core.emit("workspace-changed", {
-        source: "school-pull",
-        changes: ["courses"],
-      });
-    });
-    await until(() =>
-      expect(core.commands("workspace_records")).toHaveLength(1),
-    );
-    // Meanwhile the next key commits a newer state.
-    gateStale = false;
-    await act(async () => {
-      core.publish(after, "revision:new");
-      core.emit("workspace-changed", {
+        seq: 3,
         source: "school-pull",
         changes: ["courses", "freshness"],
       });
     });
-    await act(async () => {
-      releaseStale();
-      await staleGate;
-    });
 
     await until(() => expect(titles(host)).toEqual(["Clashing"]));
-    expect(core.workspace.courses[0].title).toBe("Clashing");
-    expect(
-      core.commands("workspace_records").map((call) => call.args.changes),
-    ).toEqual([["courses"], ["courses", "freshness"]]);
-    expect(core.commands("workspace_snapshot")).toHaveLength(snapshotReads);
+    // A background change moves no intent revision.
+    expect(core.commands("workspace_revision")).toHaveLength(revisionReads);
   }, 20_000);
 });
 
@@ -975,7 +944,7 @@ describe("store failures", () => {
       { route: paths.home() },
     );
     const { core } = app;
-    const before = core.commands("workspace_snapshot").length;
+    const before = core.commands("workspace_revision").length;
 
     await act(async () => {
       notify.error(new Error("Disk is full"), () => {
@@ -1009,7 +978,7 @@ describe("store failures", () => {
     expect(retry).toBeDefined();
     await click(retry);
     await until(() =>
-      expect(core.commands("workspace_snapshot").length).toBeGreaterThan(
+      expect(core.commands("workspace_revision").length).toBeGreaterThan(
         before,
       ),
     );
@@ -1193,7 +1162,7 @@ const actions = (core: FakeCore) =>
     .filter((call) => (call.args.request as { action?: unknown }).action);
 
 function scheduleAnswer(kind: string, value: unknown, revision: string) {
-  return { revision, values: [{ kind, value }] };
+  return { revision, values: [{ kind, value }], reads: SCHEDULE_READS, seq: 0 };
 }
 
 describe("schedule query caches", () => {
@@ -1267,7 +1236,7 @@ describe("schedule query caches", () => {
     expect(core.commands("schedule_query")).toHaveLength(1);
   }, 20_000);
 
-  it("re-reads when the workspace content revision changes", async () => {
+  it("re-reads every view when the store reloads", async () => {
     const workspace = workspaceFixture({ courses: [placedCourse] });
     const next = workspaceFixture({ courses: [clashingCourse] });
     const core = installFakeCore({

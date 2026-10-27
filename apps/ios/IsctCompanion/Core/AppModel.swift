@@ -40,7 +40,8 @@ final class AppModel {
     private(set) var problem: String?
     /// Cells read so far by a running Matrix scan, from Core's `ocr-progress`.
     private(set) var ocrProgress = 0
-    /// Bumped whenever Core reports new content, so open screens re-query.
+    /// The commit sequence of the latest answers; open screens re-query when
+    /// it moves.
     private(set) var contentRevision = ""
     /// Core's cloud journal: providers, unfinished tasks, versions, recovery files.
     private(set) var cloud: SyncState?
@@ -49,6 +50,9 @@ final class AppModel {
     let web: WebRouter
     private var session: Session?
     private var revision = ""
+    /// The newest commit sequence heard from an event or a write; an answer
+    /// read before it is asked for again.
+    private var latestSeq: UInt64 = 0
     private var boundaryTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var settingsWrite: Task<Void, Never>?
@@ -271,6 +275,7 @@ final class AppModel {
                     case "school-web-url", "school-download", "catalog-changed":
                         break
                     case "workspace-changed":
+                        latestSeq = max(latestSeq, Self.seq(event.payload))
                         // A key re-read with nothing new renews only its
                         // freshness, which no screen here shows.
                         if !Self.onlyFreshness(event.payload) {
@@ -288,6 +293,19 @@ final class AppModel {
                 return
             }
         }
+    }
+
+    /// The commit sequence a `workspace-changed` names.
+    private static func seq(_ payload: String) -> UInt64 {
+        let row = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
+        return (row?["seq"] as? NSNumber)?.uint64Value ?? 0
+    }
+
+    /// What a committed intent says: where the next one starts, and the
+    /// sequence answers must not be older than.
+    private func adopt(_ commit: WorkspaceCommit) {
+        revision = commit.revision
+        latestSeq = max(latestSeq, commit.seq)
     }
 
     /// Whether a `workspace-changed` names sync freshness and nothing else.
@@ -315,16 +333,22 @@ final class AppModel {
         guard let session else { return }
         let now = Self.timestamp(Date())
         do {
-            guard case let .workspace(snapshot) = try await session.snapshot().value() else { return }
-            revision = snapshot.revision
-            if snapshot.contentRevision != contentRevision {
-                records = WorkspaceRecords(json: snapshot.workspace)
-            }
+            guard case let .text(current) = try await session.workspaceRevision().value() else { return }
+            revision = current
+            // The rows screens look up, with the read models, from one read.
             guard case let .schedule(result) = try await session.scheduleQuery(queries: [
+                .records(fields: ["courses", "materials", "assignments"]),
                 .today(now: now), .assignmentBoard(now: now, term: nil), .teachingPeriods,
             ]).value() else { return }
+            // An answer read before the newest change heard is stale: ask again
+            // (`approach/query-cache-consistency`).
+            if result.seq < latestSeq {
+                scheduleRefresh()
+                return
+            }
             for value in result.values {
                 switch value {
+                case let .records(json): records = WorkspaceRecords(json: json)
                 case let .today(view): today = view
                 case let .assignmentBoard(value):
                     board = value
@@ -340,8 +364,8 @@ final class AppModel {
             ]).value(), case let .workspaceOverview(value)? = overview.values.first {
                 colors = value.colors
             }
-            let changed = contentRevision != snapshot.contentRevision
-            contentRevision = snapshot.contentRevision
+            let changed = contentRevision != String(result.seq)
+            contentRevision = String(result.seq)
             scheduleBoundary()
             if changed || weeks.isEmpty {
                 weeks = [:]
@@ -570,8 +594,8 @@ final class AppModel {
             expectedRevision: revision,
             intent: .setAssignmentMark(assignmentId: id, hidden: hidden, pinned: pinned, completedAt: nil))
         do {
-            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
-                revision = snapshot.revision
+            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
+                adopt(commit)
             }
         } catch SdkError.Conflict {
             // Another device changed the workspace: re-read and let the person retry.
@@ -655,9 +679,8 @@ final class AppModel {
         else { return }
         let mutation = WorkspaceMutation(expectedRevision: revision, intent: .replaceSettings(settings: json))
         do {
-            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
-                revision = snapshot.revision
-                records = WorkspaceRecords(json: snapshot.workspace)
+            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
+                adopt(commit)
             }
         } catch {
             problem = Self.describe(error)
@@ -694,14 +717,35 @@ final class AppModel {
     // MARK: Formatting helpers
 
     nonisolated static func describe(_ error: Error) -> String {
+        // A failure Core raised carries its stable code as `detail`; its copy
+        // is the shared catalog's `error.<code>`. Other details are never shown.
+        if let code = coreCode(error) {
+            let key = "error.\(code)"
+            let copy = t(key)
+            if copy != key { return copy }
+        }
         switch error {
         case SdkError.Network: return t("You're offline. Showing saved data.")
         case SdkError.Authentication: return t("Sign in to your school account again.")
         case SdkError.Maintenance: return t("The school site is under maintenance.")
         case SdkError.Timeout: return t("The school site is not responding.")
         case SdkError.Busy: return t("The previous task has not finished yet.")
-        case let SdkError.Unavailable(detail): return detail.isEmpty ? t("This is not available right now.") : detail
+        case SdkError.Unavailable: return t("This is not available right now.")
+        case is SdkError: return t("error.internal")
         default: return error.localizedDescription
+        }
+    }
+
+    nonisolated private static func coreCode(_ error: Error) -> String? {
+        switch error {
+        case let SdkError.InvalidInput(detail), let SdkError.Conflict(detail),
+            let SdkError.Storage(detail), let SdkError.Compatibility(detail),
+            let SdkError.Authentication(detail), let SdkError.Maintenance(detail),
+            let SdkError.Network(detail), let SdkError.Timeout(detail),
+            let SdkError.Unavailable(detail), let SdkError.Busy(detail),
+            let SdkError.Callback(detail), let SdkError.Internal(detail):
+            return detail
+        default: return nil
         }
     }
 
@@ -864,8 +908,8 @@ extension AppModel {
         guard let session else { return }
         let mutation = WorkspaceMutation(expectedRevision: revision, intent: intent)
         do {
-            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
-                revision = snapshot.revision
+            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
+                adopt(commit)
             }
         } catch {
             // The item only stays new a little longer; nothing to tell.
@@ -875,13 +919,13 @@ extension AppModel {
 
     /// Marks one session (`Occurrence.key`) as `exam`, `quiz`, `cancelled` or
     /// `class` (a plain class; Core clears the mark when that is the default).
-    /// Core republishes the schedule; the new content revision re-reads the week.
+    /// The commit names `calendar`, which re-queries the week.
     func markSession(_ key: String, _ mark: String) async {
         guard let session else { return }
         let mutation = WorkspaceMutation(expectedRevision: revision, intent: .markSession(key: key, mark: mark))
         do {
-            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
-                revision = snapshot.revision
+            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
+                adopt(commit)
             }
         } catch SdkError.Conflict {
             // Another device changed the workspace: re-read and let the person retry.
@@ -920,8 +964,8 @@ extension AppModel {
             intent: .recordLesson(courseId: courseId, occurrence: occurrence, sectionId: sectionId))
         var recorded = false
         do {
-            if case let .workspace(snapshot) = try await session.mutate(mutation: mutation).value() {
-                revision = snapshot.revision
+            if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
+                adopt(commit)
             }
             recorded = true
         } catch SdkError.Conflict {
@@ -945,8 +989,11 @@ extension AppModel {
 
     func studyProfile() async -> StudyProfile? {
         guard let session,
-            case let .workspace(snapshot)? = try? await session.snapshot().value(),
-            let root = (try? JSONSerialization.jsonObject(with: Data(snapshot.workspace.utf8))) as? [String: Any]
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .records(fields: ["academicProfile"])
+            ]).value(),
+            case let .records(json)? = result.values.first,
+            let root = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
         else { return nil }
         let profile = root["academicProfile"] as? [String: Any] ?? [:]
         let rows = profile["studyEnrollments"] as? [[String: Any]] ?? []
@@ -967,7 +1014,9 @@ extension AppModel {
         let mutation = WorkspaceMutation(
             expectedRevision: revision,
             intent: .setStudyProfile(admissionYear: profile.admissionYear, studyEnrollments: profile.enrollments))
-        _ = try await session.mutate(mutation: mutation).value()
+        if case let .committed(commit) = try await session.mutateCommit(mutation: mutation).value() {
+            adopt(commit)
+        }
         await refresh()
     }
 

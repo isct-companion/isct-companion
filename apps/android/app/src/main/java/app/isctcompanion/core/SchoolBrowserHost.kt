@@ -201,6 +201,15 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             is BrowserAction.Reload -> resident.webView.reload()
             // Scripts report through title and navigation relays.
             is BrowserAction.Evaluate -> resident.webView.evaluateJavascript(action.script, null)
+            // Core abandoned this view's attempt and leases it again only once
+            // this confirms; the page reported at that point is the last one
+            // the attempt may claim.
+            is BrowserAction.Stop -> {
+                resident.webView.stopLoading()
+                resident.webView.evaluateJavascript(action.script) {
+                    runCatching { listener()?.stopped(resident.page, command.actionId) }
+                }
+            }
         }
     }
 

@@ -1,4 +1,5 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "../../platform/native-error";
 import { desktopBridge } from "../../app/native";
 import { nativeOs, type NativeOs } from "../../platform/desktop-bridge";
 import { COURSE_FILE_POLICY } from "../../lib/course-file-policy";

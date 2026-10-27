@@ -8,24 +8,10 @@ use crate::{
 };
 use std::sync::Arc;
 fn note_error(e: app_core::notes::NoteError) -> SdkError {
-    match e {
-        app_core::notes::NoteError::Input(detail) => SdkError::InvalidInput { detail },
-        other => SdkError::Storage {
-            detail: other.to_string(),
-        },
-    }
+    crate::error::coded(&e)
 }
 fn material_error(e: app_core::course_materials::MaterialError) -> SdkError {
-    match e {
-        app_core::course_materials::MaterialError::Input(detail) => {
-            SdkError::InvalidInput { detail }
-        }
-        app_core::course_materials::MaterialError::Storage(detail)
-        | app_core::course_materials::MaterialError::Denied(detail) => SdkError::Storage { detail },
-        other => SdkError::Unavailable {
-            detail: other.to_string(),
-        },
-    }
+    crate::error::coded(&e)
 }
 #[uniffi::export]
 impl Session {
@@ -37,9 +23,7 @@ impl Session {
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             let notes = i.core.runtime.notes.at(i.files.clone());
-            let device = i.backup.device_id().map_err(|e| SdkError::Storage {
-                detail: e.to_string(),
-            })?;
+            let device = i.backup.device_id().map_err(|e| crate::error::coded(&e))?;
             Ok(OperationResult::File {
                 file: project(
                     notes
@@ -303,26 +287,11 @@ pub struct UploadMessages {
 }
 
 fn workspace_error(e: app_core::workspaces::WorkspaceError) -> SdkError {
-    use app_core::workspaces::WorkspaceError as E;
-    match e {
-        E::Input(detail) => SdkError::InvalidInput { detail },
-        E::Missing => SdkError::InvalidInput {
-            detail: e.to_string(),
-        },
-        E::Storage(detail) | E::Archive(detail) => SdkError::Storage { detail },
-    }
+    crate::error::coded(&e)
 }
 
 fn submission_error(e: app_core::school_browser::SubmissionError) -> SdkError {
-    use app_core::school_browser::SubmissionError as E;
-    match e {
-        E::InvalidInput(detail) => SdkError::InvalidInput { detail },
-        E::Storage(detail) => SdkError::Storage { detail },
-        E::Browser(detail) => SdkError::Unavailable { detail },
-        E::WorkspaceMissing => SdkError::InvalidInput {
-            detail: e.to_string(),
-        },
-    }
+    crate::error::coded(&e)
 }
 
 /// Core's reading of one assignment, which names its course folder and page.
@@ -377,14 +346,7 @@ impl Session {
                 manual,
             )
             .await
-            .map_err(|error| match error {
-                app_core::app_updates::AppUpdateError::Network(detail) => {
-                    SdkError::Network { detail }
-                }
-                other => SdkError::InvalidInput {
-                    detail: other.to_string(),
-                },
-            })?;
+            .map_err(|error| crate::error::coded(&error))?;
             Ok(OperationResult::AppUpdate {
                 checked: found.is_some(),
                 release: found.flatten().map(|release| AppRelease {
@@ -397,9 +359,9 @@ impl Session {
     /// Assignments with files waiting to be handed in, for 今日's rows.
     pub fn waiting_hand_ins(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let snapshot = i.core.workspace.snapshot()?;
+            let workspace = i.core.store.load_fields(&["assignments"])?;
             let assignments = app_core::workspaces::Workspaces::new(i.files.clone())
-                .waiting(&snapshot.workspace)
+                .waiting(&workspace)
                 .into_iter()
                 .map(|(assignment_id, files)| WaitingHandIn {
                     assignment_id,
@@ -444,7 +406,7 @@ impl Session {
                 files: project(
                     app_core::workspaces::Workspaces::new(i.files.clone())
                         .add_submit_files(&target, files)
-                        .map_err(workspace_error)?,
+                        .map_err(|e| crate::error::coded(&e))?,
                 )?,
             })
         })
@@ -490,7 +452,7 @@ impl Session {
                 })?;
             let prepared = workspaces
                 .prepare_upload(&workspace.path, &assignment_id)
-                .map_err(workspace_error)?;
+                .map_err(|e| crate::error::coded(&e))?;
             let url = i
                 .core
                 .school_browser()?

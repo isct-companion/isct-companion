@@ -17,11 +17,12 @@ fn workspace_events_preserve_desktop_names_and_payloads() {
             source,
             revision: None,
             changes: vec![WorkspaceChange::Courses, WorkspaceChange::ScheduledTasks],
+            seq: 7,
         };
         assert_eq!(event.name(), "workspace-changed");
         assert_eq!(
             event.payload(),
-            json!({ "source": expected, "changes": ["courses", "scheduled-tasks"] })
+            json!({ "source": expected, "changes": ["courses", "scheduled-tasks"], "seq": 7 })
         );
     }
 
@@ -29,9 +30,10 @@ fn workspace_events_preserve_desktop_names_and_payloads() {
         source: WorkspaceChangeSource::UserIntent,
         revision: Some("r1".into()),
         changes: vec![WorkspaceChange::Settings],
+        seq: 8,
     };
     assert_eq!(
         event.payload(),
-        json!({"source":"user-intent","revision":"r1","changes":["settings"]})
+        json!({"source":"user-intent","revision":"r1","changes":["settings"],"seq":8})
     );
 }

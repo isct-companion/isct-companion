@@ -293,7 +293,7 @@ impl Session {
             Ok(self.inner.capabilities.clone())
         }
     }
-    /// Subscribe first, then request snapshots; consume queued hints afterward.
+    /// Subscribe first, then query; consume queued hints afterward.
     pub fn subscribe(&self) -> Result<Arc<Subscription>, SdkError> {
         let gate = self.inner.gate.lock().map_err(|_| SdkError::Closed)?;
         if *gate {
@@ -301,32 +301,22 @@ impl Session {
         }
         self.inner.events.subscribe()
     }
-    pub fn snapshot(&self) -> Result<Arc<Operation>, SdkError> {
+    /// The revision the next mutation is made against, without the
+    /// workspace; screens read their records through `records` queries.
+    pub fn workspace_revision(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(|i| {
-            Ok(OperationResult::Workspace {
-                snapshot: project(i.core.workspace.snapshot()?)?,
+            Ok(OperationResult::Text {
+                value: i.core.workspace.revision()?,
             })
         })
     }
-    pub fn mutate(&self, mutation: WorkspaceMutation) -> Result<Arc<Operation>, SdkError> {
+    /// Applies one intent and answers what it changed, the next revision and
+    /// the commit sequence; a shell queries again what reads the changes.
+    pub fn mutate_commit(&self, mutation: WorkspaceMutation) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let snapshot = i.core.workspace.mutate(project_input(mutation)?)?;
-            Ok(OperationResult::Workspace {
-                snapshot: project(snapshot)?,
-            })
-        })
-    }
-    /// The records the `changes` of a `workspace-changed` event feed, for a
-    /// shell that patches its copy instead of reading the whole snapshot.
-    pub fn workspace_records(
-        &self,
-        changes: Vec<WorkspaceChange>,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let changes: Vec<app_core::workspace_changes::WorkspaceChange> =
-                project_input(changes)?;
-            Ok(OperationResult::WorkspaceRecords {
-                patch: project(i.core.workspace_records(&changes)?)?,
+            let commit = i.core.workspace.mutate_commit(project_input(mutation)?)?;
+            Ok(OperationResult::Committed {
+                commit: project(commit)?,
             })
         })
     }
@@ -335,8 +325,9 @@ impl Session {
             let snapshot = i.core.schedule_query(project_input(queries)?)?;
             Ok(OperationResult::Schedule {
                 snapshot: ScheduleSnapshot {
-                    revision: snapshot.revision,
                     values: project(snapshot.values)?,
+                    reads: project(snapshot.reads)?,
+                    seq: snapshot.seq,
                 },
             })
         })
@@ -577,20 +568,10 @@ pub(crate) fn unavailable(name: &str) -> SdkError {
     }
 }
 fn backup_error(e: app_core::backup::BackupError) -> SdkError {
-    match e {
-        app_core::backup::BackupError::Data(e) => e.into(),
-        other => SdkError::Storage {
-            detail: other.to_string(),
-        },
-    }
+    crate::error::coded(&e)
 }
 fn runtime_error(e: app_core::runtime::RuntimeError) -> SdkError {
-    match e {
-        app_core::runtime::RuntimeError::Task(e) => e.into(),
-        other => SdkError::Internal {
-            detail: other.to_string(),
-        },
-    }
+    crate::error::coded(&e)
 }
 struct Exporter(BackupService, PathBuf);
 impl app_core::scheduler::ScheduledExporter for Exporter {
