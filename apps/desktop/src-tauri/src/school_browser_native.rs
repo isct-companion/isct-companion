@@ -17,9 +17,7 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 use url::Url;
 
-pub use app_core::school_browser::{
-    SchoolWebResult, KYOMU_POPUP as KYOMU_POPUP_SCRIPT, SCHOOL_LINKS as SCHOOL_LINKS_SCRIPT,
-};
+pub use app_core::school_browser::SchoolWebResult;
 #[cfg(target_os = "macos")]
 pub(crate) const SCHOOL_DATA_STORE: [u8; 16] = [
     0x63, 0x61, 0x6d, 0x70, 0x75, 0x73, 0x2d, 0x6c, 0x69, 0x66, 0x65, 0x2d, 0x77, 0x65, 0x62, 0x31,
@@ -63,12 +61,12 @@ impl WebBounds {
         }
     }
 }
+/// What wry reports for a main view. Navigation and windows go through the
+/// platform host instead (`school_webkit.rs`; `school_windows.rs` for now).
 #[derive(Clone)]
 pub(crate) struct ViewCallbacks {
     pub loaded: Arc<dyn Fn(&str) + Send + Sync>,
     pub title: Arc<dyn Fn(&str) + Send + Sync>,
-    pub navigation: Arc<dyn Fn(&Url) -> bool + Send + Sync>,
-    pub new_window: Arc<dyn Fn(Url) + Send + Sync>,
     pub download: Arc<dyn Fn(tauri::webview::DownloadEvent<'_>) -> bool + Send + Sync>,
 }
 struct View {
@@ -76,10 +74,22 @@ struct View {
     native: NativeWebview,
     page: Arc<AtomicU64>,
     url: Arc<Mutex<Option<Url>>>,
+    /// The WebKit host's shims for this view.
+    #[cfg(target_os = "macos")]
+    _host: Option<crate::school_webkit::DelegateHandle>,
+}
+/// A popup Core registered as a child of a view. The window itself lives
+/// with the platform host.
+pub(crate) struct PopupRecord {
+    pub(crate) page: AtomicU64,
+    pub(crate) url: Mutex<Option<Url>>,
+    #[cfg(windows)]
+    pub(crate) window: Option<tauri::WebviewWindow>,
 }
 #[derive(Default)]
-struct Presentation {
+pub(crate) struct Presentation {
     views: HashMap<SchoolSite, View>,
+    pub(crate) popups: HashMap<BrowserId, PopupRecord>,
     visible: Option<SchoolSite>,
     bounds: WebBounds,
 }
@@ -87,13 +97,12 @@ enum Operation {
     Ensure(BrowserId, Url),
     Dispatch(BrowserCommand),
     Dispose(BrowserId),
-    SameView(BrowserId, Url),
 }
 /// This queue serializes native dispatch only. It has no login/pull/session policy.
 pub struct NativeBrowser {
     app: Mutex<Option<AppHandle>>,
     listener: Mutex<Option<Weak<dyn SchoolBrowserListener>>>,
-    presentation: Mutex<Presentation>,
+    pub(crate) presentation: Mutex<Presentation>,
     sender: mpsc::UnboundedSender<Operation>,
     tasks: RuntimeTasks,
     downloads: crate::school_downloads::SchoolDownloads,
@@ -134,10 +143,10 @@ impl NativeBrowser {
         }
         Ok(this)
     }
-    fn listener(&self) -> Option<Arc<dyn SchoolBrowserListener>> {
+    pub(crate) fn listener(&self) -> Option<Arc<dyn SchoolBrowserListener>> {
         self.listener.lock().ok()?.as_ref()?.upgrade()
     }
-    fn app(&self) -> Result<AppHandle, BrowserError> {
+    pub(crate) fn app(&self) -> Result<AppHandle, BrowserError> {
         self.app
             .lock()
             .map_err(|_| BrowserError::Stopped)?
@@ -166,6 +175,16 @@ impl NativeBrowser {
                 }
                 return;
             }
+            Operation::Dispatch(command) if self.is_popup(command.browser) => {
+                let id = command.browser;
+                if let Err(error) = self.popup_dispatch(command) {
+                    log::warn!("[school-web] popup command not sent: {error}");
+                    if let Some(listener) = self.listener() {
+                        listener.closed(id);
+                    }
+                }
+                return;
+            }
             Operation::Dispatch(command) => {
                 let id = command.browser;
                 let cause = Some(command.action);
@@ -173,6 +192,8 @@ impl NativeBrowser {
                 let result = self.with_view(id, |view| match command.command {
                     BrowserAction::Navigate(url) => view.navigate(url).map_err(|e| e.to_string()),
                     BrowserAction::Reload => view.reload().map_err(|e| e.to_string()),
+                    BrowserAction::GoBack => crate::school_web::go(&view, true),
+                    BrowserAction::GoForward => crate::school_web::go(&view, false),
                     BrowserAction::Eval(script) => view.eval(&script).map_err(|e| e.to_string()),
                     // `window.stop()` in the script ends the loads: Tauri's
                     // webview has no stop call of its own.
@@ -199,11 +220,13 @@ impl NativeBrowser {
                 }
                 (id, cause, result)
             }
-            Operation::SameView(id, url) => (
-                id,
-                None,
-                self.with_view(id, |view| view.navigate(url).map_err(|e| e.to_string())),
-            ),
+            Operation::Dispose(id) if self.is_popup(id) => {
+                self.close_popup(id);
+                if let Some(listener) = self.listener() {
+                    listener.closed(id)
+                }
+                return;
+            }
             Operation::Dispose(id) => {
                 self.discard(id);
                 if let Some(listener) = self.listener() {
@@ -223,47 +246,176 @@ impl NativeBrowser {
                         page,
                         cause,
                         url: None,
+                        reason: LoadFailure::Other,
                         message: error.to_string(),
                     }),
                 _ => listener.closed(id),
             }
         }
     }
+    /// Closes a view and every popup over it.
     fn discard(&self, id: BrowserId) {
-        let view = self.presentation.lock().ok().and_then(|mut state| {
-            if state.views.get(&id.site).is_some_and(|v| v.id == id) {
-                state.views.remove(&id.site)
-            } else {
-                None
-            }
-        });
+        let (view, popups) = self
+            .presentation
+            .lock()
+            .ok()
+            .map(|mut state| {
+                if !state.views.get(&id.site).is_some_and(|v| v.id == id) {
+                    return (None, Vec::new());
+                }
+                let popups: Vec<_> = state
+                    .popups
+                    .keys()
+                    .filter(|popup| popup.site == id.site)
+                    .copied()
+                    .collect();
+                (state.views.remove(&id.site), popups)
+            })
+            .unwrap_or_default();
+        for popup in popups {
+            self.close_popup(popup);
+        }
         if let Some(view) = view {
             let _ = view.native.close();
         }
     }
-    fn current_page(&self, id: BrowserId) -> Option<PageId> {
+    fn is_popup(&self, id: BrowserId) -> bool {
+        self.presentation
+            .lock()
+            .is_ok_and(|p| p.popups.contains_key(&id))
+    }
+    /// The page counter of a view or popup, read or advanced.
+    fn page(&self, id: BrowserId, advance: bool) -> Option<PageId> {
+        let step = |page: &AtomicU64| {
+            if advance {
+                page.fetch_add(1, Ordering::AcqRel) + 1
+            } else {
+                page.load(Ordering::Acquire)
+            }
+        };
         let sequence = self.presentation.lock().ok().and_then(|p| {
-            p.views
-                .get(&id.site)
-                .filter(|v| v.id == id)
-                .map(|v| v.page.load(Ordering::Acquire))
+            match p.views.get(&id.site).filter(|v| v.id == id) {
+                Some(view) => Some(step(&view.page)),
+                None => p.popups.get(&id).map(|popup| step(&popup.page)),
+            }
         })?;
         Some(PageId {
             browser: id,
             sequence,
         })
     }
-    fn next_page(&self, id: BrowserId) -> Option<PageId> {
-        let sequence = self.presentation.lock().ok().and_then(|p| {
-            p.views
-                .get(&id.site)
-                .filter(|v| v.id == id)
-                .map(|v| v.page.fetch_add(1, Ordering::AcqRel) + 1)
-        })?;
-        Some(PageId {
-            browser: id,
-            sequence,
-        })
+    pub(crate) fn current_page(&self, id: BrowserId) -> Option<PageId> {
+        self.page(id, false)
+    }
+    pub(crate) fn next_page(&self, id: BrowserId) -> Option<PageId> {
+        self.page(id, true)
+    }
+    /// Records a popup Core just registered, before its first report.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn popup_opened(&self, id: BrowserId) {
+        if let Ok(mut p) = self.presentation.lock() {
+            p.popups.insert(
+                id,
+                PopupRecord {
+                    page: AtomicU64::new(0),
+                    url: Mutex::new(None),
+                },
+            );
+        }
+    }
+    /// A popup's page loaded: the next page of that popup.
+    pub(crate) fn popup_loaded(&self, id: BrowserId, url: Url) {
+        if let Ok(p) = self.presentation.lock() {
+            if let Some(popup) = p.popups.get(&id) {
+                if let Ok(mut current) = popup.url.lock() {
+                    *current = Some(url.clone());
+                }
+            }
+        }
+        if let (Some(page), Some(listener)) = (self.next_page(id), self.listener()) {
+            listener.page_loaded(PageLoaded {
+                page,
+                cause: None,
+                url,
+            });
+        }
+    }
+    /// The popup's page or window closed it.
+    pub(crate) fn popup_gone(&self, id: BrowserId) {
+        let known = self
+            .presentation
+            .lock()
+            .is_ok_and(|mut p| p.popups.remove(&id).is_some());
+        if let (true, Some(listener)) = (known, self.listener()) {
+            listener.closed(id);
+        }
+    }
+    fn close_popup(&self, id: BrowserId) {
+        let record = self
+            .presentation
+            .lock()
+            .ok()
+            .and_then(|mut p| p.popups.remove(&id));
+        let Some(record) = record else {
+            return;
+        };
+        #[cfg(target_os = "macos")]
+        {
+            let _ = record;
+            if let Ok(app) = self.app() {
+                let _ = app.run_on_main_thread(move || {
+                    crate::school_webkit::close_popup(id);
+                });
+            }
+        }
+        #[cfg(windows)]
+        if let Some(window) = record.window {
+            let _ = window.destroy();
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        let _ = record;
+    }
+    fn popup_dispatch(&self, command: BrowserCommand) -> Result<(), BrowserError> {
+        let id = command.browser;
+        #[cfg(target_os = "macos")]
+        {
+            use crate::school_webkit::Command;
+            let action = match command.command {
+                BrowserAction::Navigate(url) => Command::Navigate(url),
+                BrowserAction::Reload => Command::Reload,
+                BrowserAction::GoBack => Command::GoBack,
+                BrowserAction::GoForward => Command::GoForward,
+                BrowserAction::Eval(script) => Command::Evaluate(script),
+                // Core stops only the views its hidden work runs in.
+                BrowserAction::Stop => return Ok(()),
+            };
+            let native = self.app()?;
+            native
+                .run_on_main_thread(move || {
+                    crate::school_webkit::popup_command(id, action);
+                })
+                .map_err(|e| BrowserError::Dispatch(e.to_string()))
+        }
+        #[cfg(windows)]
+        {
+            let window = self
+                .presentation
+                .lock()
+                .map_err(|_| BrowserError::Stopped)?
+                .popups
+                .get(&id)
+                .and_then(|popup| popup.window.clone())
+                .ok_or_else(|| BrowserError::Unavailable("The popup is gone.".into()))?;
+            crate::school_windows::popup_command(&window, command.command)
+                .map_err(BrowserError::Dispatch)
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        {
+            let _ = command;
+            Err(BrowserError::Unavailable(format!(
+                "{id:?}: popups need a platform host."
+            )))
+        }
     }
     fn with_view(
         &self,
@@ -312,10 +464,6 @@ impl NativeBrowser {
         let loaded_url = current.clone();
         let title_weak = weak.clone();
         let title_sequence = sequence.clone();
-        let nav_weak = weak.clone();
-        let nav_sequence = sequence.clone();
-        let popup_weak = weak.clone();
-        let popup_sequence = sequence.clone();
         let download_weak = weak.clone();
         let callbacks = ViewCallbacks {
             loaded: Arc::new(move |raw| {
@@ -348,48 +496,6 @@ impl NativeBrowser {
                     )
                 }
             }),
-            navigation: Arc::new(move |url| {
-                nav_weak
-                    .upgrade()
-                    .and_then(|n| n.listener())
-                    .is_some_and(|listener| {
-                        listener.decide_navigation(
-                            PageId {
-                                browser: id,
-                                sequence: nav_sequence.load(Ordering::Acquire),
-                            },
-                            url.clone(),
-                            true,
-                        ) == NavigationDecision::Allow
-                    })
-            }),
-            new_window: Arc::new(move |url| {
-                let Some(native) = popup_weak.upgrade() else {
-                    return;
-                };
-                let Some(listener) = native.listener() else {
-                    return;
-                };
-                match listener.new_window(
-                    PageId {
-                        browser: id,
-                        sequence: popup_sequence.load(Ordering::Acquire),
-                    },
-                    url,
-                ) {
-                    NewWindowDecision::SameView(url) => {
-                        let _ = native.send(Operation::SameView(id, url));
-                    }
-                    // Core already emitted `school-web-open` for this decision.
-                    NewWindowDecision::OpenSchool { .. } => {}
-                    NewWindowDecision::OpenExternal(url) => {
-                        if let Ok(app) = native.app() {
-                            let _ = app.opener().open_url(url.as_str(), None::<&str>);
-                        }
-                    }
-                    NewWindowDecision::Ignore => {}
-                }
-            }),
             download: Arc::new(move |event| {
                 download_weak.upgrade().is_some_and(|native| {
                     native
@@ -398,6 +504,11 @@ impl NativeBrowser {
                 })
             }),
         };
+        #[cfg(windows)]
+        let interim = crate::school_windows::Interim {
+            native: weak.clone(),
+            view: id,
+        };
         let view = create_webview(
             &app,
             id.site,
@@ -405,10 +516,12 @@ impl NativeBrowser {
             WebBounds::default(),
             false,
             callbacks,
+            #[cfg(windows)]
+            interim,
         )
         .map_err(BrowserError::Dispatch)?;
         #[cfg(target_os = "macos")]
-        self.downloads.install(&app, id.site, &view);
+        let host = self.install_host(id, &view);
         let (visible, bounds) = {
             let mut state = self
                 .presentation
@@ -421,6 +534,8 @@ impl NativeBrowser {
                     native: view.clone(),
                     page: sequence,
                     url: current,
+                    #[cfg(target_os = "macos")]
+                    _host: host,
                 },
             );
             (state.visible == Some(id.site), state.bounds)
@@ -435,6 +550,40 @@ impl NativeBrowser {
                 .map_err(|e| BrowserError::Dispatch(e.to_string()))?;
         }
         Ok(())
+    }
+
+    /// Installs the WebKit host on a new main view. Its popups share the host.
+    #[cfg(target_os = "macos")]
+    fn install_host(
+        self: &Arc<Self>,
+        id: BrowserId,
+        view: &NativeWebview,
+    ) -> Option<crate::school_webkit::DelegateHandle> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let host = WebKitHost {
+            native: Arc::downgrade(self),
+            site: id.site,
+        };
+        let installed = view.with_webview(move |platform| {
+            // SAFETY: `inner()` is this view's live WKWebView, and
+            // `with_webview` invokes this closure on the main thread.
+            let handle = unsafe {
+                crate::school_webkit::install(platform.inner(), id, std::rc::Rc::new(host))
+            };
+            let _ = sender.send(handle);
+        });
+        if let Err(error) = installed {
+            log::error!(
+                "[school-web] {:?} WebKit host unavailable: {error}",
+                id.site
+            );
+            return None;
+        }
+        // `create` runs off the main thread, so waiting here cannot block it.
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .ok()
+            .flatten()
     }
 
     fn apply_visibility(&self) -> Result<(), String> {
@@ -479,6 +628,14 @@ impl NativeBrowser {
     }
 }
 impl SchoolBrowser for NativeBrowser {
+    /// macOS reports every navigation fact and shows popups in the pane.
+    /// The Windows interim reports neither: popups are separate windows.
+    fn capabilities(&self) -> HostCapabilities {
+        HostCapabilities {
+            form_resubmission: cfg!(target_os = "macos"),
+            inline_popups: cfg!(target_os = "macos"),
+        }
+    }
     fn attach(&self, listener: Weak<dyn SchoolBrowserListener>) -> Result<(), BrowserError> {
         *self.listener.lock().map_err(|_| BrowserError::Stopped)? = Some(listener);
         Ok(())
@@ -494,10 +651,13 @@ impl SchoolBrowser for NativeBrowser {
             .presentation
             .lock()
             .map_err(|_| BrowserError::Stopped)?;
-        Ok(p.views
-            .get(&id.site)
-            .filter(|v| v.id == id)
-            .and_then(|v| v.url.lock().ok().and_then(|url| url.clone())))
+        Ok(match p.views.get(&id.site).filter(|v| v.id == id) {
+            Some(view) => view.url.lock().ok().and_then(|url| url.clone()),
+            None => p
+                .popups
+                .get(&id)
+                .and_then(|popup| popup.url.lock().ok().and_then(|url| url.clone())),
+        })
     }
     fn dispose(&self, id: BrowserId) -> Result<(), BrowserError> {
         self.send(Operation::Dispose(id))
@@ -506,14 +666,22 @@ impl SchoolBrowser for NativeBrowser {
         Box::pin(async move {
             self.tasks.close();
             self.tasks.wait().await;
-            let views = self
-                .presentation
-                .lock()
-                .map_err(|_| BrowserError::Stopped)?
-                .views
-                .drain()
-                .map(|(_, view)| view.native)
-                .collect::<Vec<_>>();
+            let (views, popups) = {
+                let mut p = self
+                    .presentation
+                    .lock()
+                    .map_err(|_| BrowserError::Stopped)?;
+                (
+                    p.views
+                        .drain()
+                        .map(|(_, view)| view.native)
+                        .collect::<Vec<_>>(),
+                    p.popups.keys().copied().collect::<Vec<_>>(),
+                )
+            };
+            for popup in popups {
+                self.close_popup(popup);
+            }
             tokio::task::spawn_blocking(move || {
                 for view in views {
                     let _ = view.close();
@@ -603,6 +771,9 @@ impl SchoolWebController {
         }
         result.map_err(|e| e.to_string())
     }
+    pub fn close_popup(&self, site: SchoolSite) -> Result<bool, String> {
+        self.engine.close_popup(site).map_err(|e| e.to_string())
+    }
     pub fn reveal_download(&self, app: &AppHandle, path: &str) -> Result<bool, String> {
         self.native.downloads.reveal(app, path)
     }
@@ -624,6 +795,138 @@ impl SchoolWebController {
             Ok(true)
         } else {
             Ok(false)
+        }
+    }
+}
+
+/// The shell side of the WebKit host for one site's view and its popups.
+#[cfg(target_os = "macos")]
+struct WebKitHost {
+    native: Weak<NativeBrowser>,
+    site: SchoolSite,
+}
+
+#[cfg(target_os = "macos")]
+impl crate::school_webkit::Host for WebKitHost {
+    fn foreground(&self) -> bool {
+        self.native.upgrade().is_some_and(|native| {
+            native
+                .presentation
+                .lock()
+                .is_ok_and(|p| p.visible == Some(self.site))
+        })
+    }
+
+    fn navigation(
+        &self,
+        view: BrowserId,
+        request: crate::school_webkit::Request,
+    ) -> NavigationDecision {
+        let Some(native) = self.native.upgrade() else {
+            return NavigationDecision::Deny(DenyReason::Closed);
+        };
+        let (Some(page), Some(listener)) = (native.current_page(view), native.listener()) else {
+            return NavigationDecision::Deny(DenyReason::Closed);
+        };
+        listener.decide_navigation(NavigationRequest {
+            page,
+            url: request.url,
+            method: request.method,
+            main_frame: request.main_frame,
+            kind: request.kind,
+            user_gesture: request.user_gesture,
+        })
+    }
+
+    fn new_window(
+        &self,
+        opener: BrowserId,
+        request: crate::school_webkit::Request,
+        features: WindowFeatures,
+    ) -> NewWindowDecision {
+        let Some(native) = self.native.upgrade() else {
+            return NewWindowDecision::Deny(DenyReason::Closed);
+        };
+        let (Some(page), Some(listener)) = (native.current_page(opener), native.listener()) else {
+            return NewWindowDecision::Deny(DenyReason::Closed);
+        };
+        // WebKit does not expose the target window's name; it keeps reusing
+        // named windows itself.
+        let decision = listener.new_window(NewWindowRequest {
+            opener: page,
+            url: request.url,
+            method: request.method,
+            kind: request.kind,
+            user_gesture: request.user_gesture,
+            name: None,
+            features,
+        });
+        if let NewWindowDecision::Popup(id) = decision {
+            native.popup_opened(id);
+        }
+        decision
+    }
+
+    fn popup_loaded(&self, popup: BrowserId, url: Url) {
+        if let Some(native) = self.native.upgrade() {
+            native.popup_loaded(popup, url);
+        }
+    }
+
+    fn failed(&self, view: BrowserId, url: Option<Url>, reason: LoadFailure, message: String) {
+        let Some(native) = self.native.upgrade() else {
+            return;
+        };
+        if let (Some(page), Some(listener)) = (native.next_page(view), native.listener()) {
+            listener.load_failed(LoadFailed {
+                page,
+                cause: None,
+                url,
+                reason,
+                message,
+            });
+        }
+    }
+
+    fn popup_closed(&self, popup: BrowserId) {
+        if let Some(native) = self.native.upgrade() {
+            native.popup_gone(popup);
+        }
+    }
+
+    fn save(&self, data: crate::school_webkit::SavedData) {
+        if let Some(native) = self.native.upgrade() {
+            if let Ok(app) = native.app() {
+                native.downloads.save_viewer_data(&app, self.site, data);
+            }
+        }
+    }
+
+    fn open_external(&self, url: Url) {
+        if let Some(app) = self.native.upgrade().and_then(|native| native.app().ok()) {
+            let _ = app.opener().open_url(url.as_str(), None::<&str>);
+        }
+    }
+
+    fn download_destination(
+        &self,
+        url: Option<Url>,
+        suggested: &str,
+    ) -> Option<std::path::PathBuf> {
+        let native = self.native.upgrade()?;
+        let app = native.app().ok()?;
+        native
+            .downloads
+            .popup_destination(&app, self.site, url.as_ref(), suggested)
+    }
+
+    fn download_finished(&self, path: std::path::PathBuf, saved: bool) {
+        if let Some(native) = self.native.upgrade() {
+            if let Ok(app) = native.app() {
+                native
+                    .downloads
+                    .popup_finished(&app, self.site, path, saved);
+            }
         }
     }
 }

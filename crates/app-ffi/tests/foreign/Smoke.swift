@@ -139,7 +139,6 @@ func require(_ condition: Bool, _ detail: String) throws {
         if CommandLine.arguments.contains("--require-ocr") {
             try require(try session.capabilities().ocr, "Packaged iOS SDK must expose OCR")
         }
-        try require(try !schoolBrowserInitialization().isEmpty, "Missing document-start scripts")
         let updatedCredentials = SchoolCredentials(username: "fixture", password: "changed-password", otpSecret: "", matrix: String(repeating: "A", count: 70))
         vault.failNextStore()
         do {

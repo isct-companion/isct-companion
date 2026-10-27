@@ -50,7 +50,10 @@ pub enum BrowserAction {
     Navigate {
         url: String,
     },
+    /// The engine's reload; sent only to hosts reporting form resubmission.
     Reload,
+    GoBack,
+    GoForward,
     Evaluate {
         script: String,
     },
@@ -66,23 +69,124 @@ pub struct BrowserCommand {
     pub action_id: u64,
     pub action: BrowserAction,
 }
+/// How the engine came to start a navigation. `FormResubmit` is the engine
+/// about to resend an earlier form: WebKit `.formResubmitted`, Android
+/// `onFormResubmission`; `from_history` when it travels back or forward.
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum NavigationKind {
+    Link,
+    FormSubmit,
+    BackForward,
+    Reload,
+    FormResubmit { from_history: bool },
+    Other,
+    Unknown,
+}
+impl From<NavigationKind> for browser::NavigationKind {
+    fn from(kind: NavigationKind) -> Self {
+        match kind {
+            NavigationKind::Link => Self::Link,
+            NavigationKind::FormSubmit => Self::FormSubmit,
+            NavigationKind::BackForward => Self::BackForward,
+            NavigationKind::Reload => Self::Reload,
+            NavigationKind::FormResubmit { from_history } => Self::FormResubmit { from_history },
+            NavigationKind::Other => Self::Other,
+            NavigationKind::Unknown => Self::Unknown,
+        }
+    }
+}
+/// A frame navigation before it starts, with every fact the engine gives.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NavigationRequest {
+    pub page: PageId,
+    pub url: String,
+    pub method: Option<String>,
+    pub main_frame: bool,
+    pub kind: NavigationKind,
+    pub user_gesture: bool,
+}
+/// A window a page asks for. The host keeps the engine's request and
+/// configuration to build it from; Core sees the facts.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NewWindowRequest {
+    pub opener: PageId,
+    pub url: String,
+    pub method: Option<String>,
+    pub kind: NavigationKind,
+    pub user_gesture: bool,
+    pub name: Option<String>,
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+}
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum DenyReason {
+    Closed,
+    Automation,
+    Hidden,
+    Cleartext,
+    Credentials,
+    Scheme,
+    Resubmission,
+    TooManyPopups,
+}
+impl From<browser::DenyReason> for DenyReason {
+    fn from(reason: browser::DenyReason) -> Self {
+        use browser::DenyReason as R;
+        match reason {
+            R::Closed => Self::Closed,
+            R::Automation => Self::Automation,
+            R::Hidden => Self::Hidden,
+            R::Cleartext => Self::Cleartext,
+            R::Credentials => Self::Credentials,
+            R::Scheme => Self::Scheme,
+            R::Resubmission => Self::Resubmission,
+            R::TooManyPopups => Self::TooManyPopups,
+        }
+    }
+}
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum NavigationDecision {
     Allow,
-    Cancel,
+    /// Cancel and open `url` in the system browser.
+    External {
+        url: String,
+    },
+    /// Cancel.
+    Deny {
+        reason: DenyReason,
+    },
+    /// Cancel, then step past the history entry that would have resent a
+    /// form, in the direction the navigation was going.
+    SkipEntry,
 }
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum NewWindowDecision {
-    SameView { url: String },
-    OpenSchool { site: SchoolSite, url: String },
-    OpenExternal { url: String },
-    Ignore,
+    /// Build the window from the engine's request and configuration, show it
+    /// over its opener, and report it as `browser`.
+    Popup {
+        browser: BrowserId,
+    },
+    External {
+        url: String,
+    },
+    Deny {
+        reason: DenyReason,
+    },
+}
+/// What the host reports; Core stands in for the rest.
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct HostCapabilities {
+    /// Reports `NavigationKind::FormResubmit`.
+    pub form_resubmission: bool,
+    /// Shows popups inside the web pane over their opener.
+    pub inline_popups: bool,
 }
 
 /// Callbacks enqueue native UI work and return promptly. BrowserEvents correlates
 /// the completion. A callback must never synchronously wait for the UI thread.
 #[uniffi::export(rust, foreign)]
 pub trait NativeBrowser: Send + Sync {
+    fn capabilities(&self) -> HostCapabilities;
     fn attach(&self, events: Arc<BrowserEvents>) -> Result<(), SdkError>;
     fn ensure(&self, browser: BrowserId, initial_url: String) -> Result<(), SdkError>;
     fn dispatch(&self, command: BrowserCommand) -> Result<(), SdkError>;
@@ -119,17 +223,21 @@ impl BrowserEvents {
         });
         Ok(())
     }
+    /// `reason` is `Cancelled` for loads the engine replaced or policy
+    /// cancelled; Core never shows those.
     pub fn load_failed(
         &self,
         page: PageId,
         cause: Option<u64>,
         url: Option<String>,
+        reason: LoadFailure,
         detail: String,
     ) -> Result<(), SdkError> {
         self.listener()?.load_failed(browser::LoadFailed {
             page: project_input(page)?,
             cause: cause.map(browser::ActionId),
             url: url.map(|v| parse_url(&v)).transpose()?,
+            reason: project_input(reason)?,
             message: detail,
         });
         Ok(())
@@ -138,44 +246,52 @@ impl BrowserEvents {
         self.listener()?.title_changed(project_input(page)?, title);
         Ok(())
     }
-    pub fn navigation(
-        &self,
-        page: PageId,
-        url: String,
-        main_frame: bool,
-    ) -> Result<NavigationDecision, SdkError> {
-        Ok(
-            match self.listener()?.decide_navigation(
-                project_input(page)?,
-                parse_url(&url)?,
-                main_frame,
-            ) {
-                browser::NavigationDecision::Allow => NavigationDecision::Allow,
-                browser::NavigationDecision::Cancel => NavigationDecision::Cancel,
+    pub fn navigation(&self, request: NavigationRequest) -> Result<NavigationDecision, SdkError> {
+        let decision = self
+            .listener()?
+            .decide_navigation(browser::NavigationRequest {
+                page: project_input(request.page)?,
+                url: parse_url(&request.url)?,
+                method: request.method,
+                main_frame: request.main_frame,
+                kind: request.kind.into(),
+                user_gesture: request.user_gesture,
+            });
+        Ok(match decision {
+            browser::NavigationDecision::Allow => NavigationDecision::Allow,
+            browser::NavigationDecision::External(url) => {
+                NavigationDecision::External { url: url.into() }
+            }
+            browser::NavigationDecision::Deny(reason) => NavigationDecision::Deny {
+                reason: reason.into(),
             },
-        )
+            browser::NavigationDecision::SkipEntry => NavigationDecision::SkipEntry,
+        })
     }
-    pub fn new_window(&self, page: PageId, url: String) -> Result<NewWindowDecision, SdkError> {
-        Ok(
-            match self
-                .listener()?
-                .new_window(project_input(page)?, parse_url(&url)?)
-            {
-                browser::NewWindowDecision::SameView(url) => {
-                    NewWindowDecision::SameView { url: url.into() }
-                }
-                browser::NewWindowDecision::OpenSchool { site, url } => {
-                    NewWindowDecision::OpenSchool {
-                        site: project(site)?,
-                        url: url.into(),
-                    }
-                }
-                browser::NewWindowDecision::OpenExternal(url) => {
-                    NewWindowDecision::OpenExternal { url: url.into() }
-                }
-                browser::NewWindowDecision::Ignore => NewWindowDecision::Ignore,
+    pub fn new_window(&self, request: NewWindowRequest) -> Result<NewWindowDecision, SdkError> {
+        let decision = self.listener()?.new_window(browser::NewWindowRequest {
+            opener: project_input(request.opener)?,
+            url: parse_url(&request.url)?,
+            method: request.method,
+            kind: request.kind.into(),
+            user_gesture: request.user_gesture,
+            name: request.name,
+            features: browser::WindowFeatures {
+                width: request.width,
+                height: request.height,
             },
-        )
+        });
+        Ok(match decision {
+            browser::NewWindowDecision::Popup(id) => NewWindowDecision::Popup {
+                browser: project(id)?,
+            },
+            browser::NewWindowDecision::External(url) => {
+                NewWindowDecision::External { url: url.into() }
+            }
+            browser::NewWindowDecision::Deny(reason) => NewWindowDecision::Deny {
+                reason: reason.into(),
+            },
+        })
     }
     pub fn closed(&self, browser: BrowserId) -> Result<(), SdkError> {
         self.listener()?.closed(project_input(browser)?);
@@ -208,6 +324,13 @@ fn dispatch_error(e: SdkError) -> browser::BrowserError {
     browser::BrowserError::Dispatch(e.to_string())
 }
 impl browser::SchoolBrowser for Browser {
+    fn capabilities(&self) -> browser::HostCapabilities {
+        let capabilities = self.native.capabilities();
+        browser::HostCapabilities {
+            form_resubmission: capabilities.form_resubmission,
+            inline_popups: capabilities.inline_popups,
+        }
+    }
     fn attach(
         &self,
         listener: Weak<dyn browser::SchoolBrowserListener>,
@@ -230,6 +353,8 @@ impl browser::SchoolBrowser for Browser {
         let action = match command.command {
             browser::BrowserAction::Navigate(url) => BrowserAction::Navigate { url: url.into() },
             browser::BrowserAction::Reload => BrowserAction::Reload,
+            browser::BrowserAction::GoBack => BrowserAction::GoBack,
+            browser::BrowserAction::GoForward => BrowserAction::GoForward,
             browser::BrowserAction::Eval(script) => BrowserAction::Evaluate { script },
             browser::BrowserAction::Stop => BrowserAction::Stop {
                 script: browser::SCHOOL_STOP.to_owned(),
@@ -762,27 +887,5 @@ pub fn matrix_confidence(text: String, confidence: f64) -> MatrixConfidence {
         C::High => MatrixConfidence::High,
         C::Medium => MatrixConfidence::Medium,
         C::Low => MatrixConfidence::Low,
-    }
-}
-
-/// Install these shared scripts at document start before navigating a school view.
-#[uniffi::export]
-pub fn school_browser_initialization() -> Result<Vec<String>, SdkError> {
-    let scripts = vec![
-        app_core::school_browser::KYOMU_POPUP.to_owned(),
-        app_core::school_browser::SCHOOL_LINKS.to_owned(),
-    ];
-    #[cfg(target_os = "android")]
-    {
-        let json = serde_json::to_string(&scripts).map_err(|e| SdkError::Internal {
-            detail: e.to_string(),
-        })?;
-        Ok(vec![
-            app_core::school_browser::ANDROID_SUPPORT.replace("__ISCT_SUPPORT_SCRIPTS__", &json)
-        ])
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        Ok(scripts)
     }
 }

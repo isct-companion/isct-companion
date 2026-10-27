@@ -295,7 +295,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     "sync-snapshot" -> runCatching { decodeSyncSnapshot(update.event.payload) }
                         .onSuccess(::apply)
                     "school-session", "school-login-status" -> refreshAccounts()
-                    "school-web-open" -> web.handleOpenEvent(update.event.payload)
                     "cloud-sync-state" -> refreshCloud()
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }

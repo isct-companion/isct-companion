@@ -53,6 +53,10 @@ struct FakeBrowser {
     /// Leave stops unconfirmed, as a native view that hangs would.
     hold_stop: AtomicBool,
     maintenance: Mutex<Option<String>>,
+    disposed: Mutex<Vec<BrowserId>>,
+    /// A host like the Windows interim: no resubmission facts, popups as
+    /// separate windows.
+    plain_host: AtomicBool,
 }
 
 impl FakeBrowser {
@@ -141,6 +145,14 @@ async fn settle(attempt: usize) {
 }
 
 impl SchoolBrowser for FakeBrowser {
+    fn capabilities(&self) -> HostCapabilities {
+        let full = !self.plain_host.load(Ordering::Acquire);
+        HostCapabilities {
+            form_resubmission: full,
+            inline_popups: full,
+        }
+    }
+
     fn attach(&self, listener: Weak<dyn SchoolBrowserListener>) -> Result<(), BrowserError> {
         self.listener.lock().unwrap().replace(listener);
         Ok(())
@@ -214,6 +226,7 @@ impl SchoolBrowser for FakeBrowser {
 
     fn dispose(&self, browser: BrowserId) -> Result<(), BrowserError> {
         self.current.lock().unwrap().remove(&browser);
+        self.disposed.lock().unwrap().push(browser);
         Ok(())
     }
 
@@ -619,9 +632,21 @@ fn engine_with_auth(
     Arc<Events>,
     DataStore,
 ) {
+    engine_on(auth, FakeBrowser::default())
+}
+
+fn engine_on(
+    auth: Arc<SchoolAuthService>,
+    browser: FakeBrowser,
+) -> (
+    Arc<SchoolBrowserEngine>,
+    Arc<FakeBrowser>,
+    Arc<Events>,
+    DataStore,
+) {
     let path = std::env::temp_dir().join(format!("isct-browser-{}", Uuid::new_v4()));
     let store = DataStore::initialize_dir(path).unwrap().0;
-    let browser = Arc::new(FakeBrowser::default());
+    let browser = Arc::new(browser);
     let events = Arc::new(Events::default());
     let engine =
         SchoolBrowserEngine::new(auth, events.clone(), browser.clone(), SyncHints::detached())
@@ -673,10 +698,80 @@ fn login_config(script: &str) -> serde_json::Value {
     serde_json::from_str(raw).unwrap()
 }
 
-// Protect real engine routing: rich editors need inherited-origin frames;
-// interactive external pages must not inherit school automation authority.
+fn request(
+    page: PageId,
+    raw: &str,
+    main_frame: bool,
+    kind: NavigationKind,
+    user_gesture: bool,
+) -> NavigationRequest {
+    NavigationRequest {
+        page,
+        url: Url::parse(raw).unwrap(),
+        method: Some("GET".into()),
+        main_frame,
+        kind,
+        user_gesture,
+    }
+}
+
+fn window(opener: PageId, raw: &str) -> NewWindowRequest {
+    NewWindowRequest {
+        opener,
+        url: Url::parse(raw).unwrap(),
+        method: Some("GET".into()),
+        kind: NavigationKind::Other,
+        user_gesture: true,
+        name: Some("picker".into()),
+        features: WindowFeatures::default(),
+    }
+}
+
+fn notices(events: &Events) -> Vec<SchoolWebNotice> {
+    events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::SchoolWebNotice { notice, .. } => Some(notice.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+async fn url_shown(events: &Events, expected: &str) {
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if events.0.lock().unwrap().iter().any(
+                |event| matches!(event, CoreEvent::SchoolWebUrl { url, .. } if url == expected),
+            ) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{expected} was not shown"));
+}
+
+fn evals(browser: &FakeBrowser) -> usize {
+    browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|command| matches!(command.command, BrowserAction::Eval(_)))
+        .count()
+}
+
+// Native WebViews have no headless mode; drive their real Core coordinator
+// through page callbacks. The rule table is keyed by who the view serves:
+// the person browses anything over HTTPS (rich editors need inherited-origin
+// frames), plain HTTP they follow goes to the system browser, and a hidden
+// view stays on the adapter sites and opens no windows.
 #[tokio::test]
-async fn interactive_browsing_supports_editor_frames_and_external_history_without_school_scripts() {
+async fn the_rule_table_lets_the_person_browse_and_keeps_hidden_views_on_adapter_sites() {
     let (engine, browser, events, _) = engine();
     let site = SchoolSite::ScienceLms;
     let official =
@@ -693,22 +788,7 @@ async fn interactive_browsing_supports_editor_frames_and_external_history_withou
         cause: None,
         url: Url::parse(official).unwrap(),
     });
-    tokio::time::timeout(std::time::Duration::from_secs(1), async {
-        loop {
-            if events
-                .0
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == official))
-            {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
+    url_shown(&events, official).await;
     engine
         .set_customization(
             site,
@@ -718,47 +798,73 @@ async fn interactive_browsing_supports_editor_frames_and_external_history_withou
             },
         )
         .unwrap();
+    let decide = |raw: &str, main_frame: bool, kind: NavigationKind, gesture: bool| {
+        listener.decide_navigation(request(page, raw, main_frame, kind, gesture))
+    };
     for main_frame in [false, true] {
         for raw in [
             "about:blank",
             "about:srcdoc",
             "https://docs.google.com/forms/d/test/viewform?entry.1=a%20b#section",
-            "http://example.com/search?q=course",
         ] {
             assert_eq!(
-                listener.decide_navigation(page, Url::parse(raw).unwrap(), main_frame),
+                decide(raw, main_frame, NavigationKind::Other, false),
                 NavigationDecision::Allow,
                 "{raw}"
             );
         }
     }
-    for raw in [
-        "javascript:alert(1)",
-        "file:///tmp/private",
-        "data:text/html,test",
-        "https://user:secret@example.com/",
+    assert_eq!(
+        decide("data:text/html,frame", false, NavigationKind::Other, false),
+        NavigationDecision::Allow
+    );
+    for (raw, reason) in [
+        ("data:text/html,test", DenyReason::Scheme),
+        ("javascript:alert(1)", DenyReason::Scheme),
+        ("file:///tmp/private", DenyReason::Scheme),
+        ("https://user:secret@example.com/", DenyReason::Credentials),
     ] {
         assert_eq!(
-            listener.decide_navigation(page, Url::parse(raw).unwrap(), true),
-            NavigationDecision::Cancel,
+            decide(raw, true, NavigationKind::Link, true),
+            NavigationDecision::Deny(reason),
             "{raw}"
         );
     }
+    // 「緊急時避難場所」: a cleartext PDF link opens in the system browser;
+    // nothing relaxes ATS for it.
+    let cleartext = "http://www2.gakumu.titech.ac.jp/hinan.pdf";
+    assert_eq!(
+        decide(cleartext, true, NavigationKind::Link, false),
+        NavigationDecision::External(Url::parse(cleartext).unwrap())
+    );
+    assert_eq!(
+        decide(cleartext, false, NavigationKind::Link, true),
+        NavigationDecision::Deny(DenyReason::Cleartext)
+    );
+    assert_eq!(
+        listener.new_window(window(page, cleartext)),
+        NewWindowDecision::External(Url::parse(cleartext).unwrap())
+    );
+    // A script redirect nobody asked for is refused and shown as a notice
+    // with the address, for Open in browser.
+    assert_eq!(
+        decide(cleartext, true, NavigationKind::Other, false),
+        NavigationDecision::Deny(DenyReason::Cleartext)
+    );
+    assert_eq!(
+        notices(&events),
+        [SchoolWebNotice::LoadFailed {
+            url: Some(cleartext.into()),
+            reason: LoadFailure::Cleartext,
+        }]
+    );
+
     let external = "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
     let resolved = browsing_target(external, site).unwrap();
     assert_eq!(resolved.site, site);
     assert_eq!(resolved.url, external);
-    assert!(sanitize_school_url(external).is_none());
-    assert!(
-        matches!(listener.new_window(page, Url::parse(external).unwrap()), NewWindowDecision::SameView(url) if url.as_str() == external)
-    );
-    let scripts_before = browser
-        .commands
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|command| matches!(command.command, BrowserAction::Eval(_)))
-        .count();
+    assert!(automation_target(external).is_none());
+    let scripts_before = evals(&browser);
     engine.navigate(site, external).unwrap();
     listener.page_loaded(PageLoaded {
         page: PageId {
@@ -768,53 +874,62 @@ async fn interactive_browsing_supports_editor_frames_and_external_history_withou
         cause: None,
         url: Url::parse(external).unwrap(),
     });
-    tokio::time::timeout(std::time::Duration::from_secs(1), async {
-        loop {
-            if events
-                .0
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == external))
-            {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
-    let scripts_after = browser
+    url_shown(&events, external).await;
+    assert_eq!(
+        evals(&browser),
+        scripts_before,
+        "external page received a school script"
+    );
+    // Back and Forward are the engine's own history.
+    assert!(engine.back(site).unwrap());
+    assert!(engine.forward(site).unwrap());
+    let steps: Vec<_> = browser
         .commands
         .lock()
         .unwrap()
         .iter()
-        .filter(|command| matches!(command.command, BrowserAction::Eval(_)))
-        .count();
-    assert_eq!(
-        scripts_after, scripts_before,
-        "external page received a school script"
-    );
-    assert!(events
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|event| matches!(event, CoreEvent::SchoolWebUrl {url, ..} if url == external)));
-    assert!(engine.back(site).unwrap());
-    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), official);
-    assert!(engine.forward(site).unwrap());
-    assert_eq!(browser.current.lock().unwrap()[&id].as_str(), external);
+        .filter(|command| {
+            command.browser == id
+                && matches!(
+                    command.command,
+                    BrowserAction::GoBack | BrowserAction::GoForward
+                )
+        })
+        .map(|command| command.command.clone())
+        .collect();
+    assert_eq!(steps, [BrowserAction::GoBack, BrowserAction::GoForward]);
     assert_eq!(engine.open(site, None).await.unwrap().url, external);
+
     engine.user_browsing(None).unwrap();
     assert_eq!(
-        listener.decide_navigation(page, Url::parse(external).unwrap(), true),
-        NavigationDecision::Cancel
+        decide(external, true, NavigationKind::Link, true),
+        NavigationDecision::Deny(DenyReason::Automation)
     );
-    assert!(matches!(
-        listener.new_window(page, Url::parse(external).unwrap()),
-        NewWindowDecision::OpenExternal(_)
-    ));
+    assert_eq!(
+        decide(external, false, NavigationKind::Other, false),
+        NavigationDecision::Deny(DenyReason::Automation)
+    );
+    assert_eq!(
+        decide(cleartext, true, NavigationKind::Link, true),
+        NavigationDecision::Deny(DenyReason::Automation)
+    );
+    for raw in [
+        "https://lms.s.isct.ac.jp/2025/my/",
+        "https://isct.ex-tic.com/auth/session",
+        "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login",
+    ] {
+        assert_eq!(
+            decide(raw, true, NavigationKind::Other, false),
+            NavigationDecision::Allow,
+            "{raw}"
+        );
+    }
+    assert_eq!(
+        listener.new_window(window(page, "https://lms.s.isct.ac.jp/2025/my/")),
+        NewWindowDecision::Deny(DenyReason::Hidden)
+    );
+    // Only the hidden view's refusals produced no notice.
+    assert_eq!(notices(&events).len(), 1);
     engine.shutdown().await;
 }
 
@@ -842,58 +957,47 @@ async fn heartbeat_loads_the_vault_only_after_login_and_settles_missing_credenti
     engine.shutdown().await;
 }
 
-#[tokio::test]
-async fn stale_duplicate_load_is_ignored_and_same_site_popup_close_returns_to_opener() {
+async fn kyomu_open() -> (
+    Arc<SchoolBrowserEngine>,
+    Arc<FakeBrowser>,
+    Arc<Events>,
+    BrowserId,
+) {
     let (engine, browser, events, _) = engine();
     engine
-        .open(
-            SchoolSite::Kyomu,
-            Some("https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx".into()),
-        )
+        .open(SchoolSite::Kyomu, Some(KYOMU_HOME.into()))
         .await
         .unwrap();
     let id = *browser.current.lock().unwrap().keys().next().unwrap();
-    let listener = browser.listener();
-    listener.page_loaded(PageLoaded {
+    browser.listener().page_loaded(PageLoaded {
         page: PageId {
             browser: id,
             sequence: 2,
         },
         cause: None,
-        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx").unwrap(),
+        url: Url::parse(KYOMU_HOME).unwrap(),
     });
-    tokio::task::yield_now().await;
-    assert!(matches!(
-        listener.new_window(
-            PageId {
-                browser: id,
-                sequence: 2,
-            },
-            Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/picker.aspx").unwrap(),
-        ),
-        NewWindowDecision::SameView(_)
-    ));
-    listener.page_loaded(PageLoaded {
-        page: PageId {
-            browser: id,
-            sequence: 3,
-        },
-        cause: None,
-        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/picker.aspx").unwrap(),
-    });
-    listener.page_loaded(PageLoaded {
-        page: PageId {
-            browser: id,
-            sequence: 1,
-        },
-        cause: None,
-        url: Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Student/stale.aspx").unwrap(),
-    });
-    tokio::task::yield_now().await;
-    assert!(browser.commands.lock().unwrap().iter().any(|command| {
-        matches!(&command.command, BrowserAction::Eval(script) if script.contains("window.close"))
-    }));
-    let urls: Vec<_> = events
+    url_shown(&events, KYOMU_HOME).await;
+    (engine, browser, events, id)
+}
+
+const KYOMU_HOME: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
+
+fn popups_open(events: &Events) -> Vec<usize> {
+    events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::SchoolWebPopups { open, .. } => Some(*open),
+            _ => None,
+        })
+        .collect()
+}
+
+fn urls(events: &Events) -> Vec<String> {
+    events
         .0
         .lock()
         .unwrap()
@@ -902,8 +1006,221 @@ async fn stale_duplicate_load_is_ignored_and_same_site_popup_close_returns_to_op
             CoreEvent::SchoolWebUrl { url, .. } => Some(url.clone()),
             _ => None,
         })
-        .collect();
-    assert!(!urls.iter().any(|url| url.ends_with("stale.aspx")));
+        .collect()
+}
+
+// 教務Web's showDialog opens a named window whose page posts back through
+// `opener` and closes itself: the popup must be a real child of its opener,
+// front of the toolbar while open, and gone with everything it opened.
+#[tokio::test]
+async fn a_popup_is_a_child_of_its_opener_and_closes_with_what_it_opened() {
+    let (engine, browser, events, id) = kyomu_open().await;
+    let site = SchoolSite::Kyomu;
+    let listener = browser.listener();
+    let opener = PageId {
+        browser: id,
+        sequence: 2,
+    };
+    let picker = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/picker.aspx";
+    let NewWindowDecision::Popup(popup) = listener.new_window(window(opener, picker)) else {
+        panic!("the picker did not get a window");
+    };
+    assert_eq!(popup.site, site);
+    assert_ne!(popup, id);
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: popup,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse(picker).unwrap(),
+    });
+    url_shown(&events, picker).await;
+    // A late report of an older page, and the opener's own postback behind
+    // the popup, leave the address on the popup.
+    for (sequence, path) in [(1, "stale.aspx"), (3, "postback.aspx")] {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence,
+            },
+            cause: None,
+            url: Url::parse(&format!(
+                "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/{path}"
+            ))
+            .unwrap(),
+        });
+    }
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(urls(&events).last().map(String::as_str), Some(picker));
+    // A popup opened from the popup nests under it; the toolbar acts on it.
+    let page = PageId {
+        browser: popup,
+        sequence: 1,
+    };
+    let NewWindowDecision::Popup(nested) = listener.new_window(window(page, "about:blank")) else {
+        panic!("window.open('') did not get a window");
+    };
+    assert_eq!(popups_open(&events), [1, 2]);
+    assert!(engine.reload(site).unwrap());
+    assert!(browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|command| command.browser == nested && command.command == BrowserAction::Reload));
+    // window.close() in the picker closes it and the window it opened.
+    listener.closed(popup);
+    assert_eq!(*browser.disposed.lock().unwrap(), [nested]);
+    assert_eq!(popups_open(&events), [1, 2, 0]);
+    assert!(urls(&events).last().unwrap().ends_with("postback.aspx"));
+    assert_eq!(
+        listener.decide_navigation(request(page, picker, true, NavigationKind::Link, true)),
+        NavigationDecision::Deny(DenyReason::Closed)
+    );
+    // A page cannot open windows without bound; the app's close button
+    // closes the frontmost.
+    let mut opened = Vec::new();
+    while let NewWindowDecision::Popup(popup) = listener.new_window(window(opener, picker)) {
+        opened.push(popup);
+    }
+    assert_eq!(opened.len(), 8);
+    assert_eq!(
+        listener.new_window(window(opener, picker)),
+        NewWindowDecision::Deny(DenyReason::TooManyPopups)
+    );
+    assert!(engine.close_popup(site).unwrap());
+    assert_eq!(browser.disposed.lock().unwrap().last(), opened.last());
+    // Closing the view takes its popups with it.
+    listener.closed(id);
+    assert!(!engine.close_popup(site).unwrap());
+    assert_eq!(
+        listener.new_window(window(opener, picker)),
+        NewWindowDecision::Deny(DenyReason::Closed)
+    );
+    engine.shutdown().await;
+}
+
+// R2: a person's new POST always goes through; only the engine sending an
+// old form again is stopped. 教務Web pages, paging included, are postbacks.
+#[tokio::test]
+async fn a_form_the_engine_would_send_again_is_never_resubmitted() {
+    let (engine, browser, events, id) = kyomu_open().await;
+    let listener = browser.listener();
+    let page = PageId {
+        browser: id,
+        sequence: 2,
+    };
+    let result = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/result.aspx";
+    let post = |kind: NavigationKind, main_frame: bool| {
+        listener.decide_navigation(NavigationRequest {
+            method: Some("POST".into()),
+            ..request(page, &format!("{result}#top"), main_frame, kind, false)
+        })
+    };
+    assert_eq!(
+        post(NavigationKind::FormSubmit, true),
+        NavigationDecision::Allow
+    );
+    // Reloading the postback result (the app's Reload, or the picker's
+    // `opener.location.reload()`) opens the page again with GET.
+    assert_eq!(
+        post(
+            NavigationKind::FormResubmit {
+                from_history: false
+            },
+            true
+        ),
+        NavigationDecision::Deny(DenyReason::Resubmission)
+    );
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(result).unwrap())
+    );
+    assert_eq!(
+        notices(&events),
+        [SchoolWebNotice::Reopened { url: result.into() }]
+    );
+    // Back or Forward onto it steps past the entry instead.
+    assert_eq!(
+        post(NavigationKind::FormResubmit { from_history: true }, true),
+        NavigationDecision::SkipEntry
+    );
+    assert_eq!(
+        post(NavigationKind::FormResubmit { from_history: true }, false),
+        NavigationDecision::Deny(DenyReason::Resubmission)
+    );
+    // The app's Reload is the engine's, so the rule above applies to it.
+    assert!(engine.reload(SchoolSite::Kyomu).unwrap());
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Reload
+    );
+    engine.shutdown().await;
+
+    // A host that cannot report resubmission gets a GET of the current URL.
+    let plain = FakeBrowser::default();
+    plain.plain_host.store(true, Ordering::Release);
+    let (engine, browser, _, _) = engine_on(Arc::new(SchoolAuthService::new(EmptyVault)), plain);
+    engine
+        .open(SchoolSite::Kyomu, Some(KYOMU_HOME.into()))
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    browser.set_current_url(id, Url::parse(result).unwrap());
+    assert!(engine.reload(SchoolSite::Kyomu).unwrap());
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(result).unwrap())
+    );
+    // Its popups are separate windows: the toolbar stays on the view.
+    let opener = PageId {
+        browser: id,
+        sequence: 0,
+    };
+    let NewWindowDecision::Popup(_) = browser.listener().new_window(window(opener, result)) else {
+        panic!("no window");
+    };
+    assert!(engine.back(SchoolSite::Kyomu).unwrap());
+    assert_eq!(browser.commands.lock().unwrap().last().unwrap().browser, id);
+    engine.shutdown().await;
+}
+
+// 「教育計算機システム」 off VPN: WebKit stays on the old page and says
+// nothing, so the failure has to reach the app as a fact it can show.
+#[tokio::test]
+async fn a_failed_load_the_person_sees_becomes_a_notice() {
+    let (engine, browser, events, id) = kyomu_open().await;
+    let listener = browser.listener();
+    let campus = "https://vlmgr-42.edu2024.gsic.titech.ac.jp/idm/upc/";
+    let failed = |sequence: u64, reason: LoadFailure| {
+        listener.load_failed(LoadFailed {
+            page: PageId {
+                browser: id,
+                sequence,
+            },
+            cause: None,
+            url: Some(Url::parse(campus).unwrap()),
+            reason,
+            message: "The request timed out.".into(),
+        })
+    };
+    failed(3, LoadFailure::Cancelled);
+    assert!(notices(&events).is_empty());
+    failed(4, LoadFailure::Unreachable);
+    assert_eq!(
+        notices(&events),
+        [SchoolWebNotice::LoadFailed {
+            url: Some(campus.into()),
+            reason: LoadFailure::Unreachable,
+        }]
+    );
+    // Hidden work fails on its own terms; nothing is shown for it.
+    engine.user_browsing(None).unwrap();
+    failed(5, LoadFailure::HostNotFound);
+    assert_eq!(notices(&events).len(), 1);
     engine.shutdown().await;
 }
 

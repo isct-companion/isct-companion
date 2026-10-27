@@ -35,11 +35,12 @@
 # Evidence: every recorded result points at something a reviewer can open — a
 # transcript, screenshots or a note under the ignored `artifacts/` directory.
 #
-# 医歯学系 (Dream Campus, Web Class) is deliberately outside this file. Those
-# hosts are allowlisted so a school page can hand off to them, but there is no
-# adapter, no site mapping and no account, so nothing about them is verified.
-# The allowlist entry itself is pinned by
-# `apps/desktop/tests/unit/school-sites.test.ts`.
+# 医歯学系 (Dream Campus, Web Class) is deliberately outside this file. A
+# school page may link there and the person may browse it like any HTTPS site,
+# but there is no adapter, no site mapping and no account, so Core's hidden
+# work never goes there and nothing about it is verified. Which pages a view
+# may load is Core's rule table, tested in
+# `crates/app-core/src/tests/school_browser*.rs`.
 
 version: 1
 
@@ -1129,22 +1130,27 @@ checks:
 
   - id: DESKTOP-SCHOOL-WEBVIEW
     area: desktop
-    title: School WebView navigation, popups and download hand-off
+    title: School WebView browsing, history and download hand-off
     persona: undergraduate-senior
     preconditions: |
       A Signed in account; at least one course with downloadable material.
     steps:
       - action: |
-          Open each school site from the site list and follow an in-page link.
+          Open each school site from the site list and follow an in-page link,
+          then a link on the Tokyo Tech Portal's resource menu to a service
+          that is not one of the app's sites.
         reason: |
-          Establishes that in-page navigation is allowed for official origins
-          and that no site is mis-mapped.
+          The person may browse any HTTPS page; only hidden work is kept to
+          the adapter sites. A link that does nothing, or a site opening in
+          another site's view, means the rule table or the site mapping is
+          wrong.
       - action: |
-          Open a same-site popup, then go Back.
+          Go Back and Forward with the app's buttons across a page reached by
+          a 教務Web postback (a 学期 or page switch on the 成績 list).
         reason: |
-          Back must load a fresh GET, not replay a 教務Web POST. Replaying a
-          POST can repeat an action on the school's side, which is the most
-          consequential failure in this check.
+          Back and Forward are WebKit's own history now. A page served from
+          the cache must come back as it was; one WebKit would fetch again
+          with its form must be skipped, not resent.
       - action: |
           Download a material and choose Show in Finder / Show in Explorer.
         reason: |
@@ -1161,29 +1167,180 @@ checks:
           drag events to the visible WKWebView. Repeating after view changes
           exercises the intermittent loss of drag delivery reported on macOS.
     observe: |
-      The WebView address and page body, the popup's return to its opener, the
-      download list, and the OS file manager.
+      The WebView address and page body, the 成績 list after Back and
+      Forward, the download list, and the OS file manager.
     expected: |
-      Navigation stays inside the school origins, Back does not replay a POST,
-      the popup returns to its opener, and the OS reveals the saved file.
-      On macOS the LMS draft area accepts Finder files before and after view
-      changes without restarting the app.
+      Every link opens in the site's own view, Back and Forward move through
+      the pages without the 教務Web error page or a resent form, and the OS
+      reveals the saved file. On macOS the LMS draft area accepts Finder
+      files before and after view changes without restarting the app.
     why_manual: |
-      Depends on the platform WebView, its popup handling and the OS file
-      manager. jsdom cannot produce native navigation, popups or a reveal.
+      Depends on the platform WebView, its history and the OS file manager.
+      The rule table is Core's and tested there; jsdom cannot produce native
+      navigation, history or a reveal.
     covers:
       - crates/app-core/src/school_browser/engine/**
       - apps/desktop/src-tauri/src/school_web.rs
+      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
-    verified:
-      version: 1.0.0-rc.1
-      date: 2026-10-14
-      commit: 7fdf1b6
-      by: human
-      result: pass
-      notes: Recorded in docs/verification/core-consolidation.md.
-      evidence: docs/verification/core-consolidation.md#live-macos-acceptance
+    verified: null
+
+  - id: DESKTOP-SCHOOL-POPUPS
+    area: desktop
+    title: School popups open over their opener and close back to it
+    persona: undergraduate-senior
+    preconditions: |
+      macOS desktop build of this commit, signed in to 教務Web.
+    steps:
+      - action: |
+          On 教務Web, open a page with a picker button (for example the 申告
+          page's 科目 search, during a 申告 period). Press the button, look at
+          the window that opens, then close it with its own 閉じる button or
+          the app's Close window, without choosing anything.
+        reason: |
+          教務Web's showDialog opens a named window that answers through
+          `window.opener` and closes itself. It used to be faked inside the
+          page; now it is a real WebKit window over the opener, so it must
+          appear inside the web pane, and `window.close()` must bring the
+          opener back unchanged. Choosing would post back to the 申告 form,
+          so the check stops before it.
+      - action: |
+          On 教務Web's top page, open 「マニュアル」.
+        reason: |
+          A `target=_blank` PDF used to replace the page; it now opens as a
+          popup, and the page behind it must still be there after Close
+          window.
+    observe: |
+      The web pane while the window is open, the address and the Close
+      window line above the page, and the opener page after closing.
+    expected: |
+      Each window covers the page inside the web pane with its own address,
+      a Close window line appears, and closing returns to the opener exactly
+      as it was, with no reload.
+    why_manual: |
+      Needs a 教務Web account and WebKit's own windows; whether the popup
+      sits in the pane and the opener survives is seen at a glance. The
+      child-window lifecycle is Core's and tested there.
+    covers:
+      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_browser_native.rs
+      - apps/desktop/src/pages/web/WebPage.tsx
+    verified: null
+
+  - id: DESKTOP-SCHOOL-NO-RESUBMIT
+    area: desktop
+    title: Reloading a postback page does not send its form again
+    persona: undergraduate-senior
+    preconditions: |
+      macOS desktop build of this commit, signed in to 教務Web.
+    steps:
+      - action: |
+          On the 成績 list, switch the 学期 (a postback that changes nothing
+          on the school's side), then press the app's Reload.
+        reason: |
+          WebKit reloads a POST result by sending the form again, silently.
+          On a 申告 page that repeats an action; here it is harmless, which
+          is why this page is used. The reload must become a GET of the same
+          page with a short notice.
+    observe: |
+      The line under the address after Reload, and the 成績 page itself.
+    expected: |
+      The line "Reopened this page without sending the form again." shows
+      for a few seconds and the page opens in its initial state (the 学期
+      chosen before resets), without the 教務Web error page.
+    why_manual: |
+      Needs a real WebForms postback inside WebKit; the notice and the page
+      are a glance. The resubmission rule is Core's and tested there.
+    covers:
+      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src/pages/web/WebPage.tsx
+    verified: null
+
+  - id: DESKTOP-SCHOOL-LOAD-FAILURE
+    area: desktop
+    title: A campus-only page opens on VPN and explains itself without it
+    persona: undergraduate-senior
+    preconditions: |
+      macOS desktop build of this commit, signed in to the Tokyo Tech
+      Portal; the campus VPN available to switch on and off.
+    steps:
+      - action: |
+          With the VPN off, open 「Education Computer Systems」 from the
+          Portal's resource list.
+        reason: |
+          The host resolves only inside the campus network. WebKit shows
+          nothing when a load fails and stays on the old page, so without a
+          reported failure the link looks broken.
+      - action: |
+          Switch the VPN on and press Retry in the notice.
+        reason: |
+          Retry must load the same address; the page opening proves the
+          notice kept it.
+    observe: |
+      The line under the address after each click, and the web pane.
+    expected: |
+      Off VPN, a notice says the server was not found or did not answer and
+      that campus-only services need the campus network or VPN, with Retry
+      and Open in browser. On VPN, Retry opens the page and the notice goes.
+    why_manual: |
+      Needs the campus network and a real failed load inside WebKit; the
+      notice is a glance. Which failures are shown is Core's and tested there.
+    covers:
+      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src/pages/web/WebPage.tsx
+    verified: null
+
+  - id: DESKTOP-SCHOOL-HTTP-EXTERNAL
+    area: desktop
+    title: A plain-HTTP school file opens in the system browser
+    persona: undergraduate-senior
+    preconditions: |
+      macOS desktop build of this commit, signed in to 教務Web.
+    steps:
+      - action: |
+          On 教務Web's top page, open 「緊急時避難場所」.
+        reason: |
+          The PDF exists only over plain HTTP. Nothing relaxes App Transport
+          Security, so the app hands it to the system browser; a click that
+          does nothing means the rule or the host lost it.
+    observe: |
+      The system browser and the school view.
+    expected: |
+      The PDF opens in the default browser; the school view stays on its
+      page.
+    why_manual: |
+      Needs the real school link and the system browser; where the click
+      lands is a glance. The cleartext rule is Core's and tested there.
+    covers:
+      - apps/desktop/src-tauri/src/school_webkit.rs
+    verified: null
+
+  - id: DESKTOP-SCHOOL-PRINT
+    area: desktop
+    title: A school page's print button opens the print panel
+    persona: undergraduate-senior
+    preconditions: |
+      macOS desktop build of this commit, signed in to 教務Web.
+    steps:
+      - action: |
+          On a 教務Web page with 「この画面を印刷」 (for example 成績), press
+          it, look at the panel, then cancel.
+        reason: |
+          `window.print()` reaches only a private WebKit delegate method;
+          without it nothing happens. The panel must attach to the app window
+          and show the page.
+    observe: |
+      The print panel and its preview.
+    expected: |
+      The system print panel opens as a sheet with the page in its preview;
+      Cancel closes it and the page is unchanged.
+    why_manual: |
+      The print panel is native UI on a real school page; it is a glance.
+    covers:
+      - apps/desktop/src-tauri/src/school_webkit.rs
+    verified: null
 
   - id: DESKTOP-SCHOOL-NATIVE-CONFIRM
     area: desktop
@@ -1246,6 +1403,7 @@ checks:
       - apps/desktop/src-tauri/src/native_dialog.rs
       - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
       - apps/desktop/src-tauri/src/commands/backup.rs
       - apps/desktop/src-tauri/src/lms_files.rs

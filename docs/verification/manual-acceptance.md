@@ -17,20 +17,19 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 130 checks must be re-run before the next release.**
+**9 of 135 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-YEAR-ROLLOVER` — covered paths changed after b598ae6
 - `OCR-CAMPUS-CARD` — covered paths changed after 7fdf1b6
-- `DESKTOP-SCHOOL-WEBVIEW` — covered paths changed after 7fdf1b6
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `NATIVE-IOS-SIMULATOR` — covered paths changed after 7fdf1b6
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**120 checks have never been run or could not be run:**
+**126 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -43,6 +42,12 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-RESILIENCE` — never verified
 - `OCR-CAMERA-GEOMETRY` — never verified
+- `DESKTOP-SCHOOL-WEBVIEW` — never verified
+- `DESKTOP-SCHOOL-POPUPS` — never verified
+- `DESKTOP-SCHOOL-NO-RESUBMIT` — never verified
+- `DESKTOP-SCHOOL-LOAD-FAILURE` — never verified
+- `DESKTOP-SCHOOL-HTTP-EXTERNAL` — never verified
+- `DESKTOP-SCHOOL-PRINT` — never verified
 - `DESKTOP-SCHOOL-NATIVE-CONFIRM` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
 - `DESKTOP-PAGE-OVERLAYS` — never verified
@@ -173,8 +178,13 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
-| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
-| `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
+| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-HTTP-EXTERNAL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
+| `DESKTOP-SCHOOL-PRINT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
+| `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
@@ -1417,11 +1427,11 @@ tracker themselves are covered by the app-ocr tests and replays.
 
 **Last recorded** never run
 
-### School WebView navigation, popups and download hand-off (`DESKTOP-SCHOOL-WEBVIEW`)
+### School WebView browsing, history and download hand-off (`DESKTOP-SCHOOL-WEBVIEW`)
 
-**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** pass ⚠
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
-> Needs re-running: covered paths changed after 7fdf1b6
+> Not verified: never verified
 
 **Preconditions**
 
@@ -1429,13 +1439,18 @@ A Signed in account; at least one course with downloadable material.
 
 **Steps**
 
-1. Open each school site from the site list and follow an in-page link.
-   - *Why:* Establishes that in-page navigation is allowed for official origins
-     and that no site is mis-mapped.
-2. Open a same-site popup, then go Back.
-   - *Why:* Back must load a fresh GET, not replay a 教務Web POST. Replaying a
-     POST can repeat an action on the school's side, which is the most
-     consequential failure in this check.
+1. Open each school site from the site list and follow an in-page link,
+   then a link on the Tokyo Tech Portal's resource menu to a service
+   that is not one of the app's sites.
+   - *Why:* The person may browse any HTTPS page; only hidden work is kept to
+     the adapter sites. A link that does nothing, or a site opening in
+     another site's view, means the rule table or the site mapping is
+     wrong.
+2. Go Back and Forward with the app's buttons across a page reached by
+   a 教務Web postback (a 学期 or page switch on the 成績 list).
+   - *Why:* Back and Forward are WebKit's own history now. A page served from
+     the cache must come back as it was; one WebKit would fetch again
+     with its form must be skipped, not resent.
 3. Download a material and choose Show in Finder / Show in Explorer.
    - *Why:* The file lands in Downloads through the native layer; only the OS
      reveal proves the hand-off, not the download counter.
@@ -1450,33 +1465,243 @@ A Signed in account; at least one course with downloadable material.
 
 **Where to look**
 
-The WebView address and page body, the popup's return to its opener, the
-download list, and the OS file manager.
+The WebView address and page body, the 成績 list after Back and
+Forward, the download list, and the OS file manager.
 
 **Expected**
 
-Navigation stays inside the school origins, Back does not replay a POST,
-the popup returns to its opener, and the OS reveals the saved file.
-On macOS the LMS draft area accepts Finder files before and after view
-changes without restarting the app.
+Every link opens in the site's own view, Back and Forward move through
+the pages without the 教務Web error page or a resent form, and the OS
+reveals the saved file. On macOS the LMS draft area accepts Finder
+files before and after view changes without restarting the app.
 
 **Why this is manual**
 
-Depends on the platform WebView, its popup handling and the OS file
-manager. jsdom cannot produce native navigation, popups or a reveal.
+Depends on the platform WebView, its history and the OS file manager.
+The rule table is Core's and tested there; jsdom cannot produce native
+navigation, history or a reveal.
 
 **Covers**
 
 - `crates/app-core/src/school_browser/engine/**`
 - `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
 
-**Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
+**Last recorded** never run
 
-Recorded in docs/verification/core-consolidation.md.
+### School popups open over their opener and close back to it (`DESKTOP-SCHOOL-POPUPS`)
 
-Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to 教務Web.
+
+**Steps**
+
+1. On 教務Web, open a page with a picker button (for example the 申告
+   page's 科目 search, during a 申告 period). Press the button, look at
+   the window that opens, then close it with its own 閉じる button or
+   the app's Close window, without choosing anything.
+   - *Why:* 教務Web's showDialog opens a named window that answers through
+     `window.opener` and closes itself. It used to be faked inside the
+     page; now it is a real WebKit window over the opener, so it must
+     appear inside the web pane, and `window.close()` must bring the
+     opener back unchanged. Choosing would post back to the 申告 form,
+     so the check stops before it.
+2. On 教務Web's top page, open 「マニュアル」.
+   - *Why:* A `target=_blank` PDF used to replace the page; it now opens as a
+     popup, and the page behind it must still be there after Close
+     window.
+
+**Where to look**
+
+The web pane while the window is open, the address and the Close
+window line above the page, and the opener page after closing.
+
+**Expected**
+
+Each window covers the page inside the web pane with its own address,
+a Close window line appears, and closing returns to the opener exactly
+as it was, with no reload.
+
+**Why this is manual**
+
+Needs a 教務Web account and WebKit's own windows; whether the popup
+sits in the pane and the opener survives is seen at a glance. The
+child-window lifecycle is Core's and tested there.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
+- `apps/desktop/src/pages/web/WebPage.tsx`
+
+**Last recorded** never run
+
+### Reloading a postback page does not send its form again (`DESKTOP-SCHOOL-NO-RESUBMIT`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to 教務Web.
+
+**Steps**
+
+1. On the 成績 list, switch the 学期 (a postback that changes nothing
+   on the school's side), then press the app's Reload.
+   - *Why:* WebKit reloads a POST result by sending the form again, silently.
+     On a 申告 page that repeats an action; here it is harmless, which
+     is why this page is used. The reload must become a GET of the same
+     page with a short notice.
+
+**Where to look**
+
+The line under the address after Reload, and the 成績 page itself.
+
+**Expected**
+
+The line "Reopened this page without sending the form again." shows
+for a few seconds and the page opens in its initial state (the 学期
+chosen before resets), without the 教務Web error page.
+
+**Why this is manual**
+
+Needs a real WebForms postback inside WebKit; the notice and the page
+are a glance. The resubmission rule is Core's and tested there.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src/pages/web/WebPage.tsx`
+
+**Last recorded** never run
+
+### A campus-only page opens on VPN and explains itself without it (`DESKTOP-SCHOOL-LOAD-FAILURE`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to the Tokyo Tech
+Portal; the campus VPN available to switch on and off.
+
+**Steps**
+
+1. With the VPN off, open 「Education Computer Systems」 from the
+   Portal's resource list.
+   - *Why:* The host resolves only inside the campus network. WebKit shows
+     nothing when a load fails and stays on the old page, so without a
+     reported failure the link looks broken.
+2. Switch the VPN on and press Retry in the notice.
+   - *Why:* Retry must load the same address; the page opening proves the
+     notice kept it.
+
+**Where to look**
+
+The line under the address after each click, and the web pane.
+
+**Expected**
+
+Off VPN, a notice says the server was not found or did not answer and
+that campus-only services need the campus network or VPN, with Retry
+and Open in browser. On VPN, Retry opens the page and the notice goes.
+
+**Why this is manual**
+
+Needs the campus network and a real failed load inside WebKit; the
+notice is a glance. Which failures are shown is Core's and tested there.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src/pages/web/WebPage.tsx`
+
+**Last recorded** never run
+
+### A plain-HTTP school file opens in the system browser (`DESKTOP-SCHOOL-HTTP-EXTERNAL`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to 教務Web.
+
+**Steps**
+
+1. On 教務Web's top page, open 「緊急時避難場所」.
+   - *Why:* The PDF exists only over plain HTTP. Nothing relaxes App Transport
+     Security, so the app hands it to the system browser; a click that
+     does nothing means the rule or the host lost it.
+
+**Where to look**
+
+The system browser and the school view.
+
+**Expected**
+
+The PDF opens in the default browser; the school view stays on its
+page.
+
+**Why this is manual**
+
+Needs the real school link and the system browser; where the click
+lands is a glance. The cleartext rule is Core's and tested there.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+
+**Last recorded** never run
+
+### A school page's print button opens the print panel (`DESKTOP-SCHOOL-PRINT`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to 教務Web.
+
+**Steps**
+
+1. On a 教務Web page with 「この画面を印刷」 (for example 成績), press
+   it, look at the panel, then cancel.
+   - *Why:* `window.print()` reaches only a private WebKit delegate method;
+     without it nothing happens. The panel must attach to the app window
+     and show the page.
+
+**Where to look**
+
+The print panel and its preview.
+
+**Expected**
+
+The system print panel opens as a sheet with the page in its preview;
+Cancel closes it and the page is unchanged.
+
+**Why this is manual**
+
+The print panel is native UI on a real school page; it is a glance.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/school_webkit.rs`
+
+**Last recorded** never run
 
 ### School pages get native confirm, alert and prompt, and file dialogs still open (`DESKTOP-SCHOOL-NATIVE-CONFIRM`)
 
@@ -1544,6 +1769,7 @@ headless suite runs.
 - `apps/desktop/src-tauri/src/native_dialog.rs`
 - `apps/desktop/src-tauri/src/school_web.rs`
 - `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
 - `apps/desktop/src-tauri/src/commands/backup.rs`
 - `apps/desktop/src-tauri/src/lms_files.rs`

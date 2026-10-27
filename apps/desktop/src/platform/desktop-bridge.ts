@@ -250,6 +250,24 @@ export type KyomuGuideItem = {
   day?: number;
   slot: string;
 };
+/** Why a school page did not load, as Core reports it. */
+export type SchoolLoadFailure =
+  | "offline"
+  | "host-not-found"
+  | "unreachable"
+  | "insecure"
+  | "cleartext"
+  | "other";
+
+export type SchoolWebNotice =
+  | {
+      site: SchoolSite;
+      kind: "load-failed";
+      url: string | null;
+      reason: SchoolLoadFailure;
+    }
+  | { site: SchoolSite; kind: "reopened"; url: string };
+
 export type SchoolWebBounds = {
   x: number;
   y: number;
@@ -456,17 +474,22 @@ export interface DesktopBridge {
   hideSchoolWeb?(): Promise<boolean>;
   reloadSchoolWeb?(site: SchoolSite): Promise<boolean>;
   navigateSchoolWeb?(site: SchoolSite, url: string): Promise<boolean>;
-  /** Load the view's previous page as a fresh GET; false when there is none. */
+  /** Back through the engine's history of the view or the popup in front;
+   * Core keeps it from sending a form again. */
   schoolWebBack?(site: SchoolSite): Promise<boolean>;
   schoolWebForward?(site: SchoolSite): Promise<boolean>;
+  /** Closes the popup in front of the site's view; false when none is open. */
+  closeSchoolWebPopup?(site: SchoolSite): Promise<boolean>;
   setSchoolWebZoom?(site: SchoolSite, scale: number): Promise<boolean>;
   onSchoolWebUrl?(
     callback: (request: { site: SchoolSite; url: string }) => void,
   ): () => void;
-  /** A school page asked for a new window showing another service's page. */
-  onSchoolWebOpen?(
-    callback: (request: { site: SchoolSite; url: string }) => void,
+  /** How many popups are open over the site's view in the web pane. */
+  onSchoolWebPopups?(
+    callback: (event: { site: SchoolSite; open: number }) => void,
   ): () => void;
+  /** A notice about the page the person is looking at (Core decides when). */
+  onSchoolWebNotice?(callback: (notice: SchoolWebNotice) => void): () => void;
   onSchoolLoginStatus?(callback: (event: SchoolLoginEvent) => void): () => void;
   /** What the Wi-Fi interface is on now (macOS builds only). */
   campusWifiStatus?(): Promise<CampusWifiStatus>;
@@ -762,6 +785,8 @@ export function createTauriDesktopBridge(
       booleanCommand("navigate_school_web", { site, url }),
     schoolWebBack: (site) => booleanCommand("school_web_back", { site }),
     schoolWebForward: (site) => booleanCommand("school_web_forward", { site }),
+    closeSchoolWebPopup: (site) =>
+      booleanCommand("close_school_web_popup", { site }),
     setSchoolWebZoom: (site, scale) =>
       booleanCommand("set_school_web_zoom", { site, scale }),
     onSchoolWebUrl: (callback) => {
@@ -787,21 +812,41 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
-    onSchoolWebOpen: (callback) => {
+    onSchoolWebPopups: (callback) => {
       let disposed = false;
       let unlisten: (() => void) | undefined;
-      void listen<{ site: SchoolSite; url: string }>(
-        "school-web-open",
+      void listen<{ site: SchoolSite; open: number }>(
+        "school-web-popups",
         (payload) => {
           if (
             !disposed &&
             payload &&
             typeof payload.site === "string" &&
-            typeof payload.url === "string"
+            typeof payload.open === "number"
           )
             callback(payload);
         },
       ).then((fn) => {
+        if (disposed) quietly(fn);
+        else unlisten = fn;
+      });
+      return () => {
+        disposed = true;
+        if (unlisten) quietly(unlisten);
+      };
+    },
+    onSchoolWebNotice: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<SchoolWebNotice>("school-web-notice", (payload) => {
+        if (
+          !disposed &&
+          payload &&
+          typeof payload.site === "string" &&
+          (payload.kind === "load-failed" || payload.kind === "reopened")
+        )
+          callback(payload);
+      }).then((fn) => {
         if (disposed) quietly(fn);
         else unlisten = fn;
       });

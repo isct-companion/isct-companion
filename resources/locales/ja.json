@@ -754,8 +754,6 @@
   "Opening…": "開いています…",
   "School navigation needs the installed app.": "学内サイトの閲覧にはインストール版のアプリが必要です。",
   "Invalid address": "無効なアドレスです",
-  "No previous page.": "前のページはありません。",
-  "No next page.": "次のページはありません。",
   "Could not open the system browser.": "ブラウザーを開けませんでした。",
   "Zoom could not be changed.": "拡大率を変更できませんでした。",
   "The school window could not be opened.": "学内サイトのウインドウを開けませんでした。",
@@ -1338,5 +1336,14 @@
   "Cool": "クール",
   "Paper": "ペーパー",
   "Mist": "ミスト",
-  "Moss": "モス"
+  "Moss": "モス",
+  "Popup window": "ポップアップウィンドウ",
+  "Close window": "ウィンドウを閉じる",
+  "Reopened this page without sending the form again.": "フォームを再送信せずにこのページを開き直しました。",
+  "This page could not be opened: there is no network connection.": "このページを開けませんでした：ネットワークに接続されていません。",
+  "This page could not be opened: its server was not found. Campus-only services need the campus network or VPN.": "このページを開けませんでした：サーバーが見つかりません。学内限定のサービスには学内ネットワークか VPN が必要です。",
+  "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN.": "このページを開けませんでした：サーバーが応答しません。学内限定のサービスには学内ネットワークか VPN が必要です。",
+  "This page could not be opened: the secure connection failed.": "このページを開けませんでした：安全な接続を確立できませんでした。",
+  "This page uses an unencrypted connection, so it opens only in your browser.": "このページは暗号化されていない接続を使うため、ブラウザでのみ開けます。",
+  "This page could not be opened.": "このページを開けませんでした。"
 }

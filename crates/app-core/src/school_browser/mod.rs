@@ -3,13 +3,11 @@ mod policy;
 mod port;
 mod submission;
 
-pub use adpt_isct::scripts::{
-    ANDROID_SUPPORT, KYOMU_POPUP, SCHOOL_LINKS, SCHOOL_LOGIN, SCHOOL_STOP,
-};
+pub use adpt_isct::scripts::{SCHOOL_LOGIN, SCHOOL_STOP};
 pub use engine::SchoolBrowserEngine;
 pub use policy::{
-    browsing_target, browsing_url, is_login_url, is_school_cookie_domain, sanitize_school_url,
-    SCHOOL_HOSTS,
+    automation_target, browsing_target, browsing_url, download_permitted, is_login_url,
+    is_school_cookie_domain, restore_record, DenyReason, ViewRole,
 };
 pub use port::*;
 pub use submission::{
@@ -24,6 +22,22 @@ use serde::{Deserialize, Serialize};
 pub struct SchoolWebTarget {
     pub site: SchoolSite,
     pub url: String,
+}
+
+/// Something about the page the person is looking at that the app shows
+/// next to the address, outside the school page.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SchoolWebNotice {
+    /// The page did not load. `url` is the address it was going to, offered
+    /// for Retry and Open in browser.
+    #[serde(rename_all = "camelCase")]
+    LoadFailed {
+        url: Option<String>,
+        reason: LoadFailure,
+    },
+    /// A reload would have sent a form again; the page was opened with GET.
+    Reopened { url: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

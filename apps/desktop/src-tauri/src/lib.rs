@@ -40,6 +40,10 @@ pub(crate) use app_core::school_auth;
 mod school_browser_native;
 mod school_downloads;
 mod school_web;
+#[cfg(target_os = "macos")]
+mod school_webkit;
+#[cfg(windows)]
+mod school_windows;
 mod secrets;
 mod workspaces;
 
@@ -203,11 +207,12 @@ pub fn run() {
                 responder.respond(lms_protocol::handle(app, request).await);
             });
         })
-        // The plugin's default link script runs in every webview and turns a
-        // `target="_blank"` click into an `open_url` IPC call, which no
-        // capability grants: links in school pages silently did nothing.
-        // School views route new-window links natively (see school_web.rs);
-        // the shell's links use the `open_external` command.
+        // Tauri runs every plugin's page script in every webview, school
+        // pages included, and school pages must run none: a plugin added here
+        // must not inject one. This one's link script is turned off (it sent
+        // `target="_blank"` clicks to an IPC call no school page may make);
+        // school views open windows through their native host, the shell's
+        // links through the `open_external` command.
         .plugin(
             tauri_plugin_opener::Builder::new()
                 .open_js_links_on_click(false)
@@ -273,6 +278,7 @@ pub fn run() {
             commands::school::navigate_school_web,
             commands::school::school_web_back,
             commands::school::school_web_forward,
+            commands::school::close_school_web_popup,
             commands::school::reveal_school_download,
             commands::school::set_school_web_zoom,
             commands::school::set_kyomu_guide,

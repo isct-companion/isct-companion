@@ -3,7 +3,12 @@ import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
 import { t } from "../../i18n";
-import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
+import {
+  nativeOs,
+  type SchoolLoadFailure,
+  type SchoolSite,
+  type SchoolWebNotice,
+} from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
 import { schoolWebBounds } from "../../platform/school-web-bounds";
 import type { Workspace } from "../../lib/model";
@@ -18,6 +23,19 @@ import { withRecords } from "../../platform/records";
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
+
+/** What the notice under the address says when a page did not load. */
+const failureText: Record<SchoolLoadFailure, string> = {
+  offline: "This page could not be opened: there is no network connection.",
+  "host-not-found":
+    "This page could not be opened: its server was not found. Campus-only services need the campus network or VPN.",
+  unreachable:
+    "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN.",
+  insecure: "This page could not be opened: the secure connection failed.",
+  cleartext:
+    "This page uses an unencrypted connection, so it opens only in your browser.",
+  other: "This page could not be opened.",
+};
 
 const normalizeAddress = (raw: string) => {
   const trimmed = raw.trim();
@@ -69,6 +87,9 @@ function WebBody({
   const [savedFile, setSavedFile] = useState<{ name: string; path: string }>();
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
+  /** Popups open over each site's view; the toolbar acts on the front one. */
+  const [popups, setPopups] = useState<Partial<Record<SchoolSite, number>>>({});
+  const [notice, setNotice] = useState<SchoolWebNotice>();
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [address, setAddress] = useState(initialUrl);
   const zoom = data.settings.schoolWebZoom ?? 1;
@@ -108,9 +129,37 @@ function WebBody({
         const { url } = request;
         setCurrentUrl(url);
         if (!editingAddress.current) setAddress(url);
+        // A page loaded: an earlier failure no longer describes it.
+        setNotice((shown) =>
+          shown?.kind === "load-failed" ? undefined : shown,
+        );
       }),
     [site],
   );
+
+  useEffect(
+    () =>
+      desktopBridge?.onSchoolWebPopups?.(({ site: popupSite, open }) =>
+        setPopups((current) => ({ ...current, [popupSite]: open })),
+      ),
+    [],
+  );
+
+  useEffect(() => {
+    setNotice(undefined);
+    let clear: number | undefined;
+    const dispose = desktopBridge?.onSchoolWebNotice?.((next) => {
+      if (next.site !== site) return;
+      window.clearTimeout(clear);
+      setNotice(next);
+      if (next.kind === "reopened")
+        clear = window.setTimeout(() => setNotice(undefined), 6000);
+    });
+    return () => {
+      dispose?.();
+      window.clearTimeout(clear);
+    };
+  }, [site]);
 
   useEffect(() => {
     if (!editingAddress.current && addressInput.current)
@@ -303,38 +352,35 @@ function WebBody({
     setCurrentUrl(target);
     setStatus("");
   };
-  const openTargetRef = useRef(openTarget);
-  openTargetRef.current = openTarget;
-
-  // `target="_blank"` links to another service (e.g. 教務Web → LMS) switch
-  // the picker, like a browser opening a new tab.
-  useEffect(
-    () =>
-      desktopBridge?.onSchoolWebOpen?.(({ site: destination, url }) => {
-        if (schoolWebExit.pending || !(destination in official)) return;
-        openTargetRef
-          .current(url, destination)
-          .catch((error) => setStatus(errorText(error) ?? "Unavailable"));
-      }),
-    [],
-  );
-
   const goBack = async () => {
     try {
-      const moved = await desktopBridge?.schoolWebBack?.(site);
-      setStatus(moved ? "" : "No previous page.");
+      await desktopBridge?.schoolWebBack?.(site);
     } catch (error) {
       setStatus(errorText(error) ?? "Unavailable");
     }
   };
   const goForward = async () => {
     try {
-      const moved = await desktopBridge?.schoolWebForward?.(site);
-      setStatus(moved ? "" : "No next page.");
+      await desktopBridge?.schoolWebForward?.(site);
     } catch (error) {
       setStatus(errorText(error) ?? "Unavailable");
     }
   };
+  const closePopup = () =>
+    void desktopBridge
+      ?.closeSchoolWebPopup?.(site)
+      .catch((error) => setStatus(errorText(error) ?? "Unavailable"));
+  const retry = (url: string) => {
+    setNotice(undefined);
+    void desktopBridge
+      ?.navigateSchoolWeb?.(site, url)
+      .catch((error) => setStatus(errorText(error) ?? "Unavailable"));
+  };
+  const openInBrowser = (url: string) =>
+    void desktopBridge
+      ?.openExternal(url)
+      .catch(() => notify("Could not open the system browser."));
+  const popupCount = popups[site] ?? 0;
 
   const setPageZoom = (next: number) => {
     const value = Math.round(clamp(next, 0.5, 2) * 10) / 10;
@@ -531,6 +577,39 @@ function WebBody({
                 ↗
               </UiButton>
             </form>
+            {embedded && popupCount > 0 && (
+              <div className="webNotice" role="status">
+                <span>{t("Popup window")}</span>
+                <UiButton type="button" onClick={closePopup}>
+                  {t("Close window")}
+                </UiButton>
+              </div>
+            )}
+            {embedded && notice?.kind === "load-failed" && (
+              <div className="webNotice warning" role="alert">
+                <span>{t(failureText[notice.reason])}</span>
+                {notice.url && notice.reason !== "cleartext" && (
+                  <UiButton type="button" onClick={() => retry(notice.url!)}>
+                    {t("Retry")}
+                  </UiButton>
+                )}
+                {notice.url && (
+                  <UiButton
+                    type="button"
+                    onClick={() => openInBrowser(notice.url!)}
+                  >
+                    {t("Open in browser")}
+                  </UiButton>
+                )}
+              </div>
+            )}
+            {embedded && notice?.kind === "reopened" && (
+              <div className="webNotice" role="status">
+                <span>
+                  {t("Reopened this page without sending the form again.")}
+                </span>
+              </div>
+            )}
             <div className="webHost" ref={host}>
               {embedded ? null : platform === "browser-preview" && frameable ? (
                 <iframe

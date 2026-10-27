@@ -198,8 +198,7 @@ fn download_redirect(current: &Url, location: &str) -> Result<Url, FetchError> {
     let target = current.join(location).map_err(|_| FetchError::Invalid)?;
     // Recognize login before the allowlist check: an SSO redirect is a
     // renewable session, not a permanently invalid file URL.
-    if crate::school_browser::sanitize_school_url(target.as_str()).is_some()
-        && is_login_url(&target)
+    if crate::school_browser::automation_target(target.as_str()).is_some() && is_login_url(&target)
     {
         return Err(FetchError::Login);
     }

@@ -69,6 +69,13 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
     // NativeBrowser (Core worker threads)
 
+    /**
+     * Interim, until this host reports full request facts and hands real
+     * popups their WebViewTransport (docs/core-school-browser.md): Core
+     * reloads with a GET and popups load in their opener's view.
+     */
+    override fun capabilities() = HostCapabilities(formResubmission = false, inlinePopups = false)
+
     override fun attach(events: BrowserEvents) {
         synchronized(lock) { this.events = events }
     }
@@ -199,6 +206,8 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 }
             }
             is BrowserAction.Reload -> resident.webView.reload()
+            is BrowserAction.GoBack -> resident.webView.goBack()
+            is BrowserAction.GoForward -> resident.webView.goForward()
             // Scripts report through title and navigation relays.
             is BrowserAction.Evaluate -> resident.webView.evaluateJavascript(action.script, null)
             // Core abandoned this view's attempt and leases it again only once
@@ -214,7 +223,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     }
 
     private fun fail(resident: ResidentView, cause: ULong?, detail: String) {
-        runCatching { listener()?.loadFailed(resident.nextPage(), cause, null, detail) }
+        runCatching { listener()?.loadFailed(resident.nextPage(), cause, null, LoadFailure.OTHER, detail) }
     }
 
     private fun discard(id: BrowserId) {
@@ -246,11 +255,18 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url
                 if (url.scheme in setOf("about", "blob", "data", "javascript")) return false
-                val decision = runCatching {
-                    listener()?.navigation(page, url.toString(), request.isForMainFrame)
-                }.getOrNull() ?: return true
-                if (decision != NavigationDecision.ALLOW) Log.d(TAG, "Core cancelled ${url.host} in ${id.site}")
-                return decision != NavigationDecision.ALLOW
+                val navigation = NavigationRequest(
+                    page, url.toString(), null, request.isForMainFrame, NavigationKind.Unknown, request.hasGesture(),
+                )
+                val decision = runCatching { listener()?.navigation(navigation) }.getOrNull() ?: return true
+                return when (decision) {
+                    is NavigationDecision.Allow -> false
+                    is NavigationDecision.External -> {
+                        onOpenExternal?.invoke(Uri.parse(decision.url))
+                        true
+                    }
+                    is NavigationDecision.Deny, is NavigationDecision.SkipEntry -> true
+                }
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
@@ -260,11 +276,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             override fun onPageFinished(view: WebView, url: String?) {
                 url ?: return
                 synchronized(lock) { urls[id] = url }
-                // Android injects Core's shared scripts after load (core-ffi.md);
-                // the shim installs itself into same-origin frames.
-                for (script in runCatching { schoolBrowserInitialization() }.getOrDefault(emptyList())) {
-                    view.evaluateJavascript(script, null)
-                }
                 // WebView exposes no request id here; never label a late load with an action.
                 runCatching { listener()?.pageLoaded(nextPage(), null, url) }
                 loads++
@@ -275,7 +286,9 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 // A navigation cancelled by Core's own decision is not a failure.
                 if (error.errorCode == ERROR_UNKNOWN && error.description == "net::ERR_ABORTED") return
                 runCatching {
-                    listener()?.loadFailed(nextPage(), null, request.url.toString(), error.description.toString())
+                    listener()?.loadFailed(
+                        nextPage(), null, request.url.toString(), LoadFailure.OTHER, error.description.toString(),
+                    )
                 }
             }
 
@@ -312,14 +325,18 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         }
 
         fun popup(url: Uri) {
-            val decision = runCatching { listener()?.newWindow(page, url.toString()) }.getOrNull() ?: return
+            val request = NewWindowRequest(page, url.toString(), null, NavigationKind.Unknown, false, null, null, null)
+            val decision = runCatching { listener()?.newWindow(request) }.getOrNull() ?: return
             Log.d(TAG, "Popup to ${url.host}: $decision")
             when (decision) {
-                is NewWindowDecision.SameView -> webView.loadUrl(decision.url)
-                // Core already emitted `school-web-open`; the router presents it.
-                is NewWindowDecision.OpenSchool -> Unit
-                is NewWindowDecision.OpenExternal -> onOpenExternal?.invoke(Uri.parse(decision.url))
-                is NewWindowDecision.Ignore -> Unit
+                // Interim: the popup's page replaces its opener's, and the
+                // popup is reported closed at once.
+                is NewWindowDecision.Popup -> {
+                    webView.loadUrl(url.toString())
+                    runCatching { listener()?.closed(decision.browser) }
+                }
+                is NewWindowDecision.External -> onOpenExternal?.invoke(Uri.parse(decision.url))
+                is NewWindowDecision.Deny -> Unit
             }
         }
     }

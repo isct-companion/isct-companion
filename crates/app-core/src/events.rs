@@ -6,7 +6,7 @@ use crate::{
     cloud_sync::SyncState,
     data::WorkspaceChangeSource,
     lifecycle::SchoolSite,
-    school_browser::{SchoolLoginEvent, SchoolSessionEvent},
+    school_browser::{SchoolLoginEvent, SchoolSessionEvent, SchoolWebNotice},
     school_service::IngestOutcome,
     sync_engine::SyncSnapshot,
     workspace_changes::WorkspaceChange,
@@ -72,9 +72,15 @@ pub enum CoreEvent {
         site: SchoolSite,
         url: String,
     },
-    SchoolWebOpen {
+    /// How many popups are open over the site's view in the web pane (hosts
+    /// with inline popups only). The toolbar acts on the frontmost.
+    SchoolWebPopups {
         site: SchoolSite,
-        url: String,
+        open: usize,
+    },
+    SchoolWebNotice {
+        site: SchoolSite,
+        notice: SchoolWebNotice,
     },
     SchoolIngest(IngestOutcome),
     SchoolDownload(SchoolDownloadEvent),
@@ -94,7 +100,8 @@ impl CoreEvent {
             Self::SchoolLogin(_) => "school-login-status",
             Self::SchoolSession(_) => "school-session",
             Self::SchoolWebUrl { .. } => "school-web-url",
-            Self::SchoolWebOpen { .. } => "school-web-open",
+            Self::SchoolWebPopups { .. } => "school-web-popups",
+            Self::SchoolWebNotice { .. } => "school-web-notice",
             Self::SchoolIngest(_) => "school-ingest",
             Self::SchoolDownload(_) => "school-download",
             Self::SyncSnapshot(_) => "sync-snapshot",
@@ -131,8 +138,12 @@ impl CoreEvent {
             }),
             Self::SchoolLogin(event) => json!(event),
             Self::SchoolSession(event) => json!(event),
-            Self::SchoolWebUrl { site, url } | Self::SchoolWebOpen { site, url } => {
-                json!({ "site": site, "url": url })
+            Self::SchoolWebUrl { site, url } => json!({ "site": site, "url": url }),
+            Self::SchoolWebPopups { site, open } => json!({ "site": site, "open": open }),
+            Self::SchoolWebNotice { site, notice } => {
+                let mut payload = json!(notice);
+                payload["site"] = json!(site);
+                payload
             }
             Self::SchoolIngest(outcome) => json!(outcome),
             Self::SchoolDownload(event) => json!(event),

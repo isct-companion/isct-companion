@@ -1,14 +1,13 @@
-//! Desktop school-download handling, including the macOS WebKit hooks.
+//! Desktop school-download handling: what school pages hand over, saved to
+//! Downloads and announced to the app.
 
 use app_core::{
     events::{CoreEvent, SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
-    school_browser::sanitize_school_url,
+    school_browser::{download_permitted, restore_record, ViewRole},
 };
-#[cfg(target_os = "macos")]
-use std::collections::HashMap;
 use std::{
     collections::HashSet,
     fs::{self, OpenOptions},
@@ -20,10 +19,6 @@ use tauri::webview::DownloadEvent;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
-#[cfg(target_os = "macos")]
-#[path = "school_webkit.rs"]
-mod webkit;
-
 const DOWNLOAD_NAME_LIMIT: usize = 200;
 
 #[derive(Default)]
@@ -31,8 +26,6 @@ struct DownloadState {
     active: Option<SchoolSite>,
     pending: Vec<(String, PathBuf)>,
     saved: HashSet<PathBuf>,
-    #[cfg(target_os = "macos")]
-    delegates: HashMap<SchoolSite, webkit::DelegateHandle>,
 }
 
 #[derive(Default)]
@@ -79,7 +72,7 @@ impl SchoolDownloads {
                     site,
                     SchoolDownloadState::Started,
                     name,
-                    sanitize_school_url(url.as_str()),
+                    restore_record(url.as_str()),
                     None,
                 );
                 true
@@ -106,7 +99,12 @@ impl SchoolDownloads {
     /// Writes bytes supplied by WebKit's built-in PDF viewer without blocking
     /// the main thread. The owned task is drained during shutdown.
     #[cfg(target_os = "macos")]
-    fn save_viewer_data(&self, app: &AppHandle, site: SchoolSite, saved: webkit::SavedData) {
+    pub(crate) fn save_viewer_data(
+        &self,
+        app: &AppHandle,
+        site: SchoolSite,
+        saved: crate::school_webkit::SavedData,
+    ) {
         let active = self.0.state.lock().ok().and_then(|state| state.active);
         let allowed = saved
             .origin
@@ -164,46 +162,47 @@ impl SchoolDownloads {
         }
     }
 
-    /// Installs and retains the macOS WebKit hooks for this view.
+    /// Where a file a popup downloads is written: a free name in Downloads,
+    /// announced as started. `None` refuses it.
     #[cfg(target_os = "macos")]
-    pub(crate) fn install(
+    pub(crate) fn popup_destination(
         &self,
         app: &AppHandle,
         site: SchoolSite,
-        view: &crate::school_web::NativeWebview,
-    ) {
-        let downloads = Arc::downgrade(&self.0);
-        let app = app.clone();
-        let result = view.with_webview(move |platform| {
-            let downloads_for_save = downloads.clone();
-            let on_save = Box::new(move |saved| {
-                if let Some(downloads) = downloads_for_save.upgrade() {
-                    SchoolDownloads(downloads).save_viewer_data(&app, site, saved);
-                }
-            });
-            // The site the presentation shows (`set_visible`) is the only one
-            // whose page dialogs reach the person.
-            let downloads_for_dialogs = downloads.clone();
-            let foreground = Box::new(move || {
-                downloads_for_dialogs.upgrade().is_some_and(|downloads| {
-                    downloads
-                        .state
-                        .lock()
-                        .is_ok_and(|state| state.active == Some(site))
-                })
-            });
-            // SAFETY: `inner()` is this view's live WKWebView, and
-            // `with_webview` invokes this closure on the main thread.
-            let delegate = unsafe { webkit::install(platform.inner(), on_save, foreground) };
-            if let (Some(downloads), Some(delegate)) = (downloads.upgrade(), delegate) {
-                if let Ok(mut state) = downloads.state.lock() {
-                    state.delegates.insert(site, delegate);
-                }
-            }
-        });
-        if let Err(error) = result {
-            log::error!("[school-download] {site:?} WebKit hooks unavailable: {error}");
+        url: Option<&url::Url>,
+        suggested: &str,
+    ) -> Option<PathBuf> {
+        let active = self.0.state.lock().ok().and_then(|state| state.active);
+        if !url.is_some_and(|url| download_allowed(url.as_str(), site, active)) {
+            log::error!("[school-download] {site:?} popup download refused");
+            return None;
         }
+        let directory = app.path().download_dir().ok()?;
+        let name = download_file_name(suggested, "");
+        let path = download_candidates(&name)
+            .map(|candidate| directory.join(candidate))
+            .find(|path| !path.exists())?;
+        emit_download(
+            app,
+            site,
+            SchoolDownloadState::Started,
+            file_name(&path),
+            url.and_then(|url| restore_record(url.as_str())),
+            None,
+        );
+        Some(path)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn popup_finished(
+        &self,
+        app: &AppHandle,
+        site: SchoolSite,
+        path: PathBuf,
+        saved: bool,
+    ) {
+        let name = file_name(&path);
+        self.finish(app, site, name, saved.then_some(path));
     }
 
     /// Shows a file saved from a school page this session in Finder. Unknown
@@ -232,8 +231,6 @@ impl SchoolDownloads {
         if let Ok(mut state) = self.0.state.lock() {
             state.active = None;
             state.pending.clear();
-            #[cfg(target_os = "macos")]
-            state.delegates.clear();
         }
     }
 
@@ -277,8 +274,15 @@ fn emit_download(
     ));
 }
 
+/// Core's rule: what the person is looking at may hand over any file, a
+/// hidden view only files from adapter sites.
 fn download_allowed(raw_url: &str, site: SchoolSite, active: Option<SchoolSite>) -> bool {
-    active == Some(site) && sanitize_school_url(raw_url).is_some()
+    let role = if active == Some(site) {
+        ViewRole::User
+    } else {
+        ViewRole::Automation
+    };
+    download_permitted(role, raw_url)
 }
 
 fn safe_file_name(name: &str) -> bool {

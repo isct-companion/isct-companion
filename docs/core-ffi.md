@@ -88,7 +88,7 @@ the changes it made, the next `revision` (user writes) and the commit `seq`;
 
 | Surface               | Main methods                                                                                                     |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Workspace/read models | `workspaceRevision`, `mutateCommit`, `scheduleQuery` (view queries, including `records(fields)`), `finderQuery`   |
+| Workspace/read models | `workspaceRevision`, `mutateCommit`, `scheduleQuery` (view queries, including `records(fields)`), `finderQuery`  |
 | Accounts              | `credentialStatus`, `connectSchool`, `schoolOtpLink`, `deleteCredentials`                                        |
 | School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `schoolBrowsing`, back/forward/reload                          |
 | Reads                 | `syncHint` (the planner decides what is read), `syncSnapshot`                                                    |
@@ -153,11 +153,12 @@ generated `close()` resource method. Session shutdown closes subscriptions.
 Native ports are mechanisms:
 
 - `NativeVault`: blocking Keychain/Keystore operations, called on workers.
-- `NativeBrowser`: promptly enqueue UI work. Install the SDK's `schoolBrowserInitialization()` scripts at document start in each
-  view/frame; those assets come from Core, including Android frame support.
-  `BrowserEvents` reports completion
-  using browser generation, page sequence and action ID. Never synchronously
-  wait for the main thread from a callback. Shutdown disables native admission.
+- `NativeBrowser`: promptly enqueue UI work. Report every request fact and
+  carry out Core's decisions as [core-school-browser.md](core-school-browser.md)
+  describes; inject nothing into school pages. `BrowserEvents` reports
+  completion using browser generation, page sequence and action ID. Never
+  synchronously wait for the main thread from a callback. Shutdown disables
+  native admission.
 - `NativeDownloadSession`: the school WebView cookie store for Core HTTP:
   `cookieHeader` reads it (empty means signed out), `storeSetCookies` writes
   server cookies back (iOS `WKHTTPCookieStore`, Android `CookieManager` + flush).

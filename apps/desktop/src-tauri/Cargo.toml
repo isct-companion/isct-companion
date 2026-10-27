@@ -59,13 +59,13 @@ ipnet = "2"
 hickory-resolver = { version = "0.25", default-features = false, features = ["tokio"] }
 # NSPasteboard and NSSharingService: copy and share a course file (file_share_macos.rs).
 # NSAlert sheets: school pages' confirm/alert/prompt (school_webkit.rs).
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["block2", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSPasteboard", "NSResponder", "NSSharingService", "NSTextField", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["block2", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSPasteboard", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSSharingService", "NSTextField", "NSView", "NSWindow"] }
 # Native notifications (notifications_macos.rs).
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 # School view WebKit hooks (school_webkit.rs). Same versions wry already uses.
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSError", "NSGeometry", "NSString", "NSURL", "NSURLRequest", "NSURLResponse"] }
-objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSString", "NSValue", "NSURL", "NSURLRequest", "NSURLResponse"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKNavigationAction", "WKBackForwardList", "WKBackForwardListItem", "WKWebViewConfiguration", "WKWindowFeatures", "WKSecurityOrigin", "WKUIDelegate", "WKWebView"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Native Windows toast delivery returns the WinRT result synchronously so test

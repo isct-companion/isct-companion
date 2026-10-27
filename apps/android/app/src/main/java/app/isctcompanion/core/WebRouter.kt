@@ -10,7 +10,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 /** Which school page is on screen. Two entries share the resident views: the
  * ウェブ tab (site switcher) and pushes from a course or assignment. Opening a
@@ -108,14 +107,6 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         runCatching { session?.reloadSchool(site) }
     }
 
-    /** Core asks the shell to present another site (a cross-site popup). */
-    fun handleOpenEvent(payload: String) {
-        val row = runCatching { JSONObject(payload) }.getOrNull() ?: return
-        val site = site(row.text("site")) ?: return
-        tabSite = site
-        open(site, row.text("url"))
-    }
-
     companion object {
         private const val FIRST_SITE = "firstSite"
 
@@ -148,20 +139,6 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
             SchoolSite.TSUBAME -> "tsubame"
             SchoolSite.SYLLABUS -> "syllabus"
             SchoolSite.STUDY_GUIDE -> "study-guide"
-        }
-
-        /** Core's wire names for sites (`SchoolSite` serde names). */
-        fun site(raw: String?): SchoolSite? = when (raw) {
-            "science-portal", "portal" -> SchoolSite.SCIENCE_PORTAL
-            "science-lms", "lms" -> SchoolSite.SCIENCE_LMS
-            "tokyo-portal" -> SchoolSite.TOKYO_PORTAL
-            "tokyo-mail" -> SchoolSite.TOKYO_MAIL
-            "kyomu" -> SchoolSite.KYOMU
-            "library" -> SchoolSite.LIBRARY
-            "tsubame" -> SchoolSite.TSUBAME
-            "syllabus" -> SchoolSite.SYLLABUS
-            "study-guide" -> SchoolSite.STUDY_GUIDE
-            else -> null
         }
     }
 }
