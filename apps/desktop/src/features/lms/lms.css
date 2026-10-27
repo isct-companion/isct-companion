@@ -25,7 +25,7 @@
 .todayRetained { flex: 0 0 100%; min-width: 0; height: 100%; overflow: auto; overflow-anchor: none; }
 .todayRetained.compact { flex-basis: 180px; padding-right: 16px; border-right: 1px solid var(--line); }
 .todayWorkbenchContent { flex: 1; min-width: 0; min-height: 0; overflow: hidden; contain: layout paint; transition: opacity var(--lms-medium) var(--lms-ease), transform var(--lms-slow) var(--lms-ease); }
-.todayWorkbench.working .todayWorkbenchContent { transform-origin: left center; animation: todayPaneIn var(--motion-duration-slow) var(--lms-var(--motion-easing-emphasized)); }
+.todayWorkbench.working .todayWorkbenchContent { transform-origin: left center; animation: todayPaneIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
 /* Leaving: the pane fades out over the returning full Today instead of collapsing to zero width. */
 .todayWorkbench.leaving .todayWorkbenchContent { position: absolute; top: 0; right: 0; bottom: 0; left: 200px; opacity: 0; transform: translate3d(16px, 0, 0) scale(.99); pointer-events: none; }
 .todayWorkbenchContent[hidden], .todayCourseSlot[hidden] { display: none; }
