@@ -95,6 +95,10 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
         const value = node.getAttribute(attr);
         if (/^\d{1,2}$/.test(value ?? "")) el.setAttribute(attr, value!);
       }
+      // Core marks where the course is in a lesson schedule table.
+      if (node.tagName === "TR")
+        for (const mark of node.classList)
+          if (/^lmsRow(?:Past|Now|Off)$/.test(mark)) el.classList.add(mark);
       parent.append(el);
     }
     node.childNodes.forEach((child) => copy(child, el));
@@ -188,21 +192,6 @@ function fileLists(root: HTMLElement) {
     }
     list.replaceWith(grid);
   }
-}
-
-/** A label holding only LMS images (no text): shown as a tile in an image grid. */
-const imageOnlyCache = new Map<string, boolean>();
-export function imageOnly(html?: string): boolean {
-  if (!html) return false;
-  let result = imageOnlyCache.get(html);
-  if (result === undefined) {
-    const body = new DOMParser().parseFromString(html.slice(0, 100000), "text/html").body;
-    const images = [...body.getElementsByTagName("img")].filter((img) => img.getAttribute("src")?.includes("/pluginfile.php/"));
-    result = images.length > 0 && !(body.textContent ?? "").trim();
-    if (imageOnlyCache.size > 500) imageOnlyCache.clear();
-    imageOnlyCache.set(html, result);
-  }
-  return result;
 }
 
 export function safeUrl(raw?: string | null): string | undefined {

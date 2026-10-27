@@ -3,7 +3,7 @@ import SwiftUI
 import TipKit
 
 /// The course page as the desktop Lecture Desk lays it out: the course, then
-/// its lessons (t("General"), 1, 2, …) one at a time, each with its own text (授業
+/// its lessons (一般, 1, 2, 演習 1, …) one at a time, each with its own text (授業
 /// 計画), its files, the pages, labels and announcements shown in place, and
 /// the assignments set in it, which open in place. Content comes from Core's
 /// `CourseContent`; links and the files folder from `CourseDetail`.
@@ -93,8 +93,7 @@ struct CourseDetailScreen: View {
 
     // MARK: Lessons
 
-    /// Core's lessons: sections in order, numbered from their titles as the
-    /// desktop rail numbers them.
+    /// Core's lessons: sections in order, with the rail's labels.
     private var lessons: [LessonContent] { content?.lessons ?? [] }
 
     private var index: Int? { lessons.firstIndex { Int($0.section) == lesson } }
@@ -103,9 +102,11 @@ struct CourseDetailScreen: View {
     /// finger (or the chip row) points.
     private var pages: some View {
         let number = lesson ?? 0
+        let shown = lessons.first { Int($0.section) == number }
+        let set = workIds(shown)
         let page = LessonPage(
-            lesson: lessons.first { Int($0.section) == number },
-            work: assignments.filter { Int($0.sectionNumber ?? 0) == number },
+            lesson: shown,
+            work: assignments.filter { set.contains($0.assignmentId) },
             files: detail?.files,
             opened: $opened)
         let forward = step == .next
@@ -123,6 +124,14 @@ struct CourseDetailScreen: View {
             let target = lessons[turn == .next ? index + 1 : index - 1]
             select(Int(target.section))
         }
+    }
+
+    /// The assignments Core sets in a lesson; those outside any section go
+    /// with the first page.
+    private func workIds(_ shown: LessonContent?) -> [String] {
+        guard let shown else { return [] }
+        let others = shown.section == lessons.first?.section ? content?.otherAssignmentIds ?? [] : []
+        return shown.assignmentIds + others
     }
 
     private func select(_ target: Int) {
@@ -263,9 +272,10 @@ struct CourseDetailScreen: View {
     }
 }
 
-/// t("General"), 1, 2, … as on the desktop lesson rail; the chosen one stays in
-/// view. A dot marks where the course is (Core's `currentSection`); a long
-/// press marks a lesson as the one for the coming (or today's) class.
+/// Core's rail labels (一般, 1, 2, 演習 1, …), as on the desktop lesson rail;
+/// the chosen one stays in view. A dot marks where the course is (Core's
+/// `currentSection`); a long press marks a lesson as the one for the coming
+/// (or today's) class.
 private struct LessonChips: View {
     let lessons: [LessonContent]
     let selection: Int?
@@ -273,15 +283,6 @@ private struct LessonChips: View {
     let classAt: Date?
     let select: (Int) -> Void
     let mark: (LessonContent) -> Void
-
-    /// The lesson number when the course numbers its lessons, else a short
-    /// form of the section title.
-    private func label(_ lesson: LessonContent) -> String {
-        if let number = lesson.number { return "\(number)" }
-        if lesson.section == 0 { return t("General") }
-        let title = lesson.title ?? "\(lesson.section)"
-        return title.count > 8 ? String(title.prefix(7)) + "…" : title
-    }
 
     /// `11/27` in Tokyo time.
     private var classDay: String? {
@@ -312,9 +313,10 @@ private struct LessonChips: View {
             Button {
                 select(Int(lesson.section))
             } label: {
-                Text(label(lesson))
+                Text(lesson.label)
                     .font(.subheadline.weight(.semibold).monospacedDigit())
-                    .frame(minWidth: 34)
+                    .lineLimit(1)
+                    .frame(minWidth: 34, maxWidth: 160)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .foregroundStyle(selected ? Theme.accentInk : Theme.ink)
@@ -347,7 +349,9 @@ private struct LessonPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if let heading = lesson?.title, !heading.isEmpty {
+            // Headed by the plan's first line, as a desktop lesson is, else
+            // by its title.
+            if let heading = lesson.flatMap({ $0.summary.isEmpty ? $0.title : .some($0.summary) }), !heading.isEmpty {
                 Text(heading)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Theme.ink)

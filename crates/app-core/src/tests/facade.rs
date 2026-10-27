@@ -872,7 +872,6 @@ fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
         json!({"kind":"subscriptionViews"}),
         json!({"kind":"planningWeek","term":"2026-3Q"}),
         json!({"kind":"academicYears","date":"2026-10-05","selectedYear":2026}),
-        json!({"kind":"courseTimeline","courseId":course,"now":now}),
         json!({"kind":"taskView","now":now}),
         json!({"kind":"today","now":now}),
         json!({"kind":"today","now":"2026-10-14T12:00:00+09:00"}),
