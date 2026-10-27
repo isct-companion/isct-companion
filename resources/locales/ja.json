@@ -1338,5 +1338,14 @@
   "Cool": "クール",
   "Paper": "ペーパー",
   "Mist": "ミスト",
-  "Moss": "モス"
+  "Moss": "モス",
+  "When closing the window": "ウインドウを閉じるとき",
+  "Ask every time": "毎回確認する",
+  "Quit": "終了",
+  "Keep in Dock": "Dock に残す",
+  "Minimize to tray": "タスクトレイに最小化",
+  "Close IsctCompanion?": "IsctCompanion を閉じますか？",
+  "Keeping it running lets reminders and sync continue.": "実行したままにすると、リマインダーと同期が続きます。",
+  "Remember my choice": "この選択を記憶する",
+  "Show IsctCompanion": "IsctCompanion を表示"
 }

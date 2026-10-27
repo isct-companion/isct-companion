@@ -960,6 +960,15 @@ impl DataStore {
         read_rows(&*self.open()?, table)
     }
 
+    /// One field of this device's preferences, for a shell that acts on it
+    /// outside a window query (the close prompt, the tray's language).
+    pub fn device_preference(&self, pointer: &str) -> Result<Option<Value>, DataError> {
+        let connection = self.open()?;
+        Ok(read_setting(&connection, "devicePreferences")?
+            .or(read_setting(&connection, "settings")?)
+            .and_then(|value| value.pointer(pointer).cloned()))
+    }
+
     pub fn agent_access_enabled(&self) -> Result<bool, DataError> {
         agent_access_enabled_in(&*self.open()?)
     }

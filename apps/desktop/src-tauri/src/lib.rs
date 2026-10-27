@@ -41,6 +41,12 @@ mod school_browser_native;
 mod school_downloads;
 mod school_web;
 mod secrets;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod window_close;
+#[cfg(target_os = "macos")]
+mod window_close_macos;
+#[cfg(target_os = "windows")]
+mod window_close_windows;
 mod workspaces;
 
 /// The frontend's build-time identity: shell kind and operating system, both
@@ -180,7 +186,13 @@ fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
 
 pub fn run() {
     let _ = app_core::diagnostics::initialize();
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Registered first, so a second launch hands over before anything starts.
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        window_close::show_main(app)
+    }));
+    let builder = builder
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
             log::info!(
                 "[lms-file] protocol {} from {}",
@@ -228,6 +240,12 @@ pub fn run() {
                 app.exit(0);
             }
         });
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let builder = builder.on_window_event(|window, event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            window_close::close_requested(window, api);
+        }
+    });
     builder
         .invoke_handler(tauri::generate_handler![
             commands::platform::check_app_update,
@@ -445,7 +463,9 @@ pub fn run() {
                         // Draining owned work can take up to EXIT_TIMEOUT. A
                         // window left on screen meanwhile reads as a frozen
                         // app, most visibly after "Install and quit".
-                        for window in app.webview_windows().into_values() {
+                        // `windows()`: the main window holds child school
+                        // views, so it is not a "webview window" to tauri.
+                        for window in app.windows().into_values() {
                             let _ = window.hide();
                         }
                         let app = app.clone();
@@ -474,6 +494,11 @@ pub fn run() {
                         });
                     }
                 }
+            }
+            // The Dock icon brings back a window closed to the background.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = &event {
+                window_close::show_main(app);
             }
             if matches!(&event, tauri::RunEvent::Resumed) {
                 tauri::async_runtime::block_on(core_ports::runtime(app).resume());

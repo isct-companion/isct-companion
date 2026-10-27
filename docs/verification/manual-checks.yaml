@@ -1258,6 +1258,63 @@ checks:
       - apps/desktop/src-tauri/src/lms_files.rs
     verified: null
 
+  - id: DESKTOP-CLOSE-WINDOW
+    area: desktop
+    title: Closing the window quits, keeps the app in the Dock or tray, or asks
+    persona: windows-snap-user
+    preconditions: |
+      macOS and Windows desktop builds of this commit with no close choice
+      remembered (Settings → Appearance → When closing the window: Ask every
+      time).
+    steps:
+      - action: |
+          Close the main window with its close button, choose Cancel, then
+          close it again with Cmd-W on macOS or Alt-F4 on Windows.
+        reason: |
+          Cancel must leave the window as it was; the second close shows the
+          prompt was not a one-shot and that every close route asks.
+      - action: |
+          Close again and choose Keep in Dock (macOS) or Minimize to tray
+          (Windows) without ticking Remember my choice. Wait for a reminder,
+          then click the Dock icon or the tray icon.
+        reason: |
+          A hidden window must keep reminders and sync running and come back
+          from the place the prompt named; on Windows the tray menu's Show
+          and Quit must also work.
+      - action: |
+          On Windows, with the window hidden, start the app again from the
+          Start menu.
+        reason: |
+          A second copy against the same data must not start; the running
+          app shows its window instead.
+      - action: |
+          Close again, tick Remember my choice and choose Quit. Reopen the
+          app, check Settings, then set it back to Ask every time.
+        reason: |
+          The remembered choice is written before the app exits; Settings
+          showing Quit proves it, and closing afterwards must quit without a
+          prompt until the setting changes.
+    observe: |
+      The native prompt (a sheet on macOS, a task dialog on Windows) and its
+      labels in the app's language, the Dock or tray icon, the Settings row,
+      and whether a second process appears in Task Manager.
+    expected: |
+      Cancel keeps the window; background hides it while reminders still
+      arrive and the Dock or tray icon brings it back; a second launch on
+      Windows only shows the window; a remembered Quit closes the app with
+      no prompt and shows as Quit in Settings.
+    why_manual: |
+      The close button, Dock reopen, tray icon, single-instance hand-over
+      and the native prompt belong to the OS window manager, which no
+      headless suite drives.
+    covers:
+      - apps/desktop/src-tauri/src/window_close.rs
+      - apps/desktop/src-tauri/src/window_close_macos.rs
+      - apps/desktop/src-tauri/src/window_close_windows.rs
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src/pages/settings/AppearanceSettings.tsx
+    verified: null
+
   - id: DESKTOP-NARROW-WINDOW
     area: desktop
     title: Keyboard-only use in a narrow window

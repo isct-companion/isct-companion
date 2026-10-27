@@ -1338,5 +1338,14 @@
   "Cool": "冷灰",
   "Paper": "米白",
   "Mist": "淡蓝",
-  "Moss": "淡绿"
+  "Moss": "淡绿",
+  "When closing the window": "关闭窗口时",
+  "Ask every time": "每次询问",
+  "Quit": "退出",
+  "Keep in Dock": "保留在程序坞中",
+  "Minimize to tray": "最小化到托盘",
+  "Close IsctCompanion?": "要关闭 IsctCompanion 吗？",
+  "Keeping it running lets reminders and sync continue.": "保持运行时，提醒和同步会继续进行。",
+  "Remember my choice": "记住我的选择",
+  "Show IsctCompanion": "显示 IsctCompanion"
 }
