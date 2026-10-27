@@ -27,6 +27,7 @@ pub(super) fn settings_parts(settings: &Value) -> (Value, Value, Value) {
         "textSize": settings.get("textSize"),
         "automaticAppUpdates": settings.get("automaticAppUpdates"),
         "restoreSchoolPage": settings.get("restoreSchoolPage"),
+        "closeWindow": settings.get("closeWindow"),
         "activeSchoolSite": settings.get("activeSchoolSite"),
         "schoolWebZoom": settings.get("schoolWebZoom"),
         "showGrades": settings.get("showGrades"),
@@ -62,6 +63,7 @@ const PREFERENCE_CHOICES: &[(&str, &[&str])] = &[
     ("/density", &["comfortable", "compact"]),
     ("/textSize", &["small", "medium", "large"]),
     ("/locale", &["en", "ja", "zh"]),
+    ("/closeWindow", &["ask", "quit", "background"]),
     ("/contentLanguage", &["auto", "ja", "en"]),
     (
         "/notifications/localPermission",

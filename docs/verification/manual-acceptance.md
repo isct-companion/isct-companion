@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 135 checks must be re-run before the next release.**
+**9 of 136 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**126 checks have never been run or could not be run:**
+**127 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -49,6 +49,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-SCHOOL-HTTP-EXTERNAL` — never verified
 - `DESKTOP-SCHOOL-PRINT` — never verified
 - `DESKTOP-SCHOOL-NATIVE-CONFIRM` — never verified
+- `DESKTOP-CLOSE-WINDOW` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
 - `DESKTOP-PAGE-OVERLAYS` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
@@ -178,13 +179,14 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
-| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-HTTP-EXTERNAL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-SCHOOL-PRINT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
 | `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
+| `DESKTOP-CLOSE-WINDOW` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/window_close.rs<br>apps/desktop/src-tauri/src/window_close_macos.rs<br>apps/desktop/src-tauri/src/window_close_windows.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
@@ -1446,15 +1448,19 @@ A Signed in account; at least one course with downloadable material.
      the adapter sites. A link that does nothing, or a site opening in
      another site's view, means the rule table or the site mapping is
      wrong.
-2. Go Back and Forward with the app's buttons across a page reached by
+2. On Science Tokyo Portal, open Password Change, then click Science
+   Tokyo Portal in the site list again. Repeat on 教務Web and LMS.
+   - *Why:* Choosing the site already shown must load its start page, not only
+     rewrite the address bar while the view stays on the old page.
+3. Go Back and Forward with the app's buttons across a page reached by
    a 教務Web postback (a 学期 or page switch on the 成績 list).
    - *Why:* Back and Forward are WebKit's own history now. A page served from
      the cache must come back as it was; one WebKit would fetch again
      with its form must be skipped, not resent.
-3. Download a material and choose Show in Finder / Show in Explorer.
+4. Download a material and choose Show in Finder / Show in Explorer.
    - *Why:* The file lands in Downloads through the native layer; only the OS
      reveal proves the hand-off, not the download counter.
-4. On macOS, open an LMS assignment's file draft area and drag a small
+5. On macOS, open an LMS assignment's file draft area and drag a small
    local file from Finder into it, without submitting the assignment.
    Switch between the app's native pages and school WebView, let a
    background school read finish, then repeat the drag and remove the
@@ -1470,7 +1476,8 @@ Forward, the download list, and the OS file manager.
 
 **Expected**
 
-Every link opens in the site's own view, Back and Forward move through
+Every link opens in the site's own view, choosing the shown site again
+loads its start page, Back and Forward move through
 the pages without the 教務Web error page or a resent form, and the OS
 reveals the saved file. On macOS the LMS draft area accepts Finder
 files before and after view changes without restarting the app.
@@ -1489,6 +1496,7 @@ navigation, history or a reveal.
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+- `apps/desktop/src/pages/web/WebPage.tsx`
 
 **Last recorded** never run
 
@@ -1784,6 +1792,69 @@ headless suite runs.
 - `apps/desktop/src-tauri/src/school_downloads.rs`
 - `apps/desktop/src-tauri/src/commands/backup.rs`
 - `apps/desktop/src-tauri/src/lms_files.rs`
+
+**Last recorded** never run
+
+### Closing the window quits, keeps the app in the Dock or tray, or asks (`DESKTOP-CLOSE-WINDOW`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS and Windows desktop builds of this commit with no close choice
+remembered (Settings → Appearance → When closing the window: Ask every
+time).
+
+**Steps**
+
+1. Close the main window with its close button, choose Cancel, then
+   close it again with Cmd-W on macOS or Alt-F4 on Windows.
+   - *Why:* Cancel must leave the window as it was; the second close shows the
+     prompt was not a one-shot and that every close route asks.
+2. Close again and choose Keep in Dock (macOS) or Minimize to tray
+   (Windows) without ticking Remember my choice. Wait for a reminder,
+   then click the Dock icon or the tray icon.
+   - *Why:* A hidden window must keep reminders and sync running and come back
+     from the place the prompt named; on Windows the tray menu's Show
+     and Quit must also work.
+3. On Windows, with the window hidden, start the app again from the
+   Start menu.
+   - *Why:* A second copy against the same data must not start; the running
+     app shows its window instead.
+4. Close again, tick Remember my choice and choose Quit. Reopen the
+   app, check Settings, then set it back to Ask every time.
+   - *Why:* The remembered choice is written before the app exits; Settings
+     showing Quit proves it, and closing afterwards must quit without a
+     prompt until the setting changes.
+
+**Where to look**
+
+The native prompt (a sheet on macOS, a task dialog on Windows) and its
+labels in the app's language, the Dock or tray icon, the Settings row,
+and whether a second process appears in Task Manager.
+
+**Expected**
+
+Cancel keeps the window; background hides it while reminders still
+arrive and the Dock or tray icon brings it back; a second launch on
+Windows only shows the window; a remembered Quit closes the app with
+no prompt and shows as Quit in Settings.
+
+**Why this is manual**
+
+The close button, Dock reopen, tray icon, single-instance hand-over
+and the native prompt belong to the OS window manager, which no
+headless suite drives.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/window_close.rs`
+- `apps/desktop/src-tauri/src/window_close_macos.rs`
+- `apps/desktop/src-tauri/src/window_close_windows.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src/pages/settings/AppearanceSettings.tsx`
 
 **Last recorded** never run
 

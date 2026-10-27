@@ -1,6 +1,7 @@
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { UiInput } from "../../components/ui";
+import { nativeOs } from "../../platform/desktop-bridge";
 import {
   Choice,
   MoreOptions,
@@ -69,6 +70,9 @@ export function AppearanceSettings({
       draft.settings[key] = value;
       return draft;
     });
+  // Only the macOS and Windows shells keep running after the window closes.
+  const os = nativeOs();
+  const closeOs = os === "macos" || os === "windows" ? os : undefined;
   return (
     <>
       <SettingsHeader title="Appearance" />
@@ -123,6 +127,24 @@ export function AppearanceSettings({
             onChange={(textSize) => set("textSize", textSize)}
           />
         </Row>
+        {closeOs && (
+          <Row id="close-window" group title="When closing the window">
+            <Choice
+              value={data.settings.closeWindow ?? "ask"}
+              options={[
+                { value: "ask", label: t("Ask every time") },
+                { value: "quit", label: t("Quit") },
+                {
+                  value: "background",
+                  label: t(
+                    closeOs === "macos" ? "Keep in Dock" : "Minimize to tray",
+                  ),
+                },
+              ]}
+              onChange={(closeWindow) => set("closeWindow", closeWindow)}
+            />
+          </Row>
+        )}
         <Row id="bilingual" title="Show one language in bilingual LMS">
           <Toggle
             checked={data.settings.lmsBilingualFilter ?? false}

@@ -67,6 +67,7 @@ function searchSettings(
   const settings: SearchResult[] = SETTING_ENTRIES.filter(
     (entry) =>
       supported(entry.section) &&
+      (entry.available?.() ?? true) &&
       matches(
         `${entry.title} ${t(entry.title)} ${sectionLabel(entry.section)} ${t(sectionLabel(entry.section))} ${entry.terms ?? ""}`,
       ),

@@ -1345,5 +1345,14 @@
   "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN.": "このページを開けませんでした：サーバーが応答しません。学内限定のサービスには学内ネットワークか VPN が必要です。",
   "This page could not be opened: the secure connection failed.": "このページを開けませんでした：安全な接続を確立できませんでした。",
   "This page uses an unencrypted connection, so it opens only in your browser.": "このページは暗号化されていない接続を使うため、ブラウザでのみ開けます。",
-  "This page could not be opened.": "このページを開けませんでした。"
+  "This page could not be opened.": "このページを開けませんでした。",
+  "When closing the window": "ウインドウを閉じるとき",
+  "Ask every time": "毎回確認する",
+  "Quit": "終了",
+  "Keep in Dock": "Dock に残す",
+  "Minimize to tray": "タスクトレイに最小化",
+  "Close IsctCompanion?": "IsctCompanion を閉じますか？",
+  "Keeping it running lets reminders and sync continue.": "実行したままにすると、リマインダーと同期が続きます。",
+  "Remember my choice": "この選択を記憶する",
+  "Show IsctCompanion": "IsctCompanion を表示"
 }

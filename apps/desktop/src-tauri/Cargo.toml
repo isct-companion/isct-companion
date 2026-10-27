@@ -58,8 +58,9 @@ if-addrs = "0.14"
 ipnet = "2"
 hickory-resolver = { version = "0.25", default-features = false, features = ["tokio"] }
 # NSPasteboard and NSSharingService: copy and share a course file (file_share_macos.rs).
-# NSAlert sheets: school pages' confirm/alert/prompt (school_webkit.rs).
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["block2", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSPasteboard", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSSharingService", "NSTextField", "NSView", "NSWindow"] }
+# NSAlert sheets and the print panel: school pages' confirm/alert/prompt and
+# window.print() (school_webkit.rs), and the close prompt (window_close_macos.rs).
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["block2", "NSAlert", "NSApplication", "NSButton", "NSCell", "NSControl", "NSPasteboard", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSSharingService", "NSTextField", "NSView", "NSWindow"] }
 # Native notifications (notifications_macos.rs).
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 # School view WebKit hooks (school_webkit.rs). Same versions wry already uses.
@@ -84,9 +85,16 @@ windows = { version = "0.62", features = [
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_System_Ole",
+    "Win32_UI_Controls",
     "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 windows-collections = "0.3"
+# The tray icon that keeps a closed window's app running (window_close_windows.rs).
+tauri = { version = "2.12", features = ["protocol-asset", "tray-icon"] }
+# A second launch shows the running app's hidden window instead of starting
+# another copy against the same data. It injects no script into webviews.
+tauri-plugin-single-instance = "2"
 
 [dev-dependencies]
 adpt-isct = { path = "../../../crates/adpt-isct" }
