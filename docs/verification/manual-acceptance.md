@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 127 checks must be re-run before the next release.**
+**10 of 129 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**117 checks have never been run or could not be run:**
+**119 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -48,6 +48,8 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
+- `DESKTOP-FILE-SHARE-MACOS` — never verified
+- `DESKTOP-FILE-SHARE-WINDOWS` — never verified
 - `DESKTOP-LECTURES-PANE-MOTION` — never verified
 - `DESKTOP-LOG-EXPORT` — never verified
 - `DESKTOP-PULL-STRESS` — never verified
@@ -177,6 +179,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
+| `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-LECTURES-PANE-MOTION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
@@ -1782,6 +1786,120 @@ whether the PDF.js data files ship with it.
 - `apps/desktop/src/components/workspace-chrome.css`
 - `apps/desktop/vite.config.ts`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+
+**Last recorded** never run
+
+### Copying and sharing a downloaded course file on macOS (`DESKTOP-FILE-SHARE-MACOS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to LMS, with a course
+whose materials include a PDF and a non-preview file (a .zip or .docx).
+
+**Steps**
+
+1. Open the PDF from the course outline and wait for it to render.
+   Look at the reader toolbar.
+   - *Why:* Copy and Share appear only once the file is on disk and only on
+     macOS and Windows; a missing pair here means the nativeOs() gate or
+     the download state hides them.
+2. Click Copy, then paste in a Finder window and into a new Mail
+   message.
+   - *Why:* The pasteboard must carry the file URL, not its path as text: a
+     pasted name or path instead of a file means the wrong pasteboard
+     type was written.
+3. Click Share.
+   - *Why:* The NSSharingServicePicker must open at the button; a menu at the
+     window's corner means the page-to-AppKit coordinate flip is wrong.
+4. Choose AirDrop or Messages from the picker and send the file to
+   yourself.
+   - *Why:* The picker is released after it closes; a crash or an empty share
+     means it was freed while its menu was showing.
+5. Repeat Copy on the non-preview file's card.
+   - *Why:* The command accepts only files under the course-files root; the
+     card's file lives there too and must copy the same way.
+
+**Where to look**
+
+The reader toolbar, the "File copied" notice, Finder and Mail after the
+paste, and where the share picker opens.
+
+**Expected**
+
+Pasting gives the file itself in Finder and Mail, the share picker
+opens below the Share button with AirDrop, Messages and Mail, and the
+chosen service receives the file.
+
+**Why this is manual**
+
+The system pasteboard, the paste in other apps and the share picker
+are native UI outside the WebView that no headless suite can drive or
+read; the path restriction is covered by the app-core suite.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/file_share.rs`
+- `apps/desktop/src-tauri/src/file_share_macos.rs`
+- `apps/desktop/src/features/lms/FilePreview.tsx`
+
+**Last recorded** never run
+
+### Copying and sharing a downloaded course file on Windows (`DESKTOP-FILE-SHARE-WINDOWS`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Windows 10 or 11 desktop build of this commit, signed in to LMS, with
+a course whose materials include a PDF.
+
+**Steps**
+
+1. Open the PDF from the course outline and look at the reader toolbar.
+   - *Why:* Copy and Share must show once the file is downloaded; this build is
+     the first that compiles the Windows half, so a missing pair or a
+     failed launch shows here first.
+2. Click Copy, then paste in File Explorer and attach by pasting into
+   an Outlook or Teams message.
+   - *Why:* The clipboard must hold CF_HDROP with a wide, double-null-terminated
+     path; a paste that does nothing or a garbled name means the
+     DROPFILES block is wrong.
+3. Click Share, choose Nearby Sharing or Mail, then click Share again
+   and choose a different target.
+   - *Why:* The share UI asks the window's DataRequested handler for the file;
+     an empty or "nothing to share" sheet means the handler or the
+     package title failed, and the second share must send the newly
+     chosen file rather than register a second handler.
+
+**Where to look**
+
+The reader toolbar, the "File copied" notice, Explorer and the message
+after the paste, and the Windows share sheet.
+
+**Expected**
+
+Pasting in Explorer creates a copy of the PDF, the message gets the PDF
+as an attachment, and the share sheet lists the PDF by name and sends
+it each time.
+
+**Why this is manual**
+
+The Windows clipboard, Explorer and the share sheet are native UI that
+only a real Windows session runs, and this Mac cannot build the
+Windows app (ring needs the MSVC headers); the path restriction is
+covered by the app-core suite.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/file_share.rs`
+- `apps/desktop/src-tauri/src/file_share_windows.rs`
+- `apps/desktop/src/features/lms/FilePreview.tsx`
 
 **Last recorded** never run
 

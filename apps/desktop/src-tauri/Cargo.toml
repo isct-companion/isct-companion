@@ -54,12 +54,13 @@ objc2-core-wlan = { version = "0.3.2", default-features = false, features = ["st
 if-addrs = "0.14"
 ipnet = "2"
 hickory-resolver = { version = "0.25", default-features = false, features = ["tokio"] }
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSResponder", "NSView"] }
+# NSPasteboard and NSSharingService: copy and share a course file (file_share_macos.rs).
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSPasteboard", "NSResponder", "NSSharingService", "NSView"] }
 # Native notifications (notifications_macos.rs).
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 # School view WebKit hooks (school_webkit.rs). Same versions wry already uses.
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSBundle", "NSData", "NSError", "NSString", "NSURL", "NSURLRequest", "NSURLResponse"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSError", "NSGeometry", "NSString", "NSURL", "NSURLRequest", "NSURLResponse"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKDownload", "WKDownloadDelegate", "WKNavigation", "WKNavigationDelegate", "WKNavigationResponse", "WKUIDelegate", "WKWebView"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -68,6 +69,20 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 tauri-winrt-notification = "0.7.3"
 # Mica needs Windows 11; the build number decides whether the window gets it.
 windows-version = "0.1"
+# CF_HDROP and the share UI for a course file (file_share_windows.rs); the
+# version tauri and wry already use.
+windows = { version = "0.62", features = [
+    "ApplicationModel_DataTransfer",
+    "Foundation_Collections",
+    "Storage",
+    "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Shell",
+] }
+windows-collections = "0.3"
 
 [dev-dependencies]
 adpt-isct = { path = "../../../crates/adpt-isct" }

@@ -16,6 +16,11 @@ mod command_error;
 pub(crate) use command_error::{coded, shell, CommandError};
 mod commands;
 mod desktop_updates;
+mod file_share;
+#[cfg(target_os = "macos")]
+mod file_share_macos;
+#[cfg(target_os = "windows")]
+mod file_share_windows;
 pub use app_core::contracts;
 pub use app_core::data;
 #[cfg(target_os = "macos")]
@@ -241,6 +246,8 @@ pub fn run() {
             lms_files::list_course_notes,
             lms_files::open_course_material,
             lms_files::open_course_file,
+            file_share::copy_course_file,
+            file_share::share_course_file,
             lms_files::clean_course_materials,
             workspaces::assignment_workspace,
             workspaces::create_assignment_workspace,
