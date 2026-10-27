@@ -765,7 +765,7 @@ impl Inner {
         let Some(profile) = url.host_str().and_then(SchoolAuthProfile::for_auth_host) else {
             return;
         };
-        let Some(expected_url) = sanitize_school_url(url.as_str()) else {
+        let Some(expected_url) = restore_record(url.as_str()) else {
             return;
         };
         if self.state.with(|state| state.login.is_some()) {
@@ -1133,7 +1133,7 @@ fn still_on_login_page(state: &State, page: PageId, expected_url: &str) -> bool 
     state.views.get(&page.browser.site).is_some_and(|view| {
         view.id == page.browser
             && view.last_page == page.sequence
-            && sanitize_school_url(&view.url).as_deref() == Some(expected_url)
+            && restore_record(&view.url).as_deref() == Some(expected_url)
     })
 }
 

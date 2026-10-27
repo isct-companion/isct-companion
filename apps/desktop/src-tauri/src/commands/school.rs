@@ -111,8 +111,8 @@ pub(crate) fn navigate_school_web(
     controller.engine.navigate(site, &url).map_err(coded)
 }
 
-/// The app's own Back for the school view: reloads the previous page as a
-/// GET instead of `history.back()` (which would resubmit postbacks).
+/// The app's Back for the school view (or the popup in front of it), through
+/// the engine's history; Core keeps it from resending a form.
 #[tauri::command]
 pub(crate) fn school_web_back(
     webview: tauri::Webview,
@@ -123,7 +123,7 @@ pub(crate) fn school_web_back(
     controller.engine.back(site).map_err(coded)
 }
 
-/// The app's Forward for the school view, the counterpart of Back.
+/// The app's Forward, the counterpart of Back.
 #[tauri::command]
 pub(crate) fn school_web_forward(
     webview: tauri::Webview,
@@ -132,6 +132,17 @@ pub(crate) fn school_web_forward(
 ) -> Result<bool, CommandError> {
     require_local_main(&webview)?;
     controller.engine.forward(site).map_err(coded)
+}
+
+/// Closes the popup in front of the school view.
+#[tauri::command]
+pub(crate) fn close_school_web_popup(
+    webview: tauri::Webview,
+    controller: tauri::State<'_, SchoolWebController>,
+    site: SchoolSite,
+) -> Result<bool, CommandError> {
+    require_local_main(&webview)?;
+    Ok(controller.close_popup(site)?)
 }
 
 /// Shows a file a school page saved this session in Finder; other paths are

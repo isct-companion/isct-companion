@@ -119,13 +119,6 @@ final class WebRouter {
     func forward(_ site: SchoolSite) { _ = try? session?.forwardSchool(site: site) }
     func reload(_ site: SchoolSite) { _ = try? session?.reloadSchool(site: site) }
 
-    /// Core asks the shell to present another site (a cross-site popup).
-    func handleOpenEvent(_ payload: String) {
-        guard let row = Self.object(payload), let site = Self.site(row["site"] as? String) else { return }
-        tabSite = site
-        open(site, target: row["url"] as? String)
-    }
-
     static func name(_ site: SchoolSite) -> String {
         switch site {
         case .sciencePortal: return t("Portal")
@@ -140,12 +133,7 @@ final class WebRouter {
         }
     }
 
-    private static func object(_ json: String) -> [String: Any]? {
-        guard let data = json.data(using: .utf8) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-    }
-
-    /// Core's wire name for a site, the inverse of `site(_:)`.
+    /// Core's wire name for a site (`SchoolSite` serde names).
     static func wireName(_ site: SchoolSite) -> String {
         switch site {
         case .sciencePortal: "science-portal"
@@ -157,22 +145,6 @@ final class WebRouter {
         case .tsubame: "tsubame"
         case .syllabus: "syllabus"
         case .studyGuide: "study-guide"
-        }
-    }
-
-    /// Core's wire names for sites (`SchoolSite` serde names).
-    private static func site(_ raw: String?) -> SchoolSite? {
-        switch raw {
-        case "science-portal", "portal": return .sciencePortal
-        case "science-lms", "lms": return .scienceLms
-        case "tokyo-portal": return .tokyoPortal
-        case "tokyo-mail": return .tokyoMail
-        case "kyomu": return .kyomu
-        case "library": return .library
-        case "tsubame": return .tsubame
-        case "syllabus": return .syllabus
-        case "study-guide": return .studyGuide
-        default: return nil
         }
     }
 }

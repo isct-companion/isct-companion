@@ -5,7 +5,9 @@ use app_core::{
     events::{SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
     school_auth::SchoolAuthProfile,
-    school_browser::{SchoolLoginEvent, SchoolSessionEvent, SchoolSessionState},
+    school_browser::{
+        LoadFailure, SchoolLoginEvent, SchoolSessionEvent, SchoolSessionState, SchoolWebNotice,
+    },
     school_service::{IngestOutcome, IngestState},
     sync_engine::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
     workspace_changes::WorkspaceChange,
@@ -21,7 +23,8 @@ fn sample(event: &CoreEvent) -> &'static str {
         CoreEvent::SchoolLogin(_) => "login",
         CoreEvent::SchoolSession(_) => "session",
         CoreEvent::SchoolWebUrl { .. } => "url",
-        CoreEvent::SchoolWebOpen { .. } => "open",
+        CoreEvent::SchoolWebPopups { .. } => "popups",
+        CoreEvent::SchoolWebNotice { .. } => "notice",
         CoreEvent::SchoolIngest(_) => "ingest",
         CoreEvent::SchoolDownload(_) => "download",
         CoreEvent::SyncSnapshot(_) => "sync",
@@ -90,12 +93,31 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             json!({"site":"science-lms","url":url}),
         ),
         (
-            CoreEvent::SchoolWebOpen {
+            CoreEvent::SchoolWebPopups {
                 site: SchoolSite::Kyomu,
-                url: url.clone(),
+                open: 2,
             },
-            "school-web-open",
-            json!({"site":"kyomu","url":url}),
+            "school-web-popups",
+            json!({"site":"kyomu","open":2}),
+        ),
+        (
+            CoreEvent::SchoolWebNotice {
+                site: SchoolSite::TokyoPortal,
+                notice: SchoolWebNotice::LoadFailed {
+                    url: Some(url.clone()),
+                    reason: LoadFailure::HostNotFound,
+                },
+            },
+            "school-web-notice",
+            json!({"site":"tokyo-portal","kind":"load-failed","url":url,"reason":"host-not-found"}),
+        ),
+        (
+            CoreEvent::SchoolWebNotice {
+                site: SchoolSite::Kyomu,
+                notice: SchoolWebNotice::Reopened { url: url.clone() },
+            },
+            "school-web-notice",
+            json!({"site":"kyomu","kind":"reopened","url":url}),
         ),
         (
             CoreEvent::SchoolIngest(IngestOutcome {
@@ -162,5 +184,5 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
         covered.insert(sample(&event));
         assert_eq!(wire(&event), (name, payload));
     }
-    assert_eq!(covered.len(), 11);
+    assert_eq!(covered.len(), 12);
 }

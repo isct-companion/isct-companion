@@ -1,14 +1,14 @@
 //! Desktop resident school views; all login and extraction logic is shared.
 use crate::lifecycle::SchoolSite;
+use crate::school_browser_native::ViewCallbacks;
 #[cfg(target_os = "macos")]
 use crate::school_browser_native::SCHOOL_DATA_STORE;
 pub use crate::school_browser_native::{
     SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds,
 };
-use crate::school_browser_native::{ViewCallbacks, KYOMU_POPUP_SCRIPT, SCHOOL_LINKS_SCRIPT};
 #[cfg(target_os = "macos")]
 use tauri::utils::config::BackgroundThrottlingPolicy;
-use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
+use tauri::webview::{PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl};
 use url::Url;
 pub(crate) type NativeWebview = tauri::Webview;
@@ -58,6 +58,39 @@ pub(crate) fn school_profile<R: tauri::Runtime>(
     Ok(builder)
 }
 
+/// Steps a view through the engine's own history.
+pub(crate) fn go(webview: &NativeWebview, back: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::school_webkit::Command;
+        let command = if back {
+            Command::GoBack
+        } else {
+            Command::GoForward
+        };
+        webview
+            .with_webview(move |platform| {
+                // SAFETY: `inner()` is this view's live WKWebView, and
+                // `with_webview` invokes this closure on the main thread.
+                unsafe { crate::school_webkit::command(platform.inner(), command) }
+            })
+            .map_err(|error| error.to_string())
+    }
+    // Until the WebView2 host exists, the page's own history API.
+    #[cfg(not(target_os = "macos"))]
+    webview
+        .eval(if back {
+            "history.back()"
+        } else {
+            "history.forward()"
+        })
+        .map_err(|error| error.to_string())
+}
+
+/// A resident school view. School pages get no script of the app's: only
+/// Core's own sign-in and page scripts, which Core evaluates itself. The
+/// platform host decides navigation and windows (`school_webkit.rs`; the
+/// Windows interim's wry callbacks in `school_windows.rs`).
 pub(crate) fn create_webview(
     app: &AppHandle,
     site: SchoolSite,
@@ -65,6 +98,7 @@ pub(crate) fn create_webview(
     bounds: WebBounds,
     visible: bool,
     callbacks: ViewCallbacks,
+    #[cfg(windows)] interim: crate::school_windows::Interim,
 ) -> Result<NativeWebview, String> {
     let main = app
         .get_window("main")
@@ -74,20 +108,15 @@ pub(crate) fn create_webview(
         app,
         WebviewBuilder::new(site.webview_label(), WebviewUrl::External(start)),
     )?
-    .initialization_script_for_all_frames(KYOMU_POPUP_SCRIPT)
-    .initialization_script_for_all_frames(SCHOOL_LINKS_SCRIPT)
     .on_page_load(move |_, payload| {
         if payload.event() == PageLoadEvent::Finished {
             (callbacks.loaded)(payload.url().as_str());
         }
     })
     .on_document_title_changed(move |_, title| (callbacks.title)(&title))
-    .on_navigation(move |url| (callbacks.navigation)(url))
-    .on_download(move |_, event| (callbacks.download)(event))
-    .on_new_window(move |url, _| {
-        (callbacks.new_window)(url);
-        NewWindowResponse::Deny
-    });
+    .on_download(move |_, event| (callbacks.download)(event));
+    #[cfg(windows)]
+    let builder = interim.attach(app, builder);
     let position = if visible {
         LogicalPosition::new(bounds.x, bounds.y)
     } else {

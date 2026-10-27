@@ -754,8 +754,6 @@
   "Opening…": "正在打开…",
   "School navigation needs the installed app.": "浏览学校网站需要安装版应用。",
   "Invalid address": "地址无效",
-  "No previous page.": "没有上一页。",
-  "No next page.": "没有下一页。",
   "Could not open the system browser.": "无法打开系统浏览器。",
   "Zoom could not be changed.": "无法调整缩放。",
   "The school window could not be opened.": "无法打开学校网站窗口。",
@@ -1338,5 +1336,14 @@
   "Cool": "冷灰",
   "Paper": "米白",
   "Mist": "淡蓝",
-  "Moss": "淡绿"
+  "Moss": "淡绿",
+  "Popup window": "弹出窗口",
+  "Close window": "关闭窗口",
+  "Reopened this page without sending the form again.": "已重新打开此页，没有重复提交表单。",
+  "This page could not be opened: there is no network connection.": "无法打开此页：没有网络连接。",
+  "This page could not be opened: its server was not found. Campus-only services need the campus network or VPN.": "无法打开此页：找不到服务器。仅限校内的服务需要校园网或 VPN。",
+  "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN.": "无法打开此页：服务器没有响应。仅限校内的服务需要校园网或 VPN。",
+  "This page could not be opened: the secure connection failed.": "无法打开此页：安全连接失败。",
+  "This page uses an unencrypted connection, so it opens only in your browser.": "此页使用未加密的连接，只能在浏览器中打开。",
+  "This page could not be opened.": "无法打开此页。"
 }

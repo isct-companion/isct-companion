@@ -260,8 +260,6 @@ final class AppModel {
                         }
                     case "school-session", "school-login-status":
                         await refreshAccounts()
-                    case "school-web-open":
-                        web.handleOpenEvent(event.payload)
                     case "ocr-progress":
                         if let row = try? JSONSerialization.jsonObject(with: Data(event.payload.utf8)) as? [String: Any],
                             let completed = (row["completed"] as? NSNumber)?.intValue

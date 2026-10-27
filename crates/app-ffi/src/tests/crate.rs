@@ -866,6 +866,12 @@ async fn shutdown_timeout_keeps_ownership_of_the_pending_commit() {
 #[derive(Default)]
 struct BrowserFixture(Mutex<Option<Arc<crate::ports::BrowserEvents>>>);
 impl crate::ports::NativeBrowser for BrowserFixture {
+    fn capabilities(&self) -> crate::ports::HostCapabilities {
+        crate::ports::HostCapabilities {
+            form_resubmission: true,
+            inline_popups: true,
+        }
+    }
     fn attach(&self, e: Arc<crate::ports::BrowserEvents>) -> Result<(), SdkError> {
         *self.0.lock().unwrap() = Some(e);
         Ok(())

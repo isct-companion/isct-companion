@@ -1,4 +1,5 @@
-use crate::school_auth::SchoolAuthProfile;
+use super::{NavigationKind, NavigationRequest, NewWindowRequest};
+use crate::{lifecycle::SchoolSite, school_auth::SchoolAuthProfile};
 use url::Url;
 
 /// The registrable domains of the school sign-ins. Every cookie under them
@@ -14,60 +15,25 @@ pub fn is_school_cookie_domain(domain: &str) -> bool {
         .any(|school| domain == *school || domain.ends_with(&format!(".{school}")))
 }
 
-/// Official origins eligible for school automation and persisted restore URLs.
-/// Interactive WebView browsing is governed separately by `browsing_url`.
-///
-/// The list is grouped by the campus that publishes the system, following the
-/// student site's 学修関連システム page. An origin in this list may be loaded in a
-/// school automation flow; membership does not imply an adapter, a start page or a
-/// `SchoolSite` mapping.
-pub const SCHOOL_HOSTS: &[&str] = &[
-    // 理工学系 (Science and engineering): portal, LMS, syllabus, 教務, library,
-    // TSUBAME, mail and the former Tokyo Tech site that still serves 学修案内.
-    "isct.ex-tic.com",
-    "portal.isct.ac.jp",
-    "portal.titech.ac.jp",
-    "lms.s.isct.ac.jp",
-    "t2schola.titech.ac.jp",
-    "syllabus.s.isct.ac.jp",
-    "portal.nap.gsic.titech.ac.jp",
-    "rp.nap.gsic.titech.ac.jp",
-    "mailv4.m.titech.ac.jp",
-    "kyomu0.gakumu.titech.ac.jp",
-    "request.libra.titech.ac.jp",
-    "portal.t4.gsic.titech.ac.jp",
-    "www.titech.ac.jp",
-    // 医歯学系 (medicine and dentistry): Dream Campus and Web Class. Allowlisted
-    // so a school page can hand off to them, but NOT verified: no adapter, no
-    // `SchoolSite` mapping and no live account has been exercised. Do not add
-    // extraction or start-page behaviour without that verification.
-    "yushima2.tmd.ac.jp",
-    "lib02.tmd.ac.jp",
-    // Services linked from the Tokyo Tech Portal resource menu, which open
-    // in the portal's own view.
-    "portfolio2.gakumu.titech.ac.jp",
-    "healdb.gakumu.titech.ac.jp",
-    "acc1.dx.titech.ac.jp",
-    "vlmgr-42.edu2024.gsic.titech.ac.jp",
-    "lsci.rpd.titech.ac.jp",
-    "apm.nap.gsic.titech.ac.jp",
-    "search-inside.star.titech.ac.jp",
-    "signin.noc.titech.ac.jp",
-    "idp-gakunin.nap.gsic.titech.ac.jp",
-    "idp-saas.nap.gsic.titech.ac.jp",
-];
+/// A URL school automation may load: HTTPS to a site with an adapter
+/// (`SchoolSite::for_url`) or a school identity provider, without embedded
+/// credentials. Hidden views, Core's page scripts and hidden downloads are
+/// bounded by this; what the person browses is not.
+pub fn automation_target(raw: &str) -> Option<Url> {
+    let url = Url::parse(raw).ok()?;
+    let host = url.host_str()?;
+    (url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && (SchoolSite::for_url(raw).is_some() || SchoolAuthProfile::for_auth_host(host).is_some()))
+    .then_some(url)
+}
 
-pub fn sanitize_school_url(raw: &str) -> Option<String> {
-    let mut url = Url::parse(raw).ok()?;
-    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
-        return None;
-    }
-    if !url
-        .host_str()
-        .is_some_and(|host| SCHOOL_HOSTS.contains(&host))
-    {
-        return None;
-    }
+/// An automation target in the form that may be written to disk or compared
+/// as a page identity: no fragment, and only bounded identifying query
+/// parameters, so SSO tokens and session state never reach a restore record.
+pub fn restore_record(raw: &str) -> Option<String> {
+    let mut url = automation_target(raw)?;
     url.set_fragment(None);
     let kept: Vec<(String, String)> = url
         .query_pairs()
@@ -108,8 +74,9 @@ pub fn sanitize_school_url(raw: &str) -> Option<String> {
     Some(url.to_string())
 }
 
-/// Interactive browsing preserves query/fragment state. This grants no login
-/// or extraction authority; those continue to use `sanitize_school_url`.
+/// An address the person may type or open: HTTP or HTTPS without embedded
+/// credentials, query and fragment kept. This grants no automation authority
+/// (`automation_target`), and loading it still goes through the rule table.
 pub fn browsing_url(raw: &str) -> Option<String> {
     let url = Url::parse(raw).ok()?;
     (matches!(url.scheme(), "http" | "https")
@@ -164,6 +131,155 @@ pub(crate) fn is_login_step(url: &Url) -> bool {
             matches!(path, "" | "/portal.pl" | "/GetAccess/Login")
         }
         _ => false,
+    }
+}
+
+/// Who a view is serving right now: the person looking at it, or Core's
+/// hidden work (session checks, sign-ins, pulls). Popups take their opener's.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ViewRole {
+    User,
+    Automation,
+}
+
+/// Why a navigation or new window was refused. Every refusal is logged.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DenyReason {
+    /// The view (or its opener) is gone or was replaced.
+    Closed,
+    /// A hidden view left the adapter sites and identity providers.
+    Automation,
+    /// A hidden view asked for a window; only the person opens windows.
+    Hidden,
+    /// Plain HTTP the person did not ask for. Nothing relaxes ATS or
+    /// cleartext rules; a link the person follows goes to the system browser.
+    Cleartext,
+    /// User name or password inside the URL.
+    Credentials,
+    /// A scheme no school view loads (`file:`, `javascript:`, top-level `data:`).
+    Scheme,
+    /// The engine was about to send an earlier form again.
+    Resubmission,
+    /// The opener already has as many popups as a view may hold.
+    TooManyPopups,
+}
+
+/// The rule table's answer before the engine applies it to a view.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Verdict {
+    Allow,
+    /// New windows only: a child of the opener.
+    Popup,
+    External,
+    Deny(DenyReason),
+    /// Cancel a back/forward resubmission and step past its history entry.
+    SkipEntry,
+    /// Cancel a reload resubmission and load the same URL with GET.
+    ReloadAsGet,
+}
+
+enum Target {
+    /// Documents that never reach the network and inherit their opener's
+    /// origin: `about:blank`, `about:srcdoc` (editor frames, `window.open('')`),
+    /// `blob:` and, below the main frame, `data:`. The one place such
+    /// exceptions are listed for every shell.
+    Local {
+        data: bool,
+    },
+    Https,
+    Cleartext,
+    Credentials,
+    Unsupported,
+}
+
+fn target(url: &url::Url) -> Target {
+    match url.scheme() {
+        "about" if matches!(url.path(), "blank" | "srcdoc") => Target::Local { data: false },
+        "blob" => Target::Local { data: false },
+        "data" => Target::Local { data: true },
+        "https" | "http" if !url.username().is_empty() || url.password().is_some() => {
+            Target::Credentials
+        }
+        "https" if url.host_str().is_some() => Target::Https,
+        "http" if url.host_str().is_some() => Target::Cleartext,
+        _ => Target::Unsupported,
+    }
+}
+
+/// Whether the person asked for this load: a gesture, or a link or form the
+/// engine attributes to them. `Unknown` (hosts that cannot tell) counts, so
+/// an HTTP file opens in the browser instead of doing nothing.
+fn user_action(kind: NavigationKind, gesture: bool) -> bool {
+    gesture
+        || matches!(
+            kind,
+            NavigationKind::Link | NavigationKind::FormSubmit | NavigationKind::Unknown
+        )
+}
+
+/// The rule table for a frame navigation.
+pub(crate) fn navigation_rule(role: ViewRole, request: &NavigationRequest) -> Verdict {
+    if let NavigationKind::FormResubmit { from_history } = request.kind {
+        return match (request.main_frame, from_history) {
+            (true, true) => Verdict::SkipEntry,
+            (true, false) => Verdict::ReloadAsGet,
+            (false, _) => Verdict::Deny(DenyReason::Resubmission),
+        };
+    }
+    match (target(&request.url), role) {
+        (Target::Local { data: true }, _) if request.main_frame => {
+            Verdict::Deny(DenyReason::Scheme)
+        }
+        (Target::Local { .. }, _) => Verdict::Allow,
+        (Target::Credentials, _) => Verdict::Deny(DenyReason::Credentials),
+        (Target::Unsupported, _) => Verdict::Deny(DenyReason::Scheme),
+        (Target::Https, ViewRole::User) => Verdict::Allow,
+        (Target::Https, ViewRole::Automation) => {
+            if automation_target(request.url.as_str()).is_some() {
+                Verdict::Allow
+            } else {
+                Verdict::Deny(DenyReason::Automation)
+            }
+        }
+        (Target::Cleartext, ViewRole::Automation) => Verdict::Deny(DenyReason::Automation),
+        (Target::Cleartext, ViewRole::User) => {
+            if request.main_frame && user_action(request.kind, request.user_gesture) {
+                Verdict::External
+            } else {
+                Verdict::Deny(DenyReason::Cleartext)
+            }
+        }
+    }
+}
+
+/// The rule table for a window a page opens (`window.open`, `target=_blank`).
+pub(crate) fn new_window_rule(role: ViewRole, request: &NewWindowRequest) -> Verdict {
+    if role == ViewRole::Automation {
+        return Verdict::Deny(DenyReason::Hidden);
+    }
+    match target(&request.url) {
+        Target::Local { data: true } => Verdict::Deny(DenyReason::Scheme),
+        Target::Local { .. } | Target::Https => Verdict::Popup,
+        Target::Credentials => Verdict::Deny(DenyReason::Credentials),
+        Target::Unsupported => Verdict::Deny(DenyReason::Scheme),
+        Target::Cleartext if user_action(request.kind, request.user_gesture) => Verdict::External,
+        Target::Cleartext => Verdict::Deny(DenyReason::Cleartext),
+    }
+}
+
+/// Whether a school view may save a file: anything the person is looking
+/// at, only adapter sites from a hidden view.
+pub fn download_permitted(role: ViewRole, raw: &str) -> bool {
+    match role {
+        // Files a page builds itself (`blob:`, `data:`) included.
+        ViewRole::User => {
+            browsing_url(raw).is_some()
+                || Url::parse(raw).is_ok_and(|url| matches!(url.scheme(), "blob" | "data"))
+        }
+        ViewRole::Automation => {
+            automation_target(raw).is_some_and(|url| SchoolSite::for_url(url.as_str()).is_some())
+        }
     }
 }
 

@@ -32,6 +32,13 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     // MARK: NativeBrowser (Core worker threads)
 
+    /// Interim, until this host reports full request facts and builds real
+    /// popups (docs/core-school-browser.md): Core reloads with a GET and
+    /// popups load in their opener's view.
+    func capabilities() -> HostCapabilities {
+        HostCapabilities(formResubmission: false, inlinePopups: false)
+    }
+
     func attach(events: BrowserEvents) throws {
         lock.withLock { self.events = events }
     }
@@ -136,10 +143,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         // One persistent store: visible pages and hidden pulls share a session.
         configuration.websiteDataStore = .default()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
-        for script in (try? schoolBrowserInitialization()) ?? [] {
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        }
         // A script the app evaluates counts as a user action on iOS, so the
         // login script focusing the field it fills raised the keyboard, even
         // for a hidden pull. Programmatic focus is dropped; a tap still focuses.
@@ -181,6 +184,10 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             resident.webView.load(URLRequest(url: url))
         case .reload:
             resident.webView.reload()
+        case .goBack:
+            resident.webView.goBack()
+        case .goForward:
+            resident.webView.goForward()
         case let .evaluate(script):
             resident.webView.evaluateJavaScript(script) { [weak self] _, error in
                 // Scripts report through title and navigation relays; only a
@@ -201,7 +208,7 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     }
 
     @MainActor private func fail(_ resident: ResidentView, cause: UInt64?, detail: String) {
-        try? listener()?.loadFailed(page: resident.nextPage(), cause: cause, url: nil, detail: detail)
+        try? listener()?.loadFailed(page: resident.nextPage(), cause: cause, url: nil, reason: .other, detail: detail)
     }
 
     @MainActor private func discard(_ id: BrowserId) {
@@ -227,7 +234,8 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         // A navigation cancelled by Core's own decision is not a failure.
         if error.domain == WKError.errorDomain && error.code == 102 { return }
         try? listener()?.loadFailed(
-            page: resident.nextPage(), cause: nil, url: url?.absoluteString, detail: error.localizedDescription)
+            page: resident.nextPage(), cause: nil, url: url?.absoluteString, reason: .other,
+            detail: error.localizedDescription)
     }
 
     @MainActor fileprivate func titled(_ resident: ResidentView, _ title: String) {
@@ -236,25 +244,35 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     }
 
     @MainActor fileprivate func decide(_ resident: ResidentView, url: URL, mainFrame: Bool) -> Bool {
-        guard let listener = listener(),
-            let decision = try? listener.navigation(page: resident.page, url: url.absoluteString, mainFrame: mainFrame)
-        else { return false }
-        if decision != .allow { Self.log.debug("Core cancelled \(url.host() ?? "", privacy: .public) in \(String(describing: resident.id.site), privacy: .public)") }
-        return decision == .allow
+        let request = NavigationRequest(
+            page: resident.page, url: url.absoluteString, method: nil, mainFrame: mainFrame, kind: .unknown,
+            userGesture: false)
+        guard let listener = listener(), let decision = try? listener.navigation(request: request) else { return false }
+        switch decision {
+        case .allow:
+            return true
+        case let .external(target):
+            if let target = URL(string: target) { onOpenExternal?(target) }
+            return false
+        case .deny, .skipEntry:
+            return false
+        }
     }
 
     @MainActor fileprivate func popup(_ resident: ResidentView, url: URL) {
-        guard let decision = try? listener()?.newWindow(page: resident.page, url: url.absoluteString) else { return }
-        Self.log.debug("Popup to \(url.host() ?? "", privacy: .public): \(String(describing: decision), privacy: .public)")
+        let request = NewWindowRequest(
+            opener: resident.page, url: url.absoluteString, method: nil, kind: .unknown, userGesture: false,
+            name: nil, width: nil, height: nil)
+        guard let decision = try? listener()?.newWindow(request: request) else { return }
         switch decision {
-        case let .sameView(target):
-            if let target = URL(string: target) { resident.webView.load(URLRequest(url: target)) }
-        case .openSchool:
-            // Core already emitted `school-web-open`; the router presents it.
-            break
-        case let .openExternal(target):
+        case let .popup(browser):
+            // Interim: the popup's page replaces its opener's, and the popup
+            // is reported closed at once.
+            resident.webView.load(URLRequest(url: url))
+            try? listener()?.closed(browser: browser)
+        case let .external(target):
             if let target = URL(string: target) { onOpenExternal?(target) }
-        case .ignore:
+        case .deny:
             break
         }
     }

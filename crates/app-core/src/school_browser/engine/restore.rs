@@ -30,7 +30,7 @@ impl SchoolBrowserEngine {
                 state
                     .views
                     .get(&site)
-                    .and_then(|view| sanitize_school_url(&view.url).map(|url| (site, url)))
+                    .and_then(|view| restore_record(&view.url).map(|url| (site, url)))
             })
         };
         if enabled {
@@ -49,7 +49,7 @@ impl SchoolBrowserEngine {
         let bytes = std::fs::read(path).ok()?;
         let record: RestoreRecord = serde_json::from_slice(&bytes).ok()?;
         (record.site == site)
-            .then(|| sanitize_school_url(&record.url))
+            .then(|| restore_record(&record.url))
             .flatten()
             .filter(|url| SchoolSite::for_url(url) == Some(site))
     }
