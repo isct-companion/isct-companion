@@ -173,7 +173,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
-| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
@@ -1432,14 +1432,18 @@ A Signed in account; at least one course with downloadable material.
 1. Open each school site from the site list and follow an in-page link.
    - *Why:* Establishes that in-page navigation is allowed for official origins
      and that no site is mis-mapped.
-2. Open a same-site popup, then go Back.
+2. On Science Tokyo Portal, open Password Change, then click Science
+   Tokyo Portal in the site list again. Repeat on 教務Web and LMS.
+   - *Why:* Choosing the site already shown must load its start page, not only
+     rewrite the address bar while the view stays on the old page.
+3. Open a same-site popup, then go Back.
    - *Why:* Back must load a fresh GET, not replay a 教務Web POST. Replaying a
      POST can repeat an action on the school's side, which is the most
      consequential failure in this check.
-3. Download a material and choose Show in Finder / Show in Explorer.
+4. Download a material and choose Show in Finder / Show in Explorer.
    - *Why:* The file lands in Downloads through the native layer; only the OS
      reveal proves the hand-off, not the download counter.
-4. On macOS, open an LMS assignment's file draft area and drag a small
+5. On macOS, open an LMS assignment's file draft area and drag a small
    local file from Finder into it, without submitting the assignment.
    Switch between the app's native pages and school WebView, let a
    background school read finish, then repeat the drag and remove the
@@ -1471,6 +1475,7 @@ manager. jsdom cannot produce native navigation, popups or a reveal.
 - `apps/desktop/src-tauri/src/school_web.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+- `apps/desktop/src/pages/web/WebPage.tsx`
 
 **Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
 

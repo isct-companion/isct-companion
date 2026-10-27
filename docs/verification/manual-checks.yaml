@@ -1140,6 +1140,12 @@ checks:
           Establishes that in-page navigation is allowed for official origins
           and that no site is mis-mapped.
       - action: |
+          On Science Tokyo Portal, open Password Change, then click Science
+          Tokyo Portal in the site list again. Repeat on 教務Web and LMS.
+        reason: |
+          Choosing the site already shown must load its start page, not only
+          rewrite the address bar while the view stays on the old page.
+      - action: |
           Open a same-site popup, then go Back.
         reason: |
           Back must load a fresh GET, not replay a 教務Web POST. Replaying a
@@ -1176,6 +1182,7 @@ checks:
       - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
+      - apps/desktop/src/pages/web/WebPage.tsx
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14

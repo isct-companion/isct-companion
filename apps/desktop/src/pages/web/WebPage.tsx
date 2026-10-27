@@ -244,6 +244,14 @@ function WebBody({
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
+    // Choosing the site already shown returns its view to the start page. The
+    // open effect only runs when `site` changes, so this has to navigate itself.
+    if (next === site && embedded) {
+      void openTarget(official[next].url, next).catch((error) =>
+        setStatus(errorText(error) ?? "Unavailable"),
+      );
+      return;
+    }
     sessionStorage.setItem("isct-companion-active-school-site", next);
     update((draft) => {
       draft.settings.activeSchoolSite = next;
