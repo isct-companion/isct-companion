@@ -5563,6 +5563,41 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
     verified: null
 
+  - id: IOS-LOG-ROW-TAP
+    area: native
+    title: iOS Application logs row opens its menu from anywhere on the row
+    persona: careless-multidevice
+    preconditions: |
+      The app on a real iPhone and a real iPad, on the Settings page.
+    steps:
+      - action: |
+          Tap the empty right side of Settings → Application logs, away from
+          the icon and the text; then dismiss the menu by tapping outside it.
+        reason: |
+          The row is a Menu, which List does not treat as a row; a tap that
+          only works on the icon or text means the label shrank back to its
+          content.
+      - action: |
+          Watch the icon while the menu opens, stays open and closes.
+        reason: |
+          The menu's preview is cut from the label's frame; an icon clipped
+          top and bottom means the preview no longer contains it.
+      - action: Compare the row's height with Privacy policy above it.
+        reason: |
+          The label is padded into the row insets and taken back outside; a
+          taller row means the two no longer cancel out.
+    observe: The Application logs row and its menu on both devices.
+    expected: |
+      The menu (Save to file, Copy) opens from any point on the row, the
+      whole icon stays visible throughout, and the row is as tall as its
+      neighbours.
+    why_manual: |
+      Hit area and menu preview are a glance check on the native List; a
+      headless screen would not exercise UIKit's menu presentation.
+    covers:
+      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+    verified: null
+
   - id: ANDROID-LOG-EXPORT
     area: native
     title: Android application logs saved as a document and copied

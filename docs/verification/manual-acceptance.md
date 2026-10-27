@@ -128,6 +128,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-DRIVE-SIGNIN` — never verified
 - `IOS-PRIVACY-POLICY` — never verified
 - `IOS-LOG-EXPORT` — never verified
+- `IOS-LOG-ROW-TAP` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
 - `ANDROID-TLS-VERIFIER` — never verified
 - `SCHOOL-KYOMU-RUST-TLS` — never verified
@@ -265,6 +266,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/app-ffi/src/ports.rs |
 | `IOS-PRIVACY-POLICY` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>docs/legal/PRIVACY.md |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
+| `IOS-LOG-ROW-TAP` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
 | `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/certs/nii-odca4g7rsa.pem<br>crates/app-core/src/school_browser/engine/login.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
@@ -6474,6 +6476,51 @@ credential. On an iPad the header names iPadOS.
 The export sheet and the pasteboard exist only on a device; the SDK
 smoke tests prove a session installs the logger and the export reaches
 Swift, and Core's test pins the format and redaction.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+
+**Last recorded** never run
+
+### iOS Application logs row opens its menu from anywhere on the row (`IOS-LOG-ROW-TAP`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The app on a real iPhone and a real iPad, on the Settings page.
+
+**Steps**
+
+1. Tap the empty right side of Settings → Application logs, away from
+   the icon and the text; then dismiss the menu by tapping outside it.
+   - *Why:* The row is a Menu, which List does not treat as a row; a tap that
+     only works on the icon or text means the label shrank back to its
+     content.
+2. Watch the icon while the menu opens, stays open and closes.
+   - *Why:* The menu's preview is cut from the label's frame; an icon clipped
+     top and bottom means the preview no longer contains it.
+3. Compare the row's height with Privacy policy above it.
+   - *Why:* The label is padded into the row insets and taken back outside; a
+     taller row means the two no longer cancel out.
+
+**Where to look**
+
+The Application logs row and its menu on both devices.
+
+**Expected**
+
+The menu (Save to file, Copy) opens from any point on the row, the
+whole icon stays visible throughout, and the row is as tall as its
+neighbours.
+
+**Why this is manual**
+
+Hit area and menu preview are a glance check on the native List; a
+headless screen would not exercise UIKit's menu presentation.
 
 **Covers**
 
