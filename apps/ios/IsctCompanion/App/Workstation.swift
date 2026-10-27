@@ -79,7 +79,7 @@ struct TodayWorkbench: View {
         }
         .frame(maxWidth: .infinity)
         .background(Theme.bg)
-        .animation(.snappy(duration: 0.25), value: open)
+        .animation(.smooth(duration: Theme.motionSlow), value: open)
     }
 }
 

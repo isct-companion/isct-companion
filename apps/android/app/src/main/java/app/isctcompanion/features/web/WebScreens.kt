@@ -6,7 +6,7 @@ import android.content.Context
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import app.isctcompanion.design.GuideTip
 import android.net.Uri
 import android.view.ViewGroup
@@ -25,15 +25,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.FormatSize
-import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -118,7 +118,7 @@ private fun PageMenu(site: SchoolSite) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }) { Icon(Icons.Outlined.MoreVert, t("More")) }
+        IconButton(onClick = { open = true }) { Icon(Icons.Rounded.MoreVert, t("More")) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             val item = @Composable { label: String, icon: ImageVector, action: () -> Unit ->
                 DropdownMenuItem(text = { Text(label) }, leadingIcon = { Icon(icon, null) }, onClick = {
@@ -126,17 +126,17 @@ private fun PageMenu(site: SchoolSite) {
                     action()
                 })
             }
-            item(t("Reload"), Icons.Outlined.Refresh) { web.reload(site) }
+            item(t("Reload"), Icons.Rounded.Refresh) { web.reload(site) }
             web.browser.webView(site)?.url?.let { url ->
-                item(t("Share"), Icons.Outlined.Share) { share(context, url) }
-                item(t("Open in browser"), Icons.AutoMirrored.Outlined.OpenInNew) { openInBrowser(context, url) }
+                item(t("Share"), Icons.Rounded.Share) { share(context, url) }
+                item(t("Open in browser"), Icons.AutoMirrored.Rounded.OpenInNew) { openInBrowser(context, url) }
             }
             HorizontalDivider()
             for (percent in SchoolBrowserHost.textScales) {
                 DropdownMenuItem(
                     text = { Text(t("Text size ({{percent}}%)", "percent" to percent)) },
-                    leadingIcon = { Icon(Icons.Outlined.FormatSize, null) },
-                    trailingIcon = { if (percent == web.browser.textScale) Icon(Icons.Outlined.Check, null) },
+                    leadingIcon = { Icon(Icons.Rounded.FormatSize, null) },
+                    trailingIcon = { if (percent == web.browser.textScale) Icon(Icons.Rounded.Check, null) },
                     onClick = {
                         open = false
                         web.browser.chooseTextScale(percent)
@@ -162,10 +162,10 @@ private fun HistoryButtons(site: SchoolSite) {
     val web = LocalModel.current.web
     web.browser.loads
     IconButton(onClick = { web.back(site) }, enabled = web.browser.canGoBack(site)) {
-        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, t("Previous page"))
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("Previous page"))
     }
     IconButton(onClick = { web.forward(site) }, enabled = web.browser.canGoForward(site)) {
-        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, t("Next page"))
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("Next page"))
     }
 }
 
@@ -228,13 +228,13 @@ private fun SiteTitle() {
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
             Text(WebRouter.name(web.tabSite), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Icon(Icons.Outlined.ArrowDropDown, t("Switch sites"))
+            Icon(Icons.Rounded.ArrowDropDown, t("Switch sites"))
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             for (site in WebRouter.tabSites) {
                 DropdownMenuItem(
                     text = { Text(WebRouter.name(site)) },
-                    trailingIcon = { if (site == web.tabSite) Icon(Icons.Outlined.Check, null) },
+                    trailingIcon = { if (site == web.tabSite) Icon(Icons.Rounded.Check, null) },
                     onClick = {
                         open = false
                         web.choose(site)
@@ -263,7 +263,7 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
     Column(Modifier.fillMaxSize().background(Theme.colors.surface)) {
         TopAppBar(
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) }
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) }
             },
             title = { Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             actions = { PageMenu(page.site) },
@@ -279,10 +279,10 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 HistoryButtons(page.site)
                 IconButton(onClick = { url?.let { share(context, it) } }, enabled = url != null) {
-                    Icon(Icons.Outlined.Share, t("Share"))
+                    Icon(Icons.Rounded.Share, t("Share"))
                 }
                 IconButton(onClick = { url?.let { openInBrowser(context, it) } }, enabled = url != null) {
-                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, t("Open in browser"))
+                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("Open in browser"))
                 }
             }
         }

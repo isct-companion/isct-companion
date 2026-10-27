@@ -3576,6 +3576,68 @@ checks:
       - crates/app-core/src/data/settings.rs
     verified: null
 
+  - id: MOTION-AND-LOADING
+    area: native
+    title: Quiet motion, the week slide, the course zoom, skeletons and Reduce Motion
+    persona: undergraduate-first-term
+    preconditions: |
+      Desktop, iPhone and Android with the current quarter pulled; then the
+      same three with a fresh install or cleared data before the first read.
+    steps:
+      - action: |
+          On each phone swipe 時間割 slowly half a week to the left and let go,
+          then swipe quickly; on desktop click the next-week arrow.
+        reason: |
+          A slow half swipe follows the finger and settles back; a full swipe
+          or a fling slides the week out and the next one in from the right.
+          A grid that moves a third of the finger's distance and then swaps
+          content in place is the old behaviour. Nothing may bounce past its
+          rest position.
+      - action: |
+          Open a course from a timetable block, then go back; repeat from a
+          Today row.
+        reason: |
+          The course page grows out of the block or row and returns into it,
+          on desktop too (View Transitions). A plain push or fade on desktop
+          means the shared element is missing.
+      - action: |
+          Clear the data (or install fresh) and open Today, 時間割 and a
+          course page before the first read completes.
+        reason: |
+          Grey stand-ins shaped like rows and blocks show until content fades
+          in; once anything is cached, the cached content shows at once with
+          no stand-ins. A spinner in the middle of an empty page is the old
+          loading state.
+      - action: |
+          Turn on Reduce Motion (iOS), Remove animations (Android) or Reduce
+          motion (macOS/Windows), then repeat the week change and the course
+          open.
+        reason: |
+          Movement becomes a short cross-fade: the week does not slide, the
+          course does not zoom, figures jump; something still changes visibly
+          so the state change is not lost.
+      - action: |
+          On a phone, pin and hide an assignment, mark a class as an exam,
+          then swipe the Today card stack and change weeks.
+        reason: |
+          Only the writes (pin, hide, mark) give a haptic tap; swiping cards
+          and changing weeks are silent.
+    observe: 時間割, Today and a course page on the three devices.
+    expected: |
+      Motion follows the finger, never overshoots, keeps the clicked element
+      continuous, gives way to cross-fades under Reduce Motion, loading shows
+      stand-ins only without cache, and haptics mark writes only.
+    why_manual: |
+      Motion, haptics and system accessibility settings are felt on the real
+      devices; no headless suite renders springs or vibrates.
+    covers:
+      - apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift
+      - apps/ios/IsctCompanion/Design/Polish.swift
+      - apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt
+      - apps/desktop/src/styles.css
+    verified: null
+
   - id: IOS-NATIVE-CHROME
     area: native
     title: iPhone Web bars, Settings rows and the Today headers look like system iOS

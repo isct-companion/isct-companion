@@ -135,13 +135,15 @@ struct Card<Content: View>: View {
 struct CapsuleButtonStyle: ButtonStyle {
     enum Level { case primary, secondary, danger }
     var level: Level = .primary
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(level == .secondary ? Theme.accent : Theme.accentInk)
             .background(fill, in: Capsule())
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.snappy(duration: Theme.motionFast), value: configuration.isPressed)
+            .opacity(configuration.isPressed && reduceMotion ? 0.85 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(.smooth(duration: Theme.motionFast), value: configuration.isPressed)
     }
 
     private var fill: Color {

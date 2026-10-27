@@ -1,5 +1,11 @@
 package app.isctcompanion.features.course
 
+import app.isctcompanion.design.Motion
+import app.isctcompanion.design.LocalReducedMotion
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
 import app.isctcompanion.features.handin.HandInCard
 
 import androidx.compose.animation.AnimatedVisibility
@@ -17,9 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,8 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
@@ -70,7 +74,7 @@ fun AssignmentScreen(assignmentId: String) {
     TabPage(
         assignment?.title.orEmpty(),
         navigationIcon = {
-            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) }
+            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) }
         },
     ) {
         Column(
@@ -93,8 +97,8 @@ fun AssignmentScreen(assignmentId: String) {
 /** One assignment inside a lesson: state first, the teacher's text on tap. */
 @Composable
 fun AssignmentCard(assignment: AssignmentDetail, expanded: Boolean, onExpand: (Boolean) -> Unit) {
-    val haptics = LocalHapticFeedback.current
-    val turn by animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
+    val reduced = LocalReducedMotion.current
+    val turn by animateFloatAsState(if (expanded) 180f else 0f, Motion.base(), label = "chevron")
     Column(
         Modifier
             .fillMaxWidth()
@@ -106,16 +110,17 @@ fun AssignmentCard(assignment: AssignmentDetail, expanded: Boolean, onExpand: (B
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxWidth().clickable {
-                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                onExpand(!expanded)
-            },
+            modifier = Modifier.fillMaxWidth().clickable { onExpand(!expanded) },
         ) {
             Text(assignment.title, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink, modifier = Modifier.weight(1f))
             AssignmentState(assignment)
-            Icon(Icons.Outlined.ExpandMore, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp).rotate(turn))
+            Icon(Icons.Rounded.ExpandMore, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp).rotate(turn))
         }
-        AnimatedVisibility(expanded) { AssignmentBody(assignment, showsState = false) }
+        AnimatedVisibility(
+            expanded,
+            enter = if (reduced) fadeIn(Motion.fast()) else expandVertically(Motion.base()) + fadeIn(Motion.base()),
+            exit = if (reduced) fadeOut(Motion.fast()) else shrinkVertically(Motion.base()) + fadeOut(Motion.base()),
+        ) { AssignmentBody(assignment, showsState = false) }
     }
 }
 
@@ -150,7 +155,7 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
             ActionButton(
                 t("Submit in LMS"),
                 { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title)) },
-                icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                icon = Icons.AutoMirrored.Rounded.OpenInNew,
             )
         }
     }

@@ -1,9 +1,17 @@
 package app.isctcompanion.features.timetable
 
+import app.isctcompanion.design.Skeleton
+import app.isctcompanion.design.Loading
+import app.isctcompanion.design.Motion
+import app.isctcompanion.design.LocalReducedMotion
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -30,11 +38,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.EditCalendar
-import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.EditCalendar
+import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -44,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -125,8 +134,12 @@ fun TimetableScreen() {
     var axis by remember { mutableStateOf(model.lastTimetableAxis) }
     var year by remember { mutableStateOf<TimetableYear?>(null) }
     var picker by remember { mutableStateOf(false) }
-    var drag by remember { mutableFloatStateOf(0f) }
-    val offset by animateFloatAsState(drag, label = "week drag")
+    // The grid's horizontal travel while weeks change, and its fade when the
+    // system asks for less motion (slotledger `approach/motion-week-swipe`).
+    val shift = remember { Animatable(0f) }
+    val fade = remember { Animatable(1f) }
+    val reduced = LocalReducedMotion.current
+    val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { model.open(SyncView.Timetable) }
     // A week read with its neighbours draws at once; the effect below still
     // checks it against the current revision.
@@ -141,6 +154,28 @@ fun TimetableScreen() {
         if (year?.year != number || year?.quarters?.isEmpty() == true) model.timetableYear(number)?.let { year = it }
     }
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
+    var width by remember { mutableFloatStateOf(1f) }
+    // The shown week slides out towards the side it leaves by and the new one
+    // comes in from the other; a release that falls short settles back.
+    fun go(to: LocalDate, slow: Boolean) = scope.launch {
+        if (to == monday) {
+            shift.animateTo(0f, Motion.slowSpring())
+            return@launch
+        }
+        if (reduced) {
+            shift.snapTo(0f)
+            fade.animateTo(0f, Motion.fast())
+            monday = to
+            fade.animateTo(1f, Motion.fast())
+            return@launch
+        }
+        val direction = if (to.isAfter(monday)) -1f else 1f
+        val spec = if (slow) Motion.slow<Float>() else Motion.base<Float>()
+        shift.animateTo(direction * width, spec)
+        monday = to
+        shift.snapTo(-direction * width)
+        shift.animateTo(0f, spec)
+    }
     // The shown week's quarter, or this quarter between quarters.
     val term = year?.weeks?.firstOrNull { it.monday == Format.civil(monday) }?.term ?: week?.term ?: model.today?.term
 
@@ -153,34 +188,46 @@ fun TimetableScreen() {
             .padding(bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Header(monday, chip(year, monday), term, openPicker = { picker = true }) { monday = thisWeek() }
+        Header(monday, chip(year, monday), term, openPicker = { picker = true }) { go(thisWeek(), slow = false) }
         GuideTip("timetable-marks", "Swipe to change weeks", "Long-press a class to mark it as an exam or cancelled.")
         // Period rows share the height the screen leaves, so the week fits
         // without scrolling (with a floor for very short windows).
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val length = axis?.length ?: 12.5
             val rowHeight = maxOf(minimumRow, floor(((maxHeight - dayHeaderHeight).value / length)).dp)
+            val columns = constraints.maxWidth.toFloat()
+            SideEffect { width = columns }
             Grid(
                 monday, week, axis, rowHeight,
                 Modifier
-                    .offset { IntOffset(offset.roundToInt(), 0) }
+                    .offset { IntOffset(shift.value.roundToInt(), 0) }
+                    .graphicsLayer { alpha = fade.value }
                     .pointerInput(Unit) {
+                        val tracker = VelocityTracker()
                         var total = 0f
                         detectHorizontalDragGestures(
-                            onDragStart = { total = 0f },
-                            onDragEnd = {
-                                if (abs(total) > swipe) monday = if (total < 0) monday.plusWeeks(1) else monday.minusWeeks(1)
+                            onDragStart = {
                                 total = 0f
-                                drag = 0f
+                                tracker.resetTracking()
+                            },
+                            onDragEnd = {
+                                // Past 60 dp, or a fling, turns the week.
+                                val fling = tracker.calculateVelocity().x
+                                val turn = abs(total) > swipe || abs(fling) > 1_000f
+                                val forward = if (abs(total) > swipe) total < 0 else fling < 0
+                                go(if (!turn) monday else if (forward) monday.plusWeeks(1) else monday.minusWeeks(1), slow = true)
+                                total = 0f
                             },
                             onDragCancel = {
                                 total = 0f
-                                drag = 0f
+                                go(monday, slow = true)
                             },
                         ) { change, amount ->
                             change.consume()
+                            tracker.addPosition(change.uptimeMillis, change.position)
                             total += amount
-                            drag = total / 3
+                            // The grid follows the finger; with less motion it stays put.
+                            if (!reduced) scope.launch { shift.snapTo(total) }
                         }
                     },
             )
@@ -188,8 +235,8 @@ fun TimetableScreen() {
     }
     if (picker) {
         WeekPicker(year, monday, dismiss = { picker = false }) { picked ->
-            monday = picked
             picker = false
+            go(picked, slow = false)
         }
     }
 }
@@ -206,7 +253,7 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
         ActionButton(
             chip, openPicker,
             Modifier.semantics { contentDescription = t("Choose a week") },
-            level = ButtonLevel.Secondary, icon = Icons.Outlined.CalendarMonth,
+            level = ButtonLevel.Secondary, icon = Icons.Rounded.CalendarMonth,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             val friday = monday.plusDays(4)
@@ -245,18 +292,18 @@ private fun ExportButton(term: String) {
         }
     }
     Box {
-        IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.IosShare, t("Export ICS"), tint = Theme.colors.accent) }
+        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.IosShare, t("Export ICS"), tint = Theme.colors.accent) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text(
                 t("Export ICS") + " · " + Format.quarter(term), style = MaterialTheme.typography.labelMedium,
                 color = Theme.colors.muted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             )
             DropdownMenuItem(
-                text = { Text(t("Courses only")) }, leadingIcon = { Icon(Icons.Outlined.CalendarMonth, null) },
+                text = { Text(t("Courses only")) }, leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
                 onClick = { export(CalendarExportScope.COURSES) },
             )
             DropdownMenuItem(
-                text = { Text(t("Courses + personal plans")) }, leadingIcon = { Icon(Icons.Outlined.EditCalendar, null) },
+                text = { Text(t("Courses + personal plans")) }, leadingIcon = { Icon(Icons.Rounded.EditCalendar, null) },
                 onClick = { export(CalendarExportScope.COURSES_AND_PLANS) },
             )
         }
@@ -374,8 +421,29 @@ private fun DayColumn(
         val width = maxWidth
         axis?.let { RowRules(it, rowHeight) }
         if (axis != null) {
-            for (block in blocks) Block(block, holiday, week, axis, rowHeight, width, block.key == current)
+            // The first read of a week draws placeholder blocks, then fades in.
+            Loading(week != null, placeholder = { DaySkeleton(axis, rowHeight) }) {
+                Box(Modifier.fillMaxSize()) {
+                    for (block in blocks) Block(block, holiday, week, axis, rowHeight, width, block.key == current)
+                }
+            }
             if (today) NowLine(axis, rowHeight)
+        }
+    }
+}
+
+/** Placeholder blocks over every other teaching block while a week loads. */
+@Composable
+private fun DaySkeleton(axis: TimetableAxis, rowHeight: Dp) {
+    Box(Modifier.fillMaxSize()) {
+        axis.rows.filter { it.periods != null }.filterIndexed { index, _ -> index % 2 == 0 }.forEach { row ->
+            Skeleton(
+                Modifier
+                    .padding(horizontal = laneGap)
+                    .offset(y = rowHeight * row.top.toFloat() + 2.dp)
+                    .fillMaxWidth()
+                    .height(rowHeight * (row.bottom - row.top).toFloat() - 4.dp),
+            )
         }
     }
 }
@@ -397,6 +465,7 @@ private fun Block(
     val navigator = LocalNavigator.current
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     var menu by remember { mutableStateOf(false) }
     // Core's grid: a block timed inside periods fills the periods it
     // touches, and overlapping blocks sit side by side.
@@ -457,7 +526,10 @@ private fun Block(
                     enabled = id != null || !planned,
                     onClick = { id?.let { navigator.openCourse(it, block.key) } },
                     // Planned courses have no sessions of their own to mark.
-                    onLongClick = if (planned) null else ({ menu = true }),
+                    onLongClick = if (planned) null else ({
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menu = true
+                    }),
                 )
                 .padding(4.dp),
         ) {
@@ -467,7 +539,7 @@ private fun Block(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     ExamTag(quiz, tint)
                     if (block.sourceChanged == true) {
-                        Icon(Icons.Filled.Error, t("Timetable changed"), tint = Theme.colors.warn, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Rounded.Error, t("Timetable changed"), tint = Theme.colors.warn, modifier = Modifier.size(12.dp))
                     }
                 }
             }
@@ -506,10 +578,13 @@ private fun Block(
             for ((value, label) in listOf("exam" to t("Mark as exam"), "quiz" to t("Mark as quiz"), "cancelled" to t("Mark as cancelled"))) {
                 DropdownMenuItem(
                     text = { Text(label) },
-                    trailingIcon = { if (value == state) Icon(Icons.Outlined.Check, null, tint = Theme.colors.accent) },
+                    trailingIcon = { if (value == state) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent) },
                     onClick = {
                         menu = false
-                        scope.launch { model.markSession(block.key, if (value == state) "class" else value) }
+                        scope.launch {
+                            model.markSession(block.key, if (value == state) "class" else value)
+                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        }
                     },
                 )
             }

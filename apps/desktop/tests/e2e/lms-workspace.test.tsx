@@ -892,7 +892,7 @@ describe("the LMS reading workspace", () => {
     await click(buttonByText(host, "View in LMS"));
     await waitFor(() =>
       expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
-        "Official LMS",
+        "opens the signed-in LMS here",
       ),
     );
     expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
@@ -902,7 +902,7 @@ describe("the LMS reading workspace", () => {
     await render({ active: false });
     await render({ active: true });
     expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
-      "Official LMS",
+      "opens the signed-in LMS here",
     );
 
     await click(host.querySelector(".lmsViewerClose"));
@@ -1621,7 +1621,7 @@ describe("the file preview pipeline", () => {
     await click(buttonByText(host, "Open in LMS"));
     await waitFor(() =>
       expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
-        "Official LMS",
+        "opens the signed-in LMS here",
       ),
     );
   }, 30_000);

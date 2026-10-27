@@ -1,21 +1,21 @@
 package app.isctcompanion.features.settings
 
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.Notifications
 import app.isctcompanion.design.t
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -33,7 +33,7 @@ import androidx.compose.foundation.background
 import app.isct.design.IsctThemes
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.border
@@ -55,9 +55,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -228,7 +228,7 @@ private fun Bar(title: String, back: (() -> Unit)? = null) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
-            back?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t("Back")) } }
+            back?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) } }
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
     )
@@ -263,16 +263,16 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         Card(Modifier.padding(top = 16.dp)) {
             NavRow(
                 t("Notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications")),
-                Icons.Filled.Notifications, Theme.colors.danger,
+                Icons.Rounded.Notifications, Theme.colors.danger,
             ) { open(SettingsPage.Notifications) }
             RowDivider(inset = ICON_ROW_INSET)
-            NavRow(t("Study profile"), null, Icons.Filled.School) { open(SettingsPage.StudyProfile) }
+            NavRow(t("Study profile"), null, Icons.Rounded.School) { open(SettingsPage.StudyProfile) }
             RowDivider(inset = ICON_ROW_INSET)
-            NavRow(t("Data updates"), dataSummary(model.records.settings), Icons.Filled.Sync, Theme.colors.ok) {
+            NavRow(t("Data updates"), dataSummary(model.records.settings), Icons.Rounded.Sync, Theme.colors.ok) {
                 open(SettingsPage.DataUpdates)
             }
             RowDivider(inset = ICON_ROW_INSET)
-            NavRow(t("Backup"), backupSummary(model.cloud), Icons.Filled.Cloud) { open(SettingsPage.Backup) }
+            NavRow(t("Backup"), backupSummary(model.cloud), Icons.Rounded.Cloud) { open(SettingsPage.Backup) }
         }
         ThemeCard()
         LanguageCard()
@@ -287,13 +287,13 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                SettingsIcon(Icons.Filled.Info, Theme.colors.muted)
+                SettingsIcon(Icons.Rounded.Info, Theme.colors.muted)
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
                 Text(version.orEmpty(), color = Theme.colors.muted)
             }
             RowDivider(inset = ICON_ROW_INSET)
-            ActionRow(t("Show welcome and tips again"), Icons.Filled.Lightbulb) { Guide.reset() }
+            ActionRow(t("Show welcome and tips again"), Icons.Rounded.Lightbulb) { Guide.reset() }
             RowDivider(inset = ICON_ROW_INSET)
             LogsRow()
         }
@@ -311,11 +311,11 @@ private fun ResetCard(open: (SettingsPage) -> Unit) {
     Spacer(Modifier.height(8.dp))
     SectionLabel(t("settings.reset.group"))
     Card {
-        ResetRow(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), Theme.colors.ink, Icons.Filled.Restore, Theme.colors.warn) {
+        ResetRow(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), Theme.colors.ink, Icons.Rounded.Restore, Theme.colors.warn) {
             open(SettingsPage.Reset(ResetKind.SchoolCaches))
         }
         RowDivider(inset = ICON_ROW_INSET)
-        ResetRow(t("settings.reset.full.title"), t("settings.reset.full.hint"), Theme.colors.danger, Icons.Filled.RestartAlt, Theme.colors.danger) {
+        ResetRow(t("settings.reset.full.title"), t("settings.reset.full.hint"), Theme.colors.danger, Icons.Rounded.RestartAlt, Theme.colors.danger) {
             open(SettingsPage.Reset(ResetKind.Everything))
         }
     }
@@ -333,7 +333,7 @@ private fun ResetRow(title: String, hint: String, color: Color, icon: ImageVecto
             Text(title, color = color)
             Text(hint, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
         }
-        Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted)
+        Icon(Icons.Rounded.ChevronRight, null, tint = Theme.colors.muted)
     }
 }
 
@@ -358,11 +358,11 @@ private fun LogsRow() {
     // One row for both log actions, as a menu (iOS's Application logs row).
     var menu by remember { mutableStateOf(false) }
     Box {
-        ActionRow(t("Application logs"), Icons.Filled.Description) { menu = true }
+        ActionRow(t("Application logs"), Icons.Rounded.Description) { menu = true }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(
                 text = { Text(t("Save to file")) },
-                leadingIcon = { Icon(Icons.Filled.Download, null) },
+                leadingIcon = { Icon(Icons.Rounded.Download, null) },
                 onClick = {
                     menu = false
                     save.launch("IsctCompanion-logs-${LocalDate.now()}.txt")
@@ -370,7 +370,7 @@ private fun LogsRow() {
             )
             DropdownMenuItem(
                 text = { Text(t("Copy")) },
-                leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
+                leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) },
                 onClick = {
                     menu = false
                     // Android shows its own confirmation for every clipboard write.
@@ -442,7 +442,7 @@ private fun WebCard() {
     SectionLabel(t("Web"))
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconHeading(t("Text size"), Icons.Filled.FormatSize, Theme.colors.muted)
+            IconHeading(t("Text size"), Icons.Rounded.FormatSize, Theme.colors.muted)
             Choices(SchoolBrowserHost.textScales.map { "$it" to "$it%" }, "${web.browser.textScale}") {
                 web.browser.chooseTextScale(it.toInt())
             }
@@ -455,7 +455,7 @@ private fun WebCard() {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth().clickable { picking = true }.padding(16.dp),
             ) {
-                SettingsIcon(Icons.Filled.Language, Theme.colors.accent)
+                SettingsIcon(Icons.Rounded.Language, Theme.colors.accent)
                 Text(t("First site"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 Text(WebRouter.name(web.firstSite), color = Theme.colors.muted)
             }
@@ -463,7 +463,7 @@ private fun WebCard() {
                 for (site in WebRouter.tabSites) {
                     DropdownMenuItem(
                         text = { Text(WebRouter.name(site)) },
-                        trailingIcon = { if (site == web.firstSite) Icon(Icons.Outlined.Check, null) },
+                        trailingIcon = { if (site == web.firstSite) Icon(Icons.Rounded.Check, null) },
                         onClick = {
                             picking = false
                             web.chooseFirstSite(site)
@@ -507,7 +507,7 @@ private fun AccountRow(
             Text(name, color = Theme.colors.ink)
             Text(label, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
         }
-        Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted)
+        Icon(Icons.Rounded.ChevronRight, null, tint = Theme.colors.muted)
     }
 }
 
@@ -644,7 +644,7 @@ private fun ThemeCard() {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            IconHeading(t("Theme"), Icons.Filled.Palette, Theme.colors.accent, Modifier.weight(1f))
+            IconHeading(t("Theme"), Icons.Rounded.Palette, Theme.colors.accent, Modifier.weight(1f))
             Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for ((id, label) in themes) {
                     val neutrals = (IsctThemes[id] ?: continue).first
@@ -681,12 +681,12 @@ private fun LanguageCard() {
     fun set(key: String, value: String) = scope.launch { model.updateSettings { it.put(key, value) } }
     Card(Modifier.padding(top = 16.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconHeading(t("Language"), Icons.Filled.Translate, Theme.colors.accent)
+            IconHeading(t("Language"), Icons.Rounded.Translate, Theme.colors.accent)
             Choices(
                 listOf("en" to "English", "ja" to "日本語", "zh" to "中文"),
                 settings.optString("locale").ifEmpty { "en" },
             ) { set("locale", it) }
-            IconHeading(t("School content language"), Icons.AutoMirrored.Filled.MenuBook, Theme.colors.accent, Modifier.padding(top = 6.dp))
+            IconHeading(t("School content language"), Icons.AutoMirrored.Rounded.MenuBook, Theme.colors.accent, Modifier.padding(top = 6.dp))
             Choices(
                 listOf("auto" to t("Automatic"), "en" to "English", "ja" to "日本語"),
                 settings.optString("contentLanguage").ifEmpty { "auto" },

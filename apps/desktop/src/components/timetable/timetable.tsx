@@ -1,9 +1,11 @@
+import { Check } from "lucide-react";
 import { t } from "../../i18n";
 import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
 import { useState } from "react";
 import { Menu } from "../ui";
 import { GuideTip } from "../guide";
+import { zoomFrom } from "../../app/course-zoom";
 import {
   axisPosition,
   axisRows,
@@ -107,6 +109,7 @@ export function WeekTimetable({
   onSlot,
   activeSlots,
   actionsFor,
+  zoom,
 }: {
   days: DayColumn[];
   onSelect?: (block: Block) => void;
@@ -120,6 +123,9 @@ export function WeekTimetable({
   activeSlots?: ReadonlySet<string>;
   /** Right-click entries for a block; none leaves the native menu alone. */
   actionsFor?: (block: Block) => BlockAction[];
+  /** A click on a class opens its course page, so the block morphs into
+   * that page's title (`app/course-zoom`). */
+  zoom?: boolean;
 }) {
   const [menu, setMenu] = useState<{
     x: number;
@@ -317,7 +323,11 @@ export function WeekTimetable({
                   }
                   title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}`}
                   key={block.key}
-                  onClick={() => onSelect?.(block)}
+                  onClick={(event) => {
+                    if (zoom && block.kind === "course")
+                      zoomFrom(event.currentTarget);
+                    onSelect?.(block);
+                  }}
                   onContextMenu={(event) => openMenu(event, block)}
                 >
                   {/* An exam or quiz says so before its title, so a short
@@ -395,7 +405,9 @@ export function WeekTimetable({
           {menu?.actions.map((action) => (
             <Menu.Item
               key={action.label}
-              leftSection={action.current ? "✓" : " "}
+              leftSection={
+                action.current ? <Check size={14} strokeWidth={1.75} aria-hidden /> : <span className="uiMenuGap" />
+              }
               onClick={() => {
                 setMenu(null);
                 action.run();

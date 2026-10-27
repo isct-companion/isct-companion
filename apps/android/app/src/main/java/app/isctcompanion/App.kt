@@ -1,5 +1,7 @@
 package app.isctcompanion
 
+import app.isctcompanion.design.reducedMotion
+import app.isctcompanion.design.LocalReducedMotion
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,12 +22,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
-import androidx.compose.material.icons.outlined.CalendarToday
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.automirrored.rounded.LibraryBooks
+import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -130,7 +132,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             // The synced background theme; a change recomposes at once.
             IsctTheme(model.records.settings.optString("theme").ifEmpty { "warm" }) {
-                CompositionLocalProvider(LocalModel provides model) { RootView() }
+                val reduced = remember { reducedMotion(this) }
+                CompositionLocalProvider(LocalModel provides model, LocalReducedMotion provides reduced) { RootView() }
             }
         }
     }
@@ -197,11 +200,11 @@ class Navigator(private val controller: NavHostController) {
 private enum class AppTab(
     val route: String, val start: String, val label: String, val icon: ImageVector, val wideOnly: Boolean = false,
 ) {
-    Today("tab/today", "today", "Today", Icons.Outlined.CalendarToday),
-    Timetable("tab/timetable", "timetable", "Timetable", Icons.Outlined.GridView),
-    Lectures("tab/lectures", "lectures", "Courses", Icons.AutoMirrored.Outlined.LibraryBooks, wideOnly = true),
-    Web("tab/web", "web", "Web", Icons.Outlined.Language),
-    Settings("tab/settings", "settings", "Settings", Icons.Outlined.Settings),
+    Today("tab/today", "today", "Today", Icons.Rounded.CalendarToday),
+    Timetable("tab/timetable", "timetable", "Timetable", Icons.Rounded.GridView),
+    Lectures("tab/lectures", "lectures", "Courses", Icons.AutoMirrored.Rounded.LibraryBooks, wideOnly = true),
+    Web("tab/web", "web", "Web", Icons.Rounded.Language),
+    Settings("tab/settings", "settings", "Settings", Icons.Rounded.Settings),
 }
 
 /** Window width from which the layout is a tablet's, as iOS tells iPad. */
@@ -220,7 +223,7 @@ private fun RootView() {
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(Icons.Outlined.WarningAmber, null, tint = Theme.colors.muted)
+            Icon(Icons.Rounded.WarningAmber, null, tint = Theme.colors.muted)
             Text(t("Could not start"), style = MaterialTheme.typography.titleLarge)
             Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
         }

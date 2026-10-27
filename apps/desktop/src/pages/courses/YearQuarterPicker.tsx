@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { TermId } from "../../lib/model";
 import { t } from "../../i18n";
@@ -70,9 +71,10 @@ export function YearQuarterPicker({
                   {groupTerms.map((term, index) => (
                     <span className="yearQuarterStep" key={term}>
                       {index > 0 && (
-                        <span className="yearQuarterChevron" aria-hidden="true">
-                          ›
-                        </span>
+                        <ChevronRight
+                          className="yearQuarterChevron"
+                          size={12} strokeWidth={1.75} aria-hidden
+                        />
                       )}
                       <button
                         type="button"

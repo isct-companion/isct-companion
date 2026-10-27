@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
 import { useRef, useLayoutEffect, type ReactNode } from "react";
@@ -271,7 +272,7 @@ function CoursesBody({
                   px={6}
                   aria-label={t("Calendar export options")}
                 >
-                  ▾
+                  <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
                 </Button>
               </Menu.Target>
               <Menu.Dropdown>

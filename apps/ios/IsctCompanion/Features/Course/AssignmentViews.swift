@@ -55,7 +55,7 @@ struct AssignmentCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                withAnimation(.snappy) { expanded.toggle() }
+                withAnimation(.smooth(duration: Theme.motionBase)) { expanded.toggle() }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(assignment.title)
@@ -80,7 +80,6 @@ struct AssignmentCard: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
-        .sensoryFeedback(.selection, trigger: expanded)
     }
 }
 
@@ -199,7 +198,6 @@ struct MaterialOpener<Label: View>: View {
     @State private var preview: URL?
     @State private var notice: String?
     @State private var retry = false
-    @State private var opened = 0
 
     var body: some View {
         Button {
@@ -210,7 +208,6 @@ struct MaterialOpener<Label: View>: View {
         .buttonStyle(PressableStyle())
         .disabled(opening)
         .quickLookPreview($preview)
-        .sensoryFeedback(.success, trigger: opened)
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK", role: .cancel) {}
         }
@@ -235,7 +232,6 @@ struct MaterialOpener<Label: View>: View {
         switch await model.openMaterial(files, source: source) {
         case let .ready(file)?:
             preview = URL(fileURLWithPath: file.path)
-            opened += 1
         case let .tooLarge(bytes)?:
             notice = t("This file is too large ({{size}}). Open it in the LMS.", ["size": ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)])
         case .failed(.login)?:

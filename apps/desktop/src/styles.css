@@ -166,7 +166,7 @@ summary,
   height: 20px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.7;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -197,7 +197,7 @@ summary,
   height: 20px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.7;
+  stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -214,7 +214,7 @@ summary,
   padding: 20px var(--space-gutter) 72px;
   padding-inline-start: calc(var(--rail) + var(--space-gutter));
   display: flex;
-  transition: margin-right 0.18s ease;
+  transition: margin-right var(--motion-duration-base) var(--motion-easing-standard);
 }
 .workspaceMain.settingsMain {
   height: 100dvh;
@@ -245,7 +245,7 @@ summary,
   display: flex;
   flex-direction: column;
   gap: 12px;
-  animation: enter 0.18s ease;
+  animation: enter var(--motion-duration-base) var(--motion-easing-standard);
 }
 @keyframes enter {
   from {
@@ -431,7 +431,7 @@ summary,
 .lmsStatus progress::-webkit-progress-value {
   border-radius: 999px;
   background: var(--accent);
-  transition: width 0.2s ease;
+  transition: width var(--motion-duration-base) var(--motion-easing-standard);
 }
 .lmsStatus progress::-moz-progress-bar {
   border-radius: 999px;
@@ -633,8 +633,8 @@ summary,
   align-content: start;
   gap: 2px;
   transition:
-    filter 0.12s,
-    opacity 0.12s;
+    filter var(--motion-duration-fast) var(--motion-easing-standard),
+    opacity var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .ttBlock:hover {
   filter: brightness(0.97);
@@ -1415,10 +1415,83 @@ summary,
   padding: 4px 6px;
 }
 
+/* Reduced motion (slotledger approach/motion-reduced): nothing moves, but
+   changes still read. Every animation and transition runs at the fast
+   duration without delay; the keyframes that move or scale become plain
+   fades, and the indicators that slide jump instead. */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
+    animation-duration: var(--motion-duration-fast) !important;
+    animation-delay: 0s !important;
+    transition-duration: var(--motion-duration-fast) !important;
+    transition-delay: 0s !important;
+  }
+  /* Looping indicators would flicker at that length: they hold still. */
+  .schoolStatusAccount[data-state="checking"] > i,
+  .skeleton {
     animation: none !important;
-    transition: none !important;
+  }
+  .weekStrip::before,
+  .lmsRailIndicator,
+  .uiProgressIndicator,
+  .moreOptions > summary::before {
+    transition-property: opacity !important;
+  }
+  @keyframes enter {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes todayRise {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes todayRailIn {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes daySwap {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes weekSlide {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pageIn {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes lmsPopIn {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes lmsPaneEnter {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes todayPaneIn {
+    from {
+      opacity: 0;
+    }
+  }
+  /* A view transition's group would still morph; it jumps, and the old and
+     new views cross-fade. */
+  ::view-transition-group(*) {
+    animation: none !important;
+  }
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: var(--motion-duration-fast) !important;
   }
 }
 
@@ -2193,9 +2266,13 @@ summary,
   border-radius: 2px;
 }
 .finderCheck {
-  font-style: normal;
   color: var(--ok);
   margin-right: 5px;
+  vertical-align: -1px;
+}
+.finderSuggestion > svg {
+  flex: none;
+  color: var(--muted);
 }
 .finderKeys {
   display: flex;
@@ -2485,7 +2562,7 @@ summary,
   inset: 0;
   z-index: 5;
   display: flex;
-  animation: enter 0.14s ease;
+  animation: enter var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .coursesSidePanel > .coursePanel {
   flex: 1;
@@ -2701,7 +2778,7 @@ summary,
 }
 .dueRow .textButton {
   opacity: 0;
-  transition: opacity 120ms;
+  transition: opacity var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .dueRow .textButton:focus-visible {
   opacity: 1;
@@ -2925,7 +3002,7 @@ summary,
 }
 .academicGradeDetails {
   margin-top: 14px;
-  animation: enter 0.14s ease;
+  animation: enter var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .academicAvailability {
   display: grid;
@@ -3063,8 +3140,8 @@ summary,
   background: var(--surface-2);
   overflow: hidden;
   transition:
-    background-color 160ms,
-    border-color 160ms;
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    border-color var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .yearQuarterGroup.expanded {
   background: var(--surface);
@@ -3101,8 +3178,8 @@ summary,
   grid-template-columns: 0fr;
   opacity: 0;
   transition:
-    grid-template-columns 200ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    opacity 140ms;
+    grid-template-columns var(--motion-duration-base) var(--motion-easing-standard),
+    opacity var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .expanded .yearQuarterDrawer {
   grid-template-columns: 1fr;
@@ -3152,12 +3229,10 @@ summary,
   background: var(--accent);
 }
 .yearQuarterChevron {
+  flex: none;
   color: var(--muted);
   opacity: 0.45;
-  padding: 0 2px;
-  font-family: ui-monospace, monospace;
-  font-size: 17px;
-  font-weight: 400;
+  margin: 0 2px;
 }
 .yearQuarterAdd {
   border: 1px dashed var(--line);
@@ -3171,12 +3246,6 @@ summary,
 .yearQuarterPicker button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .yearQuarterDrawer,
-  .yearQuarterGroup {
-    transition: none;
-  }
 }
 
 .tt.hasCalendarNotice .ttGrid {
@@ -3558,7 +3627,7 @@ textarea.codeArea {
 }
 .todayPage:not(.todayNavigation) > .todayHeader,
 .todayPage:not(.todayNavigation) > .todayFlow > * {
-  animation: todayRise 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: todayRise var(--motion-duration-slow) var(--motion-easing-emphasized) both;
 }
 .todayPage:not(.todayNavigation) > .todayFlow > :nth-child(1) {
   animation-delay: 50ms;
@@ -3571,7 +3640,7 @@ textarea.codeArea {
 }
 .todayNavigation > *,
 .todayNavigation > .todayFlow > * {
-  animation: todayRailIn 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: todayRailIn var(--motion-duration-slow) var(--motion-easing-emphasized) both;
 }
 .todayNavigation > .todayFlow {
   animation: none;
@@ -3590,7 +3659,25 @@ textarea.codeArea {
 }
 .daySwap,
 .weekDay b {
-  animation: daySwap 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: daySwap var(--motion-duration-slow) var(--motion-easing-emphasized) both;
+}
+/* Stepping weeks slides the grid in from the arrow's side (approach/
+   motion-week-swipe); the first draw and a reload do not move. */
+.weekPane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.weekSlide {
+  animation: weekSlide var(--motion-duration-slow)
+    var(--motion-easing-emphasized) both;
+}
+@keyframes weekSlide {
+  from {
+    opacity: 0;
+    transform: translate3d(calc(var(--slide, 0) * 24px), 0, 0);
+  }
 }
 /* Sliding highlight behind the picked day. */
 .weekStrip {
@@ -3605,7 +3692,7 @@ textarea.codeArea {
   width: 34px;
   border-radius: 8px;
   background: var(--accent);
-  transition: left 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: left var(--motion-duration-slow) var(--motion-easing-emphasized);
 }
 .weekDay.active {
   background: none;
@@ -3615,17 +3702,6 @@ textarea.codeArea {
 }
 .weekDay.active:hover {
   background: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .todayPage > *,
-  .todayFlow > *,
-  .daySwap,
-  .weekDay b {
-    animation: none !important;
-  }
-  .weekStrip::before {
-    transition: none;
-  }
 }
 
 /* ---------- Home: the day beside the week ---------- */
@@ -3767,10 +3843,27 @@ textarea.codeArea {
   animation: none;
 }
 ::view-transition-old(app-page) {
-  animation: 120ms ease-in both pageOut;
+  animation: var(--motion-duration-fast) var(--motion-easing-standard) both pageOut;
 }
 ::view-transition-new(app-page) {
-  animation: 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both pageIn;
+  animation: var(--motion-duration-slow) var(--motion-easing-emphasized) both pageIn;
+}
+/* Course zoom (app/course-zoom.ts): the clicked block or row and the course
+   page's title share one name while paired, and the group morphs between
+   them. */
+[data-course-zoom] .lmsCourseIdentity {
+  view-transition-name: course-zoom;
+}
+::view-transition-group(course-zoom) {
+  animation-duration: var(--motion-duration-slow);
+  animation-timing-function: var(--motion-easing-emphasized);
+}
+::view-transition-old(course-zoom),
+::view-transition-new(course-zoom) {
+  animation-duration: var(--motion-duration-slow);
+  animation-timing-function: var(--motion-easing-emphasized);
+  height: 100%;
+  object-fit: cover;
 }
 @keyframes pageOut {
   to {
@@ -3783,10 +3876,4 @@ textarea.codeArea {
     transform: translateY(8px) scale(0.995);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation: none !important;
-  }
-}
+

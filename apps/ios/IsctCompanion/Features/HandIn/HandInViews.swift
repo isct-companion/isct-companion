@@ -48,11 +48,10 @@ struct InboxTray: View {
                         .accessibilityLabel(t("Shared files"))
                 }
             }
-            .animation(.snappy, value: dragging)
-            .animation(.snappy, value: inbox.items.count)
+            .animation(.smooth(duration: Theme.motionBase), value: dragging)
+            .animation(.smooth(duration: Theme.motionBase), value: inbox.items.count)
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: discarded)
-        .sensoryFeedback(.selection, trigger: inbox.hovered)
     }
 
     /// The waiting files in order, each a card a little behind the next.
@@ -83,7 +82,7 @@ struct InboxTray: View {
             .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
             .scaleEffect(overTrash ? 1.2 : 1)
             .symbolEffect(.bounce, value: discarded)
-            .animation(.snappy, value: overTrash)
+            .animation(.smooth(duration: Theme.motionBase), value: overTrash)
             .accessibilityHidden(true)
     }
 
@@ -108,7 +107,7 @@ struct InboxTray: View {
                     discarded += 1
                     inbox.discardAll()
                 }
-                withAnimation(.snappy) {
+                withAnimation(.smooth(duration: Theme.motionBase)) {
                     drag = .zero
                     dragging = false
                 }
@@ -157,7 +156,7 @@ private struct HandInTargetModifier: ViewModifier {
             .scaleEffect(over ? 1.03 : 1)
             .shadow(color: .black.opacity(over ? 0.18 : 0), radius: 12, y: 4)
             .zIndex(over ? 1 : 0)
-            .animation(.snappy, value: over)
+            .animation(.smooth(duration: Theme.motionBase), value: over)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
                 inbox.targets[token] = InboxModel.Target(assignment: assignment, frame: frame, opens: opens)
             }
@@ -324,7 +323,7 @@ struct HandInCard: View {
         .task(id: "\(assignment.assignmentId)-\(inbox.items.count)") {
             files = await model.submitFiles(assignment.assignmentId)
         }
-        .animation(.snappy, value: files.map(\.path))
+        .animation(.smooth(duration: Theme.motionBase), value: files.map(\.path))
         .alert(error ?? "", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK", role: .cancel) {}
         }

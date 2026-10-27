@@ -20,9 +20,9 @@
   gap: 8px;
   min-height: 34px;
 }
-.otpSaved > span {
+.otpSaved > svg {
+  flex: none;
   color: var(--ok);
-  font-weight: 700;
 }
 .otpSaved > p {
   flex: 1;

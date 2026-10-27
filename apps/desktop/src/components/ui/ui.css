@@ -553,7 +553,7 @@ textarea.uiInput {
   width: 100%;
   height: 100%;
   background: var(--accent);
-  transition: transform 200ms ease;
+  transition: transform var(--motion-duration-base) var(--motion-easing-standard);
 }
 .uiProgress[data-color="red"] .uiProgressIndicator {
   background: var(--danger);
@@ -763,4 +763,60 @@ textarea.uiInput {
   background: color-mix(in srgb, var(--danger) 12%, var(--danger-soft));
   color: var(--danger);
   font-weight: 600;
+}
+
+/* Glyphs come from lucide (approach/icons-per-platform); inline ones sit on
+   the text's baseline and never shrink. */
+button svg.lucide,
+.uiSelectIndicator svg,
+.uiSelectScroll svg {
+  flex: none;
+  vertical-align: -2px;
+}
+/* Keeps unchecked menu items aligned with a checked one's mark. */
+.uiMenuGap {
+  display: inline-block;
+  width: 14px;
+}
+
+/* Skeleton: placeholders in --surface-2, shaped like the rows or blocks to
+   come; the content that replaces them fades in (useReveal). */
+.skeleton {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0;
+}
+.skeleton[data-shape="row"] > i {
+  display: block;
+  height: 44px;
+  border-radius: var(--radius-surface);
+  background: var(--surface-2);
+}
+.skeleton[data-shape="row"] > i:nth-child(even) {
+  width: 82%;
+}
+.skeleton[data-shape="week"] {
+  flex: 1;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 240px;
+}
+.skeletonColumn {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.skeletonColumn > i {
+  display: block;
+  height: calc(56px + var(--block, 0) * 22px);
+  border-radius: var(--radius-block);
+  background: var(--surface-2);
+}
+.uiReveal {
+  animation: uiReveal var(--motion-duration-base) var(--motion-easing-standard);
+}
+@keyframes uiReveal {
+  from {
+    opacity: 0;
+  }
 }

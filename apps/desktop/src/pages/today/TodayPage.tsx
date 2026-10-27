@@ -1,10 +1,12 @@
+import { zoomFrom } from "../../app/course-zoom";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { CalendarCheck } from "lucide-react";
 import { ExamCards } from "../../components/exams/ExamCards";
 import { DueChip } from "../../components/DueChip";
 import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
-import { UiButton, EmptyState } from "../../components/ui";
+import { UiButton, EmptyState, Skeleton, useReveal } from "../../components/ui";
 import {
   contentLanguage,
   pickLocalized,
@@ -98,13 +100,17 @@ export function TodayBody({
   const isToday = viewIso === todayIso;
   const viewDate = new Date(`${viewIso}T12:00:00+09:00`);
   const weekStart = addDays(viewIso, 1 - civilWeekday(viewIso));
-  const schedule = useScheduleQuery<ScheduleView>({
+  const scheduleQuery = useScheduleQuery<ScheduleView>({
     kind: "scheduleView",
     term,
     from: weekStart,
     to: addDays(viewIso, 7),
     includePersonal: true,
-  }).value;
+  });
+  const schedule = scheduleQuery.value;
+  // Nothing to draw yet (no cached read): placeholders instead of "nothing".
+  const scheduleLoading = scheduleQuery.pending && !schedule;
+  const scheduleReveal = useReveal(scheduleLoading);
   const agenda = schedule?.agendas.find((day) => day.date === viewIso);
   const teachingState = agenda?.calendarState;
   const effectiveDay = civilWeekday(viewIso);
@@ -130,10 +136,13 @@ export function TodayBody({
     : -1;
   const focusIndex = activeIndex >= 0 ? activeIndex : nextIndex;
 
-  const taskView = useScheduleQuery<TaskView>({
+  const taskQuery = useScheduleQuery<TaskView>({
     kind: "taskView",
     now: nowIso,
-  }).value;
+  });
+  const taskView = taskQuery.value;
+  const tasksLoading = taskQuery.pending && !taskView;
+  const tasksReveal = useReveal(tasksLoading);
   const taskTerm = taskView?.byTerm[term];
   const submittedIds = new Set(taskView?.submittedIds);
   const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
@@ -264,7 +273,7 @@ export function TodayBody({
                 aria-label={t("Previous week")}
                 onClick={() => pick(addDays(viewIso, -7))}
               >
-                ‹
+                <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
               </UiButton>
               {week.map(({ date, busy }) => (
                 <UiButton
@@ -287,7 +296,7 @@ export function TodayBody({
                 aria-label={t("Next week")}
                 onClick={() => pick(addDays(viewIso, 7))}
               >
-                ›
+                <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
               </UiButton>
             </div>
             <span className="teachingState">
@@ -355,7 +364,14 @@ export function TodayBody({
               {t("Week")}
             </UiButton>
           </header>
-          <div className="dayAgenda daySwap" key={viewIso} style={swap}>
+          {scheduleLoading ? (
+            <Skeleton count={3} />
+          ) : (
+          <div
+            className={`dayAgenda daySwap${scheduleReveal ? ` ${scheduleReveal}` : ""}`}
+            key={viewIso}
+            style={swap}
+          >
             {(allClasses ? blocks : blocks.slice(0, CLASS_ROWS)).map(
               (block, index) => {
                 const state = !isToday
@@ -379,16 +395,18 @@ export function TodayBody({
                         : undefined
                     }
                     style={{ "--course": block.color } as React.CSSProperties}
-                    onClick={() => {
+                    onClick={(event) => {
                       if (block.kind === "exam" && block.termId && openExam)
                         openExam(block.key, block.termId);
-                      else if (block.kind === "course" || block.kind === "exam")
+                      else if (block.kind === "course" || block.kind === "exam") {
+                        if (block.kind === "course")
+                          zoomFrom(event.currentTarget);
                         open(block.id, undefined, {
                           date: viewIso,
                           startTime: block.startTime,
                           endTime: block.endTime,
                         });
-                      else if (block.kind === "event") {
+                      } else if (block.kind === "event") {
                         const event = data.events.find(
                           (item) => item.id === block.id,
                         );
@@ -449,7 +467,7 @@ export function TodayBody({
                     style={
                       { "--course": nextClass.color } as React.CSSProperties
                     }
-                    onClick={() => {
+                    onClick={(event) => {
                       if (nextClass.kind === "event") {
                         const event = data.events.find(
                           (item) => item.id === nextClass.id,
@@ -460,12 +478,14 @@ export function TodayBody({
                           (item) => item.id === nextClass.id,
                         );
                         if (plan) openPlan(plan);
-                      } else
+                      } else {
+                        zoomFrom(event.currentTarget);
                         open(nextClass.id, undefined, {
                           date: nextClass.date,
                           startTime: nextClass.startTime,
                           endTime: nextClass.endTime,
                         });
+                      }
                     }}
                   >
                     <span className="agendaState">{t("Next")}</span>
@@ -485,6 +505,7 @@ export function TodayBody({
               </>
             )}
           </div>
+          )}
         </section>
 
         <section
@@ -504,7 +525,10 @@ export function TodayBody({
               </UiButton>
             )}
           </header>
-          <div className="dueList">
+          {tasksLoading ? (
+            <Skeleton count={3} />
+          ) : (
+          <div className={`dueList${tasksReveal ? ` ${tasksReveal}` : ""}`}>
             <AssignmentGroupList
               groups={taskTerm?.today}
               assignments={byAssignment}
@@ -514,6 +538,7 @@ export function TodayBody({
               empty={t("Nothing due this week")}
             />
           </div>
+          )}
         </section>
       </div>
     </div>

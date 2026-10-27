@@ -15,20 +15,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.PlayCircleOutline
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.PlayCircleOutline
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -100,7 +99,7 @@ fun toneColors(tone: String): Pair<Color, Color> = with(Theme.colors) {
 @Composable
 fun ExamConflictLabel(conflict: ExamConflict) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Icon(Icons.Outlined.ErrorOutline, null, tint = Theme.colors.warn, modifier = Modifier.size(14.dp))
+        Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.warn, modifier = Modifier.size(14.dp))
         Text(
             if (conflict.removed) t("No longer in the published timetable.") else t("Timetable changed"),
             style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.warn,
@@ -230,28 +229,28 @@ fun DeadlineLink(item: DeadlineItem, chevron: Boolean = false, hidden: Boolean =
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             item.courseId?.let { course ->
-                MenuItem(t("Open course"), Icons.AutoMirrored.Outlined.MenuBook) {
+                MenuItem(t("Open course"), Icons.AutoMirrored.Rounded.MenuBook) {
                     menu = false
                     navigator.openCourse(course)
                 }
             }
             item.sourceUrl?.let { url ->
-                MenuItem(t("Submit in LMS"), Icons.AutoMirrored.Outlined.OpenInNew) {
+                MenuItem(t("Submit in LMS"), Icons.AutoMirrored.Rounded.OpenInNew) {
                     menu = false
                     navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title))
                 }
             }
             if (hidden) {
-                MenuItem(t("Restore"), Icons.Outlined.Visibility) {
+                MenuItem(t("Restore"), Icons.Rounded.Visibility) {
                     menu = false
                     scope.launch { model.setHidden(item, false) }
                 }
             } else {
-                MenuItem(if (item.pinned) t("Unpin") else t("Pin"), Icons.Outlined.PushPin) {
+                MenuItem(if (item.pinned) t("Unpin") else t("Pin"), Icons.Rounded.PushPin) {
                     menu = false
                     scope.launch { model.setPinned(item, !item.pinned) }
                 }
-                MenuItem(t("Hide"), Icons.Outlined.VisibilityOff, Theme.colors.danger) {
+                MenuItem(t("Hide"), Icons.Rounded.VisibilityOff, Theme.colors.danger) {
                     menu = false
                     scope.launch { model.setHidden(item, true) }
                 }
@@ -264,7 +263,7 @@ fun DeadlineLink(item: DeadlineItem, chevron: Boolean = false, hidden: Boolean =
  * hero cards, which open as a whole, carry none. */
 @Composable
 fun RowChevron(modifier: Modifier = Modifier) {
-    Icon(Icons.Outlined.ChevronRight, null, tint = Theme.colors.muted, modifier = modifier.size(18.dp))
+    Icon(Icons.Rounded.ChevronRight, null, tint = Theme.colors.muted, modifier = modifier.size(18.dp))
 }
 
 @Composable
@@ -291,9 +290,9 @@ fun MaterialRow(item: MaterialItem) {
     ) {
         Icon(
             when (item.kind) {
-                "pdf" -> Icons.Outlined.Description
-                "video" -> Icons.Outlined.PlayCircleOutline
-                else -> Icons.Outlined.Link
+                "pdf" -> Icons.Rounded.Description
+                "video" -> Icons.Rounded.PlayCircleOutline
+                else -> Icons.Rounded.Link
             },
             null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp),
         )
@@ -385,7 +384,7 @@ fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
             .background(Theme.colors.dangerSoft)
             .padding(start = 14.dp, top = 4.dp, bottom = 4.dp),
     ) {
-        Icon(Icons.Outlined.ErrorOutline, null, tint = Theme.colors.danger, modifier = Modifier.padding(top = 10.dp))
+        Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger, modifier = Modifier.padding(top = 10.dp))
         Text(
             text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink,
             modifier = Modifier.weight(1f).padding(vertical = 10.dp),
@@ -394,7 +393,7 @@ fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
             TextButton(onClick = retry) { Text(t("Retry"), fontWeight = FontWeight.SemiBold, color = Theme.colors.danger) }
         }
         IconButton(onClick = { model.dismissProblem() }) {
-            Icon(Icons.Outlined.Close, t("Close"), tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.Close, t("Close"), tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         }
     }
 }

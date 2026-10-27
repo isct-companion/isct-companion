@@ -1,11 +1,11 @@
-import { BookOpen } from "lucide-react";
+import { BookOpen, PanelLeft } from "lucide-react";
 import {
   examConflictLabel,
   examKindLabel,
 } from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
 import { DueChip } from "../../components/DueChip";
-import { CloseButton, Input, EmptyState } from "../../components/ui";
+import { CloseButton, Input, EmptyState, Skeleton } from "../../components/ui";
 import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
@@ -158,7 +158,7 @@ function LectureDeskBody({
   const nowIso = useClock(active);
   const now = useMemo(() => new Date(nowIso), [nowIso]);
   const today = tokyoDate(now);
-  const snapshot = useScheduleQueries<[ScheduleView, TaskView]>([
+  const snapshotQuery = useScheduleQueries<[ScheduleView, TaskView]>([
     {
       kind: "scheduleView",
       term: shownTerm,
@@ -167,7 +167,10 @@ function LectureDeskBody({
       includePersonal: true,
     },
     { kind: "taskView", now: nowIso },
-  ]).value;
+  ]);
+  const snapshot = snapshotQuery.value;
+  // Nothing read yet: the list draws placeholders, not "no lectures".
+  const listLoading = snapshotQuery.pending && !snapshot;
   const schedule = snapshot?.[0];
   const search = useScheduleQuery<
     import("../../generated/persistence").LectureSearch
@@ -333,18 +336,7 @@ function LectureDeskBody({
         else sidebar.current?.collapse();
       }}
     >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        aria-hidden="true"
-      >
-        <rect x="3" y="4" width="18" height="16" rx="3" />
-        <path d="M9 4v16" />
-      </svg>
+      <PanelLeft size={18} strokeWidth={1.75} aria-hidden />
     </button>
   );
 
@@ -543,7 +535,9 @@ function LectureDeskBody({
               )}
             />
           )}
+          {mode === "lectures" && listLoading && <Skeleton count={5} />}
           {mode === "lectures" &&
+            !listLoading &&
             shown.map((lecture) => (
               <button
                 type="button"
@@ -568,7 +562,7 @@ function LectureDeskBody({
                 )}
               </button>
             ))}
-          {mode === "lectures" && !shown.length && (
+          {mode === "lectures" && !listLoading && !shown.length && (
             <EmptyState compact icon={BookOpen}>
               {t(
                 lectures.length

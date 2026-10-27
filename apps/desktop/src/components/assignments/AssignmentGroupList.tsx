@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { t } from "../../i18n";
 import { UiButton, EmptyState } from "../ui";
@@ -117,7 +118,12 @@ export function AssignmentGroupList({
             aria-expanded={showHidden}
             onClick={() => setShowHidden((value) => !value)}
           >
-            {showHidden ? "▾" : "▸"} {t("Hidden assignments")} · {hidden.length}
+            {showHidden ? (
+              <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
+            ) : (
+              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+            )}{" "}
+            {t("Hidden assignments")} · {hidden.length}
           </UiButton>
           {showHidden && hidden.map(hiddenRow)}
         </div>

@@ -1,3 +1,4 @@
+import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
@@ -417,7 +418,7 @@ function WebBody({
                     aria-label={t("Back to {{page}}", { page: returnLabel })}
                     onClick={onReturn}
                   >
-                    ←
+                    <ArrowLeft />
                   </UiButton>
                 )}
                 <span className="webSecure" aria-hidden="true">
@@ -464,7 +465,7 @@ function WebBody({
                     aria-label={t("Previous page")}
                     onClick={() => void goBack()}
                   >
-                    ←
+                    <ChevronLeft />
                   </UiButton>
                 )}
                 {embedded && desktopBridge?.schoolWebForward && (
@@ -475,7 +476,7 @@ function WebBody({
                     aria-label={t("Next page")}
                     onClick={() => void goForward()}
                   >
-                    →
+                    <ChevronRight />
                   </UiButton>
                 )}
                 {embedded && desktopBridge?.reloadSchoolWeb && (
@@ -486,7 +487,7 @@ function WebBody({
                     aria-label={t("Reload")}
                     onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
                   >
-                    ↻
+                    <RotateCw />
                   </UiButton>
                 )}
               </div>

@@ -15,6 +15,8 @@ struct TimetableScreen: View {
     @State private var year: TimetableYear?
     @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
+    @State private var gridWidth: CGFloat = 390
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Core's equal-row axis for the shown week.
     @State private var axis: TimetableAxis?
@@ -35,7 +37,10 @@ struct TimetableScreen: View {
             TipView(TimetableMarkTip())
             grid
                 .frame(maxHeight: .infinity, alignment: .top)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { gridHeight = $0 }
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                    gridHeight = size.height
+                    gridWidth = size.width
+                }
                 .offset(x: dragOffset)
                 // Alongside taps, so a block answers the moment it is touched.
                 .simultaneousGesture(swipe)
@@ -75,7 +80,7 @@ struct TimetableScreen: View {
         }
         .sheet(isPresented: $showsPicker) {
             WeekPicker(year: year, monday: monday) { picked in
-                withAnimation(.snappy) { monday = picked }
+                withAnimation(Motion.base(reduceMotion)) { monday = picked }
                 showsPicker = false
             }
             .presentationDetents([.medium, .large])
@@ -151,7 +156,7 @@ struct TimetableScreen: View {
         let thisWeek = TimetableScreen.monday(of: Date())
         let atThisWeek = monday == thisWeek
         return Button {
-            withAnimation(.snappy) { monday = thisWeek }
+            withAnimation(Motion.base(reduceMotion)) { monday = thisWeek }
         } label: {
             Text(t("Today"))
                 .font(.subheadline.weight(.semibold))
@@ -168,20 +173,39 @@ struct TimetableScreen: View {
         monday = Calendar.tokyo.date(byAdding: .day, value: 7 * weeks, to: monday) ?? monday
     }
 
+    /// The grid follows the finger; past the threshold the week slides out
+    /// and the next one slides in from the other side, otherwise it settles
+    /// back (slotledger `approach/motion-week-swipe`). With Reduce Motion the
+    /// grid stays put and the week cross-fades.
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 24)
             .onChanged { value in
-                if abs(value.translation.width) > abs(value.translation.height) {
-                    dragOffset = value.translation.width / 3
+                if !reduceMotion, abs(value.translation.width) > abs(value.translation.height) {
+                    dragOffset = value.translation.width
                 }
             }
             .onEnded { value in
-                withAnimation(.snappy) { dragOffset = 0 }
-                guard abs(value.translation.width) > abs(value.translation.height),
-                    abs(value.translation.width) > 60
-                else { return }
-                shift(value.translation.width < 0 ? 1 : -1)
+                let width = value.translation.width
+                let flung = abs(value.predictedEndTranslation.width) > gridWidth / 2
+                guard abs(width) > abs(value.translation.height), abs(width) > 60 || flung else {
+                    withAnimation(Motion.base(reduceMotion)) { dragOffset = 0 }
+                    return
+                }
+                turn(width < 0 ? 1 : -1)
             }
+    }
+
+    private func turn(_ step: Int) {
+        guard !reduceMotion else {
+            withAnimation(Motion.fast(true)) { shift(step) }
+            return
+        }
+        let out = -CGFloat(step) * gridWidth
+        withAnimation(.smooth(duration: Theme.motionFast)) { dragOffset = out } completion: {
+            shift(step)
+            dragOffset = -out
+            withAnimation(.smooth(duration: Theme.motionSlow)) { dragOffset = 0 }
+        }
     }
 
     // MARK: Grid
@@ -270,6 +294,9 @@ struct TimetableScreen: View {
         return ZStack(alignment: .top) {
             shape.fill(holiday ? Theme.mix(Theme.muted, 0.08, into: Theme.surface) : Theme.surface)
             if let axis { RowRules(axis: axis, rowHeight: rowHeight).clipShape(shape) }
+            if week == nil {
+                skeleton(day).clipShape(shape)
+            }
             if let axis {
                 GeometryReader { column in
                     ForEach(blocks, id: \.key) { block in
@@ -291,6 +318,24 @@ struct TimetableScreen: View {
                 if today { NowLine(axis: axis, rowHeight: rowHeight) }
             }
         }
+    }
+
+    /// Grey stand-ins for a week not read yet, two blocks a day at rows that
+    /// shift by weekday so the grid does not read as a real timetable.
+    private func skeleton(_ day: Date) -> some View {
+        let weekday = Calendar.tokyo.component(.weekday, from: day)
+        return ZStack(alignment: .topLeading) {
+            ForEach([weekday % 3 * 2, weekday % 3 * 2 + 4], id: \.self) { row in
+                RoundedRectangle(cornerRadius: Theme.radiusBlock, style: .continuous)
+                    .fill(Theme.surface2)
+                    .frame(height: max(rowHeight * 2 - 4, 24))
+                    .padding(.horizontal, 2)
+                    .padding(.top, CGFloat(row) * rowHeight + 2)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .transition(.opacity)
+        .accessibilityHidden(true)
     }
 
     /// One block (slotledger `approach/timetable-*`): a solid course fill,
@@ -488,6 +533,7 @@ private struct RowRules: View {
 private struct NowLine: View {
     let axis: TimetableAxis
     let rowHeight: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -498,7 +544,7 @@ private struct NowLine: View {
                 }
                 .padding(.top, offset * rowHeight - 4)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .animation(.smooth, value: offset)
+                .animation(reduceMotion ? nil : .smooth(duration: Theme.motionSlow), value: offset)
             }
         }
         .allowsHitTesting(false)

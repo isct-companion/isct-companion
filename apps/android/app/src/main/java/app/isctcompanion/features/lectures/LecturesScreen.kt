@@ -1,5 +1,8 @@
 package app.isctcompanion.features.lectures
 
+import app.isctcompanion.design.CourseSquare
+import app.isctcompanion.design.SkeletonRows
+import app.isctcompanion.design.Loading
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.School
 import app.isctcompanion.design.EmptyState
@@ -58,34 +61,34 @@ fun LecturesScreen() {
     LaunchedEffect(term, model.contentRevision) { term?.let { overview = model.overview(it) } }
     TabPage(t("Courses")) {
         val ids = overview?.termCourseIds.orEmpty()
-        if (overview != null && ids.isEmpty()) {
-            Box(Modifier.fillMaxSize(), Alignment.Center) { EmptyState(Icons.Rounded.School, t("No courses this term yet")) }
-            return@TabPage
-        }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
-            overview?.term?.let { item { SectionLabel(Format.quarter(it)) } }
-            item {
-                Card(Modifier.padding(top = 8.dp)) {
-                    ids.forEachIndexed { index, id ->
-                        if (index > 0) RowDivider(inset = 34.dp)
-                        val course = model.records.courses[id]
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxWidth().courseZoomSource("lecture-$id")
-                                .clickable { navigator.openCourse(id, "lecture-$id") }.padding(horizontal = 16.dp, vertical = 10.dp),
-                        ) {
-                            Box(
-                                Modifier.width(6.dp).height(32.dp).clip(RoundedCornerShape(4.dp))
-                                    .background(courseColor(overview?.colors?.get(id) ?: model.colors[id])),
-                            )
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    course?.text("title") ?: id, fontWeight = FontWeight.Medium, color = Theme.colors.ink,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                )
-                                course?.text("code")?.let {
-                                    Text(it, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = Theme.colors.muted)
+        Loading(
+            overview != null,
+            placeholder = { SkeletonRows(6, Modifier.padding(horizontal = Theme.gutter, vertical = 8.dp)) },
+        ) {
+            if (ids.isEmpty()) {
+                Box(Modifier.fillMaxSize(), Alignment.Center) { EmptyState(Icons.Rounded.School, t("No courses this term yet")) }
+            } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = 24.dp)) {
+                overview?.term?.let { item { SectionLabel(Format.quarter(it)) } }
+                item {
+                    Card(Modifier.padding(top = 8.dp)) {
+                        ids.forEachIndexed { index, id ->
+                            if (index > 0) RowDivider(inset = 34.dp)
+                            val course = model.records.courses[id]
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.fillMaxWidth().courseZoomSource("lecture-$id")
+                                    .clickable { navigator.openCourse(id, "lecture-$id") }.padding(horizontal = 16.dp, vertical = 10.dp),
+                            ) {
+                                CourseSquare(overview?.colors?.get(id) ?: model.colors[id])
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        course?.text("title") ?: id, fontWeight = FontWeight.Medium, color = Theme.colors.ink,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    )
+                                    course?.text("code")?.let {
+                                        Text(it, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = Theme.colors.muted)
+                                    }
                                 }
                             }
                         }

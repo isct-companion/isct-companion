@@ -85,8 +85,12 @@ struct TodayScreen: View {
             }
             if let today = model.today {
                 TodayContent(today: today, now: now, exams: exams, spread: columns)
+                    .transition(.opacity)
+            } else if !model.needsAccount {
+                SkeletonRows(rows: 4).transition(.opacity)
             }
         }
+        .animation(.smooth(duration: Theme.motionBase), value: model.today == nil)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
@@ -279,14 +283,13 @@ private struct ClassStack: View {
                     pull = open ? travel : travel * 0.2
                 },
                 ended: { travel, velocity in
-                    withAnimation(.snappy) {
+                    withAnimation(.smooth(duration: Theme.motionBase)) {
                         if travel < -Self.turn / 2 || velocity < -500 { front = min(index + 1, items.count - 1) }
                         if travel > Self.turn / 2 || velocity > 500 { front = max(index - 1, 0) }
                         pull = 0
                     }
                 }))
-            .accessibilityAction(named: t("Next class")) { withAnimation(.snappy) { front = min(index + 1, items.count - 1) } }
-            .sensoryFeedback(.selection, trigger: front)
+            .accessibilityAction(named: t("Next class")) { withAnimation(.smooth(duration: Theme.motionBase)) { front = min(index + 1, items.count - 1) } }
             .onChange(of: items.first?.startsAt) { front = 0 }
         }
     }
@@ -456,7 +459,7 @@ private struct CurrentClassHero: View {
             .foregroundStyle(Theme.ink)
             ProgressView(value: progress)
                 .tint(tint)
-                .animation(.smooth(duration: 0.8), value: progress)
+                .animation(.smooth(duration: Theme.motionSlow), value: progress)
             Text(item.occurrence.title)
                 .font(.title3.weight(.semibold))
                 .lineLimit(2)

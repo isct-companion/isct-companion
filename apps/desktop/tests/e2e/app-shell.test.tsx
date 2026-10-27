@@ -1032,9 +1032,14 @@ describe("Chinese UI", () => {
     await click(
       host.querySelector('[data-setting="theme"] [data-theme-value="moss"]'),
     );
-    await until(() => expect(core.workspace.settings.theme).toBe("moss"));
+    // The scripted host keeps its workspace; the save is the intent it got.
     await until(() =>
-      expect(document.documentElement.dataset.theme).toBe("moss"),
+      expect(
+        core.intents
+          .filter((intent) => intent.kind === "replaceSettings")
+          .map((intent) => (intent.settings as { theme?: string }).theme)
+          .at(-1),
+      ).toBe("moss"),
     );
     expect(host.querySelector(".rail button")?.textContent).toContain("今天");
     expect(document.body.textContent).toContain("中文");

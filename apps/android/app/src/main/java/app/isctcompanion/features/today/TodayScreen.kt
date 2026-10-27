@@ -1,7 +1,8 @@
 package app.isctcompanion.features.today
 
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
+import app.isctcompanion.design.SkeletonRows
+import app.isctcompanion.design.Skeleton
+import app.isctcompanion.design.Motion
 import androidx.compose.animation.core.Animatable
 import kotlin.math.abs
 import app.isctcompanion.features.assignments.todayAssignments
@@ -10,11 +11,9 @@ import app.isctcompanion.design.t
 import app.isctcompanion.core.OccurrenceKind
 import app.isctcompanion.core.SchoolAuthProfile
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.runtime.rememberUpdatedState
@@ -44,9 +43,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -164,7 +163,14 @@ fun TodayScreen() {
                             FirstLoadCard(snapshot)
                         }
                     }
-                    model.today?.let { TodayContent(it, now, exams) }
+                    val today = model.today
+                    if (today != null) {
+                        TodayContent(today, now, exams)
+                    } else if (!model.needsAccount) {
+                        // Before Core's first answer: the shape of a class card and a list.
+                        Skeleton(Modifier.fillMaxWidth().height(140.dp), RoundedCornerShape(Theme.radiusPanel))
+                        SkeletonRows(3)
+                    }
                 }
             }
             if (model.today != null) todayAssignments(model.board, now) { navigator.openRecord() }
@@ -255,7 +261,6 @@ private fun ClassStack(items: List<TodayClass>, now: Instant) {
     val index = front.coerceAtMost(items.lastIndex)
     val current by rememberUpdatedState(index)
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
     val turn = with(LocalDensity.current) { 60.dp.toPx() }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) { SectionLabel(stackTitle(items[index], index == 0, now)) }
@@ -297,9 +302,8 @@ private fun ClassStack(items: List<TodayClass>, now: Instant) {
                         else -> current
                     }
                     stretch = 0f
-                    if (next != current) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     front = next
-                    scope.launch { position.animateTo(next.toFloat(), spring(stiffness = Spring.StiffnessMediumLow)) }
+                    scope.launch { position.animateTo(next.toFloat(), Motion.slowSpring()) }
                 }
             },
     ) {
@@ -513,7 +517,7 @@ private fun TonightHero(item: DeadlineItem, now: Instant) {
             ActionButton(
                 t("Open submission page"),
                 { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title)) },
-                icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                icon = Icons.AutoMirrored.Rounded.OpenInNew,
                 danger = true,
             )
         }
@@ -548,7 +552,7 @@ private fun ThisClassCard(materials: List<MaterialItem>, assignments: List<Deadl
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
-                    Icon(Icons.Outlined.Description, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Description, null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(Format.due(item.dueAt, now), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)

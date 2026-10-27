@@ -38,10 +38,12 @@ extension TimetableAxis {
 /// A press that answers at once: the card dips while the finger is down,
 /// before the navigation that follows.
 struct PressableStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.snappy(duration: Theme.motionFast), value: configuration.isPressed)
+            .animation(.smooth(duration: Theme.motionFast), value: configuration.isPressed)
     }
 }

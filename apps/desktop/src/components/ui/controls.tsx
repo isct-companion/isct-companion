@@ -1,3 +1,4 @@
+import { Check as CheckGlyph, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import {
   Checkbox as Check,
   RadioGroup,
@@ -269,7 +270,9 @@ export function Checkbox({
         className="uiCheckbox"
         aria-describedby={description ? `${id}-description` : undefined}
       >
-        <Check.Indicator>✓</Check.Indicator>
+        <Check.Indicator>
+          <CheckGlyph size={14} strokeWidth={2} aria-hidden />
+        </Check.Indicator>
       </Check.Root>
       {label && (
         <label htmlFor={id}>
@@ -514,7 +517,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
               aria-expanded={open}
             >
               {selected?.label ?? placeholder}
-              <span aria-hidden>⌄</span>
+              <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
             </PopoverPrimitive.Trigger>
             <PopoverPrimitive.Portal container={layer}>
               <PopoverPrimitive.Content
@@ -561,7 +564,9 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
           >
             <SelectPrimitive.Trigger {...triggerProps}>
               <SelectPrimitive.Value placeholder={placeholder} />
-              <SelectPrimitive.Icon>⌄</SelectPrimitive.Icon>
+              <SelectPrimitive.Icon>
+                <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
+              </SelectPrimitive.Icon>
             </SelectPrimitive.Trigger>
             <SelectPrimitive.Portal container={layer}>
               <SelectPrimitive.Content
@@ -570,7 +575,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                 className="uiSelectDropdown"
               >
                 <SelectPrimitive.ScrollUpButton className="uiSelectScroll">
-                  ⌃
+                  <ChevronUp size={14} strokeWidth={1.75} aria-hidden />
                 </SelectPrimitive.ScrollUpButton>
                 <SelectPrimitive.Viewport>
                   {data.map((item, index) =>
@@ -587,7 +592,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                   )}
                 </SelectPrimitive.Viewport>
                 <SelectPrimitive.ScrollDownButton className="uiSelectScroll">
-                  ⌄
+                  <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
                 </SelectPrimitive.ScrollDownButton>
               </SelectPrimitive.Content>
             </SelectPrimitive.Portal>
@@ -608,7 +613,7 @@ function renderOption(item: Option) {
     >
       <SelectPrimitive.ItemText>{item.label}</SelectPrimitive.ItemText>
       <SelectPrimitive.ItemIndicator className="uiSelectIndicator">
-        ✓
+        <CheckGlyph size={14} strokeWidth={1.75} aria-hidden />
       </SelectPrimitive.ItemIndicator>
     </SelectPrimitive.Item>
   );
@@ -659,7 +664,7 @@ export function MultiSelect({
               {item.label}
             </span>
           ))}
-        <span aria-hidden>⌄</span>
+        <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal container={layer}>
         <PopoverPrimitive.Content
@@ -688,7 +693,7 @@ export function MultiSelect({
                     value.length >= maxValues)
                 }
               >
-                {value.includes(item.value) ? "✓ " : ""}
+                {value.includes(item.value) && <CheckGlyph size={14} strokeWidth={1.75} aria-hidden />}
                 {item.label}
               </ToggleGroup.Item>
             ))}
@@ -803,7 +808,7 @@ export function Pagination({
         onClick={() => onChange(value - 1)}
         aria-label={t("Previous page")}
       >
-        ‹
+        <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
       </Button>
       {pages.map((page, index) => (
         <span key={page}>
@@ -825,7 +830,7 @@ export function Pagination({
         onClick={() => onChange(value + 1)}
         aria-label={t("Next page")}
       >
-        ›
+        <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
       </Button>
     </nav>
   );

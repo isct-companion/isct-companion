@@ -1,6 +1,6 @@
-import { LoaderCircle, SearchX } from "lucide-react";
+import { SearchX, Check, ChevronRight, X } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Paper, EmptyState } from "../../components/ui";
+import { Paper, EmptyState, Skeleton } from "../../components/ui";
 import { useEffect, useRef, useState } from "react";
 
 import { UiButton } from "../../components/ui";
@@ -483,7 +483,7 @@ export function CourseFinder({
                   {LOCAL_TYPES.has(c.type) && !c.exclude && (
                     <i className="finderLocal">{t("local")}</i>
                   )}
-                  <span aria-hidden="true">×</span>
+                  <X size={12} strokeWidth={1.75} aria-hidden />
                 </button>
               </span>
             )),
@@ -570,7 +570,7 @@ export function CourseFinder({
                     {s.kind === "category" && (
                       <>
                         <span>{t(s.label)}</span>
-                        <small>›</small>
+                        <ChevronRight size={12} strokeWidth={1.75} aria-hidden />
                       </>
                     )}
                     {s.kind === "condition" && (
@@ -597,7 +597,7 @@ export function CourseFinder({
                       <>
                         <span>
                           {selected.has(s.row.course.id) && (
-                            <i className="finderCheck">✓</i>
+                            <Check className="finderCheck" size={12} strokeWidth={1.75} aria-hidden />
                           )}
                           <Highlight
                             text={pickLocalized(s.row.course.title, language)}
@@ -671,9 +671,7 @@ export function CourseFinder({
         onClick={() => setOpen(false)}
       >
         {enabled && !view && !error && (
-          <EmptyState icon={LoaderCircle} role="status">
-            {t("Loading…")}
-          </EmptyState>
+          <Skeleton count={6} />
         )}
         {view && total === 0 && (
           <EmptyState icon={SearchX}>

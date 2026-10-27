@@ -103,7 +103,7 @@
   content: "›";
   display: inline-block;
   width: 14px;
-  transition: transform 120ms ease;
+  transition: transform var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .moreOptions[open] > summary::before {
   transform: rotate(90deg);

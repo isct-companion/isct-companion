@@ -1,11 +1,12 @@
 /* Today course workbench: Today rail, course outline, and one reading pane.
    Motion only animates opacity/transform so it stays on the compositor. */
 :root {
-  --lms-ease: cubic-bezier(.22, 1, .36, 1);
-  /* Motion scale: hover/colour, content reveal, pane open/close. */
-  --lms-fast: 200ms;
-  --lms-medium: 260ms;
-  --lms-slow: 300ms;
+  /* The shared motion tokens (design/tokens/motion.json): hover/colour,
+     content reveal, pane open/close. */
+  --lms-ease: var(--motion-easing-emphasized);
+  --lms-fast: var(--motion-duration-base);
+  --lms-medium: var(--motion-duration-slow);
+  --lms-slow: var(--motion-duration-slow);
   --lms-radius: var(--radius-surface);
   --lms-radius-sm: var(--radius-control);
   --lms-hover-line: color-mix(in srgb, var(--accent) 35%, var(--line));
@@ -24,7 +25,7 @@
 .todayRetained { flex: 0 0 100%; min-width: 0; height: 100%; overflow: auto; overflow-anchor: none; }
 .todayRetained.compact { flex-basis: 180px; padding-right: 16px; border-right: 1px solid var(--line); }
 .todayWorkbenchContent { flex: 1; min-width: 0; min-height: 0; overflow: hidden; contain: layout paint; transition: opacity var(--lms-medium) var(--lms-ease), transform var(--lms-slow) var(--lms-ease); }
-.todayWorkbench.working .todayWorkbenchContent { transform-origin: left center; animation: todayPaneIn 380ms var(--lms-ease); }
+.todayWorkbench.working .todayWorkbenchContent { transform-origin: left center; animation: todayPaneIn var(--motion-duration-slow) var(--lms-var(--motion-easing-emphasized)); }
 /* Leaving: the pane fades out over the returning full Today instead of collapsing to zero width. */
 .todayWorkbench.leaving .todayWorkbenchContent { position: absolute; top: 0; right: 0; bottom: 0; left: 200px; opacity: 0; transform: translate3d(16px, 0, 0) scale(.99); pointer-events: none; }
 .todayWorkbenchContent[hidden], .todayCourseSlot[hidden] { display: none; }
@@ -358,7 +359,7 @@
 .lmsRailIndicator {
   position: absolute; left: 0; bottom: 2px; height: 3px; width: 0; border-radius: 2px; background: var(--accent);
   pointer-events: none; opacity: 0; z-index: 1;
-  transition: transform 420ms cubic-bezier(.2, .9, .25, 1), width 420ms cubic-bezier(.2, .9, .25, 1), opacity var(--lms-fast);
+  transition: transform var(--motion-duration-slow) var(--motion-easing-emphasized), width var(--motion-duration-slow) var(--motion-easing-emphasized), opacity var(--lms-fast);
 }
 .lmsWorkspaceTools .lmsLessonRail .lmsRailIndicator { bottom: 8px; }
 .lmsLessonRail button:hover::after { background: var(--lms-hover-line); }
@@ -519,9 +520,6 @@
 .lmsOutlineScroll > h2:first-child { margin-top: 16px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .lmsRailIndicator { transition: none; }
-  .todayWorkbench.working .todayWorkbenchContent, .lmsViewer, .lmsSectionBody, .lmsInlineThumbnail, .lmsFileCard, .lmsFilePopover { animation: none; }
-  .todayWorkbenchContent, .lmsItemRow, .lmsAnnouncementCard, .lmsSectionChevron, .lmsThumbnail img { transition: none; }
   .lmsImageCard [data-image-src][data-state="loading"] { animation: none; }
 }
 

@@ -16,11 +16,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.PlayCircleOutline
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -108,12 +108,12 @@ fun MaterialButton(title: String, kind: String, source: String?, files: CourseKe
 }
 
 fun materialIcon(kind: String): ImageVector = when (kind) {
-    "pdf" -> Icons.Outlined.Description
-    "video" -> Icons.Outlined.PlayCircleOutline
-    "file" -> Icons.Outlined.AttachFile
-    "folder" -> Icons.Outlined.Folder
-    "link" -> Icons.Outlined.Link
-    else -> Icons.Outlined.Description
+    "pdf" -> Icons.Rounded.Description
+    "video" -> Icons.Rounded.PlayCircleOutline
+    "file" -> Icons.Rounded.AttachFile
+    "folder" -> Icons.Rounded.Folder
+    "link" -> Icons.Rounded.Link
+    else -> Icons.Rounded.Description
 }
 
 class MaterialOpener(val opening: Boolean, val open: () -> Unit)

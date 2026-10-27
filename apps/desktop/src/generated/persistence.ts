@@ -535,12 +535,12 @@ export type Settings = {
   autoCleanDays?: number;
   agentAccess?: AgentAccess;
   appearance: "system" | "light" | "dark";
-  density: "comfortable" | "compact";
-  textSize?: "small" | "medium" | "large";
   /**
-   * Background theme: neutrals only, synced across devices; absent is warm.
+   * The background theme: neutrals only; absent reads as `warm`.
    */
   theme?: "warm" | "cool" | "paper" | "mist" | "moss";
+  density: "comfortable" | "compact";
+  textSize?: "small" | "medium" | "large";
   automaticAppUpdates?: boolean;
   restoreSchoolPage?: boolean;
   activeSchoolSite?: string;
@@ -906,12 +906,6 @@ export type ClassGroupChoice = {
 
 export type OccurrenceKind = "course" | "event" | "plan" | "exam";
 
-/**
- * A timetable block's place on the period grid. A block whose times fall
- * inside periods (an exam at 09:30–10:20) fills the periods it touches, and
- * blocks that overlap sit side by side; the block keeps its own times for
- * its label.
- */
 export type GridSlot = {
   startTime: string;
   endTime: string;

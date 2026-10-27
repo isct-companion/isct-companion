@@ -1,3 +1,11 @@
+import { clearZoom } from "./course-zoom";
+import {
+  BookOpen,
+  CalendarDays,
+  Globe,
+  House,
+  SlidersHorizontal,
+} from "lucide-react";
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { formatJst } from "../lib/civil-date";
 import { CalendarView } from "../pages/today/CalendarView";
@@ -118,37 +126,11 @@ function sessionStatusLabel(state: SchoolSessionState | undefined) {
 const pages: Page[] = ["home", "timetable", "lectures", "web"];
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
-  timetable: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M7 3v4M17 3v4M3 11h18M9 11v10M15 11v10" />
-    </svg>
-  ),
-  home: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 10.5 12 4l8 6.5V19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
-      <path d="M9.5 21v-6h5v6" />
-    </svg>
-  ),
-  lectures: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z" />
-      <path d="M5 17a3 3 0 0 1 3-3h11M9 8h6" />
-    </svg>
-  ),
-  web: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18" />
-    </svg>
-  ),
-  settings: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
-      <circle cx="15" cy="7" r="2.2" />
-      <circle cx="9" cy="17" r="2.2" />
-    </svg>
-  ),
+  timetable: <CalendarDays aria-hidden strokeWidth={1.75} />,
+  home: <House aria-hidden strokeWidth={1.75} />,
+  lectures: <BookOpen aria-hidden strokeWidth={1.75} />,
+  web: <Globe aria-hidden strokeWidth={1.75} />,
+  settings: <SlidersHorizontal aria-hidden strokeWidth={1.75} />,
 };
 
 /** What the shell itself renders: course names and colours, the editors it
@@ -252,6 +234,13 @@ export function WorkspaceApp() {
   // settings section, week view); the course drawer query is not carried.
   const pageLocations = useRef<Partial<Record<Page, string>>>({});
   pageLocations.current[page] = location.pathname;
+  // A course zoom stays paired while the course is shown, so back reverses
+  // it; once a page other than the course has played its transition, it ends.
+  useEffect(() => {
+    if (page === "lectures") return;
+    const timer = setTimeout(clearZoom, 400);
+    return () => clearTimeout(timer);
+  }, [page]);
   const pagePath = (next: Page) =>
     pageLocations.current[next] ?? paths.page(next);
   const [webContext, setWebContext] = useState<{
