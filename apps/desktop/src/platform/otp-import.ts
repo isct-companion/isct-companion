@@ -1,21 +1,15 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { OtpImportAccount } from "../generated/persistence";
 import { t } from "../i18n";
+import { NativeError, invoke } from "./native-error";
 
 export type { OtpImportAccount };
 export function importOtp(payload: string): Promise<OtpImportAccount[]> {
   return invoke("import_school_otp", { payload });
 }
 export function otpImportError(error: unknown): string {
-  const kind =
-    error && typeof error === "object" && "kind" in error
-      ? error.kind
-      : undefined;
-  if (kind === "multiplePages")
-    return t("Export only your school account, then scan its QR code again.");
-  if (kind === "unsupported")
-    return t("This account uses an unsupported verification code format.");
-  return t("This is not a supported authenticator QR code.");
+  return error instanceof NativeError
+    ? error.message
+    : t("error.otp-import-invalid");
 }
 export async function readOtpImage(file: File): Promise<string> {
   if (file.size > 10 * 1024 * 1024)

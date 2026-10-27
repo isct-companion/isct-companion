@@ -66,6 +66,12 @@ export function jstMinutes(date: Date): number {
   return hour * 60 + minute;
 }
 
+/** `HH:MM` in Japan time, as Core writes class start and end times. */
+export function jstClock(date: Date): string {
+  const minutes = jstMinutes(date);
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
 /** Display timestamps in the academic zone; malformed legacy values never reach Intl. */
 export function formatTimestamp(
   value: unknown,

@@ -21,6 +21,7 @@ import {
   workspaceFixture,
   type FakeCore,
   type MountedApp,
+  FINDER_READS,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
 import type {
@@ -156,6 +157,8 @@ function finderPage(
     ineligibleCodes: [],
     catalogVersion: 1,
     contentRevision: core.revision,
+    reads: FINDER_READS,
+    seq: 0,
   };
 }
 
@@ -239,19 +242,6 @@ function pills(host: HTMLElement): string[] {
   return textOf(host, ".finderPill").map((text) => text.replace(/×$/, ""));
 }
 
-/**
- * Harness gap: `core-query` and `finder-query` keep module-level response
- * caches keyed by `[revision, request]`, and `installFakeCore` resets neither.
- * Two mounts in one file both start at the fake's default revision, so the
- * second would render the first mount's answers. A fresh revision per mount
- * (and per commit) keeps every request key unique.
- */
-let revisionSeed = 0;
-function freshRevision(): string {
-  revisionSeed += 1;
-  return `revision:planner-${revisionSeed}`;
-}
-
 /** The intent the scripted host accepted, narrowed to the kind asked for. */
 function recordedIntent<K extends WorkspaceIntent["kind"]>(
   core: FakeCore,
@@ -323,7 +313,6 @@ describe("the course planner", () => {
     };
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: finderHandler(options),
@@ -443,7 +432,6 @@ describe("the course planner", () => {
     const answer = finderHandler(options);
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: (command, args, core) =>
@@ -517,7 +505,6 @@ describe("the course planner", () => {
     );
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: finderHandler({ courses }),
@@ -574,7 +561,6 @@ describe("the course planner", () => {
     let stored: FinderCourse[] = [];
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: (command, args, core) =>
@@ -654,7 +640,6 @@ describe("the course planner", () => {
   it("shows course search results on the right and places an eligible course when its row Add is clicked", async () => {
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: finderHandler({ courses: [eligible] }),
@@ -719,7 +704,6 @@ describe("the course planner", () => {
     });
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: finderHandler(
@@ -776,7 +760,6 @@ describe("the course planner", () => {
     const answer = finderHandler({ courses: [eligible] });
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: (command, args, core) =>
@@ -828,7 +811,6 @@ describe("the course planner", () => {
   it("opens a search result's details over the timetable", async () => {
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: finderHandler({ courses: [eligible] }),
@@ -861,7 +843,6 @@ describe("the course planner", () => {
   it("opens a placed course's details over the search panel", async () => {
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture({
           courses: [eligibleCourse],
           planItems: [planItemFor(eligibleCourse)],
@@ -911,7 +892,6 @@ describe("course eligibility", () => {
   it("keeps the chosen course selected and withholds Undo when the add fails", async () => {
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: finderHandler({ courses: [eligible] }, (command, args) => {
@@ -969,7 +949,6 @@ describe("course eligibility", () => {
     };
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: finderHandler({
@@ -1024,7 +1003,6 @@ describe("course eligibility", () => {
     };
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace: workspaceFixture(),
         queries: plannerQueries(),
         handle: finderHandler({ courses: [eligible], eligibility }),
@@ -1064,7 +1042,6 @@ describe("replacing a clashing course", () => {
 
   function clashApp() {
     return {
-      revision: freshRevision(),
       workspace: before,
       queries: plannerQueries(),
       handle: finderHandler({
@@ -1101,7 +1078,6 @@ describe("replacing a clashing course", () => {
     }));
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace,
         queries: {
           ...plannerQueries(),
@@ -1223,7 +1199,6 @@ function meetingCourse(meeting: Course["meetings"][number]): Course {
 async function openEditorFor(course: Course): Promise<MountedApp> {
   const mounted = await mountApp(
     {
-      revision: freshRevision(),
       workspace: workspaceFixture({
         courses: [course],
         planItems: [planItemFor(course)],
@@ -1426,7 +1401,6 @@ describe("the year and quarter picker", () => {
     });
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace,
         queries: {
           ...plannerQueries(TERMS),
@@ -1595,14 +1569,12 @@ type OfficialDepartments = {
 
 const parsedCourses = () =>
   JSON.parse(
-    readRepoFile(
-      "crates/isct-core/tests/fixtures/catalog/course-examples.json",
-    ),
+    readRepoFile("crates/app-core/tests/fixtures/catalog/course-examples.json"),
   ) as PublicCourse[];
 const departments = (year: 2025 | 2026) =>
   JSON.parse(
     readRepoFile(
-      `crates/isct-core/tests/fixtures/subscriptions/data/${year}/departments.json`,
+      `crates/app-core/tests/fixtures/subscriptions/data/${year}/departments.json`,
     ),
   ) as OfficialDepartments;
 
@@ -1698,7 +1670,6 @@ describe("the committed school fixtures", () => {
 
     app = await mountApp(
       {
-        revision: freshRevision(),
         workspace,
         queries: {
           ...plannerQueries(["2026-2Q"]),

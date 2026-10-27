@@ -12,23 +12,25 @@ mod agent_server;
 mod campus_wifi;
 mod cloud;
 mod cloud_sync;
+mod command_error;
+pub(crate) use command_error::{coded, shell, CommandError};
 mod commands;
 mod desktop_updates;
-pub use isct_core::contracts;
-pub use isct_core::data;
+pub use app_core::contracts;
+pub use app_core::data;
 #[cfg(target_os = "macos")]
 mod icloud;
-use isct_core::kyomu_guide;
-use isct_core::lifecycle;
+use app_core::kyomu_guide;
+use app_core::lifecycle;
 mod lms_downloader;
 mod lms_files;
 mod lms_protocol;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
 #[cfg(matrix_ocr)]
-use isct_ocr as matrix_ocr;
+use app_ocr as matrix_ocr;
 mod core_ports;
-pub(crate) use isct_core::school_auth;
+pub(crate) use app_core::school_auth;
 mod school_browser_native;
 mod school_downloads;
 mod school_web;
@@ -62,7 +64,7 @@ fn window_material() -> Option<&'static str> {
     None
 }
 
-fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
+fn require_local_main(webview: &tauri::Webview) -> Result<(), CommandError> {
     if webview.label() != "main" {
         return Err("native commands are restricted to the local main webview".into());
     }
@@ -87,23 +89,23 @@ fn require_local_main(webview: &tauri::Webview) -> Result<(), String> {
 /// SQLite-backed commands run on a blocking thread so a slow query never stalls
 /// WebView frames on the main thread. They stay serialized with each other, as
 /// they were when Tauri ran them on the main thread.
-async fn run_data_command<T, F>(work: F) -> Result<T, String>
+async fn run_data_command<T, F>(work: F) -> Result<T, CommandError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, CommandError> + Send + 'static,
 {
     static DATA_COMMANDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
     run_blocking(Some(&DATA_COMMANDS), work).await
 }
 
-/// Read models Core answers from its pooled read connections, its snapshot
+/// Read models Core answers from its pooled read connections, its view
 /// cache and its own caches, all safe to share with a commit in progress.
 /// They run outside the data command lock, so a write such as adding a
 /// course never queues behind the searches typing sends.
-async fn run_read_command<T, F>(work: F) -> Result<T, String>
+async fn run_read_command<T, F>(work: F) -> Result<T, CommandError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, CommandError> + Send + 'static,
 {
     run_blocking(None, work).await
 }
@@ -111,10 +113,10 @@ where
 async fn run_blocking<T, F>(
     serialized: Option<&'static std::sync::Mutex<()>>,
     work: F,
-) -> Result<T, String>
+) -> Result<T, CommandError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, CommandError> + Send + 'static,
 {
     let queued_at = std::time::Instant::now();
     tauri::async_runtime::spawn_blocking(move || {
@@ -136,7 +138,7 @@ where
         result
     })
     .await
-    .map_err(|_| "The native data command stopped unexpectedly.".to_string())?
+    .map_err(|_| CommandError::from("The native data command stopped unexpectedly."))?
 }
 
 #[cfg(target_os = "macos")]
@@ -171,7 +173,7 @@ fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
 }
 
 pub fn run() {
-    let _ = isct_core::diagnostics::initialize();
+    let _ = app_core::diagnostics::initialize();
     let builder = tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
             log::info!(
@@ -210,7 +212,6 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::MatrixScan::default())
-        .manage(lms_downloader::SessionView::default())
         .manage(desktop_updates::DesktopUpdates::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(target_os = "macos")]
@@ -303,9 +304,7 @@ pub fn run() {
             commands::cloud::set_cloud_credential_sync_password,
             commands::cloud::sync_cloud_credentials,
             commands::cloud::clear_cloud_credential_sync_password,
-            commands::workspace::load_workspace,
-            commands::workspace::workspace_snapshot,
-            commands::workspace::workspace_records,
+            commands::workspace::workspace_revision,
             commands::read_models::schedule_query,
             commands::read_models::finder_query,
             commands::workspace::mutate_workspace,
@@ -338,7 +337,7 @@ pub fn run() {
                     .app_data_dir()?
                     .join("school-credential-status.json"),
             )));
-            app.manage(std::sync::Arc::new(isct_core::Core::with_events(
+            app.manage(std::sync::Arc::new(app_core::Core::with_events(
                 app.state::<data::DataStore>().inner().clone(),
                 app.state::<std::sync::Arc<SchoolAuthService>>()
                     .inner()
@@ -349,7 +348,7 @@ pub fn run() {
                 let native = school_browser_native::NativeBrowser::new(app.handle().clone())?;
                 let engine = core_ports::core(app.handle())
                     .attach_school_browser(native.clone(), lms_downloader::session(app.handle()))?;
-                Ok::<_, isct_core::school_browser::SchoolBrowserError>(SchoolWebController::new(
+                Ok::<_, app_core::school_browser::SchoolBrowserError>(SchoolWebController::new(
                     native, engine,
                 ))
             })?;
@@ -379,7 +378,10 @@ pub fn run() {
                 );
                 #[cfg(not(dev))]
                 let main_url = WebviewUrl::App("index.html".into());
-                let window = WebviewWindowBuilder::new(app, "main", main_url);
+                // File drops belong to WebKit's page/file inputs, including
+                // child school views. No shell listener consumes Tauri drops.
+                let window =
+                    WebviewWindowBuilder::new(app, "main", main_url).disable_drag_drop_handler();
                 #[cfg(target_os = "windows")]
                 let window = if window_material().is_some() {
                     window.transparent(true).effects(
@@ -468,7 +470,7 @@ pub fn run() {
             }
             if matches!(&event, tauri::RunEvent::Resumed) {
                 tauri::async_runtime::block_on(core_ports::runtime(app).resume());
-                core_ports::core(app).sync_hint(isct_core::sync_engine::Hint::Resume);
+                core_ports::core(app).sync_hint(app_core::sync_engine::Hint::Resume);
             }
 
             let foreground = match &event {

@@ -30,6 +30,7 @@ const DATASETS: Record<
   { title: string; follows: "academic" | "admission" }
 > = {
   calendar: { title: "Academic calendar", follows: "academic" },
+  departments: { title: "Study guide", follows: "admission" },
   "important-dates": { title: "Important dates", follows: "academic" },
   exams: { title: "Exam timetable", follows: "academic" },
   "class-schedules": {
@@ -145,7 +146,9 @@ export function DataUpdatesSettings({
         <Row
           id="cellular"
           title="Update on cellular data"
-          hint={waitingForWifi ? t("Paused until Wi-Fi is available") : undefined}
+          hint={
+            waitingForWifi ? t("Paused until Wi-Fi is available") : undefined
+          }
         >
           <Toggle
             checked={data.settings.subscriptionRefresh.allowCellular}

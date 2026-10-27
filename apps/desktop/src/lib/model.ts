@@ -1,5 +1,4 @@
 import { EMPTY_WORKSPACE } from "../generated/persistence";
-import { termForDate } from "./academic";
 import type {
   Localized,
   Quarter,
@@ -51,15 +50,12 @@ export const LMS_BACKGROUND_REFRESH_TASK_ID =
     (task) => task.action === "lms-refresh",
   )!.id;
 
-/** Core supplies every default; the shell only fills launch-local identity and time. */
+/** Core supplies every default, the term included; the shell only fills
+ * launch-local identity and time. */
 export function seedWorkspace(): Workspace {
   const workspace = structuredClone(EMPTY_WORKSPACE);
-  const term = termForDate(new Date());
   const deviceId = newDeviceId();
   workspace.deviceId = deviceId;
-  workspace.selectedTerm = term;
-  workspace.currentTerm = term;
-  workspace.terms = [term];
   const updatedAt = new Date().toISOString();
   for (const task of workspace.scheduledTasks) {
     task.updatedAt = updatedAt;

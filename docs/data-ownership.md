@@ -22,7 +22,7 @@ merge behavior are deliberately out of scope.
 
 ## Reset
 
-Settings offers two resets, both decided in Core (`crates/isct-core/src/reset.rs`,
+Settings offers two resets, both decided in Core (`crates/app-core/src/reset.rs`,
 `data/reset_store.rs`) and affecting only this device; neither writes a tombstone.
 
 - **Clear school caches and resync** deletes the school, reference and derived

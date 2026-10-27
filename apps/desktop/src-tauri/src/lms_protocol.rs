@@ -1,5 +1,5 @@
 use crate::lms_files::{self, CourseKey, Material};
-use isct_core::course_materials::{MaterialError, MaterialFailure};
+use app_core::course_materials::{MaterialError, MaterialFailure};
 use serde_json::json;
 use std::{
     fs,
@@ -60,7 +60,7 @@ fn error(reason: Reason, bytes: Option<u64>) -> http::Response<Vec<u8>> {
 fn login_error(app: &AppHandle) -> http::Response<Vec<u8>> {
     // Core coalesces session checks from concurrent failed images/files.
     if let Ok(engine) = crate::core_ports::core(app).school_browser() {
-        let _ = engine.request_session(isct_core::school_auth::SchoolAuthProfile::Science);
+        let _ = engine.request_session(app_core::school_auth::SchoolAuthProfile::Science);
     }
     error(Reason::Login, None)
 }

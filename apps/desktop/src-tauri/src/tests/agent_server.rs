@@ -1,5 +1,5 @@
 use super::*;
-use isct_core::{
+use app_core::{
     data::DataStore,
     ports::{SecretError, SecretVault},
     school_auth::SchoolAuthService,
@@ -115,7 +115,7 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
         .await
         .unwrap();
     let connection = server.connection();
-    let client = isct_core::net::client_builder()
+    let client = app_core::net::client_builder()
         .no_proxy()
         .timeout(Duration::from_secs(10))
         .build()

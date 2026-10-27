@@ -18,5 +18,5 @@ database or file commit. A Core-requested cooperative cancellation remains the
 typed `SdkError.Cancelled` when the Swift task itself was not cancelled.
 
 See [the integration contract](../../docs/core-ffi.md) and the actual Swift client
-in `crates/isct-ffi/tests/foreign/Smoke.swift`. The Native Core SDK CI artifact
+in `crates/app-ffi/tests/foreign/Smoke.swift`. The Native Core SDK CI artifact
 contains the generated sources, binary XCFramework and this package manifest.

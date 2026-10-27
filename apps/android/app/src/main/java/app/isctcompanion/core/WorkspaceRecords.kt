@@ -3,12 +3,11 @@ package app.isctcompanion.core
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Rows of the authoritative workspace snapshot, indexed by id. Core read
+/** Rows of the `records(fields)` view query, indexed by id. Core read
  * models return ids (course detail, timetable blocks); screens look the rows
  * up here to render them. No decision is made on these rows. */
 class WorkspaceRecords(workspace: String? = null) {
     val courses: Map<String, JSONObject>
-    val materials: Map<String, JSONObject>
     val assignments: Map<String, JSONObject>
     /** The complete settings object; forms edit a copy and replace it. */
     val settings: JSONObject
@@ -16,7 +15,6 @@ class WorkspaceRecords(workspace: String? = null) {
     init {
         val root = workspace?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
         courses = index(root.optJSONArray("courses"))
-        materials = index(root.optJSONArray("materials"))
         assignments = index(root.optJSONArray("assignments"))
         settings = root.optJSONObject("settings") ?: JSONObject()
     }
@@ -32,6 +30,3 @@ class WorkspaceRecords(workspace: String? = null) {
 /** A non-empty string field. */
 fun JSONObject.text(key: String): String? =
     if (!has(key) || isNull(key)) null else optString(key).ifEmpty { null }
-
-fun JSONObject.number(key: String): Double? =
-    if (has(key) && !isNull(key)) optDouble(key).takeUnless { it.isNaN() } else null

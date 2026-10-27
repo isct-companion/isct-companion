@@ -1,0 +1,22 @@
+[package]
+name = "adpt-isct"
+version = "1.0.0-rc.1"
+edition = "2021"
+rust-version = "1.90"
+description = "Institute of Science Tokyo specifics for IsctCompanion Core: page parsers, school scripts and URLs"
+
+[features]
+default = []
+ts = ["dep:ts-rs"]
+
+[dependencies]
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+url = "2.5"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+ts-rs = { version = "11", features = ["serde-compat"], optional = true }
+regex = "1"
+unicode-normalization = "0.1"
+scraper = "0.24"
+ego-tree = "0.10"

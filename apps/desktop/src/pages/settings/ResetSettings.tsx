@@ -1,5 +1,5 @@
 import { Checkbox, Radio } from "../../components/ui";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../platform/native-error";
 import { useEffect, useState } from "react";
 import { intlLocale, t } from "../../i18n";
 import { errorText } from "../../app/shared";
@@ -9,7 +9,7 @@ import { workspaceActions } from "../../store/workspace";
 import { UiButton } from "../../components/ui";
 import { Row, SettingsGroup } from "../../components/forms";
 
-/** `isct_core::sync_engine::ResetScope`; Core decides what each one removes. */
+/** `app_core::sync_engine::ResetScope`; Core decides what each one removes. */
 type ResetScope =
   | { kind: "school-caches"; sign_out_web: boolean; delete_downloads: boolean }
   | { kind: "everything" };
@@ -55,7 +55,7 @@ function Items({ title, items }: { title: string; items: string[] }) {
 }
 
 /**
- * Settings → Reset (design §10): clear the school caches and read them
+ * Settings → Reset (`docs/data-ownership.md`): clear the school caches and read them
  * again, or return the device to its first-launch state. Each opens a
  * confirmation panel that lists what goes, what stays and about how much
  * space is freed; a full reset needs one more confirmation.
@@ -223,9 +223,7 @@ export function ResetSettings({
             disabled={resetting}
             label={t("settings.reset.caches.downloads")}
             description={t("settings.reset.caches.downloadsHint")}
-            onCheckedChange={(checked) =>
-              setDeleteDownloads(checked === true)
-            }
+            onCheckedChange={(checked) => setDeleteDownloads(checked === true)}
           />
         </>
       )}

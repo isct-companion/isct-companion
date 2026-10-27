@@ -39,21 +39,22 @@ let pathsModule: Promise<typeof import("@app/app/routes")> | undefined;
 let guideModule: Promise<typeof import("@app/components/guide")> | undefined;
 
 /**
- * Installs the scripted host and adopts its snapshot without mounting the shell.
+ * Installs the scripted host and reloads the workspace store from it without
+ * mounting the shell.
  *
- * For suites that mount one production component directly. The shell caches
- * read models by snapshot revision in module scope, so a component suite that
- * skips this step can be served a previous test's answers.
+ * For suites that mount one production component directly. The store lives in
+ * module scope, so a component suite that skips this step starts from the
+ * previous test's revision.
  */
 export async function installComponentHost(
   options: FakeCoreOptions,
 ): Promise<FakeCore> {
   const core = installFakeCore(options);
-  await adoptSnapshot();
+  await reloadStore();
   return core;
 }
 
-async function adoptSnapshot(): Promise<void> {
+async function reloadStore(): Promise<void> {
   const { workspaceStore } = await import("@app/store/workspace");
   await workspaceStore.reload();
 }
@@ -74,7 +75,7 @@ export async function mountApp(
     { GUIDE_KEY, TIPS },
   ] = await Promise.all([shell, routerModule, pathsModule, guideModule]);
 
-  await adoptSnapshot();
+  await reloadStore();
 
   // The app is browser-stateful; a suite must not inherit the previous one.
   localStorage.clear();

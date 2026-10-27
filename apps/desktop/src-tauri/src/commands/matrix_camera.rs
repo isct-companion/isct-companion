@@ -3,7 +3,7 @@
 //! moves bytes. The webview sends every new video frame as two raw 960 px
 //! planes (luma, R-G) over binary IPC and, when Core asks, the
 //! full-resolution luma of that same frame for the 70 cells.
-use isct_core::matrix_scan::{
+use app_core::matrix_scan::{
     MatrixCameraDriver, MatrixCameraSnapshot, MatrixCaptureMetrics, MatrixLuma, MatrixPlanes,
     MatrixScanError,
 };
@@ -15,7 +15,7 @@ use tauri::{Manager, State};
 pub(crate) struct MatrixScan(pub(crate) Arc<MatrixCameraDriver>);
 impl Default for MatrixScan {
     fn default() -> Self {
-        let driver = MatrixCameraDriver::new(isct_ocr::matrix_vision());
+        let driver = MatrixCameraDriver::new(app_ocr::matrix_vision());
         #[cfg(debug_assertions)]
         let driver = driver.with_inspector(|cut| {
             log_frame_quality(cut);
@@ -74,9 +74,9 @@ fn backend(error: impl std::fmt::Display) -> MatrixScanError {
     MatrixScanError::Backend(error.to_string())
 }
 #[cfg(debug_assertions)]
-fn log_frame_quality(cut: &isct_core::matrix_scan::MatrixCut) {
+fn log_frame_quality(cut: &app_core::matrix_scan::MatrixCut) {
     // Numeric measurements only: no photographs, glyph pixels or letters.
-    let range = |measure: fn(&isct_core::matrix_scan::MatrixCaptureGlyph) -> f64| {
+    let range = |measure: fn(&app_core::matrix_scan::MatrixCaptureGlyph) -> f64| {
         let mut values: Vec<_> = cut.glyphs.iter().map(measure).collect();
         values.sort_by(f64::total_cmp);
         (
@@ -94,7 +94,7 @@ fn log_frame_quality(cut: &isct_core::matrix_scan::MatrixCut) {
     );
 }
 #[cfg(debug_assertions)]
-fn save_anonymous_samples(cut: &isct_core::matrix_scan::MatrixCut) {
+fn save_anonymous_samples(cut: &app_core::matrix_scan::MatrixCut) {
     use rand::seq::SliceRandom;
     use std::{
         io::Write,
@@ -243,7 +243,7 @@ pub(crate) async fn track_matrix_camera_frame(
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(debug_assertions)]
         if driver.poll(&frame.session_id)?.phase
-            == isct_core::matrix_scan::MatrixCameraPhase::Capturing
+            == app_core::matrix_scan::MatrixCameraPhase::Capturing
         {
             record_frame(&frame, "planes", &body);
         }

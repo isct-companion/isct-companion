@@ -107,8 +107,8 @@ export function generate() {
   const library = join(
     target,
     "debug",
-    { darwin: "libisct_ffi.dylib", win32: "isct_ffi.dll" }[process.platform] ??
-      "libisct_ffi.so",
+    { darwin: "libapp_ffi.dylib", win32: "app_ffi.dll" }[process.platform] ??
+      "libapp_ffi.so",
   );
   run(join(target, "debug/isct-bindgen"), [
     "generate",

@@ -1,7 +1,8 @@
 import { useStore } from "zustand";
-import { workspaceStore, type WorkspaceSnapshot } from "./workspace";
+import { workspaceStore, type WorkspaceState } from "./workspace";
 
-/** Select from the single workspace snapshot; no second React state copy. */
-export function useWorkspace<T>(select: (state: WorkspaceSnapshot) => T): T {
+/** Select from the workspace store (revision and write state); records live
+ * in the query cache, not here. */
+export function useWorkspace<T>(select: (state: WorkspaceState) => T): T {
   return useStore(workspaceStore, select);
 }

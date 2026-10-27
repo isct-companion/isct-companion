@@ -1,12 +1,12 @@
-use isct_core::data;
-use isct_core::lms_ingest::{apply_lms_course, apply_lms_deadlines, apply_lms_enrolment};
-use isct_core::school_parser::{
+use adpt_isct::{
     kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
     lms::{
         aggregate_slots, decode_entities, validate_course, validate_deadlines, validate_enrolment,
         LmsDeadlines,
     },
 };
+use app_core::data;
+use app_core::lms_ingest::{apply_lms_course, apply_lms_deadlines, apply_lms_enrolment};
 
 use serde_json::{json, Value};
 
@@ -82,6 +82,14 @@ fn validated_lms_keys_project_to_workspace_course_material_and_assignment() {
          (id,value,hash,updated_at,updated_by,rev,source,deleted_at)
          VALUES(?1,?2,'test','2026-10-06T00:00:00Z','test',1,'lms',NULL)",
             rusqlite::params![owned_id, owned.to_string()],
+        )
+        .unwrap();
+    // The course's offering already names it, as for a course stored before.
+    connection
+        .execute(
+            "INSERT INTO course_keys(key,course_id,updated_at)
+             VALUES('offering:2026:202602440',?1,'2026-10-06T00:00:00Z')",
+            [owned_id],
         )
         .unwrap();
     let transaction = connection.transaction().unwrap();

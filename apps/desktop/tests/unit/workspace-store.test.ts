@@ -11,8 +11,6 @@ import {
 import { seedWorkspace, type Workspace } from "@app/lib/model";
 import type {
   CoreWorkspaceCommit,
-  CoreWorkspacePatch,
-  CoreWorkspaceSnapshot,
   WorkspaceIntent,
   WorkspaceMutation,
 } from "@app/lib/workspace-intents";
@@ -36,6 +34,7 @@ import {
 } from "@app/platform/core-query";
 import {
   createTauriDesktopBridge,
+  getDesktopBridge,
   type InvokeNative,
   type ListenNative,
   type SchoolDownloadEvent,
@@ -44,6 +43,13 @@ import {
   type WorkspaceChangedEvent,
 } from "@app/platform/desktop-bridge";
 import { finderQuery } from "@app/platform/finder-query";
+import {
+  changesCommitted,
+  freshAnswer,
+  queryClient,
+  resetQueries,
+  type CoreAnswer,
+} from "@app/platform/query-client";
 import {
   pageProgress,
   progressLine,
@@ -58,7 +64,7 @@ import {
   createWorkspaceStore,
   workspaceActions,
   workspaceStore,
-  type WorkspaceSnapshot,
+  type WorkspaceState,
 } from "@app/store/workspace";
 import {
   DEVICE,
@@ -121,12 +127,6 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const settingsWith = (changes: Partial<Workspace["settings"]>): Workspace => {
-  const workspace = workspaceFixture();
-  workspace.settings = { ...workspace.settings, ...changes };
-  return workspace;
-};
-
 /** A settings-form intent changing one preference of the seed settings. */
 const appearance = (
   value: Workspace["settings"]["appearance"],
@@ -135,145 +135,68 @@ const appearance = (
   settings: { ...seedWorkspace().settings, appearance: value },
 });
 
-const bumpRevision = (current: string) => {
-  const match = /^r(\d+)$/.exec(current);
-  return match ? `r${Number(match[1]) + 1}` : `${current}+1`;
-};
-
-type SnapshotAnswer =
-  | CoreWorkspaceSnapshot
-  | Promise<CoreWorkspaceSnapshot>
-  | (() => Promise<CoreWorkspaceSnapshot>);
-
-type MutationScript = (
-  request: WorkspaceMutation,
-  host: CoreHost,
-) => Promise<CoreWorkspaceSnapshot>;
-
-/** A scripted snapshot is answered as the commit of a settings intent, the
- * one this suite submits: Settings re-reads the whole workspace. */
-type MutationAnswer = SnapshotAnswer | MutationScript | CoreWorkspaceCommit;
-
 type CoreHost = {
   service: {
-    snapshot(): Promise<CoreWorkspaceSnapshot>;
-    records(changes: readonly WorkspaceChange[]): Promise<CoreWorkspacePatch>;
+    revision(): Promise<string>;
     mutate(request: WorkspaceMutation): Promise<CoreWorkspaceCommit>;
   };
-  /** The revision each read started from, in order. */
-  reads: string[];
-  /** The change names of each record read, in order. */
-  recordReads: WorkspaceChange[][];
-  answerRecords(
-    answer: CoreWorkspacePatch | (() => Promise<CoreWorkspacePatch>),
-  ): void;
+  /** How many times the store asked for the revision. */
+  revisionReads(): number;
   /** Every mutation the store submitted, in order. */
   mutations: WorkspaceMutation[];
-  publish(workspace: Workspace, revision?: string): void;
-  answerRead(answer: SnapshotAnswer): void;
-  answerMutation(answer: MutationAnswer | Error): void;
-  snapshotAt(revision: string, workspace?: Workspace): CoreWorkspaceSnapshot;
+  /** Another client committed: the stored revision moves on. */
+  publish(revision: string): void;
+  answerRevision(answer: Promise<string> | Error): void;
+  answerMutation(answer: Promise<CoreWorkspaceCommit> | Error): void;
 };
 
-async function resolveSnapshot(
-  answer: SnapshotAnswer | undefined,
-  fallback: () => CoreWorkspaceSnapshot,
-): Promise<CoreWorkspaceSnapshot> {
-  if (answer === undefined) return fallback();
-  return typeof answer === "function" ? answer() : answer;
-}
-
 /**
- * A recording Core for the store suite. `installFakeCore` answers read models
- * by kind; the store asks for one snapshot and one mutation, so this host
- * scripts those two transport calls and records them like a command log.
+ * A recording Core for the store suite: the revision the next intent is
+ * made against, and the commits of the intents themselves. Records never
+ * reach the store; they live in the query cache.
  */
-function coreHost(initial: Workspace = workspaceFixture()): CoreHost {
+function coreHost(): CoreHost {
   let revision = "r0";
-  let workspace = structuredClone(initial);
-  const reads: string[] = [];
-  const recordReads: WorkspaceChange[][] = [];
-  const recordAnswers: (
-    CoreWorkspacePatch | (() => Promise<CoreWorkspacePatch>)
-  )[] = [];
+  let reads = 0;
+  let seq = 0;
   const mutations: WorkspaceMutation[] = [];
-  const readAnswers: SnapshotAnswer[] = [];
-  const mutationAnswers: (MutationAnswer | Error)[] = [];
-  const committed = async (
-    answer: SnapshotAnswer | CoreWorkspaceCommit,
-  ): Promise<CoreWorkspaceCommit> => {
-    if (typeof answer === "object" && "patch" in answer) return answer;
-    return {
-      changes: ["settings"],
-      patch: await resolveSnapshot(answer, () => snapshotAt(revision)),
-    };
-  };
-
-  const snapshotAt = (
-    nextRevision: string,
-    next: Workspace = workspace,
-  ): CoreWorkspaceSnapshot => ({
-    revision: nextRevision,
-    contentRevision: nextRevision,
-    workspace: structuredClone(next),
-    schoolRecords: emptySchoolRecords(),
-  });
-
-  const host: CoreHost = {
+  const revisionAnswers: (Promise<string> | Error)[] = [];
+  const mutationAnswers: (Promise<CoreWorkspaceCommit> | Error)[] = [];
+  return {
     service: {
-      async snapshot() {
-        reads.push(revision);
-        const answer = readAnswers.shift();
-        return resolveSnapshot(answer, () => snapshotAt(revision));
-      },
-      async records(changes) {
-        recordReads.push([...changes]);
-        const answer = recordAnswers.shift();
-        if (typeof answer === "function") return answer();
-        // Unscripted, the host answers every field: a superset is a valid patch.
-        return answer ?? snapshotAt(revision);
+      async revision() {
+        reads += 1;
+        const answer = revisionAnswers.shift();
+        if (answer instanceof Error) throw answer;
+        return answer ?? revision;
       },
       async mutate(request) {
         mutations.push(request);
         const answer = mutationAnswers.shift();
         if (answer instanceof Error) throw answer;
-        if (typeof answer === "function")
-          return committed(await answer(request, host));
-        if (answer !== undefined) return committed(answer);
-        // The default path commits the one intent this suite submits.
-        if (request.intent.kind === "replaceSettings") {
-          workspace = {
-            ...workspace,
-            settings: structuredClone(request.intent.settings),
-          };
-        }
-        revision = bumpRevision(revision);
-        return committed(snapshotAt(revision));
+        if (answer) return answer;
+        if (request.expectedRevision !== revision)
+          throw new Error("revision conflict");
+        revision = `r${Number(revision.slice(1)) + 1}`;
+        return { changes: ["settings"], revision, seq: ++seq };
       },
     },
-    reads,
-    recordReads,
-    answerRecords(answer) {
-      recordAnswers.push(answer);
-    },
+    revisionReads: () => reads,
     mutations,
-    publish(next, nextRevision) {
-      workspace = structuredClone(next);
-      if (nextRevision !== undefined) revision = nextRevision;
+    publish(next) {
+      revision = next;
     },
-    answerRead(answer) {
-      readAnswers.push(answer);
+    answerRevision(answer) {
+      revisionAnswers.push(answer);
     },
     answerMutation(answer) {
       mutationAnswers.push(answer);
     },
-    snapshotAt,
   };
-  return host;
 }
 
 describe("opening the workspace", () => {
-  it("reads the snapshot once when several consumers initialize together", async () => {
+  it("reads the revision once when several consumers initialize together", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
 
@@ -282,436 +205,222 @@ describe("opening the workspace", () => {
     expect(store.getState().status).toBe("loading");
     await Promise.all([first, second]);
 
-    expect(host.reads).toEqual(["r0"]);
     expect(store.getState()).toMatchObject({ status: "ready", revision: "r0" });
+    expect(host.revisionReads()).toBe(1);
   });
 
-  it("reports an open failure and refuses to flush or export unopened data", async () => {
+  it("reports an open failure and refuses to write before it opens", async () => {
     const host = coreHost();
-    host.answerRead(() => Promise.reject(new Error("database is locked")));
+    host.answerRevision(new Error("database locked"));
     const store = createWorkspaceStore(host.service);
 
     await store.initialize();
 
     expect(store.getState().status).toBe("error");
-    expect(store.getState().error).toContain("Workspace could not be opened");
-    await expect(store.flush()).rejects.toThrow(
-      "Workspace could not be opened",
-    );
-    expect(() => store.export()).toThrow("Workspace is not ready.");
-  });
-
-  it("publishes one shared snapshot to every subscriber", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-    expect(store.getInitialState()).toMatchObject({
-      status: "idle",
-      revision: "",
-    });
-
-    const seen: WorkspaceSnapshot[] = [];
-    const off = store.subscribe((state) => seen.push(state));
-    await store.initialize();
-    off();
-
-    expect(seen.length).toBeGreaterThan(0);
-    expect(seen.at(-1)).toBe(store.getState());
-    expect(store.getState().revision).toBe("r0");
+    await expect(store.flush()).rejects.toThrow("could not be opened");
+    await expect(store.mutate(appearance("dark"))).rejects.toThrow("not ready");
+    expect(host.mutations).toEqual([]);
   });
 });
 
 describe("submitting coarse intents", () => {
-  it("sends an intent against the revision it has adopted and adopts the answer", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-    await store.initialize();
-
-    await store.mutate(appearance("dark"));
-
-    expect(host.mutations).toEqual([
-      { expectedRevision: "r0", intent: appearance("dark") },
-    ]);
-    expect(store.getState()).toMatchObject({ revision: "r1" });
-    expect(store.getState().workspace?.settings.appearance).toBe("dark");
-    expect(store.getState().viewRevisions).toEqual({ all: 1, settings: 1 });
-
-    // A commit answers only the fields it changed: the rest keep their
-    // identity, and only views reading its change names query again.
-    const before = store.getState();
-    const scheduleOverrides = [
-      { id: "override-1", targetKey: "session-1" },
-    ] as unknown as Workspace["scheduleOverrides"];
-    host.answerMutation({
-      changes: ["calendar"],
-      patch: {
-        revision: "r2",
-        contentRevision: "c2",
-        workspace: { scheduleOverrides },
-        schoolRecords: {},
-      },
-    });
-    await store.mutate(appearance("dark"));
-    const after = store.getState();
-    expect(after).toMatchObject({ revision: "r2", contentRevision: "c2" });
-    expect(after.workspace?.scheduleOverrides).toEqual(scheduleOverrides);
-    expect(after.workspace?.courses).toBe(before.workspace?.courses);
-    expect(after.schoolRecords).toEqual(before.schoolRecords);
-    expect(after.viewRevisions).toEqual({
-      all: 1,
-      settings: 1,
-      calendar: 1,
-    });
-  });
-
   it("serializes rapid intents against the revision each preceding write committed", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
     await store.initialize();
 
-    const first = store.mutate(appearance("dark"));
-    const second = store.mutate(appearance("light"));
-    await Promise.all([first, second]);
+    await Promise.all([
+      store.mutate(appearance("dark")),
+      store.mutate(appearance("light")),
+    ]);
 
     expect(host.mutations.map((mutation) => mutation.expectedRevision)).toEqual(
       ["r0", "r1"],
     );
-    expect(store.getState().workspace?.settings.appearance).toBe("light");
+    expect(store.getState().revision).toBe("r2");
+    // Each commit counts its changes for the finder's open page.
+    expect(store.getState().viewRevisions.settings).toBe(2);
   });
 
-  it("resolves a form intent against the snapshot the preceding write committed", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
+  it("builds a form intent from the records Core holds once the preceding write committed", async () => {
+    const stored = workspaceFixture();
+    const core = installHost({
+      workspace: stored,
+      revision: "r0",
+      apply: (intent, live) => {
+        if (intent.kind === "replaceSettings")
+          live.workspace.settings = structuredClone(intent.settings);
+        live.revision = `${live.revision}+`;
+      },
+    });
+    const bridge = getDesktopBridge()!;
+    const store = createWorkspaceStore({
+      revision: () => bridge.workspaceRevision(),
+      mutate: (mutation) => bridge.mutateWorkspace(mutation),
+    });
     await store.initialize();
+    const edit = (change: (draft: Workspace) => void) =>
+      store.mutate({
+        fields: ["settings"],
+        build: (draft) => {
+          change(draft);
+          return { kind: "replaceSettings", settings: draft.settings };
+        },
+      });
 
-    const first = store.mutate((draft): WorkspaceIntent => {
-      draft.settings.appearance = "dark";
-      return { kind: "replaceSettings", settings: draft.settings };
+    await Promise.all([
+      edit((draft) => {
+        draft.settings.appearance = "dark";
+      }),
+      edit((draft) => {
+        draft.settings.density = "compact";
+      }),
+    ]);
+
+    // The second edit started from what the first committed.
+    const last = core.intents.at(-1);
+    expect(last).toMatchObject({
+      kind: "replaceSettings",
+      settings: { appearance: "dark", density: "compact" },
     });
-    const second = store.mutate((draft): WorkspaceIntent => {
-      draft.settings.locale = "ja";
-      return { kind: "replaceSettings", settings: draft.settings };
-    });
-    await Promise.all([first, second]);
-
-    expect(host.mutations[1]).toMatchObject({
-      expectedRevision: "r1",
-      intent: { settings: { appearance: "dark", locale: "ja" } },
-    });
-    expect(store.getState().workspace?.settings).toMatchObject({
-      appearance: "dark",
-      locale: "ja",
-    });
-  });
-
-  it("refuses to submit an intent before the workspace is open", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-
-    await expect(store.mutate(appearance("dark"))).rejects.toThrow(
-      "Workspace is not ready.",
-    );
-
-    expect(host.mutations).toEqual([]);
-    expect(host.reads).toEqual([]);
   });
 });
 
 describe("recovering from a rejected or external write", () => {
-  it("never applies a rejected intent and re-reads the authoritative snapshot", async () => {
+  it("never replays a rejected intent and reads where the next one starts", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
     await store.initialize();
-    const before = store.getState();
+    host.publish("external-r1");
 
-    host.answerMutation(new Error("revision conflict"));
     await expect(store.mutate(appearance("dark"))).rejects.toThrow(
       "revision conflict",
     );
 
-    expect(store.getState().revision).toBe(before.revision);
-    expect(store.getState().workspace).toEqual(before.workspace);
-    expect(host.reads).toEqual(["r0", "r0"]);
-  });
-
-  it("adopts an external write after a conflict and lets the user retry explicitly", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-    await store.initialize();
-
-    host.answerMutation(async () => {
-      host.publish(settingsWith({ locale: "ja" }), "external");
-      throw new Error("workspace revision conflict");
-    });
-    const intent = (workspace: Workspace): WorkspaceIntent => ({
-      kind: "replaceSettings",
-      settings: { ...workspace.settings, appearance: "dark" },
-    });
-
-    await expect(store.mutate(intent)).rejects.toThrow("revision conflict");
-    expect(store.getState().revision).toBe("external");
-    expect(store.getState().workspace?.settings).toMatchObject({
-      locale: "ja",
-      appearance: "system",
-    });
     expect(host.mutations).toHaveLength(1);
-
-    await store.mutate(intent);
-
-    expect(host.mutations.map((mutation) => mutation.expectedRevision)).toEqual(
-      ["r0", "external"],
-    );
-    expect(store.getState().workspace?.settings).toMatchObject({
-      locale: "ja",
-      appearance: "dark",
-    });
-  });
-
-  it("reloads when a user-intent event names another client's revision", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-    await store.initialize();
-    host.publish(settingsWith({ locale: "ja" }), "external-r1");
-
-    await store.handleWorkspaceChanged({
-      source: "user-intent",
-      revision: "external-r1",
-      changes: ["settings"],
-    });
-
-    // Another client's intent still reconciles through the whole snapshot.
-    expect(host.reads).toEqual(["r0", "external-r1"]);
-    expect(host.recordReads).toEqual([]);
-    expect(store.getState()).toMatchObject({ revision: "external-r1" });
-    expect(store.getState().workspace?.settings.locale).toBe("ja");
-  });
-
-  it("shares one recovery read with an event that waits on the failed write", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-    await store.initialize();
-
-    const failure = deferred<CoreWorkspaceSnapshot>();
-    host.answerMutation(() => failure.promise);
-    const mutation = store.mutate(appearance("dark"));
-    await settle();
-    const event = store.handleWorkspaceChanged({
-      source: "user-intent",
-      revision: "external-r1",
-      changes: ["settings"],
-    });
-    host.publish(settingsWith({ locale: "ja" }), "external-r1");
-    failure.reject(new Error("revision conflict"));
-
-    await expect(mutation).rejects.toThrow("revision conflict");
-    await event;
-
-    expect(host.reads).toEqual(["r0", "external-r1"]);
     expect(store.getState().revision).toBe("external-r1");
-    expect(store.getState().workspace?.settings.locale).toBe("ja");
+    await store.mutate(appearance("dark"));
+    expect(host.mutations.at(-1)?.expectedRevision).toBe("external-r1");
   });
 
-  it("recognizes its own committed revision and does not re-read", async () => {
+  it("adopts the revision a user-intent event names for another client", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
     await store.initialize();
-    await store.mutate(appearance("dark"));
-    await store.mutate(appearance("light"));
 
     await store.handleWorkspaceChanged({
       source: "user-intent",
-      revision: "r1",
+      revision: "external-r1",
       changes: ["settings"],
+      seq: 4,
     });
 
-    expect(host.reads).toEqual(["r0"]);
-    expect(host.recordReads).toEqual([]);
-    expect(store.getState().revision).toBe("r2");
+    expect(store.getState().revision).toBe("external-r1");
+    expect(host.revisionReads()).toBe(1);
   });
 
-  it("waits for an in-flight write before treating an event as its own", async () => {
+  it("recognizes its own committed revision after waiting for the write", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
     await store.initialize();
+    const slow = deferred<CoreWorkspaceCommit>();
+    host.answerMutation(slow.promise);
 
-    const release = deferred<CoreWorkspaceSnapshot>();
-    host.answerMutation(async () => {
-      const snapshot = await release.promise;
-      host.publish(snapshot.workspace, snapshot.revision);
-      return snapshot;
-    });
-
-    const mutation = store.mutate(appearance("dark"));
+    const write = store.mutate(appearance("dark"));
     await settle();
-    expect(host.mutations).toHaveLength(1);
-
-    const event = store.handleWorkspaceChanged({
+    // Core emits before the command resolves.
+    const heard = store.handleWorkspaceChanged({
       source: "user-intent",
       revision: "r1",
       changes: ["settings"],
+      seq: 1,
     });
-    const newer = store.mutate(appearance("light"));
-    release.resolve(
-      host.snapshotAt("r1", settingsWith({ appearance: "dark" })),
-    );
-    await Promise.all([mutation, event, newer]);
+    slow.resolve({ changes: ["settings"], revision: "r1", seq: 1 });
+    await Promise.all([write, heard]);
 
-    expect(host.reads).toEqual(["r0"]);
-    expect(store.getState()).toMatchObject({ revision: "r2" });
-    expect(store.getState().workspace?.settings.appearance).toBe("light");
+    expect(store.getState().revision).toBe("r1");
+    expect(host.revisionReads()).toBe(1);
   });
 
-  it("patches only the records a background change names, without a snapshot read", async () => {
+  it("reads everything again when a user intent names no revision", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
     await store.initialize();
-    const before = store.getState();
-    const freshness = {
-      "lms.course/7": {
-        fetchedAt: "2026-10-19T02:46:13Z",
-        outcome: "complete",
-        message: null,
-        failures: 0,
-        nextEligible: null,
-        lastError: null,
-      },
-    } as unknown as SchoolRecords["freshness"];
-    host.answerRecords({
-      revision: "r0",
-      contentRevision: "c1",
-      workspace: {},
-      schoolRecords: { freshness, pageAvailability: {} },
-    });
+    host.publish("r5");
 
     await store.handleWorkspaceChanged({
-      source: "school-pull",
-      changes: ["freshness"],
+      source: "user-intent",
+      changes: ["settings"],
+      seq: 2,
     });
 
-    expect(host.reads).toEqual(["r0"]);
-    expect(host.recordReads).toEqual([["freshness"]]);
-    const after = store.getState();
-    expect(after.schoolRecords?.freshness).toEqual(freshness);
-    expect(after.contentRevision).toBe("c1");
-    // Untouched records keep their identity, so nothing derived from them
-    // recomputes; only views that read `freshness` get a new cache key.
-    expect(after.schoolRecords?.lmsCourses).toBe(
-      before.schoolRecords?.lmsCourses,
-    );
-    expect(after.workspace?.courses).toBe(before.workspace?.courses);
-    expect(after.viewRevisions).toEqual({
-      ...before.viewRevisions,
-      freshness: 1,
-    });
-  });
-
-  it("merges changes heard during a patch into one follow-up read", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-    await store.initialize();
-    const slow = deferred<CoreWorkspacePatch>();
-    host.answerRecords(() => slow.promise);
-
-    const first = store.handleWorkspaceChanged({
-      source: "school-pull",
-      changes: ["assignments"],
-    });
-    await settle();
-    const second = store.handleWorkspaceChanged({
-      source: "reference-pull",
-      changes: ["exams"],
-    });
-    const third = store.handleWorkspaceChanged({
-      source: "school-pull",
-      changes: ["courses", "exams"],
-    });
-    slow.resolve(host.snapshotAt("r0"));
-    await Promise.all([first, second, third]);
-
-    expect(host.recordReads).toEqual([["assignments"], ["exams", "courses"]]);
-    expect(host.reads).toEqual(["r0"]);
-  });
-
-  it("reads a patch again when a mutation committed while it was in flight", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-    await store.initialize();
-    const stale = deferred<CoreWorkspacePatch>();
-    host.answerRecords(() => stale.promise);
-
-    const patch = store.handleWorkspaceChanged({
-      source: "school-pull",
-      changes: ["grades"],
-    });
-    await settle();
-    await store.mutate(appearance("dark"));
-    stale.resolve(
-      host.snapshotAt("r0", settingsWith({ appearance: "system" })),
-    );
-    await patch;
-
-    // The late answer predates the committed intent and is not adopted.
-    expect(host.recordReads).toEqual([["grades"], ["grades"]]);
-    expect(store.getState().revision).toBe("r1");
-    expect(store.getState().workspace?.settings.appearance).toBe("dark");
-  });
-
-  it("discards a reload that finished before a mutation committed inside it", async () => {
-    const host = coreHost();
-    const store = createWorkspaceStore(host.service);
-    await store.initialize();
-
-    const stale = deferred<CoreWorkspaceSnapshot>();
-    host.answerRead(() => stale.promise);
-    const reload = store.reload();
-    await settle();
-
-    await store.mutate(appearance("dark"));
-    stale.resolve(
-      host.snapshotAt("r0", settingsWith({ appearance: "system" })),
-    );
-    await reload;
-
-    expect(host.reads).toEqual(["r0", "r0", "r1"]);
-    expect(store.getState().revision).toBe("r1");
-    expect(store.getState().workspace?.settings.appearance).toBe("dark");
+    expect(store.getState().revision).toBe("r5");
+    expect(store.getState().viewRevisions.all).toBe(1);
   });
 });
 
 describe("browser preview", () => {
-  it("opens a detached read-only sample and refuses every mutation", async () => {
-    const stored = workspaceFixture();
-    const repository = {
-      async load() {
-        return structuredClone(stored);
-      },
-      async export() {
-        return "";
-      },
-      async import(_document: string) {
-        return structuredClone(stored);
-      },
-    };
-    const store = createWorkspaceStore(createBrowserPreviewService(repository));
+  it("opens without Core and refuses every mutation", async () => {
+    const store = createWorkspaceStore(createBrowserPreviewService());
     await store.initialize();
 
-    expect(store.getState().status).toBe("ready");
+    expect(store.getState()).toMatchObject({
+      status: "ready",
+      revision: "preview",
+    });
     await expect(store.mutate(appearance("dark"))).rejects.toThrow(
       "native app",
     );
-    await expect(
-      store.mutate({ kind: "markTimetableReviewed" }),
-    ).rejects.toThrow("native app");
-    expect(stored.settings.appearance).toBe("system");
   });
 
-  it("keeps the shipped store on the read-only preview service", async () => {
+  it("keeps the shipped store on the preview service", async () => {
     await workspaceStore.initialize();
 
-    expect(workspaceStore.getState().status).toBe("ready");
-    expect(workspaceStore.getState().revision).toMatch(/^preview:/);
+    expect(workspaceStore.getState().revision).toBe("preview");
     await expect(
       workspaceActions.mutate({ kind: "markTimetableReviewed" }),
     ).rejects.toThrow("native app");
+  });
+});
+
+describe("the query cache", () => {
+  afterEach(resetQueries);
+
+  it("invalidates only the answers that read a committed change", async () => {
+    const answer = (reads: WorkspaceChange[]): CoreAnswer<number> => ({
+      value: 1,
+      reads,
+      seq: 1,
+    });
+    await queryClient.fetchQuery({
+      queryKey: ["calendar"],
+      queryFn: async () => answer(["calendar", "settings"]),
+    });
+    await queryClient.fetchQuery({
+      queryKey: ["tasks"],
+      queryFn: async () => answer(["assignments", "settings"]),
+    });
+
+    changesCommitted(["calendar"], 2);
+
+    const state = (key: string) => queryClient.getQueryState([key]);
+    expect(state("calendar")?.isInvalidated).toBe(true);
+    expect(state("tasks")?.isInvalidated).toBe(false);
+    changesCommitted(["settings"], 3);
+    expect(state("tasks")?.isInvalidated).toBe(true);
+  });
+
+  it("asks again for an answer older than the newest change heard", async () => {
+    changesCommitted(["assignments"], 7);
+    const seqs = [5, 7];
+    const loads: number[] = [];
+    const fresh = await freshAnswer(async () => {
+      const seq = seqs.shift()!;
+      loads.push(seq);
+      return { value: seq, reads: ["assignments"], seq };
+    });
+    expect(fresh.seq).toBe(7);
+    expect(loads).toEqual([5, 7]);
   });
 });
 
@@ -786,6 +495,8 @@ describe("schedule query batches", () => {
         };
         return {
           revision: "r1",
+          reads: [],
+          seq: 0,
           values: (args.queries as { kind: string }[]).map((query) => ({
             kind: coreKinds[query.kind] ?? query.kind,
             value: query.kind === "validateAcademicProfile" ? true : "2026-3Q",
@@ -813,6 +524,8 @@ describe("schedule query batches", () => {
         return {
           revision: "r1",
           values: [{ kind: "declaredCredits", value: 4 }],
+          reads: ["registrations", "settings"],
+          seq: 0,
         };
       },
     });
@@ -828,15 +541,6 @@ describe("schedule query batches", () => {
 });
 
 describe("local browser repository", () => {
-  it("loads a detached read-only sample", async () => {
-    const repository = new LocalRepository();
-
-    const first = await repository.load();
-    first.settings.locale = "zh";
-
-    expect((await repository.load()).settings.locale).not.toBe("zh");
-  });
-
   it("refuses export and import without the native app", async () => {
     const repository = new LocalRepository();
 
@@ -846,27 +550,21 @@ describe("local browser repository", () => {
 });
 
 describe("SQLite repository", () => {
-  it("forwards each exact command and returns Core's answer untouched", async () => {
+  it("forwards each exact command and returns the exported document untouched", async () => {
     const workspace = workspaceFixture();
     const exported = '{"kind":"IsctCompanion.local-backup"}';
     const core = installHost({
       workspace,
       handle: (command) => {
         if (command === "export_data") return exported;
-        if (command === "load_workspace" || command === "import_data")
-          return workspace;
         return undefined;
       },
     });
     const repository = new SqliteRepository();
 
-    expect((await repository.load()).deviceId).toBe(DEVICE);
     expect(await repository.export()).toBe(exported);
-    expect((await repository.import("unparsed bytes for Core")).deviceId).toBe(
-      DEVICE,
-    );
+    await repository.import("unparsed bytes for Core");
     expect(core.calls).toEqual([
-      { command: "load_workspace", args: {} },
       { command: "export_data", args: {} },
       {
         command: "import_data",
@@ -1491,19 +1189,26 @@ describe("Tauri bridge contract", () => {
       source: "user-intent",
       revision: "r1",
       changes: ["settings"],
+      seq: 4,
     });
-    seam.deliver({ source: "mcp", changes: ["events"] });
-    seam.deliver({ source: "future-source", changes: ["future-change"] });
-    seam.deliver({ source: 1, changes: [] });
-    seam.deliver({ source: "user-intent", revision: 1, changes: [] });
-    // Without its change names a shell could not tell what to read.
-    seam.deliver({ source: "school-pull" });
-    seam.deliver({ source: "school-pull", changes: [1] });
+    seam.deliver({ source: "mcp", changes: ["events"], seq: 5 });
+    seam.deliver({
+      source: "future-source",
+      changes: ["future-change"],
+      seq: 6,
+    });
+    seam.deliver({ source: 1, changes: [], seq: 7 });
+    seam.deliver({ source: "user-intent", revision: 1, changes: [], seq: 7 });
+    // Without its change names a shell could not tell what to read, and
+    // without its sequence it could not tell which answers it outdates.
+    seam.deliver({ source: "school-pull", seq: 7 });
+    seam.deliver({ source: "school-pull", changes: [1], seq: 7 });
+    seam.deliver({ source: "school-pull", changes: ["grades"] });
     seam.deliver(null);
     expect(received).toEqual([
-      { source: "user-intent", revision: "r1", changes: ["settings"] },
-      { source: "mcp", changes: ["events"] },
-      { source: "future-source", changes: ["future-change"] },
+      { source: "user-intent", revision: "r1", changes: ["settings"], seq: 4 },
+      { source: "mcp", changes: ["events"], seq: 5 },
+      { source: "future-source", changes: ["future-change"], seq: 6 },
     ]);
 
     dispose();

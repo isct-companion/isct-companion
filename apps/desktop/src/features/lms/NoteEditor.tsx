@@ -22,7 +22,11 @@ function recoveryEntries() {
     if (raw == null) continue;
     try {
       const parsed = JSON.parse(raw) as RecoveryDraft;
-      if (parsed.version !== 1 || typeof parsed.text !== "string" || Date.parse(parsed.updatedAt) < expired)
+      if (
+        parsed.version !== 1 ||
+        typeof parsed.text !== "string" ||
+        Date.parse(parsed.updatedAt) < expired
+      )
         throw new Error("expired");
       entries.push({ key, raw, draft: parsed });
     } catch {
@@ -30,7 +34,9 @@ function recoveryEntries() {
       localStorage.removeItem(key);
     }
   }
-  return entries.sort((a, b) => Date.parse(b.draft.updatedAt) - Date.parse(a.draft.updatedAt));
+  return entries.sort(
+    (a, b) => Date.parse(b.draft.updatedAt) - Date.parse(a.draft.updatedAt),
+  );
 }
 function pruneRecovery() {
   let bytes = 0;
@@ -43,7 +49,14 @@ function pruneRecovery() {
 function writeRecovery(id: string, text: string) {
   if (recoveryBytes(text) > 1_000_000) return;
   try {
-    localStorage.setItem(recoveryKey(id), JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), text } satisfies RecoveryDraft));
+    localStorage.setItem(
+      recoveryKey(id),
+      JSON.stringify({
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        text,
+      } satisfies RecoveryDraft),
+    );
     pruneRecovery();
   } catch {
     pruneRecovery();
@@ -53,8 +66,12 @@ function readRecovery(id: string) {
   pruneRecovery();
   const raw = localStorage.getItem(recoveryKey(id));
   if (!raw) return null;
-  try { return (JSON.parse(raw) as RecoveryDraft).text; }
-  catch { localStorage.removeItem(recoveryKey(id)); return null; }
+  try {
+    return (JSON.parse(raw) as RecoveryDraft).text;
+  } catch {
+    localStorage.removeItem(recoveryKey(id));
+    return null;
+  }
 }
 export function NoteEditor({
   context,
@@ -167,30 +184,46 @@ export function NoteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, context.term, context.course, context.section, reload]);
   const remove = async () => {
-    clearTimeout(timer.current); removed.current = true; setDeleting(true);
+    clearTimeout(timer.current);
+    removed.current = true;
+    setDeleting(true);
     try {
       if (draft.current.dirty) await saveNote(context, id, draft.current.text);
       await moveNote(context, id);
       localStorage.removeItem(recoveryKey(id));
       onDeleted?.();
-    } catch (error) { removed.current = false; setStatus(String(error)); setFailure(true); setDeleting(false); }
+    } catch (error) {
+      removed.current = false;
+      setStatus(String(error));
+      setFailure(true);
+      setDeleting(false);
+    }
   };
   return (
     <div className="lmsNoteEditor">
-      <ReaderTools><div className="lmsSourceBar">
-        <span>{t("Local note · stored only on this device")}</span>
-        <span role="status">{t(status)}</span>
-        <button
-          type="button"
-          disabled={deleting}
-          onClick={() =>
-            text === undefined ? setReload((value) => value + 1) : flush()
-          }
-        >
-          {t(text === undefined ? "Retry" : failure ? "Retry save" : "Save")}
-        </button>
-        {onDeleted && <button type="button" disabled={deleting || text === undefined} onClick={() => void remove()}>{t(deleting ? "Deleting…" : "Delete note")}</button>}
-      </div>
+      <ReaderTools>
+        <div className="lmsSourceBar">
+          <span>{t("Local note · stored only on this device")}</span>
+          <span role="status">{t(status)}</span>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() =>
+              text === undefined ? setReload((value) => value + 1) : flush()
+            }
+          >
+            {t(text === undefined ? "Retry" : failure ? "Retry save" : "Save")}
+          </button>
+          {onDeleted && (
+            <button
+              type="button"
+              disabled={deleting || text === undefined}
+              onClick={() => void remove()}
+            >
+              {t(deleting ? "Deleting…" : "Delete note")}
+            </button>
+          )}
+        </div>
       </ReaderTools>
       {text !== undefined && (
         <Suspense fallback={<p>{t("Loading editor…")}</p>}>

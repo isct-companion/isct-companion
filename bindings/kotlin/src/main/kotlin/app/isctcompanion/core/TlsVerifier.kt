@@ -9,7 +9,7 @@ import android.content.Context
  * app's classpath (apps/android/app/build.gradle.kts). */
 object TlsVerifier {
     init {
-        System.loadLibrary("isct_ffi")
+        System.loadLibrary("app_ffi")
     }
 
     @JvmStatic

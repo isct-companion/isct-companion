@@ -1,8 +1,8 @@
 /**
- * Core's sync planner as the shell sees it (`crates/isct-core/src/sync_engine`).
+ * Core's sync planner as the shell sees it (`crates/app-core/src/sync_engine`).
  * The shell sends hints and renders the snapshot; it never decides what is
  * due or how far along a read is. The types mirror the Rust serde contract
- * (INTERFACES-CP3); these helpers only choose which row of the snapshot a
+ * (`approach/sync-planner-hints`); these helpers only choose which row of the snapshot a
  * surface shows.
  */
 import type { SchoolAuthProfile } from "./desktop-bridge";
@@ -206,8 +206,7 @@ export function retryScope(run: RunView): SyncScope {
     return run.scope && /^\d+$/.test(run.scope)
       ? { kind: "course", lmsCourseId: Number(run.scope) }
       : { kind: "site", site: "science-lms" };
-  if (run.dataset.startsWith("kyomu."))
-    return { kind: "site", site: "kyomu" };
+  if (run.dataset.startsWith("kyomu.")) return { kind: "site", site: "kyomu" };
   if (run.dataset.startsWith("reference")) return { kind: "references" };
   if (run.dataset === "catalog.official" && /^\d{4}$/.test(run.scope ?? ""))
     return { kind: "catalog", year: Number(run.scope) };

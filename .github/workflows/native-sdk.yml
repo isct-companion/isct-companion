@@ -5,9 +5,9 @@ on:
   push:
     branches: [main]
     paths:
-      - crates/isct-core/**
-      - crates/isct-ffi/**
-      - crates/isct-ocr/**
+      - crates/app-core/**
+      - crates/app-ffi/**
+      - crates/app-ocr/**
       - bindings/**
       - scripts/bindings/**
       - Cargo.toml
@@ -57,9 +57,9 @@ jobs:
           if ! command -v kotlinc >/dev/null; then brew install kotlin; fi
       - name: Rust contracts and lint
         run: |
-          cargo test -p isct-core -p isct-ffi --locked -j 2
-          cargo test -p isct-ffi --features ocr --locked -j 2
-          cargo clippy -p isct-core -p isct-ffi --all-targets --locked -j 2 -- -D warnings
+          cargo test -p app-core -p app-ffi --locked -j 2
+          cargo test -p app-ffi --features ocr --locked -j 2
+          cargo clippy -p app-core -p app-ffi --all-targets --locked -j 2 -- -D warnings
       - name: Swift 6 and Kotlin host clients with OCR
         run: node scripts/bindings/host-smoke.mjs --ocr
       - name: Build device and simulator XCFramework
@@ -68,7 +68,7 @@ jobs:
         run: node scripts/bindings/ios-smoke.mjs
       - uses: actions/upload-artifact@v7
         with:
-          name: isct-core-swift-sdk-dev-ci
+          name: app-core-swift-sdk-dev-ci
           path: bindings/swift/
           if-no-files-found: error
           retention-days: 7
@@ -136,7 +136,7 @@ jobs:
           script: node scripts/bindings/android-smoke.mjs
       - uses: actions/upload-artifact@v7
         with:
-          name: isct-core-android-sdk-dev-ci
+          name: app-core-android-sdk-dev-ci
           path: bindings/kotlin/
           if-no-files-found: error
           retention-days: 7

@@ -1,7 +1,7 @@
 # Kotlin / Android Core SDK
 
 Run `yarn sdk:android` with `ANDROID_HOME` and `NDK_HOME` configured. The builder
-produces `artifacts/isct-core.aar` for arm64-v8a and x86_64, a dependency POM and
+produces `artifacts/app-core.aar` for arm64-v8a and x86_64, a dependency POM and
 `artifacts/sdk-build.json`. Keep the generated library and Kotlin source in sync.
 The current product compatibility floor is Android API 34 and is recorded in the
 build metadata. API 34 is deliberately retained until the complete AAR, including
@@ -22,4 +22,4 @@ releases that object's handle. No domain state machine belongs in a ViewModel.
 
 The x86_64 emulator SDK reports OCR unavailable while the arm64 SDK enables it.
 See [the integration contract](../../docs/core-ffi.md) and
-`crates/isct-ffi/tests/foreign/Smoke.kt` for a complete client.
+`crates/app-ffi/tests/foreign/Smoke.kt` for a complete client.

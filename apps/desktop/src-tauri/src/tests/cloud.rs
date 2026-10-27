@@ -50,7 +50,7 @@ fn saved_authorizations_are_reported_and_disconnect_only_removes_its_own() {
         )
         .unwrap();
     vault.store("icloud", "connected").unwrap();
-    vault.store("onedrive", "connected").unwrap();
+    vault.store("school-accounts", "kept").unwrap();
     let service = DesktopCloudService::new(vault).unwrap();
     assert_eq!(
         service.authorized_providers().unwrap(),
@@ -65,7 +65,7 @@ fn saved_authorizations_are_reported_and_disconnect_only_removes_its_own() {
     service.disconnect(CloudProvider::GoogleDrive).unwrap();
     assert!(service.authorized_providers().unwrap().is_empty());
     assert_eq!(
-        service.vault().load("onedrive").unwrap().as_deref(),
-        Some("connected")
+        service.vault().load("school-accounts").unwrap().as_deref(),
+        Some("kept")
     );
 }

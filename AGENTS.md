@@ -14,8 +14,9 @@ no suitable library exists, and say why in a short comment.
 
 When two places (desktop and mobile, iOS and Android, two pages) need the same
 behaviour, put it in one module with one interface and let each side call it.
-Do not copy the logic. Example: `crates/isct-core/src/school_browser` holds the
-login scripts and relays used by every school-web adapter.
+Do not copy the logic. Example: `crates/app-core/src/school_browser` drives the
+login scripts (kept in `crates/adpt-isct/assets`) and relays for every
+school-web adapter.
 
 ## 3. Isolate native differences at compile time, not with runtime checks
 
@@ -38,10 +39,11 @@ Allowed exceptions:
 
 ## 4. Consolidate domain logic and state in Rust
 
-`crates/isct-core` owns domain decisions, mutations and read models. Shells
+`crates/app-core` owns domain decisions, mutations and read models. Shells
 render, forward intents and implement platform ports; they do not maintain
 parallel business state machines. Keep platform handles out of core and use
-compile-time platform adapters. See `docs/core-consolidation.md` for contracts.
+compile-time platform adapters. The contracts are decisions in slotledger
+(`goal/core-decides-shells-render` and the `approach/` keys that build on it).
 
 New public core/FFI boundaries use typed errors. Remove non-test panic paths
 as modules migrate; enable `clippy::unwrap_used`, `expect_used` and `panic`

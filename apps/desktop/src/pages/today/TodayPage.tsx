@@ -19,7 +19,7 @@ import {
   addCivilDays as addDays,
   civilWeekday,
   formatJst,
-  jstMinutes,
+  jstClock,
   tokyoDate,
 } from "../../lib/civil-date";
 import {
@@ -28,13 +28,14 @@ import {
   type TaskView,
 } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
+import { withRecords } from "../../platform/records";
 
 const timeLabel = (value: string) => value.replace(/^0/, "");
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** Rows shown before a list folds behind "+N more". */
 const CLASS_ROWS = 6;
 const DUE_ROWS = 8;
-export function Today({
+export function TodayBody({
   data,
   term,
   open,
@@ -117,8 +118,7 @@ export function Today({
       ),
     };
   });
-  const minutes = jstMinutes(now);
-  const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  const clock = jstClock(now);
   const activeIndex = isToday
     ? blocks.findIndex(
         (block) => block.startTime <= clock && block.endTime > clock,
@@ -518,3 +518,21 @@ export function Today({
     </div>
   );
 }
+
+/** Today with the records it shows (`platform/records`). */
+export const Today = withRecords(
+  [
+    "assignments",
+    "courses",
+    "materials",
+    "events",
+    "plans",
+    "memberships",
+    "planItems",
+    "exceptions",
+    "scheduleOverrides",
+    "intensiveSchedules",
+    "academicProfile",
+  ],
+  TodayBody,
+);

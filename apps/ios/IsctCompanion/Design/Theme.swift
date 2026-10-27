@@ -22,9 +22,8 @@ enum Theme {
     static let radiusSurface = IsctTokens.radiusSurface
     static let radiusPanel = IsctTokens.radiusPanel
     static let radiusChip = IsctTokens.radiusChip
-    /// Course colour strengths: a block that occupies time, and row emphasis.
+    /// Course colour strength of a block that occupies time.
     static let tintFill = IsctTokens.courseTintFill
-    static let tintSoft = IsctTokens.courseTintSoft
     /// An exam block's stronger fill, a quiz block's slightly weaker one,
     /// and the quiz's ring.
     static let tintExam = IsctTokens.courseTintExam

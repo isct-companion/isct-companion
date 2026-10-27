@@ -28,6 +28,9 @@ pub(crate) fn school_profile<R: tauri::Runtime>(
     app: &AppHandle<R>,
     builder: WebviewBuilder<R>,
 ) -> Result<WebviewBuilder<R>, String> {
+    // Apply to hidden download views too: every view in this window must
+    // leave OS file drops to the browser's native upload handling.
+    let builder = builder.disable_drag_drop_handler();
     #[cfg(target_os = "macos")]
     let builder = builder
         .data_store_identifier(SCHOOL_DATA_STORE)
@@ -71,7 +74,6 @@ pub(crate) fn create_webview(
         app,
         WebviewBuilder::new(site.webview_label(), WebviewUrl::External(start)),
     )?
-    .disable_drag_drop_handler()
     .initialization_script_for_all_frames(KYOMU_POPUP_SCRIPT)
     .initialization_script_for_all_frames(SCHOOL_LINKS_SCRIPT)
     .on_page_load(move |_, payload| {

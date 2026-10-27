@@ -1,7 +1,7 @@
 import IsctCore
 import SwiftUI
 
-// The wide container (docs/ux/mobile.md, Devices and layouts): desktop's
+// The wide container (slotledger `approach/mobile-layout-by-width`): desktop's
 // rail, workbench and status bar around the same page views the tab bar
 // shows.
 

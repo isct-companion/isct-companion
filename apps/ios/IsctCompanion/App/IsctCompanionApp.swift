@@ -1,4 +1,5 @@
 import IsctCore
+import QuickLook
 import SwiftUI
 
 @main
@@ -52,7 +53,7 @@ enum AppTab: Hashable, CaseIterable {
     }
 }
 
-/// Which container the pages sit in (docs/ux/mobile.md, Devices and layouts).
+/// Which container the pages sit in (slotledger `approach/mobile-layout-by-width`).
 /// The window's size picks it, on iPhone and iPad alike: the tab bar when
 /// stacked, the desktop's workstation otherwise.
 enum Layout {
@@ -184,6 +185,9 @@ struct RootView: View {
         // System controls (date pickers, number formats) follow the app's
         // language rather than the phone's.
         content.environment(\.locale, Localizer.shared.locale)
+            .quickLookPreview(Binding(get: { web.downloads.first }, set: { value in
+                if value == nil { web.dismissDownload() }
+            }))
     }
 
     @ViewBuilder
@@ -309,8 +313,8 @@ struct RootView: View {
         }
     }
 
-    /// Wide: the desktop's workstation (docs/ux/mobile.md, Devices and
-    /// layouts): the page rail, one page beside it and the school status bar
+    /// Wide: the desktop's workstation (slotledger
+    /// `approach/mobile-layout-by-width`): the page rail, one page beside it and the school status bar
     /// under the page.
     private var workstation: some View {
         HStack(spacing: 0) {

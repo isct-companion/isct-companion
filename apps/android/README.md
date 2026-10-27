@@ -1,17 +1,17 @@
 # Android app
 
-Jetpack Compose shell over the Rust core (`crates/isct-core` through the Kotlin
+Jetpack Compose shell over the Rust core (`crates/app-core` through the Kotlin
 SDK in `bindings/kotlin`). It is a screen-for-screen translation of the SwiftUI
 shell, so both phones look and behave alike: the shell renders Core read models,
 forwards intents and implements the platform ports; it keeps no business state
-of its own. Design: [docs/ux/mobile.md](../../docs/ux/mobile.md).
+of its own. Design: the `approach/mobile-*` decisions in [STATUS.md](../../STATUS.md).
 
 ## Build and run
 
 Needs a JDK 17–21 (`JAVA_HOME`), `kotlinc` on `PATH`, the Android SDK
 (platforms 34 and 35, build tools), NDK 28 and the Rust Android targets
 (`rustup target add aarch64-linux-android x86_64-linux-android`). The app links
-the Core SDK at `bindings/kotlin/artifacts/isct-core.aar`; one command builds
+the Core SDK at `bindings/kotlin/artifacts/app-core.aar`; one command builds
 it and then the debug APK:
 
 ```bash

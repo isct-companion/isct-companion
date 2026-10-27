@@ -68,7 +68,6 @@ const SOURCE = { provider: "lms" as const, externalId: "42" };
 
 let app: MountedApp | undefined;
 let views: Mounted[] = [];
-let revisionCounter = 0;
 let deviceCounter = 0;
 
 afterEach(async () => {
@@ -89,8 +88,6 @@ beforeEach(() => {
   sessionStorage.clear();
 });
 
-/** A revision unique to each install, so query caches never leak across tests. */
-const freshRevision = () => `revision:test-${++revisionCounter}`;
 
 /**
  * Installs the scripted host, then loads the real module. `app/native` captures
@@ -264,7 +261,6 @@ async function openWorkspace(
         ...emptySchoolRecords(),
         lmsCourses: [fixture.record],
       },
-      revision: freshRevision(),
       queries: {
         courseTimeline: () => options.timeline ?? null,
         taskView: () => options.tasks ?? null,
@@ -298,7 +294,7 @@ async function openWorkspace(
   };
   const view = await mount(
     <>
-      <real.LmsWorkspace {...props} />
+      <real.LmsWorkspaceBody {...props} />
       <real.ConfirmDialogs />
     </>,
   );
@@ -315,7 +311,7 @@ async function openWorkspace(
       await act(async () =>
         view.root.render(
           <>
-            <real.LmsWorkspace {...props} {...overrides} />
+            <real.LmsWorkspaceBody {...props} {...overrides} />
             <real.ConfirmDialogs />
           </>,
         ),
@@ -939,13 +935,16 @@ describe("the LMS reading workspace", () => {
           if (command === "prepare_workspace_submission") {
             if (outcome === "failed")
               return Promise.reject({
-                kind: "invalidInput",
-                message: "The submit folder is empty",
+                code: "hand-in-empty",
+                detail: "The submit folder is empty",
               });
             if (outcome === "missing") {
               // Deleted in Finder after the card was shown.
               present = false;
-              return Promise.reject({ kind: "workspaceMissing" });
+              return Promise.reject({
+                code: "workspace-folder-missing",
+                detail: "The workspace folder no longer exists",
+              });
             }
             return { workspace, url };
           }
@@ -964,7 +963,7 @@ describe("the LMS reading workspace", () => {
         url: f.workspace.assignments[0].sourceUrl,
       });
       if (outcome === "failed") {
-        expect(host.textContent).toContain("The submit folder is empty");
+        expect(host.textContent).toContain("The submit folder is empty.");
         expect(host.querySelector(".lmsViewer")).toBeNull();
       } else if (outcome === "missing") {
         // The card gives way to a notice; the page still opens.
@@ -1215,7 +1214,6 @@ describe("the LMS reading workspace", () => {
           ...emptySchoolRecords(),
           lmsCourses: [f.record],
         },
-        revision: freshRevision(),
         handle: (command) => (command === "list_course_notes" ? [] : undefined),
       },
       () => import("@app/features/lms/LmsWorkspace"),
@@ -1223,7 +1221,7 @@ describe("the LMS reading workspace", () => {
     vi.useFakeTimers({ now: new Date("2026-10-08T00:00:00Z") });
 
     const node = (active: boolean) => (
-      <real.LmsWorkspace
+      <real.LmsWorkspaceBody
         course={f.course}
         data={f.workspace}
         record={f.record}
@@ -1279,7 +1277,6 @@ describe("the reading workspace on its lecture route", () => {
           ...emptySchoolRecords(),
           lmsCourses: [f.record],
         },
-        revision: freshRevision(),
         queries: {
           workspaceOverview: (_query, core) => overviewFor(core.workspace),
           scheduleView: (_query, core) => scheduleViewFor(core.workspace),
@@ -1341,7 +1338,7 @@ function RetainedCourse({ id, active }: { id: string; active: boolean }) {
 describe("the Today workbench's retained course workspaces", () => {
   async function mountWorkbench() {
     const { real } = await scriptedHost(
-      { workspace: workspaceFixture(), revision: freshRevision() },
+      { workspace: workspaceFixture() },
       () => import("@app/features/lms/TodayWorkbench"),
     );
     return real.TodayWorkbench;
@@ -1478,7 +1475,6 @@ describe("the file preview pipeline", () => {
     const { core, real } = await scriptedHost(
       {
         workspace: workspaceFixture(),
-        revision: freshRevision(),
         handle: (command, args) => {
           if (command === "list_course_notes") return [];
           return handle?.(command, args) ?? undefined;
@@ -1669,7 +1665,6 @@ describe("the note editor", () => {
     const { core, real } = await scriptedHost(
       {
         workspace: workspaceFixture(),
-        revision: freshRevision(),
         handle: (command) => {
           if (command === "read_course_note")
             return {
@@ -1842,7 +1837,7 @@ describe("the note editor", () => {
 describe("the PDF viewer", () => {
   async function openPdf() {
     const { real } = await scriptedHost(
-      { workspace: workspaceFixture(), revision: freshRevision() },
+      { workspace: workspaceFixture() },
       () => import("@app/features/lms/PdfDocument"),
     );
     const view = await mount(
@@ -2057,7 +2052,7 @@ describe("the markdown editor", () => {
     onChange?: (value: string) => void,
   ) {
     await scriptedHost(
-      { workspace: workspaceFixture(), revision: freshRevision() },
+      { workspace: workspaceFixture() },
       async () => undefined,
     );
     const { Editor, editorViewCtx } = await import("@milkdown/kit/core");

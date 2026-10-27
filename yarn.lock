@@ -666,6 +666,7 @@ __metadata:
     "@codemirror/view": "npm:^6.0.0"
     "@milkdown/crepe": "npm:^7.22.2"
     "@milkdown/kit": "npm:^7.22.2"
+    "@tanstack/react-query": "npm:^5.104.5"
     "@tanstack/react-virtual": "npm:^3.14.20"
     "@tauri-apps/api": "npm:^2.12.0"
     "@types/node": "npm:26.5.0"
@@ -3042,6 +3043,28 @@ __metadata:
   version: 1.0.1
   resolution: "@rolldown/pluginutils@npm:1.0.1"
   checksum: 10c0/99d9b06d90196823e4d8c841f258db7a16e5dbba5824a2962b05d907b79f1ba929d56f22dd744fd530936e568c865ee56a719dc31e57e13bc0a8eb4764a8d8dd
+  languageName: node
+  linkType: hard
+
+"@tanstack/query-core@npm:5.104.5":
+  version: 5.104.5
+  resolution: "@tanstack/query-core@npm:5.104.5"
+  checksum: 10c0/bc2f0626e33ccb1c881343e2b351168d6c07df01f42ed0b4f679d4ecc753af5864678f3e09f57bef500a02de5fc52cfef13aa7c3f2d3be6b62297bac024acaed
+  languageName: node
+  linkType: hard
+
+"@tanstack/react-query@npm:^5.104.5":
+  version: 5.104.5
+  resolution: "@tanstack/react-query@npm:5.104.5"
+  dependencies:
+    "@tanstack/query-core": "npm:5.104.5"
+  peerDependencies:
+    "@types/react": ^18 || ^19
+    react: ^18 || ^19
+  peerDependenciesMeta:
+    "@types/react":
+      optional: true
+  checksum: 10c0/eaff9dd4cec0cc43cf835d780efeaf0a2603b792cc2f5f5800a73b4f62b4562cce54b88885f74be72ea0fa7fc721636884ec4bae152b24aea9ce49544fb4c5d1
   languageName: node
   linkType: hard
 

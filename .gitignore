@@ -32,7 +32,7 @@ reference-demo/
 !.env.example
 *.pem
 # Public CA certificates Core vendors for TLS (net/tls.rs), not secrets.
-!crates/isct-core/src/net/certs/*.pem
+!crates/app-core/src/net/certs/*.pem
 *.key
 *.p8
 *.p12
@@ -62,7 +62,7 @@ bindings/**/build/
 bindings/swift/artifacts/
 bindings/swift/.build/
 bindings/swift/Sources/IsctCore/Generated.swift
-bindings/kotlin/src/main/kotlin/app/isctcompanion/core/isct_ffi.kt
+bindings/kotlin/src/main/kotlin/app/isctcompanion/core/app_ffi.kt
 bindings/kotlin/artifacts/
 
 # Local encrypted updater signing key and public companion file

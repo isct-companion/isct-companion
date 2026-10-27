@@ -1,10 +1,10 @@
 //! Small CloudKit private-database adapter used by the Apple-native backup
 //! provider. The workspace is a CKAsset so the same format and size limit can
-//! be shared with Drive and OneDrive without exposing it in iCloud Drive.
+//! be shared with Drive without exposing it in iCloud Drive.
 
+use app_core::cloud_sync::document::{BoxFuture, DocumentError, ObjectStore, StoredObject};
+use app_core::cloud_sync::CloudProvider;
 use block2::RcBlock;
-use isct_core::cloud_sync::document::{BoxFuture, DocumentError, ObjectStore, StoredObject};
-use isct_core::cloud_sync::CloudProvider;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::AnyThread;
@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
-use isct_core::cloud_sync::document::{
+use app_core::cloud_sync::document::{
     CLOUDKIT_ASSET_KEY as ASSET_KEY, CLOUDKIT_CONTAINER as CONTAINER_ID,
     CLOUDKIT_RECORD_TYPE as RECORD_TYPE,
 };
@@ -247,12 +247,10 @@ pub struct Store;
 impl ObjectStore for Store {
     fn read<'a>(&'a self, _provider: CloudProvider) -> BoxFuture<'a, Option<StoredObject>> {
         Box::pin(async move {
-            Ok(
-                read_tagged(isct_core::cloud_sync::document::CLOUD_FILE_NAME)
-                    .await
-                    .map_err(DocumentError::Transport)?
-                    .map(|(bytes, tag)| StoredObject { bytes, tag }),
-            )
+            Ok(read_tagged(app_core::cloud_sync::document::CLOUD_FILE_NAME)
+                .await
+                .map_err(DocumentError::Transport)?
+                .map(|(bytes, tag)| StoredObject { bytes, tag }))
         })
     }
 
@@ -269,7 +267,7 @@ impl ObjectStore for Store {
             let temp = temp_asset_path();
             std::fs::write(&temp, bytes).map_err(|e| DocumentError::Transport(e.to_string()))?;
             write_request(
-                isct_core::cloud_sync::document::CLOUD_FILE_NAME.to_string(),
+                app_core::cloud_sync::document::CLOUD_FILE_NAME.to_string(),
                 temp,
                 Some(expected),
             )

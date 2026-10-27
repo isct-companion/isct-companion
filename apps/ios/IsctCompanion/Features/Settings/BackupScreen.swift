@@ -136,7 +136,6 @@ struct BackupScreen: View {
         switch provider {
         case .icloud: "iCloud"
         case .googleDrive: "Google Drive"
-        case .onedrive: "OneDrive"
         }
     }
 

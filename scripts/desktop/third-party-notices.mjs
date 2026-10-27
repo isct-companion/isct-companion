@@ -108,7 +108,7 @@ function crateComponents(target) {
 }
 
 function modelComponents() {
-  const dir = path.join(root, "crates/isct-ocr/models/paddle");
+  const dir = path.join(root, "crates/app-ocr/models/paddle");
   const read = (name) => {
     const file = path.join(dir, name);
     return existsSync(file) ? [readFileSync(file, "utf8").trim()] : [];

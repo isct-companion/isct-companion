@@ -1,5 +1,5 @@
 //! Desktop adapters. Domain services and their task lifetime belong to Core.
-use isct_core::{
+use app_core::{
     events::CoreEvent,
     ports::{EventError, EventSink},
     runtime::CoreRuntime,
@@ -39,12 +39,12 @@ impl ScheduledExporter for DesktopExport {
     fn export(&self) -> Result<(), ExportError> {
         crate::commands::backup::write_scheduled_export_inner(&self.0)
             .map(|_| ())
-            .map_err(ExportError::Failed)
+            .map_err(|error| ExportError::Failed(error.to_string()))
     }
 }
 
-pub(crate) fn core(app: &AppHandle) -> Arc<isct_core::Core> {
-    app.state::<Arc<isct_core::Core>>().inner().clone()
+pub(crate) fn core(app: &AppHandle) -> Arc<app_core::Core> {
+    app.state::<Arc<app_core::Core>>().inner().clone()
 }
 pub(crate) fn runtime(app: &AppHandle) -> Arc<CoreRuntime> {
     core(app).runtime.clone()
@@ -136,10 +136,10 @@ impl DesktopRuntime {
                         }
                     };
                     let report = core(&wake_app)
-                        .wake(isct_core::facade::WakeServices {
+                        .wake(app_core::facade::WakeServices {
                             scheduler: services(&wake_app),
                             cloud,
-                            reminders: Some(isct_core::facade::ReminderWake {
+                            reminders: Some(app_core::facade::ReminderWake {
                                 sink: Arc::new(
                                     crate::commands::notifications::DesktopNotifications(
                                         wake_app.clone(),
@@ -168,7 +168,7 @@ impl DesktopRuntime {
         !self.exiting.swap(true, Ordering::AcqRel)
     }
 
-    pub(crate) async fn shutdown(&self, core: &isct_core::Core) {
+    pub(crate) async fn shutdown(&self, core: &app_core::Core) {
         self.tasks.close();
         core.shutdown().await;
         self.tasks.wait().await;

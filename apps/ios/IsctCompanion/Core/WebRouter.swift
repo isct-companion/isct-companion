@@ -28,6 +28,8 @@ final class WebRouter {
     private(set) var error: String?
     /// Bumped when a view appears for a site so containers re-attach it.
     private(set) var attachRevision = 0
+    private(set) var downloads: [URL] = []
+    @ObservationIgnored private var visibleOwner: UUID?
     @ObservationIgnored weak var session: Session?
     @ObservationIgnored let browser: SchoolBrowserHost
     @ObservationIgnored private var opened: Set<SchoolSite> = []
@@ -36,6 +38,8 @@ final class WebRouter {
         self.browser = browser
         browser.onTitleChange = { [weak self] site, title in self?.titles[site] = title }
         browser.onOpenExternal = { url in UIApplication.shared.open(url) }
+        browser.onDownload = { [weak self] file in self?.downloads.append(file) }
+        browser.onDownloadError = { [weak self] error in self?.error = AppModel.describe(error) }
     }
 
     /// A page pushed from context (course → LMS, assignment → submission).
@@ -89,8 +93,26 @@ final class WebRouter {
     }
 
     /// A web page appeared or disappeared on screen.
-    func setVisible(_ site: SchoolSite?) {
+    private func setVisible(_ site: SchoolSite?) {
         _ = try? session?.schoolBrowsing(site: site)
+    }
+
+    func appear(_ site: SchoolSite, owner: UUID) {
+        visibleOwner = owner
+        setVisible(site)
+    }
+
+    func disappear(owner: UUID) {
+        // SwiftUI may mount the next page before unmounting the old one.
+        guard visibleOwner == owner else { return }
+        visibleOwner = nil
+        setVisible(nil)
+    }
+
+    func dismissDownload() {
+        guard !downloads.isEmpty else { return }
+        let file = downloads.removeFirst()
+        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
     }
 
     func back(_ site: SchoolSite) { _ = try? session?.backSchool(site: site) }

@@ -1,6 +1,6 @@
 //! Desktop school-download handling, including the macOS WebKit hooks.
 
-use isct_core::{
+use app_core::{
     events::{CoreEvent, SchoolDownloadEvent, SchoolDownloadState},
     lifecycle::SchoolSite,
     ports::EventSink,

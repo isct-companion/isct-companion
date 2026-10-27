@@ -2,15 +2,19 @@
 
 Desktop Core consolidation (Phases 0–5) is complete. Implementation checkpoint:
 `06e0a36`; desktop closure: `aa9a4a4`. Phase 6 application bindings and native
-mobile adoption are deferred. The public contract is [Shared Core API](../core-api.md).
+mobile adoption are deferred. The public contract is recorded in slotledger.
 This document keeps final evidence and material observations.
+
+The architecture paragraphs below describe the checkpoint as it was. Since then
+the whole-workspace snapshot has been replaced by per-view queries on SQLite
+(TanStack Query on desktop); slotledger records the current contract.
 
 ## Completed scope
 
 | Phase | Result |
 |---|---|
 | 0 | Root Rust workspace, platform boundaries, compact build profiles and validation baseline |
-| 1 | Shared domain modules in `isct-core`; independent optional `isct-ocr` |
+| 1 | Shared domain modules in `app-core`; independent optional `app-ocr` |
 | 2 | One Core owner for persistence, references, scheduling, files, notes, backups, cloud, credentials and agent operations; local HTTP MCP |
 | 3 | Core-owned school login/session/browser extraction over native ports; correlated callbacks and owned cancellation |
 | 4 | Typed domain/runtime failures, no-panic lint boundaries, worker recovery and draining shutdown |
@@ -74,7 +78,7 @@ Coverage includes:
 Production Core and OCR deny `unwrap`, `expect`, `panic`, `todo`, `unimplemented`
 and `unreachable` without production lint exemptions. The runtime task boundary
 returns typed worker failures; it does not recover process/native aborts or undo
-already committed work. See [error/recovery contracts](../core-api.md#errors-and-failure-recovery).
+already committed work. See slotledger `approach/core-operation-ownership`.
 
 ## Live macOS acceptance
 

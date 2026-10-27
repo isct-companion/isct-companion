@@ -78,8 +78,7 @@ path usually misses the bug it was written for.
 import {
   mountApp, // real shell + scripted host, returns { host, core, go, unmount }
   installFakeCore, // the scripted host alone, for non-UI suites
-  installComponentHost, // scripted host + adopted snapshot, for one-component suites
-  freshRevision, // a unique snapshot revision, for a suite that mounts twice
+  installComponentHost, // scripted host + reloaded workspace store, for one-component suites
   mount,
   flush,
   advance,
@@ -117,7 +116,7 @@ a table. A commit answers the whole live store under every change name
 
 ```ts
 const core = installFakeCore({
-  workspace,                      // the snapshot Core would return
+  workspace,                      // the stored workspace Core reads
   queries: {                      // answer schedule_query by kind
     workspaceOverview: (_query, core) => overviewFor(core.workspace),
   },
@@ -132,8 +131,8 @@ const core = installFakeCore({
 });
 core.calls                        // every command sent, in order
 core.intents                      // every accepted intent, in order
-core.emit("workspace-changed", { source: "school-pull", changes: ["courses"] });
-                                  // the shell patches through `workspace_records`
+core.emit("workspace-changed", { source: "school-pull", changes: ["courses"], seq: 1 });
+                                  // the shell re-queries what reads those changes
 ```
 
 Answer read models from `core.workspace` rather than closing over a literal, or
@@ -204,7 +203,7 @@ invalidated instead of leaving you to guess.
 
 ## Fixtures
 
-Committed school HTML lives in `crates/isct-core/tests/fixtures/`, because Core's
+Committed school HTML lives in `crates/app-core/tests/fixtures/`, because Core's
 Rust tests embed it with `include_str!` and the frontend suites read the same
 bytes. `content-provenance.json` pins every public page's URL, capture date and
 SHA-256. Refresh a fixture by re-fetching the URL, replacing the file and
@@ -218,9 +217,9 @@ names that are not already published.
 Rust is the same shape, with one folder per crate:
 
 ```
-crates/isct-core/src/tests/        one folder for the whole crate
-crates/isct-ffi/src/tests/
-crates/isct-ocr/src/tests/
+crates/app-core/src/tests/        one folder for the whole crate
+crates/app-ffi/src/tests/
+crates/app-ocr/src/tests/
 apps/desktop/src-tauri/src/tests/
 ```
 
@@ -229,7 +228,7 @@ Each file is named after the module whose behaviour it covers
 that module:
 
 ```rust
-// in crates/isct-core/src/schedule/timing.rs
+// in crates/app-core/src/schedule/timing.rs
 #[cfg(test)]
 #[path = "../tests/schedule__timing.rs"]
 mod tests;

@@ -90,6 +90,7 @@ private struct ResidentWebView: UIViewRepresentable {
 /// menu, and a pull reloads. Tapping the tab again returns the site home.
 struct WebTabScreen: View {
     @Environment(WebRouter.self) private var web
+    @State private var visibilityOwner = UUID()
 
     var body: some View {
         // Read so a navigation (which retitles the page) refreshes the actions.
@@ -139,9 +140,9 @@ struct WebTabScreen: View {
         }
         .onAppear {
             web.showTab(web.tabSite)
-            web.setVisible(web.tabSite)
+            web.appear(web.tabSite, owner: visibilityOwner)
         }
-        .onDisappear { web.setVisible(nil) }
+        .onDisappear { web.disappear(owner: visibilityOwner) }
     }
 }
 
@@ -227,6 +228,7 @@ typealias SitePickerPress = TabItemPress<SitePick>
 struct WebPageScreen: View {
     let page: WebRouter.PushedPage
     @Environment(WebRouter.self) private var web
+    @State private var visibilityOwner = UUID()
 
     var body: some View {
         _ = web.titles[page.site]
@@ -263,9 +265,9 @@ struct WebPageScreen: View {
         }
         .onAppear {
             web.open(page.site, target: page.target)
-            web.setVisible(page.site)
+            web.appear(page.site, owner: visibilityOwner)
         }
-        .onDisappear { web.setVisible(nil) }
+        .onDisappear { web.disappear(owner: visibilityOwner) }
     }
 }
 

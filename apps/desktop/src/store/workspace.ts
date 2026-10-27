@@ -1,15 +1,10 @@
 import { getDesktopBridge } from "../platform/desktop-bridge";
-import type {
-  SchoolRecords,
-  WorkspaceChangedEvent,
-} from "../platform/desktop-bridge";
+import type { WorkspaceChangedEvent } from "../platform/desktop-bridge";
 import type { Workspace } from "../lib/model";
 import type { ClassGroup } from "../generated/persistence";
 import { repository } from "../storage/repository";
 import type {
   CoreWorkspaceCommit,
-  CoreWorkspacePatch,
-  CoreWorkspaceSnapshot,
   WorkspaceIntent,
   WorkspaceMutation,
 } from "../lib/workspace-intents";
@@ -17,17 +12,20 @@ import type { WorkspaceChange } from "../generated/persistence";
 import { requireAction } from "../platform/actions";
 import { detectPlatform } from "../platform/capabilities";
 import { createStore } from "zustand/vanilla";
+import { changesCommitted, everythingChanged } from "../platform/query-client";
+import { fetchRecords, type RecordField } from "../platform/records";
 
-export type WorkspaceSnapshot = {
-  readonly workspace?: Workspace;
-  readonly schoolRecords?: SchoolRecords;
+/**
+ * The shell's side of writing: where the next intent starts from and how
+ * the last one went. Records themselves live only in the query cache
+ * (`platform/records`); nothing here copies them.
+ */
+export type WorkspaceState = {
   readonly status: "idle" | "loading" | "ready" | "error";
   /** Baseline for user intents; school and reference ingests keep it. */
   readonly revision: string;
-  /** Changes with any snapshot content, whole or patched. */
-  readonly contentRevision: string;
-  /** Counts patches per change name; a whole snapshot counts as `all`.
-   * Read-model caches key on the names their views read. */
+  /** Counts changes heard per name; a whole re-read counts as `all`. The
+   * finder refreshes its open page by the names its page read. */
   readonly viewRevisions: ViewRevisions;
   readonly error?: string;
 };
@@ -37,80 +35,85 @@ export type ViewRevisions = Readonly<
 export type WorkspaceEdit = (draft: Workspace) => Workspace | void;
 
 type WorkspaceService = {
-  snapshot(): Promise<CoreWorkspaceSnapshot>;
-  records(changes: readonly WorkspaceChange[]): Promise<CoreWorkspacePatch>;
+  /** The revision the next intent is made against. */
+  revision(): Promise<string>;
   mutate(mutation: WorkspaceMutation): Promise<CoreWorkspaceCommit>;
 };
 
+/** What an intent built from stored records starts from: `fields` read
+ * fresh from Core inside the write queue, so two quick edits never copy
+ * the same old records. */
+type DraftIntent = {
+  fields: readonly RecordField[];
+  build: (draft: Workspace) => WorkspaceIntent;
+};
+
 export function createWorkspaceStore(service: WorkspaceService) {
-  const state = createStore<WorkspaceSnapshot>(() =>
+  const state = createStore<WorkspaceState>(() =>
     Object.freeze({
       status: "idle",
       revision: "",
-      contentRevision: "",
       viewRevisions: {},
     }),
   );
   let loading: Promise<void> | undefined;
   let writes: Promise<unknown> = Promise.resolve();
-  let refreshing: Promise<SchoolRecords | undefined> | undefined;
-  let refreshRequest = 0;
-  let patching: Promise<void> | undefined;
-  const unpatched = new Set<WorkspaceChange>();
   const localMutationRevisions = new Set<string>();
-  const publish = (next: WorkspaceSnapshot) => {
+  /** A background writer (cloud sync, the scheduler, an agent) may have
+   * moved the revision; the next intent reads it first. */
+  let revisionStale = false;
+  const publish = (next: WorkspaceState) => {
     state.setState(Object.freeze(next), true);
   };
-  const adopt = (snapshot: CoreWorkspaceSnapshot) => {
-    const { viewRevisions } = state.getState();
-    publish({
-      workspace: snapshot.workspace,
-      schoolRecords: snapshot.schoolRecords,
-      status: "ready",
-      revision: snapshot.revision,
-      contentRevision: snapshot.contentRevision,
-      viewRevisions: { ...viewRevisions, all: (viewRevisions.all ?? 0) + 1 },
-      error: undefined,
-    });
-  };
-  /** Merges `patch` over the open snapshot; only views reading `changes`
-   * get a new revision. */
-  const merge = (
-    patch: CoreWorkspacePatch,
-    changes: readonly WorkspaceChange[],
-  ) => {
-    const current = state.getState();
+  const counted = (changes: readonly (WorkspaceChange | "all")[]) => {
     const viewRevisions: Partial<Record<WorkspaceChange | "all", number>> = {
-      ...current.viewRevisions,
+      ...state.getState().viewRevisions,
     };
     for (const change of changes)
       viewRevisions[change] = (viewRevisions[change] ?? 0) + 1;
-    publish({
-      ...current,
-      workspace: { ...current.workspace!, ...patch.workspace },
-      schoolRecords: { ...current.schoolRecords!, ...patch.schoolRecords },
-      revision: patch.revision,
-      contentRevision: patch.contentRevision,
-      viewRevisions,
-    });
+    return viewRevisions;
   };
-  const mutate = (
-    intent: WorkspaceIntent | ((workspace: Workspace) => WorkspaceIntent),
-  ) => {
+  /** Reads the revision again and refetches every answer: anything may have
+   * changed (startup, an intent that lost a race, an import). */
+  const reload = async () => {
+    await writes;
+    const revision = await service.revision();
+    publish({
+      ...state.getState(),
+      status: "ready",
+      revision,
+      viewRevisions: counted(["all"]),
+      error: undefined,
+    });
+    everythingChanged();
+  };
+  const mutate = (intent: WorkspaceIntent | DraftIntent) => {
     const operation = writes.then(async () => {
       const current = state.getState();
-      if (!current.workspace || !current.revision)
+      if (current.status !== "ready" || !current.revision)
         throw new Error("Workspace is not ready.");
       try {
+        if (revisionStale) {
+          revisionStale = false;
+          publish({ ...state.getState(), revision: await service.revision() });
+        }
+        const resolved =
+          "build" in intent
+            ? intent.build(
+                structuredClone(await fetchRecords(intent.fields)) as Workspace,
+              )
+            : intent;
         const commit = await service.mutate({
-          expectedRevision: current.revision,
-          intent:
-            typeof intent === "function"
-              ? intent(structuredClone(current.workspace))
-              : intent,
+          expectedRevision: state.getState().revision,
+          intent: resolved,
         });
-        merge(commit.patch, commit.changes);
-        localMutationRevisions.add(commit.patch.revision);
+        publish({
+          ...state.getState(),
+          revision: commit.revision,
+          viewRevisions: counted(commit.changes),
+        });
+        changesCommitted(commit.changes, commit.seq);
+        localMutationRevisions.add(commit.revision);
         if (localMutationRevisions.size > 32)
           localMutationRevisions.delete(
             localMutationRevisions.values().next().value!,
@@ -118,12 +121,13 @@ export function createWorkspaceStore(service: WorkspaceService) {
         return commit;
       } catch (error) {
         // The intent may have lost a race with school, cloud, or another
-        // native writer. Recover the authoritative state for user review;
-        // never replay the failed intent automatically.
+        // native writer. Read where the next one starts and what is stored
+        // now for the person to review; never replay the failed intent.
         try {
-          adopt(await service.snapshot());
+          publish({ ...state.getState(), revision: await service.revision() });
+          everythingChanged();
         } catch {
-          // Preserve the original mutation error and the last valid cache.
+          // Keep the original mutation error.
         }
         throw error;
       }
@@ -131,100 +135,45 @@ export function createWorkspaceStore(service: WorkspaceService) {
     writes = operation.catch(() => undefined);
     return operation;
   };
-  const reload = () => {
-    refreshRequest++;
-    if (refreshing) return refreshing;
-    refreshing = (async () => {
-      for (;;) {
-        await writes;
-        const before = state.getState();
-        if (before.error && before.workspace) throw new Error(before.error);
-        const request = refreshRequest;
-        const snapshot = await service.snapshot();
-        if (
-          state.getState().contentRevision !== before.contentRevision ||
-          request !== refreshRequest
-        )
-          continue;
-        adopt(snapshot);
-        return snapshot.schoolRecords;
-      }
-    })().finally(() => {
-      refreshing = undefined;
-    });
-    return refreshing;
-  };
-  /** Re-reads only the records `changes` feed and merges them over the
-   * snapshot; views that read none of the names keep their answers. Changes
-   * heard while a read is in flight join the next read. */
-  const patch = (changes: readonly WorkspaceChange[]) => {
-    for (const change of changes) unpatched.add(change);
-    if (patching || !unpatched.size) return patching ?? Promise.resolve();
-    const run = async () => {
-      try {
-        while (unpatched.size) {
-          await writes;
-          const before = state.getState();
-          // Opening reads everything; nothing to patch yet.
-          if (!before.workspace || !before.schoolRecords) {
-            unpatched.clear();
-            return;
-          }
-          const requested = [...unpatched];
-          unpatched.clear();
-          let result: CoreWorkspacePatch;
-          try {
-            result = await service.records(requested);
-          } catch (error) {
-            // Keep the names for the next change to retry with.
-            for (const change of requested) unpatched.add(change);
-            throw error;
-          }
-          const current = state.getState();
-          if (current.contentRevision !== before.contentRevision) {
-            // A mutation or a whole read landed meanwhile; this patch may be
-            // older than it, so read the same records again.
-            for (const change of requested) unpatched.add(change);
-            continue;
-          }
-          merge(result, requested);
-        }
-      } finally {
-        // Cleared in the same turn the loop ends, so a change heard right
-        // after starts a new read instead of joining a finished one.
-        patching = undefined;
-      }
-    };
-    patching = run();
-    return patching;
-  };
   const handleWorkspaceChanged = async (event: WorkspaceChangedEvent) => {
-    if (event.source !== "user-intent") return patch(event.changes);
+    changesCommitted(event.changes, event.seq);
+    publish({ ...state.getState(), viewRevisions: counted(event.changes) });
+    if (event.source !== "user-intent") {
+      revisionStale = true;
+      return;
+    }
+    // Core emits before the native command resolves. Wait for the command's
+    // own commit, then adopt the revision only if another client wrote.
+    await writes;
     if (!event.revision) {
       await reload();
       return;
     }
-    // Core emits before the native command resolves. Wait for the command's
-    // committed patch, then read only if this came from another client.
-    await writes;
     if (
       state.getState().revision === event.revision ||
       localMutationRevisions.has(event.revision)
     )
       return;
-    await reload();
+    publish({ ...state.getState(), revision: event.revision });
   };
   return {
     getState: state.getState,
     getInitialState: state.getInitialState,
     subscribe: state.subscribe,
     initialize() {
-      if (state.getState().workspace) return Promise.resolve();
+      if (state.getState().status === "ready") return Promise.resolve();
       if (loading) return loading;
       publish({ ...state.getState(), status: "loading", error: undefined });
       loading = service
-        .snapshot()
-        .then(adopt)
+        .revision()
+        .then((revision) => {
+          publish({
+            ...state.getState(),
+            status: "ready",
+            revision,
+            error: undefined,
+          });
+        })
         .catch(() => {
           publish({
             ...state.getState(),
@@ -241,11 +190,6 @@ export function createWorkspaceStore(service: WorkspaceService) {
     reload,
     handleWorkspaceChanged,
     mutate,
-    export() {
-      const workspace = state.getState().workspace;
-      if (!workspace) throw new Error("Workspace is not ready.");
-      return JSON.stringify(workspace, null, 2);
-    },
     async flush() {
       await writes;
       const error = state.getState().error;
@@ -256,51 +200,25 @@ export function createWorkspaceStore(service: WorkspaceService) {
 
 const desktopBridge =
   typeof window === "undefined" ? undefined : getDesktopBridge();
-const emptySchoolRecords = (): SchoolRecords => ({
-  lmsCourses: [],
-  registrations: [],
-  registrationStates: [],
-  grades: [],
-  gpaByTerm: [],
-  requirements: [],
-  freshness: {},
-  pageAvailability: {},
-});
 
-/** Browser preview has no Core process and exposes a read-only sample. */
-export function createBrowserPreviewService(
-  previewRepository: typeof repository,
-): WorkspaceService {
-  let workspace: Workspace | undefined;
-  const snapshot = (): CoreWorkspaceSnapshot => ({
-    revision: `preview:${JSON.stringify(workspace).length}`,
-    contentRevision: `preview:${JSON.stringify(workspace).length}`,
-    workspace: structuredClone(workspace!),
-    schoolRecords: emptySchoolRecords(),
-  });
+/** Browser preview has no Core process: nothing to write against. */
+export function createBrowserPreviewService(): WorkspaceService {
   return {
-    async snapshot() {
-      workspace ??= await previewRepository.load();
-      return snapshot();
-    },
-    async records() {
-      // Nothing changes underneath a preview.
-      return { ...snapshot(), workspace: {}, schoolRecords: {} };
+    async revision() {
+      return "preview";
     },
     async mutate() {
       throw new Error("Workspace edits need the native app.");
     },
   };
 }
-const browserPreviewService = createBrowserPreviewService(repository);
 const internalWorkspaceStore = createWorkspaceStore(
   desktopBridge
     ? {
-        snapshot: () => desktopBridge.workspaceSnapshot(),
-        records: (changes) => desktopBridge.workspaceRecords(changes),
+        revision: () => desktopBridge.workspaceRevision(),
         mutate: (mutation) => desktopBridge.mutateWorkspace(mutation),
       }
-    : browserPreviewService,
+    : createBrowserPreviewService(),
 );
 
 /** Read/lifecycle surface. Mutations are available only through workspaceActions. */
@@ -315,7 +233,7 @@ export const workspaceStore = {
 };
 
 export const workspaceActions = {
-  /** Refresh canonical workspace and parsed school records in one publication. */
+  /** Read everything again: the revision and every answer in use. */
   refreshSchool() {
     return internalWorkspaceStore.reload();
   },
@@ -324,14 +242,16 @@ export const workspaceActions = {
   },
   editCalendar(edit: WorkspaceEdit) {
     requireAction("edit-calendar-advanced", detectPlatform());
-    const current = internalWorkspaceStore.getState().workspace;
-    if (!current) return Promise.reject(new Error("Workspace is not ready."));
-    const draft = structuredClone(current);
-    const next = edit(draft) ?? draft;
     return internalWorkspaceStore.mutate({
-      kind: "editAcademicCalendar",
-      academicProfile: next.academicProfile,
-      exceptions: next.exceptions,
+      fields: ["academicProfile", "exceptions"],
+      build: (draft) => {
+        const next = edit(draft) ?? draft;
+        return {
+          kind: "editAcademicCalendar",
+          academicProfile: next.academicProfile,
+          exceptions: next.exceptions,
+        };
+      },
     });
   },
   setStudyProfile(
@@ -351,10 +271,13 @@ export const workspaceActions = {
     // Core result. Two immediate preference edits must not copy the same old snapshot.
     // The whole object replaces the stored one, so cleared keys stay cleared;
     // Core validates the values.
-    return internalWorkspaceStore.mutate((draft) => ({
-      kind: "replaceSettings",
-      settings: (edit(draft) ?? draft).settings,
-    }));
+    return internalWorkspaceStore.mutate({
+      fields: ["settings"],
+      build: (draft) => ({
+        kind: "replaceSettings",
+        settings: (edit(draft) ?? draft).settings,
+      }),
+    });
   },
   /** The red/white group of a semester's 物理学演習・実験 ("2026-3Q4Q"). */
   setClassGroup(semester: string, group: ClassGroup | null) {

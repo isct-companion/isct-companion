@@ -53,7 +53,7 @@ def main():
     p.add_argument("--run", required=True, help="Run name: letters, digits, - and _")
     p.add_argument("--data", type=Path, required=True)
     p.add_argument("--replay-data", type=Path)
-    p.add_argument("--model", type=Path, default=ROOT / "crates/isct-ocr/models/alphabet/alphabet-printed.onnx")
+    p.add_argument("--model", type=Path, default=ROOT / "crates/app-ocr/models/alphabet/alphabet-printed.onnx")
     p.add_argument("--host", default="tsubame")
     p.add_argument("--remote-dir", default="isct-matrix-ocr", help="Relative to the remote home")
     p.add_argument("--python", default=".venv/bin/python", help="Relative to --remote-dir")

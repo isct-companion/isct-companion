@@ -1,11 +1,15 @@
-import { useEffect, useState } from "react";
-import { useWorkspace } from "../store/useWorkspace";
+import {
+  keepPreviousData,
+  useQuery,
+  type QueryKey,
+} from "@tanstack/react-query";
 import type { ViewRevisions } from "../store/workspace";
 import type { WorkspaceChange } from "../generated/persistence";
 import type { QueryState } from "./core-query";
+import { freshAnswer, queryClient, type CoreAnswer } from "./query-client";
 
-/** The revision of the records a view family reads: a whole snapshot read,
- * or a patch of any change it names, makes a new one. */
+/** The revision of the records a view family reads: a reload, or a commit
+ * naming any change it reads, makes a new one. */
 export const viewRevision = (
   revisions: ViewRevisions,
   reads: readonly WorkspaceChange[],
@@ -14,62 +18,35 @@ export const viewRevision = (
     ":",
   );
 
-// React owns view retention; Core owns the data. This bounded transport cache
-// is shared by finder and schedule hooks so late responses cannot mix snapshots.
-const requests = new Map<string, Promise<unknown>>();
+/** A view's answer and the changes Core computed it from. */
+export type ViewAnswer<T> = CoreAnswer<T>;
+
+/** Core's answer to `key`, cached until Core says what it read changed
+ * (`query-client`). While a new key or a refresh loads, the last answer
+ * stays on screen; a late answer for an old key never replaces it. */
 export function useViewQuery<T>(
-  namespace: string,
-  reads: readonly WorkspaceChange[],
-  input: unknown,
-  load: () => Promise<T>,
+  key: QueryKey,
+  load: () => Promise<ViewAnswer<T>>,
   enabled = true,
-  refresh: unknown = 0,
 ): QueryState<T> {
-  const revision = useWorkspace((state) =>
-    viewRevision(state.viewRevisions, reads),
+  const query = useQuery(
+    {
+      queryKey: key,
+      queryFn: () => freshAnswer(load),
+      enabled,
+      placeholderData: keepPreviousData,
+    },
+    queryClient,
   );
-  const key = JSON.stringify([namespace, revision, input, refresh]);
-  const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<QueryState<T> & { key?: string }>({
-    pending: enabled,
-  });
-  useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    let request = requests.get(key) as Promise<T> | undefined;
-    if (!request) {
-      request = load();
-      requests.set(key, request);
-      while (requests.size > 128)
-        requests.delete(requests.keys().next().value!);
-      const owned = request;
-      void request.catch(() => {
-        if (requests.get(key) === owned) requests.delete(key);
-      });
-    }
-    void request.then(
-      (value) => {
-        if (active) setState({ key, value, pending: false });
-      },
-      (reason) => {
-        if (active)
-          setState((previous) => ({
-            key,
-            value: previous.value,
-            pending: false,
-            error: reason instanceof Error ? reason.message : String(reason),
-          }));
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [key, enabled, attempt]);
-  const retry = () => {
-    requests.delete(key);
-    setState((previous) => ({ ...previous, pending: true, error: undefined }));
-    setAttempt((value) => value + 1);
-  };
   if (!enabled) return { pending: false };
-  return { ...state, pending: state.key !== key || state.pending, retry };
+  return {
+    value: query.data?.value,
+    pending: query.isFetching || query.isPlaceholderData || query.isPending,
+    error: query.error
+      ? query.error instanceof Error
+        ? query.error.message
+        : String(query.error)
+      : undefined,
+    retry: () => void query.refetch(),
+  };
 }

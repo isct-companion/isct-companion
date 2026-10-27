@@ -12,7 +12,7 @@ packages:
   IsctCore:
     path: ../../bindings/swift
   # Celebratory effects the platform lacks; everything else uses SwiftUI's own
-  # animation APIs (docs/ux/mobile.md, Look).
+  # animation APIs (slotledger `approach/mobile-moment-first`).
   Pow:
     url: https://github.com/EmergeTools/Pow
     exactVersion: 1.0.6
@@ -30,7 +30,7 @@ targets:
     dependencies:
       - package: IsctCore
       - package: Pow
-      # The share sheet's entries (docs/ux/mobile.md, Hand-in): the app-row
+      # The share sheet's entries (slotledger `approach/share-entry-points`): the app-row
       # sheet and the "Open in IsctCompanion" action.
       - target: IsctShare
       - target: IsctOpen
@@ -63,7 +63,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         # "Open in IsctCompanion" in another app's share sheet: the system
         # starts the app with a copy of the file, which goes to the hand-in
-        # inbox (docs/ux/mobile.md, Hand-in).
+        # inbox (slotledger `approach/share-entry-points`).
         # The share extension's "open the app" link.
         CFBundleURLTypes:
           - CFBundleURLName: app.isctcompanion.inbox

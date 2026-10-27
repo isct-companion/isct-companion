@@ -1,7 +1,6 @@
 import { useEffect, useReducer, useRef } from "react";
 
 import { desktopBridge } from "../../app/native";
-import type { WorkspaceChange } from "../../generated/persistence";
 import {
   finderQuery,
   type FinderAction,
@@ -11,18 +10,6 @@ import {
 import { viewRevision } from "../../platform/view-query";
 import { useWorkspace } from "../../store/useWorkspace";
 
-/** What the finder reads besides the catalog: placed and registered
- * courses, earned credits, terms, plans, busy events and settings. */
-const FINDER_READS: readonly WorkspaceChange[] = [
-  "finder",
-  "courses",
-  "registrations",
-  "grades",
-  "calendar",
-  "plans",
-  "events",
-  "settings",
-];
 const PAGE = 100;
 /** Core's largest page; a refresh keeps at most this many loaded rows. */
 const MOST = 1000;
@@ -234,15 +221,20 @@ export function useFinder({
     if (started.current === session)
       search(Math.min(MOST, Math.max(PAGE, s.rows.length)));
   };
+  // What the shown page read besides the catalog, as Core names it.
+  const reads = s.page?.reads ?? [];
   const revision = useWorkspace((snapshot) =>
-    viewRevision(snapshot.viewRevisions, FINDER_READS),
+    viewRevision(snapshot.viewRevisions, reads),
   );
-  const refreshed = useRef(revision);
+  // The first page names its reads; that is not a change to refresh for.
+  const readsKey = reads.join(",");
+  const refreshed = useRef({ readsKey, revision });
   useEffect(() => {
-    if (refreshed.current === revision) return;
-    refreshed.current = revision;
-    refresh.current();
-  }, [revision]);
+    const last = refreshed.current;
+    refreshed.current = { readsKey, revision };
+    if (last.readsKey === readsKey && last.revision !== revision)
+      refresh.current();
+  }, [readsKey, revision]);
   useEffect(
     () =>
       desktopBridge?.onCatalogChanged?.((changed) => {

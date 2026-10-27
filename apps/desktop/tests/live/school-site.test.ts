@@ -49,14 +49,14 @@ describe.skipIf(!enabled)("live Science Tokyo school sites", () => {
       `the LMS root should redirect to its academic-year path, got ${response.status} ${location}`,
     ).toBeDefined();
 
-    const session = readRepoFile("crates/isct-core/src/lms_session.rs");
+    const session = readRepoFile("crates/app-core/src/lms_session.rs");
     expect(session, `LMS_HOME must name the live LMS year (${year})`).toContain(
       `lms.s.isct.ac.jp/${year}/`,
     );
 
     // Every LMS path literal in the Rust readers must agree with the same
     // year; a stale one silently breaks reading instead of failing loudly.
-    const parser = readRepoFile("crates/isct-core/src/school_parser/lms.rs");
+    const parser = readRepoFile("crates/adpt-isct/src/lms.rs");
     const pinned = new Set(
       [...parser.matchAll(/\/(\d{4})\//g)].map((match) => match[1]),
     );

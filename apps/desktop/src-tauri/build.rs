@@ -1,5 +1,5 @@
 fn main() {
-    // Mirrors isct-ocr's default backend support: no prebuilt ONNX Runtime
+    // Mirrors app-ocr's default backend support: no prebuilt ONNX Runtime
     // exists for Intel macOS, so the scan command is unavailable there.
     println!("cargo::rustc-check-cfg=cfg(matrix_ocr)");
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();

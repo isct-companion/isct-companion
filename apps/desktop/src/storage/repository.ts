@@ -1,39 +1,31 @@
-import { invoke } from "@tauri-apps/api/core";
-import { seedWorkspace, type Workspace } from "../lib/model";
+import { invoke } from "../platform/native-error";
 
+/** Backups. Pages read their records through Core's queries, not here. */
 export interface WorkspaceRepository {
-  load(): Promise<Workspace>;
   export(): Promise<string>;
-  import?(document: string): Promise<Workspace>;
+  /** Restores a backup; its commit tells the pages what to query again. */
+  import?(document: string): Promise<void>;
 }
 
 /** Browser preview has no persistence or domain engine. */
 export class LocalRepository implements WorkspaceRepository {
-  async load() {
-    return seedWorkspace();
-  }
-
   async export(): Promise<string> {
     throw new Error("Workspace export needs the native app.");
   }
 
-  async import(_document: string): Promise<Workspace> {
+  async import(_document: string): Promise<void> {
     throw new Error("Workspace import needs the native app.");
   }
 }
 
 /** Desktop adapter. Rust owns validation, migration, persistence and backups. */
 export class SqliteRepository implements WorkspaceRepository {
-  async load() {
-    return invoke<Workspace>("load_workspace");
-  }
-
   async export() {
     return invoke<string>("export_data");
   }
 
   async import(document: string) {
-    return invoke<Workspace>("import_data", { document });
+    await invoke<void>("import_data", { document });
   }
 }
 

@@ -84,9 +84,8 @@ object Theme {
     val radiusPanel: Dp = IsctTokens.radiusPanel
     val radiusChip: Dp = IsctTokens.radiusChip
 
-    /** Course colour strengths: a block that occupies time, and row emphasis. */
+    /** Course colour strength of a block that occupies time. */
     val tintFill = IsctTokens.courseTintFill.toFloat()
-    val tintSoft = IsctTokens.courseTintSoft.toFloat()
 
     /** An exam block's stronger fill, a quiz block's slightly weaker one,
      * and the quiz's ring. */

@@ -17,6 +17,7 @@ import { AssignmentGroupList } from "../../components/assignments/AssignmentGrou
 import {
   addCivilDays as addDays,
   civilWeekday,
+  jstClock,
   jstMinutes,
   tokyoDate,
 } from "../../lib/civil-date";
@@ -30,6 +31,7 @@ import {
   type ScheduleView,
   type TaskView,
 } from "../../platform/core-query";
+import { withRecords } from "../../platform/records";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 type Lecture = {
@@ -60,7 +62,7 @@ function useEntrance(request: number | undefined, apply: () => void) {
   }, [request]);
 }
 
-export function LectureDesk({
+function LectureDeskBody({
   data,
   term,
   entry,
@@ -184,7 +186,7 @@ export function LectureDesk({
 
   const lectures = useMemo(() => {
     const minutes = jstMinutes(now);
-    const clock = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    const clock = jstClock(now);
     const next = new Map<
       string,
       { rank: number; when: string; room?: string }
@@ -640,3 +642,17 @@ export function LectureDesk({
     </div>
   );
 }
+
+/** LectureDesk with the records it shows (`platform/records`). */
+export const LectureDesk = withRecords(
+  [
+    "assignments",
+    "courses",
+    "materials",
+    "memberships",
+    "planItems",
+    "academicProfile",
+    "lmsCourses",
+  ],
+  LectureDeskBody,
+);

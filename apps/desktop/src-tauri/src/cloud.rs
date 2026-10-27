@@ -1,12 +1,10 @@
-use isct_core::cloud_credentials;
-use isct_core::cloud_sync::document::{
-    self, CloudWorkspaceFile, DocumentError, WorkspaceTransport,
-};
-use isct_core::cloud_sync::google_drive::{GoogleDrive, OAuthClient, Pkce, VAULT_ACCOUNT};
-pub use isct_core::cloud_sync::CloudProvider;
+use app_core::cloud_credentials;
+use app_core::cloud_sync::document::{self, CloudWorkspaceFile, DocumentError, WorkspaceTransport};
+use app_core::cloud_sync::google_drive::{GoogleDrive, OAuthClient, Pkce, VAULT_ACCOUNT};
+pub use app_core::cloud_sync::CloudProvider;
 #[cfg(test)]
-use isct_core::ports::SecretError;
-use isct_core::ports::SecretVault;
+use app_core::ports::SecretError;
+use app_core::ports::SecretVault;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::{Duration, SystemTime};
@@ -150,7 +148,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
         let account = match provider {
             CloudProvider::GoogleDrive => VAULT_ACCOUNT,
             CloudProvider::Icloud => ICLOUD_ACCOUNT,
-            CloudProvider::Onedrive => "onedrive",
         };
         self.vault()
             .delete(account)
@@ -183,7 +180,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 #[cfg(not(target_os = "macos"))]
                 return Err("iCloud sync is only available on Apple devices.".into());
             }
-            CloudProvider::Onedrive => Err("OneDrive is not available.".into()),
         }
     }
 
@@ -205,7 +201,6 @@ impl<V: SecretVault> DesktopCloudService<V> {
                 #[cfg(not(target_os = "macos"))]
                 return Err("iCloud sync is only available on Apple devices.".into());
             }
-            CloudProvider::Onedrive => Err("OneDrive is not available.".into()),
         }
     }
 

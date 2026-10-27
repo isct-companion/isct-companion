@@ -1,4 +1,5 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel } from "@tauri-apps/api/core";
+import { invoke, nativeError } from "./native-error";
 import type {
   MatrixCameraSnapshot,
   MatrixCaptureMetrics,
@@ -25,15 +26,15 @@ function cameraError(error: unknown): Error {
         ),
       );
   }
-  if (error instanceof Error) return error;
-  if (error && typeof error === "object" && "detail" in error)
-    return new Error(String(error.detail));
-  return new Error(String(error));
+  return nativeError(
+    error,
+    t("The camera is unavailable. Close other apps using it and try again."),
+  );
 }
 
 /** Frames kept in the capture timeline of one session (about 20 s at 30 fps). */
 const TIMELINE_LIMIT = 600;
-/** Long side of the planes the geometry loop analyses (`WORK_SIDE` in isct-ocr). */
+/** Long side of the planes the geometry loop analyses (`WORK_SIDE` in app-ocr). */
 const ANALYSIS_SIDE = 960;
 /** Long side of the keyframe luma the cells are cut from. */
 const KEYFRAME_SIDE = 2200;

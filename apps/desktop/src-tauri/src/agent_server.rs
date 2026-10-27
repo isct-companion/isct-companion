@@ -1,5 +1,10 @@
 //! Authenticated MCP Streamable HTTP endpoint owned by the desktop process.
 
+use app_core::{
+    agent::{AgentError, AgentPolicy},
+    runtime_tasks::RuntimeTasks,
+    Core,
+};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -7,11 +12,6 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
     Router,
-};
-use isct_core::{
-    agent::{AgentError, AgentPolicy},
-    runtime_tasks::RuntimeTasks,
-    Core,
 };
 use rmcp::{
     model::{

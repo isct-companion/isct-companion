@@ -15,7 +15,7 @@ The Desktop release workflow runs on version tag pushes and by manual dispatch.
 validates (`scripts/release/versions.mjs` lists them) and prints the commits since
 the last tag. Add user-facing notes in `docs/releases/<version>.md`, then run what
 the workflow's verify job runs: `node scripts/desktop/desktop-release.mjs validate`,
-`yarn test`, `yarn test:types` and `cargo test -p isct-core --locked`. After review,
+`yarn test`, `yarn test:types` and `cargo test -p app-core --locked`. After review,
 commit and push the changes, then push a matching version tag:
 
 ```sh

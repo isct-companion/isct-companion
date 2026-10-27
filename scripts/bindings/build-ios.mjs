@@ -25,7 +25,7 @@ const targetFeatures = sdkFeatureArgs({ ocr });
 run("cargo", [
   "build",
   "-p",
-  "isct-ffi",
+  "app-ffi",
   ...bindingFeatures,
   "--locked",
   "-j",
@@ -56,7 +56,7 @@ for (const triple of triples) {
     [
       "build",
       "-p",
-      "isct-ffi",
+      "app-ffi",
       "--target",
       triple,
       "--profile",
@@ -80,7 +80,7 @@ for (const triple of triples) {
       target,
       triple,
       profile === "dev" ? "debug" : profile,
-      "libisct_ffi.a",
+      "libapp_ffi.a",
     ),
     "-headers",
     headers,

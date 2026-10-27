@@ -15,7 +15,7 @@ const sdk = capture("xcrun", ["--sdk", "iphonesimulator", "--show-sdk-path"]);
 const fixture = join(output, "ios-package");
 mkdirSync(join(fixture, "Sources"), { recursive: true });
 copyFileSync(
-  join(root, "crates/isct-ffi/tests/foreign/Smoke.swift"),
+  join(root, "crates/app-ffi/tests/foreign/Smoke.swift"),
   join(fixture, "Sources/Smoke.swift"),
 );
 writeFileSync(

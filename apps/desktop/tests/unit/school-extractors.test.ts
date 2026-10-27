@@ -5,7 +5,7 @@ import { readRepoFile } from "@tests/harness";
 /**
  * Provenance of the bundled subscription data. School pages are read in Rust
  * (`net::moodle`, `net::kyomu`); their parsers are tested in
- * `crates/isct-core/src/tests/`.
+ * `crates/app-core/src/tests/`.
  */
 
 describe("bundled public subscription data", () => {
@@ -20,7 +20,7 @@ describe("bundled public subscription data", () => {
   const readDepartments = (year: "2025" | "2026") =>
     JSON.parse(
       readRepoFile(
-        `crates/isct-core/tests/fixtures/subscriptions/data/${year}/departments.json`,
+        `crates/app-core/tests/fixtures/subscriptions/data/${year}/departments.json`,
       ),
     ) as {
       admissionYear: number;
@@ -58,7 +58,7 @@ describe("bundled public subscription data", () => {
   it("cites an official source for the academic-calendar day list", () => {
     const calendar = JSON.parse(
       readRepoFile(
-        "crates/isct-core/tests/fixtures/subscriptions/data/2026/academic-calendar.json",
+        "crates/app-core/tests/fixtures/subscriptions/data/2026/academic-calendar.json",
       ),
     ) as { source: Source[]; days: unknown[] };
     expect(calendar.days.length).toBeGreaterThan(0);

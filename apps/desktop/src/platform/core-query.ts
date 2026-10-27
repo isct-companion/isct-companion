@@ -1,5 +1,5 @@
 import { getDesktopBridge } from "./desktop-bridge";
-import { useViewQuery } from "./view-query";
+import { useViewQuery, type ViewAnswer } from "./view-query";
 import type {
   AcademicProfile,
   CalendarException,
@@ -9,7 +9,7 @@ import type {
 } from "../lib/model";
 
 import type * as Protocol from "../generated/persistence";
-import type { WorkspaceChange, WorkspaceQuery } from "../generated/persistence";
+import type { WorkspaceQuery } from "../generated/persistence";
 // Fields with serde defaults may be omitted by shells; all other request fields
 // are checked against the generated Core protocol.
 type Defaulted =
@@ -114,14 +114,17 @@ export type AcademicYearCalendar = {
 };
 export type { AcademicProfile };
 
-export async function scheduleQueries<T extends unknown[]>(
+/** The answers to `queries` from one database snapshot, and what they read. */
+export async function scheduleAnswers<T extends unknown[]>(
   queries: readonly ScheduleQuery[],
-): Promise<T> {
+): Promise<ViewAnswer<T>> {
   const bridge = getDesktopBridge();
   if (!bridge) throw new Error("Schedule data requires the native Core.");
   const response = await bridge.scheduleQuery(queries);
   if (
     !Array.isArray(response.values) ||
+    !Array.isArray(response.reads) ||
+    typeof response.seq !== "number" ||
     response.values.length !== queries.length ||
     response.values.some(
       (result, index) =>
@@ -135,42 +138,33 @@ export async function scheduleQueries<T extends unknown[]>(
     )
   )
     throw new Error("Core returned an invalid schedule snapshot.");
-  return response.values.map((result) => result.value) as T;
+  return {
+    value: response.values.map((result) => result.value) as T,
+    reads: response.reads,
+    seq: response.seq,
+  };
+}
+
+export async function scheduleQueries<T extends unknown[]>(
+  queries: readonly ScheduleQuery[],
+): Promise<T> {
+  return (await scheduleAnswers<T>(queries)).value;
 }
 
 export async function scheduleQuery<T>(query: ScheduleQuery): Promise<T> {
   return (await scheduleQueries<[T]>([query]))[0];
 }
 
-/** Schedule read models evaluate the whole workspace with registrations,
- * grades and LMS courses; only sync freshness is outside them. */
-const SCHEDULE_READS: readonly WorkspaceChange[] = [
-  "courses",
-  "materials",
-  "assignments",
-  "registrations",
-  "grades",
-  "finder",
-  "calendar",
-  "exams",
-  "plans",
-  "events",
-  "subscriptions",
-  "scheduled-tasks",
-  "settings",
-];
-
-/** Cache query results, never domain decisions. A new revision or query owns
- * a new request; late responses cannot replace the currently rendered view. */
+/** Cache query results, never domain decisions. A new query, or a change
+ * Core says they read, owns a new request; late responses cannot replace the
+ * currently rendered view. */
 export function useScheduleQueries<T extends unknown[]>(
   queries: readonly ScheduleQuery[],
   enabled = true,
 ): QueryState<T> {
   return useViewQuery(
-    "schedule",
-    SCHEDULE_READS,
-    queries,
-    () => scheduleQueries<T>(queries),
+    ["schedule", queries],
+    () => scheduleAnswers<T>(queries),
     enabled,
   );
 }

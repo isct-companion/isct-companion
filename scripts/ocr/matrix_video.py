@@ -105,7 +105,7 @@ def binary(target, name):
 
 def export(args):
     manifest = load_manifest(args.manifest)
-    subprocess.run(["cargo", "build", "-p", "isct-ocr", "--release", "--features",
+    subprocess.run(["cargo", "build", "-p", "app-ocr", "--release", "--features",
                     "training-tools", "--example", "matrix_dataset", "--example",
                     "alphabet_prepare", "--target-dir", str(args.target)], cwd=ROOT, check=True)
     tool = binary(args.target, "matrix_dataset")
