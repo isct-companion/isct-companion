@@ -29,6 +29,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Check
@@ -38,7 +40,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -48,12 +53,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -67,9 +74,10 @@ import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.design.Theme
 
-/** Hosts a site's resident WebView while on screen and parks it afterwards,
- * so its page, scroll position and session survive tab and route changes.
- * A pull at the top of the page reloads it through Core, as on iOS. */
+/** Hosts a site's frontmost WebView (its newest popup, else its resident
+ * view) while on screen and parks it afterwards, so its page, scroll
+ * position and session survive tab and route changes. A pull at the top of
+ * the page reloads it through Core, as on iOS. */
 @Composable
 private fun ResidentWebView(site: SchoolSite, host: SchoolBrowserHost, revision: Int, modifier: Modifier = Modifier) {
     val web = LocalModel.current.web
@@ -94,7 +102,7 @@ private fun ResidentWebView(site: SchoolSite, host: SchoolBrowserHost, revision:
                 pull.postDelayed({ pull.isRefreshing = false }, 600)
             }
             revision + created
-            val webView = host.webView(site)
+            val webView = host.front(site)
             val shown = (0 until container.childCount).map { container.getChildAt(it) }
             for (child in shown) if (child !== webView && child is WebView) host.park(child)
             if (webView != null && webView.parent !== container) {
@@ -127,9 +135,10 @@ private fun PageMenu(site: SchoolSite) {
                 })
             }
             item(t("Reload"), Icons.Rounded.Refresh) { web.reload(site) }
-            web.browser.webView(site)?.url?.let { url ->
+            web.browser.front(site)?.url?.let { url ->
                 item(t("Share"), Icons.Rounded.Share) { share(context, url) }
                 item(t("Open in browser"), Icons.AutoMirrored.Rounded.OpenInNew) { openInBrowser(context, url) }
+                item(t("Print"), Icons.Rounded.Print) { web.browser.print(site, context) }
             }
             HorizontalDivider()
             for (percent in SchoolBrowserHost.textScales) {
@@ -169,14 +178,132 @@ private fun HistoryButtons(site: SchoolSite) {
     }
 }
 
-/** System back walks the page's history first, as in a browser. */
+/** System back walks the page's history first, as in a browser, then
+ * closes a popup in front. */
 @Composable
 private fun HistoryBack(site: SchoolSite, onExhausted: (() -> Unit)?) {
     val web = LocalModel.current.web
     web.browser.loads
     val canGoBack = web.browser.canGoBack(site)
-    BackHandler(enabled = canGoBack || onExhausted != null) {
-        if (canGoBack) web.back(site) else onExhausted?.invoke()
+    val popup = (web.popups[site] ?: 0) > 0
+    BackHandler(enabled = canGoBack || popup || onExhausted != null) {
+        when {
+            canGoBack -> web.back(site)
+            popup -> web.closePopup(site)
+            else -> onExhausted?.invoke()
+        }
+    }
+}
+
+/** The page area both web screens share: a close bar while a popup is in
+ * front, Core's notice about the page, the page itself, and the dialogs it
+ * asks for. A page that did not load is covered by the notice, so WebView's
+ * own error page never shows. */
+@Composable
+private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
+    val web = LocalModel.current.web
+    val context = LocalContext.current
+    Column(modifier) {
+        if ((web.popups[site] ?: 0) > 0) {
+            Row(
+                Modifier.fillMaxWidth().background(Theme.colors.surface).padding(start = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(t("Popup window"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                IconButton(onClick = { web.closePopup(site) }) { Icon(Icons.Rounded.Close, t("Close window")) }
+            }
+            HorizontalDivider()
+        }
+        val notice = web.notices[site]
+        if (notice is WebRouter.Notice.Reopened) {
+            NoticeBanner(t("Reopened this page without sending the form again."), Theme.colors.accentSoft)
+        }
+        val failure = notice as? WebRouter.Notice.LoadFailed
+        if (failure?.reason == "cleartext") {
+            NoticeBanner(t(failureText(failure.reason)), Theme.colors.warnSoft) {
+                failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("Open in browser")) } }
+            }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            ResidentWebView(site, web.browser, web.attachRevision, Modifier.fillMaxSize())
+            if (failure != null && failure.reason != "cleartext") FailedPage(site, failure)
+        }
+    }
+    PageDialog(web.browser)
+}
+
+@Composable
+private fun NoticeBanner(text: String, color: Color, actions: @Composable () -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth().background(color).padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(vertical = 8.dp))
+        actions()
+    }
+}
+
+/** Core's notice in place of a page that did not load: reopen it (a form
+ * result is opened again with GET), go back, or try the browser. */
+@Composable
+private fun FailedPage(site: SchoolSite, failure: WebRouter.Notice.LoadFailed) {
+    val web = LocalModel.current.web
+    val context = LocalContext.current
+    web.browser.loads
+    Column(
+        Modifier.fillMaxSize().background(Theme.colors.bg).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(t(failureText(failure.reason)), style = MaterialTheme.typography.bodyLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { web.retry(site) }) { Text(t("Reopen this page")) }
+            if (web.browser.canGoBack(site)) TextButton(onClick = { web.back(site) }) { Text(t("Back")) }
+            failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("Open in browser")) } }
+        }
+    }
+}
+
+/** What the notice says when a page did not load, as the desktop's. */
+private fun failureText(reason: String): String = when (reason) {
+    "offline" -> "This page could not be opened: there is no network connection."
+    "host-not-found" ->
+        "This page could not be opened: its server was not found. Campus-only services need the campus network or VPN."
+    "unreachable" ->
+        "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN."
+    "insecure" -> "This page could not be opened: the secure connection failed."
+    "cleartext" -> "This page uses an unencrypted connection, so it opens only in your browser."
+    else -> "This page could not be opened."
+}
+
+/** A page's alert, confirm, prompt or leave question, titled with the asking
+ * frame's origin. The host asks only for the page on screen; leaving the
+ * screen answers Cancel. */
+@Composable
+private fun PageDialog(host: SchoolBrowserHost) {
+    val dialog = host.dialog ?: return
+    key(dialog) {
+        var text by remember { mutableStateOf(dialog.value.orEmpty()) }
+        DisposableEffect(Unit) { onDispose { dialog.answer(false, null) } }
+        val leave = dialog.kind == SchoolBrowserHost.PageDialog.Kind.LEAVE
+        AlertDialog(
+            onDismissRequest = { dialog.answer(dialog.kind == SchoolBrowserHost.PageDialog.Kind.ALERT, null) },
+            title = { Text(if (leave) t("Leave this page?") else dialog.origin) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (dialog.message.isNotEmpty()) Text(dialog.message)
+                    if (dialog.kind == SchoolBrowserHost.PageDialog.Kind.PROMPT) {
+                        OutlinedTextField(text, { text = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { dialog.answer(true, text) }) { Text(if (leave) t("Leave") else t("OK")) }
+            },
+            dismissButton = if (dialog.kind == SchoolBrowserHost.PageDialog.Kind.ALERT) null else {
+                { TextButton(onClick = { dialog.answer(false, null) }) { Text(if (leave) t("Stay") else t("Cancel")) } }
+            },
+        )
     }
 }
 
@@ -202,7 +329,7 @@ fun WebTabScreen() {
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Theme.colors.bg),
         )
         Box(Modifier.fillMaxSize()) {
-            ResidentWebView(web.tabSite, web.browser, web.attachRevision, Modifier.fillMaxSize())
+            SchoolPage(web.tabSite, Modifier.fillMaxSize())
             if (web.loading == web.tabSite && web.browser.webView(web.tabSite) == null) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
@@ -270,12 +397,12 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.surface),
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            ResidentWebView(page.site, web.browser, web.attachRevision, Modifier.fillMaxSize())
+            SchoolPage(page.site, Modifier.fillMaxSize())
             web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
         }
         BottomAppBar(containerColor = Theme.colors.surface) {
             web.browser.loads
-            val url = web.browser.webView(page.site)?.url
+            val url = web.browser.front(page.site)?.url
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 HistoryButtons(page.site)
                 IconButton(onClick = { url?.let { share(context, it) } }, enabled = url != null) {

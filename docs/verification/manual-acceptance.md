@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 135 checks must be re-run before the next release.**
+**9 of 141 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**126 checks have never been run or could not be run:**
+**132 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -117,6 +117,12 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
 - `ANDROID-SETTINGS-PAGES` — never verified
 - `ANDROID-WEB-PREFERENCES` — never verified
+- `ANDROID-SCHOOL-POPUPS` — never verified
+- `ANDROID-SCHOOL-NO-RESUBMIT` — never verified
+- `ANDROID-SCHOOL-LOAD-FAILURE` — never verified
+- `ANDROID-SCHOOL-HTTP-EXTERNAL` — never verified
+- `ANDROID-SCHOOL-PRINT` — never verified
+- `ANDROID-SCHOOL-NATIVE-CONFIRM` — never verified
 - `ANDROID-COURSE-ZOOM-AND-FIGURES` — never verified
 - `MOBILE-UI-LANGUAGE` — never verified
 - `DESKTOP-CALENDAR-NOW-LINE` — never verified
@@ -257,6 +263,12 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
 | `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
+| `ANDROID-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-COURSE-ZOOM-AND-FIGURES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
@@ -5794,8 +5806,8 @@ needed, the SSO login page is enough.
      with large text. LMS or 115% after the relaunch means they are
      held in memory only.
 3. Open the page menu (⋮) and pick another 文字の大きさ; reopen 設定.
-   - *Why:* The menu holds 再読み込み, 共有 and ブラウザで開く, then the text
-     sizes, as on iOS. The menu and 設定 show one value with a tick; a
+   - *Why:* The menu holds 再読み込み, 共有, ブラウザで開く and 印刷, then the
+     text sizes. The menu and 設定 show one value with a tick; a
      page that does not resize, or 設定 showing the old size, means two
      owners.
 4. Follow a link inside the page, then pick the shown site again from
@@ -5837,6 +5849,301 @@ school browser tests.
 - `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+
+**Last recorded** never run
+
+### Android school popups open over their opener and close back to it (`ANDROID-SCHOOL-POPUPS`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to
+教務Web.
+
+**Steps**
+
+1. On 教務Web, open a page with a picker button (for example the 申告
+   page's 科目 search, during a 申告 period). Press the button, look at
+   the window that opens, then close it with its own 閉じる button
+   without choosing anything.
+   - *Why:* 教務Web's showDialog opens a named window that answers through
+     `window.opener` and closes itself. It used to load in the opener's
+     view, losing the opener; now it is a real WebView handed to
+     WebViewTransport, shown in place of the page with a
+     ポップアップウィンドウ bar, and `window.close()` (onCloseWindow)
+     must bring the opener back unchanged. Choosing would post back to
+     the 申告 form, so the check stops before it.
+2. On 教務Web's top page, open 「マニュアル」, then tap × in the
+   ポップアップウィンドウ bar. Open it again and press the system back
+   gesture instead.
+   - *Why:* A `target=_blank` PDF used to replace the page. Both the bar's ×
+     and system back (when the popup has no page of its own to go back
+     to) must close the popup and leave the page behind it as it was.
+
+**Where to look**
+
+The web screen while the popup is open, the bar above it, and the
+opener page after closing.
+
+**Expected**
+
+Each popup fills the page area under a ポップアップウィンドウ bar with
+×; closing it by its own button, by × or by back shows the opener
+exactly as it was, with no reload, and the bar goes.
+
+**Why this is manual**
+
+Needs a 教務Web account and Android WebView's own windows; whether the
+popup shows and the opener survives is seen at a glance. The
+child-window lifecycle is Core's and tested there.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### Android reload and back on a postback page never send its form again (`ANDROID-SCHOOL-NO-RESUBMIT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to
+教務Web.
+
+**Steps**
+
+1. On the 成績 list, switch the 学期 (a postback that changes nothing
+   on the school's side), then pick 再読み込み in the page menu.
+   - *Why:* WebView asks onFormResubmission before it resends a POST result.
+     The host reports it to Core, which refuses and opens the same page
+     with GET. On a 申告 page a resend repeats an action; here it is
+     harmless, which is why this page is used.
+2. From that 成績 page, follow a link to another page, then press ‹
+   (or system back).
+   - *Why:* WebView never resends on back: a form result that is not cached
+     fails with ERR_CACHE_MISS. Its own error page must not show; the
+     app's notice covers it and offers このページを開き直す and 戻る.
+3. Press このページを開き直す.
+   - *Why:* It reloads the failed entry, which asks onFormResubmission again,
+     so Core opens the page with GET instead of sending the form.
+
+**Where to look**
+
+The line under the bar after 再読み込み, the page area after ‹, and the
+成績 page after reopening.
+
+**Expected**
+
+After 再読み込み, "フォームを再送信せずにこのページを開き直しました。"
+shows for a few seconds and the page opens in its initial state (the
+学期 resets) with no 教務Web error page. After ‹, the app's notice
+replaces WebView's "Webpage not available"; このページを開き直す opens
+成績 in its initial state.
+
+**Why this is manual**
+
+Needs a real WebForms postback inside Android WebView; the notice and
+the page are a glance. The resubmission rule is Core's and tested
+there.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### Android shows why a campus-only page did not open (`ANDROID-SCHOOL-LOAD-FAILURE`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to the
+Tokyo Tech Portal; the campus VPN available to switch on and off on the
+phone.
+
+**Steps**
+
+1. With the VPN off, open 「Education Computer Systems」 from the
+   Portal's resource list.
+   - *Why:* The host resolves only inside the campus network. The host maps
+     WebView's error to Core's reason, and Core's notice must replace
+     WebView's own error page.
+2. Switch the VPN on and press このページを開き直す.
+   - *Why:* The notice reloads the failed address; the page opening proves the
+     failure kept it.
+
+**Where to look**
+
+The page area after each tap.
+
+**Expected**
+
+Off VPN, the notice says the server was not found or did not answer and
+that campus-only services need the campus network or VPN, with
+このページを開き直す, 戻る and ブラウザで開く. On VPN, the page opens and
+the notice goes.
+
+**Why this is manual**
+
+Needs the campus network and a real failed load inside WebView; the
+notice is a glance. Which failures are shown is Core's and tested
+there.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### An Android plain-HTTP school file opens in the system browser (`ANDROID-SCHOOL-HTTP-EXTERNAL`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to
+教務Web.
+
+**Steps**
+
+1. On 教務Web's top page, open 「緊急時避難場所」.
+   - *Why:* The PDF exists only over plain HTTP and the app keeps Android's
+     cleartext block. The link opens a popup whose first navigation Core
+     sends to the browser (ACTION_VIEW); the empty popup must close
+     instead of staying blank.
+
+**Where to look**
+
+The browser the phone opens and the school screen after returning.
+
+**Expected**
+
+The PDF opens in the phone's browser; back in the app, 教務Web is on
+its page with no blank popup or ポップアップウィンドウ bar.
+
+**Why this is manual**
+
+Needs the real school link and the system browser; where the tap
+lands is a glance. The cleartext rule is Core's and tested there.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+
+**Last recorded** never run
+
+### Android prints the school page on screen from the page menu (`ANDROID-SCHOOL-PRINT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to
+教務Web.
+
+**Steps**
+
+1. On the 成績 page, press its 「この画面を印刷」 button.
+   - *Why:* Android WebView has no hook for a page's `window.print()` and no
+     script is injected to add one, so nothing must happen; anything
+     else means a leftover shim.
+2. Open the page menu (⋮), pick 印刷, look at the preview, then back
+   out without printing.
+   - *Why:* The app prints the page on screen through PrintManager; the
+     preview must be the 成績 page, not another site or a popup behind
+     it.
+
+**Where to look**
+
+The page after its own button, and the system print preview.
+
+**Expected**
+
+The page's button does nothing. 印刷 opens the system print screen
+with the 成績 page in its preview, and backing out returns to the
+page unchanged.
+
+**Why this is manual**
+
+The print screen is system UI on a real school page; it is a glance.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### Android school pages ask confirm, alert and prompt only on screen (`ANDROID-SCHOOL-NATIVE-CONFIRM`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to the
+Tokyo Tech Portal and TSUBAME.
+
+**Steps**
+
+1. On the ポータル site, tap the logout link and press キャンセル in the
+   dialog that appears.
+   - *Why:* The views run in a context wrapper, not an Activity, so WebView's
+     own dialogs never appeared and confirm() answered Cancel unseen.
+     The host now shows the app's dialog titled with the page's origin;
+     staying signed in after キャンセル means the answer reaches the page.
+2. On TSUBAME, open the password change form and press its submit
+   button; stop at the confirmation and press キャンセル without
+   changing the password.
+   - *Why:* The page tests `confirm(...) == true`; an unseen Cancel made the
+     button do nothing. The dialog appearing is the evidence.
+3. On any school page that raises an alert, read it and press OK;
+   then leave ウェブ for 今日 and let a background refresh run.
+   - *Why:* alert() must show and return. A view the person is not looking at
+     raises no dialog and gets Cancel, so background work never puts a
+     dialog over the app.
+
+**Where to look**
+
+The dialogs over the web screen, the session after キャンセル, and the
+other screens during the background refresh.
+
+**Expected**
+
+Each dialog shows the page's origin as its title and the page's text;
+キャンセル keeps the Portal session and the TSUBAME password unchanged;
+no dialog appears outside ウェブ.
+
+**Why this is manual**
+
+Needs real school pages and a session; whether a dialog shows is a
+glance. Which view counts as on screen is the host's own fact.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
 
 **Last recorded** never run
 

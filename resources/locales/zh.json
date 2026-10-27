@@ -1345,5 +1345,11 @@
   "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN.": "无法打开此页：服务器没有响应。仅限校内的服务需要校园网或 VPN。",
   "This page could not be opened: the secure connection failed.": "无法打开此页：安全连接失败。",
   "This page uses an unencrypted connection, so it opens only in your browser.": "此页使用未加密的连接，只能在浏览器中打开。",
-  "This page could not be opened.": "无法打开此页。"
+  "This page could not be opened.": "无法打开此页。",
+  "Print": "打印",
+  "OK": "确定",
+  "Reopen this page": "重新打开此页",
+  "Leave this page?": "要离开此页吗？",
+  "Leave": "离开",
+  "Stay": "留在此页"
 }
