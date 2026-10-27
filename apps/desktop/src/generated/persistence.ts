@@ -1125,16 +1125,17 @@ export type AssignmentDetail = {
 export type CourseContent = {
   courseId: string;
   /**
-   * Sections with anything in them, in section order.
+   * Sections with anything in them, and every lesson of a course that
+   * numbers its lessons, in section order.
    */
   lessons: Array<LessonContent>;
   /**
-   * Where the course is, as the desktop rail marks it (`markedLesson` in
-   * `lessons.ts`): the lesson the person last marked for a class, or the
-   * one after it once a later class has begun. Without a mark, the last
-   * numbered lesson with material (teachers post around class, so a
-   * cancelled class does not advance it); in a course without numbered
-   * lessons, the last section with any.
+   * Where the course is, as the lesson rail marks it: the lesson the
+   * person last marked for a class, or the one after it once a later
+   * class has begun. Without a mark, the last numbered lesson with
+   * material (teachers post around class, so a cancelled class does not
+   * advance it); in a course without numbered lessons, the last section
+   * with any.
    */
   currentSection: number | null;
   /**
@@ -1157,16 +1158,26 @@ export type LessonContent = {
   title: string | null;
   /**
    * The lesson number read from the title (第3回, Lecture 3, #3), when the
-   * course numbers at least two of its sections.
+   * course numbers at least two of its sections. Set exactly on the
+   * lessons of the rail.
    */
   number: number | null;
+  /**
+   * What the rail calls the section, shown as is (shells only truncate it
+   * to fit): a lesson of the course's main series by its number, one of
+   * another series by that series' own word and number (演習 3), a series
+   * whose numbers skip or repeat by its order; any other section by its
+   * own title.
+   */
+  label: string;
   /**
    * The section's own text (授業計画 and the like), made safe to render.
    */
   summaryHtml: string;
   items: Array<LessonItem>;
   /**
-   * Whether the section has material besides assignments.
+   * Whether the section has material besides assignments and labels: a
+   * label alone ("posted after class") is not the lesson's material.
    */
   posted: boolean;
 };

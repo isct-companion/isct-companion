@@ -1,6 +1,7 @@
-//! A course's LMS content lesson by lesson, as the desktop Lecture Desk lays
-//! it out (`LmsWorkspace.tsx`, `lessons.ts`): each section's own text, its
-//! files and links, and the pages, labels and announcements shown inline.
+//! A course's LMS content lesson by lesson, as every shell lays it out (the
+//! desktop Lecture Desk, the mobile course page): each section's own text,
+//! its files and links, the pages, labels and announcements shown inline, and
+//! the lesson rail with its labels and where the course is.
 use super::SchoolReads;
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
@@ -18,14 +19,15 @@ use super::{array, text};
 #[serde(rename_all = "camelCase")]
 pub struct CourseContent {
     pub course_id: String,
-    /// Sections with anything in them, in section order.
+    /// Sections with anything in them, and every lesson of a course that
+    /// numbers its lessons, in section order.
     pub lessons: Vec<LessonContent>,
-    /// Where the course is, as the desktop rail marks it (`markedLesson` in
-    /// `lessons.ts`): the lesson the person last marked for a class, or the
-    /// one after it once a later class has begun. Without a mark, the last
-    /// numbered lesson with material (teachers post around class, so a
-    /// cancelled class does not advance it); in a course without numbered
-    /// lessons, the last section with any.
+    /// Where the course is, as the lesson rail marks it: the lesson the
+    /// person last marked for a class, or the one after it once a later
+    /// class has begun. Without a mark, the last numbered lesson with
+    /// material (teachers post around class, so a cancelled class does not
+    /// advance it); in a course without numbered lessons, the last section
+    /// with any.
     pub current_section: Option<i32>,
     /// The class a "this class" mark is recorded against
     /// (`CourseTimeline.class_at`): the one in progress or held earlier
@@ -44,12 +46,20 @@ pub struct LessonContent {
     pub section_id: Option<u64>,
     pub title: Option<String>,
     /// The lesson number read from the title (第3回, Lecture 3, #3), when the
-    /// course numbers at least two of its sections.
+    /// course numbers at least two of its sections. Set exactly on the
+    /// lessons of the rail.
     pub number: Option<u32>,
+    /// What the rail calls the section, shown as is (shells only truncate it
+    /// to fit): a lesson of the course's main series by its number, one of
+    /// another series by that series' own word and number (演習 3), a series
+    /// whose numbers skip or repeat by its order; any other section by its
+    /// own title.
+    pub label: String,
     /// The section's own text (授業計画 and the like), made safe to render.
     pub summary_html: String,
     pub items: Vec<LessonItem>,
-    /// Whether the section has material besides assignments.
+    /// Whether the section has material besides assignments and labels: a
+    /// label alone ("posted after class") is not the lesson's material.
     pub posted: bool,
 }
 
@@ -83,9 +93,22 @@ pub enum LessonItemKind {
     Other,
 }
 
-/// `第3回`, `Lecture 3`, `Week 3`, `#3.`: the rules of the desktop rail
-/// (`lessons.ts`), on NFKC text so full-width digits count.
-pub fn lesson_number(title: &str) -> Option<u32> {
+/// A numbered section title: its lesson number and the series it counts.
+struct LessonTitle {
+    number: u32,
+    /// The title up to its number with the number taken out, without
+    /// whitespace or case: 第回, 演習第回, lecture. Lectures and recitations
+    /// numbered side by side (第3回, 演習第3回) are two series, told apart
+    /// by the teacher's own words rather than by a list of them.
+    series: String,
+    /// How the series names itself: the teacher's text before the number
+    /// (演習 in 演習第3回), else the words around it (Week in Week 3).
+    name: String,
+}
+
+/// `第3回`, `Lecture 3`, `Week 3`, `#3.`, on NFKC text so full-width digits
+/// count.
+fn lesson_title(title: &str) -> Option<LessonTitle> {
     use unicode_normalization::UnicodeNormalization;
     static LESSON: std::sync::LazyLock<Result<regex::Regex, regex::Error>> =
         std::sync::LazyLock::new(|| {
@@ -95,9 +118,74 @@ pub fn lesson_number(title: &str) -> Option<u32> {
         });
     let normalized: String = title.nfkc().collect();
     let captures = LESSON.as_ref().ok()?.captures(&normalized)?;
-    (1..=3)
-        .find_map(|group| captures.get(group))
-        .and_then(|digits| digits.as_str().parse().ok())
+    let whole = captures.get(0)?;
+    let digits = (1..=3).find_map(|group| captures.get(group))?;
+    let prefix = normalized.get(..whole.start())?.trim();
+    let around = format!(
+        "{}{}",
+        normalized.get(whole.start()..digits.start())?,
+        normalized.get(digits.end()..whole.end())?
+    );
+    let name = match prefix {
+        "" => around.trim(),
+        prefix => prefix,
+    };
+    Some(LessonTitle {
+        number: digits.as_str().parse().ok()?,
+        series: format!("{prefix}{around}")
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .flat_map(char::to_lowercase)
+            .collect(),
+        name: name.to_owned(),
+    })
+}
+
+/// The lesson number a section title gives, if any.
+pub fn lesson_number(title: &str) -> Option<u32> {
+    lesson_title(title).map(|title| title.number)
+}
+
+/// The rail's labels, section by section (`None` off the rail). The series
+/// with the most lessons (the first to appear on a tie) is the course's own
+/// count and shows bare numbers; any other shows its name and number as the
+/// teacher wrote them (演習 3), never translated. A series whose numbers do
+/// not count up by one (7, 9, 8, 11, 11) is numbered by its order instead.
+fn rail_labels(titles: &[Option<LessonTitle>]) -> Vec<Option<String>> {
+    let mut series: Vec<(&str, Vec<&LessonTitle>, Vec<usize>)> = Vec::new();
+    for (index, title) in titles.iter().enumerate() {
+        let Some(title) = title else { continue };
+        match series.iter_mut().find(|(key, ..)| *key == title.series) {
+            Some((_, members, indices)) => {
+                members.push(title);
+                indices.push(index);
+            }
+            None => series.push((title.series.as_str(), vec![title], vec![index])),
+        }
+    }
+    let largest = series.iter().map(|(_, members, _)| members.len()).max();
+    let main = series
+        .iter()
+        .position(|(_, members, _)| Some(members.len()) == largest);
+    let mut labels = vec![None; titles.len()];
+    for (rank, (_, members, indices)) in series.iter().enumerate() {
+        let counts = members
+            .windows(2)
+            .all(|pair| pair[0].number.checked_add(1) == Some(pair[1].number));
+        for (order, (title, index)) in members.iter().zip(indices).enumerate() {
+            let number = if counts {
+                title.number
+            } else {
+                u32::try_from(order + 1).unwrap_or(u32::MAX)
+            };
+            labels[*index] = Some(if Some(rank) == main || title.name.is_empty() {
+                number.to_string()
+            } else {
+                format!("{} {number}", title.name)
+            });
+        }
+    }
+    labels
 }
 
 fn section_of(row: &Value) -> i32 {
@@ -161,6 +249,7 @@ pub fn course_content(
                 section_id: id,
                 title: text(section, "title").map(str::to_owned),
                 number: None,
+                label: String::new(),
                 summary_html: text(section, "bodyHtml")
                     .map(|html| safe_html(html, false))
                     .unwrap_or_default(),
@@ -186,6 +275,7 @@ pub fn course_content(
                         section_id,
                         title: text(row, "sectionTitle").map(str::to_owned),
                         number: None,
+                        label: String::new(),
                         summary_html: String::new(),
                         items: Vec::new(),
                         posted: false,
@@ -199,8 +289,8 @@ pub fn course_content(
         if matches!(module, Some("assign" | "quiz")) {
             continue;
         }
-        lesson.posted = true;
         let kind = kind_of(module);
+        lesson.posted |= kind != LessonItemKind::Label;
         let inline = matches!(
             kind,
             LessonItemKind::Page | LessonItemKind::Label | LessonItemKind::Forum
@@ -228,29 +318,42 @@ pub fn course_content(
                 .map(|row| section_of(row))
         })
         .collect();
-    let mut lessons: Vec<LessonContent> = lessons
-        .into_iter()
-        .map(|(_, lesson)| lesson)
-        .filter(|lesson| {
-            !lesson.summary_html.is_empty()
-                || !lesson.items.is_empty()
-                || assignment_sections.contains(&lesson.section)
-        })
-        .collect();
+    let mut lessons: Vec<LessonContent> =
+        lessons.into_iter().map(|(_, lesson)| lesson).collect();
     lessons.sort_by_key(|lesson| lesson.section);
-    let numbered = lessons
+    // Lessons are numbered and labelled over every visible section, so a
+    // lesson with nothing posted yet keeps its place in the count.
+    let titles: Vec<Option<LessonTitle>> = lessons
         .iter()
-        .filter(|lesson| lesson.title.as_deref().and_then(lesson_number).is_some())
-        .count();
-    if numbered >= 2 {
-        for lesson in &mut lessons {
-            lesson.number = lesson.title.as_deref().and_then(lesson_number);
-        }
+        .map(|lesson| lesson.title.as_deref().and_then(lesson_title))
+        .collect();
+    let lesson_course = titles.iter().flatten().count() >= 2;
+    let labels = if lesson_course {
+        rail_labels(&titles)
+    } else {
+        vec![None; titles.len()]
+    };
+    for ((lesson, title), label) in lessons.iter_mut().zip(&titles).zip(labels) {
+        lesson.number = label.as_ref().and(title.as_ref()).map(|title| title.number);
+        lesson.label = label.unwrap_or_else(|| {
+            lesson
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+                .map_or_else(|| lesson.section.to_string(), str::to_owned)
+        });
     }
+    lessons.retain(|lesson| {
+        lesson.number.is_some()
+            || !lesson.summary_html.is_empty()
+            || !lesson.items.is_empty()
+            || assignment_sections.contains(&lesson.section)
+    });
     // The rail: numbered lessons in a lesson course, else every section.
     let rail: Vec<&LessonContent> = lessons
         .iter()
-        .filter(|lesson| numbered < 2 || lesson.number.is_some())
+        .filter(|lesson| !lesson_course || lesson.number.is_some())
         .collect();
     // The class times only place a mark; content reads without them, so a
     // timetable Core cannot resolve leaves the page without marks.
@@ -280,7 +383,7 @@ pub fn course_content(
                 .copied()
         });
     let current = marked.or_else(|| {
-        if numbered >= 2 {
+        if lesson_course {
             rail.iter()
                 .rev()
                 .find(|lesson| lesson.posted)

@@ -80,9 +80,9 @@ export type PlanningWeek = Omit<Protocol.PlanningWeek, "courses" | "days"> & {
 };
 export type AcademicYearIndex = Protocol.AcademicYearIndex;
 export type PlanCivilStart = Protocol.PlanCivilStart;
-export type CourseTimeline = Protocol.CourseTimeline;
 export type TaskView = Protocol.TaskView;
 export type CourseDetail = Protocol.CourseDetail;
+export type CourseContent = Protocol.CourseContent;
 export type AssignmentDetail = Protocol.AssignmentDetail;
 export type AssignmentAttachment = Protocol.AssignmentAttachment;
 export type TimetableAxis = Protocol.TimetableAxis;

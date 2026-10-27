@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,6 +55,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
@@ -86,7 +88,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /** The course page as the desktop Lecture Desk lays it out: the course, then
- * its lessons (General, 1, 2, …) one at a time, each with its own text (授業
+ * its lessons (一般, 1, 2, 演習 1, …) one at a time, each with its own text (授業
  * 計画), its files, the pages, labels and announcements shown in place, and
  * the assignments set in it, which open in place. Content comes from Core's
  * `CourseContent`; links and the files folder from `CourseDetail`. */
@@ -187,9 +189,10 @@ private fun Lessons(
     }
 }
 
-/** General, 1, 2, … as on the desktop lesson rail; the chosen one stays in
- * view. A dot marks where the course is (Core's `currentSection`); a long
- * press marks a lesson as the one for the coming (or today's) class. */
+/** Core's rail labels (一般, 1, 2, 演習 1, …), as on the desktop lesson rail;
+ * the chosen one stays in view. A dot marks where the course is (Core's
+ * `currentSection`); a long press marks a lesson as the one for the coming
+ * (or today's) class. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content: CourseContent, mark: (LessonContent) -> Unit) {
@@ -205,7 +208,8 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Box {
                     Text(
-                        chipLabel(lesson),
+                        lesson.label,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodyMedium.tabular(), fontWeight = FontWeight.SemiBold,
                         color = if (selected) Theme.colors.accentInk else Theme.colors.ink,
                         modifier = Modifier
@@ -216,6 +220,7 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
                                 onLongClick = { if (classDay != null && lesson.sectionId != null) menu = true },
                             )
                             .defaultMinSize(minWidth = 34.dp)
+                            .widthIn(max = 160.dp)
                             .padding(horizontal = 10.dp, vertical = 7.dp),
                     )
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -236,15 +241,6 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
             }
         }
     }
-}
-
-/** The lesson number when the course numbers its lessons, else a short form
- * of the section title. */
-private fun chipLabel(lesson: LessonContent): String {
-    lesson.number?.let { return "$it" }
-    if (lesson.section == 0) return t("General")
-    val title = lesson.title ?: "${lesson.section}"
-    return if (title.length > 8) title.take(7) + "…" else title
 }
 
 /** One lesson's whole content: its title, its text (授業計画), its items in

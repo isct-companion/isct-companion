@@ -5134,6 +5134,44 @@ checks:
       - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
     verified: null
 
+  - id: COURSE-LESSON-SERIES-LABELS
+    area: native
+    title: Lectures and recitations keep their own lesson numbers on desktop and iPad
+    persona: undergraduate-first-term
+    preconditions: |
+      LMS content pulled for Linear Algebra II【X】 (lms-course:12470), whose
+      sections interleave 第1回–第14回 with 演習第1回–演習第7回; the desktop app
+      and the iPad app on the same account.
+    steps:
+      - action: |
+          Open Linear Algebra II【X】 on the desktop Lecture Desk and read the
+          lesson rail from left to right.
+        reason: |
+          The rail shows Core's labels: 1–14 for the lectures and 演習 1–演習 7
+          for the recitations, in section order. Before, the desktop counted
+          positions 1–21, so 第7回 showed as 10.
+      - action: |
+          Open the same course on the iPad and read the lesson chips; scroll
+          the row to its end.
+        reason: |
+          The chips used to read 5, 6, 3, 7, 4, 8 … because 演習第3回 lost its
+          演習 and showed a bare 3. They must match the desktop rail exactly,
+          with no chip cut off for 演習 labels.
+    observe: The desktop lesson rail and the iPad lesson chip row.
+    expected: |
+      Both read 1, 2, 演習 1, 3, 4, 演習 2, … 13, 演習 7, 14, with 一般 and
+      連絡先・オフィスアワー ahead of them.
+    why_manual: |
+      Labels read at a glance on two real shells over a real LMS course. The
+      series rule is covered by `course_content_follows_the_desktop_lecture_desk`;
+      this checks that each shell renders Core's label unchanged and fits it.
+    covers:
+      - crates/app-core/src/schedule/course_content.rs
+      - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/features/lms/lms.css
+      - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
+    verified: null
+
   - id: IOS-COURSE-EXAM-LINE
     area: native
     title: iPhone course page shows its exams under the subtitle

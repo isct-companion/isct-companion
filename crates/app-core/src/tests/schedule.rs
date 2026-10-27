@@ -2841,7 +2841,6 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
 
 #[test]
 fn course_content_follows_the_desktop_lecture_desk() {
-    // The desktop rail's cases (lessons.ts), on the same titles.
     for (title, number) in [
         ("第2回", Some(2)),
         ("第 12 回 クラス", Some(12)),
@@ -2890,17 +2889,26 @@ fn course_content_follows_the_desktop_lecture_desk() {
     let lessons: Vec<_> = view
         .lessons
         .iter()
-        .map(|lesson| (lesson.section, lesson.number, lesson.posted))
+        .map(|lesson| {
+            (
+                lesson.section,
+                lesson.number,
+                lesson.label.as_str(),
+                lesson.posted,
+            )
+        })
         .collect();
-    // Hidden and empty sections drop out; a section holding only an
-    // assignment stays, unposted.
+    // Hidden sections drop out, and so do empty ones that are not lessons; a
+    // lesson with nothing posted yet keeps its place. With 第7回 hidden the
+    // numbers skip, so the rail counts the lessons in order.
     assert_eq!(
         lessons,
         [
-            (0, None, true),
-            (5, Some(4), true),
-            (6, Some(5), true),
-            (7, Some(6), false)
+            (0, None, "一般", true),
+            (5, Some(4), "1", true),
+            (6, Some(5), "2", true),
+            (7, Some(6), "3", false),
+            (9, Some(8), "4", false)
         ]
     );
     assert_eq!(view.current_section, Some(6));
@@ -2927,6 +2935,110 @@ fn course_content_follows_the_desktop_lecture_desk() {
     let now = DateTime::parse_from_rfc3339("2026-11-24T12:00:00+09:00").unwrap();
     assert!(course_content(&data, &SchoolReads::fixture(&data), "unknown", now).is_none());
 
+    // Linear Algebra II【X】's sections: lectures and recitations interleave.
+    // The series with more lessons shows bare numbers, the other its own
+    // word from the title; a label alone does not post a lesson.
+    let titles = [
+        "一般",
+        "連絡先・オフィスアワー",
+        "第1回",
+        "第2回",
+        "演習第1回",
+        "第3回",
+        "第4回",
+        "演習第2回",
+        "第5回",
+        "第6回",
+        "演習第3回",
+        "第7回",
+        "演習第4回",
+        "第8回",
+        "演習第5回",
+        "第9回",
+        "第10回",
+        "演習第6回",
+        "第11回",
+        "第12回",
+        "第13回",
+        "演習第7回",
+        "第14回",
+    ];
+    let mut algebra = data.clone();
+    algebra["lmsCourses"][0]["sections"] = titles
+        .iter()
+        .enumerate()
+        .map(|(number, title)| {
+            let body = if number == 1 {
+                "<p>Office hours</p>"
+            } else {
+                ""
+            };
+            json!({"id":200 + number,"number":number,"title":title,"bodyHtml":body})
+        })
+        .collect();
+    algebra["materials"] = json!([
+        {"id":"g","courseId":"c","session":0,"sectionId":200,"module":"forum","title":"お知らせ"},
+        {"id":"s","courseId":"c","session":3,"sectionId":203,"module":"resource","title":"slides"},
+        {"id":"n","courseId":"c","session":4,"sectionId":204,"module":"label","title":"note","bodyHtml":"<p>Posted after class</p>"}
+    ]);
+    let view = course_content(&algebra, &SchoolReads::fixture(&algebra), "c", now).unwrap();
+    let labels: Vec<_> = view.lessons.iter().map(|lesson| lesson.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "一般",
+            "連絡先・オフィスアワー",
+            "1",
+            "2",
+            "演習 1",
+            "3",
+            "4",
+            "演習 2",
+            "5",
+            "6",
+            "演習 3",
+            "7",
+            "演習 4",
+            "8",
+            "演習 5",
+            "9",
+            "10",
+            "演習 6",
+            "11",
+            "12",
+            "13",
+            "演習 7",
+            "14"
+        ]
+    );
+    assert_eq!(view.current_section, Some(3));
+
+    // One series whose titles skip and repeat a number counts in order.
+    algebra["materials"] = json!([]);
+    algebra["lmsCourses"][0]["sections"] = ["第7回", "第9回", "第8回", "第11回", "第11回"]
+        .iter()
+        .enumerate()
+        .map(|(number, title)| json!({"id":300 + number,"number":number,"title":title}))
+        .collect();
+    let view = course_content(&algebra, &SchoolReads::fixture(&algebra), "c", now).unwrap();
+    let rail: Vec<_> = view
+        .lessons
+        .iter()
+        .map(|lesson| (lesson.number, lesson.label.as_str()))
+        .collect();
+    // Before anything is posted, the course is at its first lesson.
+    assert_eq!(view.current_section, Some(0));
+    assert_eq!(
+        rail,
+        [
+            (Some(7), "1"),
+            (Some(9), "2"),
+            (Some(8), "3"),
+            (Some(11), "4"),
+            (Some(11), "5")
+        ]
+    );
+
     // Without an LMS record, materials name the sections; one numbered
     // section is not a lesson course.
     let mut plain = data.clone();
@@ -2938,6 +3050,8 @@ fn course_content_follows_the_desktop_lecture_desk() {
     ]);
     let view = course_content(&plain, &SchoolReads::fixture(&plain), "c", now).unwrap();
     assert!(view.lessons.iter().all(|lesson| lesson.number.is_none()));
+    let labels: Vec<_> = view.lessons.iter().map(|lesson| lesson.label.as_str()).collect();
+    assert_eq!(labels, ["一般", "第1回", "Reading"]);
     assert_eq!(view.current_section, Some(4));
 
     // A mark for the class it is recorded against (the next one here, as
@@ -2957,8 +3071,12 @@ fn course_content_follows_the_desktop_lecture_desk() {
     assert_eq!(view.class_at.as_deref(), Some("2026-12-07T08:50:00+09:00"));
     assert_eq!(view.current_section, Some(3));
     assert_eq!(view.lessons[0].section_id, Some(101));
+    // The latest mark counts wherever it sits in the log, and a mark for a
+    // section this course does not have is no mark.
     marked["courses"][0]["overrides"] = json!({"lessonLog":[
-        {"occurrence":"2026-12-07T08:50:00+09:00","sectionId":101}
+        {"occurrence":"2026-12-07T08:50:00+09:00","sectionId":101},
+        {"occurrence":"2026-11-09T08:50:00+09:00","sectionId":103},
+        {"occurrence":"2026-12-14T08:50:00+09:00","sectionId":999}
     ]});
     assert_eq!(
         course_content(&marked, &SchoolReads::fixture(&marked), "multi", now)

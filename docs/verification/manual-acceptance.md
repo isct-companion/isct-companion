@@ -119,6 +119,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-COURSE-OUTLINE-STILL` — never verified
 - `IOS-COURSE-LESSON-PAGING` — never verified
 - `IOS-COURSE-LESSON-MARK` — never verified
+- `COURSE-LESSON-SERIES-LABELS` — never verified
 - `IOS-COURSE-EXAM-LINE` — never verified
 - `IOS-ICLOUD-BACKUP` — never verified
 - `DESKTOP-DEBUG-ICLOUD` — never verified
@@ -255,6 +256,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
+| `COURSE-LESSON-SERIES-LABELS` | native | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/schedule/course_content.rs<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
@@ -5977,6 +5979,55 @@ cross-device agreement needs the real desktop; Core's rule is covered by
 
 **Covers**
 
+- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+
+**Last recorded** never run
+
+### Lectures and recitations keep their own lesson numbers on desktop and iPad (`COURSE-LESSON-SERIES-LABELS`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+LMS content pulled for Linear Algebra II【X】 (lms-course:12470), whose
+sections interleave 第1回–第14回 with 演習第1回–演習第7回; the desktop app
+and the iPad app on the same account.
+
+**Steps**
+
+1. Open Linear Algebra II【X】 on the desktop Lecture Desk and read the
+   lesson rail from left to right.
+   - *Why:* The rail shows Core's labels: 1–14 for the lectures and 演習 1–演習 7
+     for the recitations, in section order. Before, the desktop counted
+     positions 1–21, so 第7回 showed as 10.
+2. Open the same course on the iPad and read the lesson chips; scroll
+   the row to its end.
+   - *Why:* The chips used to read 5, 6, 3, 7, 4, 8 … because 演習第3回 lost its
+     演習 and showed a bare 3. They must match the desktop rail exactly,
+     with no chip cut off for 演習 labels.
+
+**Where to look**
+
+The desktop lesson rail and the iPad lesson chip row.
+
+**Expected**
+
+Both read 1, 2, 演習 1, 3, 4, 演習 2, … 13, 演習 7, 14, with 一般 and
+連絡先・オフィスアワー ahead of them.
+
+**Why this is manual**
+
+Labels read at a glance on two real shells over a real LMS course. The
+series rule is covered by `course_content_follows_the_desktop_lecture_desk`;
+this checks that each shell renders Core's label unchanged and fits it.
+
+**Covers**
+
+- `crates/app-core/src/schedule/course_content.rs`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/features/lms/lms.css`
 - `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
 
 **Last recorded** never run

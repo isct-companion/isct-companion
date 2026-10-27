@@ -1,44 +1,7 @@
 /**
- * Lessons are the numbered sections of a course (第3回, Lecture 3, Week 3,
- * #3). The number is a leaf value read from the section title; sections
- * without one (一般, 連絡先・オフィスアワー) stay ordinary sections.
+ * Lesson-page helpers for the Lecture Desk. Which sections are lessons, their
+ * rail labels and where the course is come from Core (`courseContent`).
  */
-const LESSON =
-  /第\s*([0-9０-９]+)\s*回|(?:lecture|lesson|class|week|session|day)\s*#?\s*([0-9]+)\b|^\s*#?\s*([0-9]+)\s*(?:[.:：．、]|$)/i;
-
-export function lessonNumber(title: string): number | undefined {
-  const match = title.normalize("NFKC").match(LESSON);
-  const digits = match?.[1] ?? match?.[2] ?? match?.[3];
-  return digits ? Number(digits) : undefined;
-}
-
-export type Lesson = { id: number; number: number; posted: boolean };
-
-/**
- * The course's lessons in section order. Fewer than two numbered sections is
- * not a lesson course; the outline then keeps its plain sections.
- */
-export function courseLessons(
-  sections: { id: number; title: string }[],
-  posted: (sectionId: number) => boolean,
-): Lesson[] {
-  const lessons = sections.flatMap((section) => {
-    const number = lessonNumber(section.title);
-    return number == null
-      ? []
-      : [{ id: section.id, number, posted: posted(section.id) }];
-  });
-  return lessons.length >= 2 ? lessons : [];
-}
-
-/**
- * The lesson the course is at: the last one with posted material. Teachers
- * post a lesson's material around its class, so a cancelled class posts
- * nothing and does not advance it. Before anything is posted, the first.
- */
-export function frontierLesson(lessons: Lesson[]): Lesson | undefined {
-  return [...lessons].reverse().find((lesson) => lesson.posted) ?? lessons[0];
-}
 
 /**
  * A folded lesson's one-line summary: the first line of the section text,
@@ -92,40 +55,6 @@ export function markSchedule(html: string, current?: number): string {
     changed = true;
   }
   return changed ? page.body.innerHTML : html;
-}
-
-/**
- * Rail labels: the lessons' own numbers when they count up by one, else their
- * order. Teachers' titles can skip or repeat a number (7, 9, 8, 11, 11).
- */
-export function railLabels(lessons: Lesson[]): string[] {
-  const counts = lessons.every(
-    (lesson, index) => index === 0 || lesson.number === lessons[index - 1].number + 1,
-  );
-  return lessons.map((lesson, index) => String(counts ? lesson.number : index + 1));
-}
-
-export type LessonMark = { occurrence: string; sectionId: number };
-
-/**
- * The lesson the person marked for the latest class. It stays the current
- * lesson until a later class starts (`lastStarted`, the start of the most
- * recent class that has begun); from then on the course is at the next one.
- */
-export function markedLesson(
-  lessons: Lesson[],
-  log: LessonMark[] | null | undefined,
-  lastStarted?: string,
-): Lesson | undefined {
-  const last = (log ?? [])
-    .filter((mark) => lessons.some((lesson) => lesson.id === mark.sectionId))
-    .sort((left, right) => left.occurrence.localeCompare(right.occurrence))
-    .at(-1);
-  if (!last) return undefined;
-  const index = lessons.findIndex((lesson) => lesson.id === last.sectionId);
-  return lastStarted && last.occurrence < lastStarted
-    ? (lessons[index + 1] ?? lessons[index])
-    : lessons[index];
 }
 
 /** Where sections pull: bands at the outline's edges, as fractions of its height. */

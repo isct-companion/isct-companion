@@ -56,20 +56,13 @@ import { OfficialLmsView } from "./OfficialLmsView";
 import { SyllabusFrame } from "../../pages/courses/syllabus-frame";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import { springScroll, type SpringScroll } from "./spring-scroll";
-import {
-  courseLessons,
-  frontierLesson,
-  gravityTarget,
-  lessonSummary,
-  markedLesson,
-  railLabels,
-} from "./lessons";
+import { gravityTarget, lessonSummary } from "./lessons";
 import {
   useScheduleQueries,
   useScheduleQuery,
   type AssignmentDetail,
+  type CourseContent,
   type CourseDetail,
-  type CourseTimeline,
   type TaskView,
 } from "../../platform/core-query";
 /** The rail's entry for course activities outside any section. */
@@ -356,26 +349,28 @@ export function LmsWorkspaceBody({
         : s.number === source?.sectionNumber,
     );
   };
-  // Numbered sections are lessons; one is shown at a time, the rest fold.
-  const lessons = useMemo(
-    () =>
-      courseLessons(sections, (id) =>
-        itemsIn(sections.find((s) => s.id === id)!).some(
-          (m) => m.module !== "label",
-        ),
-      ),
-    [sections, itemsIn],
-  );
-  const frontier = frontierLesson(lessons);
-  const labels = railLabels(lessons);
   const timelineNow = useClock(active);
-  const timeline = useScheduleQuery<CourseTimeline>({
-    kind: "courseTimeline",
+  // Core's lesson rail: the numbered sections with their labels, the class a
+  // mark is recorded against, and where the course is (the person's mark,
+  // else the LMS). One lesson is shown at a time, the rest fold.
+  const contentQuery = useScheduleQuery<CourseContent>({
+    kind: "courseContent",
     courseId: course.id,
     now: timelineNow,
-    beforeDays: 14,
-    afterDays: 14,
-  }).value;
+  });
+  const content = contentQuery.value;
+  // Arriving waits for Core's first answer, which says where the course is.
+  const contentRead = content !== undefined || contentQuery.error != null;
+  const lessons = useMemo(
+    () =>
+      (content?.lessons ?? []).flatMap(({ section, number, label }) => {
+        const id = sections.find((s) => s.number === section)?.id;
+        return number == null || id == null
+          ? []
+          : [{ id, section, number, label }];
+      }),
+    [content, sections],
+  );
   const taskView = useScheduleQuery<TaskView>({
     kind: "taskView",
     now: timelineNow,
@@ -389,14 +384,8 @@ export function LmsWorkspaceBody({
     [taskView],
   );
   const closedIds = useMemo(() => new Set(taskView?.closedIds), [taskView]);
-  // This course's class meetings around now: the latest one that has begun,
-  // and the one a mark is recorded against (the class in progress or held
-  // earlier today, else the next one).
-  const classAt = timeline?.classAt ?? undefined;
-  const lastStarted = timeline?.lastStarted ?? undefined;
-  // Where the course is: the person's mark when there is one, else the LMS.
-  const at =
-    markedLesson(lessons, course.overrides?.lessonLog, lastStarted) ?? frontier;
+  const classAt = content?.classAt ?? undefined;
+  const at = lessons.find((l) => l.section === content?.currentSection);
   const atIndex = lessons.findIndex((l) => l.id === at?.id);
   // The whole course is laid out at once; lessons behave as pages of it.
   // Sections without a number (一般, 連絡先 …) sit in the flow and are
@@ -417,12 +406,16 @@ export function LmsWorkspaceBody({
   );
   const markThisClass = (sectionId: number) => {
     if (!markLesson || !classAt) return;
-    // Named in the UI language by its rail number, not by the teacher's title.
-    const index = lessons.findIndex((l) => l.id === sectionId);
+    // Named by its rail label, not by the teacher's title: a bare number in
+    // the UI language, another series (演習 3) as Core labels it.
+    const lesson = lessons.find((l) => l.id === sectionId);
+    if (!lesson) return;
     markLesson(
       sectionId,
       classAt,
-      t("Lesson {{number}}", { number: labels[index] }),
+      /^\d+$/.test(lesson.label)
+        ? t("Lesson {{number}}", { number: lesson.label })
+        : lesson.label,
     );
   };
   const pendingIn = (sectionId: number) =>
@@ -678,7 +671,7 @@ export function LmsWorkspaceBody({
   const positionedRequest = useRef<number | undefined>(undefined);
   useEffect(() => {
     // Revealing Activity resumes the retained DOM; only a new entrance repositions it.
-    if (positionedRequest.current === entry.request) return;
+    if (positionedRequest.current === entry.request || !contentRead) return;
     const assignment = assignments.find((a) => a.id === entry.assignmentId);
     if (assignment) {
       const source = data.materials.find(
@@ -738,7 +731,7 @@ export function LmsWorkspaceBody({
     return () => cancelAnimationFrame(frame);
     // Explicit entrance only; refreshing content must never jump the reader.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.request]);
+  }, [entry.request, contentRead]);
   const saveReading = () => persistReading(key, data.deviceId, current.current);
   useEffect(() => {
     window.addEventListener("pagehide", saveReading);
@@ -1133,7 +1126,7 @@ export function LmsWorkspaceBody({
               {paged && lesson ? (
                 <span className="lmsLessonHead" title={section.title}>
                   <span className="lmsLessonNo">
-                    {labels[lessons.indexOf(lesson)].padStart(2, "0")}
+                    {lesson.label.padStart(2, "0")}
                   </span>
                   <span>{summaries.get(section.id) || section.title}</span>
                 </span>
@@ -1395,7 +1388,7 @@ export function LmsWorkspaceBody({
                   onClick={() => goLesson(l.id)}
                   onDoubleClick={() => markThisClass(l.id)}
                 >
-                  {labels[index]}
+                  {l.label}
                 </button>
               ))}
             </nav>

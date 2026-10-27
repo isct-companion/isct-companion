@@ -25,14 +25,9 @@ import {
 import type { MatrixCaptureMetrics } from "@app/generated/persistence";
 import { textLanguage } from "@app/features/lms/TextDocument";
 import {
-  courseLessons,
-  frontierLesson,
   gravityTarget,
-  lessonNumber,
   lessonSummary,
-  markedLesson,
   markSchedule,
-  railLabels,
 } from "@app/features/lms/lessons";
 import { springStep, stiffnessFor } from "@app/features/lms/spring-scroll";
 import {
@@ -463,23 +458,6 @@ describe("note persistence", () => {
 // Lessons
 // ---------------------------------------------------------------------------
 
-describe("lesson numbering", () => {
-  it("reads the lesson number from the common section titles", () => {
-    expect(lessonNumber("第2回")).toBe(2);
-    expect(lessonNumber("第 12 回 クラス")).toBe(12);
-    expect(lessonNumber("第３回")).toBe(3);
-    expect(lessonNumber("Lecture 4")).toBe(4);
-    expect(lessonNumber("Week 10: Graphs")).toBe(10);
-    expect(lessonNumber("5. Recursion")).toBe(5);
-  });
-
-  it("leaves a section without a lesson number alone", () => {
-    expect(lessonNumber("一般")).toBeUndefined();
-    expect(lessonNumber("連絡先・オフィスアワー")).toBeUndefined();
-    expect(lessonNumber("2026年度 講義資料")).toBeUndefined();
-  });
-});
-
 describe("lesson summary", () => {
   it("summarises a lesson by the first line of its plan, without a short leading label", () => {
     expect(lessonSummary("<p>授業計画：正規文法<br>課題：確認する</p>")).toBe(
@@ -493,34 +471,6 @@ describe("lesson summary", () => {
   it("has no summary for a lesson without a plan", () => {
     expect(lessonSummary(undefined)).toBe("");
     expect(lessonSummary("")).toBe("");
-  });
-});
-
-describe("course lessons", () => {
-  const sections = [
-    { id: 1, title: "一般" },
-    { id: 2, title: "第1回" },
-    { id: 3, title: "第2回" },
-    { id: 4, title: "第3回" },
-  ];
-
-  it("keeps the numbered sections in order, and stops before the last without material", () => {
-    const lessons = courseLessons(sections, (id) => id <= 3);
-    expect(lessons.map((lesson) => lesson.number)).toEqual([1, 2, 3]);
-    expect(lessons.map((lesson) => lesson.posted)).toEqual([true, true, false]);
-  });
-
-  it("is at the last lesson with posted material, or the first before anything is posted", () => {
-    expect(
-      frontierLesson(courseLessons(sections, (id) => id <= 3))?.number,
-    ).toBe(2);
-    expect(frontierLesson(courseLessons(sections, () => false))?.number).toBe(
-      1,
-    );
-  });
-
-  it("is not a lesson course when fewer than two sections are numbered", () => {
-    expect(courseLessons(sections.slice(0, 2), () => true)).toEqual([]);
   });
 });
 
@@ -550,73 +500,6 @@ describe("lesson schedule marking", () => {
       "<table><tr><td>1回目</td><td>intro</td></tr><tr><td>reading</td><td>—</td></tr></table>";
     expect(markSchedule(single, 2)).toBe(single);
     expect(markSchedule(html)).toBe(html);
-  });
-});
-
-describe("lesson rail labels", () => {
-  const at = (numbers: number[]) =>
-    numbers.map((number, id) => ({ id, number, posted: true }));
-
-  it("uses the lessons' own numbers when they count up by one", () => {
-    expect(railLabels(at([0, 1, 2]))).toEqual(["0", "1", "2"]);
-    expect(railLabels(at([1, 2, 3]))).toEqual(["1", "2", "3"]);
-  });
-
-  it("falls back to the order when the titles skip or repeat a number", () => {
-    expect(railLabels(at([7, 9, 8, 11, 11]))).toEqual([
-      "1",
-      "2",
-      "3",
-      "4",
-      "5",
-    ]);
-  });
-});
-
-describe("marked lesson expiry", () => {
-  const lessons = [1, 2, 3].map((number) => ({
-    id: 10 + number,
-    number,
-    posted: true,
-  }));
-  const log = [
-    { occurrence: "2026-10-06T15:25:00+09:00", sectionId: 11 },
-    { occurrence: "2026-10-08T10:45:00+09:00", sectionId: 12 },
-  ];
-
-  it("stays with the marked lesson while it is the class that has started", () => {
-    expect(
-      markedLesson(lessons, log, "2026-10-08T10:45:00+09:00")?.number,
-    ).toBe(2);
-  });
-
-  it("moves to the next lesson once a later class has started", () => {
-    expect(
-      markedLesson(lessons, log, "2026-10-15T10:45:00+09:00")?.number,
-    ).toBe(3);
-  });
-
-  it("uses the latest mark even when the log arrives out of order", () => {
-    const shuffled = [...log].reverse();
-    expect(
-      markedLesson(lessons, shuffled, "2026-10-08T10:45:00+09:00")?.number,
-    ).toBe(2);
-  });
-
-  it("has no marked lesson without a mark for one of this course's sections", () => {
-    expect(
-      markedLesson(lessons, null, "2026-10-15T10:45:00+09:00"),
-    ).toBeUndefined();
-    expect(
-      markedLesson(lessons, [], "2026-10-15T10:45:00+09:00"),
-    ).toBeUndefined();
-    expect(
-      markedLesson(
-        lessons,
-        [{ occurrence: "2026-10-01T10:45:00+09:00", sectionId: 99 }],
-        "2026-10-15T10:45:00+09:00",
-      ),
-    ).toBeUndefined();
   });
 });
 

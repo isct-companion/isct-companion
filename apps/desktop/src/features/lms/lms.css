@@ -345,7 +345,7 @@
 /* ---------- Lessons: a rail of 第N回, one lesson open, the rest folded ---------- */
 .lmsLessonRail { display: flex; gap: 2px; width: 100%; max-width: 900px; align-self: center; padding: 0 24px 10px; overflow-x: auto; scrollbar-width: none; }
 .lmsLessonRail button {
-  position: relative; flex: 1 0 22px; min-width: 22px; padding: 4px 0 8px; border: 0; background: none;
+  position: relative; flex: 1 0 22px; min-width: max-content; padding: 4px 4px 8px; border: 0; background: none; white-space: nowrap;
   color: var(--muted) !important; font-size: calc(var(--type-block-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: center;
 }
 .lmsLessonRail button::after { content: ""; position: absolute; left: 2px; right: 2px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--line); transition: background-color var(--lms-fast); }
