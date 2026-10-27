@@ -478,6 +478,7 @@ coded!(MatrixScanError, |e| match e {
     MatrixScanError::Ended => C::MatrixScanEnded,
     MatrixScanError::InvalidFrame(_) => C::InvalidInput,
     MatrixScanError::Unreadable(_) => C::MatrixUnreadable,
+    MatrixScanError::Unavailable => C::Unavailable,
     MatrixScanError::Backend(_) => C::Internal,
 });
 coded!(AgentError, |e| match e {
