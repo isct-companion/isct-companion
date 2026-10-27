@@ -92,7 +92,7 @@ async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(
     let app = app.clone();
     let title = content.title().to_owned();
     let body = content.body().to_owned();
-    tauri::async_runtime::spawn_blocking(move || {
+    Ok(tauri::async_runtime::spawn_blocking(move || {
         let activate = app.clone();
         tauri_winrt_notification::Toast::new(&app.config().identifier)
             .title(&title)
@@ -110,7 +110,7 @@ async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(
             .map_err(|error| format!("notification could not be shown: {error}"))
     })
     .await
-    .map_err(|error| format!("notification task failed: {error}"))?
+    .map_err(|error| format!("notification task failed: {error}"))??)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]

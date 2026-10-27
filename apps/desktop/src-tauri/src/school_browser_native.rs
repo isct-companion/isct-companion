@@ -13,6 +13,7 @@ use std::{
     },
 };
 use tauri::AppHandle;
+#[cfg(target_os = "macos")]
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 use url::Url;
@@ -465,6 +466,8 @@ impl NativeBrowser {
         let title_weak = weak.clone();
         let title_sequence = sequence.clone();
         let download_weak = weak.clone();
+        #[cfg(windows)]
+        let interim_weak = weak.clone();
         let callbacks = ViewCallbacks {
             loaded: Arc::new(move |raw| {
                 let Ok(url) = Url::parse(raw) else { return };
@@ -506,7 +509,7 @@ impl NativeBrowser {
         };
         #[cfg(windows)]
         let interim = crate::school_windows::Interim {
-            native: weak.clone(),
+            native: interim_weak,
             view: id,
         };
         let view = create_webview(
