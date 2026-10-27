@@ -920,6 +920,23 @@ impl crate::school_webkit::Host for WebKitHost {
             .popup_destination(&app, self.site, url.as_ref(), suggested)
     }
 
+    fn became_download(&self, view: BrowserId, had_page: bool, shown: bool) {
+        let Some(native) = self.native.upgrade() else {
+            return;
+        };
+        if let (Some(page), Some(listener)) = (native.current_page(view), native.listener()) {
+            listener.became_download(BecameDownload {
+                page,
+                had_page,
+                disposition: if shown {
+                    DownloadDisposition::Shown
+                } else {
+                    DownloadDisposition::Saved
+                },
+            });
+        }
+    }
+
     fn download_finished(&self, path: std::path::PathBuf, saved: bool) {
         if let Some(native) = self.native.upgrade() {
             if let Ok(app) = native.app() {

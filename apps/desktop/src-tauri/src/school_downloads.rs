@@ -63,7 +63,7 @@ impl SchoolDownloads {
                         true
                     });
                 if !accepted {
-                    log::error!("[school-download] {site:?} download refused");
+                    log::warn!("[school-download] {site:?} download refused");
                     return false;
                 }
                 let name = file_name(destination);
@@ -111,7 +111,7 @@ impl SchoolDownloads {
             .as_deref()
             .is_some_and(|origin| download_allowed(origin, site, active));
         if !allowed {
-            log::error!("[school-download] {site:?} PDF save refused");
+            log::warn!("[school-download] {site:?} PDF save refused");
             return;
         }
 
@@ -174,7 +174,7 @@ impl SchoolDownloads {
     ) -> Option<PathBuf> {
         let active = self.0.state.lock().ok().and_then(|state| state.active);
         if !url.is_some_and(|url| download_allowed(url.as_str(), site, active)) {
-            log::error!("[school-download] {site:?} popup download refused");
+            log::warn!("[school-download] {site:?} popup download refused");
             return None;
         }
         let directory = app.path().download_dir().ok()?;
@@ -262,7 +262,12 @@ fn emit_download(
     url: Option<String>,
     path: Option<&Path>,
 ) {
-    log::error!("[school-download] {site:?} {state:?} {name}");
+    match state {
+        SchoolDownloadState::Failed => log::warn!("[school-download] {site:?} {state:?} {name}"),
+        SchoolDownloadState::Started | SchoolDownloadState::Done => {
+            log::info!("[school-download] {site:?} {state:?} {name}")
+        }
+    }
     let _ = crate::core_ports::DesktopEvents(app.clone()).emit(CoreEvent::SchoolDownload(
         SchoolDownloadEvent {
             site,

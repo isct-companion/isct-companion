@@ -293,6 +293,22 @@ impl BrowserEvents {
             },
         })
     }
+    /// A navigation in `page`'s view or popup became a download. `had_page`:
+    /// it had committed a page before; `disposition`: the file is shown in
+    /// that view or saved. Core disposes a popup left with nothing to show.
+    pub fn became_download(
+        &self,
+        page: PageId,
+        had_page: bool,
+        disposition: DownloadDisposition,
+    ) -> Result<(), SdkError> {
+        self.listener()?.became_download(browser::BecameDownload {
+            page: project_input(page)?,
+            had_page,
+            disposition: project_input(disposition)?,
+        });
+        Ok(())
+    }
     pub fn closed(&self, browser: BrowserId) -> Result<(), SdkError> {
         self.listener()?.closed(project_input(browser)?);
         Ok(())

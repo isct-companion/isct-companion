@@ -99,6 +99,9 @@ pub trait Host {
     /// Where a file a popup downloads is written; `None` refuses it.
     fn download_destination(&self, url: Option<Url>, suggested: &str) -> Option<PathBuf>;
     fn download_finished(&self, path: PathBuf, saved: bool);
+    /// `view`'s navigation became a download, shown in place or saved;
+    /// `had_page` when the view had committed a page before.
+    fn became_download(&self, view: BrowserId, had_page: bool, shown: bool);
 }
 
 pub struct UiIvars {
@@ -126,6 +129,10 @@ struct Attachment {
     download: Retained<WKDownload>,
     /// Shown in place (a displayable attachment) or saved (a popup's file).
     shown: bool,
+    /// The view whose navigation became this download, where a shown file
+    /// goes. Not `download.webView()`: for a popup that has not committed a
+    /// page yet, WebKit names the opener there.
+    target: Weak<WKWebView>,
     /// The file and, for one shown in place, the response it holds.
     file: Option<(PathBuf, Option<Retained<NSURLResponse>>)>,
 }
@@ -285,7 +292,7 @@ struct Popup {
     id: BrowserId,
     web_view: Retained<WKWebView>,
     _ui: Retained<SchoolUiDelegate>,
-    _navigation: Retained<SchoolNavigationDelegate>,
+    navigation: Retained<SchoolNavigationDelegate>,
 }
 
 thread_local! {
@@ -612,7 +619,7 @@ define_class!(
 
         #[unsafe(method(downloadDidFinish:))]
         fn download_did_finish(&self, download: &WKDownload) {
-            let Some((file, response)) = self.take(download) else {
+            let Some((file, response, target)) = self.take(download) else {
                 return;
             };
             let Some(response) = response else {
@@ -621,8 +628,7 @@ define_class!(
             };
             let bytes = std::fs::read(&file);
             let _ = std::fs::remove_file(&file);
-            let (Ok(bytes), Some(web_view), Some(url)) =
-                (bytes, unsafe { download.webView() }, response.URL())
+            let (Ok(bytes), Some(web_view), Some(url)) = (bytes, target.load(), response.URL())
             else {
                 log::error!("[school-download] attachment could not be shown");
                 return;
@@ -656,10 +662,10 @@ define_class!(
                 error.localizedDescription()
             );
             match self.take(download) {
-                Some((file, Some(_))) => {
+                Some((file, Some(_), _)) => {
                     let _ = std::fs::remove_file(file);
                 }
-                Some((file, None)) => self.ivars().host.download_finished(file, false),
+                Some((file, None, _)) => self.ivars().host.download_finished(file, false),
                 None => {}
             }
         }
@@ -789,8 +795,9 @@ define_class!(
                         };
                     }
                 }
-                _ => self.adopt(download, shown),
+                _ => self.adopt(download, shown, web_view),
             }
+            self.report_download(shown);
         }
 
         #[unsafe(method(webView:navigationAction:didBecomeDownload:))]
@@ -810,8 +817,9 @@ define_class!(
                         };
                     }
                 }
-                None => self.adopt(download, false),
+                None => self.adopt(download, false, web_view),
             }
+            self.report_download(false);
         }
 
         #[unsafe(method(webView:didCommitNavigation:))]
@@ -951,27 +959,55 @@ impl SchoolNavigationDelegate {
         );
     }
 
-    fn adopt(&self, download: &WKDownload, shown: bool) {
+    fn adopt(&self, download: &WKDownload, shown: bool, target: &WKWebView) {
         unsafe { download.setDelegate(Some(ProtocolObject::from_ref(self))) };
         self.ivars().attachments.borrow_mut().push(Attachment {
             download: download.retain(),
             shown,
+            target: Weak::new(target),
             file: None,
         });
     }
 
-    /// Forgets a finished or failed download, returning its file.
+    /// Tells Core this view's navigation became a download; Core closes a
+    /// popup it leaves with nothing to show.
+    fn report_download(&self, shown: bool) {
+        let ivars = self.ivars();
+        let had_page = ivars.committed.borrow().is_some();
+        ivars.host.became_download(ivars.view, had_page, shown);
+    }
+
+    /// Forgets a finished or failed download, returning its file, the
+    /// response of one shown in place, and the view it belongs to. A closed
+    /// popup's shim is released once its last download is done.
     #[allow(clippy::type_complexity)]
-    fn take(&self, download: &WKDownload) -> Option<(PathBuf, Option<Retained<NSURLResponse>>)> {
-        let mut attachments = self.ivars().attachments.borrow_mut();
-        let index = attachments
-            .iter()
-            .position(|attachment| std::ptr::eq(&*attachment.download, download))?;
-        attachments.remove(index).file
+    fn take(
+        &self,
+        download: &WKDownload,
+    ) -> Option<(PathBuf, Option<Retained<NSURLResponse>>, Weak<WKWebView>)> {
+        let (attachment, drained) = {
+            let mut attachments = self.ivars().attachments.borrow_mut();
+            let index = attachments
+                .iter()
+                .position(|attachment| std::ptr::eq(&*attachment.download, download))?;
+            (attachments.remove(index), attachments.is_empty())
+        };
+        if drained {
+            DRAINING.with_borrow_mut(|draining| {
+                draining.retain(|shim| !std::ptr::eq(&**shim, self));
+            });
+        }
+        let (file, response) = attachment.file?;
+        Some((file, response, attachment.target))
     }
 }
 
 thread_local! {
+    /// Navigation shims of closed popups whose downloads are still running:
+    /// `WKDownload.delegate` is weak, so the shim must outlive its popup
+    /// until the file is written.
+    static DRAINING: RefCell<Vec<Retained<SchoolNavigationDelegate>>> = const { RefCell::new(Vec::new()) };
+
     /// Main views by id, for the history step a resubmission skips. Weak:
     /// tauri owns them.
     static MAIN_VIEWS: RefCell<Vec<(BrowserId, Weak<WKWebView>)>> = const { RefCell::new(Vec::new()) };
@@ -1008,7 +1044,7 @@ fn open_popup(
             id,
             web_view: web_view.clone(),
             _ui: ui,
-            _navigation: navigation,
+            navigation,
         })
     });
     web_view
@@ -1028,6 +1064,9 @@ pub fn close_popup(id: BrowserId) -> bool {
         popup.web_view.stopLoading();
     }
     popup.web_view.removeFromSuperview();
+    if !popup.navigation.ivars().attachments.borrow().is_empty() {
+        DRAINING.with_borrow_mut(|draining| draining.push(popup.navigation.clone()));
+    }
     true
 }
 

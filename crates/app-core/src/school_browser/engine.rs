@@ -3,11 +3,12 @@ use super::policy::{
     new_window_rule, restore_record, DenyReason, Verdict, ViewRole,
 };
 use super::{
-    ActionId, BrowserAction, BrowserCommand, BrowserError, BrowserId, HostCapabilities, LoadFailed,
-    LoadFailure, NavigationDecision, NavigationRequest, NewWindowDecision, NewWindowRequest,
-    PageId, PageLoaded, SchoolAutoSignIn, SchoolBrowser, SchoolBrowserError, SchoolBrowserListener,
-    SchoolConnectResult, SchoolLoginEvent, SchoolPageCustomization, SchoolProfileSession,
-    SchoolSessionEvent, SchoolSessionLifecycle, SchoolSessionLifecycleKind, SchoolSessionProfiles,
+    ActionId, BecameDownload, BrowserAction, BrowserCommand, BrowserError, BrowserId,
+    DownloadDisposition, HostCapabilities, LoadFailed, LoadFailure, NavigationDecision,
+    NavigationRequest, NewWindowDecision, NewWindowRequest, PageId, PageLoaded, SchoolAutoSignIn,
+    SchoolBrowser, SchoolBrowserError, SchoolBrowserListener, SchoolConnectResult,
+    SchoolLoginEvent, SchoolPageCustomization, SchoolProfileSession, SchoolSessionEvent,
+    SchoolSessionLifecycle, SchoolSessionLifecycleKind, SchoolSessionProfiles,
     SchoolSessionSnapshot, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind,
     SchoolWebNotice, SchoolWebResult,
 };
@@ -573,6 +574,11 @@ impl SchoolBrowserListener for Listener {
                 inner.new_window(request)
             })
     }
+    fn became_download(&self, event: BecameDownload) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.became_download(event);
+        }
+    }
     fn closed(&self, browser: BrowserId) {
         if let Some(inner) = self.0.upgrade() {
             inner.closed(browser);
@@ -997,6 +1003,23 @@ impl Inner {
                 denied(opener.site, Some(role), DenyReason::Scheme, &request.url);
                 NewWindowDecision::Deny(DenyReason::Scheme)
             }
+        }
+    }
+
+    /// A popup opened only for a file that is saved has nothing left to
+    /// show, so it closes, as a browser closes an empty download tab. A file
+    /// shown in place, or a popup that already had a page, stays.
+    fn became_download(&self, event: BecameDownload) {
+        let popup = event.page.browser;
+        let is_popup = self.state.with(|state| {
+            state
+                .views
+                .get(&popup.site)
+                .is_some_and(|view| view.popups.iter().any(|open| open.id == popup))
+        });
+        if is_popup && !event.had_page && event.disposition == DownloadDisposition::Saved {
+            log::info!(target: "app_core::school_browser", "closing a popup that became a download site={:?}", popup.site);
+            self.popup_closed(popup, true);
         }
     }
 

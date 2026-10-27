@@ -1500,7 +1500,8 @@ navigation, history or a reveal.
 
 **Preconditions**
 
-macOS desktop build of this commit, signed in to 教務Web.
+macOS desktop build of this commit, signed in to 教務Web and the LMS,
+with a course whose material includes a PDF.
 
 **Steps**
 
@@ -1518,17 +1519,27 @@ macOS desktop build of this commit, signed in to 教務Web.
    - *Why:* A `target=_blank` PDF used to replace the page; it now opens as a
      popup, and the page behind it must still be there after Close
      window.
+3. On an LMS course page, open a PDF material that opens in a new
+   window, then Close window. If the course offers a Word or other
+   file that is not shown, open it the same way.
+   - *Why:* The LMS sends PDFs as attachments, which the app fetches and shows.
+     The popup's download used to be shown in the course page behind
+     it, leaving the popup blank until it was closed. A file that is
+     only saved leaves its popup empty, so Core closes that popup.
 
 **Where to look**
 
 The web pane while the window is open, the address and the Close
-window line above the page, and the opener page after closing.
+window line above the page, the opener page after closing, and the
+Downloads folder for a saved file.
 
 **Expected**
 
 Each window covers the page inside the web pane with its own address,
 a Close window line appears, and closing returns to the opener exactly
-as it was, with no reload.
+as it was, with no reload. The LMS PDF shows in the popup and the
+course page underneath is unchanged; a saved file lands in Downloads
+and no empty window stays open.
 
 **Why this is manual**
 

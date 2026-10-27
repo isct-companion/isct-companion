@@ -1103,6 +1103,63 @@ async fn a_popup_is_a_child_of_its_opener_and_closes_with_what_it_opened() {
     engine.shutdown().await;
 }
 
+// An LMS file link opens a popup whose only load becomes a download. A file
+// that is saved leaves the popup empty forever, so Core closes it; a file
+// shown in place, or a popup that already showed a page, stays.
+#[tokio::test]
+async fn a_popup_left_empty_by_a_saved_download_closes() {
+    let (engine, browser, events, id) = kyomu_open().await;
+    let listener = browser.listener();
+    let opener = PageId {
+        browser: id,
+        sequence: 2,
+    };
+    let file = "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/file.aspx";
+    let popup = || match listener.new_window(window(opener, file)) {
+        NewWindowDecision::Popup(popup) => popup,
+        other => panic!("no popup: {other:?}"),
+    };
+    let became = |popup: BrowserId, had_page: bool, disposition: DownloadDisposition| {
+        listener.became_download(BecameDownload {
+            page: PageId {
+                browser: popup,
+                sequence: u64::from(had_page),
+            },
+            had_page,
+            disposition,
+        })
+    };
+    let empty_saved = popup();
+    became(empty_saved, false, DownloadDisposition::Saved);
+    assert_eq!(*browser.disposed.lock().unwrap(), [empty_saved]);
+    assert_eq!(popups_open(&events), [1, 0]);
+    assert_eq!(
+        listener.decide_navigation(request(
+            PageId {
+                browser: empty_saved,
+                sequence: 0,
+            },
+            file,
+            true,
+            NavigationKind::Other,
+            false,
+        )),
+        NavigationDecision::Deny(DenyReason::Closed)
+    );
+
+    let empty_shown = popup();
+    became(empty_shown, false, DownloadDisposition::Shown);
+    let with_page = popup();
+    became(with_page, true, DownloadDisposition::Saved);
+    // The opener's own downloads never close it.
+    became(id, false, DownloadDisposition::Saved);
+    assert_eq!(*browser.disposed.lock().unwrap(), [empty_saved]);
+    assert_eq!(popups_open(&events), [1, 0, 1, 2]);
+    assert!(engine.close_popup(SchoolSite::Kyomu).unwrap());
+    assert!(engine.close_popup(SchoolSite::Kyomu).unwrap());
+    engine.shutdown().await;
+}
+
 // R2: a person's new POST always goes through; only the engine sending an
 // old form again is stopped. 教務Web pages, paging included, are postbacks.
 #[tokio::test]

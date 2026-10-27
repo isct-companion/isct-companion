@@ -70,6 +70,17 @@ view or popup is gone: its page called `window.close()` (WebKit
 `webViewDidClose`, WebView2 `WindowCloseRequested`, Android `onCloseWindow`),
 the person closed it, `dispose` was carried out, or it could not be created.
 
+`becameDownload(page, hadPage, disposition)`, when a navigation of a view or
+popup becomes a download (WebKit `navigationResponse:didBecomeDownload:` and
+`navigationAction:didBecomeDownload:`; Android `DownloadListener`; WebView2
+`DownloadStarting`). `hadPage` says whether that view had committed a page
+before; a popup opened for the file has not. `disposition` is `Shown` for a
+file the host fetches and then displays (a PDF sent as an attachment) and
+`Saved` for one written to the device. A shown file is displayed in the view
+whose navigation it was, never in the engine's "originating" view: WebKit's
+`WKDownload.webView` is the opener for a popup that has not committed a page.
+A host keeps a closed popup's download running until the file is written.
+
 `capabilities() -> HostCapabilities`, read once when the engine starts:
 
 - `formResubmission`: the host reports `FormResubmit`. Without it Core sends a
@@ -135,7 +146,10 @@ with only bounded identifying query parameters.
 
 Files: a view the person is looking at may save any HTTP(S), `blob:` or
 `data:` file; a hidden view only files from adapter sites
-(`download_permitted`).
+(`download_permitted`). A popup with no committed page whose load became a
+`Saved` download has nothing to show, so Core closes it (`dispose`), as a
+browser closes an empty download tab; a `Shown` file, or a popup that already
+had a page, stays.
 
 ### Commands
 
@@ -186,7 +200,8 @@ The iOS and Android hosts implement this contract in full in their own
 change: real popups (`createWebViewWith` / `WebViewTransport`), the full
 `NavigationRequest` (WebKit `navigationType` with `fromHistory`, Android
 `onFormResubmission` and an app notice for `ERR_CACHE_MISS`), `SkipEntry`,
-`closed` on `window.close()`, dialogs, printing, `LoadFailure` mapping, and
+`closed` on `window.close()`, `becameDownload`, dialogs, printing,
+`LoadFailure` mapping, and
 `capabilities` set to true. The Windows WebView2 host (`NavigationStarting`,
 `NewWindowRequested` with a deferral and the same environment, `ScriptDialogOpening`,
 its own record of POST entries) replaces the interim later.

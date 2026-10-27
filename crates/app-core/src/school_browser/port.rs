@@ -141,6 +141,28 @@ pub struct NewWindowRequest {
     pub features: WindowFeatures,
 }
 
+/// What became of a navigation the engine turned into a download.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DownloadDisposition {
+    /// A file the engine can display (a PDF sent as an attachment), fetched
+    /// and then shown in the view it was meant for.
+    Shown,
+    /// A file saved to the device.
+    Saved,
+}
+
+/// A view's or popup's navigation became a download.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BecameDownload {
+    /// The view or popup whose navigation it was, with its last page.
+    pub page: PageId,
+    /// Whether it had committed a page before; a popup opened for the file
+    /// has not.
+    pub had_page: bool,
+    pub disposition: DownloadDisposition,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NavigationDecision {
     Allow,
@@ -206,6 +228,9 @@ pub trait SchoolBrowserListener: Send + Sync {
     fn title_changed(&self, page: PageId, title: String);
     fn decide_navigation(&self, request: NavigationRequest) -> NavigationDecision;
     fn new_window(&self, request: NewWindowRequest) -> NewWindowDecision;
+    /// A navigation became a download. Core closes a popup that is left
+    /// with nothing to show (`dispose`).
+    fn became_download(&self, event: BecameDownload);
     /// A view or popup is gone: closed by its page (`window.close`), by the
     /// person, by `dispose`, or never created.
     fn closed(&self, browser: BrowserId);
