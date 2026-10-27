@@ -35,13 +35,8 @@ struct ExamTag: View {
     let tint: Color
 
     var body: some View {
-        let shape = Capsule()
-        Text(quiz ? t("Quiz") : t("Exam"))
-            .foregroundStyle(quiz ? Theme.courseInk(tint) : Theme.onSolid)
-            .padding(.horizontal, 4)
-            .background { if !quiz { shape.fill(tint) } }
-            .overlay { if quiz { shape.strokeBorder(tint, lineWidth: 1) } }
-            .fixedSize()
+        Tag(text: quiz ? t("Quiz") : t("Exam"), style: quiz ? .outline : .solid,
+            ink: quiz ? Theme.courseInk(tint) : tint)
     }
 }
 

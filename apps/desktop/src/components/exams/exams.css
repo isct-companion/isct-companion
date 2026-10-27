@@ -3,19 +3,29 @@
   gap: 10px;
   min-width: 0;
 }
+/* The course is the small square every list uses, at the card's corner. */
 .examCard {
+  position: relative;
   display: grid;
   gap: 5px;
-  padding: 12px;
+  padding: 12px 12px 12px 30px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--course);
-  border-radius: 10px;
+  border-radius: var(--radius-surface);
   min-width: 0;
+}
+.examCard::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  left: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--course);
 }
 /* A class session from the exam timetable, not an exam. */
 .examCard.examWeekClass {
   border-style: dashed;
-  border-left-style: solid;
 }
 .lectureRow.examWeekClass b {
   font-weight: 500;

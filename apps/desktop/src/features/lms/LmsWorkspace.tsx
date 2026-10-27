@@ -1,4 +1,6 @@
 import { ExamCards } from "../../components/exams/ExamCards";
+import { dueRole } from "../../components/DueChip";
+import { Tag } from "../../components/ui";
 import { GuideTip } from "../../components/guide";
 import { deadlineText } from "../../lib/deadline-text";
 import { formatJst } from "../../lib/civil-date";
@@ -885,11 +887,23 @@ export function LmsWorkspaceBody({
             )}
           </div>
           {countdown ? (
-            <span className={`dueChip ${countdown.tone}`}>
+            <Tag
+              tone={dueRole(countdown.tone)}
+              className={`dueChip ${countdown.tone}`}
+            >
               {countdown.label}
-            </span>
+            </Tag>
           ) : (
-            <span className={`lmsAssignmentState ${state}`}>
+            <Tag
+              tone={
+                state === "graded" || state === "done"
+                  ? "ok"
+                  : state === "missed"
+                    ? "danger"
+                    : "neutral"
+              }
+              className={`lmsAssignmentState ${state}`}
+            >
               {t(
                 state === "graded"
                   ? "Graded"
@@ -902,7 +916,7 @@ export function LmsWorkspaceBody({
               {state === "graded" && a.grade && (
                 <span className="lmsAssignmentGrade">{a.grade}</span>
               )}
-            </span>
+            </Tag>
           )}
         </header>
         {showBody && hasBody && (

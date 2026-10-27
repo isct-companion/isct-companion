@@ -1,10 +1,11 @@
+import { BookOpen } from "lucide-react";
 import {
   examConflictLabel,
   examKindLabel,
 } from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
 import { DueChip } from "../../components/DueChip";
-import { CloseButton, Input } from "../../components/ui";
+import { CloseButton, Input, EmptyState } from "../../components/ui";
 import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
@@ -568,13 +569,13 @@ function LectureDeskBody({
               </button>
             ))}
           {mode === "lectures" && !shown.length && (
-            <p className="quietEmpty compact">
+            <EmptyState compact icon={BookOpen}>
               {t(
                 lectures.length
                   ? "No matching lectures."
                   : "No lectures on this quarter's timetable.",
               )}
-            </p>
+            </EmptyState>
           )}
         </nav>
         <div className="lectureContent">

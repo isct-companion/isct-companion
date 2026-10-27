@@ -1,5 +1,8 @@
 package app.isctcompanion.features.lectures
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.School
+import app.isctcompanion.design.EmptyState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -56,7 +59,7 @@ fun LecturesScreen() {
     TabPage(t("Courses")) {
         val ids = overview?.termCourseIds.orEmpty()
         if (overview != null && ids.isEmpty()) {
-            Box(Modifier.fillMaxSize(), Alignment.Center) { Text(t("No courses this term yet"), color = Theme.colors.muted) }
+            Box(Modifier.fillMaxSize(), Alignment.Center) { EmptyState(Icons.Rounded.School, t("No courses this term yet")) }
             return@TabPage
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {

@@ -94,7 +94,7 @@ import app.isctcompanion.design.Format
 import app.isctcompanion.design.PageSubtitle
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.MaterialRow
-import app.isctcompanion.design.PillButton
+import app.isctcompanion.design.ActionButton
 import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
@@ -103,7 +103,7 @@ import app.isctcompanion.design.SyncProblemBanner
 import app.isctcompanion.design.SyncRingButton
 import app.isctcompanion.design.activeRuns
 import app.isctcompanion.design.problem
-import app.isctcompanion.design.TagChip
+import app.isctcompanion.design.Tag
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseColor
@@ -151,7 +151,7 @@ fun TodayScreen() {
                     PageSubtitle(subtitle(model.today))
                     val problem = model.syncSnapshot?.problem
                     if (model.problem != null) {
-                        ProblemBanner(model.problem!!)
+                        ProblemBanner(model.problem!!) { model.refreshFromSchool() }
                     } else if (problem != null) {
                         SyncProblemBanner(problem)
                     }
@@ -382,9 +382,9 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             HeroLine(listOfNotNull(if (quiz) t("Quiz") else if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
                 if (leads && today && starts != null) {
                     val minutes = maxOf(Format.minutes(starts, now), 0)
-                    TagChip(
+                    Tag(
                         if (minutes < 60) t("{{count}} min left", "count" to minutes) else Format.time(starts),
-                        ink = if (exam) Theme.colors.warn else tint, fill = Theme.colors.surface, counting = true,
+                        color = if (exam) Theme.colors.warn else tint, soft = Theme.colors.surface, counting = true,
                     )
                 }
             }
@@ -510,9 +510,12 @@ private fun TonightHero(item: DeadlineItem, now: Instant) {
         Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         item.courseTitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
         item.sourceUrl?.let { url ->
-            PillButton(t("Open submission page"), Icons.AutoMirrored.Outlined.OpenInNew, Theme.colors.danger, Theme.colors.surface) {
-                navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title))
-            }
+            ActionButton(
+                t("Open submission page"),
+                { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title)) },
+                icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                danger = true,
+            )
         }
     }
 }
@@ -607,11 +610,11 @@ private fun RecentCard(items: List<RecentItem>) {
                 is RecentItem.Grade -> RecentRow(
                     item.v1.color, listOfNotNull(item.v1.title, item.v1.grade).joinToString(" · "), item.v1.courseTitle,
                     item.v1.courseId, RecentKind.GRADE to item.v1.assignmentId,
-                ) { TagChip(t("Graded"), ink = Theme.colors.ok, fill = Theme.colors.okSoft) }
+                ) { Tag(t("Graded"), color = Theme.colors.ok, soft = Theme.colors.okSoft) }
                 is RecentItem.Material -> RecentRow(
                     item.v1.color, item.v1.title, item.v1.courseTitle, item.v1.courseId,
                     RecentKind.MATERIAL to item.v1.materialId,
-                ) { TagChip(t("Material")) }
+                ) { Tag(t("Material")) }
             }
         }
     }
@@ -672,17 +675,7 @@ private fun ConnectCard(onConnect: () -> Unit) {
             t("Reads your timetable, assignments and materials from the school sites. Your password is encrypted in this device’s keystore and sent only to the school sites."),
             style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted,
         )
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(CircleShape)
-                .background(Theme.colors.accent)
-                .clickable(onClick = onConnect)
-                .padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(t("Connect with Science Tokyo"), color = Theme.colors.accentInk, fontWeight = FontWeight.SemiBold)
-        }
+        ActionButton(t("Connect with Science Tokyo"), onConnect, Modifier.fillMaxWidth())
     }
 }
 

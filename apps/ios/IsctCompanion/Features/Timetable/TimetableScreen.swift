@@ -157,10 +157,8 @@ struct TimetableScreen: View {
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 16)
                 .frame(height: 40)
-                .background(Theme.accentSoft, in: Capsule())
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(Theme.accent)
+        .buttonStyle(CapsuleButtonStyle(level: .secondary))
         .disabled(atThisWeek)
         .opacity(atThisWeek ? 0.35 : 1)
         .accessibilityLabel(t("Back to this week"))

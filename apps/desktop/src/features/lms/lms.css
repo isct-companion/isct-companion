@@ -209,7 +209,6 @@
 .lmsFileDocument > .lmsDocumentHeading { display: none; }
 .lmsFileDocument > .lmsRichContent { margin: 20px; }
 .lmsOfficialHost { position: relative; flex: 1; min-height: 300px; }
-.lmsViewerEmpty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px; color: var(--muted); text-align: center; }
 
 /* Status / toolbar bar: banner above the outline, or flush bar inside the pane. */
 .lmsSourceBar {
@@ -401,9 +400,7 @@
 .lmsAssignmentTitle { flex: 1; min-width: 0; }
 .lmsAssignmentTitle h4 { margin: 0; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 600; line-height: 1.45; }
 .lmsAssignmentTitle time { display: block; margin-top: 2px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
-.lmsAssignmentState { flex: 0 0 auto; padding: 2px 7px; border-radius: 6px; background: var(--surface-3); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-weight: 600; white-space: nowrap; }
-.lmsAssignmentState.done, .lmsAssignmentState.graded { background: var(--ok-soft); color: var(--ok); }
-.lmsAssignmentState.missed { background: var(--danger-soft); color: var(--danger); }
+.lmsAssignmentState { flex: 0 0 auto; }
 .lmsAssignmentGrade { margin-left: 6px; font-variant-numeric: tabular-nums; }
 .lmsAssignmentBody { margin: 10px 0 0 18px; padding-top: 10px; border-top: 1px solid var(--line); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.75; animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
 .lmsAssignmentCard > footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin: 10px 0 0 18px; }

@@ -78,6 +78,7 @@ import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.SharedFile
 import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.WebRouter
+import app.isctcompanion.design.ActionButton
 import app.isctcompanion.design.DeadlineRow
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
@@ -280,30 +281,24 @@ fun HandInCard(assignment: AssignmentDetail) {
             }
             Spacer(Modifier.weight(1f))
             if (files.isNotEmpty()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(Theme.colors.accent)
-                        .clickable(enabled = !working) {
-                            scope.launch {
-                                working = true
-                                try {
-                                    val url = model.handIn(id)
-                                    navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title))
-                                } catch (failure: Exception) {
-                                    error = AppModel.describe(failure)
-                                } finally {
-                                    working = false
-                                }
+                ActionButton(
+                    t("Upload to LMS"),
+                    {
+                        scope.launch {
+                            working = true
+                            try {
+                                val url = model.handIn(id)
+                                navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title))
+                            } catch (failure: Exception) {
+                                error = AppModel.describe(failure)
+                            } finally {
+                                working = false
                             }
                         }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, tint = Theme.colors.accentInk, modifier = Modifier.size(16.dp))
-                    Text(t("Upload to LMS"), color = Theme.colors.accentInk, fontWeight = FontWeight.SemiBold)
-                }
+                    },
+                    icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                    enabled = !working,
+                )
             }
         }
     }

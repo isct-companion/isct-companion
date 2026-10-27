@@ -1,9 +1,10 @@
+import { History, Server, ServerOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../app/native";
 import type { AgentConnection } from "../../platform/desktop-bridge";
-import { SegmentedControl } from "../../components/ui";
+import { SegmentedControl, EmptyState } from "../../components/ui";
 import { UiButton } from "../../components/ui";
 import {
   Row,
@@ -114,14 +115,15 @@ export function AgentSettings({
               />
             </>
           ) : (
-            <p
-              className="paneEmpty"
+            <EmptyState
+              compact
+              icon={connection?.state === "failed" ? ServerOff : Server}
               role={connection?.state === "failed" ? "alert" : "status"}
             >
               {connection?.state === "failed"
                 ? `${t("MCP server is unavailable.")} ${connection.error}`
                 : t("Loading…")}
-            </p>
+            </EmptyState>
           )}
         </SettingsGroup>
       )}
@@ -142,7 +144,9 @@ export function AgentSettings({
               ))}
             </div>
           ) : (
-            <p className="paneEmpty">{t("No changes by agents yet.")}</p>
+            <EmptyState compact icon={History}>
+              {t("No changes by agents yet.")}
+            </EmptyState>
           )}
         </SettingsGroup>
       )}

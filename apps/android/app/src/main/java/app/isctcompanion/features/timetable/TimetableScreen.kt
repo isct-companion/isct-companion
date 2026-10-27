@@ -35,10 +35,8 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.EditCalendar
 import androidx.compose.material.icons.outlined.IosShare
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -83,8 +81,12 @@ import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TimetableAxis
 import app.isctcompanion.core.TimetableYear
 import app.isctcompanion.core.TodayPhase
+import app.isctcompanion.design.ActionButton
+import app.isctcompanion.design.ButtonLevel
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.GuideTip
+import app.isctcompanion.design.Tag
+import app.isctcompanion.design.TagVariant
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseColor
@@ -200,22 +202,12 @@ private val Occurrence.isBlock: Boolean
 @Composable
 private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: () -> Unit, toToday: () -> Unit) {
     Column(Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier
-                .clip(CircleShape)
-                .background(Theme.colors.accentSoft)
-                .clickable(onClick = openPicker)
-                .padding(horizontal = 10.dp, vertical = 5.dp)
-                .semantics { contentDescription = t("Choose a week") },
-        ) {
-            Icon(Icons.Outlined.CalendarMonth, null, tint = Theme.colors.accent, modifier = Modifier.size(16.dp))
-            Text(
-                chip, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.accent,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-        }
+        // The way into the week picker, a secondary button.
+        ActionButton(
+            chip, openPicker,
+            Modifier.semantics { contentDescription = t("Choose a week") },
+            level = ButtonLevel.Secondary, icon = Icons.Outlined.CalendarMonth,
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             val friday = monday.plusDays(4)
             Box(Modifier.weight(1f)) {
@@ -229,15 +221,11 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
             term?.let { ExportButton(it) }
             // 今日 rests while this week is shown, which doubles as "you are here".
             val atThisWeek = monday == thisWeek()
-            FilledTonalButton(
-                onClick = toToday, enabled = !atThisWeek,
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = Theme.colors.accentSoft, contentColor = Theme.colors.accent,
-                    disabledContainerColor = Theme.colors.accentSoft.copy(alpha = 0.35f),
-                    disabledContentColor = Theme.colors.accent.copy(alpha = 0.35f),
-                ),
-                modifier = Modifier.semantics { contentDescription = t("Back to this week") },
-            ) { Text(t("Today"), fontWeight = FontWeight.SemiBold) }
+            ActionButton(
+                t("Today"), toToday,
+                Modifier.semantics { contentDescription = t("Back to this week") },
+                level = ButtonLevel.Secondary, enabled = !atThisWeek,
+            )
         }
     }
 }
@@ -533,15 +521,11 @@ private fun Block(
  * 小テスト is outlined. */
 @Composable
 private fun ExamTag(quiz: Boolean, tint: Color) {
-    val shape = RoundedCornerShape(Theme.radiusChip)
-    Text(
-        if (quiz) t("Quiz") else t("Exam"),
-        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 1,
-        color = if (quiz) courseMix(tint, Theme.tintInk, Theme.colors.ink) else Theme.onSolid,
-        modifier = Modifier
-            .then(if (quiz) Modifier.border(1.dp, tint, shape) else Modifier.background(tint, shape))
-            .padding(horizontal = 4.dp),
-    )
+    if (quiz) {
+        Tag(t("Quiz"), color = tint, variant = TagVariant.Outline, ink = courseMix(tint, Theme.tintInk, Theme.colors.ink))
+    } else {
+        Tag(t("Exam"), color = tint, variant = TagVariant.Solid)
+    }
 }
 
 /** The first of several rooms joined by commas; every room stays on the course page. */

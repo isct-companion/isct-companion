@@ -296,10 +296,8 @@ struct HandInCard: View {
                             .font(.subheadline.weight(.semibold))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .foregroundStyle(Theme.accentInk)
-                            .background(Theme.accent, in: Capsule())
                     }
-                    .buttonStyle(PressableStyle())
+                    .buttonStyle(CapsuleButtonStyle())
                     .disabled(working)
                 }
             }

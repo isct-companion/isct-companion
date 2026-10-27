@@ -101,7 +101,7 @@ export function ClassGroupPrompt({
             {t("Later")}
           </Button>
           {(["red", "white"] as const).map((group) => (
-            <Button key={group} onClick={() => choose(group)}>
+            <Button key={group} variant="light" onClick={() => choose(group)}>
               {classGroupLabel(group)}
             </Button>
           ))}

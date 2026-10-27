@@ -501,12 +501,10 @@ private struct TonightHero: View {
                 } label: {
                     Label(t("Open submission page"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(Theme.accentInk)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(Theme.danger, in: Capsule())
                 }
-                .buttonStyle(PressableStyle())
+                .buttonStyle(CapsuleButtonStyle(level: .danger))
             }
         }
         .padding(18)
@@ -733,15 +731,17 @@ struct ProblemBanner: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        // One line and one way out (slotledger `approach/feedback-banner-toast`).
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
-            Text(text).font(.subheadline).foregroundStyle(Theme.ink)
+            Text(text).font(.subheadline).foregroundStyle(Theme.ink).lineLimit(2)
             Spacer()
-            Button {
+            Button(t("Retry")) {
                 model.dismissProblem()
-            } label: {
-                Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
+                model.refreshFromSchool()
             }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Theme.accent)
         }
         .padding(14)
         .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
@@ -765,10 +765,8 @@ private struct ConnectCard: View {
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .foregroundStyle(Theme.accentInk)
-                    .background(Theme.accent, in: Capsule())
             }
-            .buttonStyle(PressableStyle())
+            .buttonStyle(CapsuleButtonStyle())
         }
         .padding(18)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
@@ -786,15 +784,17 @@ struct UndoToast: View {
                 Button(t("Undo")) { Task { await model.undoHide() } }.fontWeight(.semibold)
             }
             .font(.subheadline)
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.ink)
+            .tint(Theme.accent)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.black.opacity(0.85), in: Capsule())
-            .padding(.horizontal, 16)
+            // A floating layer takes the system material, not a black pill.
+            .floatingGlass(in: Capsule())
+            .padding(.horizontal, Theme.gutter)
             .padding(.bottom, 8)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(4))
                 model.dismissUndo()
             }
         }

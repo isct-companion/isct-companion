@@ -48,10 +48,10 @@ import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.HtmlText
 import app.isctcompanion.design.MaterialButton
-import app.isctcompanion.design.PillButton
+import app.isctcompanion.design.ActionButton
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.TabPage
-import app.isctcompanion.design.TagChip
+import app.isctcompanion.design.Tag
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import app.isctcompanion.design.toneColors
@@ -147,9 +147,11 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
             }
         }
         assignment.sourceUrl?.let { url ->
-            PillButton(t("Submit in LMS"), Icons.AutoMirrored.Outlined.OpenInNew, Theme.colors.accent) {
-                navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title))
-            }
+            ActionButton(
+                t("Submit in LMS"),
+                { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title)) },
+                icon = Icons.AutoMirrored.Outlined.OpenInNew,
+            )
         }
     }
 }
@@ -161,5 +163,5 @@ private fun AssignmentState(assignment: AssignmentDetail) {
     val done = assignment.submission in setOf("submitted", "graded")
     val past = Format.date(assignment.dueAt)?.isBefore(now) == true
     val (ink, fill) = toneColors(if (done) "done" else if (past) "past" else "soon")
-    TagChip(if (done) assignment.grade ?: t("Submitted") else Format.countdown(assignment.dueAt, now), ink, fill)
+    Tag(if (done) assignment.grade ?: t("Submitted") else Format.countdown(assignment.dueAt, now), color = ink, soft = fill)
 }

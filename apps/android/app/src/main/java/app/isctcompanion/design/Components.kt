@@ -2,6 +2,7 @@ package app.isctcompanion.design
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,10 +51,12 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
@@ -75,9 +79,9 @@ fun androidx.compose.ui.text.TextStyle.tabular() = merge(tabular)
 @Composable
 fun DeadlineChip(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label) {
     val (ink, fill) = toneColors(if (item.submitted) "done" else item.tone)
-    Chip(
+    Tag(
         if (item.submitted) item.grade ?: t("Submitted") else Format.countdown(item.dueAt, now, overdueStyle),
-        ink, fill,
+        color = ink, soft = fill,
     )
 }
 
@@ -105,23 +109,52 @@ fun ExamConflictLabel(conflict: ExamConflict) {
     }
 }
 
-/** Small text chip (`今日`, `資料`, `採点済`). */
-@Composable
-fun TagChip(text: String, ink: Color = Theme.colors.accent, fill: Color = Theme.colors.accentSoft, counting: Boolean = false) =
-    Chip(text, ink, fill, counting)
+/** How a [Tag] is drawn (slotledger `approach/chip-variants`). */
+enum class TagVariant {
+    /** The role's soft fill and its colour as text: the default. */
+    Soft,
+    /** A line in the role's colour, such as a quiz. */
+    Outline,
+    /** The role's colour as the fill: an exam only. */
+    Solid,
+}
 
-/** `counting` rolls the figures as they change (`CountingText`). */
+/** The one small label (`今日`, `資料`, `採点済`, a deadline, 試験). A role
+ * is [color] with its [soft] fill: neutral (muted / surface2), accent, ok,
+ * warn, danger, or a course colour. [ink] is the text of an outline tag,
+ * [onSolid] of a solid one. Never a bare count. `counting` rolls the figures
+ * as they change (`CountingText`). */
 @Composable
-private fun Chip(text: String, ink: Color, fill: Color, counting: Boolean = false) {
-    val shape = Modifier
-        .clip(RoundedCornerShape(Theme.radiusChip))
-        .background(fill)
-        .padding(horizontal = 7.dp, vertical = 3.dp)
+fun Tag(
+    text: String,
+    color: Color = Theme.colors.accent,
+    soft: Color = Theme.colors.accentSoft,
+    variant: TagVariant = TagVariant.Soft,
+    ink: Color = color,
+    onSolid: Color = Theme.onSolid,
+    counting: Boolean = false,
+) {
+    val shape = RoundedCornerShape(Theme.radiusChip)
+    val box = Modifier
+        .clip(shape)
+        .then(
+            when (variant) {
+                TagVariant.Soft -> Modifier.background(soft)
+                TagVariant.Outline -> Modifier.border(1.dp, color, shape)
+                TagVariant.Solid -> Modifier.background(color)
+            },
+        )
+        .padding(horizontal = 6.dp, vertical = 2.dp)
+    val tone = when (variant) {
+        TagVariant.Soft -> color
+        TagVariant.Outline -> ink
+        TagVariant.Solid -> onSolid
+    }
     val style = MaterialTheme.typography.labelSmall.tabular()
     if (counting) {
-        CountingText(text, shape, style = style, color = ink, fontWeight = FontWeight.SemiBold)
+        CountingText(text, box, style = style, color = tone, fontWeight = FontWeight.SemiBold)
     } else {
-        Text(text, style = style, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1, modifier = shape)
+        Text(text, style = style, fontWeight = FontWeight.SemiBold, color = tone, maxLines = 1, modifier = box)
     }
 }
 
@@ -274,37 +307,75 @@ fun MaterialRow(item: MaterialItem) {
         if (opener.opening) {
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
         } else if (item.addedToday) {
-            TagChip(t("Added today"))
+            Tag(t("Added today"))
         }
     }
 }
 
-/** A label on a filled capsule; [ink] is the text colour for [fill]
- * (accent-ink on the accent, the surface colour on a status fill). */
+/** A button's level (slotledger `approach/button-hierarchy`). */
+enum class ButtonLevel {
+    /** Accent fill: at most one on a screen. */
+    Primary,
+    /** Accent-soft fill, such as 今日 on the timetable. */
+    Secondary,
+    /** Accent text alone. */
+    Text,
+}
+
+/** The app's capsule button. [danger] puts the danger role in the accent's
+ * place for a destructive action. */
 @Composable
-fun PillButton(
+fun ActionButton(
     title: String,
-    icon: ImageVector?,
-    fill: Color,
-    ink: Color = Theme.colors.accentInk,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    level: ButtonLevel = ButtonLevel.Primary,
+    icon: ImageVector? = null,
+    danger: Boolean = false,
+    enabled: Boolean = true,
 ) {
+    val colors = Theme.colors
+    val role = if (danger) colors.danger else colors.accent
+    val (fill, ink) = when (level) {
+        ButtonLevel.Primary -> role to (if (danger) colors.surface else colors.accentInk)
+        ButtonLevel.Secondary -> (if (danger) colors.dangerSoft else colors.accentSoft) to role
+        ButtonLevel.Text -> Color.Transparent to role
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        modifier = modifier
             .clip(CircleShape)
             .background(fill)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .alpha(if (enabled) 1f else 0.35f),
     ) {
         icon?.let { Icon(it, null, tint = ink, modifier = Modifier.size(18.dp)) }
-        Text(title, color = ink, fontWeight = FontWeight.SemiBold)
+        Text(title, color = ink, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
+/** An empty list or page: a muted system icon, one line, and at most one
+ * action (slotledger `approach/empty-state`). */
 @Composable
-fun ProblemBanner(text: String) {
+fun EmptyState(icon: ImageVector, text: String, modifier: Modifier = Modifier, action: Pair<String, () -> Unit>? = null) {
+    Column(
+        modifier.fillMaxWidth().padding(vertical = 32.dp, horizontal = Theme.gutter),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, null, tint = Theme.colors.muted, modifier = Modifier.size(40.dp))
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, textAlign = TextAlign.Center)
+        action?.let { (title, run) -> ActionButton(title, run, level = ButtonLevel.Secondary) }
+    }
+}
+
+/** A problem that stops the page: one line on the danger tint at the top,
+ * with Retry when the page can try again (slotledger
+ * `approach/feedback-banner-toast`). */
+@Composable
+fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
     val model = LocalModel.current
     Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -319,6 +390,9 @@ fun ProblemBanner(text: String) {
             text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink,
             modifier = Modifier.weight(1f).padding(vertical = 10.dp),
         )
+        onRetry?.let { retry ->
+            TextButton(onClick = retry) { Text(t("Retry"), fontWeight = FontWeight.SemiBold, color = Theme.colors.danger) }
+        }
         IconButton(onClick = { model.dismissProblem() }) {
             Icon(Icons.Outlined.Close, t("Close"), tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         }

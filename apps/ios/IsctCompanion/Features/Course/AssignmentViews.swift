@@ -123,10 +123,8 @@ struct AssignmentBody: View {
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .foregroundStyle(Theme.accentInk)
-                        .background(Theme.accent, in: Capsule())
                 }
-                .buttonStyle(PressableStyle())
+                .buttonStyle(CapsuleButtonStyle())
             }
         }
     }

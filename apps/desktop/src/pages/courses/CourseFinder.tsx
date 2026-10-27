@@ -1,5 +1,6 @@
+import { LoaderCircle, SearchX } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Paper } from "../../components/ui";
+import { Paper, EmptyState } from "../../components/ui";
 import { useEffect, useRef, useState } from "react";
 
 import { UiButton } from "../../components/ui";
@@ -670,11 +671,12 @@ export function CourseFinder({
         onClick={() => setOpen(false)}
       >
         {enabled && !view && !error && (
-          <div className="empty">{t("Loading…")}</div>
+          <EmptyState icon={LoaderCircle} role="status">
+            {t("Loading…")}
+          </EmptyState>
         )}
         {view && total === 0 && (
-          <div className="empty finderEmpty">
-            <span>
+          <EmptyState icon={SearchX}>
               {firstDownload
                 ? t(
                     "Downloading the {{year}} course catalog. Results appear when it is saved.",
@@ -687,8 +689,7 @@ export function CourseFinder({
                     : t(
                         "No matching courses. Remove a condition to widen the search.",
                       )}
-            </span>
-          </div>
+          </EmptyState>
         )}
         <div
           style={{ height: virtualRows.getTotalSize(), position: "relative" }}

@@ -61,30 +61,29 @@ button:disabled {
   line-height: 1;
   text-decoration: none;
 }
+/* Three kinds (slotledger approach/button-hierarchy): primary is the accent
+   fill, at most one per page or dialog (variant "filled"); secondary is the
+   accent tint ("default", "light"); text is accent text only ("subtle").
+   A destructive button swaps danger in for the accent. */
 .uiButton:not(:disabled):hover {
-  background: color-mix(in srgb, var(--accent) 88%, black);
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
 }
-.uiButton[data-variant="default"] {
-  background: var(--surface);
-  color: var(--ink);
-  border-color: var(--line);
+.uiButton:is([data-variant="default"], [data-variant="light"]) {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
-.uiButton[data-variant="default"]:not(:disabled):hover {
-  background: var(--surface-3);
+.uiButton:is(
+    [data-variant="default"],
+    [data-variant="light"]
+  ):not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--accent-soft));
 }
 .uiButton[data-variant="subtle"] {
   background: transparent;
   color: var(--accent);
 }
-.uiButton[data-variant="light"] {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 .uiButton[data-variant="subtle"]:not(:disabled):hover {
   background: var(--accent-soft);
-}
-.uiButton[data-variant="light"]:not(:disabled):hover {
-  background: color-mix(in srgb, var(--accent) 10%, var(--accent-soft));
 }
 .uiButton[data-color="red"] {
   --accent: var(--danger);
@@ -94,8 +93,10 @@ button:disabled {
   --accent: var(--warn);
   --accent-soft: var(--warn-soft);
 }
+/* A quiet way out ("Later", an icon): muted text, no tint. */
 .uiButton[data-color="gray"] {
-  color: var(--muted);
+  --accent: var(--muted);
+  --accent-soft: var(--surface-3);
 }
 .uiButton[data-size^="compact"] {
   min-height: 22px;
@@ -170,36 +171,65 @@ button:disabled {
 .uiText:is([data-color="yellow"], [data-color="orange"]) {
   color: var(--warn);
 }
-.uiBadge {
+/* The one tag (slotledger approach/chip-variants): a soft role tint by
+   default, an outline, or solid (an exam, in its course colour). No
+   uppercase, and never a bare count. */
+.uiTag {
+  --tag: var(--muted);
+  --tag-soft: var(--surface-3);
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  min-height: 1.6em;
+  padding: 0 6px;
   border: 0;
-  border-radius: 100px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: calc(var(--type-tick-size) * var(--text));
-  font-weight: 700;
+  border-radius: var(--radius-chip);
+  background: var(--tag-soft);
+  color: var(--tag);
+  font: inherit;
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: var(--type-block-weight);
+  font-variant-numeric: tabular-nums;
   line-height: 1.5;
-  text-transform: uppercase;
   white-space: nowrap;
 }
-.uiBadge[data-color="gray"] {
-  background: var(--surface-3);
-  color: var(--muted);
+.uiTag[data-role="accent"] {
+  --tag: var(--accent);
+  --tag-soft: var(--accent-soft);
 }
-.uiBadge[data-color="red"],
+.uiTag[data-role="ok"] {
+  --tag: var(--ok);
+  --tag-soft: var(--ok-soft);
+}
+.uiTag[data-role="warn"] {
+  --tag: var(--warn);
+  --tag-soft: var(--warn-soft);
+}
+.uiTag[data-role="danger"] {
+  --tag: var(--danger);
+  --tag-soft: var(--danger-soft);
+}
+.uiTag[data-role="course"] {
+  --tag: color-mix(in srgb, var(--course) var(--course-tint-ink), var(--ink));
+  --tag-soft: color-mix(
+    in srgb,
+    var(--course) var(--course-tint-fill),
+    var(--surface)
+  );
+}
+.uiTag[data-variant="outline"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tag);
+}
+.uiTag[data-variant="solid"] {
+  background: var(--course, var(--tag));
+  color: var(--course-on-solid);
+}
+button.uiTag:not(:disabled):hover {
+  filter: brightness(0.97);
+}
 .uiAlert[data-color="red"] {
   background: var(--danger-soft);
   color: var(--danger);
-}
-.uiBadge[data-color="green"] {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-.uiBadge[data-color="yellow"] {
-  background: var(--warn-soft);
-  color: var(--warn);
 }
 .uiAlert {
   padding: 16px;
@@ -393,13 +423,17 @@ textarea.uiInput {
   font-size: calc(var(--type-note-size) * var(--text));
   padding: 3px 7px;
 }
+/* A filter chip is a control, but sized and lettered as a tag. */
 .uiChip {
+  min-height: 1.6em;
+  padding: 0 6px;
   border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 3px 9px;
+  border-radius: var(--radius-chip);
   background: var(--surface);
   color: var(--ink);
-  font-size: calc(var(--type-note-size) * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: var(--type-block-weight);
+  line-height: 1.5;
 }
 .uiChip:not(:disabled):hover {
   border-color: var(--line-strong);
@@ -610,15 +644,18 @@ textarea.uiInput {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* Transient results and undo: one line and one action at the bottom of the
+   window, gone after 4 s (app/notify.ts). */
 .appNotifications {
   position: fixed;
   bottom: 16px;
-  right: 16px;
+  left: 50%;
   z-index: 500;
   margin: 0;
   padding: 0;
-  width: 440px;
-  max-width: calc(100vw - 32px);
+  width: max-content;
+  max-width: min(440px, calc(100vw - 32px));
+  transform: translateX(-50%);
   list-style: none;
   outline: none;
 }
@@ -627,7 +664,7 @@ textarea.uiInput {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 10px 12px 10px 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   background: var(--surface);
@@ -637,14 +674,13 @@ textarea.uiInput {
 }
 .uiToastAction {
   flex: none;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--accent-soft);
   color: var(--accent);
   font: inherit;
   font-weight: 600;
-  cursor: pointer;
 }
 .uiToastClose {
   border: 0;
@@ -667,4 +703,64 @@ textarea.uiInput {
     transition: none;
     animation: none;
   }
+}
+
+/* The one empty state (EmptyState): a muted icon, one line, at most one
+   action, centred. Compact sits inside a list or a narrow pane. */
+.uiEmpty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 16px;
+  color: var(--muted);
+  text-align: center;
+}
+.uiEmpty > p {
+  margin: 0;
+  max-width: 36ch;
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.uiEmpty[data-compact] {
+  flex: none;
+  gap: 6px;
+  padding: 16px 8px;
+}
+.uiEmpty[data-compact] > p {
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+
+/* An error that makes a page or panel unusable (ErrorBanner): danger-soft,
+   one line, one Retry, at the top of what it blocks. */
+.uiBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-surface);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.uiBanner > svg {
+  flex: none;
+}
+.uiBanner > p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--type-row-size) * var(--text));
+}
+.uiBannerAction {
+  flex: none;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--danger) 12%, var(--danger-soft));
+  color: var(--danger);
+  font-weight: 600;
 }

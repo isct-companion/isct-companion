@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { t } from "../../i18n";
-import { UiButton } from "../ui";
+import { UiButton, EmptyState } from "../ui";
 import type { Assignment } from "../../lib/model";
 import type { AssignmentGroups } from "../../generated/persistence";
 
@@ -72,7 +72,7 @@ export function AssignmentGroupList({
     !earlier.length;
   return (
     <>
-      {nothing && <p className="quietEmpty compact">{empty}</p>}
+      {nothing && <EmptyState compact>{empty}</EmptyState>}
       {group("pinned", t("Pinned"), pinned)}
       {group(
         "thisWeek",

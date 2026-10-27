@@ -103,6 +103,35 @@ enum Format {
     }
 }
 
+/// The one tag (slotledger `approach/chip-variants`): soft by default, an
+/// outline (a quiz), or solid (an exam only), in a role's colours.
+struct Tag: View {
+    enum Style { case soft, outline, solid }
+    let text: String
+    var style: Style = .soft
+    /// The role's strong colour and its soft fill.
+    var ink: Color = Theme.accent
+    var fill: Color = Theme.accentSoft
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous)
+        Text(text)
+            .font(.block.monospacedDigit())
+            .lineLimit(1)
+            .foregroundStyle(style == .solid ? Theme.onSolid : ink)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background {
+                switch style {
+                case .soft: shape.fill(fill)
+                case .solid: shape.fill(ink)
+                case .outline: shape.strokeBorder(ink, lineWidth: 1)
+                }
+            }
+            .fixedSize()
+    }
+}
+
 /// Deadline chip: one per row, coloured by Core's tone.
 struct DeadlineChip: View {
     let item: DeadlineItem
@@ -111,13 +140,8 @@ struct DeadlineChip: View {
 
     var body: some View {
         let (ink, fill) = Self.colors(item.submitted ? "done" : item.tone)
-        Text(item.submitted ? (item.grade ?? t("Submitted")) : Format.countdown(item.dueAt, now: now, overdueStyle: overdueStyle))
-            .font(.caption.weight(.semibold).monospacedDigit())
-            .foregroundStyle(ink)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(fill, in: RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous))
-            .fixedSize()
+        Tag(text: item.submitted ? (item.grade ?? t("Submitted")) : Format.countdown(item.dueAt, now: now, overdueStyle: overdueStyle),
+            ink: ink, fill: fill)
     }
 
     static func colors(_ tone: String) -> (Color, Color) {
@@ -130,20 +154,12 @@ struct DeadlineChip: View {
     }
 }
 
-/// Small text chip (`Today`, `Material`, `Graded`).
+/// Small text tag (`Today`, `Material`, `Graded`).
 struct TagChip: View {
     let text: String
     var ink: Color = Theme.accent
     var fill: Color = Theme.accentSoft
-    var body: some View {
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(ink)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(fill, in: RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous))
-            .fixedSize()
-    }
+    var body: some View { Tag(text: text, ink: ink, fill: fill) }
 }
 
 /// Core's `ExamConflict` on an exam row: the published exam changed after the

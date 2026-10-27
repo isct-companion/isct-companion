@@ -2,19 +2,17 @@ import { notifications } from "./notifications";
 import { t } from "../i18n";
 import { errorText } from "./shared";
 
-const show = (
-  message: string,
-  action?: { label: string; run: () => void },
-  autoClose = 2800,
-) => {
+/** Every transient notice is one line and at most one action, for 4 s
+ * (slotledger approach/feedback-banner-toast). */
+const NOTICE_MS = 4000;
+const show = (message: string, action?: { label: string; run: () => void }) => {
   notifications.hide("workspace-notice");
   notifications.show({
     id: "workspace-notice",
     message,
     action,
-    autoClose,
+    autoClose: NOTICE_MS,
     withCloseButton: false,
-    classNames: { root: "workspaceNotice", description: "workspaceNoticeText" },
   });
 };
 let changedItems = 0;
@@ -28,12 +26,8 @@ export const notify = {
       notifications.show({
         id: "school-update",
         message: t("Updated {{count}} items", { count: changedItems }),
-        autoClose: 1800,
+        autoClose: NOTICE_MS,
         withCloseButton: false,
-        classNames: {
-          root: "workspaceNotice",
-          description: "workspaceNoticeText",
-        },
       });
       changedItems = 0;
     }, 600);
@@ -41,7 +35,7 @@ export const notify = {
   info: (message: string) => show(t(message)),
   /** A finished change with a button that reverses it. */
   undoable: (message: string, undo: () => void) =>
-    show(t(message), { label: t("Undo"), run: undo }, 6000),
+    show(t(message), { label: t("Undo"), run: undo }),
   error: (error: unknown, retry?: () => void) => {
     const message = t(errorText(error) ?? "unknown error");
     show(message, retry && { label: t("Retry saving"), run: retry });

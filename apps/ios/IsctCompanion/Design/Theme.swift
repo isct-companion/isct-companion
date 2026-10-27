@@ -42,6 +42,12 @@ enum Theme {
     static let tintExam = IsctTokens.courseTintExam
     static let tintInk = IsctTokens.courseTintInk
 
+    /// Motion lengths (design/tokens `motion`); springs of about these
+    /// durations never overshoot.
+    static let motionFast = IsctTokens.motionDurationFast
+    static let motionBase = IsctTokens.motionDurationBase
+    static let motionSlow = IsctTokens.motionDurationSlow
+
     /// The course colour mixed into `base` as a solid colour, as desktop's
     /// `color-mix`, so rules and bands under a block never show through.
     static func mix(_ course: Color, _ share: Double, into base: Color) -> Color {
@@ -83,6 +89,30 @@ struct Card<Content: View>: View {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
+    }
+}
+
+/// The three button levels (slotledger `approach/button-hierarchy`): one
+/// solid accent button per screen, accent-soft for standing actions, plain
+/// accent text for the rest; danger replaces the accent for destructive ones.
+struct CapsuleButtonStyle: ButtonStyle {
+    enum Level { case primary, secondary, danger }
+    var level: Level = .primary
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(level == .secondary ? Theme.accent : Theme.accentInk)
+            .background(fill, in: Capsule())
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.snappy(duration: Theme.motionFast), value: configuration.isPressed)
+    }
+
+    private var fill: Color {
+        switch level {
+        case .primary: Theme.accent
+        case .secondary: Theme.accentSoft
+        case .danger: Theme.danger
+        }
     }
 }
 

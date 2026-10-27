@@ -1,7 +1,8 @@
+import { CalendarPlus } from "lucide-react";
 import { COURSE_PALETTE } from "../../generated/persistence";
 import { tokyoDate } from "../../lib/civil-date";
 import { t } from "../../i18n";
-import { UiButton, UiInput, UiSelect } from "../../components/ui";
+import { UiButton, UiInput, UiSelect, EmptyState } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { useState, type FormEvent } from "react";
@@ -393,9 +394,9 @@ export function CourseEditor({
                 </div>
               ))}
               {!rows.length && (
-                <div className="empty small">
+                <EmptyState compact icon={CalendarPlus}>
                   {t("No meetings. Add one above.")}
-                </div>
+                </EmptyState>
               )}
             </div>
             {error && (

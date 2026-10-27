@@ -138,7 +138,11 @@ export function ExamEditor({
                 })}
               </p>
               <div className="examEditorActions">
-                <Button disabled={saving} onClick={() => settle(source)}>
+                <Button
+                  variant="light"
+                  disabled={saving}
+                  onClick={() => settle(source)}
+                >
                   {t("Use published")}
                 </Button>
                 <Button

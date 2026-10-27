@@ -1,9 +1,10 @@
+import { CalendarCheck } from "lucide-react";
 import { ExamCards } from "../../components/exams/ExamCards";
 import { DueChip } from "../../components/DueChip";
 import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
-import { UiButton } from "../../components/ui";
+import { UiButton, EmptyState } from "../../components/ui";
 import {
   contentLanguage,
   pickLocalized,
@@ -439,9 +440,9 @@ export function TodayBody({
               )}
             {!blocks.length && (
               <>
-                <p className="quietEmpty compact">
+                <EmptyState compact icon={CalendarCheck}>
                   {t(isToday ? "Nothing scheduled today" : "Nothing scheduled")}
-                </p>
+                </EmptyState>
                 {nextClass && (
                   <UiButton
                     className={`dayAgendaRow focus nextClass${selection?.courseId === nextClass.id && !selection.assignmentId ? " selected" : ""}`}

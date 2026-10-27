@@ -650,7 +650,12 @@ export function MultiSelect({
         {data
           .filter((item) => value.includes(item.value))
           .map((item) => (
-            <span className="uiBadge" key={item.value}>
+            <span
+              className="uiTag"
+              data-variant="soft"
+              data-role="accent"
+              key={item.value}
+            >
               {item.label}
             </span>
           ))}

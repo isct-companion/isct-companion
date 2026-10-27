@@ -281,41 +281,6 @@ summary,
   width: 240px;
   background: var(--surface-2);
 }
-.empty {
-  padding: 40px 16px;
-  text-align: center;
-  color: var(--muted);
-}
-.empty.small {
-  padding: 22px 12px;
-  font-size: calc(var(--type-note-size) * var(--text));
-}
-.appNotifications[data-position="bottom-center"] {
-  bottom: 66px;
-  width: max-content;
-  max-width: 80vw;
-}
-.workspaceNotice {
-  background: var(--ink);
-  color: var(--bg);
-  border: 0;
-  border-radius: 9px;
-  padding: 9px 14px;
-  box-shadow: var(--shadow);
-}
-.workspaceNotice::before {
-  display: none;
-}
-.workspaceNoticeText {
-  color: var(--bg);
-  font-size: calc(var(--type-note-size) * var(--text));
-}
-/* The notice inverts the theme, so its action takes the inverted ink too. */
-.workspaceNotice .uiToastAction {
-  background: color-mix(in srgb, var(--bg) 16%, transparent);
-  color: var(--bg);
-  font-size: calc(var(--type-note-size) * var(--text));
-}
 
 /* ---------- school status ---------- */
 .schoolStatusBar {
@@ -1750,11 +1715,6 @@ summary,
 .dueRow time.overdue {
   color: var(--danger);
 }
-.quietEmpty {
-  padding: 24px 0;
-  color: var(--muted);
-  font-size: calc(var(--type-row-size) * var(--text));
-}
 .scheduleControls {
   display: flex;
   align-items: center;
@@ -1984,11 +1944,6 @@ summary,
 .courseFinder .courseListTools button {
   white-space: nowrap;
 }
-.finderEmpty {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-}
 .finderStatus .textButton,
 .finderFoot .textButton {
   border: 0;
@@ -2050,13 +2005,23 @@ summary,
   font: inherit;
   font-size: calc(var(--type-note-size) * var(--text));
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 3px 8px;
   border: 0;
-  border-left: 3px solid var(--course, var(--accent));
-  border-radius: 4px;
+  border-radius: var(--radius-chip);
   background: var(--surface-2);
   color: var(--ink);
   cursor: default;
+}
+.intensiveLane > div button::before {
+  content: "";
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--course, var(--accent));
 }
 .intensiveLane > div small {
   color: var(--muted);
@@ -2106,11 +2071,11 @@ summary,
   align-items: center;
   gap: 4px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   padding: 2px 8px;
   cursor: default;
   font: inherit;
-  font-size: calc(var(--type-note-size) * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -2489,7 +2454,6 @@ summary,
 .todayNavigation .dueAssignment time {
   font-size: calc(var(--type-tick-size) * var(--text));
 }
-.todayNavigation .quietEmpty,
 .todayNavigation .moreToggle {
   font-size: calc(var(--type-block-size) * var(--text));
 }
@@ -2631,21 +2595,10 @@ summary,
   font-size: calc(var(--type-block-size) * var(--text));
 }
 
+/* A crashed page keeps its place: the banner sits where the page's top was. */
 .pageError {
-  flex: 1;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 10px;
-  padding: 24px;
-  color: var(--ink);
-  background: var(--bg, transparent);
-}
-.pageError code {
-  max-width: 60ch;
-  white-space: pre-wrap;
-  color: var(--danger);
-  font-size: calc(var(--type-note-size) * var(--text));
+  align-self: flex-start;
+  width: 100%;
 }
 .finderAdd.replace {
   border-color: var(--warn);
@@ -2765,13 +2718,6 @@ summary,
 .moreToggle {
   justify-self: start;
   margin-top: 4px;
-}
-.quietEmpty.compact {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 14px;
-  padding: 8px 0 10px;
 }
 .nextClass time {
   display: grid;
@@ -3291,12 +3237,6 @@ summary,
   margin-top: 6px;
 }
 
-.paneEmpty {
-  padding: 28px 0;
-  color: var(--muted);
-  text-align: center;
-  font-size: calc(var(--type-note-size) * var(--text));
-}
 .row > .actions.reverse,
 .actions.reverse {
   flex-direction: row-reverse;
@@ -3775,35 +3715,6 @@ textarea.codeArea {
 }
 
 /* Remaining time before a deadline; tone rises inside three days and one day. */
-.dueChip {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 7px;
-  border-radius: var(--radius-chip);
-  background: var(--surface-3);
-  color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.dueChip.soon {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-.dueChip.urgent {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-.dueChip.done {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-.dueChip.overdue {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
 .finderLoadMore {
   display: flex;
   justify-content: center;

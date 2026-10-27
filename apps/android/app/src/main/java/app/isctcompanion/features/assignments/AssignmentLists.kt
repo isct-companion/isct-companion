@@ -25,8 +25,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import app.isctcompanion.design.EmptyState
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Visibility
@@ -110,14 +111,7 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
     group(t("Overdue"), today.pastRecent, now, Format.OverdueStyle.Elapsed)
     if (today.isEmpty()) {
         item(key = "assignments-empty") {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
-            ) {
-                Icon(Icons.Outlined.CheckCircle, null, tint = Theme.colors.muted, modifier = Modifier.size(20.dp))
-                Text(t("No unsubmitted assignments"), color = Theme.colors.muted)
-            }
+            EmptyState(Icons.Rounded.CheckCircle, t("No unsubmitted assignments"))
         }
     }
 }

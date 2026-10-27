@@ -24,6 +24,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.FolderOpen
+import app.isctcompanion.design.EmptyState
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -137,7 +140,7 @@ fun CourseDetailScreen(courseId: String) {
             if (lessons.isNotEmpty()) {
                 Lessons(courseId, content!!, lessons, assignments, detail?.files) { reread -> content = reread }
             } else if (detail != null) {
-                Text(t("No materials yet"), color = Theme.colors.muted, modifier = Modifier.padding(vertical = 24.dp).fillMaxWidth())
+                EmptyState(Icons.Rounded.FolderOpen, t("No materials yet"))
             }
         }
     }
@@ -285,7 +288,7 @@ private fun LessonPage(
             }
         }
         if (lesson.items.isEmpty() && lesson.summaryHtml.isEmpty() && work.isEmpty()) {
-            Text(t("No materials for this lesson"), color = Theme.colors.muted, modifier = Modifier.padding(vertical = 24.dp))
+            EmptyState(Icons.Rounded.Description, t("No materials for this lesson"))
         }
     }
 }
