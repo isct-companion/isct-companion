@@ -207,9 +207,15 @@ reaches Core's GET. `onCreateWindow` names no URL, so a popup is requested as
 `about:blank` and its first navigation is decided from inside it; a popup
 whose first page went to the system browser or was refused is closed.
 
+Android WebView displays no PDF, so every file a school page hands over
+reaches its `DownloadListener`, reported as `becameDownload` with `Saved`.
+`DownloadManager` saves it to Downloads with the page's cookies, so a popup
+Core then closes does not stop it. Only HTTPS files are saved, only for a
+site on screen; WebView gives no request body, so a file that answered a
+POST is fetched again with GET, and `blob:` or `data:` files are not saved.
+
 The iOS host reports `becameDownload` as `Saved`: it writes every file and
-previews it outside the web view. Android does not report it yet, so an empty
-popup whose file is saved stays open there until closed. The Windows WebView2 host
+previews it outside the web view. The Windows WebView2 host
 (`NavigationStarting`, `NewWindowRequested` with a deferral and the same
 environment, `ScriptDialogOpening`, `DownloadStarting`, its own record of
 POST entries) replaces the interim later.

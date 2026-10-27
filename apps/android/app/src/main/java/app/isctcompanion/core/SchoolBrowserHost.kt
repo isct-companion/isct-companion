@@ -2,10 +2,12 @@ package app.isctcompanion.core
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.DownloadManager
 import android.content.Context
 import android.content.MutableContextWrapper
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -14,9 +16,11 @@ import android.print.PrintManager
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.DownloadListener
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -225,6 +229,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         tabs[tab.id] = tab
         tab.webView.webViewClient = tab.client
         tab.webView.webChromeClient = tab.chrome
+        tab.webView.setDownloadListener(tab.downloads)
         revision++
         park(tab.webView)
     }
@@ -288,6 +293,34 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         if (tab === root) views.remove(root.id.site)
         revision++
     }
+
+    /** Saves an HTTPS file through DownloadManager with the page's session.
+     * The system service owns the transfer, so it finishes after the view
+     * or popup that asked is gone. WebView offers no request body, so a
+     * file that answered a POST is fetched again with GET; `blob:` and
+     * `data:` files would need a page script and are not saved. */
+    private fun save(tab: Tab, url: String, userAgent: String, contentDisposition: String?, mimeType: String?): Boolean {
+        val uri = Uri.parse(url)
+        if (uri.scheme != "https") return false
+        val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
+        val request = DownloadManager.Request(uri)
+            .setTitle(name)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+            .addRequestHeader("User-Agent", userAgent)
+        mimeType?.takeIf { it.isNotEmpty() }?.let(request::setMimeType)
+        CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
+        tab.webView.url?.takeIf { it.startsWith("https:") }?.let { request.addRequestHeader("Referer", it) }
+        return runCatching { context.getSystemService(DownloadManager::class.java).enqueue(request) }.isSuccess
+    }
+
+    /** Whether the person has `tab`'s site on screen, whichever of its pages
+     * is in front: a popup opened for a file may not be attached yet. */
+    private fun siteShown(tab: Tab): Boolean =
+        (listOf(tab.root) + tab.root.popups).any {
+            val parent = it.webView.parent
+            parent != null && parent !== parking && it.webView.isShown
+        }
 
     private fun decide(request: NavigationRequest): NavigationDecision? =
         runCatching { listener()?.navigation(request) }.getOrNull()
@@ -403,6 +436,16 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 if (tabs[id] === this@Tab) close(this@Tab)
                 return true
             }
+        }
+
+        /** WebView hands over a response it cannot show. Only a site the
+         * person is looking at saves files: Core's `download_permitted` would
+         * let a hidden view save adapter-site files, but it is not in the FFI
+         * and no hidden work on Android needs one. */
+        val downloads = DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            if (!siteShown(this) || !save(this, url, userAgent, contentDisposition, mimeType)) return@DownloadListener
+            // A popup opened only for this file has nothing left; Core closes it.
+            runCatching { listener()?.becameDownload(page, loaded, DownloadDisposition.SAVED) }
         }
 
         val chrome = object : WebChromeClient() {

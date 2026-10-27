@@ -5067,7 +5067,7 @@ checks:
 
   - id: ANDROID-SCHOOL-POPUPS
     area: native
-    title: Android school popups open over their opener and close back to it
+    title: Android school popups open over their opener, and a file popup closes once saved
     persona: undergraduate-senior
     preconditions: |
       The Android debug build of this commit on a phone, signed in to
@@ -5077,34 +5077,42 @@ checks:
           On 教務Web, open a page with a picker button (for example the 申告
           page's 科目 search, during a 申告 period). Press the button, look at
           the window that opens, then close it with its own 閉じる button
-          without choosing anything.
+          without choosing anything. Open it twice more and close it with ×
+          in the ポップアップウィンドウ bar, then with the system back gesture.
         reason: |
           教務Web's showDialog opens a named window that answers through
           `window.opener` and closes itself. It used to load in the opener's
           view, losing the opener; now it is a real WebView handed to
           WebViewTransport, shown in place of the page with a
-          ポップアップウィンドウ bar, and `window.close()` (onCloseWindow)
-          must bring the opener back unchanged. Choosing would post back to
-          the 申告 form, so the check stops before it.
+          ポップアップウィンドウ bar, and `window.close()` (onCloseWindow),
+          × and back (when the popup has no page of its own to go back to)
+          must each bring the opener back unchanged. Choosing would post back
+          to the 申告 form, so the check stops before it.
       - action: |
-          On 教務Web's top page, open 「マニュアル」, then tap × in the
-          ポップアップウィンドウ bar. Open it again and press the system back
-          gesture instead.
+          On 教務Web's top page, open 「マニュアル」 and wait for the download
+          notification. Open Files → Downloads.
         reason: |
-          A `target=_blank` PDF used to replace the page. Both the bar's ×
-          and system back (when the popup has no page of its own to go back
-          to) must close the popup and leave the page behind it as it was.
+          The manual is a `target=_blank` PDF, which WebView cannot show, so
+          it opens a popup whose only navigation becomes a download. The
+          host reports `becameDownload` (no page, saved) and Core closes the
+          empty popup at once, while DownloadManager, not the popup, carries
+          the transfer on with the session cookies.
     observe: |
-      The web screen while the popup is open, the bar above it, and the
-      opener page after closing.
+      The web screen while the picker popup is open, the bar above it, the
+      opener page after closing; for the manual, the web screen, the
+      download notification and the saved file.
     expected: |
-      Each popup fills the page area under a ポップアップウィンドウ bar with
+      The picker fills the page area under a ポップアップウィンドウ bar with
       ×; closing it by its own button, by × or by back shows the opener
-      exactly as it was, with no reload, and the bar goes.
+      exactly as it was, with no reload, and the bar goes. For the manual no
+      blank popup or bar stays on screen, the notification finishes, and
+      Downloads holds the manual as a PDF that opens (not an HTML sign-in
+      page).
     why_manual: |
-      Needs a 教務Web account and Android WebView's own windows; whether the
-      popup shows and the opener survives is seen at a glance. The
-      child-window lifecycle is Core's and tested there.
+      Needs a 教務Web account, Android WebView's own windows and the system
+      DownloadManager; whether the popup shows, the opener survives and the
+      file arrives is seen at a glance. The child-window lifecycle and the
+      close on `becameDownload` are Core's and tested there.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt
       - apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt
