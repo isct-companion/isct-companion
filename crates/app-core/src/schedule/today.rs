@@ -472,15 +472,25 @@ pub fn today_view(
                 .filter(|row| {
                     text(row, "courseId").is_some_and(|id| course_ids.iter().any(|own| own == id))
                 })
-                .filter_map(|row| material_item(workspace, row, &date))
+                .filter_map(|row| {
+                    let section = row
+                        .get("sectionNumber")
+                        .and_then(Value::as_i64)
+                        .or_else(|| row.get("session").and_then(Value::as_i64));
+                    Some((section, material_item(workspace, row, &date)?))
+                })
                 .collect();
             // Newest section first, then the most recently changed row.
-            class_materials.sort_by(|a, b| {
-                b.section
-                    .cmp(&a.section)
+            class_materials.sort_by(|(a_section, a), (b_section, b)| {
+                b_section
+                    .cmp(a_section)
                     .then_with(|| b.updated_at.cmp(&a.updated_at))
             });
-            view.class_materials = class_materials.into_iter().take(CLASS_ITEMS).collect();
+            view.class_materials = class_materials
+                .into_iter()
+                .map(|(_, item)| item)
+                .take(CLASS_ITEMS)
+                .collect();
             view.class_assignments = open
                 .into_iter()
                 .filter(|item| {
