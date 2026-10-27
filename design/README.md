@@ -16,6 +16,7 @@ yarn design:tokens
 | `tokens/course.json` | Course palette (core picks the entry) and the two tint strengths |
 | `tokens/shape.json` | Radius and spacing by role, the desktop type scale, desktop workspace metrics, font stack |
 | `tokens/motion.json` | Three durations and the desktop easing curves |
+| `tokens/theme.json` | Background themes: the neutrals of each theme, light and dark; the default (warm) is the colour files |
 | `platforms/mobile.json` | Phone values for the same roles (radius, gutter); never new names |
 | `build.mjs` | Style Dictionary config and the few custom formats |
 
@@ -31,6 +32,7 @@ Tokens use the [W3C Design Tokens (DTCG) format](https://www.designtokens.org/tr
 | `crates/app-core/src/schedule/course_palette.rs` | `display_color` in core, included by `colors.rs` |
 | `apps/ios/IsctCompanion/Design/Generated/IsctTokens*.swift` | SwiftUI shell (light constants + dark colours) |
 | `apps/android/app/src/main/java/app/isct/design/IsctTokens*.kt` | Compose shell (light constants + dark colours) |
+| `…/generated/design/themes.css`, `…/Generated/IsctThemes.swift`, `…/design/IsctThemes.kt` | The background themes as one table per shell (`data-theme` on desktop) |
 
 Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
 `yarn test` fails when one is stale (the "design tokens" suite in

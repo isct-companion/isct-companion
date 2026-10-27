@@ -74,6 +74,7 @@ struct SettingsScreen: View {
                     row(t("Backup"), backupSummary, icon: "icloud.fill", tint: Theme.accent)
                 }
             }
+            ThemeSection()
             LanguageSection()
             Section(t("Web")) {
                 Picker(selection: $textScale) {
@@ -362,6 +363,45 @@ private struct AccountScreen: View {
 
 /// The desktop's language rows: the UI language and the language of school
 /// text. Both are workspace settings, so they follow the person to desktop.
+/// Settings → the background theme: five swatches, applied at once and kept
+/// in the synced settings (slotledger `approach/neutral-themes`).
+private struct ThemeSection: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var scheme
+
+    private static let names = ["warm": "Warm", "cool": "Cool", "paper": "Paper", "mist": "Mist", "moss": "Moss"]
+
+    var body: some View {
+        let chosen = model.records.settings.text("theme") ?? "warm"
+        Section {
+            HStack(spacing: 0) {
+                Label { Text(t("Theme")) } icon: { SettingsIcon(symbol: "paintpalette", tint: Theme.accent) }
+                Spacer(minLength: 12)
+                HStack(spacing: 10) {
+                    ForEach(Theme.themes, id: \.self) { id in swatch(id, selected: id == chosen) }
+                }
+            }
+            .sensoryFeedback(.selection, trigger: chosen)
+        }
+    }
+
+    private func swatch(_ id: String, selected: Bool) -> some View {
+        let set = IsctThemes.all[id].map { scheme == .dark ? $0.dark : $0.light }
+        return Button {
+            Task { await model.updateSettings { $0["theme"] = id } }
+        } label: {
+            Circle()
+                .fill(set?.bg ?? Theme.bg)
+                .overlay { Circle().fill(set?.surface ?? Theme.surface).padding(8) }
+                .overlay { Circle().strokeBorder(selected ? Theme.accent : Theme.line, lineWidth: selected ? 2 : 1) }
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(t(Self.names[id] ?? id))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 private struct LanguageSection: View {
     @Environment(AppModel.self) private var model
 

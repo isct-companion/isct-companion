@@ -11,6 +11,51 @@ import {
 } from "../../components/forms";
 
 type Settings = Workspace["settings"];
+type ThemeId = NonNullable<Settings["theme"]>;
+
+/** Each theme's light background and surface, for its swatch. The values
+ * mirror design/tokens (color.light.json for warm, theme.json for the
+ * rest); the app itself reads them from generated/design/themes.css. */
+const themes: { id: ThemeId; title: string; bg: string; surface: string }[] = [
+  { id: "warm", title: "Warm", bg: "#f3f3f0", surface: "#ffffff" },
+  { id: "cool", title: "Cool", bg: "#f2f2f7", surface: "#ffffff" },
+  { id: "paper", title: "Paper", bg: "#f3eee4", surface: "#fffdf8" },
+  { id: "mist", title: "Mist", bg: "#edf1f6", surface: "#fbfcfe" },
+  { id: "moss", title: "Moss", bg: "#eef2ec", surface: "#fcfdfb" },
+];
+
+/** Five round swatches; choosing one applies and saves at once. */
+function ThemeSwatches({
+  value,
+  onChange,
+}: {
+  value: ThemeId;
+  onChange: (theme: ThemeId) => void;
+}) {
+  return (
+    <div className="themeSwatches" role="radiogroup" aria-label={t("Theme")}>
+      {themes.map((theme) => (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={value === theme.id}
+          aria-label={t(theme.title)}
+          title={t(theme.title)}
+          className="themeSwatch"
+          data-theme-value={theme.id}
+          key={theme.id}
+          style={
+            {
+              "--swatch-bg": theme.bg,
+              "--swatch-surface": theme.surface,
+            } as React.CSSProperties
+          }
+          onClick={() => onChange(theme.id)}
+        />
+      ))}
+    </div>
+  );
+}
 
 export function AppearanceSettings({
   data,
@@ -50,7 +95,7 @@ export function AppearanceSettings({
             onChange={(language) => set("contentLanguage", language)}
           />
         </Row>
-        <Row id="theme" group title="Theme">
+        <Row id="appearance-mode" group title="Light and dark">
           <Choice
             value={data.settings.appearance}
             options={[
@@ -59,6 +104,12 @@ export function AppearanceSettings({
               { value: "dark", label: t("Dark") },
             ]}
             onChange={(appearance) => set("appearance", appearance)}
+          />
+        </Row>
+        <Row id="theme" group title="Theme">
+          <ThemeSwatches
+            value={data.settings.theme ?? "warm"}
+            onChange={(theme) => set("theme", theme)}
           />
         </Row>
         <Row id="text-size" group title="Text size">

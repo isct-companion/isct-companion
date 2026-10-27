@@ -185,6 +185,7 @@ struct RootView: View {
         // System controls (date pickers, number formats) follow the app's
         // language rather than the phone's.
         content.environment(\.locale, Localizer.shared.locale)
+            .environment(\.isctTheme, model.records.settings.text("theme") ?? "warm")
             .quickLookPreview(Binding(get: { web.downloads.first }, set: { value in
                 if value == nil { web.dismissDownload() }
             }))

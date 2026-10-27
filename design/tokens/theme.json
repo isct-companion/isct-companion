@@ -1,0 +1,226 @@
+{
+  "theme": {
+    "$type": "color",
+    "$description": "Background themes: neutrals only (slotledger approach/neutral-themes). The default, warm, is color.light/dark.json; accent, status and course colours never change.",
+    "cool": {
+      "$description": "System cool grey",
+      "light": {
+        "bg": {
+          "$value": "#f2f2f7"
+        },
+        "surface": {
+          "$value": "#ffffff"
+        },
+        "surface-2": {
+          "$value": "#f6f6fa"
+        },
+        "surface-3": {
+          "$value": "#eeeef3"
+        },
+        "line": {
+          "$value": "#e5e5ea"
+        },
+        "line-strong": {
+          "$value": "#d1d1d6"
+        },
+        "ink": {
+          "$value": "#1c1c1e"
+        },
+        "muted": {
+          "$value": "#6d6d70"
+        }
+      },
+      "dark": {
+        "bg": {
+          "$value": "#000000"
+        },
+        "surface": {
+          "$value": "#1c1c1e"
+        },
+        "surface-2": {
+          "$value": "#212123"
+        },
+        "surface-3": {
+          "$value": "#28282a"
+        },
+        "line": {
+          "$value": "#2c2c2e"
+        },
+        "line-strong": {
+          "$value": "#3a3a3c"
+        },
+        "ink": {
+          "$value": "#f2f2f7"
+        },
+        "muted": {
+          "$value": "#969699"
+        }
+      }
+    },
+    "paper": {
+      "$description": "Paper, warm off-white",
+      "light": {
+        "bg": {
+          "$value": "#f3eee4"
+        },
+        "surface": {
+          "$value": "#fffdf8"
+        },
+        "surface-2": {
+          "$value": "#f7f3eb"
+        },
+        "surface-3": {
+          "$value": "#efe9de"
+        },
+        "line": {
+          "$value": "#e5ddcf"
+        },
+        "line-strong": {
+          "$value": "#d2cabd"
+        },
+        "ink": {
+          "$value": "#2a241b"
+        },
+        "muted": {
+          "$value": "#767167"
+        }
+      },
+      "dark": {
+        "bg": {
+          "$value": "#16130e"
+        },
+        "surface": {
+          "$value": "#211d17"
+        },
+        "surface-2": {
+          "$value": "#27221b"
+        },
+        "surface-3": {
+          "$value": "#2e2921"
+        },
+        "line": {
+          "$value": "#332d24"
+        },
+        "line-strong": {
+          "$value": "#403a31"
+        },
+        "ink": {
+          "$value": "#efe8dc"
+        },
+        "muted": {
+          "$value": "#9d978e"
+        }
+      }
+    },
+    "mist": {
+      "$description": "Mist, pale blue",
+      "light": {
+        "bg": {
+          "$value": "#edf1f6"
+        },
+        "surface": {
+          "$value": "#fbfcfe"
+        },
+        "surface-2": {
+          "$value": "#f2f5f9"
+        },
+        "surface-3": {
+          "$value": "#e8edf3"
+        },
+        "line": {
+          "$value": "#dce3ec"
+        },
+        "line-strong": {
+          "$value": "#c8d0d9"
+        },
+        "ink": {
+          "$value": "#17202b"
+        },
+        "muted": {
+          "$value": "#686f78"
+        }
+      },
+      "dark": {
+        "bg": {
+          "$value": "#10141a"
+        },
+        "surface": {
+          "$value": "#192029"
+        },
+        "surface-2": {
+          "$value": "#1e262f"
+        },
+        "surface-3": {
+          "$value": "#242d37"
+        },
+        "line": {
+          "$value": "#28313c"
+        },
+        "line-strong": {
+          "$value": "#353e49"
+        },
+        "ink": {
+          "$value": "#e6ecf3"
+        },
+        "muted": {
+          "$value": "#959aa1"
+        }
+      }
+    },
+    "moss": {
+      "$description": "Moss, pale green",
+      "light": {
+        "bg": {
+          "$value": "#eef2ec"
+        },
+        "surface": {
+          "$value": "#fcfdfb"
+        },
+        "surface-2": {
+          "$value": "#f3f6f1"
+        },
+        "surface-3": {
+          "$value": "#e8eee6"
+        },
+        "line": {
+          "$value": "#dbe3d8"
+        },
+        "line-strong": {
+          "$value": "#c8d0c5"
+        },
+        "ink": {
+          "$value": "#1b2219"
+        },
+        "muted": {
+          "$value": "#6b7169"
+        }
+      },
+      "dark": {
+        "bg": {
+          "$value": "#111510"
+        },
+        "surface": {
+          "$value": "#1a2019"
+        },
+        "surface-2": {
+          "$value": "#1f261e"
+        },
+        "surface-3": {
+          "$value": "#262e24"
+        },
+        "line": {
+          "$value": "#2a3228"
+        },
+        "line-strong": {
+          "$value": "#373f35"
+        },
+        "ink": {
+          "$value": "#e7eee4"
+        },
+        "muted": {
+          "$value": "#969c93"
+        }
+      }
+    }
+  }
+}

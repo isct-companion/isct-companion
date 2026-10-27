@@ -537,6 +537,10 @@ export type Settings = {
   appearance: "system" | "light" | "dark";
   density: "comfortable" | "compact";
   textSize?: "small" | "medium" | "large";
+  /**
+   * Background theme: neutrals only, synced across devices; absent is warm.
+   */
+  theme?: "warm" | "cool" | "paper" | "mist" | "moss";
   automaticAppUpdates?: boolean;
   restoreSchoolPage?: boolean;
   activeSchoolSite?: string;

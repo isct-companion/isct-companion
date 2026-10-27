@@ -18,6 +18,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +32,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.hypot
 import app.isct.design.IsctTokens
+import app.isct.design.IsctNeutrals
+import app.isct.design.IsctThemes
 import app.isct.design.IsctTokensDark
 
 /** Adaptive roles over the generated light/dark tokens (design/tokens). System
@@ -143,10 +146,23 @@ fun Modifier.nowTint(tint: Color, palette: Palette, shape: Shape): Modifier = th
     )
     .border(0.5.dp, tint.copy(alpha = Theme.tintFill), shape)
 
+/** [base] with the neutrals of a background theme; accent, status, course
+ * and hero values stay the token files' (slotledger `approach/neutral-themes`). */
+private fun Palette.with(neutrals: IsctNeutrals) = copy(
+    bg = neutrals.bg, surface = neutrals.surface, surface2 = neutrals.surface2,
+    ink = neutrals.ink, muted = neutrals.muted, line = neutrals.line,
+)
+
+/** The app's theme: the system's light or dark choice of the background
+ * theme [themeId] (`settings.theme`, synced; `warm` when unknown). */
 @Composable
-fun IsctTheme(content: @Composable () -> Unit) {
-    val palette = if (isSystemInDarkTheme()) dark else light
-    val scheme = if (palette === dark) {
+fun IsctTheme(themeId: String = "warm", content: @Composable () -> Unit) {
+    val darkMode = isSystemInDarkTheme()
+    val palette = remember(themeId, darkMode) {
+        val (lightNeutrals, darkNeutrals) = IsctThemes[themeId] ?: IsctThemes.getValue("warm")
+        if (darkMode) dark.with(darkNeutrals) else light.with(lightNeutrals)
+    }
+    val scheme = if (darkMode) {
         darkColorScheme(
             primary = palette.accent, background = palette.bg, surface = palette.surface,
             onBackground = palette.ink, onSurface = palette.ink, error = palette.danger,

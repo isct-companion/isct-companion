@@ -128,7 +128,8 @@ class MainActivity : ComponentActivity() {
         model.drive.attach(this)
         receiveShared(intent)
         setContent {
-            IsctTheme {
+            // The synced background theme; a change recomposes at once.
+            IsctTheme(model.records.settings.optString("theme").ifEmpty { "warm" }) {
                 CompositionLocalProvider(LocalModel provides model) { RootView() }
             }
         }

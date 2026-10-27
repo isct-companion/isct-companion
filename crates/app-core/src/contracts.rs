@@ -497,6 +497,8 @@ contract!(Settings {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub auto_clean_days: Option<u32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub agent_access: Option<AgentAccess>,
     #[cfg_attr(feature = "ts", ts(type = "\"system\" | \"light\" | \"dark\""))] pub appearance: String,
+    /// The background theme: neutrals only; absent reads as `warm`.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"warm\" | \"cool\" | \"paper\" | \"mist\" | \"moss\""))] pub theme: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "\"comfortable\" | \"compact\""))] pub density: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"small\" | \"medium\" | \"large\""))] pub text_size: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub automatic_app_updates: Option<bool>,

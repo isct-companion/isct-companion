@@ -4,12 +4,14 @@ import UIKit
 /// Adaptive roles over the generated light/dark tokens (design/tokens). System
 /// chrome (tab bar, navigation, sheets, controls) stays the platform's.
 enum Theme {
-    static let bg = adaptive(IsctTokens.colorBg, IsctTokensDark.colorBg)
-    static let surface = adaptive(IsctTokens.colorSurface, IsctTokensDark.colorSurface)
-    static let surface2 = adaptive(IsctTokens.colorSurface2, IsctTokensDark.colorSurface2)
-    static let ink = adaptive(IsctTokens.colorInk, IsctTokensDark.colorInk)
-    static let muted = adaptive(IsctTokens.colorMuted, IsctTokensDark.colorMuted)
-    static let line = adaptive(IsctTokens.colorLine, IsctTokensDark.colorLine)
+    /// The neutrals follow the background theme (slotledger
+    /// `approach/neutral-themes`); accent, status and course colours do not.
+    static let bg = neutral(\.bg)
+    static let surface = neutral(\.surface)
+    static let surface2 = neutral(\.surface2)
+    static let ink = neutral(\.ink)
+    static let muted = neutral(\.muted)
+    static let line = neutral(\.line)
     static let accent = adaptive(IsctTokens.colorAccent, IsctTokensDark.colorAccent)
     static let accentSoft = adaptive(IsctTokens.colorAccentSoft, IsctTokensDark.colorAccentSoft)
     /// Text on the accent fill (a primary button, today's date).
@@ -57,10 +59,45 @@ enum Theme {
     /// Text on a course fill: the course colour mixed into ink.
     static func courseInk(_ course: Color) -> Color { mix(course, tintInk, into: ink) }
 
+    /// Background themes in Settings order; `warm` is the default.
+    static let themes = ["warm", "cool", "paper", "mist", "moss"]
+
+    private static func neutral(_ pick: @escaping (IsctNeutrals) -> Color) -> Color {
+        let sets = IsctThemes.all.mapValues { (light: UIColor(pick($0.light)), dark: UIColor(pick($0.dark))) }
+        return Color(UIColor { traits in
+            guard let set = sets[traits[IsctThemeTrait.self]] ?? sets["warm"] else { return .clear }
+            return traits.userInterfaceStyle == .dark ? set.dark : set.light
+        })
+    }
+
     private static func adaptive(_ light: Color, _ dark: Color) -> Color {
         let light = UIColor(light)
         let dark = UIColor(dark)
         return Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+    }
+}
+
+/// The background theme as a UIKit trait, so the dynamic neutrals above
+/// re-resolve the moment Settings changes it; SwiftUI sets it through
+/// `.environment(\.isctTheme, …)` at the root.
+struct IsctThemeTrait: UITraitDefinition {
+    static let defaultValue = "warm"
+    static let affectsColorAppearance = true
+}
+
+private struct IsctThemeKey: EnvironmentKey {
+    static let defaultValue = "warm"
+}
+
+extension IsctThemeKey: UITraitBridgedEnvironmentKey {
+    static func read(from traitCollection: UITraitCollection) -> String { traitCollection[IsctThemeTrait.self] }
+    static func write(to mutableTraits: inout UIMutableTraits, value: String) { mutableTraits[IsctThemeTrait.self] = value }
+}
+
+extension EnvironmentValues {
+    var isctTheme: String {
+        get { self[IsctThemeKey.self] }
+        set { self[IsctThemeKey.self] = newValue }
     }
 }
 

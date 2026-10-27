@@ -1328,5 +1328,11 @@
   "error.matrix-unreadable": "カードを読み取れませんでした。明るい場所で動かさずに写してください。",
   "error.guide-too-many-courses": "履修登録ガイドには授業が多すぎます。",
   "error.logs-unavailable": "アプリのログを利用できません。",
-  "error.lms-not-enrolled": "この LMS コースには登録されていません。"
+  "error.lms-not-enrolled": "この LMS コースには登録されていません。",
+  "Light and dark": "ライト・ダーク",
+  "Warm": "ウォーム",
+  "Cool": "クール",
+  "Paper": "ペーパー",
+  "Mist": "ミスト",
+  "Moss": "モス"
 }

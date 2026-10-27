@@ -450,3 +450,32 @@ button.calendarDay.open {
   font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.5;
 }
+
+/* Background theme swatches: each its own light background with a surface
+   dot; the chosen one ringed in the accent. */
+.themeSwatches {
+  display: flex;
+  gap: 10px;
+}
+.themeSwatch {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--swatch-bg);
+}
+.themeSwatch::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--swatch-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-strong) 60%, transparent);
+}
+.themeSwatch[aria-checked="true"] {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--accent);
+}

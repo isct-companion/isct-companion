@@ -3524,6 +3524,58 @@ checks:
       - design/tokens/course.json
     verified: null
 
+  - id: BACKGROUND-THEMES
+    area: native
+    title: Background themes change only the neutrals and follow the account to every device
+    persona: undergraduate-first-term
+    preconditions: |
+      Desktop, iPhone and Android signed in to the same account with cloud
+      backup on; each shows Today and 時間割 with some classes.
+    steps:
+      - action: |
+          On the iPhone open Settings and look for the Theme row, then tap
+          each of the five swatches in turn while watching the page behind.
+        reason: |
+          The row is one line of five swatches next to Language; a tap applies
+          at once, without leaving Settings. A swatch that needs a restart,
+          or a list of names instead of swatches, is not the agreed control.
+      - action: |
+          Pick Paper, return to Today and 時間割, and compare the accent
+          buttons, deadline tags and course blocks with the Warm theme.
+        reason: |
+          Only the background, surfaces, lines and text greys change. A blue
+          button, a red deadline tag or a course colour that shifts means the
+          theme reaches colours it must not touch.
+      - action: |
+          Switch the system to dark appearance with Paper still chosen.
+        reason: |
+          Every theme has its own dark set; dark Paper is a warm near-black,
+          not Warm's dark grey and not the light Paper colours on black.
+      - action: |
+          Wait for the next sync, then open the desktop app and the Android
+          app (Settings → Appearance / Theme).
+        reason: |
+          The theme is a user preference that syncs; both show Paper chosen
+          and drawn. Another device still on Warm means the setting stayed
+          local.
+    observe: Settings, Today and 時間割 on the three devices.
+    expected: |
+      Five swatches apply at once, change only the neutrals, have their own
+      dark sets, and the choice reaches the other devices.
+    why_manual: |
+      Whether a theme reads right is seen at a glance on each device, and the
+      cross-device step needs real cloud sync; Core's settings tests pin that
+      the value is stored, validated and kept in the synced preferences.
+    covers:
+      - design/tokens/theme.json
+      - apps/ios/IsctCompanion/Design/Theme.swift
+      - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/desktop/src/pages/settings/AppearanceSettings.tsx
+      - crates/app-core/src/data/settings.rs
+    verified: null
+
   - id: IOS-NATIVE-CHROME
     area: native
     title: iPhone Web bars, Settings rows and the Today headers look like system iOS

@@ -201,9 +201,15 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   },
   {
     section: "appearance",
+    id: "appearance-mode",
+    title: "Light and dark",
+    terms: "dark light mode ダーク ライト",
+  },
+  {
+    section: "appearance",
     id: "theme",
     title: "Theme",
-    terms: "dark light mode ダーク ライト",
+    terms: "colour color background warm cool paper mist moss 背景 色 テーマ",
   },
   {
     section: "appearance",

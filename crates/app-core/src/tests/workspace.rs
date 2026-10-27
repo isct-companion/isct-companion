@@ -60,12 +60,17 @@ fn stale_revision_cannot_overwrite_a_newer_settings_change() {
         .apply(WorkspaceMutation {
             expected_revision: original.revision.clone(),
             intent: WorkspaceIntent::ReplaceSettings {
-                settings: settings_with(&original, |s| s["appearance"] = json!("dark")),
+                settings: settings_with(&original, |s| {
+                    s["appearance"] = json!("dark");
+                    s["theme"] = json!("paper");
+                }),
             },
         })
         .unwrap();
     assert_ne!(changed.revision, original.revision);
     assert_eq!(changed.workspace["settings"]["appearance"], "dark");
+    // The background theme is a user preference and reads back as stored.
+    assert_eq!(changed.workspace["settings"]["theme"], "paper");
 
     let error = service
         .apply(WorkspaceMutation {
@@ -144,6 +149,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
     for (pointer, value) in [
         ("/locale", json!("xx")),
         ("/appearance", json!("blue")),
+        ("/theme", json!("neon")),
         ("/textSize", json!("huge")),
         ("/contentLanguage", json!("fr")),
         ("/density", json!(3)),

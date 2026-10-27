@@ -30,6 +30,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import app.isct.design.IsctThemes
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -267,6 +274,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
             RowDivider(inset = ICON_ROW_INSET)
             NavRow(t("Backup"), backupSummary(model.cloud), Icons.Filled.Cloud) { open(SettingsPage.Backup) }
         }
+        ThemeCard()
         LanguageCard()
         WebCard()
         // As on iOS: About holds the version, the tips and the logs, then the
@@ -619,6 +627,47 @@ internal fun SwitchRow(title: String, checked: Boolean, detail: String? = null, 
             detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted) }
         }
         Switch(checked, onChange)
+    }
+}
+
+/** The background theme: five round swatches, each its light background
+ * with a surface dot; choosing one saves `settings.theme` at once and syncs
+ * (slotledger `approach/neutral-themes`). */
+@Composable
+private fun ThemeCard() {
+    val model = LocalModel.current
+    val scope = rememberCoroutineScope()
+    val selected = model.records.settings.optString("theme").ifEmpty { "warm" }
+    val themes = listOf("warm" to t("Warm"), "cool" to t("Cool"), "paper" to t("Paper"), "mist" to t("Mist"), "moss" to t("Moss"))
+    Card(Modifier.padding(top = 16.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            IconHeading(t("Theme"), Icons.Filled.Palette, Theme.colors.accent, Modifier.weight(1f))
+            Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((id, label) in themes) {
+                    val neutrals = (IsctThemes[id] ?: continue).first
+                    val chosen = id == selected
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .border(2.dp, if (chosen) Theme.colors.accent else Color.Transparent, CircleShape)
+                            .padding(2.dp)
+                            .clip(CircleShape)
+                            .background(neutrals.bg)
+                            .border(1.dp, neutrals.line, CircleShape)
+                            .selectable(chosen, role = Role.RadioButton) {
+                                if (!chosen) scope.launch { model.updateSettings { it.put("theme", id) } }
+                            }
+                            .semantics { contentDescription = label },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(neutrals.surface))
+                    }
+                }
+            }
+        }
     }
 }
 

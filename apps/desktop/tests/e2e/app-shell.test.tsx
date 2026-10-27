@@ -927,7 +927,7 @@ describe("store failures", () => {
     await click(toggle);
 
     await until(() =>
-      expect(document.querySelector(".workspaceNotice")?.textContent).toContain(
+      expect(document.querySelector(".uiToast")?.textContent).toContain(
         "Disk is full",
       ),
     );
@@ -952,7 +952,7 @@ describe("store failures", () => {
       });
     });
     await until(() =>
-      expect(document.querySelector(".workspaceNotice")?.textContent).toContain(
+      expect(document.querySelector(".uiToast")?.textContent).toContain(
         "Disk is full",
       ),
     );
@@ -1014,12 +1014,28 @@ describe("Chinese UI", () => {
     const workspace = workspaceFixture();
     workspace.settings.locale = "zh";
     workspace.settings.contentLanguage = "en";
+    workspace.settings.theme = "paper";
     app = await mountShell(shellOptions({ workspace, revision: "rev:zh" }), {
       route: paths.settings("appearance"),
     });
     const { host, core } = app;
 
     await until(() => expect(document.documentElement.lang).toBe("zh"));
+    // The synced background theme applies on load, and a swatch saves the
+    // next one at once.
+    expect(document.documentElement.dataset.theme).toBe("paper");
+    expect(
+      host
+        .querySelector('[data-setting="theme"] [aria-checked="true"]')
+        ?.getAttribute("title"),
+    ).toBe("米白");
+    await click(
+      host.querySelector('[data-setting="theme"] [data-theme-value="moss"]'),
+    );
+    await until(() => expect(core.workspace.settings.theme).toBe("moss"));
+    await until(() =>
+      expect(document.documentElement.dataset.theme).toBe("moss"),
+    );
     expect(host.querySelector(".rail button")?.textContent).toContain("今天");
     expect(document.body.textContent).toContain("中文");
     expect(

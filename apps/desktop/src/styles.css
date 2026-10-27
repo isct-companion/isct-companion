@@ -1,5 +1,6 @@
 @import "./generated/design/tokens.css";
 @import "./generated/design/tokens.dark.css";
+@import "./generated/design/themes.css";
 @import "./components/workspace-chrome.css";
 @import "./components/ui/ui.css";
 
