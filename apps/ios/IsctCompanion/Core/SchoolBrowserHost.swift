@@ -4,21 +4,36 @@ import OSLog
 import UIKit
 import WebKit
 
-/// `NativeBrowser` over one resident WKWebView per school site. Core drives
-/// sign-in, navigation, extraction and history; this adapter creates, shows
-/// and hides the views, executes dispatched commands on the main thread and
-/// forwards WebKit callbacks. Port methods arrive on Core workers and only
-/// enqueue main-thread work.
+/// `NativeBrowser` over one resident WKWebView per school site and the popups
+/// its pages open (docs/core-school-browser.md). Core decides every
+/// navigation, window, sign-in and extraction; this adapter reports what
+/// WebKit knows, carries out what Core decides, creates, shows and hides the
+/// views, and keeps no rules of its own. Port methods arrive on Core workers
+/// and only enqueue main-thread work.
+///
+/// - Navigation: `decidePolicyFor` reports URL, method, frame and navigation
+///   type (`.formResubmitted` with whether it travels through history) and
+///   applies Allow / External / Deny / SkipEntry.
+/// - Popups: `createWebViewWith` returns a web view built from WebKit's own
+///   configuration, so a posted form and `window.opener` survive. It covers
+///   its opener inside the web screen until the page closes it
+///   (`webViewDidClose`) or the person does.
+/// - Page dialogs and `window.print()` appear only for a page on screen; a
+///   hidden view gets Cancel and prints nothing.
+/// - Load failures, cancellations included, go to Core, which decides what
+///   the web screen shows (`school-web-notice`).
 final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     fileprivate static let log = Logger(subsystem: "app.isctcompanion", category: "school-web")
     private let lock = NSLock()
     private var events: BrowserEvents?
-    /// Last committed URL per view, readable from Core workers.
+    /// Last committed URL per view and popup, readable from Core workers.
     private var urls: [BrowserId: String] = [:]
     private var closedForGood = false
 
     // Main-thread state.
-    @MainActor private var views: [SchoolSite: ResidentView] = [:]
+    @MainActor private var views: [SchoolSite: SchoolPage] = [:]
+    /// Open popups in opening order, so every popup follows its opener.
+    @MainActor private var popups: [SchoolPage] = []
     @MainActor private lazy var parking: UIView = {
         let view = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         view.isUserInteractionEnabled = false
@@ -32,11 +47,8 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     // MARK: NativeBrowser (Core worker threads)
 
-    /// Interim, until this host reports full request facts and builds real
-    /// popups (docs/core-school-browser.md): Core reloads with a GET and
-    /// popups load in their opener's view.
     func capabilities() -> HostCapabilities {
-        HostCapabilities(formResubmission: false, inlinePopups: false)
+        HostCapabilities(formResubmission: true, inlinePopups: true)
     }
 
     func attach(events: BrowserEvents) throws {
@@ -70,10 +82,10 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             urls.removeAll()
         }
         DispatchQueue.main.async {
-            for view in self.views.values {
-                view.cancelDownloads()
-                view.webView.removeFromSuperview()
+            for page in self.popups.reversed() + Array(self.views.values) {
+                page.tearDown()
             }
+            self.popups.removeAll()
             self.views.removeAll()
         }
     }
@@ -88,9 +100,28 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     // MARK: Presentation (main thread)
 
-    /// The resident view for `site`, if Core created one.
+    /// The resident view for `site`, if Core created one. Its popups ride on
+    /// it as subviews, so wherever it is held they go too.
     @MainActor func webView(for site: SchoolSite) -> WKWebView? {
         views[site]?.webView
+    }
+
+    /// The page the person sees for `site`: its newest popup, else its view.
+    @MainActor func frontWebView(for site: SchoolSite) -> WKWebView? {
+        (popups.last { $0.id.site == site } ?? views[site])?.webView
+    }
+
+    /// Closes the newest popup over `site`'s view, and any it opened, as the
+    /// web screen's close bar asks.
+    @MainActor func closeFrontPopup(_ site: SchoolSite) {
+        guard let front = popups.last(where: { $0.id.site == site }) else { return }
+        closePopup(front.id)
+    }
+
+    /// Loads `url` in the page the person sees for `site` (a notice's Retry).
+    /// The navigation goes through Core's decision like any other.
+    @MainActor func retry(_ site: SchoolSite, url: URL) {
+        frontWebView(for: site)?.load(URLRequest(url: url))
     }
 
     /// Returns a view to the off-screen parking host so WebKit keeps running it.
@@ -105,6 +136,16 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow }
             .first
+    }
+
+    /// The controller to present a page's dialog or print panel from, when
+    /// the page is on screen: in a window, not parked, the app in front.
+    @MainActor fileprivate func presenter(for webView: WKWebView) -> UIViewController? {
+        guard UIApplication.shared.applicationState == .active, let window = webView.window,
+            !webView.isDescendant(of: parking), var top = window.rootViewController
+        else { return nil }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        return top.isBeingDismissed ? nil : top
     }
 
     /// The text scales offered for school pages, in percent.
@@ -124,21 +165,18 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         "document.documentElement.style.webkitTextSizeAdjust = '\(percent)%';"
     }
 
-    /// Applies and keeps a text scale on every resident page.
+    /// Applies and keeps a text scale on every resident page and popup.
     @MainActor func setTextScale(_ percent: Int) {
         textScale = percent
         UserDefaults.standard.set(percent, forKey: Self.textScaleKey)
-        for view in views.values {
-            view.webView.evaluateJavaScript(Self.textScaleScript(textScale))
+        for page in Array(views.values) + popups {
+            page.webView.evaluateJavaScript(Self.textScaleScript(textScale))
         }
     }
 
     @MainActor private func create(_ id: BrowserId, _ initialUrl: String) {
         if views[id.site]?.id == id { return }
-        if let previous = views.removeValue(forKey: id.site) {
-            previous.cancelDownloads()
-            previous.webView.removeFromSuperview()
-        }
+        if let previous = views[id.site] { discard(previous.id) }
         let configuration = WKWebViewConfiguration()
         // One persistent store: visible pages and hidden pulls share a session.
         configuration.websiteDataStore = .default()
@@ -151,159 +189,295 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         // Larger text without zooming the layout, so fixed-width pages still fit.
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.textScaleScript(textScale), injectionTime: .atDocumentEnd, forMainFrameOnly: false))
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.allowsBackForwardNavigationGestures = true
-        let resident = ResidentView(id: id, webView: webView, host: self)
-        webView.navigationDelegate = resident
-        webView.uiDelegate = resident
-        resident.observeTitle()
-        views[id.site] = resident
-        park(webView)
+        let page = SchoolPage(id: id, parent: nil, webView: WKWebView(frame: .zero, configuration: configuration), host: self)
+        views[id.site] = page
+        park(page.webView)
         guard let url = URL(string: initialUrl) else {
             discard(id)
             try? listener()?.closed(browser: id)
             return
         }
         lock.withLock { urls[id] = initialUrl }
-        webView.load(URLRequest(url: url))
+        page.webView.load(URLRequest(url: url))
+    }
+
+    /// The open view or popup `id` names.
+    @MainActor private func page(_ id: BrowserId) -> SchoolPage? {
+        if let view = views[id.site], view.id == id { return view }
+        return popups.first { $0.id == id }
     }
 
     @MainActor private func perform(_ command: BrowserCommand) {
-        let id = command.browser
-        guard let resident = views[id.site], resident.id == id else {
-            // A command for a view that no longer exists closes that generation.
-            try? listener()?.closed(browser: id)
+        guard let page = page(command.browser) else {
+            // A command for a page that no longer exists closes that generation.
+            try? listener()?.closed(browser: command.browser)
             return
         }
+        let webView = page.webView
         switch command.action {
         case let .navigate(raw):
             guard let url = URL(string: raw) else {
-                fail(resident, cause: command.actionId, detail: "Invalid URL")
+                fail(page, cause: command.actionId, detail: "Invalid URL")
                 return
             }
-            resident.webView.load(URLRequest(url: url))
+            webView.load(URLRequest(url: url))
         case .reload:
-            resident.webView.reload()
+            // A page that would resend a form asks again as `.formResubmitted`.
+            webView.reload()
         case .goBack:
-            resident.webView.goBack()
+            webView.goBack()
         case .goForward:
-            resident.webView.goForward()
+            webView.goForward()
         case let .evaluate(script):
-            resident.webView.evaluateJavaScript(script) { [weak self] _, error in
+            webView.evaluateJavaScript(script) { [weak self] _, error in
                 // Scripts report through title and navigation relays; only a
                 // script that could not run fails the page.
                 guard let self, let error = error as? WKError, error.code != .javaScriptResultTypeIsUnsupported
                 else { return }
-                self.fail(resident, cause: command.actionId, detail: error.localizedDescription)
+                self.fail(page, cause: command.actionId, detail: error.localizedDescription)
             }
         case let .stop(script):
             // Core abandoned this view's attempt and leases it again only
             // once this confirms; the page reported at that point is the last
             // one the attempt may claim.
-            resident.webView.stopLoading()
-            resident.webView.evaluateJavaScript(script) { [weak self] _, _ in
-                try? self?.listener()?.stopped(page: resident.page, actionId: command.actionId)
+            webView.stopLoading()
+            webView.evaluateJavaScript(script) { [weak self] _, _ in
+                try? self?.listener()?.stopped(page: page.page, actionId: command.actionId)
             }
         }
     }
 
-    @MainActor private func fail(_ resident: ResidentView, cause: UInt64?, detail: String) {
-        try? listener()?.loadFailed(page: resident.nextPage(), cause: cause, url: nil, reason: .other, detail: detail)
+    @MainActor private func fail(_ page: SchoolPage, cause: UInt64?, detail: String) {
+        try? listener()?.loadFailed(page: page.nextPage(), cause: cause, url: nil, reason: .other, detail: detail)
     }
 
+    /// Takes a view, with its popups, or a popup, with the ones it opened,
+    /// off the screen and out of the host.
     @MainActor private func discard(_ id: BrowserId) {
-        guard let resident = views[id.site], resident.id == id else { return }
-        resident.cancelDownloads()
-        resident.webView.removeFromSuperview()
-        views.removeValue(forKey: id.site)
-        lock.withLock { _ = urls.removeValue(forKey: id) }
-    }
-
-    // MARK: Callbacks from a resident view
-
-    @MainActor fileprivate func loaded(_ resident: ResidentView, url: URL?) {
-        guard let url else { return }
-        lock.withLock { urls[resident.id] = url.absoluteString }
-        // WebKit exposes no request id here; never label a late load with an action.
-        try? listener()?.pageLoaded(page: resident.nextPage(), cause: nil, url: url.absoluteString)
-    }
-
-    @MainActor fileprivate func failed(_ resident: ResidentView, url: URL?, error: Error) {
-        let error = error as NSError
-        if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled { return }
-        // A navigation cancelled by Core's own decision is not a failure.
-        if error.domain == WKError.errorDomain && error.code == 102 { return }
-        try? listener()?.loadFailed(
-            page: resident.nextPage(), cause: nil, url: url?.absoluteString, reason: .other,
-            detail: error.localizedDescription)
-    }
-
-    @MainActor fileprivate func titled(_ resident: ResidentView, _ title: String) {
-        try? listener()?.titleChanged(page: resident.page, title: title)
-        onTitleChange?(resident.id.site, title)
-    }
-
-    @MainActor fileprivate func decide(_ resident: ResidentView, url: URL, mainFrame: Bool) -> Bool {
-        let request = NavigationRequest(
-            page: resident.page, url: url.absoluteString, method: nil, mainFrame: mainFrame, kind: .unknown,
-            userGesture: false)
-        guard let listener = listener(), let decision = try? listener.navigation(request: request) else { return false }
-        switch decision {
-        case .allow:
-            return true
-        case let .external(target):
-            if let target = URL(string: target) { onOpenExternal?(target) }
-            return false
-        case .deny, .skipEntry:
-            return false
+        if let view = views[id.site], view.id == id {
+            for popup in popups.reversed() where popup.id.site == id.site { forget(popup) }
+            popups.removeAll { $0.id.site == id.site }
+            forget(view)
+            views.removeValue(forKey: id.site)
+        } else {
+            var closing: Set<BrowserId> = [id]
+            for popup in popups where popup.parent.map(closing.contains) == true { closing.insert(popup.id) }
+            for popup in popups.reversed() where closing.contains(popup.id) { forget(popup) }
+            popups.removeAll { closing.contains($0.id) }
         }
     }
 
-    @MainActor fileprivate func popup(_ resident: ResidentView, url: URL) {
-        let request = NewWindowRequest(
-            opener: resident.page, url: url.absoluteString, method: nil, kind: .unknown, userGesture: false,
-            name: nil, width: nil, height: nil)
-        guard let decision = try? listener()?.newWindow(request: request) else { return }
+    @MainActor private func forget(_ page: SchoolPage) {
+        page.tearDown()
+        lock.withLock { _ = urls.removeValue(forKey: page.id) }
+    }
+
+    /// A popup its page (`window.close()`) or the person closed. Core then
+    /// forgets the popups it opened and asks for them to be disposed.
+    @MainActor private func closePopup(_ id: BrowserId) {
+        guard popups.contains(where: { $0.id == id }) else { return }
+        discard(id)
+        try? listener()?.closed(browser: id)
+    }
+
+    // MARK: Callbacks from a page
+
+    @MainActor fileprivate func loaded(_ page: SchoolPage, url: URL?) {
+        guard let url else { return }
+        lock.withLock { urls[page.id] = url.absoluteString }
+        // WebKit exposes no request id here; never label a late load with an action.
+        try? listener()?.pageLoaded(page: page.nextPage(), cause: nil, url: url.absoluteString)
+    }
+
+    @MainActor fileprivate func failed(_ page: SchoolPage, error: Error) {
+        let error = error as NSError
+        let url = (error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String)
+            ?? (error.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
+        // WebKit shows nothing for a failed load and stays on the old page;
+        // Core decides whether the web screen says so.
+        try? listener()?.loadFailed(
+            page: page.nextPage(), cause: nil, url: url, reason: Self.failure(error),
+            detail: "\(error.domain) \(error.code): \(error.localizedDescription)")
+    }
+
+    /// A coarse reason for a failed load. Cancellations are a newer load, a
+    /// policy decision, or a response that became a download.
+    private static func failure(_ error: NSError) -> LoadFailure {
+        switch (error.domain, error.code) {
+        case (NSURLErrorDomain, NSURLErrorCancelled): .cancelled
+        // Frame load interrupted by policy change; plug-in handled load.
+        case (WKError.errorDomain, 102), (WKError.errorDomain, 204): .cancelled
+        case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet), (NSURLErrorDomain, NSURLErrorDataNotAllowed),
+            (NSURLErrorDomain, NSURLErrorInternationalRoamingOff):
+            .offline
+        case (NSURLErrorDomain, NSURLErrorCannotFindHost), (NSURLErrorDomain, NSURLErrorDNSLookupFailed): .hostNotFound
+        case (NSURLErrorDomain, NSURLErrorTimedOut), (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
+            (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
+            .unreachable
+        // App Transport Security refused plain HTTP.
+        case (NSURLErrorDomain, NSURLErrorAppTransportSecurityRequiresSecureConnection): .cleartext
+        case (NSURLErrorDomain, NSURLErrorClientCertificateRequired...NSURLErrorSecureConnectionFailed): .insecure
+        default: .other
+        }
+    }
+
+    @MainActor fileprivate func titled(_ page: SchoolPage, _ title: String) {
+        try? listener()?.titleChanged(page: page.page, title: title)
+        onTitleChange?(page.id.site, title)
+    }
+
+    /// The facts of a navigation action. A new window's action has no target
+    /// frame yet; it loads in a main frame.
+    @MainActor private func facts(_ page: SchoolPage, _ action: WKNavigationAction) -> NavigationRequest? {
+        guard let url = action.request.url?.absoluteString else { return nil }
+        let mainFrame = action.targetFrame?.isMainFrame ?? true
+        let kind: NavigationKind
+        switch action.navigationType {
+        case .linkActivated: kind = .link
+        case .formSubmitted: kind = .formSubmit
+        case .backForward: kind = .backForward
+        case .reload: kind = .reload
+        case .formResubmitted:
+            // WebKit uses this for a reload and for history alike. It has
+            // already moved its list to the entry it is going to when it
+            // asks, so an entry other than the committed page's is history.
+            let fromHistory = mainFrame && page.webView.backForwardList.currentItem !== page.committed
+            Self.log.info(
+                "Form resubmission in \(String(describing: page.id.site), privacy: .public), from history: \(fromHistory, privacy: .public)"
+            )
+            kind = .formResubmit(fromHistory: fromHistory)
+        case .other: kind = .other
+        @unknown default: kind = .unknown
+        }
+        // WebKit says whether the person acted only through private API,
+        // which an App Store build does not call; Core counts links and forms
+        // as the person's.
+        return NavigationRequest(
+            page: page.page, url: url, method: action.request.httpMethod, mainFrame: mainFrame, kind: kind,
+            userGesture: false)
+    }
+
+    @MainActor fileprivate func decide(_ page: SchoolPage, _ action: WKNavigationAction) -> WKNavigationActionPolicy {
+        guard let request = facts(page, action), let listener = listener(),
+            let decision = try? listener.navigation(request: request)
+        else { return .cancel }
         switch decision {
-        case let .popup(browser):
-            // Interim: the popup's page replaces its opener's, and the popup
-            // is reported closed at once.
-            resident.webView.load(URLRequest(url: url))
-            try? listener()?.closed(browser: browser)
+        case .allow:
+            return action.shouldPerformDownload ? .download : .allow
         case let .external(target):
             if let target = URL(string: target) { onOpenExternal?(target) }
+            return .cancel
         case .deny:
-            break
+            return .cancel
+        case .skipEntry:
+            // The entry WebKit was going to; once the cancel has put the list
+            // back, step past it.
+            if let target = page.webView.backForwardList.currentItem {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak page] in page?.skip(past: target) }
+            }
+            return .cancel
+        }
+    }
+
+    /// The popup WebKit asks for, if Core gives it one, built from WebKit's
+    /// configuration and laid over its opener.
+    @MainActor fileprivate func window(
+        _ opener: SchoolPage, configuration: WKWebViewConfiguration, action: WKNavigationAction,
+        features: WKWindowFeatures
+    ) -> WKWebView? {
+        guard let facts = facts(opener, action), let listener = listener() else { return nil }
+        let request = NewWindowRequest(
+            opener: opener.page, url: facts.url, method: facts.method, kind: facts.kind,
+            userGesture: facts.userGesture, name: nil, width: features.width?.doubleValue,
+            height: features.height?.doubleValue)
+        guard let decision = try? listener.newWindow(request: request) else { return nil }
+        switch decision {
+        case let .popup(browser):
+            let popup = SchoolPage(
+                id: browser, parent: opener.id,
+                webView: WKWebView(frame: opener.webView.bounds, configuration: configuration), host: self)
+            popup.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            opener.webView.addSubview(popup.webView)
+            popups.append(popup)
+            lock.withLock { urls[browser] = facts.url }
+            return popup.webView
+        case let .external(target):
+            if let target = URL(string: target) { onOpenExternal?(target) }
+            return nil
+        case .deny:
+            return nil
+        }
+    }
+
+    @MainActor fileprivate func closedByPage(_ page: SchoolPage) {
+        // A view is not one a script opened, so only popups close this way.
+        if page.parent != nil { closePopup(page.id) }
+    }
+
+    /// `window.print()`: the system print panel for a page on screen.
+    @MainActor fileprivate func printPage(_ page: SchoolPage) {
+        guard let presenter = presenter(for: page.webView) else { return }
+        let controller = UIPrintInteractionController.shared
+        let info = UIPrintInfo.printInfo()
+        info.outputType = .general
+        info.jobName = page.webView.title ?? ""
+        controller.printInfo = info
+        controller.printFormatter = page.webView.viewPrintFormatter()
+        if presenter.traitCollection.userInterfaceIdiom == .pad {
+            let view = page.webView
+            controller.present(from: CGRect(x: view.bounds.midX, y: view.bounds.minY, width: 1, height: 1), in: view, animated: true)
+        } else {
+            controller.present(animated: true)
         }
     }
 }
 
-/// One site's WKWebView and its load sequence.
+/// A page dialog's answer, given to WebKit exactly once: a string is OK (the
+/// entered text for `prompt()`), nil is Cancel. WebKit raises if a handler
+/// is dropped unanswered, so a dialog that ends without an answer (never
+/// shown, or torn down with its page) answers Cancel when it goes.
+private final class Reply {
+    private var send: ((String?) -> Void)?
+
+    init(_ send: @escaping (String?) -> Void) { self.send = send }
+
+    func answer(_ value: String?) {
+        send?(value)
+        send = nil
+    }
+
+    deinit {
+        guard let send else { return }
+        DispatchQueue.main.async { send(nil) }
+    }
+}
+
+/// One school view or popup: its WKWebView, load sequence and delegates.
 @MainActor
-private final class ResidentView: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     let id: BrowserId
+    /// The view or popup that opened this popup; nil for a site's view.
+    let parent: BrowserId?
     let webView: WKWebView
     private(set) var sequence: UInt64 = 0
+    /// The history entry of the last committed page. A form resubmission
+    /// whose entry differs travels through history instead of reloading.
+    private(set) var committed: WKBackForwardListItem?
     private weak var host: SchoolBrowserHost?
     private var titleObservation: NSKeyValueObservation?
-    /// WebKit holds its delegate weakly. The resident owns each native
-    /// transfer until completion or disposal, including its temporary file.
+    /// WebKit holds its delegate weakly. The page owns each native transfer
+    /// until completion or disposal, including its temporary file.
     private var downloads: [ObjectIdentifier: (download: WKDownload, file: URL?)] = [:]
 
-    init(id: BrowserId, webView: WKWebView, host: SchoolBrowserHost) {
+    init(id: BrowserId, parent: BrowserId?, webView: WKWebView, host: SchoolBrowserHost) {
         self.id = id
+        self.parent = parent
         self.webView = webView
         self.host = host
-    }
-
-    var page: PageId { PageId(browser: id, sequence: sequence) }
-
-    func nextPage() -> PageId {
-        sequence += 1
-        return page
-    }
-
-    func observeTitle() {
+        super.init()
+        webView.allowsBackForwardNavigationGestures = true
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
         titleObservation = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
             let title = webView.title ?? ""
             Task { @MainActor in
@@ -313,17 +487,47 @@ private final class ResidentView: NSObject, WKNavigationDelegate, WKUIDelegate, 
         }
     }
 
+    var page: PageId { PageId(browser: id, sequence: sequence) }
+
+    func nextPage() -> PageId {
+        sequence += 1
+        return page
+    }
+
+    /// Stops the page, cancels its transfers and takes it off the screen.
+    func tearDown() {
+        cancelDownloads()
+        webView.stopLoading()
+        webView.removeFromSuperview()
+    }
+
+    /// Moves one entry beyond `target` in the direction it lies from the
+    /// current entry, so the form it would resend is never sent.
+    func skip(past target: WKBackForwardListItem) {
+        let list = webView.backForwardList
+        let offset: Int? =
+            if let index = list.backList.firstIndex(where: { $0 === target }) {
+                index - list.backList.count - 1
+            } else if let index = list.forwardList.firstIndex(where: { $0 === target }) {
+                index + 2
+            } else {
+                nil
+            }
+        guard let offset else {
+            SchoolBrowserHost.log.info("Skipped resubmission: the history had not moved; staying on the page")
+            return
+        }
+        if let item = list.item(at: offset) { webView.go(to: item) }
+    }
+
+    // MARK: Navigation
+
     func webView(
         _ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
-        guard let url = action.request.url, let host else { return decisionHandler(.cancel) }
-        if ["about", "blob", "data"].contains(url.scheme ?? "") {
-            return decisionHandler(action.shouldPerformDownload ? .download : .allow)
-        }
-        let mainFrame = action.targetFrame?.isMainFrame ?? true
-        guard host.decide(self, url: url, mainFrame: mainFrame) else { return decisionHandler(.cancel) }
-        decisionHandler(action.shouldPerformDownload ? .download : .allow)
+        guard let host else { return decisionHandler(.cancel) }
+        decisionHandler(host.decide(self, action))
     }
 
     func webView(
@@ -336,6 +540,98 @@ private final class ResidentView: NSObject, WKNavigationDelegate, WKUIDelegate, 
         // Displayable Moodle attachments otherwise commit an empty page.
         decisionHandler(disposition == "attachment" || !response.canShowMIMEType ? .download : .allow)
     }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        committed = webView.backForwardList.currentItem
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        host?.loaded(self, url: webView.url)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        host?.failed(self, error: error)
+    }
+
+    func webView(
+        _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error
+    ) {
+        host?.failed(self, error: error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webView.reload()
+    }
+
+    // MARK: Windows, dialogs, printing
+
+    func webView(
+        _ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+        for action: WKNavigationAction, windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        host?.window(self, configuration: configuration, action: action, features: windowFeatures)
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        host?.closedByPage(self)
+    }
+
+    func webView(
+        _ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor () -> Void
+    ) {
+        present(message, frame: frame, cancel: false, field: nil, reply: Reply { _ in completionHandler() })
+    }
+
+    func webView(
+        _ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (Bool) -> Void
+    ) {
+        present(message, frame: frame, cancel: true, field: nil, reply: Reply { completionHandler($0 != nil) })
+    }
+
+    func webView(
+        _ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (String?) -> Void
+    ) {
+        present(prompt, frame: frame, cancel: true, field: defaultText ?? "", reply: Reply { completionHandler($0) })
+    }
+
+    /// Shows a page dialog, titled with the initiating frame's origin as in
+    /// Safari so an embedded page cannot pass its text off as the school's.
+    /// A page that is not on screen raises no UI: dropping `reply` answers
+    /// Cancel, as WebKit does without a delegate.
+    private func present(_ message: String, frame: WKFrameInfo, cancel: Bool, field: String?, reply: Reply) {
+        guard let presenter = host?.presenter(for: webView) else { return }
+        let origin = frame.securityOrigin
+        let title: String? =
+            origin.host.isEmpty ? nil : origin.port == 0
+            ? "\(origin.protocol)://\(origin.host)" : "\(origin.protocol)://\(origin.host):\(origin.port)"
+        let alert = UIAlertController(title: title ?? message, message: title == nil ? nil : message, preferredStyle: .alert)
+        if let field { alert.addTextField { $0.text = field } }
+        alert.addAction(UIAlertAction(title: t("OK"), style: .default) { [weak alert] _ in
+            reply.answer(alert?.textFields?.first?.text ?? "")
+        })
+        if cancel {
+            alert.addAction(UIAlertAction(title: t("Cancel"), style: .cancel) { _ in reply.answer(nil) })
+        }
+        presenter.present(alert, animated: true)
+    }
+
+    /// `window.print()` reaches WebKit's private
+    /// `_webView:printFrame:pdfFirstPageSize:completionHandler:`; without it
+    /// nothing happens. The page goes on at once and the panel follows, so
+    /// the print formatter never waits on a page held in `print()`.
+    @objc(_webView:printFrame:pdfFirstPageSize:completionHandler:)
+    func printFrame(_ webView: WKWebView, frame: AnyObject?, pdfFirstPageSize: CGSize, completionHandler: @escaping () -> Void) {
+        completionHandler()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.host?.printPage(self)
+        }
+    }
+
+    // MARK: Downloads
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         receive(download)
@@ -380,7 +676,7 @@ private final class ResidentView: NSObject, WKNavigationDelegate, WKUIDelegate, 
         host?.onDownloadError?(error)
     }
 
-    func cancelDownloads() {
+    private func cancelDownloads() {
         for item in downloads.values {
             item.download.delegate = nil
             item.download.cancel { _ in
@@ -388,31 +684,5 @@ private final class ResidentView: NSObject, WKNavigationDelegate, WKUIDelegate, 
             }
         }
         downloads.removeAll()
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        host?.loaded(self, url: webView.url)
-    }
-
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        host?.failed(self, url: webView.url, error: error)
-    }
-
-    func webView(
-        _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error
-    ) {
-        host?.failed(self, url: webView.url, error: error)
-    }
-
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        webView.reload()
-    }
-
-    func webView(
-        _ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
-        for action: WKNavigationAction, windowFeatures: WKWindowFeatures
-    ) -> WKWebView? {
-        if let url = action.request.url { host?.popup(self, url: url) }
-        return nil
     }
 }

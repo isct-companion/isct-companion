@@ -193,12 +193,11 @@ page script into every webview, so a desktop plugin must not have one.
 | -------------------------- | ----------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------ |
 | macOS (`school_webkit.rs`) | Full, `formResubmission`                                          | Inline over the opener                             | Done                                 |
 | Windows (interim)          | URL only (`Unknown`, no method or gesture); no resubmission facts | Separate windows (`NewWindowResponse::Create`)     | WebView2's own                       |
-| iOS (interim)              | URL and frame only (`Unknown`)                                    | Load in the opener's view; reported closed at once | Dialogs pending; print pending       |
+| iOS (`SchoolBrowserHost`)  | Full but gesture, `formResubmission`                              | Inline over the opener                             | Done                                 |
 | Android (interim)          | URL, frame and gesture (`Unknown` kind)                           | Load in the opener's view; reported closed at once | WebView's own dialogs; print pending |
 
-The iOS and Android hosts implement this contract in full in their own
-change: real popups (`createWebViewWith` / `WebViewTransport`), the full
-`NavigationRequest` (WebKit `navigationType` with `fromHistory`, Android
+The Android host implements this contract in full in its own change: real
+popups (`WebViewTransport`), the full `NavigationRequest` (Android
 `onFormResubmission` and an app notice for `ERR_CACHE_MISS`), `SkipEntry`,
 `closed` on `window.close()`, `becameDownload`, dialogs, printing,
 `LoadFailure` mapping, and
