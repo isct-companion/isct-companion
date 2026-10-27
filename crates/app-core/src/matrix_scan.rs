@@ -173,6 +173,9 @@ pub enum MatrixScanError {
     /// A still photo without a readable Matrix, or not an image at all.
     #[error("{0}")]
     Unreadable(String),
+    /// This build or device has no OCR backend; shells hide the scanner.
+    #[error("Matrix scanner is unavailable in this build.")]
+    Unavailable,
     #[error("{0}")]
     Backend(String),
 }

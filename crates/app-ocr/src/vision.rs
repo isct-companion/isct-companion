@@ -14,6 +14,7 @@ fn scan_error(error: MatrixOcrError) -> MatrixScanError {
             MatrixScanError::Unreadable(error.to_string())
         }
         MatrixOcrError::Cancelled => MatrixScanError::Ended,
+        MatrixOcrError::Unavailable => MatrixScanError::Unavailable,
         other => MatrixScanError::Backend(other.to_string()),
     }
 }
