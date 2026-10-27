@@ -2,7 +2,7 @@
 //! this adapter supplies the selected root and desktop openers.
 
 use crate::lms_files::root;
-use isct_core::{
+use app_core::{
     course_materials::CourseKey,
     school_browser::{SubmissionError, SubmissionMessages},
     workspaces::{Attachment, HandInView, WorkspaceError, WorkspaceInfo, Workspaces},

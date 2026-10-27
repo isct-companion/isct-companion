@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["apps/desktop/src-tauri", "crates/isct-core", "crates/isct-ocr", "crates/isct-ffi"]
+members = ["apps/desktop/src-tauri", "crates/adpt-isct", "crates/app-core", "crates/app-ocr", "crates/app-ffi"]
 default-members = ["apps/desktop/src-tauri"]
 
 [profile.release]
@@ -17,7 +17,7 @@ incremental = false
 
 # Camera feedback must remain interactive in development too. Keep the shell
 # debuggable while optimizing the pixel loops and JPEG decoder used by OCR.
-[profile.dev.package.isct-ocr]
+[profile.dev.package.app-ocr]
 opt-level = 3
 
 [profile.dev.package.image]

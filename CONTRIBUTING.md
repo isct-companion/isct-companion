@@ -18,10 +18,12 @@ Issues may be written in Japanese, English or Chinese. Code, documentation and r
 Proposals and interface changes are judged against the project's written principles, not against "it works".
 A change that works but conflicts with them is declined, with a pointer to the principle.
 
-Before proposing a feature or a large change, read the [product definition](docs/product-definition.md),
-the [design tokens](design/README.md) and the [mobile app design](docs/ux/mobile.md).
-A proposal starts from a problem in one of the product's primary jobs. Items under *Deferred* and the things the
-product definition rules out (for example a local `Mark complete` that can contradict the LMS, project management or tag taxonomies) are not accepted.
+Before proposing a feature or a large change, read the product and design decisions and the
+[design tokens](design/README.md). The decisions are kept in the project's slotledger: install it with
+`npx slotledger init`, or read the generated [STATUS.md](STATUS.md). Start from `goal/product-promise`,
+`goal/out-of-scope` and, for the phones, the `approach/mobile-*` keys.
+A proposal starts from a problem in one of the product's primary jobs. Items in `goal/out-of-scope` and the things the
+product decisions rule out (for example a local `Mark complete` that can contradict the LMS, project management or tag taxonomies) are not accepted.
 Open an issue before a large change so the direction is agreed first.
 
 Interface changes:
@@ -33,14 +35,14 @@ Interface changes:
   in light and dark appearance.
 - **Each platform's conventions.**
   - Phones keep the system frame: tab bars, navigation bars, sheets, switches, pickers, system fonts and gestures come
-    from the platform, and layouts survive the largest text sizes ([Look](docs/ux/mobile.md#look-native-frame-own-content),
-    [Gestures](docs/ux/mobile.md#gestures), [Text size](docs/ux/mobile.md#text-size)).
+    from the platform, and layouts survive the largest text sizes (`approach/mobile-moment-first` and `approach/mobile-gestures`
+    in [STATUS.md](STATUS.md)).
   - Desktop is quiet and compact, like software that ships with the system: system font and desktop density, context menus,
     focus rings only during keyboard use, shadows only on floating layers, and motion only for continuity
     (150–250 ms, honouring reduced motion). This is `goal/desktop-polish-direction` in [STATUS.md](STATUS.md).
   - Platform differences are separated at compile time ([AGENTS.md §3](AGENTS.md#3-isolate-native-differences-at-compile-time-not-with-runtime-checks)).
 - **Content before decoration.** Layout and spacing before cards, borders or shadows; short utility labels, no tutorial
-  copy or promotional sentences ([visual thesis](docs/product-definition.md#visual-thesis)).
+  copy or promotional sentences (`goal/desktop-polish-direction` and `approach/settings-layering` in [STATUS.md](STATUS.md)).
 - **Screenshots.** Include screenshots of each affected platform and list the states they cover.
 
 ## Open an issue
@@ -52,7 +54,7 @@ Include the app version, operating system, steps and expected behaviour. Use sam
 
 1. Read [AGENTS.md](AGENTS.md) and the [development guide](docs/development.md).
 2. Create a branch from the current `main`, install dependencies with `yarn install --immutable`, and run `yarn desktop:dev`.
-3. Keep domain rules, persistence and mutations in `crates/isct-core`; the desktop interface renders Core read models and forwards intents.
+3. Keep domain rules, persistence and mutations in `crates/app-core`; the desktop interface renders Core read models and forwards intents.
 4. Run `yarn test`, `yarn test:types`, `yarn backend:test` and `yarn build` for changes that cross the UI/Core boundary. See the [test guide](apps/desktop/tests/README.md) for narrower checks and existing suites.
 5. Open a pull request explaining the user-visible result and verification. Include screenshots for visible interface changes.
 

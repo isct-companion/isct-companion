@@ -1,4 +1,4 @@
-import departments from "../../../../crates/isct-core/src/course_query/departments.json";
+import departments from "../../../../crates/app-core/src/course_query/departments.json";
 import type { Localized } from "./model";
 
 /**

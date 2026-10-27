@@ -16,8 +16,8 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 log = "0.4"
-isct-core = { path = "../../../crates/isct-core", features = ["ts", "workspace-archives"] }
-isct-ocr = { path = "../../../crates/isct-ocr" }
+app-core = { path = "../../../crates/app-core", features = ["ts", "workspace-archives"] }
+app-ocr = { path = "../../../crates/app-ocr" }
 tokio = { version = "1", features = ["time", "sync", "fs", "io-util", "net"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,7 +30,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 base64 = "0.22"
 keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native"] }
 rand = "0.9"
-# TLS comes from Core: build clients with `isct_core::net::client_builder()`.
+# TLS comes from Core: build clients with `app_core::net::client_builder()`.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy", "json", "form", "stream", "cookies"] }
 sha2 = "0.10"
 url = "2.5"
@@ -70,3 +70,6 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 tauri-winrt-notification = "0.7.3"
 # Mica needs Windows 11; the build number decides whether the window gets it.
 windows-version = "0.1"
+
+[dev-dependencies]
+adpt-isct = { path = "../../../crates/adpt-isct" }

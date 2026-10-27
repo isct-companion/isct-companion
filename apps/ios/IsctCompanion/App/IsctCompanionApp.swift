@@ -53,7 +53,7 @@ enum AppTab: Hashable, CaseIterable {
     }
 }
 
-/// Which container the pages sit in (docs/ux/mobile.md, Devices and layouts).
+/// Which container the pages sit in (slotledger `approach/mobile-layout-by-width`).
 /// The window's size picks it, on iPhone and iPad alike: the tab bar when
 /// stacked, the desktop's workstation otherwise.
 enum Layout {
@@ -313,8 +313,8 @@ struct RootView: View {
         }
     }
 
-    /// Wide: the desktop's workstation (docs/ux/mobile.md, Devices and
-    /// layouts): the page rail, one page beside it and the school status bar
+    /// Wide: the desktop's workstation (slotledger
+    /// `approach/mobile-layout-by-width`): the page rail, one page beside it and the school status bar
     /// under the page.
     private var workstation: some View {
         HStack(spacing: 0) {

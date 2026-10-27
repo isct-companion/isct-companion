@@ -50,7 +50,7 @@ const targetFeatures = sdkFeatureArgs({ ocr });
 run("cargo", [
   "build",
   "-p",
-  "isct-ffi",
+  "app-ffi",
   ...bindingFeatures,
   "--locked",
   "-j",
@@ -95,7 +95,7 @@ for (const [triple, abi, clang] of [
     [
       "build",
       "-p",
-      "isct-ffi",
+      "app-ffi",
       "--target",
       triple,
       "--profile",
@@ -114,13 +114,13 @@ for (const [triple, abi, clang] of [
       target,
       triple,
       profile === "dev" ? "debug" : profile,
-      "libisct_ffi.so",
+      "libapp_ffi.so",
     ),
-    join(dir, "libisct_ffi.so"),
+    join(dir, "libapp_ffi.so"),
   );
   const needed = capture(join(toolchain, "llvm-readelf" + exe), [
     "-d",
-    join(dir, "libisct_ffi.so"),
+    join(dir, "libapp_ffi.so"),
   ]);
   if (needed.includes("libc++_shared.so"))
     copyFileSync(
@@ -141,7 +141,7 @@ const appKotlin = readFileSync(
 if (!appKotlin)
   throw new Error("Missing the Kotlin plugin version in apps/android");
 kotlinc([
-  join(generated, "app/isctcompanion/core/isct_ffi.kt"),
+  join(generated, "app/isctcompanion/core/app_ffi.kt"),
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/OperationValue.kt",
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt",
   "-classpath",
@@ -166,7 +166,7 @@ writeFileSync(
 writeFileSync(join(stage, "R.txt"), "");
 const artifacts = join(root, "bindings/kotlin/artifacts");
 mkdirSync(artifacts, { recursive: true });
-const aar = join(artifacts, "isct-core.aar");
+const aar = join(artifacts, "app-core.aar");
 rmSync(aar, { force: true });
 const entries = [
   "AndroidManifest.xml",
@@ -184,18 +184,18 @@ if (windows)
   );
 else run("zip", ["-qr", aar, ...entries], { cwd: stage });
 copyFileSync(
-  join(generated, "app/isctcompanion/core/isct_ffi.kt"),
+  join(generated, "app/isctcompanion/core/app_ffi.kt"),
   join(
     root,
-    "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/isct_ffi.kt",
+    "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/app_ffi.kt",
   ),
 );
 const version = JSON.parse(
   readFileSync(join(root, "package.json"), "utf8"),
 ).version;
 writeFileSync(
-  join(artifacts, "isct-core.pom"),
-  `<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>app.isctcompanion</groupId><artifactId>isct-core</artifactId><version>${version}</version><packaging>aar</packaging><dependencies><dependency><groupId>net.java.dev.jna</groupId><artifactId>jna</artifactId><version>5.17.0</version><type>aar</type></dependency><dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-android</artifactId><version>1.10.2</version></dependency><dependency><groupId>androidx.annotation</groupId><artifactId>annotation-jvm</artifactId><version>1.9.1</version></dependency></dependencies></project>`,
+  join(artifacts, "app-core.pom"),
+  `<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>app.isctcompanion</groupId><artifactId>app-core</artifactId><version>${version}</version><packaging>aar</packaging><dependencies><dependency><groupId>net.java.dev.jna</groupId><artifactId>jna</artifactId><version>5.17.0</version><type>aar</type></dependency><dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-android</artifactId><version>1.10.2</version></dependency><dependency><groupId>androidx.annotation</groupId><artifactId>annotation-jvm</artifactId><version>1.9.1</version></dependency></dependencies></project>`,
 );
 await androidJna();
 writeFileSync(

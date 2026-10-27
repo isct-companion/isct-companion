@@ -1,12 +1,12 @@
-use isct_core::data;
-use isct_core::lms_ingest::{apply_lms_course, apply_lms_deadlines, apply_lms_enrolment};
-use isct_core::school_parser::{
+use adpt_isct::{
     kyomu::{parse_payload as parse_kyomu_payload, KyomuStage},
     lms::{
         aggregate_slots, decode_entities, validate_course, validate_deadlines, validate_enrolment,
         LmsDeadlines,
     },
 };
+use app_core::data;
+use app_core::lms_ingest::{apply_lms_course, apply_lms_deadlines, apply_lms_enrolment};
 
 use serde_json::{json, Value};
 

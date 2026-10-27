@@ -3,7 +3,7 @@ const ocr = process.argv.includes("--ocr");
 run("cargo", [
   "build",
   "-p",
-  "isct-ffi",
+  "app-ffi",
   ...sdkFeatureArgs({ bindgen: true, ocr }),
   "--locked",
   "-j",

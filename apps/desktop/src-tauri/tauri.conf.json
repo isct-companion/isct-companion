@@ -35,12 +35,12 @@
       "bundleVersion": "1.2.2"
     },
     "resources": [
-      "../../../crates/isct-ocr/models/alphabet/README.md",
-      "../../../crates/isct-ocr/models/alphabet/MIT-LICENSE",
-      "../../../crates/isct-ocr/models/paddle/README.md",
-      "../../../crates/isct-ocr/models/paddle/PADDLE-LICENSE",
-      "../../../crates/isct-ocr/models/paddle/ONNX-RUNTIME-LICENSE",
-      "../../../crates/isct-ocr/models/paddle/ONNX-THIRD-PARTY-NOTICES.txt",
+      "../../../crates/app-ocr/models/alphabet/README.md",
+      "../../../crates/app-ocr/models/alphabet/MIT-LICENSE",
+      "../../../crates/app-ocr/models/paddle/README.md",
+      "../../../crates/app-ocr/models/paddle/PADDLE-LICENSE",
+      "../../../crates/app-ocr/models/paddle/ONNX-RUNTIME-LICENSE",
+      "../../../crates/app-ocr/models/paddle/ONNX-THIRD-PARTY-NOTICES.txt",
       "../../../LICENSE",
       "../../../docs/legal/NOTICE.md",
       "../../../docs/legal/NOTICE.ja.md"

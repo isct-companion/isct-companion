@@ -62,7 +62,7 @@ one place where the full suites are run, not targeted tests:
 node scripts/desktop/desktop-release.mjs validate
 yarn test
 yarn test:types
-cargo test -p isct-core --locked
+cargo test -p app-core --locked
 ```
 
 From a worktree, point `CARGO_TARGET_DIR` at the main checkout's `target/` so

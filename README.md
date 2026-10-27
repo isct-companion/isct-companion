@@ -84,9 +84,9 @@ One shared Rust core, three native apps.
 
 | Path | What |
 | --- | --- |
-| [`crates/isct-core`](crates/isct-core) | Rust core: sync engine, school site access, timetable and exam logic, MCP server |
-| [`crates/isct-ocr`](crates/isct-ocr) | On-device Matrix card reader |
-| [`crates/isct-ffi`](crates/isct-ffi) | FFI bindings for the mobile apps |
+| [`crates/app-core`](crates/app-core) | Rust core: sync engine, school site access, timetable and exam logic, MCP server |
+| [`crates/app-ocr`](crates/app-ocr) | On-device Matrix card reader |
+| [`crates/app-ffi`](crates/app-ffi) | FFI bindings for the mobile apps |
 | [`apps/desktop`](apps/desktop) | macOS and Windows app (Tauri 2 · React) |
 | [`apps/ios`](apps/ios) | iPhone and iPad app (SwiftUI) |
 | [`apps/android`](apps/android) | Android app (Jetpack Compose) |

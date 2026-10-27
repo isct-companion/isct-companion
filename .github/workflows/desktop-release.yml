@@ -62,7 +62,7 @@ jobs:
       - run: node scripts/desktop/desktop-release.mjs validate
       - run: yarn test
       - run: yarn test:types
-      - run: cargo test -p isct-core --locked
+      - run: cargo test -p app-core --locked
 
   build:
     name: Build (${{ matrix.target }})

@@ -55,9 +55,9 @@ apps/desktop/
   src-tauri/               Tauri host, native ports, commands and HTTP MCP
   tests/                   every frontend test: harness, unit, e2e and live
   public/                  desktop web assets
-crates/isct-core/           authoritative domain state, services and storage
-crates/isct-ocr/            independent optional OCR engine and model
-crates/isct-ffi/            native Core facade and generated contract bridge
+crates/app-core/           authoritative domain state, services and storage
+crates/app-ocr/            independent optional OCR engine and model
+crates/app-ffi/            native Core facade and generated contract bridge
 bindings/                  Swift package and Kotlin/AAR packaging
 resources/locales/         shared UI translation resources
 resources/design/          original icon artwork; future shared visual tokens
@@ -68,7 +68,7 @@ docs/                      contracts, design and verification records
 
 Future SwiftUI and Compose applications belong in `apps/ios/` and
 `apps/android/`. Swift/Kotlin SDK packages live under `bindings/`, backed by
-the shared Rust facade in `crates/isct-ffi/`.
+the shared Rust facade in `crates/app-ffi/`.
 The native UI projects are created when implemented.
 
 Platform manifests and build configuration stay beside the owning app. The
@@ -76,7 +76,7 @@ root Yarn/Cargo workspaces retain one lockfile each and the Rust build output
 remains at root `target/`. Root commands delegate to the desktop workspace.
 Generate desktop TypeScript contracts with `yarn core:types`; the exporter
 belongs to Core and does not require compiling Tauri. Subscription test data
-remains in `crates/isct-core/tests/fixtures/subscriptions/`.
+remains in `crates/app-core/tests/fixtures/subscriptions/`.
 
 Desktop releases build independently; platform checks continue to compile
 shared Core for iOS and Android. Historical plans and verification records may
@@ -92,13 +92,13 @@ plan timestamps use explicit offsets. The signed macOS checkpoint and its
 verification coverage are recorded in
 [Core consolidation checkpoints](verification/core-consolidation.md).
 
-[Shared Core API and protocol](core-api.md) documents desktop/native transport
-mapping, records, initialization, services, ports, read models, mutations, errors
-and shutdown. See the [documentation index](README.md). The desktop MCP adapter
+The Core contracts (transport mapping, records, services, ports, read models,
+mutations, errors and shutdown) are decisions in slotledger; `STATUS.md` lists
+them. See the [documentation index](README.md). The desktop MCP adapter
 shares those services at `http://127.0.0.1:47832/mcp` while the app is open; authentication
 is configured in Settings → AI agent access.
 
-The native SDK is implemented in `crates/isct-ffi`, with generated Swift/Kotlin
+The native SDK is implemented in `crates/app-ffi`, with generated Swift/Kotlin
 packages under `bindings/`. See [native SDK integration](core-ffi.md) for
 service operations, cancellation, native ports, build commands and verification
 boundaries. SwiftUI/Compose interfaces and real-account acceptance remain separate work.
@@ -116,7 +116,7 @@ The displayed version stays fixed after the build is committed.
 - School credentials, OTP material, OAuth tokens and the optional cloud
   encryption password live in the operating-system credential vault and are
   never returned to the WebView.
-- Google Drive and OneDrive store the readable workspace export as
+- Google Drive stores the readable workspace export as
   `IsctCompanion.json` in the provider's private app folder.
 - Optional school-credential sync uses a separate AES-256-GCM encrypted file.
   Its 8–12 character encryption password stays on the local device and must be
@@ -126,8 +126,9 @@ The displayed version stays fixed after the build is committed.
 
 Cloud provider registration is documented in
 [docs/cloud-provider-setup.md](cloud-provider-setup.md). Persistence
-boundaries are documented in [docs/data-ownership.md](data-ownership.md),
-and school import rules in [docs/data-architecture.md](data-architecture.md).
+boundaries are documented in [docs/data-ownership.md](data-ownership.md);
+school import rules are slotledger decisions (`approach/school-parser-boundary`,
+`constraint/school-failure-keeps-data`).
 
 ## Scope
 

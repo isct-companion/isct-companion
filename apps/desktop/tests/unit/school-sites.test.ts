@@ -31,14 +31,14 @@ import { readRepoFile, schoolProfiles } from "@tests/harness";
  *
  * The injected scripts are shipped by Rust; this suite runs the shipped files
  * rather than a transcription of them. The navigation policy itself lives in
- * `crates/isct-core` and cannot be executed in this runtime, so the tests over
+ * `crates/app-core` and cannot be executed in this runtime, so the tests over
  * it assert the documented policy encoded in that source (host list, sanitising
  * rules, `SchoolSite` mapping) instead of pretending to call it.
  */
 
-const SCHOOL_BROWSER = "crates/isct-core/src/school_browser";
+const SCHOOL_BROWSER = "crates/app-core/src/school_browser";
 const readScript = (name: string) =>
-  readRepoFile(`${SCHOOL_BROWSER}/assets/${name}`);
+  readRepoFile(`crates/adpt-isct/assets/${name}`);
 
 /* ------------------------------------------------------------------ *
  * School webview bounds
@@ -114,11 +114,11 @@ describe("school webview bounds", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * Official school host policy (crates/isct-core)
+ * Official school host policy (crates/app-core)
  * ------------------------------------------------------------------ */
 
 const policySource = () => readRepoFile(`${SCHOOL_BROWSER}/policy.rs`);
-const lifecycleSource = () => readRepoFile("crates/isct-core/src/lifecycle.rs");
+const lifecycleSource = () => readRepoFile("crates/app-core/src/lifecycle.rs");
 
 /** The `SCHOOL_HOSTS` array literal, comments stripped. */
 function schoolHostBlock(): string {

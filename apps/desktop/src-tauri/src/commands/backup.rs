@@ -1,6 +1,6 @@
 //! Backup command adapters and native file dialogs.
 use crate::{cloud_sync, data, lms_files, require_local_main};
-use isct_core::backup::BackupService;
+use app_core::backup::BackupService;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 

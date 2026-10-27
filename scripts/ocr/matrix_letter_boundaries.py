@@ -68,7 +68,7 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--font", type=Path, help="Generate with a local Times Italic TTF")
     parser.add_argument("--fixture", type=Path, default=Path(
-        "crates/isct-ocr/src/tests/fixtures/matrix-card.jpg"))
+        "crates/app-ocr/src/tests/fixtures/matrix-card.jpg"))
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()

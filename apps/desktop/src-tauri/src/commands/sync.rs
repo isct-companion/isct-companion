@@ -1,7 +1,7 @@
 //! The shell's whole share of school sync: forward hints, read the snapshot.
 //! Core's planner decides what is due; `sync-snapshot` events carry changes.
 use crate::{core_ports, require_local_main};
-use isct_core::sync_engine::{Hint, SyncSnapshot};
+use app_core::sync_engine::{Hint, SyncSnapshot};
 
 /// A lifecycle fact, an opened page or a refresh button. Never waits for a
 /// read, so it stays synchronous on the IPC thread.

@@ -1,8 +1,8 @@
 # Cloud provider registration
 
 The registered OAuth clients live in `config/oauth-clients.yaml` (see Google
-Drive below). Google Drive is available on desktop and iOS; iCloud is available
-on signed Apple builds. OneDrive remains a separately registered provider.
+Drive below). Google Drive is available on desktop, iOS and Android; iCloud is
+available on signed Apple builds.
 
 The native app uses this exact loopback redirect:
 
@@ -50,28 +50,6 @@ offline access so the OS credential vault can retain a refresh token.
 Official references: [OAuth for installed apps](https://developers.google.com/identity/protocols/oauth2), [loopback redirects for desktop clients](https://developers.google.com/identity/protocols/oauth2/resources/loopback-migration), [Drive app data folder](https://developers.google.com/workspace/drive/api/guides/appdata).
 
 Registration: [enable Google Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com), then [create the OAuth client](https://console.cloud.google.com/auth/clients).
-
-## Microsoft OneDrive
-
-1. Create an app registration in Microsoft Entra ID.
-2. Choose the account audience needed by the project. For both university and
-   personal OneDrive accounts, choose organizational directories plus personal
-   Microsoft accounts.
-3. Under **Authentication**, add **Mobile and desktop applications** and the
-   exact loopback redirect shown above, then enable **Allow public client
-   flows**.
-4. Under **API permissions**, add the delegated Microsoft Graph permission
-   `Files.ReadWrite.AppFolder`. No application permission and no client secret
-   are needed.
-5. Copy the Application (client) ID into the app.
-
-The app additionally requests `offline_access` so its refresh token can remain
-in the OS credential vault. The Graph permission is limited to this app's
-OneDrive folder.
-
-Official references: [desktop public-client setup](https://learn.microsoft.com/en-us/entra/identity-platform/scenario-desktop-app-configuration), [redirect URI rules](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url), [OneDrive app folder](https://learn.microsoft.com/en-us/graph/onedrive-sharepoint-appfolder), [Graph permission reference](https://learn.microsoft.com/en-us/graph/permissions-reference).
-
-Registration: [Microsoft Entra app registrations](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
 
 ## iCloud
 

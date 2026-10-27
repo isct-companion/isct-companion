@@ -74,9 +74,9 @@
 
 | パス | 内容 |
 | --- | --- |
-| [`crates/isct-core`](crates/isct-core) | Rust コア：同期、学内サイトとの通信、時間割と試験のロジック、MCP サーバー |
-| [`crates/isct-ocr`](crates/isct-ocr) | 端末内で動くマトリクス表の読み取り |
-| [`crates/isct-ffi`](crates/isct-ffi) | モバイルアプリ向け FFI |
+| [`crates/app-core`](crates/app-core) | Rust コア：同期、学内サイトとの通信、時間割と試験のロジック、MCP サーバー |
+| [`crates/app-ocr`](crates/app-ocr) | 端末内で動くマトリクス表の読み取り |
+| [`crates/app-ffi`](crates/app-ffi) | モバイルアプリ向け FFI |
 | [`apps/desktop`](apps/desktop) | macOS・Windows 版（Tauri 2 · React） |
 | [`apps/ios`](apps/ios) | iPhone・iPad 版（SwiftUI） |
 | [`apps/android`](apps/android) | Android 版（Jetpack Compose） |

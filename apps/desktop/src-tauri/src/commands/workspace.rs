@@ -1,6 +1,6 @@
 use crate::{core_ports, data, require_local_main, run_data_command};
-use isct_core::workspace::{WorkspaceCommit, WorkspaceError, WorkspaceMutation, WorkspaceSnapshot};
-use isct_core::workspace_changes::{WorkspaceChange, WorkspacePatch};
+use app_core::workspace::{WorkspaceCommit, WorkspaceError, WorkspaceMutation, WorkspaceSnapshot};
+use app_core::workspace_changes::{WorkspaceChange, WorkspacePatch};
 
 #[tauri::command]
 pub(crate) async fn workspace_snapshot(

@@ -27,7 +27,7 @@ Tokens use the [W3C Design Tokens (DTCG) format](https://www.designtokens.org/tr
 |---|---|
 | `apps/desktop/src/generated/design/tokens.css` | `styles.css` imports it; names are the public CSS variables (`--bg`, `--accent`, `--radius-chip`, …) that per-site CSS relies on |
 | `apps/desktop/src/generated/design/tokens.dark.css` | Dark theme: chosen (`data-appearance="dark"`) or following the system |
-| `crates/isct-core/src/schedule/course_palette.rs` | `display_color` in core, included by `colors.rs` |
+| `crates/app-core/src/schedule/course_palette.rs` | `display_color` in core, included by `colors.rs` |
 | `apps/ios/IsctCompanion/Design/Generated/IsctTokens*.swift` | SwiftUI shell (light constants + dark colours) |
 | `apps/android/app/src/main/java/app/isct/design/IsctTokens*.kt` | Compose shell (light constants + dark colours) |
 

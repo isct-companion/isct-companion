@@ -2,7 +2,7 @@
 """Matrix geometry replay report: stage overlays, capture-to-draw timeline, metrics.
 
 Inputs are trace JSONL files with one line per frame, written by
-`cargo run -p isct-ocr --release --features training-tools --example
+`cargo run -p app-ocr --release --features training-tools --example
 matrix_track_replay -- FRAMES` or by `matrix_cv_reference.py`:
 
     {"frame": "0001.jpg", "frameId": 0, "t": 0.0, "pipeline": "...",

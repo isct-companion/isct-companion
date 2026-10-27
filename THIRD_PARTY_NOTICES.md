@@ -6,7 +6,7 @@ distributions.
 
 ## OpenCV 4.10.0 (ported code)
 
-`crates/isct-ocr/src/engine/vendor/opencv_homography.rs` is a Rust
+`crates/app-ocr/src/engine/vendor/opencv_homography.rs` is a Rust
 translation of parts of OpenCV 4.10.0 (commit
 71d3237a093b60a27601c20e9ee6c3e52154e8b1, <https://github.com/opencv/opencv>):
 `modules/calib3d/src/fundam.cpp`, `ptsetreg.cpp`, `levmarq.cpp`,

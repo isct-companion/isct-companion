@@ -1,7 +1,7 @@
 # Science Tokyo LMS API
 
 [OpenAPI 3.0.3](openapi.yaml) · [Swagger UI](index.html) ·
-[实测记录](verification.json) · [接入评估](../lms-token-feasibility.md)
+[实测记录](verification.json) · 接入评估：slotledger `approach/lms-token-rest-transport`
 
 这份协议覆盖 IsctCompanion 接入需要、并已在 2026-10-20 验证的 8 个读取函数，
 以及公开配置、官方浏览器授权和资源文件下载。学校服务声明了 470 个函数；

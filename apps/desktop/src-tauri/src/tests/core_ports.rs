@@ -1,5 +1,5 @@
 use super::*;
-use isct_core::{
+use app_core::{
     cloud_sync::SyncState,
     data::WorkspaceChangeSource,
     events::{SchoolDownloadEvent, SchoolDownloadState},

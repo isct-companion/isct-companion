@@ -21,7 +21,7 @@ mkdirSync(stage, { recursive: true });
 // Test the actual AAR contents, including the native library, on Android ART.
 run("unzip", [
   "-q",
-  join(root, "bindings/kotlin/artifacts/isct-core.aar"),
+  join(root, "bindings/kotlin/artifacts/app-core.aar"),
   "-d",
   join(stage, "sdk"),
 ]);
@@ -33,7 +33,7 @@ const kotlinStdlib = kotlinLibrary("kotlin-stdlib.jar");
 const classes = join(stage, "sdk/classes.jar");
 const jna = join(stage, "jna/classes.jar");
 run("kotlinc", [
-  "crates/isct-ffi/tests/foreign/Smoke.kt",
+  "crates/app-ffi/tests/foreign/Smoke.kt",
   "-jvm-target",
   "1.8",
   "-classpath",
@@ -74,7 +74,7 @@ try {
     "shell",
     "chmod",
     "755",
-    `${remote}/libisct_ffi.so`,
+    `${remote}/libapp_ffi.so`,
     `${remote}/libjnidispatch.so`,
   ]);
   // No UI, network or school account is needed; app_process uses Android's VM and linker.

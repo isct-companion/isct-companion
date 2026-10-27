@@ -1,7 +1,7 @@
 import SwiftUI
 import TipKit
 
-// First-run guidance (docs/ux/mobile.md, First launch): one welcome sheet,
+// First-run guidance (slotledger `approach/first-launch`): one welcome sheet,
 // then TipKit's one-time tips beside the gestures nobody can see. TipKit owns
 // display frequency and persistence; tips wait until the sheet is closed.
 

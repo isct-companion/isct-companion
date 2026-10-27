@@ -1,9 +1,9 @@
 # iOS app
 
-SwiftUI shell over the Rust core (`crates/isct-core` through the Swift SDK in
+SwiftUI shell over the Rust core (`crates/app-core` through the Swift SDK in
 `bindings/swift`). The shell renders Core read models, forwards intents and
 implements the platform ports; it keeps no business state of its own. Design:
-[docs/ux/mobile.md](../../docs/ux/mobile.md).
+the `approach/mobile-*` decisions in [STATUS.md](../../STATUS.md).
 
 ## Build and run
 
@@ -45,8 +45,7 @@ iCloud backup. OCR is unavailable on the Intel simulator.
 
 ## Not yet
 
-See [HANDOFF.md](HANDOFF.md). Matrix-card OCR import, Quick Look for
-downloaded files and widgets.
+Open items are the slotledger task `ios-open-items` (widgets among them).
 
 UI strings are keyed by their English text and translated at runtime from the
 desktop's `resources/locales` catalogs (`Design/Localization.swift`), so the

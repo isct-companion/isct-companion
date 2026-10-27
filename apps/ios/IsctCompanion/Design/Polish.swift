@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// The finish the content components share (docs/ux/mobile.md, Look). Built
+// The finish the content components share (slotledger `approach/mobile-moment-first`). Built
 // on SwiftUI's own animation APIs, so Reduce Motion and Dynamic Type apply.
 
 /// The 'now' tint desktop draws on Today's current or next class and Android

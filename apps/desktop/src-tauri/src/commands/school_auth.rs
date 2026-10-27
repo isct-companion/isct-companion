@@ -1,6 +1,6 @@
 //! Credential commands keep potentially interactive OS vault calls off the UI thread.
 use crate::{require_local_main, school_web::SchoolWebController};
-use isct_core::school_auth::{
+use app_core::school_auth::{
     SchoolAuthError, SchoolAuthProfile, SchoolAuthService, SchoolCredentialStatus,
     SchoolCredentials,
 };
@@ -23,8 +23,8 @@ async fn with_credentials<T: Send + 'static>(
 pub(crate) fn begin_school_otp_setup(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
-) -> Result<u64, isct_core::school_auth::OtpSetupError> {
-    require_local_main(&webview).map_err(|_| isct_core::school_auth::OtpSetupError::Unavailable)?;
+) -> Result<u64, app_core::school_auth::OtpSetupError> {
+    require_local_main(&webview).map_err(|_| app_core::school_auth::OtpSetupError::Unavailable)?;
     controller.engine.begin_school_otp_setup()
 }
 
@@ -33,8 +33,8 @@ pub(crate) fn cancel_school_otp_setup(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
     operation_id: u64,
-) -> Result<(), isct_core::school_auth::OtpSetupError> {
-    require_local_main(&webview).map_err(|_| isct_core::school_auth::OtpSetupError::Unavailable)?;
+) -> Result<(), app_core::school_auth::OtpSetupError> {
+    require_local_main(&webview).map_err(|_| app_core::school_auth::OtpSetupError::Unavailable)?;
     controller.engine.cancel_school_otp_setup(operation_id);
     Ok(())
 }
@@ -46,8 +46,8 @@ pub(crate) async fn complete_school_otp_setup(
     controller: tauri::State<'_, SchoolWebController>,
     operation_id: u64,
     reset: bool,
-) -> Result<(), isct_core::school_auth::OtpSetupError> {
-    use isct_core::school_auth::OtpSetupError;
+) -> Result<(), app_core::school_auth::OtpSetupError> {
+    use app_core::school_auth::OtpSetupError;
     require_local_main(&webview).map_err(|_| OtpSetupError::Unavailable)?;
     let engine = controller.engine.clone();
     crate::core_ports::runtime(&app)
@@ -62,8 +62,8 @@ pub(crate) async fn school_otp_setup(
     app: tauri::AppHandle,
     controller: tauri::State<'_, SchoolWebController>,
     operation_id: u64,
-) -> Result<isct_core::school_auth::SchoolOtpSetup, isct_core::school_auth::OtpSetupError> {
-    use isct_core::school_auth::OtpSetupError;
+) -> Result<app_core::school_auth::SchoolOtpSetup, app_core::school_auth::OtpSetupError> {
+    use app_core::school_auth::OtpSetupError;
     require_local_main(&webview).map_err(|_| OtpSetupError::Unavailable)?;
     let engine = controller.engine.clone();
     crate::core_ports::runtime(&app)
@@ -89,7 +89,7 @@ pub(crate) async fn connect_school(
     app: tauri::AppHandle,
     profile: SchoolAuthProfile,
     credentials: SchoolCredentials,
-) -> Result<isct_core::school_browser::SchoolConnectResult, String> {
+) -> Result<app_core::school_browser::SchoolConnectResult, String> {
     require_local_main(&webview)?;
     let core = crate::core_ports::core(&app);
     crate::core_ports::runtime(&app)
@@ -167,7 +167,7 @@ pub(crate) async fn copy_school_matrix(
 pub(crate) fn school_session_snapshot(
     webview: tauri::Webview,
     controller: tauri::State<'_, SchoolWebController>,
-) -> Result<isct_core::school_browser::SchoolSessionSnapshot, String> {
+) -> Result<app_core::school_browser::SchoolSessionSnapshot, String> {
     require_local_main(&webview)?;
     controller
         .engine
@@ -180,7 +180,7 @@ pub(crate) async fn school_session_lifecycle(
     webview: tauri::Webview,
     app: tauri::AppHandle,
     controller: tauri::State<'_, SchoolWebController>,
-    kind: isct_core::school_browser::SchoolSessionLifecycleKind,
+    kind: app_core::school_browser::SchoolSessionLifecycleKind,
     visible: bool,
 ) -> Result<(), String> {
     require_local_main(&webview)?;
@@ -188,7 +188,7 @@ pub(crate) async fn school_session_lifecycle(
     crate::core_ports::runtime(&app)
         .run(async move {
             engine
-                .lifecycle(isct_core::school_browser::SchoolSessionLifecycle { kind, visible })
+                .lifecycle(app_core::school_browser::SchoolSessionLifecycle { kind, visible })
                 .await
         })
         .await
@@ -201,7 +201,7 @@ pub(crate) async fn school_session_lifecycle(
 pub(crate) fn import_school_otp(
     webview: tauri::Webview,
     payload: String,
-) -> Result<Vec<isct_core::school_auth::OtpImportAccount>, isct_core::school_auth::OtpImportError> {
-    require_local_main(&webview).map_err(|_| isct_core::school_auth::OtpImportError::Invalid)?;
-    isct_core::school_auth::import_otp(&payload)
+) -> Result<Vec<app_core::school_auth::OtpImportAccount>, app_core::school_auth::OtpImportError> {
+    require_local_main(&webview).map_err(|_| app_core::school_auth::OtpImportError::Invalid)?;
+    app_core::school_auth::import_otp(&payload)
 }

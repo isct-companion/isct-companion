@@ -9,12 +9,12 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
-use isct_core::course_materials::CourseMaterials;
-pub use isct_core::course_materials::{CourseKey, Material};
-pub use isct_core::notes::CourseFolder;
-use isct_core::notes::Notes;
-use isct_core::storage;
-pub use isct_core::storage::LocalFile;
+use app_core::course_materials::CourseMaterials;
+pub use app_core::course_materials::{CourseKey, Material};
+pub use app_core::notes::CourseFolder;
+use app_core::notes::Notes;
+use app_core::storage;
+pub use app_core::storage::LocalFile;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageInfo {

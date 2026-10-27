@@ -1,7 +1,7 @@
 //! Native updater port. Tauri verifies signatures and installs native bundles;
 //! Core decides version ordering, check cadence and the automatic preference.
 use crate::core_ports;
-use isct_core::app_updates::{InstallPhase, InstallRecord, LastInstall};
+use app_core::app_updates::{InstallPhase, InstallRecord, LastInstall};
 use serde::Serialize;
 use std::{
     sync::{
@@ -237,8 +237,8 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
         .last_checked
         .clone();
     let waiting_download = snapshot(&app)?.phase == "available"
-        && isct_core::app_updates::automatic_updates(&workspace);
-    if !isct_core::app_updates::check_due(
+        && app_core::app_updates::automatic_updates(&workspace);
+    if !app_core::app_updates::check_due(
         checked.as_deref(),
         chrono::Utc::now(),
         manual || download || waiting_download,
@@ -248,7 +248,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
     phase(&app, "checking", None, None)?;
     let result = async {
         let source = UpdateSource::current(&app)?;
-        let response = isct_core::net::client_builder()
+        let response = app_core::net::client_builder()
             .timeout(Duration::from_secs(20))
             .user_agent(concat!("IsctCompanion/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -271,11 +271,9 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
             .as_str()
             .ok_or("Release version is missing.")?
             .to_string();
-        let newer = isct_core::app_updates::newer_release(
-            &app.package_info().version.to_string(),
-            &version,
-        )
-        .map_err(|e| e.to_string())?;
+        let newer =
+            app_core::app_updates::newer_release(&app.package_info().version.to_string(), &version)
+                .map_err(|e| e.to_string())?;
         updates
             .state
             .lock()
@@ -306,7 +304,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
         if !source.approves(&update.download_url) {
             return Err("The update download source is not approved.".into());
         }
-        if isct_core::app_updates::automatic_updates(&workspace) || download {
+        if app_core::app_updates::automatic_updates(&workspace) || download {
             phase(&app, "downloading", Some(version.clone()), None)?;
             let bytes = download_verified(&app, &mut update).await?;
             updates
@@ -349,7 +347,7 @@ pub fn install_on_exit(app: &AppHandle) {
     let automatic = core_ports::core(app)
         .store
         .load_workspace()
-        .map(|w| isct_core::app_updates::automatic_updates(&w))
+        .map(|w| app_core::app_updates::automatic_updates(&w))
         .unwrap_or(false);
     let updates = app.state::<DesktopUpdates>();
     let pending = updates.state.lock().ok().and_then(|mut s| {
@@ -412,7 +410,7 @@ pub fn load_last_install(app: &AppHandle) {
     let last = serde_json::from_str::<InstallRecord>(&raw)
         .map_err(|e| e.to_string())
         .and_then(|record| {
-            isct_core::app_updates::last_install(&record, &running).map_err(|e| e.to_string())
+            app_core::app_updates::last_install(&record, &running).map_err(|e| e.to_string())
         });
     match last {
         Ok(last) => {

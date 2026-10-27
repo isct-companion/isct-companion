@@ -204,7 +204,7 @@ invalidated instead of leaving you to guess.
 
 ## Fixtures
 
-Committed school HTML lives in `crates/isct-core/tests/fixtures/`, because Core's
+Committed school HTML lives in `crates/app-core/tests/fixtures/`, because Core's
 Rust tests embed it with `include_str!` and the frontend suites read the same
 bytes. `content-provenance.json` pins every public page's URL, capture date and
 SHA-256. Refresh a fixture by re-fetching the URL, replacing the file and
@@ -218,9 +218,9 @@ names that are not already published.
 Rust is the same shape, with one folder per crate:
 
 ```
-crates/isct-core/src/tests/        one folder for the whole crate
-crates/isct-ffi/src/tests/
-crates/isct-ocr/src/tests/
+crates/app-core/src/tests/        one folder for the whole crate
+crates/app-ffi/src/tests/
+crates/app-ocr/src/tests/
 apps/desktop/src-tauri/src/tests/
 ```
 
@@ -229,7 +229,7 @@ Each file is named after the module whose behaviour it covers
 that module:
 
 ```rust
-// in crates/isct-core/src/schedule/timing.rs
+// in crates/app-core/src/schedule/timing.rs
 #[cfg(test)]
 #[path = "../tests/schedule__timing.rs"]
 mod tests;

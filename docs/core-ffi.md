@@ -1,8 +1,8 @@
 # Native Core SDK
 
-`crates/isct-ffi` projects `isct-core` into Swift and Kotlin using pinned UniFFI
+`crates/app-ffi` projects `app-core` into Swift and Kotlin using pinned UniFFI
 0.32.1. Core has no UniFFI, Tauri or mobile-framework dependency. The adapters
-share the domain contract in [core-api.md](core-api.md); transport naming follows
+share one domain contract (recorded in slotledger); transport naming follows
 each generated language rather than introducing a mobile HTTP server.
 
 ## Build and integration
@@ -59,7 +59,7 @@ Create `Session.open(config, vault, browser?, cloud?, notifications?, downloads?
 once per app data directory. Opening storage runs on an owned worker. Directory
 paths must be absolute and supplied by the native shell. The SDK keeps `user.db`,
 `cache.db` and `sync.db` in that directory and splits a `school.db` found there once
-(`crates/isct-core/src/data/migrations.rs`); it does not migrate an installed
+(`crates/app-core/src/data/migrations.rs`); it does not migrate an installed
 desktop app's container. The vault implements Core account names and must preserve the app's
 Keychain/Keystore identity. Credentials do not appear in workspace snapshots.
 

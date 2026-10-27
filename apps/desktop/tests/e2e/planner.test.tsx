@@ -1596,13 +1596,13 @@ type OfficialDepartments = {
 const parsedCourses = () =>
   JSON.parse(
     readRepoFile(
-      "crates/isct-core/tests/fixtures/catalog/course-examples.json",
+      "crates/app-core/tests/fixtures/catalog/course-examples.json",
     ),
   ) as PublicCourse[];
 const departments = (year: 2025 | 2026) =>
   JSON.parse(
     readRepoFile(
-      `crates/isct-core/tests/fixtures/subscriptions/data/${year}/departments.json`,
+      `crates/app-core/tests/fixtures/subscriptions/data/${year}/departments.json`,
     ),
   ) as OfficialDepartments;
 

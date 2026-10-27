@@ -279,8 +279,8 @@ export const CAMPUS_WIFI_STEPS = [
   "verifying",
 ] as const;
 export type CampusWifiStep = (typeof CAMPUS_WIFI_STEPS)[number];
-export type CloudProvider = "google-drive" | "onedrive" | "icloud";
-/** Automatic sync, per device; contract in docs/cloud-sync.md. */
+export type CloudProvider = "google-drive" | "icloud";
+/** Automatic sync, per device; contract in slotledger approach/cloud-upload-queue. */
 export type CloudSyncProvider = "icloud" | "google-drive";
 export type CloudSyncVersion = {
   id: string;

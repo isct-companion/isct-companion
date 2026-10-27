@@ -15,7 +15,7 @@ const tokens = (name) => path.join(designDir, "tokens", name);
 export const outputs = {
   desktopCss: "apps/desktop/src/generated/design/tokens.css",
   desktopDarkCss: "apps/desktop/src/generated/design/tokens.dark.css",
-  corePalette: "crates/isct-core/src/schedule/course_palette.rs",
+  corePalette: "crates/app-core/src/schedule/course_palette.rs",
   swiftLight: "apps/ios/IsctCompanion/Design/Generated/IsctTokens.swift",
   swiftDark: "apps/ios/IsctCompanion/Design/Generated/IsctTokensDark.swift",
   composeLight: "apps/android/app/src/main/java/app/isct/design/IsctTokens.kt",

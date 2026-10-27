@@ -114,9 +114,9 @@ pub(crate) fn install_app_update(
 pub(crate) fn application_logs(
     webview: tauri::Webview,
     after: Option<u64>,
-) -> Result<isct_core::diagnostics::LogSnapshot, String> {
+) -> Result<app_core::diagnostics::LogSnapshot, String> {
     require_local_main(&webview)?;
-    isct_core::diagnostics::snapshot(after).map_err(|error| error.to_string())
+    app_core::diagnostics::snapshot(after).map_err(|error| error.to_string())
 }
 
 fn application_logs_text(app: &tauri::AppHandle) -> Result<String, String> {
@@ -126,7 +126,7 @@ fn application_logs_text(app: &tauri::AppHandle) -> Result<String, String> {
         std::env::consts::OS,
         std::env::consts::ARCH
     );
-    isct_core::diagnostics::export_text(&about).map_err(|error| error.to_string())
+    app_core::diagnostics::export_text(&about).map_err(|error| error.to_string())
 }
 
 /// The retained log as text, for the Save dialog.
@@ -158,6 +158,6 @@ pub(crate) fn copy_application_logs(
 pub(crate) fn application_error(webview: tauri::Webview, message: String) -> Result<(), String> {
     require_local_main(&webview)?;
     let message: String = message.chars().take(2048).collect();
-    isct_core::diagnostics::report("frontend", &message);
+    app_core::diagnostics::report("frontend", &message);
     Ok(())
 }

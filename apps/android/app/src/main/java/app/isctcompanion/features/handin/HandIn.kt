@@ -90,7 +90,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// The phones' hand-in (docs/ux/mobile.md, Hand-in), as on iOS: what was shared
+// The phones' hand-in (slotledger `approach/share-entry-points`), as on iOS: what was shared
 // into the app waits in `SharedInbox`; the person gives it to an assignment,
 // Core puts it in that assignment's workspace `submit/`, and the assignment
 // page's card fills the LMS draft area from there. Core never submits.

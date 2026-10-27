@@ -19,7 +19,7 @@
     "format": "yarn workspace @isct/desktop format",
     "design:tokens": "node design/build.mjs",
     "icons:desktop": "node scripts/desktop/generate-desktop-icons.mjs",
-    "core:types": "cargo run -p isct-core --features ts --example export-types && prettier --write apps/desktop/src/generated/persistence.ts",
+    "core:types": "cargo run -p app-core --features ts --example export-types && prettier --write apps/desktop/src/generated/persistence.ts",
     "backend:test": "cargo test --workspace --locked",
     "backend:check": "cargo check --workspace --locked",
     "sdk:generate": "node scripts/bindings/generate.mjs",

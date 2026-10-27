@@ -9,7 +9,7 @@ use tauri_plugin_opener::OpenerExt;
 /// Explicit user browsing preserves the full web address, including search
 /// state. Core automation uses its separate official-origin sanitizer.
 pub(crate) fn external_url(raw: &str) -> Option<String> {
-    isct_core::school_browser::browsing_url(raw)
+    app_core::school_browser::browsing_url(raw)
 }
 
 #[tauri::command]
@@ -17,9 +17,9 @@ pub(crate) fn resolve_school_url(
     webview: tauri::Webview,
     url: String,
     site: SchoolSite,
-) -> Result<isct_core::school_browser::SchoolWebTarget, String> {
+) -> Result<app_core::school_browser::SchoolWebTarget, String> {
     require_local_main(&webview)?;
-    isct_core::school_browser::browsing_target(&url, site).map_err(|error| error.to_string())
+    app_core::school_browser::browsing_target(&url, site).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

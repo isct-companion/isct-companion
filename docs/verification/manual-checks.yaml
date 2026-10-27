@@ -222,9 +222,9 @@ checks:
       identity provider cannot be replayed offline and the OTP window makes a
       recorded flow expire immediately.
     covers:
-      - crates/isct-core/src/school_auth.rs
-      - crates/isct-core/src/school_browser/engine/**
-      - crates/isct-core/src/school_service.rs
+      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_browser/engine/**
+      - crates/app-core/src/school_service.rs
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14
@@ -296,8 +296,7 @@ checks:
       school's gateway policy and real enrolled-course files. Offline tests
       cannot establish these account-scoped transport or lifecycle facts.
     covers:
-      - docs/tasks/03-lms-sync.md
-      - crates/isct-core/src/downloads.rs
+      - crates/app-core/src/downloads.rs
     verified:
       version: 1.1.3
       date: 2026-10-20
@@ -363,15 +362,15 @@ checks:
       read-only but account-scoped, so no fixture can stand in for a real
       enrolment.
     covers:
-      - crates/isct-core/src/lms_ingest.rs
-      - crates/isct-core/src/lms_session.rs
-      - crates/isct-core/src/school_parser/lms.rs
-      - crates/isct-core/src/school_parser/lms/pages.rs
-      - crates/isct-core/src/net/moodle/reader.rs
-      - crates/isct-core/src/net/moodle/ajax.rs
-      - crates/isct-core/src/catalog.rs
-      - crates/isct-core/src/data/school_projection.rs
-      - crates/isct-core/src/schedule/search.rs
+      - crates/app-core/src/lms_ingest.rs
+      - crates/app-core/src/lms_session.rs
+      - crates/adpt-isct/src/lms.rs
+      - crates/adpt-isct/src/lms/pages.rs
+      - crates/app-core/src/net/moodle/reader.rs
+      - crates/app-core/src/net/moodle/ajax.rs
+      - crates/app-core/src/catalog.rs
+      - crates/app-core/src/data/school_projection.rs
+      - crates/app-core/src/schedule/search.rs
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
     verified:
       version: 1.0.0-rc.1
@@ -466,15 +465,15 @@ checks:
       account-scoped REST functions that no fixture can stand in for. The pure
       parsing and mapping are covered by the net::moodle unit tests.
     covers:
-      - crates/isct-core/src/net/moodle/mod.rs
-      - crates/isct-core/src/net/moodle/reader.rs
-      - crates/isct-core/src/net/moodle/mapping.rs
-      - crates/isct-core/src/net/moodle/token.rs
-      - crates/isct-core/src/net/moodle/rest.rs
-      - crates/isct-core/src/net/moodle/ajax.rs
-      - crates/isct-core/src/school_auth.rs
-      - crates/isct-core/src/school_browser/engine/pull.rs
-      - crates/isct-core/src/sync_engine/planner.rs
+      - crates/app-core/src/net/moodle/mod.rs
+      - crates/app-core/src/net/moodle/reader.rs
+      - crates/app-core/src/net/moodle/mapping.rs
+      - crates/app-core/src/net/moodle/token.rs
+      - crates/app-core/src/net/moodle/rest.rs
+      - crates/app-core/src/net/moodle/ajax.rs
+      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_browser/engine/pull.rs
+      - crates/app-core/src/sync_engine/planner.rs
       - docs/lms-api/README.md
     verified: null
 
@@ -512,8 +511,8 @@ checks:
       refusal is a judgement about wording and placement that only a rendered
       screen can show.
     covers:
-      - crates/isct-core/src/study_profile.rs
-      - crates/isct-core/src/course_query/mod.rs
+      - crates/app-core/src/study_profile.rs
+      - crates/app-core/src/course_query/mod.rs
       - apps/desktop/src/pages/courses/**
     verified: null
 
@@ -553,8 +552,8 @@ checks:
       Needs a real master's account so the 教務Web tables and the requirement
       set are the ones a master's student actually receives.
     covers:
-      - crates/isct-core/src/study_profile.rs
-      - crates/isct-core/src/kyomu_ingest.rs
+      - crates/app-core/src/study_profile.rs
+      - crates/app-core/src/kyomu_ingest.rs
       - apps/desktop/src/pages/courses/**
     verified: null
 
@@ -585,7 +584,7 @@ checks:
       Needs a real doctoral account; the rule set is account-specific and the
       current fixtures do not represent it.
     covers:
-      - crates/isct-core/src/study_profile.rs
+      - crates/app-core/src/study_profile.rs
       - apps/desktop/src/pages/courses/**
     verified: null
 
@@ -623,8 +622,8 @@ checks:
       Requires a real transfer record; the bundled cohort datasets are real
       but which one applies is only knowable from the account.
     covers:
-      - crates/isct-core/src/subscriptions.rs
-      - crates/isct-core/src/course_query/mod.rs
+      - crates/app-core/src/subscriptions.rs
+      - crates/app-core/src/course_query/mod.rs
       - apps/desktop/src/lib/departments.ts
     verified: null
 
@@ -663,9 +662,9 @@ checks:
       the current live DOM. No graduate account was available at the last
       checkpoint; a borrowed account is the intended verification.
     covers:
-      - crates/isct-core/src/kyomu_ingest.rs
-      - crates/isct-core/src/school_parser/kyomu.rs
-      - crates/isct-core/src/study_profile.rs
+      - crates/app-core/src/kyomu_ingest.rs
+      - crates/adpt-isct/src/kyomu.rs
+      - crates/app-core/src/study_profile.rs
     verified:
       version: 1.0.0-rc.3
       date: 2026-10-16
@@ -735,10 +734,10 @@ checks:
       committed fixture is a capture. Only a real session shows what the
       portal serves while registration is open.
     covers:
-      - crates/isct-core/src/net/kyomu.rs
-      - crates/isct-core/src/school_parser/kyomu/pages.rs
-      - crates/isct-core/src/school_parser/kyomu.rs
-      - crates/isct-core/src/kyomu_ingest.rs
+      - crates/app-core/src/net/kyomu.rs
+      - crates/adpt-isct/src/kyomu/pages.rs
+      - crates/adpt-isct/src/kyomu.rs
+      - crates/app-core/src/kyomu_ingest.rs
     verified: null
 
   - id: IDENTITY-LANGUAGE-SWITCH
@@ -795,8 +794,8 @@ checks:
           is the trigger for the rest of the check.
       - action: |
           If it differs from the pinned year, update LMS_HOME in
-          crates/isct-core/src/lms_session.rs and LMS_WWWROOT and LMS_PATH in
-          crates/isct-core/src/school_parser/lms.rs.
+          crates/app-core/src/lms_session.rs and LMS_WWWROOT and LMS_PATH in
+          crates/adpt-isct/src/lms.rs.
         reason: |
           A stale literal does not fail loudly; it silently extracts nothing.
           The edit is mechanical, which is exactly why it must be paired with
@@ -816,8 +815,8 @@ checks:
       so the path is pinned rather than derived. When it moves, the automated
       suite fails but only a real account can confirm the new path works.
     covers:
-      - crates/isct-core/src/lms_session.rs
-      - crates/isct-core/src/school_parser/lms.rs
+      - crates/app-core/src/lms_session.rs
+      - crates/adpt-isct/src/lms.rs
     verified:
       version: 1.0.0-rc.3
       date: 2026-10-16
@@ -876,37 +875,8 @@ checks:
       Requires a real Google account and an interactive OAuth consent screen
       that cannot be automated without live credentials.
     covers:
-      - crates/isct-core/src/cloud_sync/**
+      - crates/app-core/src/cloud_sync/**
       - apps/desktop/src-tauri/src/cloud.rs
-    verified: null
-
-  - id: CLOUD-ONEDRIVE-WRITE
-    area: cloud
-    title: OneDrive upload, pull and restore
-    persona: careless-multidevice
-    preconditions: |
-      A real Microsoft account.
-    steps:
-      - action: |
-          Enable OneDrive in Settings → Backup and complete the consent
-          screen.
-        reason: |
-          The second provider has its own redirect and scope rules; a fix for
-          Drive has broken OneDrive before.
-      - action: |
-          Upload, edit a record, pull, then restore.
-        reason: |
-          Same contract as Drive, asserted independently so a provider-specific
-          regression cannot hide behind the other provider passing.
-    observe: |
-      The consent screen, the OneDrive app folder, and the local record after
-      restore.
-    expected: |
-      The same contract as the Drive path, against the second provider.
-    why_manual: |
-      Second interactive provider; shares the consent-screen constraint.
-    covers:
-      - crates/isct-core/src/cloud_sync/**
     verified: null
 
   - id: CLOUD-RESILIENCE
@@ -936,7 +906,7 @@ checks:
     why_manual: |
       Needs OS-level power transitions and a real provider session.
     covers:
-      - crates/isct-core/src/cloud_sync/**
+      - crates/app-core/src/cloud_sync/**
     verified: null
 
   - id: OCR-CAMPUS-CARD
@@ -1061,18 +1031,18 @@ checks:
       OCR runtime, so the target must be chosen deliberately. The phone steps
       need signed iOS and Android builds with camera hardware.
     covers:
-      - crates/isct-ffi/src/matrix.rs
-      - crates/isct-ffi/src/services.rs
+      - crates/app-ffi/src/matrix.rs
+      - crates/app-ffi/src/services.rs
       - apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
       - apps/android/app/src/main/AndroidManifest.xml
       - apps/desktop/src-tauri/src/commands/platform.rs
-      - crates/isct-ocr/**
+      - crates/app-ocr/**
       - apps/desktop/src/lib/matrix-ocr.ts
-      - crates/isct-core/src/matrix_scan.rs
-      - crates/isct-core/src/matrix_scan/**
+      - crates/app-core/src/matrix_scan.rs
+      - crates/app-core/src/matrix_scan/**
       - apps/desktop/src/platform/matrix-camera.ts
       - apps/desktop/src/components/MatrixCamera.tsx
       - apps/desktop/src/components/matrix-camera.css
@@ -1130,7 +1100,7 @@ checks:
       - action: |
           Launch a debug build with ISCT_MATRIX_RECORD_DIR set to the empty
           directory, scan once, then run
-          `cargo run -p isct-ocr --release --features training-tools --example matrix_track_replay -- DIR/SESSION`
+          `cargo run -p app-ocr --release --features training-tools --example matrix_track_replay -- DIR/SESSION`
           and `python scripts/ocr/matrix_track_report.py --frames DIR/SESSION --trace app=trace.jsonl --live LATEST_JSON --out REPORT`.
         reason: |
           The recorded planes replay through the same tracker offline, so a
@@ -1149,10 +1119,10 @@ checks:
     why_manual: |
       Camera latency, WebView canvas compositing and how the outline looks on a
       moving physical card need a camera and the native app; the geometry and
-      tracker themselves are covered by the isct-ocr tests and replays.
+      tracker themselves are covered by the app-ocr tests and replays.
     covers:
-      - crates/isct-ocr/src/engine/grid/**
-      - crates/isct-ocr/src/engine/vendor/**
+      - crates/app-ocr/src/engine/grid/**
+      - crates/app-ocr/src/engine/vendor/**
       - apps/desktop/src/platform/matrix-camera.ts
       - apps/desktop/src/components/MatrixCamera.tsx
       - apps/desktop/src-tauri/src/commands/matrix_camera.rs
@@ -1202,7 +1172,7 @@ checks:
       Depends on the platform WebView, its popup handling and the OS file
       manager. jsdom cannot produce native navigation, popups or a reveal.
     covers:
-      - crates/isct-core/src/school_browser/engine/**
+      - crates/app-core/src/school_browser/engine/**
       - apps/desktop/src-tauri/src/school_web.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
@@ -1422,7 +1392,7 @@ checks:
     covers:
       - apps/desktop/src-tauri/src/agent_server.rs
       - apps/desktop/src/pages/settings/AgentSettings.tsx
-      - crates/isct-core/src/agent/**
+      - crates/app-core/src/agent/**
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14
@@ -1743,8 +1713,8 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
-      - crates/isct-core/src/catalog.rs
-      - crates/isct-core/src/facade.rs
+      - crates/app-core/src/catalog.rs
+      - crates/app-core/src/facade.rs
     verified: null
 
   - id: DESKTOP-FINDER-COMMIT
@@ -1802,7 +1772,7 @@ checks:
       clicking the first again clears it, each instantly.
     why_manual: |
       Perceived latency is a glance check; the toggle rules are Core's
-      (crates/isct-core/src/tests/course_query.rs) and the local highlight
+      (crates/app-core/src/tests/course_query.rs) and the local highlight
       before Core answers is in tests/e2e/planner.test.tsx.
     covers:
       - apps/desktop/src/app/App.tsx
@@ -1943,7 +1913,7 @@ checks:
     covers:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/commands/read_models.rs
-      - crates/isct-core/src/course_query/mod.rs
+      - crates/app-core/src/course_query/mod.rs
     verified: null
 
   - id: DESKTOP-SYLLABUS-IN-APP
@@ -1998,8 +1968,8 @@ checks:
       - apps/desktop/src/pages/courses/CoursePanel.tsx
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
-      - crates/isct-core/src/net/kyomu.rs
-      - crates/isct-core/src/school_parser/kyomu/search.rs
+      - crates/app-core/src/net/kyomu.rs
+      - crates/adpt-isct/src/kyomu/search.rs
     verified: null
 
   - id: NATIVE-IOS-SIMULATOR
@@ -2028,7 +1998,7 @@ checks:
     why_manual: |
       Needs macOS, Xcode, a simulator runtime and a generated framework.
     covers:
-      - crates/isct-ffi/**
+      - crates/app-ffi/**
       - bindings/swift/**
       - scripts/bindings/build-ios.mjs
     verified:
@@ -2065,7 +2035,7 @@ checks:
     why_manual: |
       Needs the Android SDK, an NDK and a KVM-accelerated emulator.
     covers:
-      - crates/isct-ffi/**
+      - crates/app-ffi/**
       - bindings/kotlin/**
       - scripts/bindings/build-android.mjs
     verified:
@@ -2174,7 +2144,7 @@ checks:
       - apps/android/**
       - apps/ios/**
       - bindings/**
-      - crates/isct-ffi/**
+      - crates/app-ffi/**
     verified:
       version: 1.0.0-rc.3
       date: 2026-10-16
@@ -2300,7 +2270,7 @@ checks:
       Requires clean machines and real installers; build success is not
       runtime compatibility.
     covers:
-      - crates/isct-core/src/data/migrations.rs
+      - crates/app-core/src/data/migrations.rs
       - apps/desktop/src-tauri/src/lib.rs
       - scripts/desktop/desktop-release.mjs
       - .github/workflows/desktop-release.yml
@@ -2418,11 +2388,11 @@ checks:
       Headless tests verify injection and routing but cannot execute the remote
       uploader, site restrictions or the signed native browser.
     covers:
-      - crates/isct-core/src/workspaces.rs
-      - crates/isct-core/src/school_browser/policy.rs
-      - crates/isct-core/src/school_browser/engine.rs
-      - crates/isct-core/src/school_browser/submission.rs
-      - crates/isct-core/src/school_browser/assets/assignment-upload.js
+      - crates/app-core/src/workspaces.rs
+      - crates/app-core/src/school_browser/policy.rs
+      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/submission.rs
+      - crates/adpt-isct/assets/assignment-upload.js
       - apps/desktop/src-tauri/src/workspaces.rs
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
     verified: null
@@ -2480,8 +2450,8 @@ checks:
       window is in the background. The typed missing-folder path itself is
       covered by the workspace Core tests and the lms-workspace e2e suite.
     covers:
-      - crates/isct-core/src/school_parser/lms/pages.rs
-      - crates/isct-core/src/net/moodle/mapping.rs
+      - crates/adpt-isct/src/lms/pages.rs
+      - crates/app-core/src/net/moodle/mapping.rs
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
     verified: null
 
@@ -2550,7 +2520,7 @@ checks:
       - apps/desktop/src-tauri/src/commands/platform.rs
       - apps/desktop/src/app/useWorkspaceRuntime.ts
       - scripts/desktop/tauri.mjs
-      - crates/isct-core/src/schedule/reminders.rs
+      - crates/app-core/src/schedule/reminders.rs
     verified: null
 
   - id: DESKTOP-PHYSICS-PAIR
@@ -2589,7 +2559,7 @@ checks:
       reads right, which a person sees at a glance in the real app.
     covers:
       - apps/desktop/src/components/timetable/timetable.tsx
-      - crates/isct-core/src/schedule/alternation.rs
+      - crates/app-core/src/schedule/alternation.rs
     verified: null
 
   - id: SCHOOL-OFFICIAL-COURSE-PAGES
@@ -2648,12 +2618,12 @@ checks:
       the live university postback state and authenticated content destinations.
       Headless tests exercise the parser, shared projections and UI paging only.
     covers:
-      - crates/isct-core/src/school_browser/engine/pull.rs
-      - crates/isct-core/src/school_parser/kyomu/search.rs
-      - crates/isct-core/src/school_parser/kyomu/pages.rs
-      - crates/isct-core/src/net/kyomu.rs
-      - crates/isct-core/src/catalog.rs
-      - crates/isct-core/src/data/school_projection.rs
+      - crates/app-core/src/school_browser/engine/pull.rs
+      - crates/adpt-isct/src/kyomu/search.rs
+      - crates/adpt-isct/src/kyomu/pages.rs
+      - crates/app-core/src/net/kyomu.rs
+      - crates/app-core/src/catalog.rs
+      - crates/app-core/src/data/school_projection.rs
       - apps/desktop/src/pages/courses/CourseFinder.tsx
     verified: null
 
@@ -2746,7 +2716,7 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src/app/useDesktopUpdates.ts
       - apps/desktop/src/pages/settings/AboutSettings.tsx
-      - crates/isct-core/src/app_updates.rs
+      - crates/app-core/src/app_updates.rs
     verified: null
 
   - id: DESKTOP-DEV-BUILD-UPDATES
@@ -2800,9 +2770,9 @@ checks:
       store and the Windows certificate verifier, which no headless suite has.
     covers:
       - apps/desktop/src-tauri/src/lms_downloader.rs
-      - crates/isct-core/src/net/tls.rs
-      - crates/isct-core/src/net/moodle/mod.rs
-      - crates/isct-core/src/net/kyomu.rs
+      - crates/app-core/src/net/tls.rs
+      - crates/app-core/src/net/moodle/mod.rs
+      - crates/app-core/src/net/kyomu.rs
     verified: null
 
   - id: DESKTOP-LMS-SESSION-RECOVERY
@@ -2839,9 +2809,9 @@ checks:
       Core, but no headless suite holds a real school session cookie.
     covers:
       - apps/desktop/src-tauri/src/lms_downloader.rs
-      - crates/isct-core/src/lms_session.rs
-      - crates/isct-core/src/net/sign_in.rs
-      - crates/isct-core/src/school_browser/engine/jobs.rs
+      - crates/app-core/src/lms_session.rs
+      - crates/app-core/src/net/sign_in.rs
+      - crates/app-core/src/school_browser/engine/jobs.rs
     verified: null
 
   - id: DESKTOP-WINDOWS-SIGNED-INSTALL
@@ -2921,10 +2891,10 @@ checks:
     why_manual: Requires native camera permissions, optical input and an OS camera indicator in a packaged shell, plus the system clipboard and credential vault. Registration and rotation also depend on the live school account and the owner's authenticator.
     covers:
       - apps/desktop/src/components/OtpSetupInput.tsx
-      - crates/isct-core/src/school_auth/otp_setup.rs
-      - crates/isct-core/src/school_auth/otp_enrollment.rs
-      - crates/isct-core/src/school_browser/assets/*.js
-      - crates/isct-core/src/school_browser/engine/*.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
+      - crates/app-core/src/school_auth/otp_enrollment.rs
+      - crates/adpt-isct/assets/*.js
+      - crates/app-core/src/school_browser/engine/*.rs
       - apps/desktop/src-tauri/src/commands/school_auth.rs
       - apps/desktop/src/components/QrCamera.tsx
       - apps/desktop/src/components/CameraPreview.tsx
@@ -2982,8 +2952,8 @@ checks:
       webview. The agreement, password and Matrix pages cannot be replayed
       offline with a live session cookie flow.
     covers:
-      - crates/isct-core/src/school_browser/assets/school-login.js
-      - crates/isct-core/src/school_browser/engine/login.rs
+      - crates/adpt-isct/assets/school-login.js
+      - crates/app-core/src/school_browser/engine/login.rs
       - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
       - apps/ios/IsctCompanion/Features/Web/**
     verified: null
@@ -3101,7 +3071,7 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
-      - crates/isct-ffi/src/session.rs
+      - crates/app-ffi/src/session.rs
     verified: null
 
   - id: DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS
@@ -3211,12 +3181,12 @@ checks:
       - apps/desktop/src-tauri/src/commands/workspace.rs
       - apps/desktop/src-tauri/src/lms_files.rs
       - apps/desktop/src-tauri/src/agent_server.rs
-      - crates/isct-core/src/data/mod.rs
-      - crates/isct-core/src/facade.rs
-      - crates/isct-core/src/runtime.rs
-      - crates/isct-core/src/notes.rs
-      - crates/isct-core/src/school_browser/engine/pull.rs
-      - crates/isct-core/src/workspace_changes.rs
+      - crates/app-core/src/data/mod.rs
+      - crates/app-core/src/facade.rs
+      - crates/app-core/src/runtime.rs
+      - crates/app-core/src/notes.rs
+      - crates/app-core/src/school_browser/engine/pull.rs
+      - crates/app-core/src/workspace_changes.rs
       - apps/desktop/src/store/workspace.ts
       - apps/desktop/src/platform/view-query.ts
     verified: null
@@ -3262,8 +3232,8 @@ checks:
       real file, written by older builds over months, shows that nothing in
       it is left behind.
     covers:
-      - crates/isct-core/src/data/migrations.rs
-      - crates/isct-core/src/data/connection.rs
+      - crates/app-core/src/data/migrations.rs
+      - crates/app-core/src/data/connection.rs
       - apps/desktop/src-tauri/src/lib.rs
     verified: null
 
@@ -3317,9 +3287,9 @@ checks:
     covers:
       - apps/desktop/src/store/workspace.ts
       - apps/desktop/src-tauri/src/commands/workspace.rs
-      - crates/isct-core/src/data/snapshot.rs
-      - crates/isct-core/src/data/migrations.rs
-      - crates/isct-core/src/lms_ingest.rs
+      - crates/app-core/src/data/snapshot.rs
+      - crates/app-core/src/data/migrations.rs
+      - crates/app-core/src/lms_ingest.rs
     verified: null
 
   - id: IOS-TIMETABLE-WEEK-AND-MARKS
@@ -3805,7 +3775,7 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
-      - crates/isct-core/src/app_updates.rs
+      - crates/app-core/src/app_updates.rs
     verified: null
 
   - id: IOS-SETTINGS-PAGES
@@ -4817,9 +4787,9 @@ checks:
       `separately_started_workspaces_join_across_providers_and_every_device_converges`
       and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_edit`.
     covers:
-      - crates/isct-core/src/cloud_sync/mod.rs
-      - crates/isct-core/src/data/cloud_merge.rs
-      - crates/isct-core/src/data/backup_store.rs
+      - crates/app-core/src/cloud_sync/mod.rs
+      - crates/app-core/src/data/cloud_merge.rs
+      - crates/app-core/src/data/backup_store.rs
     verified: null
 
   - id: IOS-DRIVE-SIGNIN
@@ -4943,7 +4913,7 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt
-      - crates/isct-ffi/src/ports.rs
+      - crates/app-ffi/src/ports.rs
     verified: null
 
   - id: IOS-PRIVACY-POLICY
@@ -5081,7 +5051,7 @@ checks:
       The JNI call into the Android trust manager and R8 keep rules only exist
       in a signed APK on a device; host tests run the desktop verifier.
     covers:
-      - crates/isct-ffi/src/android_tls.rs
+      - crates/app-ffi/src/android_tls.rs
       - bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt
       - apps/android/app/build.gradle.kts
       - apps/android/app/proguard-rules.pro
@@ -5130,9 +5100,9 @@ checks:
       Needs a real Tokyo Tech account and the real kyomu0 certificate chain on
       each OS verifier; no test can reach the school server.
     covers:
-      - crates/isct-core/src/net/tls.rs
-      - crates/isct-core/src/net/certs/nii-odca4g7rsa.pem
-      - crates/isct-core/src/school_browser/engine/login.rs
+      - crates/app-core/src/net/tls.rs
+      - crates/app-core/src/net/certs/nii-odca4g7rsa.pem
+      - crates/app-core/src/school_browser/engine/login.rs
       - apps/desktop/src-tauri/src/lms_downloader.rs
       - apps/ios/IsctCompanion/Core/WebCookieSession.swift
       - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt
@@ -5202,7 +5172,7 @@ checks:
       The WebView cookie store, the course folder on disk, real school sign-in
       and a cloud provider cannot be driven headless. What each scope deletes,
       the lease, the generation and the downloads purge are covered by
-      `crates/isct-core/src/tests/reset.rs`; this check is the shell wiring
+      `crates/app-core/src/tests/reset.rs`; this check is the shell wiring
       and what a person sees.
     covers:
       - apps/desktop/src/pages/settings/ResetSettings.tsx
@@ -5293,7 +5263,7 @@ checks:
     why_manual: |
       The WebView stores (WKWebsiteDataStore, CookieManager), real sign-in and
       iCloud need a device. What each scope deletes is covered by
-      `crates/isct-core/src/tests/reset.rs`; this check is the shell wiring.
+      `crates/app-core/src/tests/reset.rs`; this check is the shell wiring.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift
       - apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift
@@ -5706,9 +5676,9 @@ checks:
       enrolment read. The planner order and the not-enrolled outcome are
       covered by Core's sync_engine and lms_ingest tests.
     covers:
-      - crates/isct-core/src/sync_engine/planner.rs
-      - crates/isct-core/src/sync_engine/runner.rs
-      - crates/isct-core/src/school_browser/engine/pull.rs
+      - crates/app-core/src/sync_engine/planner.rs
+      - crates/app-core/src/sync_engine/runner.rs
+      - crates/app-core/src/school_browser/engine/pull.rs
       - apps/desktop/src/app/sync-text.ts
     verified: null
 
@@ -5769,7 +5739,7 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
-      - crates/isct-core/src/school_browser/assets/school-login.js
+      - crates/adpt-isct/assets/school-login.js
     verified: null
 
   - id: IOS-LMS-ATTACHMENT-SESSION
@@ -5861,8 +5831,8 @@ checks:
       cannot run in CI. Promotion and the sync payload are covered by Core's
       school_auth and school_browser tests.
     covers:
-      - crates/isct-core/src/school_auth.rs
-      - crates/isct-core/src/ports.rs
+      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/ports.rs
       - apps/ios/IsctCompanion/Core/KeychainVault.swift
       - apps/desktop/src-tauri/src/secrets.rs
     verified: null
@@ -5907,7 +5877,7 @@ checks:
       real devices. Re-reading a changed vault item is covered by Core's
       school_auth tests.
     covers:
-      - crates/isct-core/src/school_auth.rs
-      - crates/isct-core/src/school_auth/otp_enrollment.rs
-      - crates/isct-core/src/school_browser/engine/login.rs
+      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_auth/otp_enrollment.rs
+      - crates/app-core/src/school_browser/engine/login.rs
     verified: null

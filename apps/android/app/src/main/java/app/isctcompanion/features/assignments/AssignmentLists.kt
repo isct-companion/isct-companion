@@ -163,7 +163,7 @@ private fun GroupCard(content: @Composable () -> Unit) {
 private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
-    // Row swipes leave the left 20 dp to the system back gesture (docs/ux/mobile.md).
+    // Row swipes leave the left 20 dp to the system back gesture (slotledger `approach/mobile-gestures`).
     val edge = with(LocalDensity.current) { 20.dp.toPx() }
     var fromEdge by remember { mutableStateOf(false) }
     val state = rememberSwipeToDismissBoxState(

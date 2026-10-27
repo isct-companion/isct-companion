@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import IsctCore
 
-// The phones' hand-in (docs/ux/mobile.md, Hand-in): what was shared into the
+// The phones' hand-in (slotledger `approach/share-entry-points`): what was shared into the
 // app waits in `SharedInbox`; the person gives it to an assignment, Core puts
 // it in that assignment's workspace `submit/`, and handing in fills the LMS
 // draft area from there. Core never submits; the person saves the page.

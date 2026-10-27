@@ -25,7 +25,7 @@ endpoint. If the port is unavailable, Settings shows the error and the app
 retries every few seconds, so the server starts once the port frees.
 Local storage failures reach clients as a generic error; details stay in the
 app's log.
-See [shared Core integration](core-api.md).
+The server contract is recorded in slotledger as `approach/mcp-local-server`.
 
 ## Read tools
 

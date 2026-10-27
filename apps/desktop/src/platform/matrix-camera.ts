@@ -33,7 +33,7 @@ function cameraError(error: unknown): Error {
 
 /** Frames kept in the capture timeline of one session (about 20 s at 30 fps). */
 const TIMELINE_LIMIT = 600;
-/** Long side of the planes the geometry loop analyses (`WORK_SIDE` in isct-ocr). */
+/** Long side of the planes the geometry loop analyses (`WORK_SIDE` in app-ocr). */
 const ANALYSIS_SIDE = 960;
 /** Long side of the keyframe luma the cells are cut from. */
 const KEYFRAME_SIDE = 2200;

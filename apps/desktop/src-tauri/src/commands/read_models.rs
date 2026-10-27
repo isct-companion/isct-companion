@@ -4,8 +4,8 @@ use crate::{core_ports, require_local_main, run_read_command};
 pub(crate) async fn schedule_query(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    queries: Vec<isct_core::schedule::WorkspaceQuery>,
-) -> Result<isct_core::facade::ScheduleQuerySnapshot, String> {
+    queries: Vec<app_core::schedule::WorkspaceQuery>,
+) -> Result<app_core::facade::ScheduleQuerySnapshot, String> {
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
     run_read_command(move || {
@@ -19,8 +19,8 @@ pub(crate) async fn schedule_query(
 pub(crate) async fn finder_query(
     webview: tauri::Webview,
     app: tauri::AppHandle,
-    request: isct_core::course_query::FinderRequest,
-) -> Result<isct_core::course_query::FinderPage, String> {
+    request: app_core::course_query::FinderRequest,
+) -> Result<app_core::course_query::FinderPage, String> {
     require_local_main(&webview)?;
     let core = core_ports::core(&app);
     run_read_command(move || {

@@ -198,7 +198,6 @@ internal fun BackupPage() {
 internal fun providerName(provider: CloudProvider) = when (provider) {
     CloudProvider.GOOGLE_DRIVE -> "Google Drive"
     CloudProvider.ICLOUD -> "iCloud"
-    CloudProvider.ONEDRIVE -> "OneDrive"
 }
 
 /** The provider's own reason (signed out, declined consent, offline): without

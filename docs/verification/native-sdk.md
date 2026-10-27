@@ -1,15 +1,15 @@
 # Native Core SDK checkpoint
 
-The shared facade is `crates/isct-ffi`; native SwiftUI/Compose applications are
-the next integration stage. See [SDK integration](../core-ffi.md) and
-[shared domain API](../core-api.md) for the implemented contract.
+The shared facade is `crates/app-ffi`; native SwiftUI/Compose applications are
+the next integration stage. See [SDK integration](../core-ffi.md) and the slotledger decisions for the
+implemented contract.
 
 ## Local verification — 2026-10-15
 
 | Check                                                                                                     | Result                                                               |
 | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `cargo test -p isct-core -p isct-ffi -p isct-companion --features isct-ffi/ocr --locked -j2`              | 373 passed, including 23 desktop integration tests                   |
-| `cargo clippy -p isct-ffi -p isct-core --all-targets --features isct-ffi/ocr --locked -j2 -- -D warnings` | Passed                                                               |
+| `cargo test -p app-core -p app-ffi -p isct-companion --features app-ffi/ocr --locked -j2`              | 373 passed, including 23 desktop integration tests                   |
+| `cargo clippy -p app-ffi -p app-core --all-targets --features app-ffi/ocr --locked -j2 -- -D warnings` | Passed                                                               |
 | Desktop frontend                                                                                          | 47 files / 267 frontend tests passed                                 |
 | `yarn desktop:build --debug --no-bundle -- --locked -j2`                                                  | Passed; desktop binary retained                                      |
 | Root script tests                                                                                         | 3 files / 9 script tests passed                                      |
@@ -56,7 +56,7 @@ history and its editor, so it is a net addition rather than a reduction phase.
 
 ## Graduate compatibility and teaching periods — 2026-10-15
 
-The [shared API](../core-api.md) now describes source-linked graduate planning
+The shared API now describes source-linked graduate planning
 rules, explicit professional-degree identity, page availability, and the typed
 `teachingPeriods` query. School registrations, grades and requirement results
 remain authoritative; missing approval or prerequisite facts produce `unknown`.
@@ -99,16 +99,16 @@ It removes independent clock tables and the mirrored private rule enum.
 [The iOS SDK job](https://github.com/isct-companion/isct-companion/actions/runs/38689356250/job/116271429048)
 passed at source checkpoint `769a99b`, including the Swift package consumer,
 iOS simulator and OCR inference. Its dev-profile Swift SDK is uploaded as
-the `isct-core-swift-sdk-dev-ci` workflow artifact. Device SDKs and simulator clients are
+the `app-core-swift-sdk-dev-ci` workflow artifact. Device SDKs and simulator clients are
 built in CI; no iOS simulator runtime is downloaded locally.
 
 [Android AAR/ART acceptance](https://github.com/isct-companion/isct-companion/actions/runs/38689356250/job/116271428805)
 passed at checkpoint `769a99b`: both ABI libraries built, the Kotlin consumer
 loaded the actual AAR on Android API 34, and `KOTLIN_CORE_SDK_SMOKE_PASSED`
-completed. The AAR and dependency metadata are uploaded as `isct-core-android-sdk-dev-ci`.
+completed. The AAR and dependency metadata are uploaded as `app-core-android-sdk-dev-ci`.
 
-The current workflow names new uploads `isct-core-swift-sdk-dev-ci` and
-`isct-core-android-sdk-dev-ci`. Both use the dev profile for CI speed; they are
+The current workflow names new uploads `app-core-swift-sdk-dev-ci` and
+`app-core-android-sdk-dev-ci`. Both use the dev profile for CI speed; they are
 verification evidence rather than release builds.
 
 The iOS consumer loads the shipped Swift package/XCFramework, compiles in Swift

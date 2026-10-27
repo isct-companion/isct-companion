@@ -13,14 +13,14 @@ const ocr = process.argv.includes("--ocr");
 run("cargo", [
   "build",
   "-p",
-  "isct-ffi",
+  "app-ffi",
   ...sdkFeatureArgs({ bindgen: true, ocr }),
   "--locked",
   "-j",
   "2",
 ]);
 generate();
-const fixture = "crates/isct-ffi/tests/foreign";
+const fixture = "crates/app-ffi/tests/foreign";
 if (process.platform === "darwin") {
   run("swiftc", [
     "-emit-module",
@@ -39,7 +39,7 @@ if (process.platform === "darwin") {
     generated,
     "-L",
     join(target, "debug"),
-    "-lisct_ffi",
+    "-lapp_ffi",
     "-emit-module-path",
     join(output, "IsctCore.swiftmodule"),
     "-o",
@@ -63,7 +63,7 @@ if (process.platform === "darwin") {
     "-lIsctCore",
     "-L",
     join(target, "debug"),
-    "-lisct_ffi",
+    "-lapp_ffi",
     "-Xlinker",
     "-rpath",
     "-Xlinker",
@@ -84,7 +84,7 @@ run(join(target, "debug/isct-bindgen"), [
   join(
     target,
     "debug",
-    process.platform === "darwin" ? "libisct_ffi.dylib" : "libisct_ffi.so",
+    process.platform === "darwin" ? "libapp_ffi.dylib" : "libapp_ffi.so",
   ),
   "--config",
   "scripts/bindings/uniffi-host.toml",
@@ -97,7 +97,7 @@ run(join(target, "debug/isct-bindgen"), [
 const { jna, coroutines } = await javaDependencies();
 const cp = [jna, coroutines].join(":");
 run("kotlinc", [
-  join(host, "app/isctcompanion/core/isct_ffi.kt"),
+  join(host, "app/isctcompanion/core/app_ffi.kt"),
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/OperationValue.kt",
   join(fixture, "Smoke.kt"),
   "-classpath",

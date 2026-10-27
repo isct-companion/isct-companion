@@ -159,8 +159,8 @@ extension SyncSnapshot {
     }
 }
 
-/// The sync ring beside the settings button (`docs/ux/mobile.md`, Sync
-/// feedback): the shape of desktop's `PullRing`.
+/// The sync ring beside the settings button (slotledger
+/// `approach/mobile-today-phases`): the shape of desktop's `PullRing`.
 struct SyncRing: View {
     let progress: Double
     var emphasized = true

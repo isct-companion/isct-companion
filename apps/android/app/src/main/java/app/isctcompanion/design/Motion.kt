@@ -23,7 +23,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 
-// The finish the content components share (docs/ux/mobile.md, Look), the
+// The finish the content components share (slotledger `approach/mobile-moment-first`), the
 // Compose counterpart of iOS's `Design/Polish.swift`. Only Compose's own
 // animation APIs, which follow the system's animator duration scale, so
 // "Remove animations" turns them off as Reduce Motion does on iOS.

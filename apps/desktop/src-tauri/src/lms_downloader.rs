@@ -2,7 +2,7 @@
 //! LMS and 教務Web requests all read and write the cookies of the views that
 //! share `school_profile`, never the main window's store. Reads take what the
 //! store holds, as on iOS and Android; signing in is Core's.
-use isct_core::{
+use app_core::{
     lms_session::{self, SchoolCookiePort},
     net::{BoxFuture, NetError, SessionCookies},
 };

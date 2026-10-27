@@ -509,7 +509,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (result as? OperationResult.Material)?.material
     }
 
-    // Hand-in (docs/ux/mobile.md, Hand-in): files go to the assignment's
+    // Hand-in (slotledger `approach/share-entry-points`): files go to the assignment's
     // workspace `submit/`; handing in fills the LMS draft area from it. Core
     // never submits; the person saves the page.
 

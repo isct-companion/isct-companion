@@ -1,0 +1,62 @@
+[package]
+name = "app-core"
+version = "1.0.0-rc.1"
+edition = "2021"
+rust-version = "1.90"
+description = "Shared IsctCompanion domain logic and state"
+
+[features]
+default = []
+# ZIP packing of `submit/` and unpacking of attachments in assignment
+# workspaces; desktop only, the phones hand files in one by one.
+workspace-archives = ["dep:zip"]
+ts = ["dep:ts-rs", "adpt-isct/ts"]
+
+[dependencies]
+adpt-isct = { path = "../adpt-isct" }
+log = "0.4"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+url = "2.5"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+rrule = "0.14"
+tokio = { version = "1", features = ["rt", "time", "sync", "macros", "fs", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+ts-rs = { version = "11", features = ["serde-compat"], optional = true }
+rusqlite = { version = "0.37", features = ["bundled", "hooks"] }
+uuid = { version = "1", features = ["v4", "v7"] }
+# rustls with ring, not 0.13's default aws-lc-rs: ring is what the tree
+# already builds for every target, and aws-lc-rs needs a C/CMake toolchain per
+# target. `net::client_builder` installs ring as the process provider.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "charset", "system-proxy", "json", "form", "query", "stream", "cookies"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = "0.7"
+bytes = "1"
+encoding_rs = "0.8"
+md-5 = "0.10"
+sha2 = "0.10"
+regex = "1"
+unicode-normalization = "0.1"
+strsim = "0.11"
+scraper = "0.24"
+ego-tree = "0.10"
+ring = "0.17"
+percent-encoding = "2"
+base64 = "0.22"
+prost = "0.14"
+data-encoding = "2"
+futures-util = "0.3"
+# The Isct-Data catalog pack is gzip JSON.
+flate2 = "1"
+zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
+semver = "1"
+# Settings shows the OTP setup as a QR code for other authenticators.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
+
+[[example]]
+name = "export-types"
+required-features = ["ts"]

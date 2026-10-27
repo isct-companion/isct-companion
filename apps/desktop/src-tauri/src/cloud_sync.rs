@@ -1,10 +1,10 @@
 //! Native cloud ports; queue, recovery and retry policy live in Core.
 use crate::{cloud::DesktopCloudService, secrets::OsSecretVault};
-use isct_core::cloud_sync::document::{
+use app_core::cloud_sync::document::{
     BoxFuture, CloudWorkspaceFile, DocumentCloud, DocumentError, WorkspaceTransport,
 };
-use isct_core::cloud_sync::CloudServices;
-pub use isct_core::cloud_sync::{CloudProvider, Direction, SyncState};
+use app_core::cloud_sync::CloudServices;
+pub use app_core::cloud_sync::{CloudProvider, Direction, SyncState};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc};
 use tauri::{AppHandle, Manager};
@@ -45,7 +45,7 @@ pub(crate) fn services(app: &AppHandle) -> Result<CloudServices, String> {
     })
 }
 
-pub struct CloudSync(pub(crate) isct_core::cloud_sync::CloudSync);
+pub struct CloudSync(pub(crate) app_core::cloud_sync::CloudSync);
 impl CloudSync {
     pub fn new(legacy: PathBuf, authorized: &[CloudProvider]) -> Result<Self, String> {
         let supported = [
@@ -53,7 +53,7 @@ impl CloudSync {
             #[cfg(icloud)]
             CloudProvider::Icloud,
         ];
-        isct_core::cloud_sync::CloudSync::new(legacy, &supported, authorized)
+        app_core::cloud_sync::CloudSync::new(legacy, &supported, authorized)
             .map(Self)
             .map_err(|error| error.to_string())
     }

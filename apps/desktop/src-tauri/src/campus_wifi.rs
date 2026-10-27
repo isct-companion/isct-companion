@@ -11,13 +11,13 @@
 //! system DNS, so requests are bound to the Wi-Fi interface and names are
 //! resolved by hickory against the lease's DNS server, from the Wi-Fi address.
 
+use app_core::school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials};
 use hickory_resolver::{
     config::{NameServerConfig, ResolverConfig},
     name_server::TokioConnectionProvider,
     proto::xfer::Protocol,
     TokioResolver,
 };
-use isct_core::school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials};
 use objc2_core_wlan::CWWiFiClient;
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -366,7 +366,7 @@ fn client(interface: &str, address: Ipv4Addr) -> Result<Client, String> {
         TokioResolver::builder_with_config(config, TokioConnectionProvider::default()).build();
     // Bound to the Wi-Fi interface: a system proxy would carry the splash
     // requests off it.
-    isct_core::net::client_builder()
+    app_core::net::client_builder()
         .no_proxy()
         .interface(interface)
         .dns_resolver(Arc::new(WifiResolver(resolver)))

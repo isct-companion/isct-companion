@@ -9,6 +9,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "adpt-isct"
+version = "1.0.0-rc.1"
+dependencies = [
+ "chrono",
+ "ego-tree",
+ "regex",
+ "scraper",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "ts-rs",
+ "unicode-normalization",
+ "url",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -52,6 +68,88 @@ name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
+name = "app-core"
+version = "1.0.0-rc.1"
+dependencies = [
+ "adpt-isct",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "data-encoding",
+ "ego-tree",
+ "encoding_rs",
+ "flate2",
+ "futures-util",
+ "log",
+ "md-5",
+ "percent-encoding",
+ "prost",
+ "qrcode",
+ "regex",
+ "reqwest",
+ "ring",
+ "rrule",
+ "rusqlite",
+ "rustls",
+ "rustls-platform-verifier",
+ "scraper",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "strsim",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "ts-rs",
+ "unicode-normalization",
+ "url",
+ "uuid",
+ "zip",
+]
+
+[[package]]
+name = "app-ffi"
+version = "1.0.0-rc.1"
+dependencies = [
+ "adpt-isct",
+ "app-core",
+ "app-ocr",
+ "async-trait",
+ "chrono",
+ "futures-util",
+ "jni 0.22.4",
+ "quote",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "uniffi",
+ "url",
+]
+
+[[package]]
+name = "app-ocr"
+version = "1.0.0-rc.1"
+dependencies = [
+ "app-core",
+ "base64 0.22.1",
+ "image",
+ "imageproc",
+ "nalgebra",
+ "optical-flow-lk",
+ "ort",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+ "uuid",
+]
 
 [[package]]
 name = "approx"
@@ -2449,6 +2547,9 @@ dependencies = [
 name = "isct-companion"
 version = "1.2.2"
 dependencies = [
+ "adpt-isct",
+ "app-core",
+ "app-ocr",
  "axum",
  "base64 0.22.1",
  "block2",
@@ -2456,8 +2557,6 @@ dependencies = [
  "hickory-resolver",
  "if-addrs",
  "ipnet",
- "isct-core",
- "isct-ocr",
  "keyring",
  "log",
  "objc2",
@@ -2491,86 +2590,6 @@ dependencies = [
  "url",
  "uuid",
  "windows-version",
-]
-
-[[package]]
-name = "isct-core"
-version = "1.0.0-rc.1"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "chrono",
- "data-encoding",
- "ego-tree",
- "encoding_rs",
- "flate2",
- "futures-util",
- "log",
- "md-5",
- "percent-encoding",
- "prost",
- "qrcode",
- "regex",
- "reqwest",
- "ring",
- "rrule",
- "rusqlite",
- "rustls",
- "rustls-platform-verifier",
- "scraper",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "strsim",
- "thiserror 2.0.20",
- "tokio",
- "tokio-util",
- "ts-rs",
- "unicode-normalization",
- "url",
- "uuid",
- "zip",
-]
-
-[[package]]
-name = "isct-ffi"
-version = "1.0.0-rc.1"
-dependencies = [
- "async-trait",
- "chrono",
- "futures-util",
- "isct-core",
- "isct-ocr",
- "jni 0.22.4",
- "quote",
- "rustls-platform-verifier",
- "serde",
- "serde_json",
- "syn 2.0.119",
- "thiserror 2.0.20",
- "tokio",
- "tokio-util",
- "uniffi",
- "url",
-]
-
-[[package]]
-name = "isct-ocr"
-version = "1.0.0-rc.1"
-dependencies = [
- "base64 0.22.1",
- "image",
- "imageproc",
- "isct-core",
- "nalgebra",
- "optical-flow-lk",
- "ort",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.20",
- "uuid",
 ]
 
 [[package]]

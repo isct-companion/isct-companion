@@ -28,7 +28,7 @@ const providerName: Record<CloudSyncProvider, string> = {
 };
 
 /**
- * Sync runs on its own (docs/cloud-sync.md): this page only chooses the
+ * Sync runs on its own (slotledger approach/cloud-upload-queue): this page only chooses the
  * services and offers confirmed cloud versions and local recovery points.
  */
 export function BackupSettings({

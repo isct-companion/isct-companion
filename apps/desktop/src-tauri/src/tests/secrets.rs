@@ -8,7 +8,6 @@ fn previous_bundle_and_individual_keys_are_supported() {
     for (account, suffix) in [
         ("school-accounts", "school-accounts"),
         ("google-drive", "google-drive"),
-        ("onedrive", "onedrive"),
     ] {
         assert_eq!(
             secure_key_for(PREVIOUS_APP_ID, account).unwrap(),

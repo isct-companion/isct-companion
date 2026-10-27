@@ -7,7 +7,7 @@ import SwiftUI
 /// sorts or filters. A list rather than a scroll view, so assignment rows
 /// keep the system swipes.
 struct TodayScreen: View {
-    /// The workstation's dashboard (docs/ux/mobile.md, Devices and layouts):
+    /// The workstation's dashboard (slotledger `approach/mobile-layout-by-width`):
     /// the moment's classes, exams and 新着 on the left, the assignments in
     /// their own column on the right, the class cards laid out side by side
     /// instead of stacked.

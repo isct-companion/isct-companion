@@ -5,7 +5,7 @@ plugins {
 }
 
 // The Core SDK built by `yarn sdk:android` (bindings/kotlin/README.md).
-val coreAar = rootDir.resolve("../../bindings/kotlin/artifacts/isct-core.aar")
+val coreAar = rootDir.resolve("../../bindings/kotlin/artifacts/app-core.aar")
 
 /** The Kotlin half of rustls-platform-verifier must match the Rust crate in
  * the SDK exactly, so its version is read from the workspace Cargo.lock

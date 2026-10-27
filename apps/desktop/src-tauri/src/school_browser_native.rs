@@ -3,7 +3,7 @@ use crate::{
     lifecycle::SchoolSite,
     school_web::{apply_bounds, create_webview, NativeWebview},
 };
-use isct_core::{runtime_tasks::RuntimeTasks, school_browser::*};
+use app_core::{runtime_tasks::RuntimeTasks, school_browser::*};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -17,7 +17,7 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 use url::Url;
 
-pub use isct_core::school_browser::{
+pub use app_core::school_browser::{
     SchoolWebResult, KYOMU_POPUP as KYOMU_POPUP_SCRIPT, SCHOOL_LINKS as SCHOOL_LINKS_SCRIPT,
 };
 #[cfg(target_os = "macos")]

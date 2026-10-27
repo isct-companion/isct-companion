@@ -1,4 +1,4 @@
-use isct_core::ports::{vault_item, vault_key, SecretError, SecretVault, VAULT_SERVICE};
+use app_core::ports::{vault_item, vault_key, SecretError, SecretVault, VAULT_SERVICE};
 use tauri::AppHandle;
 use tauri_plugin_secure_storage::{OptionsRequest, SecureStorageExt};
 

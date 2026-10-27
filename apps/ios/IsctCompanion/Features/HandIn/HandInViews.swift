@@ -250,7 +250,7 @@ struct InboxSheet: View {
     }
 }
 
-/// The assignment page's one place to hand in (docs/ux/mobile.md, Hand-in):
+/// The assignment page's one place to hand in (slotledger `approach/share-entry-points`):
 /// a card to drop files on (from the inbox stack or another app) or to tap to
 /// choose files or photos. What it receives joins the assignment's `submit/`,
 /// listed in the card; Upload fills the LMS draft area with it and shows that

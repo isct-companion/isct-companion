@@ -1,7 +1,7 @@
 //! Settings → reset. Core decides what a scope removes; this file lends it
 //! the desktop course folder and the school WebView cookie store.
 use crate::{cloud_sync, core_ports, require_local_main};
-use isct_core::{
+use app_core::{
     net::BoxFuture,
     reset::ResetDevice,
     sync_engine::{ResetReport, ResetScope},
@@ -98,7 +98,7 @@ fn removable(_domain: Option<&str>) -> bool {
 /// WebKitGTK views share the app's default store; only school sessions go.
 #[cfg(target_os = "linux")]
 fn removable(domain: Option<&str>) -> bool {
-    domain.is_some_and(isct_core::school_browser::is_school_cookie_domain)
+    domain.is_some_and(app_core::school_browser::is_school_cookie_domain)
 }
 
 /// Clears what `scope` names and returns what went. A full reset first

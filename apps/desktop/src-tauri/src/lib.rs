@@ -14,21 +14,21 @@ mod cloud;
 mod cloud_sync;
 mod commands;
 mod desktop_updates;
-pub use isct_core::contracts;
-pub use isct_core::data;
+pub use app_core::contracts;
+pub use app_core::data;
 #[cfg(target_os = "macos")]
 mod icloud;
-use isct_core::kyomu_guide;
-use isct_core::lifecycle;
+use app_core::kyomu_guide;
+use app_core::lifecycle;
 mod lms_downloader;
 mod lms_files;
 mod lms_protocol;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
 #[cfg(matrix_ocr)]
-use isct_ocr as matrix_ocr;
+use app_ocr as matrix_ocr;
 mod core_ports;
-pub(crate) use isct_core::school_auth;
+pub(crate) use app_core::school_auth;
 mod school_browser_native;
 mod school_downloads;
 mod school_web;
@@ -171,7 +171,7 @@ fn owned_macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<t
 }
 
 pub fn run() {
-    let _ = isct_core::diagnostics::initialize();
+    let _ = app_core::diagnostics::initialize();
     let builder = tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol("lmsfile", |context, request, responder| {
             log::info!(
@@ -337,7 +337,7 @@ pub fn run() {
                     .app_data_dir()?
                     .join("school-credential-status.json"),
             )));
-            app.manage(std::sync::Arc::new(isct_core::Core::with_events(
+            app.manage(std::sync::Arc::new(app_core::Core::with_events(
                 app.state::<data::DataStore>().inner().clone(),
                 app.state::<std::sync::Arc<SchoolAuthService>>()
                     .inner()
@@ -348,7 +348,7 @@ pub fn run() {
                 let native = school_browser_native::NativeBrowser::new(app.handle().clone())?;
                 let engine = core_ports::core(app.handle())
                     .attach_school_browser(native.clone(), lms_downloader::session(app.handle()))?;
-                Ok::<_, isct_core::school_browser::SchoolBrowserError>(SchoolWebController::new(
+                Ok::<_, app_core::school_browser::SchoolBrowserError>(SchoolWebController::new(
                     native, engine,
                 ))
             })?;
@@ -470,7 +470,7 @@ pub fn run() {
             }
             if matches!(&event, tauri::RunEvent::Resumed) {
                 tauri::async_runtime::block_on(core_ports::runtime(app).resume());
-                core_ports::core(app).sync_hint(isct_core::sync_engine::Hint::Resume);
+                core_ports::core(app).sync_hint(app_core::sync_engine::Hint::Resume);
             }
 
             let foreground = match &event {

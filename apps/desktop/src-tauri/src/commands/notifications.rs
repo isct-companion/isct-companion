@@ -1,5 +1,5 @@
 use crate::require_local_main;
-use isct_core::notification::NotificationContent;
+use app_core::notification::NotificationContent;
 #[cfg(target_os = "windows")]
 use tauri::Manager;
 
@@ -62,13 +62,13 @@ pub(crate) fn open_notification_settings(
     Err("Notification settings are unavailable on this platform.".into())
 }
 
-impl isct_core::schedule::NotificationSink for DesktopNotifications {
+impl app_core::schedule::NotificationSink for DesktopNotifications {
     fn deliver<'a>(
         &'a self,
-        item: isct_core::schedule::NotificationItem,
+        item: app_core::schedule::NotificationItem,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = Result<(), isct_core::schedule::NotificationSinkError>>
+            dyn std::future::Future<Output = Result<(), app_core::schedule::NotificationSinkError>>
                 + Send
                 + 'a,
         >,
@@ -76,10 +76,10 @@ impl isct_core::schedule::NotificationSink for DesktopNotifications {
         Box::pin(async move {
             let content = NotificationContent::new(item.title, item.body)
                 .map_err(|error| error.to_string())
-                .map_err(isct_core::schedule::NotificationSinkError::Delivery)?;
+                .map_err(app_core::schedule::NotificationSinkError::Delivery)?;
             show(&self.0, &content)
                 .await
-                .map_err(isct_core::schedule::NotificationSinkError::Delivery)
+                .map_err(app_core::schedule::NotificationSinkError::Delivery)
         })
     }
 }

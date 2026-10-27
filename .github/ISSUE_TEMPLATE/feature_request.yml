@@ -27,7 +27,7 @@ body:
     attributes:
       label: Checks / 確認
       options:
-        - label: I read the [product definition](https://github.com/isct-companion/isct-companion/blob/main/docs/product-definition.md). / [プロダクト定義](https://github.com/isct-companion/isct-companion/blob/main/docs/product-definition.md)を読みました。
+        - label: I read the product decisions (`goal/product-promise`, `goal/out-of-scope`) in [STATUS.md](https://github.com/isct-companion/isct-companion/blob/main/STATUS.md). / [STATUS.md](https://github.com/isct-companion/isct-companion/blob/main/STATUS.md) のプロダクト方針（`goal/product-promise`、`goal/out-of-scope`）を読みました。
           required: true
         - label: If AI helped write this, I read it and it matches what I intend. / AI に手伝ってもらった場合、内容を読み、自分の意図と一致していることを確認しました。
           required: true

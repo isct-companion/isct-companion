@@ -51,8 +51,9 @@ const SUBMISSION_LABELS: Record<string, string> = {
 const label = (key: string) => SUBMISSION_LABELS[key] ?? `⟨${key}⟩`;
 
 const DEPARTMENTS_PATH =
-  "crates/isct-core/tests/fixtures/subscriptions/data/2026/departments.json";
-const CS_RECOMMENDED_PATH = "docs/tasks/data/cs-2026-recommended.json";
+  "crates/app-core/tests/fixtures/subscriptions/data/2026/departments.json";
+const CS_RECOMMENDED_PATH =
+  "crates/app-core/tests/fixtures/subscriptions/data/2026/cs-recommended.json";
 
 type BundledDepartment = {
   id: string;
