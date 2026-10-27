@@ -749,13 +749,19 @@ export function WorkspaceApp() {
     context?: Omit<CourseEntry, "courseId" | "request">,
   ) => {
     const { assignmentId, ...timing } = context ?? {};
+    // Within Lecture Desk only the course pane enters (LectureDesk); the
+    // list beside it stays still, and no zoom pairs with the new course.
+    const within = page === "lectures";
+    if (within) clearZoom();
     void navigate(paths.lectures(courseId, assignmentId), {
       state: { lectureRequest: Date.now(), lectureContext: timing },
+      ...(within && { viewTransition: false }),
     });
   };
   const openExam = (key: string, term: string) => {
     void navigate(paths.exam(key, term), {
       state: { lectureRequest: Date.now() },
+      ...(page === "lectures" && { viewTransition: false }),
     });
   };
   // Refresh buttons ask Core for a scope; progress and failures arrive in

@@ -1457,6 +1457,44 @@ checks:
       - apps/desktop/src-tauri/src/school_downloads.rs
     verified: null
 
+  - id: DESKTOP-LECTURES-PANE-MOTION
+    area: desktop
+    title: Choosing a course on Lectures moves only the course pane
+    persona: undergraduate-senior
+    preconditions: |
+      Desktop build of this commit with a quarter of lectures.
+    steps:
+      - action: |
+          On Lectures, click one course in the list, then another, then an
+          exam under Exams.
+        reason: |
+          Only the right-hand pane may enter; the list, the quarter picker
+          and the page fading as well means the page transition still runs
+          for a change within Lecture Desk.
+      - action: |
+          Open a course from a Today row, then go back to Today.
+        reason: |
+          Coming from another page keeps its page transition and the morph
+          from the clicked row; the pane must not slide in on top of it.
+      - action: |
+          Turn on Reduce Motion in the system settings and click another
+          course.
+        reason: |
+          Under Reduce Motion the pane only fades.
+    observe: |
+      The list column and the course pane while each course opens.
+    expected: |
+      The list stays still and the course pane slides in from the right
+      (fades under Reduce Motion); opening from Today still morphs the row.
+    why_manual: |
+      Whether a column moves during a 250 ms animation is seen at a glance in
+      the real app; a headless DOM runs no View Transitions or animations.
+    covers:
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/pages/lectures/lectures.css
+      - apps/desktop/src/app/App.tsx
+    verified: null
+
   - id: DESKTOP-LOG-EXPORT
     area: desktop
     title: Application logs saved to a file and copied to the clipboard

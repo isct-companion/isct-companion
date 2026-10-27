@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 126 checks must be re-run before the next release.**
+**10 of 127 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**116 checks have never been run or could not be run:**
+**117 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -48,6 +48,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
+- `DESKTOP-LECTURES-PANE-MOTION` — never verified
 - `DESKTOP-LOG-EXPORT` — never verified
 - `DESKTOP-PULL-STRESS` — never verified
 - `DESKTOP-SYNC-STATUS` — never verified
@@ -176,6 +177,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-LECTURES-PANE-MOTION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
@@ -1780,6 +1782,52 @@ whether the PDF.js data files ship with it.
 - `apps/desktop/src/components/workspace-chrome.css`
 - `apps/desktop/vite.config.ts`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+
+**Last recorded** never run
+
+### Choosing a course on Lectures moves only the course pane (`DESKTOP-LECTURES-PANE-MOTION`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Desktop build of this commit with a quarter of lectures.
+
+**Steps**
+
+1. On Lectures, click one course in the list, then another, then an
+   exam under Exams.
+   - *Why:* Only the right-hand pane may enter; the list, the quarter picker
+     and the page fading as well means the page transition still runs
+     for a change within Lecture Desk.
+2. Open a course from a Today row, then go back to Today.
+   - *Why:* Coming from another page keeps its page transition and the morph
+     from the clicked row; the pane must not slide in on top of it.
+3. Turn on Reduce Motion in the system settings and click another
+   course.
+   - *Why:* Under Reduce Motion the pane only fades.
+
+**Where to look**
+
+The list column and the course pane while each course opens.
+
+**Expected**
+
+The list stays still and the course pane slides in from the right
+(fades under Reduce Motion); opening from Today still morphs the row.
+
+**Why this is manual**
+
+Whether a column moves during a 250 ms animation is seen at a glance in
+the real app; a headless DOM runs no View Transitions or animations.
+
+**Covers**
+
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/pages/lectures/lectures.css`
+- `apps/desktop/src/app/App.tsx`
 
 **Last recorded** never run
 
