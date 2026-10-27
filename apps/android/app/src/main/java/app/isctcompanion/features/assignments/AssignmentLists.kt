@@ -193,7 +193,7 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
                 SwipeToDismissBoxValue.StartToEnd ->
                     SwipeAction(Theme.colors.accent, if (item.pinned) t("Unpin") else t("Pin"), Icons.Outlined.PushPin, Alignment.CenterStart)
                 SwipeToDismissBoxValue.EndToStart ->
-                    SwipeAction(Theme.colors.muted, t("Hide"), Icons.Outlined.VisibilityOff, Alignment.CenterEnd)
+                    SwipeAction(Theme.colors.muted, t("Hide"), Icons.Outlined.VisibilityOff, Alignment.CenterEnd, Theme.colors.surface)
                 SwipeToDismissBoxValue.Settled -> Unit
             }
         },
@@ -229,11 +229,11 @@ private fun RestoreRow(item: DeadlineItem, now: Instant) {
 }
 
 @Composable
-private fun SwipeAction(fill: Color, label: String, icon: ImageVector, alignment: Alignment) {
+private fun SwipeAction(fill: Color, label: String, icon: ImageVector, alignment: Alignment, ink: Color = Theme.colors.accentInk) {
     Box(Modifier.fillMaxSize().background(fill).padding(horizontal = 20.dp), contentAlignment = alignment) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(icon, null, tint = Color.White)
-            Text(label, color = Color.White, fontWeight = FontWeight.SemiBold)
+            Icon(icon, null, tint = ink)
+            Text(label, color = ink, fontWeight = FontWeight.SemiBold)
         }
     }
 }

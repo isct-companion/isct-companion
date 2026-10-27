@@ -70,7 +70,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.DeadlineItem
@@ -146,7 +145,7 @@ fun TodayScreen() {
         actions = { SyncRingButton() },
         onRefresh = { model.refreshFromSchool() },
     ) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = 24.dp)) {
             item(key = "today") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PageSubtitle(subtitle(model.today))
@@ -391,7 +390,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             }
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    item.occurrence.startTime, fontSize = 40.sp, fontWeight = FontWeight.Bold,
+                    item.occurrence.startTime, fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink, maxLines = 1,
                 )
                 Text(
@@ -422,7 +421,7 @@ private fun Hero(
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusPanel))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(18.dp),
+            .padding(Theme.cardPadding),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) { content() }
 }
@@ -437,8 +436,6 @@ private fun HeroLine(text: String, tint: Color, trailing: @Composable () -> Unit
         trailing()
     }
 }
-
-private val bigFigure = 48.sp
 
 /** The current class card's zoom id; one hero shows at a time. */
 private const val HERO_ZOOM = "hero"
@@ -485,8 +482,8 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
                 Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
             }
             CountingText(
-                "${maxOf(Format.minutes(ends, now), 0)}", fontSize = bigFigure, fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.displayMedium.tabular(), color = Theme.colors.ink,
+                "${maxOf(Format.minutes(ends, now), 0)}", fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink,
             )
             words.getOrNull(1)?.takeIf { it.isNotEmpty() }?.let {
                 Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
@@ -507,13 +504,13 @@ private fun TonightHero(item: DeadlineItem, now: Instant) {
     Hero(Modifier.background(Theme.colors.dangerSoft, RoundedCornerShape(Theme.radiusPanel))) {
         HeroLine(t("Due tonight"), Theme.colors.danger) { DeadlineChip(item, now) }
         Text(
-            Format.date(item.dueAt)?.let(Format::time) ?: Format.due(item.dueAt, now), fontSize = bigFigure, fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.displayMedium.tabular(), color = Theme.colors.ink,
+            Format.date(item.dueAt)?.let(Format::time) ?: Format.due(item.dueAt, now), fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink,
         )
         Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         item.courseTitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
         item.sourceUrl?.let { url ->
-            PillButton(t("Open submission page"), Icons.AutoMirrored.Outlined.OpenInNew, Theme.colors.danger) {
+            PillButton(t("Open submission page"), Icons.AutoMirrored.Outlined.OpenInNew, Theme.colors.danger, Theme.colors.surface) {
                 navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title))
             }
         }
@@ -684,7 +681,7 @@ private fun ConnectCard(onConnect: () -> Unit) {
                 .padding(vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(t("Connect with Science Tokyo"), color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(t("Connect with Science Tokyo"), color = Theme.colors.accentInk, fontWeight = FontWeight.SemiBold)
         }
     }
 }

@@ -37,12 +37,12 @@
 .lmsWorkspace svg { flex: 0 0 auto; }
 .lmsWorkspaceHeader { display: flex; align-items: center; gap: 16px; padding: 4px 4px 16px; border-bottom: 1px solid var(--line); }
 .lmsCourseIdentity { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 4px 12px; flex: 1; min-width: 0; }
-.lmsCourseIdentity small { flex: 0 0 auto; white-space: nowrap; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.lmsCourseIdentity h1 { flex: 1; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: 19px; font-weight: 620; line-height: 1.35; letter-spacing: -.015em; }
-.lmsEntryTime { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lmsCourseIdentity small { flex: 0 0 auto; white-space: nowrap; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
+.lmsCourseIdentity h1 { flex: 1; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: calc(var(--type-title-size) * var(--text)); font-weight: 600; line-height: 1.35; letter-spacing: -.015em; }
+.lmsEntryTime { color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsBack, .lmsRefresh, .lmsOriginal, .lmsOutlineTools button {
   display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: var(--lms-radius-sm);
-  background: none; color: var(--accent) !important; white-space: nowrap; font-size: 12px !important; font-weight: 550;
+  background: none; color: var(--accent) !important; white-space: nowrap; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500;
 }
 .lmsBack, .lmsRefresh { padding: 7px 10px; }
 .lmsBack:hover, .lmsRefresh:hover:not(:disabled), .lmsOutlineTools button:hover { background: var(--accent-soft); }
@@ -59,13 +59,13 @@
 .lmsOutlineTools { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 900px; align-self: center; padding: 14px 24px 10px; }
 .lmsOutlineTools input {
   width: 100%; min-width: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius-sm);
-  background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; transition: border-color var(--lms-fast);
+  background: var(--surface); color: var(--ink); font: inherit; font-size: calc(var(--type-row-size) * var(--text)); transition: border-color var(--lms-fast);
 }
 .lmsOutlineTools input:focus { outline: none; border-color: var(--lms-active-line); }
 .lmsOutlineTools button { padding: 7px 8px; }
 .lmsOutlineScroll { position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; padding: 0 24px 60px; }
 .lmsOutlineScroll > * { max-width: 850px; margin-left: auto; margin-right: auto; }
-.lmsOutlineScroll h2 { display: flex; gap: 8px; margin: 28px auto 8px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.lmsOutlineScroll h2 { display: flex; gap: 8px; margin: 28px auto 8px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 600; letter-spacing: .01em; }
 .lmsOutlineScroll h2:first-child { margin-top: 6px; }
 .lmsOutlineScroll h2 small { font-weight: 500; opacity: .7; }
 .lmsOriginal { justify-content: center; padding: 12px; border-top: 1px solid var(--line); border-radius: 0; }
@@ -79,7 +79,7 @@
 }
 .lmsSectionHeading h3 button:hover { background: var(--surface-2); }
 .lmsSectionHeading h3 button > span { flex: 1; min-width: 0; }
-.lmsSectionHeading h3 small { color: var(--muted); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.lmsSectionHeading h3 small { color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-weight: 500; font-variant-numeric: tabular-nums; }
 .lmsSectionChevron { color: var(--muted); transition: transform var(--lms-medium) var(--lms-ease), color var(--lms-fast); }
 .lmsSectionHeading [aria-expanded="true"] .lmsSectionChevron { transform: rotate(90deg); }
 .lmsSection.reading .lmsSectionChevron { color: var(--accent); }
@@ -89,10 +89,10 @@
 }
 .lmsSection:hover .lmsAddNote, .lmsAddNote:focus-visible { opacity: 1; }
 .lmsAddNote:hover { background: var(--accent-soft); color: var(--accent) !important; }
-.lmsSectionPreview { margin: -2px 16px 8px 32px; color: var(--muted); font-size: 12px; }
+.lmsSectionPreview { margin: -2px 16px 8px 32px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsSectionBody { padding: 2px 8px 8px 32px; animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
-.lmsSectionBody > .lmsRichContent { margin-bottom: 12px; font-size: 14px; line-height: 1.85; }
-.lmsQuiet { padding: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.lmsSectionBody > .lmsRichContent { margin-bottom: 12px; font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.85; }
+.lmsQuiet { padding: 8px 0; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.7; }
 
 /* Rows and cards share one surface: 12px radius, hairline, accent on hover. */
 .lmsItemRow, .lmsAnnouncementCard {
@@ -103,12 +103,12 @@
 .lmsItemRow.selected, .lmsAnnouncementCard.selected { border-color: var(--lms-active-line); background: var(--accent-soft); }
 .lmsItemRow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
 .lmsItemRow > span:nth-child(2) { flex: 1; min-width: 0; }
-.lmsItemRow b { display: block; font-size: 13px; font-weight: 560; line-height: 1.4; overflow-wrap: anywhere; }
-.lmsItemRow small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.lmsItemRow b { display: block; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.lmsItemRow small { display: block; margin-top: 2px; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsRowAction { color: var(--muted); }
 .lmsAnnouncementCard { position: relative; display: grid; gap: 6px; padding: 14px 40px 14px 16px; }
-.lmsCardType { color: var(--muted); font-size: 11px; }
-.lmsCardExcerpt { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 13px; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.lmsCardType { color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
+.lmsCardExcerpt { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: calc(var(--type-row-size) * var(--text)); -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .lmsCardArrow { position: absolute; top: 50%; right: 14px; margin-top: -8px; color: var(--muted); }
 
 .lmsFileTile {
@@ -127,17 +127,17 @@
 .lmsThumbnail img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: white; opacity: 0; transition: opacity var(--lms-medium) var(--lms-ease); }
 .lmsThumbnail.loaded img { opacity: 1; }
 
-.lmsInlineActivity { padding: 16px 0; border-top: 1px solid var(--line); font-size: 14px; line-height: 1.8; scroll-margin: 30px; }
+.lmsInlineActivity { padding: 16px 0; border-top: 1px solid var(--line); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.8; scroll-margin: 30px; }
 .lmsInlineActivity h4 { margin: 0; font-size: 15px; font-weight: 600; }
 .lmsInlineActivity .lmsQuiet { padding: 0; }
-.lmsSubmit { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 7px 12px; border: 0; border-radius: var(--lms-radius-sm); background: var(--accent); color: white !important; font-size: 12px !important; font-weight: 550; }
-.lmsPreviousNotes { margin: 8px 0 12px; color: var(--muted); font-size: 12px; }
+.lmsSubmit { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 7px 12px; border: 0; border-radius: var(--lms-radius-sm); background: var(--accent); color: var(--accent-ink) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; }
+.lmsPreviousNotes { margin: 8px 0 12px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsPreviousNotes summary { padding: 6px 4px; cursor: default; }
-.lmsNoteUndo { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); font-size: 12px; }
+.lmsNoteUndo { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsNoteUndo button { padding: 5px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent) !important; }
 
 /* ---------- Teacher HTML ---------- */
-.lmsRichContent { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.lmsRichContent { font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.7; overflow-wrap: anywhere; }
 .lmsRichContent p, .lmsRichContent div { margin-bottom: 10px; }
 .lmsRichContent table { display: block; max-width: 100%; margin: 12px 0; overflow: auto; border-collapse: collapse; }
 .lmsRichContent th, .lmsRichContent td { min-width: 75px; padding: 7px; border: 1px solid var(--line); }
@@ -162,15 +162,15 @@
   content: ""; grid-area: 1 / 1 / 3 / 2; width: 16px; height: 16px; justify-self: center; background: var(--tint);
   -webkit-mask: var(--lms-icon-file) center / contain no-repeat; mask: var(--lms-icon-file) center / contain no-repeat;
 }
-.lmsAttachmentName { grid-area: 1 / 2; min-width: 0; overflow: hidden; font-size: 13px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.lmsAttachmentCard small { grid-area: 2 / 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.lmsAttachmentName { grid-area: 1 / 2; min-width: 0; overflow: hidden; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.lmsAttachmentCard small { grid-area: 2 / 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsAttachmentCard[data-family="pdf"] { --tint: #d4483b; }
 .lmsAttachmentCard[data-family="doc"] { --tint: #3b6fd8; }
 .lmsAttachmentCard[data-family="slides"] { --tint: #e0782f; }
 .lmsAttachmentCard[data-family="sheet"] { --tint: #1f8a4c; }
 .lmsAttachmentCard[data-family="video"], .lmsAttachmentCard[data-family="audio"] { --tint: #8b5cf6; }
 .lmsAttachmentCard[data-family="archive"], .lmsAttachmentCard[data-family="text"], .lmsAttachmentCard[data-family="file"] { --tint: #5b6b82; }
-.lmsRichContent a.lmsImageCard { display: inline-flex; flex-direction: column; align-items: stretch; gap: 6px; width: 200px; max-width: 100%; padding: 6px 6px 8px; font-size: 12px; }
+.lmsRichContent a.lmsImageCard { display: inline-flex; flex-direction: column; align-items: stretch; gap: 6px; width: 200px; max-width: 100%; padding: 6px 6px 8px; font-size: calc(var(--type-note-size) * var(--text)); }
 /* Image-only labels: thumbnail tiles in a grid, caption = file name. */
 .lmsImageGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
 .lmsImageGrid .lmsRichContent > *, .lmsImageGrid .lmsRichContent p { margin: 0; }
@@ -202,9 +202,9 @@
 .lmsViewerBody { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
 .lmsDocument { min-height: 100%; padding: 20px clamp(20px, 4vw, 48px) 28px; }
 .lmsDocumentHeading { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-.lmsDocumentHeading small { display: block; color: var(--muted); font-size: 11px; }
-.lmsDocumentHeading h2 { margin: 6px 0 0; font-size: clamp(19px, 2vw, 24px); font-weight: 620; line-height: 1.4; letter-spacing: -.02em; }
-.lmsDocument > .lmsRichContent { max-width: 78ch; font-size: 14px; line-height: 1.85; }
+.lmsDocumentHeading small { display: block; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
+.lmsDocumentHeading h2 { margin: 6px 0 0; font-size: clamp(19px, 2vw, 24px); font-weight: 600; line-height: 1.4; letter-spacing: -.02em; }
+.lmsDocument > .lmsRichContent { max-width: 78ch; font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.85; }
 .lmsFileDocument { display: flex; flex-direction: column; padding: 0; }
 .lmsFileDocument > .lmsDocumentHeading { display: none; }
 .lmsFileDocument > .lmsRichContent { margin: 20px; }
@@ -214,15 +214,15 @@
 /* Status / toolbar bar: banner above the outline, or flush bar inside the pane. */
 .lmsSourceBar {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 9px 12px;
-  border: 1px solid var(--line); border-radius: var(--lms-radius-sm); background: var(--surface); color: var(--muted); font-size: 11px;
+  border: 1px solid var(--line); border-radius: var(--lms-radius-sm); background: var(--surface); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text));
 }
 .lmsSourceBar > [role=status] { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
-.lmsSourceBar button, .lmsSourceBar a { display: inline-flex; align-items: center; gap: 4px; padding: 6px 9px; border: 0; border-radius: 6px; background: none; color: var(--accent) !important; font-size: 11px; font-weight: 550; text-decoration: none; white-space: nowrap; }
+.lmsSourceBar button, .lmsSourceBar a { display: inline-flex; align-items: center; gap: 4px; padding: 6px 9px; border: 0; border-radius: 6px; background: none; color: var(--accent) !important; font-size: calc(var(--type-block-size) * var(--text)); font-weight: 500; text-decoration: none; white-space: nowrap; }
 .lmsSourceBar button:hover, .lmsSourceBar a:hover { background: var(--accent-soft); }
 .lmsViewer .lmsSourceBar, .lmsNoteEditor .lmsSourceBar { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
 .lmsFileToolbar { position: sticky; top: 0; z-index: 4; }
 .lmsFileAddress { display: flex; flex: 1; align-items: center; min-width: 100px; }
-.lmsFileAddress > span { flex: 1; overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.lmsFileAddress > span { flex: 1; overflow: hidden; color: var(--ink); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .lmsFileAddress small { display: none; }
 .lmsAttachmentPreview { display: flex; flex-direction: column; min-height: 0; }
 .lmsLoading { padding: 40px 20px; text-align: center; }
@@ -239,19 +239,19 @@
 .lmsFileCard .lmsFileTile svg { width: 26px; height: 26px; }
 .lmsFileCardText { min-width: 0; }
 .lmsFileCardText h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
-.lmsFileCardText small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.lmsFileCard > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.lmsFileCardText small { display: block; margin-top: 3px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
+.lmsFileCard > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.6; overflow-wrap: anywhere; }
 .lmsFileCard > p[role=alert] { color: var(--ink); }
 .lmsFileCardActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
 .lmsFileCardActions button, .lmsFileCardActions a {
   display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: var(--lms-radius-sm);
-  background: var(--surface); color: var(--ink) !important; font-size: 12.5px !important; font-weight: 550; text-decoration: none;
+  background: var(--surface); color: var(--ink) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; text-decoration: none;
   transition: border-color var(--lms-fast), background-color var(--lms-fast);
 }
 .lmsFileCardActions button:hover:not(:disabled), .lmsFileCardActions a:hover { border-color: var(--lms-hover-line); }
 .lmsFileCardActions button:disabled { opacity: .6; cursor: default; }
 .lmsPrimaryAction { display: contents; }
-.lmsPrimaryAction > button { border-color: var(--accent); background: var(--accent); color: white !important; }
+.lmsPrimaryAction > button { border-color: var(--accent); background: var(--accent); color: var(--accent-ink) !important; }
 .lmsPrimaryAction > button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 88%, black); }
 .lmsFileToolbar button, .lmsFileToolbar a { gap: 5px; }
 .lmsImageStage.actual { display: block; overflow: auto; }
@@ -267,7 +267,7 @@
 .lmsPdfHeader { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .lmsPdfHeader > .lmsFileToolbar { position: static; flex: 1 1 240px; flex-wrap: wrap; gap: 5px; min-width: 0; padding: 0; border: 0; }
 .lmsPdfHeader .lmsFileAddress { min-width: 60px; padding: 4px 0; }
-.lmsPdfControls { display: flex; flex: 0 1 auto; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lmsPdfControls { display: flex; flex: 0 1 auto; align-items: center; gap: 10px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsPdfPagination, .lmsPdfZoom { display: flex; align-items: center; gap: 2px; }
 .lmsPdfPagination { gap: 5px; }
 .lmsPdfControls input, .lmsPdfControls select { height: 26px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
@@ -282,10 +282,10 @@
 .lmsPdfFindToggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent) !important; }
 .lmsPdfControls button:not(.uiSelectTrigger):hover:not(:disabled), .lmsPdfSearch button:hover:not(:disabled) { background: var(--accent-soft); }
 .lmsPdfControls button:not(.uiSelectTrigger):disabled { opacity: .3; cursor: default; }
-.lmsPdfSearch { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 11px; }
+.lmsPdfSearch { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsPdfSearch input { flex: 1; min-width: 90px; padding: 4px; border: 0; background: transparent; color: var(--ink); font: inherit; }
 .lmsPdfSearch input:focus { outline: none; }
-.lmsPdfSearch button { padding: 5px 8px; border-radius: 6px; font-size: 11px; white-space: nowrap; }
+.lmsPdfSearch button { padding: 5px 8px; border-radius: 6px; font-size: calc(var(--type-block-size) * var(--text)); white-space: nowrap; }
 .lmsPdfSearch button:disabled { color: var(--muted); opacity: .6; cursor: default; }
 .lmsPdfSearch span { color: var(--muted); white-space: nowrap; }
 .lmsPdfDocument { width: 100%; padding: 20px; overflow-x: auto; touch-action: pan-x pan-y; }
@@ -297,7 +297,7 @@
 
 /* ---------- Text, Markdown, notes ---------- */
 .lmsTextDocument { overflow: hidden; background: var(--surface); }
-.lmsTextMeta { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.lmsTextMeta { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsTextMeta > span:first-child { color: var(--ink); font-weight: 600; }
 .lmsTextDocument .cm-editor { outline: none; }
 .lmsTextDocument .cm-scroller { max-height: 75dvh; }
@@ -307,7 +307,7 @@
 .lmsCodeSearchOpen, .lmsCodeSearch { box-shadow: 0 2px 10px rgb(0 0 0 / 0.12); border: 1px solid var(--line); background: var(--surface); }
 .lmsCodeSearchOpen { position: absolute; top: 8px; right: 12px; z-index: 3; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 8px; color: var(--muted); }
 .lmsCodeSearchOpen:hover { color: var(--accent); }
-.lmsCodeSearch { display: flex; align-items: center; gap: 2px; padding: 3px 4px 3px 10px; border-radius: 8px; font-size: 12px; }
+.lmsCodeSearch { display: flex; align-items: center; gap: 2px; padding: 3px 4px 3px 10px; border-radius: 8px; font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsCodeSearch input { width: 160px; padding: 4px 0; border: 0; background: transparent; color: var(--ink); font: inherit; }
 .lmsCodeSearch input:focus { outline: none; }
 .lmsCodeSearch [role=status] { min-width: 18px; padding: 0 4px; color: var(--muted); white-space: nowrap; }
@@ -346,7 +346,7 @@
 .lmsLessonRail { display: flex; gap: 2px; width: 100%; max-width: 900px; align-self: center; padding: 0 24px 10px; overflow-x: auto; scrollbar-width: none; }
 .lmsLessonRail button {
   position: relative; flex: 1 0 22px; min-width: 22px; padding: 4px 0 8px; border: 0; background: none;
-  color: var(--muted) !important; font-size: 11px !important; font-variant-numeric: tabular-nums; text-align: center;
+  color: var(--muted) !important; font-size: calc(var(--type-block-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: center;
 }
 .lmsLessonRail button::after { content: ""; position: absolute; left: 2px; right: 2px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--line); transition: background-color var(--lms-fast); }
 /* Held lessons read as progress; open work shows as a warm segment, not a mark on the number. */
@@ -383,10 +383,10 @@
 .lmsFolderFile:hover { background: var(--surface-2); }
 .lmsFolderFile .lmsFileTile { flex-basis: 30px; width: 30px; height: 30px; border-radius: 8px; }
 .lmsFolderFile .lmsFileTile svg { width: 15px; height: 15px; }
-.lmsFolderFile b { display: block; font-size: 13px; font-weight: 520; overflow-wrap: anywhere; }
-.lmsFolderFile small { color: var(--muted); font-size: 11px; }
+.lmsFolderFile b { display: block; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 500; overflow-wrap: anywhere; }
+.lmsFolderFile small { color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsFolderNote { margin-left: 34px; }
-.lmsTextLink { padding: 0; border: 0; background: none; color: var(--accent) !important; font-size: 12px !important; font-weight: 550; }
+.lmsTextLink { padding: 0; border: 0; background: none; color: var(--accent) !important; font-size: calc(var(--type-note-size) * var(--text)) !important; font-weight: 500; }
 .lmsTextLink:hover { text-decoration: underline; }
 
 /* ---------- Assignment card: state and deadline first ---------- */
@@ -399,13 +399,13 @@
 .lmsAssignmentCard.done .lmsAssignmentMark, .lmsAssignmentCard.graded .lmsAssignmentMark { background: var(--ok); }
 .lmsAssignmentCard.missed .lmsAssignmentMark { background: var(--danger); }
 .lmsAssignmentTitle { flex: 1; min-width: 0; }
-.lmsAssignmentTitle h4 { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.45; }
-.lmsAssignmentTitle time { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.lmsAssignmentState { flex: 0 0 auto; padding: 2px 7px; border-radius: 6px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.lmsAssignmentTitle h4 { margin: 0; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 600; line-height: 1.45; }
+.lmsAssignmentTitle time { display: block; margin-top: 2px; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
+.lmsAssignmentState { flex: 0 0 auto; padding: 2px 7px; border-radius: 6px; background: var(--surface-3); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-weight: 600; white-space: nowrap; }
 .lmsAssignmentState.done, .lmsAssignmentState.graded { background: var(--ok-soft); color: var(--ok); }
 .lmsAssignmentState.missed { background: var(--danger-soft); color: var(--danger); }
 .lmsAssignmentGrade { margin-left: 6px; font-variant-numeric: tabular-nums; }
-.lmsAssignmentBody { margin: 10px 0 0 18px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.75; animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
+.lmsAssignmentBody { margin: 10px 0 0 18px; padding-top: 10px; border-top: 1px solid var(--line); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.75; animation: lmsFadeIn var(--lms-medium) var(--lms-ease); }
 .lmsAssignmentCard > footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin: 10px 0 0 18px; }
 .lmsAssignmentCard > footer > .lmsTextLink:first-child { margin-right: auto; }
 .lmsAssignmentCard .lmsSubmit { margin-top: 0; padding: 6px 11px; }
@@ -413,8 +413,8 @@
 /* ---------- Folder: its files as rows, read in the same pane ---------- */
 .lmsFolderView { display: flex; flex-direction: column; gap: 16px; padding: 24px; }
 .lmsFolderHeader { display: flex; align-items: center; gap: 14px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-.lmsFolderHeader h3 { margin: 0; font-size: 17px; font-weight: 620; }
-.lmsFolderHeader small { color: var(--muted); font-size: 12px; }
+.lmsFolderHeader h3 { margin: 0; font-size: 17px; font-weight: 600; }
+.lmsFolderHeader small { color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsFolderList { display: grid; gap: 8px; }
 .lmsFolderList a.lmsItemRow { color: inherit; text-decoration: none; }
 
@@ -423,7 +423,7 @@
 
 /* ---------- Development preview (?preview=lms) ---------- */
 .lmsPreviewShell { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); }
-.lmsPreviewNotice { display: flex; justify-content: space-between; padding: 9px 24px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.lmsPreviewNotice { display: flex; justify-content: space-between; padding: 9px 24px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .lmsPreviewNotice label { display: flex; align-items: center; gap: 6px; }
 .lmsPreviewMain { display: flex; flex: 1; min-height: 0; padding: 20px 24px; }
 
@@ -449,7 +449,7 @@
 }
 .lmsSectionBody .lmsAnnouncementCard:hover { border-left-color: var(--lms-hover-line); background: none; }
 .lmsSectionBody .lmsAnnouncementCard.selected { border-left-color: var(--accent); background: none; }
-.lmsSectionBody .lmsAnnouncementCard strong { font-size: 13px; font-weight: 600; }
+.lmsSectionBody .lmsAnnouncementCard strong { font-size: calc(var(--type-row-size) * var(--text)); font-weight: 600; }
 .lmsInlineActivity:has(.lmsAnnouncementCard), .lmsInlineActivity:has(.lmsQuiet:only-child) { padding: 8px 0; border-top: 0; }
 
 /* Tasks: a state bar instead of a box. */
@@ -476,21 +476,21 @@
 .lmsWorkspaceCard { display: grid; gap: 10px; max-width: 520px; margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: var(--lms-radius); background: var(--surface); }
 .lmsWorkspaceCard > header { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .lmsWorkspaceCard > header > div { display: grid; flex: 1; min-width: 0; }
-.lmsWorkspaceCard > header b { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.lmsWorkspaceCard > header small { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.lmsWorkspaceCard > header b { overflow: hidden; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.lmsWorkspaceCard > header small { color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsIconButton { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--lms-radius-sm); background: none; color: var(--muted); }
 .lmsIconButton:hover:not(:disabled) { background: var(--surface-3); color: var(--danger); }
 .lmsWorkspaceActions, .lmsWorkspaceSubmit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .lmsWorkspaceActions button {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--line); border-radius: var(--lms-radius-sm);
-  background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 550; transition: border-color var(--lms-fast);
+  background: var(--surface); color: var(--ink); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; transition: border-color var(--lms-fast);
 }
 .lmsWorkspaceActions button:hover { border-color: var(--lms-hover-line); }
 .lmsSegmented { display: inline-flex; padding: 2px; border-radius: var(--lms-radius-sm); background: var(--surface-3); }
-.lmsSegmented button { padding: 3px 10px; border: 0; border-radius: calc(var(--lms-radius-sm) - 2px); background: none; color: var(--muted); font-size: 12px; font-weight: 550; }
+.lmsSegmented button { padding: 3px 10px; border: 0; border-radius: calc(var(--lms-radius-sm) - 2px); background: none; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); font-weight: 500; }
 .lmsSegmented button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
-.lmsWorkspaceSubmit input { width: 200px; height: 28px; min-height: 28px; font-size: 12px; }
-.lmsWorkspaceError { margin: 6px 0 0; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
+.lmsWorkspaceSubmit input { width: 200px; height: 28px; min-height: 28px; font-size: calc(var(--type-note-size) * var(--text)); }
+.lmsWorkspaceError { margin: 6px 0 0; color: var(--danger); font-size: calc(var(--type-note-size) * var(--text)); overflow-wrap: anywhere; }
 .lmsAssignmentCard > footer button:disabled { opacity: .6; cursor: default; }
 
 /* The open lesson: its number large, its plan as the title. */
@@ -500,13 +500,13 @@
 .lmsLessonPage .lmsSectionHeading h3 button { cursor: default; }
 .lmsLessonPage .lmsSectionHeading h3 button:hover { background: none; }
 .lmsLessonPage .lmsSectionHeading .lmsSectionChevron, .lmsLessonPage .lmsSectionHeading h3 small { display: none; }
-.lmsLessonPage .lmsSectionBody > .lmsRichContent:first-child { color: var(--muted); font-size: 12.5px; line-height: 1.75; }
+.lmsLessonPage .lmsSectionBody > .lmsRichContent:first-child { color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.75; }
 
 /* Tables: hairline rows; a schedule marks where the course is. */
 .lmsRichContent th, .lmsRichContent td { padding: 6px 10px; border: 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .lmsRichContent tr:first-child > th, .lmsRichContent tr:first-child > td:only-child,
 .lmsRichContent thead td, .lmsRichContent table:not(:has(th)) tr:first-child > td {
-  color: var(--muted); font-size: 11.5px; font-weight: 600; border-bottom-color: var(--line-strong);
+  color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-weight: 600; border-bottom-color: var(--line-strong);
 }
 .lmsRichContent tr.lmsRowPast > td { color: var(--muted); }
 .lmsRichContent tr.lmsRowOff > td { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line-strong); }
@@ -548,9 +548,9 @@
 .lmsWorkspace.narrowReader.viewing .lmsOutline { display: none; }
 .lmsWorkspace.narrowReader.viewing .lmsViewer { display: flex; }
 
-.lmsWorkspaceHint { margin: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.lmsWorkspaceHint { margin: 8px 0; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.5; }
 
 .lmsPullControls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 
 .lmsPdfZoom .uiSelect { width: 100px; }
-.lmsPdfZoom .uiSelectTrigger { width: 100%; height: 28px; min-height: 28px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
+.lmsPdfZoom .uiSelectTrigger { width: 100%; height: 28px; min-height: 28px; padding: 0 8px; font-size: calc(var(--type-note-size) * var(--text)); white-space: nowrap; }

@@ -3412,10 +3412,11 @@ checks:
           Long press a class and choose 試験にする, then 休講にする, then
           通常の授業に戻す, reopening the menu each time.
         reason: |
-          Each mark is Core's MarkSession and must redraw at once: a warn
-          border with 試験 before the room, then a faded struck-through title
-          with 休講, then the plain block; the tick must follow the state.
-          Plan blocks must offer no menu.
+          Each mark is Core's MarkSession and must redraw at once: a deeper
+          fill with a solid 試験 tag above the title and no ring, then a grey
+          striped block with a struck-through title and 休講, then the plain
+          block; the tick must follow the state. Plan blocks must offer no
+          menu.
       - action: |
           Look at today's column during a teaching hour.
         reason: |
@@ -3451,6 +3452,76 @@ checks:
       - apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift
       - apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
+    verified: null
+
+  - id: TIMETABLE-BLOCK-STATES
+    area: native
+    title: Timetable blocks read the same on iPhone, Android and desktop
+    persona: undergraduate-first-term
+    preconditions: |
+      The three apps on the same account with 2026 2Q pulled, each opened on
+      時間割 for the week of 7/20 (2Q week 7), light appearance, then dark.
+    steps:
+      - action: |
+          Look at Wednesday's スペイン語初級２ exam.
+        reason: |
+          The published exam is 09:30–10:20 with no periods. It must fill
+          periods 1–2 like a class, with a solid 試験 tag above the title and
+          9:30–10:20 on its bottom line. A short block floating between the
+          rows, or one with a thick course-coloured ring, is the old rule.
+      - action: |
+          Compare an ordinary class with the exam and with a class marked as a
+          quiz (long press or right-click → 小テストにする).
+        reason: |
+          A class is a solid light course fill with course-tinted text; the
+          exam is visibly deeper; the quiz keeps the class fill with an
+          outlined tag. No block except the class in progress has a ring, so a
+          ring on an exam or quiz means the ring still has two meanings.
+      - action: |
+          Look at Monday 7/20 (a holiday) and at a class marked 休講.
+        reason: |
+          The holiday column is flat grey without stripes, and every class in
+          it, like the cancelled one, is grey, striped, struck through and
+          labelled 休講. Stripes on the whole column, or a faded block without
+          stripes, are the old drawing.
+      - action: |
+          Plan a course whose period clashes with an enrolled class (desktop
+          時間割 planning), then look at that day on all three apps.
+        reason: |
+          The two blocks sit side by side, each half the column, the earlier
+          on the left, without a red ring. One block hiding the other means
+          the shell ignores Core's lanes.
+      - action: |
+          Look at today's column and at the planned course's other blocks.
+        reason: |
+          Today is marked only by the filled date and the red now line, not by
+          an outline around the column. A planned course is an outline in its
+          own colour on the surface, not a grey line.
+      - action: |
+          Switch the system to dark appearance and look at the same week.
+        reason: |
+          Fills are mixed into the dark surface, so blocks stay quiet and the
+          row rules never show through a block; a block that lets the rules or
+          the lunch band through is still translucent.
+    observe: 時間割 on the iPhone, the Android phone and the desktop app.
+    expected: |
+      All three draw the exam over periods 1–2 with its tag and real times,
+      the same fills, stripes only on classes that do not take place,
+      overlapping blocks side by side, and no ring except the class in
+      progress.
+    why_manual: |
+      The look of the blocks is read at a glance on each device; where a block
+      sits and which lane it takes come from Core (`GridSlot`), which the
+      schedule tests pin.
+    covers:
+      - apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift
+      - apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift
+      - apps/ios/IsctCompanion/Design/Theme.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt
+      - apps/desktop/src/components/timetable/timetable.tsx
+      - apps/desktop/src/styles.css
+      - design/tokens/course.json
     verified: null
 
   - id: IOS-NATIVE-CHROME

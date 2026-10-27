@@ -207,7 +207,7 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
                     Text(
                         chipLabel(lesson),
                         style = MaterialTheme.typography.bodyMedium.tabular(), fontWeight = FontWeight.SemiBold,
-                        color = if (selected) Color.White else Theme.colors.ink,
+                        color = if (selected) Theme.colors.accentInk else Theme.colors.ink,
                         modifier = Modifier
                             .clip(CircleShape)
                             .background(if (selected) Theme.colors.accent else Theme.colors.surface)

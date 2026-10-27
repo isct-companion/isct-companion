@@ -26,12 +26,12 @@
 .settingsResults button small {
   color: var(--muted);
   font-weight: 500;
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .settingsNoResults {
   padding: 8px 11px;
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 
 /* ---------- settings: page structure ---------- */
@@ -49,7 +49,7 @@
   margin: 0;
   max-width: 560px;
   color: var(--muted);
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.5;
 }
 .settingsHeader > .actions {
@@ -68,7 +68,7 @@
 .settingsNote {
   margin: 8px 0 0;
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   line-height: 1.5;
   /* Errors here can carry URLs or ids with no break opportunity. */
   overflow-wrap: anywhere;
@@ -92,8 +92,8 @@
   cursor: default;
   padding: 8px 0;
   color: var(--muted);
-  font-size: calc(12px * var(--text));
-  font-weight: 650;
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-weight: 600;
   list-style: none;
 }
 .moreOptions > summary::-webkit-details-marker {
@@ -151,7 +151,7 @@
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--surface-2);
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .settingsStatus > i {
   flex: 0 0 auto;
@@ -181,7 +181,7 @@
 }
 .settingsStatus small {
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
   overflow-wrap: anywhere;
 }
 .settingsGroup > .settingsStatus {
@@ -204,15 +204,15 @@
   border-radius: 8px;
 }
 .quarterGrid b {
-  font-size: calc(12.5px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .quarterGrid span {
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-variant-numeric: tabular-nums;
 }
 .quarterGrid small {
   color: var(--muted);
-  font-size: calc(11px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .calendarDays {
   display: grid;
@@ -248,7 +248,7 @@ button.calendarDay.open {
 }
 .calendarDay time {
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-variant-numeric: tabular-nums;
 }
 .calendarDay > span:not(.actions) {
@@ -256,7 +256,7 @@ button.calendarDay.open {
   min-width: 0;
 }
 .calendarDay b {
-  font-size: calc(13px * var(--text));
+  font-size: calc(var(--type-row-size) * var(--text));
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -264,7 +264,7 @@ button.calendarDay.open {
 }
 .calendarDay small {
   color: var(--muted);
-  font-size: calc(11.5px * var(--text));
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .calendarEditor {
   display: grid;
@@ -279,7 +279,7 @@ button.calendarDay.open {
 .calendarEditor label {
   display: grid;
   gap: 4px;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
 }
 .calendarEditor .wide {
@@ -336,7 +336,7 @@ button.calendarDay.open {
   }
   .matrixGrid input {
     padding: 0;
-    font-size: 12px;
+    font-size: calc(var(--type-note-size) * var(--text));
   }
   .credentialFields {
     grid-template-columns: minmax(0, 1fr);
@@ -375,7 +375,7 @@ button.calendarDay.open {
 /* Subordinate reminder controls keep their own accessible label and grouping. */
 .settingsSuboptions { margin: 0 0 12px 8px; padding-inline-start: 20px; border-inline-start: 1px solid var(--line); }
 .settingsSuboptions .row { border-bottom: 0; padding-block: 8px; }
-.settingsSuboptions .row b { color: var(--muted); font-weight: 450; }
+.settingsSuboptions .row b { color: var(--muted); font-weight: 400; }
 .settingsPane .row > .assignmentTimes { width: clamp(180px, 40cqi, 280px); }
 .settings .settingsPane {
   scrollbar-width: thin;
@@ -421,7 +421,7 @@ button.calendarDay.open {
   border-bottom: 1px solid var(--line);
   user-select: text;
 }
-.diagnosticLogMeta { display: block; color: var(--muted); font-size: 11px; }
+.diagnosticLogMeta { display: block; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
 .diagnosticLogRow[data-level="ERROR"] > :last-child { color: var(--danger); }
 .agentSetup {
   display: grid;
@@ -431,7 +431,7 @@ button.calendarDay.open {
 .agentSetup > p {
   margin: 0;
   color: var(--muted);
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .agentSnippet {
   display: flex;
@@ -447,6 +447,6 @@ button.calendarDay.open {
   min-width: 0;
   margin: 0;
   overflow-x: auto;
-  font-size: calc(12px * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.5;
 }

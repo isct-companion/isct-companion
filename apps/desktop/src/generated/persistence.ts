@@ -902,6 +902,25 @@ export type ClassGroupChoice = {
 
 export type OccurrenceKind = "course" | "event" | "plan" | "exam";
 
+/**
+ * A timetable block's place on the period grid. A block whose times fall
+ * inside periods (an exam at 09:30–10:20) fills the periods it touches, and
+ * blocks that overlap sit side by side; the block keeps its own times for
+ * its label.
+ */
+export type GridSlot = {
+  startTime: string;
+  endTime: string;
+  /**
+   * The block's column among the blocks it overlaps, from 0 on the left.
+   */
+  lane: number;
+  /**
+   * How many columns the overlapping blocks share; 1 when it is alone.
+   */
+  lanes: number;
+};
+
 export type Occurrence = {
   key: string;
   id: string;
@@ -941,6 +960,11 @@ export type Occurrence = {
    * exam timetable; the block keeps the user's values until they choose.
    */
   sourceChanged?: boolean | null;
+  /**
+   * Where the block sits on the period grid, when that differs from its
+   * own times or it shares the time with another block.
+   */
+  grid?: GridSlot | null;
 };
 
 export type ScheduleProblemKind = "courseMeeting" | "plan" | "scheduleOverride";

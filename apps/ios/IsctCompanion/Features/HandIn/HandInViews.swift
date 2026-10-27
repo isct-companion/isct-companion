@@ -64,7 +64,7 @@ struct InboxTray: View {
                 if let url = item.url {
                     Thumbnail(url: url, corner: 10)
                         .frame(width: Self.card.width, height: Self.card.height)
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.white, lineWidth: 3))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.surface, lineWidth: 3))
                         .shadow(color: .black.opacity(0.22), radius: 6, y: 3)
                         .offset(x: -depth * 7, y: -depth * 7)
                 }
@@ -77,7 +77,7 @@ struct InboxTray: View {
     private var trash: some View {
         Image(systemName: overTrash ? "trash.fill" : "trash")
             .font(.title2.weight(.semibold))
-            .foregroundStyle(overTrash ? .white : Theme.danger)
+            .foregroundStyle(overTrash ? Theme.accentInk : Theme.danger)
             .frame(width: 60, height: 60)
             .background(overTrash ? Theme.danger : Theme.surface, in: Circle())
             .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
@@ -296,7 +296,7 @@ struct HandInCard: View {
                             .font(.subheadline.weight(.semibold))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.accentInk)
                             .background(Theme.accent, in: Capsule())
                     }
                     .buttonStyle(PressableStyle())

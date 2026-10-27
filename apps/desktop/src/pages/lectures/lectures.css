@@ -4,17 +4,17 @@
 .lectureList { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; padding-right: 16px; border-right: 1px solid var(--line); }
 .lectureList > header { display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding: 4px 0 12px; }
 .lectureListTitle { display: flex; align-items: center; gap: 8px; }
-.lectureList > header h1 { margin: 0; white-space: nowrap; font-size: 15px; font-weight: 620; letter-spacing: -.01em; }
+.lectureList > header h1 { margin: 0; white-space: nowrap; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 .lectureTerm { flex: 0 0 auto; min-width: 0; width: 100%; }
 .lectureTerm .uiInput {
   height: 30px; min-height: 30px; padding-left: 10px; border-color: transparent;
-  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  font-size: calc(var(--type-note-size) * var(--text)); font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .dueScope.lectureMode { display: flex; align-self: stretch; width: 100%; margin: 0 0 8px; }
 .lectureMode > button { flex: 1 1 auto; min-width: 0; padding-inline: 4px; white-space: nowrap; border: 0; background: none; cursor: default; }
 .lectureMode > button:not(:disabled, [aria-pressed="true"], [aria-selected="true"], [data-state="on"], [data-state="active"]):hover { color: var(--ink); }
 .lectureFilter { margin: 0 0 8px; }
-.lectureFilter input, input.lectureFilter { height: 32px; min-height: 32px; font-size: 13px; }
+.lectureFilter input, input.lectureFilter { height: 32px; min-height: 32px; font-size: calc(var(--type-row-size) * var(--text)); }
 .lectureRow {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center;
   width: 100%; padding: 8px 10px 8px 12px; border: 0; border-radius: 9px; background: none;
@@ -24,9 +24,9 @@
 .lectureRow:hover { background: var(--surface-2); }
 .lectureRow.selected { background: var(--accent-soft); }
 .lectureRow.selected::before, .lectureRow.now::before { opacity: 1; }
-.lectureRow b { grid-column: 1; overflow: hidden; font-size: 13px; font-weight: 560; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.lectureRow small { grid-column: 1; overflow: hidden; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
-.lectureRow.now small { color: var(--accent); font-weight: 560; }
+.lectureRow b { grid-column: 1; overflow: hidden; font-size: calc(var(--type-row-size) * var(--text)); font-weight: 500; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.lectureRow small { grid-column: 1; overflow: hidden; color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.lectureRow.now small { color: var(--accent); font-weight: 500; }
 .lectureRow .dueChip { grid-column: 2; grid-row: 1 / span 2; }
 .lectureRow.hidden { cursor: default; }
 .lectureRow.done { background: color-mix(in srgb, var(--ok-soft) 70%, transparent); }

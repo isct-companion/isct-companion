@@ -78,7 +78,7 @@ struct WeekPicker: View {
                     .frame(width: 110, alignment: .leading)
                 Text(days(week.monday))
                     .font(.body.monospacedDigit())
-                    .foregroundStyle(selected ? .white : Theme.ink)
+                    .foregroundStyle(selected ? Theme.accentInk : Theme.ink)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(selected ? Theme.accent : .clear, in: Capsule())

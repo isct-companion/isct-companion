@@ -3,24 +3,55 @@
     "$description": "A course is the same colour on every surface. Core picks the palette entry (display_color); shells only render it.",
     "palette": {
       "$type": "color",
-      "1": { "$value": "#355ba7" },
-      "2": { "$value": "#4f8a8b" },
-      "3": { "$value": "#668879" },
-      "4": { "$value": "#7b8f3a" },
-      "5": { "$value": "#b0713f" },
-      "6": { "$value": "#a34e5d" },
-      "7": { "$value": "#806a9d" },
-      "8": { "$value": "#5c7d93" }
+      "1": {
+        "$value": "#355ba7"
+      },
+      "2": {
+        "$value": "#4f8a8b"
+      },
+      "3": {
+        "$value": "#668879"
+      },
+      "4": {
+        "$value": "#7b8f3a"
+      },
+      "5": {
+        "$value": "#b0713f"
+      },
+      "6": {
+        "$value": "#a34e5d"
+      },
+      "7": {
+        "$value": "#806a9d"
+      },
+      "8": {
+        "$value": "#5c7d93"
+      }
     },
     "tint": {
       "$type": "number",
       "$description": "Share of the course colour mixed into the surface.",
-      "fill": { "$value": 0.22, "$description": "Something that occupies time: a timetable block" },
-      "soft": { "$value": 0.1, "$description": "Emphasis on a row: the current or next class" },
-      "exam": { "$value": 0.42, "$description": "An exam block: about twice a class's fill, ringed in the full course colour" },
-      "quiz": { "$value": 0.32, "$description": "A quiz block: a little weaker than an exam, never striped (stripes mean cancelled)" },
-      "outline": { "$value": 0.7, "$description": "A quiz block's ring: the course colour at this share" },
-      "ink": { "$value": 0.4, "$description": "Text on a fill: the course colour mixed into ink" }
+      "fill": {
+        "$value": 0.22,
+        "$description": "Something that occupies time: a timetable block, a quiz included (its tag is outlined)"
+      },
+      "soft": {
+        "$value": 0.1,
+        "$description": "Emphasis on a row: the current or next class"
+      },
+      "exam": {
+        "$value": 0.34,
+        "$description": "An exam block: a deeper fill than a class, never ringed (a ring means the class in progress); its solid tag sits before the title"
+      },
+      "ink": {
+        "$value": 0.4,
+        "$description": "Text on a fill: the course colour mixed into ink, on every platform"
+      }
+    },
+    "on-solid": {
+      "$type": "color",
+      "$value": "#ffffff",
+      "$description": "Text on the solid course colour (an exam tag); the palette is mid-tone in both themes"
     }
   }
 }

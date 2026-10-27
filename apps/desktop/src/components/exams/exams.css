@@ -37,11 +37,11 @@
 }
 .examConflict b {
   color: var(--warn);
-  font-size: 13px;
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .examEditor .examConflict p {
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: calc(var(--type-note-size) * var(--text));
   font-variant-numeric: tabular-nums;
 }
 .examConflict .examEditorActions {
@@ -53,21 +53,21 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--type-block-size) * var(--text));
 }
 .examCard b,
 .examCourseLink {
-  font-size: 13px;
+  font-size: calc(var(--type-row-size) * var(--text));
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 .examCard small {
-  font-size: 11px;
+  font-size: calc(var(--type-block-size) * var(--text));
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .examCard time {
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
   font-variant-numeric: tabular-nums;
 }
 .examCourseLink {
@@ -88,12 +88,12 @@
 }
 .examEditor .examEditorNote {
   margin-top: -8px;
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .examEditor p {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .examEditorTimes {
   display: grid;
@@ -110,7 +110,7 @@
 }
 .lectureExamScope p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .lectureCourseContent {
   height: 100%;
@@ -129,7 +129,7 @@
 }
 .lectureExamDetails > header p {
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(var(--type-row-size) * var(--text));
 }
 .lectureExamDetails .examEditor {
   max-width: 560px;
@@ -139,5 +139,5 @@
 }
 .lectureExamScope > small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--type-block-size) * var(--text));
 }

@@ -10,13 +10,15 @@ enum BlockText {
     /// `.caption2`, not `.caption`: SwiftUI's Text ignores a paragraph style's
     /// `hyphenationFactor`, so a smaller face is what keeps English words
     /// ("Assembly") whole in a ~60 pt column more often.
-    static let titleFont = Font.caption2.weight(.semibold)
-    static let roomFont = Font.caption2.weight(.semibold)
+    static let titleFont = Font.block
+    static let roomFont = Font.block
 
-    /// Title lines that fit above the room line, at least one.
-    static func titleLines(height: CGFloat) -> Int {
+    /// Title lines that fit beside the tag line above and the room line
+    /// below, at least one.
+    static func titleLines(height: CGFloat, tagged: Bool, footer: Bool) -> Int {
         let line = UIFont.preferredFont(forTextStyle: .caption2).lineHeight
-        return max(1, Int(((height - line - 2 * padding - spacing) / line).rounded(.down)))
+        let taken = CGFloat((tagged ? 1 : 0) + (footer ? 1 : 0))
+        return max(1, Int(((height - taken * (line + spacing) - 2 * padding) / line).rounded(.down)))
     }
 
     /// The first of several rooms joined by commas.
@@ -26,8 +28,8 @@ enum BlockText {
     }
 }
 
-/// 試験 before an exam block's room, solid in the course colour; a quiz's
-/// 小テスト is outlined (design/README.md).
+/// 試験 above an exam block's title, solid in the course colour; a quiz's
+/// 小テスト is outlined (slotledger `approach/timetable-exam-emphasis`).
 struct ExamTag: View {
     let quiz: Bool
     let tint: Color
@@ -35,8 +37,7 @@ struct ExamTag: View {
     var body: some View {
         let shape = Capsule()
         Text(quiz ? t("Quiz") : t("Exam"))
-            // The course palette is mid-tone in both themes.
-            .foregroundStyle(quiz ? tint : .white)
+            .foregroundStyle(quiz ? Theme.courseInk(tint) : Theme.onSolid)
             .padding(.horizontal, 4)
             .background { if !quiz { shape.fill(tint) } }
             .overlay { if quiz { shape.strokeBorder(tint, lineWidth: 1) } }

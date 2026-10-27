@@ -32,6 +32,8 @@ const isTint = (token) =>
   token.path[0] === "course" && token.path[1] === "tint";
 const isPalette = (token) =>
   token.path[0] === "course" && token.path[1] === "palette";
+const isOnSolid = (token) =>
+  token.path[0] === "course" && token.path[1] === "on-solid";
 
 StyleDictionary.registerTransform({
   // CSS names stay the public variables shells and per-site CSS already use.
@@ -57,6 +59,20 @@ StyleDictionary.registerTransform({
   type: "value",
   filter: (token) => token.$type === "dimension",
   transform: (token) => `CGFloat(${parseFloat(token.$value)})`,
+});
+StyleDictionary.registerTransform({
+  // A TimeInterval for SwiftUI animations.
+  name: "time/swift/seconds",
+  type: "value",
+  filter: (token) => token.$type === "duration",
+  transform: (token) => `${parseFloat(token.$value) / 1000}`,
+});
+StyleDictionary.registerTransform({
+  // Milliseconds, as Compose's tween() takes them.
+  name: "time/compose/ms",
+  type: "value",
+  filter: (token) => token.$type === "duration",
+  transform: (token) => `${parseFloat(token.$value)}`,
 });
 StyleDictionary.registerTransform({
   name: "size/compose/px",
@@ -118,6 +134,7 @@ const cssTransforms = [
   "name/isct-css",
   "value/percent",
   "color/css",
+  "cubicBezier/css",
   "shadow/css/shorthand",
   "fontFamily/css",
 ];
@@ -126,15 +143,20 @@ const swiftTransforms = [
   "name/camel",
   "color/ColorSwiftUI",
   "size/swift/px",
+  "time/swift/seconds",
 ];
 const composeTransforms = [
   "attribute/cti",
   "name/camel",
   "color/composeColor",
   "size/compose/px",
+  "time/compose/ms",
 ];
-// Phones take fonts and shadows from the platform.
-const mobileToken = group("color", "radius", "course", "hero");
+// Phones take fonts, type sizes, shadows and easing curves from the
+// platform (system text styles, springs).
+const mobileToken = (token) =>
+  group("color", "radius", "space", "course", "hero", "motion")(token) &&
+  token.$type !== "cubicBezier";
 
 async function build(out) {
   const at = (file) => path.join(out, path.dirname(file)) + path.sep;
@@ -144,6 +166,7 @@ async function build(out) {
     tokens("color.light.json"),
     tokens("course.json"),
     tokens("shape.json"),
+    tokens("motion.json"),
   ];
   const runs = [
     new StyleDictionary({
@@ -162,10 +185,15 @@ async function build(out) {
                   "color",
                   "shadow",
                   "radius",
+                  "space",
+                  "type",
                   "font",
                   "workspace",
                   "hero",
-                )(token) || isTint(token),
+                  "motion",
+                )(token) ||
+                isTint(token) ||
+                isOnSolid(token),
             },
           ],
         },

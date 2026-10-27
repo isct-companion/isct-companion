@@ -14,8 +14,9 @@ yarn design:tokens
 |---|---|
 | `tokens/color.light.json`, `tokens/color.dark.json` | Neutrals, accent, ok / warn / danger pairs, shadow; one file per theme with the same names |
 | `tokens/course.json` | Course palette (core picks the entry) and the two tint strengths |
-| `tokens/shape.json` | Radius by role, desktop workspace metrics, font stack |
-| `platforms/mobile.json` | Phone values for the same roles (radius); never new names |
+| `tokens/shape.json` | Radius and spacing by role, the desktop type scale, desktop workspace metrics, font stack |
+| `tokens/motion.json` | Three durations and the desktop easing curves |
+| `platforms/mobile.json` | Phone values for the same roles (radius, gutter); never new names |
 | `build.mjs` | Style Dictionary config and the few custom formats |
 
 Tokens use the [W3C Design Tokens (DTCG) format](https://www.designtokens.org/tr/drafts/format/):
@@ -37,17 +38,18 @@ Generated files are committed so Cargo, Xcode and Gradle builds need no Node.
 
 ## Rules
 
+The visual rules themselves (block states, chips, buttons, motion, themes)
+are decisions in slotledger (`approach/…`); where this file and slotledger
+disagree, slotledger wins. The notes below only say how the tokens are meant.
+
 - **Names are roles, not values**: `radius.chip`, not `radius.6`. A platform
   overrides a role's value in `platforms/`, never adds a name.
-- **Course colour has two uses only**: a tint of the course colour on the
-  surface for something that occupies time (`course.tint.fill`, timetable
-  block) or emphasis on a row (`course.tint.soft`, the current or next class),
-  and a small square for "belongs to this course" in lists. Text on a fill
-  takes the course colour mixed into ink (`course.tint.ink`), so a block reads
-  as one colour on desktop and phone. An exam block is the one stronger fill
-  (`course.tint.exam`, ringed in the course colour, its tag solid); a quiz is
-  a little weaker (`course.tint.quiz`, a thinner ring at `course.tint.outline`,
-  an outlined tag). Neither is striped: stripes mean a cancelled class.
+- **Course colour has two uses only**: a fill for something that occupies
+  time (`course.tint.fill`, a timetable block) and a small square for "belongs
+  to this course" in lists. A fill is the course colour mixed into the surface
+  as a solid colour on every platform, and text on it is the course colour
+  mixed into ink (`course.tint.ink`). An exam takes the deeper
+  `course.tint.exam`; text on the solid course colour is `course.on-solid`.
 - **One tint, meaning "now"**: the class in progress or next, or tonight's
   deadline, fills its whole card with a tint: the course (or danger) hue at the
   theme's `hero.lightness` with chroma capped at `hero.chroma` (OKLCH), so

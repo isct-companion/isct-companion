@@ -18,7 +18,7 @@ struct TodayScreen: View {
     @State private var exams: [ExamView] = []
 
     /// The dashboard's list margin, which its header lines up with.
-    private static let margin: CGFloat = 24
+    private static let margin = Theme.gutter
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -343,7 +343,7 @@ private struct StackCard: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(item.occurrence.startTime)
-                    .font(.system(size: 40, weight: .bold).monospacedDigit())
+                    .font(.display.monospacedDigit())
                 Text(item.occurrence.room)
                     .font(.title2.bold())
             }
@@ -447,7 +447,7 @@ private struct CurrentClassHero: View {
                     Text(before).font(.title3.weight(.semibold))
                 }
                 Text("\(minutes)")
-                    .font(.system(size: 48, weight: .bold).monospacedDigit())
+                    .font(.display.monospacedDigit())
                     .countingFigure(minutes)
                 if words.count > 1, case let after = words[1].trimmingCharacters(in: .whitespaces), !after.isEmpty {
                     Text(after).font(.title3.weight(.semibold))
@@ -489,7 +489,7 @@ private struct TonightHero: View {
                 DeadlineChip(item: item, now: now)
             }
             Text(Format.date(item.dueAt).map(Format.time) ?? Format.due(item.dueAt, now: now))
-                .font(.system(size: 48, weight: .bold).monospacedDigit())
+                .font(.display.monospacedDigit())
                 .foregroundStyle(Theme.ink)
             Text(item.title).font(.title3.weight(.semibold)).foregroundStyle(Theme.ink)
             if let course = item.courseTitle {
@@ -501,7 +501,7 @@ private struct TonightHero: View {
                 } label: {
                     Label(t("Open submission page"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.accentInk)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(Theme.danger, in: Capsule())
@@ -765,7 +765,7 @@ private struct ConnectCard: View {
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.accentInk)
                     .background(Theme.accent, in: Capsule())
             }
             .buttonStyle(PressableStyle())

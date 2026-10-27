@@ -117,7 +117,7 @@ private fun Chip(text: String, ink: Color, fill: Color, counting: Boolean = fals
         .clip(RoundedCornerShape(Theme.radiusChip))
         .background(fill)
         .padding(horizontal = 7.dp, vertical = 3.dp)
-    val style = MaterialTheme.typography.labelMedium.tabular()
+    val style = MaterialTheme.typography.labelSmall.tabular()
     if (counting) {
         CountingText(text, shape, style = style, color = ink, fontWeight = FontWeight.SemiBold)
     } else {
@@ -135,8 +135,8 @@ fun DeadlineRow(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         CourseSquare(item.color)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -279,9 +279,16 @@ fun MaterialRow(item: MaterialItem) {
     }
 }
 
-/** White label on a filled capsule. */
+/** A label on a filled capsule; [ink] is the text colour for [fill]
+ * (accent-ink on the accent, the surface colour on a status fill). */
 @Composable
-fun PillButton(title: String, icon: ImageVector?, fill: Color, onClick: () -> Unit) {
+fun PillButton(
+    title: String,
+    icon: ImageVector?,
+    fill: Color,
+    ink: Color = Theme.colors.accentInk,
+    onClick: () -> Unit,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -291,8 +298,8 @@ fun PillButton(title: String, icon: ImageVector?, fill: Color, onClick: () -> Un
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        icon?.let { Icon(it, null, tint = Color.White, modifier = Modifier.size(18.dp)) }
-        Text(title, color = Color.White, fontWeight = FontWeight.SemiBold)
+        icon?.let { Icon(it, null, tint = ink, modifier = Modifier.size(18.dp)) }
+        Text(title, color = ink, fontWeight = FontWeight.SemiBold)
     }
 }
 

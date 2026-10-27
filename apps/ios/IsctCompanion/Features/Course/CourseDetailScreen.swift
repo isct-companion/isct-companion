@@ -316,7 +316,7 @@ private struct LessonChips: View {
                     .frame(minWidth: 34)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .foregroundStyle(selected ? .white : Theme.ink)
+                    .foregroundStyle(selected ? Theme.accentInk : Theme.ink)
                     .background(selected ? Theme.accent : Theme.surface, in: Capsule())
                     .contentShape(.contextMenuPreview, Capsule())
             }

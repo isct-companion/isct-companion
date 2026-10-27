@@ -253,7 +253,7 @@ private struct SettingsIcon: View {
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.onSolid)
             .frame(width: 29, height: 29)
             .background(tint.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }

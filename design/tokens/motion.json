@@ -1,0 +1,41 @@
+{
+  "motion": {
+    "$description": "Quiet motion that only serves continuity: no overshoot. Phones use critically damped springs of about these lengths (Motion.swift, Motion.kt).",
+    "duration": {
+      "$type": "duration",
+      "fast": {
+        "$value": "150ms",
+        "$description": "Hover, press, small state"
+      },
+      "base": {
+        "$value": "200ms",
+        "$description": "Appear, collapse, a tag changing"
+      },
+      "slow": {
+        "$value": "250ms",
+        "$description": "Week change, panels, pages"
+      }
+    },
+    "easing": {
+      "$type": "cubicBezier",
+      "standard": {
+        "$value": [
+          0.2,
+          0,
+          0,
+          1
+        ],
+        "$description": "fast and base"
+      },
+      "emphasized": {
+        "$value": [
+          0.22,
+          1,
+          0.36,
+          1
+        ],
+        "$description": "slow"
+      }
+    }
+  }
+}

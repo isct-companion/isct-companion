@@ -35,10 +35,10 @@ struct PageRail<Menu: View>: View {
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: tab.symbol)
-                    .font(.system(size: 19))
+                    .font(.title3)
                     .frame(height: 24)
                 Text(tab.title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.caption2.weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }

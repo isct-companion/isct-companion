@@ -136,7 +136,7 @@ private fun WeekRow(week: TimetableWeek, year: TimetableYear, selected: Boolean,
         )
         Text(
             days(week.monday), style = MaterialTheme.typography.bodyLarge.tabular(),
-            color = if (selected) Color.White else Theme.colors.ink,
+            color = if (selected) Theme.colors.accentInk else Theme.colors.ink,
             modifier = Modifier
                 .clip(CircleShape)
                 .background(if (selected) Theme.colors.accent else Color.Transparent)

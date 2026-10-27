@@ -12,6 +12,10 @@ enum Theme {
     static let line = adaptive(IsctTokens.colorLine, IsctTokensDark.colorLine)
     static let accent = adaptive(IsctTokens.colorAccent, IsctTokensDark.colorAccent)
     static let accentSoft = adaptive(IsctTokens.colorAccentSoft, IsctTokensDark.colorAccentSoft)
+    /// Text on the accent fill (a primary button, today's date).
+    static let accentInk = adaptive(IsctTokens.colorAccentInk, IsctTokensDark.colorAccentInk)
+    /// Text on the solid course colour (an exam tag).
+    static let onSolid = IsctTokens.courseOnSolid
     static let danger = adaptive(IsctTokens.colorDanger, IsctTokensDark.colorDanger)
     static let dangerSoft = adaptive(IsctTokens.colorDangerSoft, IsctTokensDark.colorDangerSoft)
     static let warn = adaptive(IsctTokens.colorWarn, IsctTokensDark.colorWarn)
@@ -22,13 +26,30 @@ enum Theme {
     static let radiusSurface = IsctTokens.radiusSurface
     static let radiusPanel = IsctTokens.radiusPanel
     static let radiusChip = IsctTokens.radiusChip
-    /// Course colour strength of a block that occupies time.
+    static let radiusBlock = IsctTokens.radiusBlock
+    static let radiusColumn = IsctTokens.radiusColumn
+
+    /// Page side margin, list row padding and gap, card padding.
+    static let gutter = IsctTokens.spaceGutter
+    static let rowX = IsctTokens.spaceRowX
+    static let rowY = IsctTokens.spaceRowY
+    static let rowGap = IsctTokens.spaceRowGap
+    static let cardPadding = IsctTokens.spaceCard
+
+    /// Course colour strength of a block that occupies time, a quiz's
+    /// included; an exam's deeper fill; text on a fill.
     static let tintFill = IsctTokens.courseTintFill
-    /// An exam block's stronger fill, a quiz block's slightly weaker one,
-    /// and the quiz's ring.
     static let tintExam = IsctTokens.courseTintExam
-    static let tintQuiz = IsctTokens.courseTintQuiz
-    static let tintOutline = IsctTokens.courseTintOutline
+    static let tintInk = IsctTokens.courseTintInk
+
+    /// The course colour mixed into `base` as a solid colour, as desktop's
+    /// `color-mix`, so rules and bands under a block never show through.
+    static func mix(_ course: Color, _ share: Double, into base: Color) -> Color {
+        base.mix(with: course, by: share, in: .device)
+    }
+
+    /// Text on a course fill: the course colour mixed into ink.
+    static func courseInk(_ course: Color) -> Color { mix(course, tintInk, into: ink) }
 
     private static func adaptive(_ light: Color, _ dark: Color) -> Color {
         let light = UIColor(light)
@@ -65,15 +86,32 @@ struct Card<Content: View>: View {
     }
 }
 
+/// Text roles (design/tokens `type`), mapped to system styles so Dynamic
+/// Type applies.
+extension Font {
+    /// Hero figures; the desktop's 40.
+    static var display: Font {
+        .system(size: UIFontMetrics(forTextStyle: .largeTitle).scaledValue(for: 40), weight: .bold)
+    }
+    static let pageTitle = Font.largeTitle.bold()
+    static let section = Font.subheadline.weight(.semibold)
+    static let rowTitle = Font.body
+    static let note = Font.footnote
+    /// Timetable block text and tags.
+    static let block = Font.caption2.weight(.semibold)
+    /// Time ticks beside the timetable.
+    static let tick = Font.caption2
+}
+
 /// Small grey caption above a card.
 struct SectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
         Text(text)
-            .font(.subheadline.weight(.semibold))
+            .font(.section)
             .foregroundStyle(Theme.muted)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.rowX)
             .padding(.top, 8)
     }
 }
@@ -106,22 +144,22 @@ struct CardLink<Route: Hashable, Content: View>: View {
                 opened?()
                 push(route)
             } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: Theme.rowGap) {
                     content
                     Image(systemName: "chevron.forward")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color(uiColor: .tertiaryLabel))
                 }
-                .padding(.leading, 16)
+                .padding(.leading, Theme.rowX)
                 .padding(.trailing, 20)
-                .padding(.vertical, 10)
+                .padding(.vertical, Theme.rowY)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PressableStyle())
         } else {
             content
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, Theme.rowX)
+                .padding(.vertical, Theme.rowY)
         }
     }
 }

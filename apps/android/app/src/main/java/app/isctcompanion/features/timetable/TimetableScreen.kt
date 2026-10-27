@@ -56,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -69,7 +70,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
@@ -88,6 +88,7 @@ import app.isctcompanion.design.GuideTip
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseColor
+import app.isctcompanion.design.courseMix
 import app.isctcompanion.design.courseZoomSource
 import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
@@ -333,7 +334,7 @@ private fun DayHeader(day: LocalDate, today: Boolean, modifier: Modifier) {
         ) {
             Text(
                 "${day.dayOfMonth}", style = MaterialTheme.typography.titleMedium.tabular(), fontWeight = FontWeight.SemiBold,
-                color = if (today) Color.White else Theme.colors.ink,
+                color = if (today) Theme.colors.accentInk else Theme.colors.ink,
             )
         }
     }
@@ -355,7 +356,7 @@ private fun PeriodColumn(axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier
                     Text("$period", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
                     if (period == first) {
                         Text(
-                            row.startTime.removePrefix("0"), fontSize = 9.sp, style = MaterialTheme.typography.labelSmall.tabular(),
+                            row.startTime.removePrefix("0"), style = MaterialTheme.typography.labelSmall.tabular(),
                             color = Theme.colors.muted, maxLines = 1,
                         )
                     }
@@ -375,73 +376,92 @@ private fun DayColumn(
     current: String?,
     modifier: Modifier,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(Theme.radiusColumn)
     val holiday = agenda?.noClasses == true
     val blocks = agenda?.occurrences.orEmpty().filter { it.isBlock }
-    Box(
-        modifier
-            .clip(shape)
-            .background(Theme.colors.surface)
-            .then(if (today) Modifier.border(1.5.dp, Theme.colors.accent.copy(alpha = 0.5f), shape) else Modifier),
-    ) {
+    // A day without classes is a flat grey column; stripes belong to the
+    // classes that do not take place (slotledger `approach/timetable-cancelled-stripes`).
+    val background = if (holiday) courseMix(Theme.colors.muted, 0.08f, Theme.colors.surface) else Theme.colors.surface
+    BoxWithConstraints(modifier.clip(shape).background(background)) {
+        val width = maxWidth
         axis?.let { RowRules(it, rowHeight) }
-        if (holiday) Hatch(Theme.colors.line)
         if (axis != null) {
-            for (block in blocks) Block(block, holiday, week, axis, rowHeight, block.key == current)
+            for (block in blocks) Block(block, holiday, week, axis, rowHeight, width, block.key == current)
             if (today) NowLine(axis, rowHeight)
         }
     }
 }
 
+/** Gap between blocks that share a time side by side. */
+private val laneGap = 2.dp
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis: TimetableAxis, rowHeight: Dp, current: Boolean) {
+private fun Block(
+    block: Occurrence,
+    holiday: Boolean,
+    week: ScheduleView?,
+    axis: TimetableAxis,
+    rowHeight: Dp,
+    columnWidth: Dp,
+    current: Boolean,
+) {
     val navigator = LocalNavigator.current
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
-    val top = rowHeight * axis.offset(block.startTime).toFloat()
-    val bottom = rowHeight * axis.offset(block.endTime).toFloat()
+    // Core's grid: a block timed inside periods fills the periods it
+    // touches, and overlapping blocks sit side by side.
+    val grid = block.grid
+    val top = rowHeight * axis.offset(grid?.startTime ?: block.startTime).toFloat()
+    val bottom = rowHeight * axis.offset(grid?.endTime ?: block.endTime).toFloat()
+    val lanes = maxOf(grid?.lanes?.toInt() ?: 1, 1)
+    val lane = grid?.lane?.toInt() ?: 0
+    val laneWidth = (columnWidth - laneGap * 2 - laneGap * (lanes - 1)) / lanes
     val planned = block.planned == true
-    val cancelled = block.cancelled == true
+    val cancelled = block.cancelled == true || holiday
     val exam = block.kind == OccurrenceKind.EXAM && !cancelled
     val quiz = exam && block.quiz == true
-    val faded = holiday || cancelled
     val tint = courseColor(block.color)
-    val shape = RoundedCornerShape(8.dp)
+    val surface = Theme.colors.surface
+    val shape = RoundedCornerShape(Theme.radiusBlock)
     val id = block.courseId
     // The current mark, checked in the long-press menu.
     val state = when {
-        cancelled -> "cancelled"
+        block.cancelled == true -> "cancelled"
         block.kind != OccurrenceKind.EXAM -> "class"
         block.quiz == true -> "quiz"
         else -> "exam"
     }
-    Box(Modifier.padding(horizontal = 2.dp).offset(y = top + 2.dp).fillMaxWidth()) {
+    val ink = when {
+        cancelled -> Theme.colors.muted
+        else -> courseMix(tint, Theme.tintInk, Theme.colors.ink)
+    }
+    val fill = when {
+        cancelled -> courseMix(Theme.colors.muted, 0.10f, surface)
+        planned -> surface
+        exam && !quiz -> courseMix(tint, Theme.tintExam, surface)
+        else -> courseMix(tint, Theme.tintFill, surface)
+    }
+    Box(
+        Modifier
+            .offset(x = laneGap + (laneWidth + laneGap) * lane, y = top + 2.dp)
+            .width(laneWidth),
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .height(maxOf(bottom - top - 4.dp, 24.dp))
                 .courseZoomSource(block.key.takeIf { id != null })
                 .clip(shape)
-                // An exam is the strongest fill, a quiz a little weaker;
-                // neither is striped, which means cancelled.
-                .background(
-                    if (planned) Theme.colors.surface
-                    else tint.copy(alpha = when {
-                        faded -> 0.08f
-                        quiz -> Theme.tintQuiz
-                        exam -> Theme.tintExam
-                        else -> Theme.tintFill
-                    }),
-                )
+                .background(fill)
+                .then(if (cancelled) Modifier.stripes(Theme.colors.line) else Modifier)
                 .then(
-                    // The class in progress and an exam ring in the course
-                    // colour, which outranks a quiz's lighter ring.
+                    // A ring means the class in progress, nothing else
+                    // (slotledger `approach/timetable-exam-emphasis`).
                     when {
-                        current || (exam && !quiz) -> Modifier.border(2.dp, tint, shape)
-                        quiz -> Modifier.border(1.5.dp, tint.copy(alpha = Theme.tintOutline), shape)
-                        planned -> Modifier.border(1.dp, Theme.colors.line, shape)
+                        current && !cancelled -> Modifier.border(2.dp, tint, shape)
+                        planned -> Modifier.border(1.5.dp, courseMix(tint, 0.45f, surface), shape)
                         else -> Modifier
                     },
                 )
@@ -453,33 +473,38 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
                 )
                 .padding(4.dp),
         ) {
-            val ink = if (faded) Theme.colors.muted else Theme.colors.ink
-            Text(
-                block.title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = ink,
-                textDecoration = if (cancelled) TextDecoration.LineThrough else null,
-                maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.weight(1f))
-            // 計画, 休講, or the first room (an exam or quiz tags it first, with
-            // a warning when the published exam changed).
-            val room = firstRoom(block.room)
-            val line = @Composable { text: String ->
-                Text(
-                    text, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = ink,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-            when {
-                planned -> line(t("Planned"))
-                cancelled -> line(t("No class"))
-                exam -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            val style = MaterialTheme.typography.labelSmall
+            // An exam or quiz names itself first, so even a short block says what it is.
+            if (exam) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     ExamTag(quiz, tint)
                     if (block.sourceChanged == true) {
                         Icon(Icons.Filled.Error, t("Timetable changed"), tint = Theme.colors.warn, modifier = Modifier.size(12.dp))
                     }
-                    line(room)
                 }
-                else -> line(room)
+            }
+            Text(
+                block.title, style = style, fontWeight = FontWeight.SemiBold, color = ink,
+                textDecoration = if (cancelled) TextDecoration.LineThrough else null,
+                maxLines = if (lanes > 1) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            // Side by side there is room for the title only.
+            if (lanes == 1) {
+                Spacer(Modifier.weight(1f))
+                // 計画, 休講, the times of a block drawn over whole periods,
+                // or the first room; every room stays on the course page.
+                val moved = grid != null && (grid.startTime != block.startTime || grid.endTime != block.endTime)
+                val line = when {
+                    planned -> t("Planned")
+                    cancelled -> t("No class")
+                    moved -> "${block.startTime.removePrefix("0")}–${block.endTime.removePrefix("0")}"
+                    else -> firstRoom(block.room)
+                }
+                Text(
+                    line, style = style, fontWeight = FontWeight.SemiBold, color = ink,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -504,16 +529,15 @@ private fun Block(block: Occurrence, holiday: Boolean, week: ScheduleView?, axis
     }
 }
 
-/** 試験 before an exam block's room, solid in the course colour; a quiz's
- * 小テスト is outlined (design/README.md). */
+/** 試験 above an exam block's title, solid in the course colour; a quiz's
+ * 小テスト is outlined. */
 @Composable
 private fun ExamTag(quiz: Boolean, tint: Color) {
-    val shape = RoundedCornerShape(50)
+    val shape = RoundedCornerShape(Theme.radiusChip)
     Text(
         if (quiz) t("Quiz") else t("Exam"),
-        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1,
-        // The course palette is mid-tone in both themes.
-        color = if (quiz) tint else Color.White,
+        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 1,
+        color = if (quiz) courseMix(tint, Theme.tintInk, Theme.colors.ink) else Theme.onSolid,
         modifier = Modifier
             .then(if (quiz) Modifier.border(1.dp, tint, shape) else Modifier.background(tint, shape))
             .padding(horizontal = 4.dp),
@@ -563,14 +587,12 @@ private fun NowLine(axis: TimetableAxis, rowHeight: Dp) {
     }
 }
 
-/** Diagonal hatch for a day without classes. */
-@Composable
-private fun Hatch(color: Color) {
-    Canvas(Modifier.fillMaxSize()) {
-        var x = -size.height
-        while (x < size.width) {
-            drawLine(color, Offset(x, size.height), Offset(x + size.height, 0f), strokeWidth = 4.dp.toPx())
-            x += 10.dp.toPx()
-        }
+/** Diagonal stripes over a class that does not take place. */
+private fun Modifier.stripes(color: Color): Modifier = drawBehind {
+    val step = 8.dp.toPx()
+    var x = -size.height
+    while (x < size.width) {
+        drawLine(color, Offset(x, size.height), Offset(x + size.height, 0f), strokeWidth = 3.dp.toPx())
+        x += step
     }
 }

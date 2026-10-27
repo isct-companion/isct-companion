@@ -301,8 +301,8 @@ fun HandInCard(assignment: AssignmentDetail) {
                         }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(16.dp))
-                    Text(t("Upload to LMS"), color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.SemiBold)
+                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, tint = Theme.colors.accentInk, modifier = Modifier.size(16.dp))
+                    Text(t("Upload to LMS"), color = Theme.colors.accentInk, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

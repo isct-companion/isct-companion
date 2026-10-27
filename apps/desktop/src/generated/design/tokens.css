@@ -24,13 +24,14 @@
   --hero-chroma: 0.022; /** Upper bound; a muted course keeps its own lower chroma */
   --hero-fade: 0.45; /** Share of the tint left at the card's bottom edge: a slight top-to-bottom fade, symmetric side to side */
   --shadow: 0px 1px 2px 0px #0000000a, 0px 8px 24px 0px #0000000d;
-  --course-tint-fill: 22%; /** Something that occupies time: a timetable block */
+  --course-tint-fill: 22%; /** Something that occupies time: a timetable block, a quiz included (its tag is outlined) */
   --course-tint-soft: 10%; /** Emphasis on a row: the current or next class */
-  --course-tint-exam: 42%; /** An exam block: about twice a class's fill, ringed in the full course colour */
-  --course-tint-quiz: 32%; /** A quiz block: a little weaker than an exam, never striped (stripes mean cancelled) */
-  --course-tint-outline: 70%; /** A quiz block's ring: the course colour at this share */
-  --course-tint-ink: 40%; /** Text on a fill: the course colour mixed into ink */
-  --radius-chip: 6px; /** Deadline chip, timetable block */
+  --course-tint-exam: 34%; /** An exam block: a deeper fill than a class, never ringed (a ring means the class in progress); its solid tag sits before the title */
+  --course-tint-ink: 40%; /** Text on a fill: the course colour mixed into ink, on every platform */
+  --course-on-solid: #ffffff; /** Text on the solid course colour (an exam tag); the palette is mid-tone in both themes */
+  --radius-chip: 6px; /** Chips and tags */
+  --radius-block: 6px; /** Timetable block */
+  --radius-column: 10px; /** Timetable day column */
   --radius-control: 10px; /** Buttons, inputs, segmented controls */
   --radius-surface: 12px; /** Rows, cards, emphasised rows */
   --radius-panel: 20px; /** Reading pane, sheets */
@@ -39,4 +40,28 @@
   --workspace-control-height: 30px;
   --workspace-gutter: 12px;
   --workspace-splitter-width: 20px;
+  --space-gutter: 20px; /** Page side margin */
+  --space-row-x: 16px; /** List row, horizontal padding */
+  --space-row-y: 10px; /** List row, vertical padding */
+  --space-row-gap: 12px; /** Between rows and between a row's leading mark and its text */
+  --space-card: 18px; /** Card padding */
+  --type-display-size: 40px;
+  --type-display-weight: 700;
+  --type-title-size: 19px;
+  --type-title-weight: 700;
+  --type-section-size: 12px;
+  --type-section-weight: 600;
+  --type-row-size: 14px;
+  --type-row-weight: 500;
+  --type-note-size: 12px;
+  --type-note-weight: 400;
+  --type-block-size: 11px;
+  --type-block-weight: 600;
+  --type-tick-size: 10px;
+  --type-tick-weight: 400;
+  --motion-duration-fast: 150ms; /** Hover, press, small state */
+  --motion-duration-base: 200ms; /** Appear, collapse, a tag changing */
+  --motion-duration-slow: 250ms; /** Week change, panels, pages */
+  --motion-easing-standard: cubic-bezier(0.2, 0, 0, 1); /** fast and base */
+  --motion-easing-emphasized: cubic-bezier(0.22, 1, 0.36, 1); /** slow */
 }

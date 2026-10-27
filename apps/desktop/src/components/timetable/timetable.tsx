@@ -12,7 +12,7 @@ import {
 } from "../../lib/timetable-layout";
 import { jstMinutes } from "../../lib/civil-date";
 import { useScheduleQuery } from "../../platform/core-query";
-import type { TimetableAxis } from "../../generated/persistence";
+import type { GridSlot, TimetableAxis } from "../../generated/persistence";
 
 export const dayNames = [
   "Monday",
@@ -51,6 +51,10 @@ export type Block = {
   quiz?: boolean;
   /** The published exam changed after the user corrected it. */
   sourceChanged?: boolean;
+  /** A course only planned for the block's quarter: drawn as an outline. */
+  planned?: boolean | null;
+  /** Core's place for the block on the period grid (`GridSlot`). */
+  grid?: GridSlot | null;
 };
 
 /** One entry of a block's right-click menu. */
@@ -263,20 +267,33 @@ export function WeekTimetable({
                 !CLOCK.test(block.endTime)
               )
                 return null;
+              // Core snaps a block timed inside periods to the periods it
+              // touches and gives overlapping blocks side-by-side lanes.
+              const grid = block.grid;
               const position = axisPosition(
                 axis,
-                block.startTime,
-                block.endTime,
+                grid?.startTime ?? block.startTime,
+                grid?.endTime ?? block.endTime,
               );
+              const lanes = grid && grid.lanes > 1 ? grid : undefined;
+              const snapped =
+                grid &&
+                (grid.startTime !== block.startTime ||
+                  grid.endTime !== block.endTime);
+              // A holiday's classes are drawn as not taking place.
+              const cancelled =
+                block.cancelled ||
+                (column.noClasses && block.kind === "course");
+              const exam = block.kind === "exam" && !cancelled;
               return (
                 <UiButton
                   type="button"
                   className={[
                     "ttBlock",
                     block.kind,
-                    block.conflict ? "conflict" : "",
                     block.dim ? "dim" : "",
-                    block.cancelled ? "cancelled" : "",
+                    block.planned ? "planned" : "",
+                    cancelled ? "cancelled" : "",
                     block.quiz ? "quiz" : "",
                     block.sourceChanged ? "sourceChanged" : "",
                     selectedId === block.id ? "selected" : "",
@@ -291,19 +308,22 @@ export function WeekTimetable({
                       height: `calc(${position.heightPercent}% - 4px)`,
                       ...(side === "left" && { right: "calc(50% + 1px)" }),
                       ...(side === "right" && { left: "calc(50% + 1px)" }),
+                      // Overlapping blocks share the column, 1px apart.
+                      ...(lanes && {
+                        left: `calc(${(lanes.lane / lanes.lanes) * 100}% + 1px)`,
+                        right: `calc(${((lanes.lanes - lanes.lane - 1) / lanes.lanes) * 100}% + 1px)`,
+                      }),
                     } as React.CSSProperties
                   }
-                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}${block.conflictWith?.length ? ` · ${t("Overlaps {{courses}}", { courses: block.conflictWith.join(", ") })}` : ""}`}
+                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}`}
                   key={block.key}
                   onClick={() => onSelect?.(block)}
                   onContextMenu={(event) => openMenu(event, block)}
                 >
-                  <b>{block.title}</b>
-                  {/* An exam keeps its code and tag right under the title,
-                      so a short exam block still says what it is. */}
-                  {block.kind === "exam" && (
-                    <span className="ttCode">
-                      {block.subtitle}
+                  {/* An exam or quiz says so before its title, so a short
+                      block still reads as one. */}
+                  {exam ? (
+                    <b>
                       <span className="ttExamTag">
                         {t(block.quiz ? "Quiz" : "Exam")}
                       </span>
@@ -317,24 +337,30 @@ export function WeekTimetable({
                           !
                         </span>
                       )}
-                    </span>
+                      {block.title}
+                    </b>
+                  ) : (
+                    <b>{block.title}</b>
                   )}
-                  {block.room && <small className="ttRoom">{block.room}</small>}
+                  {/* A block drawn over whole periods names its own times;
+                      a cancelled one says so instead of its room. */}
+                  {cancelled ? (
+                    <small className="ttRoom">{t("No class")}</small>
+                  ) : snapped ? (
+                    <small className="ttRoom">
+                      {block.startTime}–{block.endTime}
+                    </small>
+                  ) : (
+                    block.room && <small className="ttRoom">{block.room}</small>
+                  )}
                   {block.alternation && (
                     <small className="ttAlternation">
                       {alternationLabel(block.alternation)}
                     </small>
                   )}
-                  {block.subtitle && block.kind !== "exam" && (
+                  {block.subtitle && (
                     <span className="ttCode">{block.subtitle}</span>
                   )}
-                  {block.conflictWith?.length ? (
-                    <small className="ttConflict">
-                      {t("Overlaps {{courses}}", {
-                        courses: block.conflictWith.join(", "),
-                      })}
-                    </small>
-                  ) : null}
                 </UiButton>
               );
             })}
