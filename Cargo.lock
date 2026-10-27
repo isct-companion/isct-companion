@@ -2544,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "isct-companion"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "adpt-isct",
  "app-core",
