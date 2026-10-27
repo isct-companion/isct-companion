@@ -298,9 +298,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     "cloud-sync-state" -> refreshCloud()
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }
+                    "school-web-url", "school-web-popups", "school-web-notice" ->
+                        web.handle(update.event.name, update.event.payload)
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
-                    "school-web-url", "school-download", "catalog-changed" -> Unit
+                    "school-download", "catalog-changed" -> Unit
                     // A key re-read with nothing new renews only its freshness,
                     // which no screen here shows.
                     "workspace-changed" -> {

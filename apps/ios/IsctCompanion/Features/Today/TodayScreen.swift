@@ -642,10 +642,7 @@ struct MaterialRow: View {
         }
     }
 
-    private var detail: String? {
-        // LMS section titles usually carry their own number; fall back to it.
-        item.sectionTitle ?? item.section.map { t("Lesson {{number}}", ["number": $0]) }
-    }
+    private var detail: String? { item.sectionLabel }
 }
 
 /// Exams in the next two weeks, as Core lists them; a row opens its course.

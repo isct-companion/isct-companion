@@ -46,7 +46,7 @@ pub(crate) use calendar::{content_language, localized};
 pub use civil::{add_days, japan_today, parse_civil_date, tokyo_date, Term};
 pub use colors::{display_color, COURSE_PALETTE};
 pub use course_content::{
-    course_content, lesson_number, CourseContent, LessonContent, LessonItem, LessonItemKind,
+    course_content, CourseContent, LessonContent, LessonItem, LessonItemKind,
 };
 pub use course_detail::{
     assignment_detail, course_detail, AssignmentAttachment, AssignmentDetail, CourseDetail,
@@ -145,14 +145,6 @@ pub enum WorkspaceQuery {
     },
     PlanCivilStart {
         plan: PlanStartInput,
-    },
-    CourseTimeline {
-        course_id: String,
-        now: String,
-        #[serde(default = "default_timeline_before")]
-        before_days: u16,
-        #[serde(default = "default_timeline_after")]
-        after_days: u16,
     },
     TaskView {
         now: String,
@@ -372,8 +364,7 @@ impl WorkspaceQuery {
                 Exams,
                 Settings,
             ],
-            Self::CourseTimeline { .. }
-            | Self::Today { .. }
+            Self::Today { .. }
             | Self::CourseContent { .. }
             | Self::Glance { .. }
             | Self::NotificationPlan { .. } => &[
@@ -485,7 +476,6 @@ pub enum WorkspaceQueryResult {
     PlanningWeek(PlanningWeek),
     AcademicYears(AcademicYearIndex),
     PlanCivilStart(PlanCivilStart),
-    CourseTimeline(CourseTimeline),
     TaskView(TaskView),
     Today(TodayView),
     AssignmentBoard(AssignmentBoard),
@@ -624,19 +614,6 @@ pub fn query(
         WorkspaceQuery::PlanCivilStart { plan } => Ok(WorkspaceQueryResult::PlanCivilStart(
             plan_start(&request_value(plan)?)?,
         )),
-        WorkspaceQuery::CourseTimeline {
-            course_id,
-            now,
-            before_days,
-            after_days,
-        } => Ok(WorkspaceQueryResult::CourseTimeline(course_timeline(
-            workspace,
-            school,
-            &course_id,
-            parse_timestamp(&now)?,
-            before_days,
-            after_days,
-        )?)),
         WorkspaceQuery::TaskView { now } => Ok(WorkspaceQueryResult::TaskView(task_view(
             workspace,
             parse_timestamp(&now)?,
@@ -935,12 +912,6 @@ fn default_true() -> bool {
 fn default_occurrence_limit() -> u16 {
     5
 }
-fn default_timeline_before() -> u16 {
-    14
-}
-fn default_timeline_after() -> u16 {
-    14
-}
 
 pub(crate) fn parse_timestamp(raw: &str) -> Result<DateTime<FixedOffset>, ScheduleError> {
     static RFC3339: std::sync::LazyLock<Result<regex::Regex, regex::Error>> =
@@ -1046,7 +1017,6 @@ pub fn declarations() -> Vec<String> {
         ExamConflict::decl(),
         ExamAssociation::decl(),
         LectureSearch::decl(),
-        CourseTimeline::decl(),
         TaskDeadlineView::decl(),
         AssignmentGroups::decl(),
         TermTaskView::decl(),

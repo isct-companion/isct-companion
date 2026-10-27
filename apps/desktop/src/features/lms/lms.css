@@ -345,7 +345,7 @@
 /* ---------- Lessons: a rail of 第N回, one lesson open, the rest folded ---------- */
 .lmsLessonRail { display: flex; gap: 2px; width: 100%; max-width: 900px; align-self: center; padding: 0 24px 10px; overflow-x: auto; scrollbar-width: none; }
 .lmsLessonRail button {
-  position: relative; flex: 1 0 22px; min-width: 22px; padding: 4px 0 8px; border: 0; background: none;
+  position: relative; flex: 1 0 22px; min-width: max-content; padding: 4px 4px 8px; border: 0; background: none; white-space: nowrap;
   color: var(--muted) !important; font-size: calc(var(--type-block-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: center;
 }
 .lmsLessonRail button::after { content: ""; position: absolute; left: 2px; right: 2px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--line); transition: background-color var(--lms-fast); }
@@ -418,12 +418,6 @@
 
 /* Quiet overlay-width scrollbars, even where the system always shows them. */
 .lmsWorkspace *, .lectureList { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
-
-/* ---------- Development preview (?preview=lms) ---------- */
-.lmsPreviewShell { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); }
-.lmsPreviewNotice { display: flex; justify-content: space-between; padding: 9px 24px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
-.lmsPreviewNotice label { display: flex; align-items: center; gap: 6px; }
-.lmsPreviewMain { display: flex; flex: 1; min-height: 0; padding: 20px 24px; }
 
 /* ---------- Outline items: typed rows, not one card for everything ----------
    Files are list rows marked by their type's icon and colour; tasks carry a

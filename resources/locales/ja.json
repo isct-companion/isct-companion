@@ -1024,7 +1024,6 @@
   "Current lesson": "今の回",
   "This file is too large ({{size}}). Open it in the LMS.": "このファイルは大きすぎます（{{size}}）。LMS で開いてください。",
   "No materials yet": "資料はまだありません",
-  "General": "一般",
   "No materials for this lesson": "この回の資料はありません",
   "Sign in to the LMS again. Check your school account in Settings.": "LMS に再ログインが必要です。設定から学校アカウントを確認してください。",
   "{{quarter}} · Unsubmitted only": "{{quarter}} · 未提出のみ",
@@ -1354,5 +1353,11 @@
   "Close IsctCompanion?": "IsctCompanion を閉じますか？",
   "Keeping it running lets reminders and sync continue.": "実行したままにすると、リマインダーと同期が続きます。",
   "Remember my choice": "この選択を記憶する",
-  "Show IsctCompanion": "IsctCompanion を表示"
+  "Show IsctCompanion": "IsctCompanion を表示",
+  "Print": "印刷",
+  "OK": "OK",
+  "Reopen this page": "このページを開き直す",
+  "Leave this page?": "このページを離れますか？",
+  "Leave": "離れる",
+  "Stay": "このページに留まる"
 }

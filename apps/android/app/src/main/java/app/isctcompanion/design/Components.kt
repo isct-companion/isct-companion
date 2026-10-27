@@ -298,8 +298,7 @@ fun MaterialRow(item: MaterialItem) {
         )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            // LMS section titles usually carry their own number; fall back to it.
-            (item.sectionTitle ?: item.section?.let { t("Lesson {{number}}", "number" to it) })?.let {
+            item.sectionLabel?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
             }
         }

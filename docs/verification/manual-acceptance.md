@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 136 checks must be re-run before the next release.**
+**9 of 150 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**127 checks have never been run or could not be run:**
+**141 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -118,12 +118,19 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
 - `ANDROID-SETTINGS-PAGES` — never verified
 - `ANDROID-WEB-PREFERENCES` — never verified
+- `ANDROID-SCHOOL-POPUPS` — never verified
+- `ANDROID-SCHOOL-NO-RESUBMIT` — never verified
+- `ANDROID-SCHOOL-LOAD-FAILURE` — never verified
+- `ANDROID-SCHOOL-HTTP-EXTERNAL` — never verified
+- `ANDROID-SCHOOL-PRINT` — never verified
+- `ANDROID-SCHOOL-NATIVE-CONFIRM` — never verified
 - `ANDROID-COURSE-ZOOM-AND-FIGURES` — never verified
 - `MOBILE-UI-LANGUAGE` — never verified
 - `DESKTOP-CALENDAR-NOW-LINE` — never verified
 - `DESKTOP-COURSE-OUTLINE-STILL` — never verified
 - `IOS-COURSE-LESSON-PAGING` — never verified
 - `IOS-COURSE-LESSON-MARK` — never verified
+- `COURSE-LESSON-SERIES-LABELS` — never verified
 - `IOS-COURSE-EXAM-LINE` — never verified
 - `IOS-ICLOUD-BACKUP` — never verified
 - `DESKTOP-DEBUG-ICLOUD` — never verified
@@ -132,6 +139,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-DRIVE-SIGNIN` — never verified
 - `IOS-PRIVACY-POLICY` — never verified
 - `IOS-LOG-EXPORT` — never verified
+- `IOS-LOG-ROW-TAP` — never verified
 - `ANDROID-LOG-EXPORT` — never verified
 - `ANDROID-TLS-VERIFIER` — never verified
 - `SCHOOL-KYOMU-RUST-TLS` — never verified
@@ -149,6 +157,12 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-COURSE-AFTER-ENROLMENT` — never verified
 - `IOS-SIGNIN-REASON-AND-RETRY` — never verified
 - `IOS-LMS-ATTACHMENT-SESSION` — never verified
+- `IOS-SCHOOL-NATIVE-CONFIRM` — never verified
+- `IOS-SCHOOL-POPUPS` — never verified
+- `IOS-SCHOOL-NO-RESUBMIT` — never verified
+- `IOS-SCHOOL-LOAD-FAILURE` — never verified
+- `IOS-SCHOOL-HTTP-EXTERNAL` — never verified
+- `IOS-SCHOOL-PRINT` — never verified
 - `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
 - `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
 - `DESKTOP-ERROR-CODE-COPY` — never verified
@@ -259,12 +273,19 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
 | `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
+| `ANDROID-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-COURSE-ZOOM-AND-FIGURES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
+| `COURSE-LESSON-SERIES-LABELS` | native | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/schedule/course_content.rs<br>crates/app-core/src/schedule/lms_html.rs<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/content.ts<br>apps/desktop/src/features/lms/lms.css<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift |
 | `IOS-COURSE-EXAM-LINE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
@@ -273,6 +294,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/app-ffi/src/ports.rs |
 | `IOS-PRIVACY-POLICY` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>docs/legal/PRIVACY.md |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
+| `IOS-LOG-ROW-TAP` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
 | `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/certs/nii-odca4g7rsa.pem<br>crates/app-core/src/school_browser/engine/login.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
@@ -290,6 +312,12 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/sync_engine/planner.rs<br>crates/app-core/src/sync_engine/runner.rs<br>crates/app-core/src/school_browser/engine/pull.rs<br>apps/desktop/src/app/sync-text.ts |
 | `IOS-SIGNIN-REASON-AND-RETRY` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>crates/adpt-isct/assets/school-login.js |
 | `IOS-LMS-ATTACHMENT-SESSION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
+| `IOS-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
+| `IOS-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
+| `IOS-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
+| `IOS-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
+| `IOS-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
+| `IOS-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>crates/app-core/src/school_browser/engine/login.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
@@ -5876,8 +5904,8 @@ needed, the SSO login page is enough.
      with large text. LMS or 115% after the relaunch means they are
      held in memory only.
 3. Open the page menu (⋮) and pick another 文字の大きさ; reopen 設定.
-   - *Why:* The menu holds 再読み込み, 共有 and ブラウザで開く, then the text
-     sizes, as on iOS. The menu and 設定 show one value with a tick; a
+   - *Why:* The menu holds 再読み込み, 共有, ブラウザで開く and 印刷, then the
+     text sizes. The menu and 設定 show one value with a tick; a
      page that does not resize, or 設定 showing the old size, means two
      owners.
 4. Follow a link inside the page, then pick the shown site again from
@@ -5919,6 +5947,309 @@ school browser tests.
 - `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+
+**Last recorded** never run
+
+### Android school popups open over their opener, and a file popup closes once saved (`ANDROID-SCHOOL-POPUPS`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to
+教務Web.
+
+**Steps**
+
+1. On 教務Web, open a page with a picker button (for example the 申告
+   page's 科目 search, during a 申告 period). Press the button, look at
+   the window that opens, then close it with its own 閉じる button
+   without choosing anything. Open it twice more and close it with ×
+   in the ポップアップウィンドウ bar, then with the system back gesture.
+   - *Why:* 教務Web's showDialog opens a named window that answers through
+     `window.opener` and closes itself. It used to load in the opener's
+     view, losing the opener; now it is a real WebView handed to
+     WebViewTransport, shown in place of the page with a
+     ポップアップウィンドウ bar, and `window.close()` (onCloseWindow),
+     × and back (when the popup has no page of its own to go back to)
+     must each bring the opener back unchanged. Choosing would post back
+     to the 申告 form, so the check stops before it.
+2. On 教務Web's top page, open 「マニュアル」 and wait for the download
+   notification. Open Files → Downloads.
+   - *Why:* The manual is a `target=_blank` PDF, which WebView cannot show, so
+     it opens a popup whose only navigation becomes a download. The
+     host reports `becameDownload` (no page, saved) and Core closes the
+     empty popup at once, while DownloadManager, not the popup, carries
+     the transfer on with the session cookies.
+
+**Where to look**
+
+The web screen while the picker popup is open, the bar above it, the
+opener page after closing; for the manual, the web screen, the
+download notification and the saved file.
+
+**Expected**
+
+The picker fills the page area under a ポップアップウィンドウ bar with
+×; closing it by its own button, by × or by back shows the opener
+exactly as it was, with no reload, and the bar goes. For the manual no
+blank popup or bar stays on screen, the notification finishes, and
+Downloads holds the manual as a PDF that opens (not an HTML sign-in
+page).
+
+**Why this is manual**
+
+Needs a 教務Web account, Android WebView's own windows and the system
+DownloadManager; whether the popup shows, the opener survives and the
+file arrives is seen at a glance. The child-window lifecycle and the
+close on `becameDownload` are Core's and tested there.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### Android reload and back on a postback page never send its form again (`ANDROID-SCHOOL-NO-RESUBMIT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to
+教務Web.
+
+**Steps**
+
+1. On the 成績 list, switch the 学期 (a postback that changes nothing
+   on the school's side), then pick 再読み込み in the page menu.
+   - *Why:* WebView asks onFormResubmission before it resends a POST result.
+     The host reports it to Core, which refuses and opens the same page
+     with GET. On a 申告 page a resend repeats an action; here it is
+     harmless, which is why this page is used.
+2. From that 成績 page, follow a link to another page, then press ‹
+   (or system back).
+   - *Why:* WebView never resends on back: a form result that is not cached
+     fails with ERR_CACHE_MISS. Its own error page must not show; the
+     app's notice covers it and offers このページを開き直す and 戻る.
+3. Press このページを開き直す.
+   - *Why:* It reloads the failed entry, which asks onFormResubmission again,
+     so Core opens the page with GET instead of sending the form.
+
+**Where to look**
+
+The line under the bar after 再読み込み, the page area after ‹, and the
+成績 page after reopening.
+
+**Expected**
+
+After 再読み込み, "フォームを再送信せずにこのページを開き直しました。"
+shows for a few seconds and the page opens in its initial state (the
+学期 resets) with no 教務Web error page. After ‹, the app's notice
+replaces WebView's "Webpage not available"; このページを開き直す opens
+成績 in its initial state.
+
+**Why this is manual**
+
+Needs a real WebForms postback inside Android WebView; the notice and
+the page are a glance. The resubmission rule is Core's and tested
+there.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### Android shows why a campus-only page did not open (`ANDROID-SCHOOL-LOAD-FAILURE`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to the
+Tokyo Tech Portal; the campus VPN available to switch on and off on the
+phone.
+
+**Steps**
+
+1. With the VPN off, open 「Education Computer Systems」 from the
+   Portal's resource list.
+   - *Why:* The host resolves only inside the campus network. The host maps
+     WebView's error to Core's reason, and Core's notice must replace
+     WebView's own error page.
+2. Switch the VPN on and press このページを開き直す.
+   - *Why:* The notice reloads the failed address; the page opening proves the
+     failure kept it.
+
+**Where to look**
+
+The page area after each tap.
+
+**Expected**
+
+Off VPN, the notice says the server was not found or did not answer and
+that campus-only services need the campus network or VPN, with
+このページを開き直す, 戻る and ブラウザで開く. On VPN, the page opens and
+the notice goes.
+
+**Why this is manual**
+
+Needs the campus network and a real failed load inside WebView; the
+notice is a glance. Which failures are shown is Core's and tested
+there.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### An Android plain-HTTP school file opens in the system browser (`ANDROID-SCHOOL-HTTP-EXTERNAL`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to
+教務Web.
+
+**Steps**
+
+1. On 教務Web's top page, open 「緊急時避難場所」.
+   - *Why:* The PDF exists only over plain HTTP and the app keeps Android's
+     cleartext block. The link opens a popup whose first navigation Core
+     sends to the browser (ACTION_VIEW); the empty popup must close
+     instead of staying blank.
+
+**Where to look**
+
+The browser the phone opens and the school screen after returning.
+
+**Expected**
+
+The PDF opens in the phone's browser; back in the app, 教務Web is on
+its page with no blank popup or ポップアップウィンドウ bar.
+
+**Why this is manual**
+
+Needs the real school link and the system browser; where the tap
+lands is a glance. The cleartext rule is Core's and tested there.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+
+**Last recorded** never run
+
+### Android prints the school page on screen from the page menu (`ANDROID-SCHOOL-PRINT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to
+教務Web.
+
+**Steps**
+
+1. On the 成績 page, press its 「この画面を印刷」 button.
+   - *Why:* Android WebView has no hook for a page's `window.print()` and no
+     script is injected to add one, so nothing must happen; anything
+     else means a leftover shim.
+2. Open the page menu (⋮), pick 印刷, look at the preview, then back
+   out without printing.
+   - *Why:* The app prints the page on screen through PrintManager; the
+     preview must be the 成績 page, not another site or a popup behind
+     it.
+
+**Where to look**
+
+The page after its own button, and the system print preview.
+
+**Expected**
+
+The page's button does nothing. 印刷 opens the system print screen
+with the 成績 page in its preview, and backing out returns to the
+page unchanged.
+
+**Why this is manual**
+
+The print screen is system UI on a real school page; it is a glance.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### Android school pages ask confirm, alert and prompt only on screen (`ANDROID-SCHOOL-NATIVE-CONFIRM`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to the
+Tokyo Tech Portal and TSUBAME.
+
+**Steps**
+
+1. On the ポータル site, tap the logout link and press キャンセル in the
+   dialog that appears.
+   - *Why:* The views run in a context wrapper, not an Activity, so WebView's
+     own dialogs never appeared and confirm() answered Cancel unseen.
+     The host now shows the app's dialog titled with the page's origin;
+     staying signed in after キャンセル means the answer reaches the page.
+2. On TSUBAME, open the password change form and press its submit
+   button; stop at the confirmation and press キャンセル without
+   changing the password.
+   - *Why:* The page tests `confirm(...) == true`; an unseen Cancel made the
+     button do nothing. The dialog appearing is the evidence.
+3. On any school page that raises an alert, read it and press OK;
+   then leave ウェブ for 今日 and let a background refresh run.
+   - *Why:* alert() must show and return. A view the person is not looking at
+     raises no dialog and gets Cancel, so background work never puts a
+     dialog over the app.
+
+**Where to look**
+
+The dialogs over the web screen, the session after キャンセル, and the
+other screens during the background refresh.
+
+**Expected**
+
+Each dialog shows the page's origin as its title and the page's text;
+キャンセル keeps the Portal session and the TSUBAME password unchanged;
+no dialog appears outside ウェブ.
+
+**Why this is manual**
+
+Needs real school pages and a session; whether a dialog shows is a
+glance. Which view counts as on screen is the host's own fact.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
 
 **Last recorded** never run
 
@@ -6102,7 +6433,7 @@ stops near a lesson boundary still settles onto it.
 
 Scroll positions and the spring after scrolling need real layout,
 which jsdom does not compute; gravityTarget itself is pure and lives in
-lessons.ts.
+spring-scroll.ts.
 
 **Covers**
 
@@ -6216,6 +6547,83 @@ cross-device agreement needs the real desktop; Core's rule is covered by
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+
+**Last recorded** never run
+
+### Course pages show Core's lesson labels, summaries and schedule marks on desktop and iPad (`COURSE-LESSON-SERIES-LABELS`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+LMS content pulled for Linear Algebra II【X】 (lms-course:12470), whose
+sections interleave 第1回–第14回 with 演習第1回–演習第7回, and for a course
+whose text holds a lesson schedule table (rows such as 1回目, 2回目, 休講)
+and an assignment set in one of its lessons; the desktop app and the iPad
+app on the same account.
+
+**Steps**
+
+1. Open Linear Algebra II【X】 on the desktop Lecture Desk and read the
+   lesson rail from left to right.
+   - *Why:* The rail shows Core's labels: 1–14 for the lectures and 演習 1–演習 7
+     for the recitations, in section order. Before, the desktop counted
+     positions 1–21, so 第7回 showed as 10.
+2. Open the same course on the iPad and read the lesson chips; scroll
+   the row to its end.
+   - *Why:* The chips used to read 5, 6, 3, 7, 4, 8 … because 演習第3回 lost its
+     演習 and showed a bare 3. They must match the desktop rail exactly,
+     with no chip cut off for 演習 labels.
+3. On the desktop, read the heading of a lesson page beside its big
+   number; then open the same lesson on the iPad and read its heading.
+   - *Why:* Both are Core's summary, the first line of the lesson's 授業計画
+     without its "授業計画：" label. The desktop used to cut it in the
+     shell and the iPad showed the bare title; a heading that still
+     starts with the label, or differs between the two, means a shell
+     kept its own rule.
+4. Open the course with the schedule table on the desktop and on the
+   iPad, and find the row of the lesson the course is at.
+   - *Why:* Core marks the rows against the current lesson. On the desktop the
+     current row is highlighted, earlier rows are dimmed and 休講 rows
+     are struck through; on the iPad the current row is bold and 休講
+     rows are struck through. An unmarked table means the shell's HTML
+     cleaning dropped Core's row classes.
+5. On that course's iPad page, turn to the lesson that holds the
+   assignment, then to the first page.
+   - *Why:* The assignment card sits on its own lesson's page, as on the
+     desktop. Assignments outside any section go with the first page; the
+     iPad used to place them by a section number of its own.
+
+**Where to look**
+
+The desktop lesson rail, lesson headings and schedule table; the iPad chip row, page headings and schedule table.
+
+**Expected**
+
+Both rails read 1, 2, 演習 1, 3, 4, 演習 2, … 13, 演習 7, 14, with 一般
+and 連絡先・オフィスアワー ahead of them. Lesson headings are the plan's first
+line without its label, the same on both. The schedule table marks the
+current row and struck-through 休講 rows on both, and the assignment
+shows on its lesson's page.
+
+**Why this is manual**
+
+Labels, headings and table marks are read at a glance on two real
+shells over real LMS courses. The rules are covered by
+`course_content_follows_the_desktop_lecture_desk` and the `lms_html`
+tests; this checks that each shell renders Core's answer unchanged.
+
+**Covers**
+
+- `crates/app-core/src/schedule/course_content.rs`
+- `crates/app-core/src/schedule/lms_html.rs`
+- `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/features/lms/content.ts`
+- `apps/desktop/src/features/lms/lms.css`
+- `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
+- `apps/ios/IsctCompanion/Design/HTMLText.swift`
 
 **Last recorded** never run
 
@@ -6661,6 +7069,51 @@ credential. On an iPad the header names iPadOS.
 The export sheet and the pasteboard exist only on a device; the SDK
 smoke tests prove a session installs the logger and the export reaches
 Swift, and Core's test pins the format and redaction.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+
+**Last recorded** never run
+
+### iOS Application logs row opens its menu from anywhere on the row (`IOS-LOG-ROW-TAP`)
+
+**Area** native · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The app on a real iPhone and a real iPad, on the Settings page.
+
+**Steps**
+
+1. Tap the empty right side of Settings → Application logs, away from
+   the icon and the text; then dismiss the menu by tapping outside it.
+   - *Why:* The row is a Menu, which List does not treat as a row; a tap that
+     only works on the icon or text means the label shrank back to its
+     content.
+2. Watch the icon while the menu opens, stays open and closes.
+   - *Why:* The menu's preview is cut from the label's frame; an icon clipped
+     top and bottom means the preview no longer contains it.
+3. Compare the row's height with Privacy policy above it.
+   - *Why:* The label is padded into the row insets and taken back outside; a
+     taller row means the two no longer cancel out.
+
+**Where to look**
+
+The Application logs row and its menu on both devices.
+
+**Expected**
+
+The menu (Save to file, Copy) opens from any point on the row, the
+whole icon stays visible throughout, and the row is as tall as its
+neighbours.
+
+**Why this is manual**
+
+Hit area and menu preview are a glance check on the native List; a
+headless screen would not exercise UIKit's menu presentation.
 
 **Covers**
 
@@ -7609,6 +8062,292 @@ prove that the native share sheet receives the file.
 - `apps/ios/IsctCompanion/Core/WebRouter.swift`
 - `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
+
+**Last recorded** never run
+
+### iOS school pages show confirm, alert and prompt only when on screen (`IOS-SCHOOL-NATIVE-CONFIRM`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone and an iPad build of this commit, signed in to the Tokyo
+Tech Portal and TSUBAME.
+
+**Steps**
+
+1. In ウェブ, open the Portal, tap its logout link and press Cancel in
+   the dialog that appears.
+   - *Why:* Without a UI delegate WKWebView answers confirm() with Cancel unseen,
+     so `if (!confirm(...))` pages looked dead. The school view now shows
+     an alert titled with the page's origin; a session that survives
+     Cancel proves the answer reaches the page.
+2. Open TSUBAME's password change form and press its submit button;
+   stop at the confirmation without changing the password.
+   - *Why:* The page tests `confirm(...) == true`; the unseen Cancel made the
+     button do nothing. An alert is the evidence.
+3. Leave ウェブ for another tab and pull to refresh Today so a
+   background school refresh runs.
+   - *Why:* A view that is parked off screen raises no alert and gets Cancel;
+     background work must never put an alert over another screen.
+
+**Where to look**
+
+The alerts over the Portal and TSUBAME pages, the Portal session after
+Cancel, and the Today screen during the refresh.
+
+**Expected**
+
+Both pages show a system alert headed by the page's origin with OK and
+Cancel; Cancel keeps the Portal session; no alert appears while ウェブ
+is not on screen.
+
+**Why this is manual**
+
+Needs real school pages inside WKWebView and UIKit alerts on a device;
+whether an alert appears is a glance.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+
+**Last recorded** never run
+
+### iOS school popups cover their opener and close back to it (`IOS-SCHOOL-POPUPS`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone and an iPad build of this commit, signed in to 教務Web and
+the LMS, with a course whose material includes a PDF.
+
+**Steps**
+
+1. On 教務Web, open a page with a picker button (for example the 申告
+   page's 科目 search, during a 申告 period). Press the button, look at
+   the page that opens, then close it with its own 閉じる button;
+   open it again and close it with the app's Close window.
+   - *Why:* 教務Web's showDialog opens a named window that answers through
+     `window.opener` and closes itself. Before, the popup's page replaced
+     the opener and was reported closed at once. Now it is a real
+     WKWebView built from WebKit's configuration over the opener, and
+     `window.close()` (webViewDidClose) and the close bar must both bring
+     the opener back unchanged. Choosing would post back to the 申告
+     form, so the check stops before it.
+2. On 教務Web's top page, open 「マニュアル」, use Back and Forward and
+   Share while it is open, then Close window.
+   - *Why:* A `target=_blank` PDF opens as a popup now; the toolbar and the page
+     menu act on the popup in front, and the page behind must still be
+     there after closing.
+3. On an LMS course page, open a PDF material that opens in a new
+   window, close the preview, and look at the web screen. If the
+   course offers a Word or other file, open it the same way.
+   - *Why:* The LMS sends files as attachments, which the iOS host saves and
+     previews. The popup opened for the file never commits a page, so
+     it used to stay empty over the course page until closed. The host
+     now reports the download for the popup it happened in, Core closes
+     that empty popup, and the transfer must still finish after the
+     popup is gone.
+
+**Where to look**
+
+The web screen while the popup is open, the Popup window bar under the
+navigation bar, the opener page after closing, and the file preview.
+
+**Expected**
+
+Each popup fills the web screen under a Popup window bar with Close
+window; Back, Forward and Share act on the popup; closing either way
+returns to the opener exactly as it was, with no reload. An LMS file
+opens in the preview with its content, and after the preview closes
+the course page shows with no empty popup and no Popup window bar.
+
+**Why this is manual**
+
+Needs a 教務Web account and WebKit's own windows on a device; where
+the popup sits and that the opener survives is a glance. The
+child-window lifecycle is Core's and tested there.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/ios/IsctCompanion/Core/WebRouter.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+
+**Last recorded** never run
+
+### iOS reload and history never send a postback form again (`IOS-SCHOOL-NO-RESUBMIT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone and an iPad build of this commit, signed in to 教務Web.
+
+**Steps**
+
+1. On the 成績 list, switch the 学期 (a postback that changes nothing
+   on the school's side), then choose Reload in the page menu, and once
+   pull down to refresh.
+   - *Why:* WebKit reloads a POST result by sending the form again, silently,
+     as `.formResubmitted`. On a 申告 page that repeats an action; here
+     it is harmless, which is why this page is used. The reload must
+     become a GET of the same page with a short notice.
+2. Switch the 学期 twice more, open another page, go to a third site
+   in the picker and back, then press Back repeatedly.
+   - *Why:* Switching sites lets WebKit drop the cached postback pages. Going
+     back to one would resend its form; the host must cancel that and
+     step past the entry instead. This rests on WebKit having moved its
+     history to the target when it asks, which was probed on macOS only.
+
+**Where to look**
+
+The line under the navigation bar after Reload, the 成績 page, and
+where each Back lands.
+
+**Expected**
+
+Reload shows "Reopened this page without sending the form again." for
+a few seconds and opens the page in its initial state, without the
+教務Web error page. Back either shows a cached page as it was or skips
+past a postback page to the one before it; it never shows the 教務Web
+error page and never stalls on the same page.
+
+**Why this is manual**
+
+Needs real WebForms postbacks inside WebKit on a device, and WebKit's
+cache eviction. The resubmission rule is Core's and tested there.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+
+**Last recorded** never run
+
+### iOS campus-only page explains itself off VPN and opens on it (`IOS-SCHOOL-LOAD-FAILURE`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone and an iPad build of this commit, signed in to the Tokyo
+Tech Portal; the campus VPN available to switch on and off on the
+device.
+
+**Steps**
+
+1. With the VPN off, open 「Education Computer Systems」 from the
+   Portal's resource list.
+   - *Why:* The host resolves only inside the campus network. WKWebView shows
+     nothing when a load fails and stays on the old page, so without a
+     reported failure the link looks broken.
+2. Switch the VPN on and tap Retry in the notice.
+   - *Why:* Retry must load the same address; the page opening proves the notice kept it.
+
+**Where to look**
+
+The bar under the navigation bar after each tap, and the page.
+
+**Expected**
+
+Off VPN, a notice says the server was not found or did not answer and
+that campus-only services need the campus network or VPN, with Retry
+and Open in browser. On VPN, Retry opens the page and the notice goes.
+
+**Why this is manual**
+
+Needs the campus network and a real failed load inside WebKit; the
+notice is a glance. Which failures are shown is Core's and tested there.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/ios/IsctCompanion/Core/WebRouter.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+
+**Last recorded** never run
+
+### iOS plain-HTTP school file opens in Safari (`IOS-SCHOOL-HTTP-EXTERNAL`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone and an iPad build of this commit, signed in to 教務Web.
+
+**Steps**
+
+1. On 教務Web's top page, open 「緊急時避難場所」.
+   - *Why:* The PDF exists only over plain HTTP. Nothing relaxes App Transport
+     Security, so Core sends it to the system browser; a tap that does
+     nothing means the rule or the host lost it.
+
+**Where to look**
+
+Safari and the school page.
+
+**Expected**
+
+The PDF opens in Safari; the school page stays where it was.
+
+**Why this is manual**
+
+Needs the real school link and Safari on a device; where the tap lands
+is a glance. The cleartext rule is Core's and tested there.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+
+**Last recorded** never run
+
+### iOS school page's print button opens the print sheet (`IOS-SCHOOL-PRINT`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone and an iPad build of this commit, signed in to 教務Web.
+
+**Steps**
+
+1. On a 教務Web page with 「この画面を印刷」 (for example 成績), tap it,
+   look at the preview, then cancel.
+   - *Why:* `window.print()` reaches only WebKit's private
+     `_webView:printFrame:pdfFirstPageSize:completionHandler:`; without
+     it nothing happens. The host answers it with
+     UIPrintInteractionController, which must show the page.
+
+**Where to look**
+
+The print sheet (a popover from the page on iPad) and its preview.
+
+**Expected**
+
+The system print options open with the page in the preview; Cancel
+closes them and the page is unchanged.
+
+**Why this is manual**
+
+The print sheet is native UI on a real school page; it is a glance.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
 
 **Last recorded** never run
 

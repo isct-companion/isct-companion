@@ -23,7 +23,14 @@ import {
   type MountedApp,
 } from "@tests/harness";
 import type { Assignment, Course, Material, Workspace } from "@app/lib/model";
-import type { LmsCourseRecord } from "@app/platform/desktop-bridge";
+import type {
+  LmsCourseRecord,
+  LmsSection,
+} from "@app/platform/desktop-bridge";
+import type {
+  CourseContent,
+  LessonItemKind,
+} from "@app/generated/persistence";
 import type { CourseEntry } from "@app/features/lms/LmsWorkspace";
 
 /**
@@ -219,30 +226,101 @@ function lectureFixture(): LectureFixture {
   return { workspace, course, record };
 }
 
-/** A lesson course: numbered sections with the classes' file posts. */
-function lessonSchedule(
-  fixture: LectureFixture,
-  occurrence: string,
-  marked: number,
-  count = 3,
-) {
-  fixture.record.sections = Array.from({ length: count }, (_, index) => ({
-    id: 11 + index,
-    number: index + 1,
-    title: `第${index + 1}回`,
-    visible: true,
-  }));
-  fixture.workspace.materials = [];
-  fixture.course.overrides = {
-    lessonLog: [{ occurrence, sectionId: marked }],
+const KINDS: Record<string, LessonItemKind> = {
+  resource: "file",
+  url: "link",
+  folder: "folder",
+  page: "page",
+  label: "label",
+  forum: "forum",
+};
+
+/**
+ * Core's `courseContent` answer for a fixture's records, as the scripted host
+ * gives it: each LMS section with the materials and assignments set in it,
+ * none of them lessons. Core's own rules (order, the syllabus link, rail
+ * labels, schedule marks, pictures-only labels) are tested in
+ * `course_content_follows_the_desktop_lecture_desk`; this suite checks what
+ * the workspace renders of the answer.
+ */
+function contentFor(f: LectureFixture, imageOnly: string[] = []): CourseContent {
+  const materials = f.workspace.materials.filter(
+    (m) => m.courseId === f.course.id,
+  );
+  const inSection = (m: Material, section: LmsSection) =>
+    m.sectionId != null
+      ? Number(m.sectionId) === Number(section.id)
+      : m.sectionNumber === section.number;
+  const placed = (a: Assignment, section?: LmsSection) =>
+    materials.some(
+      (m) =>
+        a.lmsCmid != null &&
+        m.cmid === a.lmsCmid &&
+        (!section || inSection(m, section)),
+    );
+  return {
+    courseId: f.course.id,
+    lessons: (f.record.sections ?? []).map((section) => {
+      const items = materials.filter(
+        (m) =>
+          inSection(m, section) && !["assign", "quiz"].includes(m.module ?? ""),
+      );
+      return {
+        section: section.number,
+        sectionId: Number(section.id),
+        title: section.title,
+        number: null,
+        label: section.title,
+        summaryHtml: section.bodyHtml ?? "",
+        summary: "",
+        items: items.map((m) => ({
+          materialId: m.id,
+          kind: KINDS[m.module ?? "resource"] ?? "other",
+          title: m.title,
+          bodyHtml: ["page", "label", "forum"].includes(m.module ?? "")
+            ? (m.bodyHtml ?? null)
+            : null,
+          source: m.url ?? m.resourceUrl ?? null,
+          imageOnly: imageOnly.includes(m.id),
+        })),
+        assignmentIds: f.workspace.assignments
+          .filter((a) => placed(a, section))
+          .map((a) => a.id),
+        posted: items.length > 0,
+      };
+    }),
+    otherAssignmentIds: f.workspace.assignments
+      .filter((a) => !placed(a))
+      .map((a) => a.id),
+    currentSection: null,
+    classAt: null,
   };
+}
+
+/**
+ * The fixture's answer with Core's lesson rail on it: rail labels and lesson
+ * numbers by section id, where the course is and the class a mark is for.
+ */
+function lessonContent(
+  f: LectureFixture,
+  rail: Record<number, [label: string, number: number]>,
+  currentSection: number,
+  classAt: string | null = null,
+): CourseContent {
+  const content = contentFor(f);
+  for (const lesson of content.lessons) {
+    const [label, number] = rail[lesson.sectionId!] ?? [lesson.label, null];
+    Object.assign(lesson, { label, number });
+  }
+  return { ...content, currentSection, classAt };
 }
 
 type WorkspaceOptions = {
   entry?: Partial<CourseEntry>;
   active?: boolean;
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
-  timeline?: unknown;
+  /** Core's `courseContent` answer; by default the fixture's (`contentFor`). */
+  content?: CourseContent;
   tasks?: unknown;
   /** Core's `courseDetail` answer, which carries the course's syllabus link. */
   detail?: unknown;
@@ -262,7 +340,7 @@ async function openWorkspace(
         lmsCourses: [fixture.record],
       },
       queries: {
-        courseTimeline: () => options.timeline ?? null,
+        courseContent: () => options.content ?? contentFor(fixture),
         taskView: () => options.tasks ?? null,
         courseDetail: () => options.detail ?? null,
       },
@@ -285,7 +363,6 @@ async function openWorkspace(
   const props = {
     course: fixture.course,
     data: fixture.workspace,
-    record: fixture.record,
     entry: { courseId: fixture.course.id, request: 1, ...options.entry },
     active: options.active ?? true,
     schoolWebAvailable: false,
@@ -324,7 +401,7 @@ function scheduleQueryNow(core: FakeCore): string | undefined {
   for (const call of [...core.commands("schedule_query")].reverse()) {
     const queries = call.args.queries as
       { kind?: string; now?: string }[] | undefined;
-    const found = queries?.find((query) => query.kind === "courseTimeline");
+    const found = queries?.find((query) => query.kind === "courseContent");
     if (found) return found.now;
   }
   return undefined;
@@ -415,9 +492,9 @@ describe("the LMS reading workspace", () => {
       {
         id: 13,
         number: 3,
-        title: "第3回",
+        title: "演習第1回",
         visible: true,
-        bodyHtml: "<p>授業計画: クラス</p>",
+        bodyHtml: "<p>授業計画: 演習</p>",
       },
     ];
     f.workspace.materials = [11, 12].map((sectionId) =>
@@ -430,15 +507,29 @@ describe("the LMS reading workspace", () => {
         bodyHtml: undefined,
       }),
     );
-    const { host } = await openWorkspace(f, { entry: { request: 97 } });
+    const { host } = await openWorkspace(f, {
+      entry: { request: 97 },
+      content: lessonContent(
+        f,
+        { 11: ["1", 1], 12: ["2", 2], 13: ["演習 1", 1] },
+        2,
+      ),
+    });
 
     const rail = () => [
       ...host.querySelectorAll<HTMLElement>(
         ".lmsLessonRail button:not(.lmsRailTab)",
       ),
     ];
-    expect(rail().map((button) => button.textContent)).toEqual(["1", "2", "3"]);
-    // The course is at 第2回, the latest lesson with material.
+    // Core's labels, as they are: a recitation keeps its own word.
+    await waitFor(() =>
+      expect(rail().map((button) => button.textContent)).toEqual([
+        "1",
+        "2",
+        "演習 1",
+      ]),
+    );
+    // The outline opens where Core puts the course.
     expect(rail()[1].getAttribute("aria-current")).toBe("step");
     // Every lesson is laid out at once, each as a page of the outline.
     expect(
@@ -488,17 +579,6 @@ describe("the LMS reading workspace", () => {
     );
   }, 30_000);
 
-  it("shows files stored with a lesson when Moodle returns string section ids", async () => {
-    const f = lectureFixture();
-    f.record.sections![0].id = "91" as unknown as number;
-    const { host } = await openWorkspace(f, { entry: { request: 501 } });
-    expect(
-      host.querySelector(
-        '.lmsSection[data-reading-section="section:91"] .lmsItemRow',
-      ),
-    ).not.toBeNull();
-  }, 30_000);
-
   it("opens a folder in the outline from the files already stored with it", async () => {
     const f = lectureFixture();
     Object.assign(f.workspace.materials[0], {
@@ -537,26 +617,31 @@ describe("the LMS reading workspace", () => {
       label("l2", "discord"),
       ...f.workspace.materials,
     ];
-    const { host } = await openWorkspace(f, { entry: { request: 602 } });
+    const { host } = await openWorkspace(f, {
+      entry: { request: 602 },
+      content: contentFor(f, ["l1", "l2"]),
+    });
 
     const grids = host.querySelectorAll(".lmsImageGrid");
     expect(grids).toHaveLength(1);
     expect(grids[0].querySelectorAll(".lmsImageCard")).toHaveLength(2);
   }, 30_000);
 
-  it("shows a label's own text without the name Moodle derives from it", async () => {
+  it("shows a label's own text without the name Moodle derives from it, keeping Core's schedule marks", async () => {
     const f = lectureFixture();
     Object.assign(f.workspace.materials[0], {
       module: "label",
       title: "日付 授業回目 内容…",
       bodyHtml:
-        "<table><tr><td>日付</td><td>授業回目</td><td>内容</td></tr></table>",
+        '<table><tr><td>日付</td><td>授業回目</td><td>内容</td></tr><tr class="lmsRowNow"><td>10/20</td><td>2回目</td><td>行列</td></tr></table>',
     });
     const { host } = await openWorkspace(f, { entry: { request: 98 } });
 
     const label = host.querySelector(".lmsSectionBody .lmsInlineActivity")!;
     expect(label.querySelector("table")).not.toBeNull();
     expect(label.querySelector("h4")).toBeNull();
+    // The workspace's own sanitising keeps the row Core marked as current.
+    expect(label.querySelector("tr.lmsRowNow")?.textContent).toContain("2回目");
   }, 30_000);
 
   it("renders a page activity inline without opening a document panel", async () => {
@@ -716,11 +801,8 @@ describe("the LMS reading workspace", () => {
     ).toBe("https://docs.google.com/forms/d/test/viewform");
   }, 30_000);
 
-  it("hides the redundant syllabus item and opens the syllabus in its own panel", async () => {
+  it("opens the syllabus in its own panel", async () => {
     const f = lectureFixture();
-    f.workspace.materials.push(
-      material({ id: "syllabus-item", title: "シラバス", module: "url" }),
-    );
     const { host } = await openWorkspace(f, {
       entry: { request: 502 },
       detail: {
@@ -728,11 +810,6 @@ describe("the LMS reading workspace", () => {
       },
     });
 
-    expect(
-      [...host.querySelectorAll(".lmsItemRow")].some((row) =>
-        row.textContent?.includes("シラバス"),
-      ),
-    ).toBe(false);
     await click(
       [...host.querySelectorAll("button")].find(
         (button) => button.textContent?.trim() === "Syllabus",
@@ -779,24 +856,36 @@ describe("the LMS reading workspace", () => {
 
   it("marks the lesson a coming class covers when its rail entry is double-clicked", async () => {
     const f = lectureFixture();
-    lessonSchedule(f, "2026-10-08T10:45:00+09:00", 12);
+    f.record.sections = [1, 2, 3].map((number) => ({
+      id: 10 + number,
+      number,
+      title: `第${number}回`,
+      visible: true,
+    }));
+    f.workspace.materials = [];
     const markLesson = vi.fn();
     const { host } = await openWorkspace(f, {
       entry: { request: 95 },
       markLesson,
-      timeline: {
-        lastStarted: "2026-10-01T10:45:00+09:00",
-        next: "2026-10-08T10:45:00+09:00",
-        classAt: "2026-10-08T10:45:00+09:00",
-      },
+      content: lessonContent(
+        f,
+        { 11: ["1", 1], 12: ["2", 2], 13: ["3", 3] },
+        2,
+        "2026-10-08T10:45:00+09:00",
+      ),
     });
 
+    await waitFor(() =>
+      expect(
+        host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)"),
+      ).toHaveLength(3),
+    );
     const rail = [
       ...host.querySelectorAll<HTMLElement>(
         ".lmsLessonRail button:not(.lmsRailTab)",
       ),
     ];
-    // Nothing is posted, yet the mark for today's class puts the course at 第2回.
+    // Core puts the course at 第2回: it and the lessons before it are held.
     expect(rail[1].getAttribute("aria-current")).toBe("step");
     expect(rail.map((button) => button.classList.contains("held"))).toEqual([
       true,
@@ -804,36 +893,6 @@ describe("the LMS reading workspace", () => {
       false,
     ]);
 
-    await act(async () => {
-      rail[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    });
-    expect(markLesson).toHaveBeenCalledWith(
-      13,
-      "2026-10-08T10:45:00+09:00",
-      "Lesson 3",
-    );
-  }, 30_000);
-
-  it("records a mark for the class that has just ended without moving the current lesson", async () => {
-    const f = lectureFixture();
-    lessonSchedule(f, "2026-10-08T10:45:00+09:00", 14, 4);
-    const markLesson = vi.fn();
-    const { host } = await openWorkspace(f, {
-      entry: { request: 94 },
-      markLesson,
-      timeline: {
-        lastStarted: "2026-10-08T10:45:00+09:00",
-        next: "2026-10-15T10:45:00+09:00",
-        classAt: "2026-10-08T10:45:00+09:00",
-      },
-    });
-
-    const rail = [
-      ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button:not(.lmsRailTab)",
-      ),
-    ];
-    expect(rail[3].getAttribute("aria-current")).toBe("step");
     await act(async () => {
       rail[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     });
@@ -1205,7 +1264,7 @@ describe("the LMS reading workspace", () => {
     expect(reopened.scrollTop).toBe(500);
   }, 30_000);
 
-  it("refreshes the course timeline when the retained reader is resumed, and keeps ticking while active", async () => {
+  it("refreshes the course content when the retained reader is resumed, and keeps ticking while active", async () => {
     const f = lectureFixture();
     const { core, real } = await scriptedHost(
       {
@@ -1224,7 +1283,6 @@ describe("the LMS reading workspace", () => {
       <real.LmsWorkspaceBody
         course={f.course}
         data={f.workspace}
-        record={f.record}
         entry={{ courseId: f.course.id, request: 1 }}
         active={active}
         schoolWebAvailable={false}
@@ -1280,6 +1338,10 @@ describe("the reading workspace on its lecture route", () => {
         queries: {
           workspaceOverview: (_query, core) => overviewFor(core.workspace),
           scheduleView: (_query, core) => scheduleViewFor(core.workspace),
+          courseContent: (query) =>
+            (query as { courseId: string }).courseId === f.course.id
+              ? contentFor(f)
+              : null,
         },
         handle: (command) => (command === "list_course_notes" ? [] : undefined),
       },

@@ -29,6 +29,10 @@ final class WebRouter {
     /// Bumped when a view appears for a site so containers re-attach it.
     private(set) var attachRevision = 0
     private(set) var downloads: [URL] = []
+    /// How many popups are open over each site's view (Core's `school-web-popups`).
+    private(set) var popups: [SchoolSite: Int] = [:]
+    /// What the web screen says about each site's page (Core's `school-web-notice`).
+    private(set) var notices: [SchoolSite: Notice] = [:]
     @ObservationIgnored private var visibleOwner: UUID?
     @ObservationIgnored weak var session: Session?
     @ObservationIgnored let browser: SchoolBrowserHost
@@ -40,6 +44,23 @@ final class WebRouter {
         browser.onOpenExternal = { url in UIApplication.shared.open(url) }
         browser.onDownload = { [weak self] file in self?.downloads.append(file) }
         browser.onDownloadError = { [weak self] error in self?.error = AppModel.describe(error) }
+    }
+
+    /// Something about the page the person sees, shown next to it, outside
+    /// the school page.
+    struct Notice: Equatable {
+        enum Kind: Equatable {
+            /// The page did not load; `reason` is Core's `LoadFailure` wire name.
+            case loadFailed(reason: String)
+            /// A reload would have resent a form; the page was opened with GET.
+            case reopened
+        }
+        let kind: Kind
+        /// The address the page was going to, for Retry and Open in browser.
+        let url: URL?
+        /// Tells two notices about the same page apart, so one's timer
+        /// never clears the next.
+        let id = UUID()
     }
 
     /// A page pushed from context (course → LMS, assignment → submission).
@@ -115,6 +136,48 @@ final class WebRouter {
         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
     }
 
+    /// Closes the popup in front of `site`'s page.
+    func closePopup(_ site: SchoolSite) { browser.closeFrontPopup(site) }
+
+    /// Loads a failed page again, in the page the person sees.
+    func retry(_ site: SchoolSite) {
+        guard let url = notices.removeValue(forKey: site)?.url else { return }
+        browser.retry(site, url: url)
+    }
+
+    func dismissNotice(_ site: SchoolSite) { notices[site] = nil }
+
+    /// Core's `school-web-url`, `school-web-popups` and `school-web-notice`.
+    func receive(_ name: String, payload: String) {
+        guard let row = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any],
+            let site = Self.site(row["site"] as? String)
+        else { return }
+        switch name {
+        case "school-web-url":
+            // A page loaded: an earlier failure no longer describes it.
+            if case .loadFailed = notices[site]?.kind { notices[site] = nil }
+        case "school-web-popups":
+            popups[site] = (row["open"] as? NSNumber)?.intValue ?? 0
+        case "school-web-notice":
+            let url = (row["url"] as? String).flatMap(URL.init(string:))
+            switch row["kind"] as? String {
+            case "load-failed":
+                notices[site] = Notice(kind: .loadFailed(reason: row["reason"] as? String ?? "other"), url: url)
+            case "reopened":
+                let notice = Notice(kind: .reopened, url: url)
+                notices[site] = notice
+                Task {
+                    try? await Task.sleep(for: .seconds(6))
+                    if notices[site] == notice { notices[site] = nil }
+                }
+            default:
+                break
+            }
+        default:
+            break
+        }
+    }
+
     func back(_ site: SchoolSite) { _ = try? session?.backSchool(site: site) }
     func forward(_ site: SchoolSite) { _ = try? session?.forwardSchool(site: site) }
     func reload(_ site: SchoolSite) { _ = try? session?.reloadSchool(site: site) }
@@ -131,6 +194,11 @@ final class WebRouter {
         case .syllabus: return t("Syllabus")
         case .studyGuide: return t("Study guide")
         }
+    }
+
+    private static func site(_ wire: String?) -> SchoolSite? {
+        [SchoolSite.sciencePortal, .scienceLms, .tokyoPortal, .tokyoMail, .kyomu, .library, .tsubame, .syllabus, .studyGuide]
+            .first { wireName($0) == wire }
     }
 
     /// Core's wire name for a site (`SchoolSite` serde names).

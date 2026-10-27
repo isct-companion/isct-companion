@@ -1,15 +1,6 @@
-import {
-  createContext,
-  memo,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { safeContent, safeUrl } from "./content";
-import { markSchedule } from "./lessons";
 import { LmsIcon } from "./LmsIcon";
 import {
   cachedThumbnail,
@@ -19,7 +10,6 @@ import {
 } from "./thumbnails";
 import type { CourseFolder } from "./files";
 
-export const CurrentLesson = createContext<number | undefined>(undefined);
 export type FileAccess = { context: CourseFolder; limit: number };
 
 export const ImageThumbnail = memo(function ImageThumbnail({
@@ -109,11 +99,7 @@ export const RichContent = memo(function RichContent({
   language?: "ja" | "en";
   openLink: (url: string, title: string, anchor?: Element) => void;
 }) {
-  const current = useContext(CurrentLesson);
-  const content = useMemo(
-    () => markSchedule(safeContent(html, language), current),
-    [html, language, current],
-  );
+  const content = useMemo(() => safeContent(html, language), [html, language]);
   const renderedHtml = useMemo(() => ({ __html: content }), [content]);
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {

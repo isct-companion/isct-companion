@@ -108,7 +108,10 @@ struct SettingsScreen: View {
                         }
                     }
                 }
-                // One row for both log actions, as a menu.
+                // List gives a Menu no row treatment: its hit area and menu
+                // preview are the label's own frame. So the label fills the
+                // row, padded into the row insets (taken back outside, keeping
+                // the row's height) so the preview holds the whole icon.
                 Menu {
                     Button(t("Save to file"), systemImage: "square.and.arrow.down") { saveLogs() }
                     Button(t("Copy"), systemImage: "doc.on.doc") { copyLogs() }
@@ -116,7 +119,12 @@ struct SettingsScreen: View {
                     Label { Text(t("Application logs")).foregroundStyle(Theme.ink) } icon: {
                         SettingsIcon(symbol: "doc.text", tint: Theme.muted)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+                    .contentShape(.rect)
+                    .contentShape(.contextMenuPreview, .rect(cornerRadius: 10))
                 }
+                .padding(.vertical, -6)
             } header: {
                 Text(t("About"))
             } footer: {

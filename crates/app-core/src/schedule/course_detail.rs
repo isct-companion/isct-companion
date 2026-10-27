@@ -185,8 +185,6 @@ pub struct AssignmentDetail {
     /// Notes the assignment row carries besides the LMS text.
     pub details: String,
     pub attachments: Vec<AssignmentAttachment>,
-    pub section_number: Option<i32>,
-    pub section_title: Option<String>,
     /// Where opened attachments are kept.
     pub files: Option<CourseKey>,
 }
@@ -231,13 +229,6 @@ pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<Assig
         attachments: attachments(raw),
         body_html: super::lms_html::safe_html(raw, true),
         details: text(assignment, "details").unwrap_or_default().into(),
-        section_number: source
-            .and_then(|row| row.get("sectionNumber").or_else(|| row.get("session")))
-            .and_then(Value::as_i64)
-            .and_then(|number| i32::try_from(number).ok()),
-        section_title: source
-            .and_then(|row| text(row, "sectionTitle"))
-            .map(str::to_owned),
         files: course.and_then(files_of),
     })
 }

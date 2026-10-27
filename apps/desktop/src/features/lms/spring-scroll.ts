@@ -79,3 +79,38 @@ export function springScroll(
 }
 
 const STOPPERS = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+
+/** Where sections pull: bands at the outline's edges, as fractions of its height. */
+export const GRAVITY = { nearTop: 0.2, beyondTop: 0.15, nearBottom: 0.2 };
+
+/**
+ * Where a resting outline settles, given the tops of the sections after the
+ * first (`boundaries`). Inside a section nothing pulls. With a boundary near
+ * the top (or just above it) the new section brings its start to the top;
+ * with one near the bottom the old section brings its end to the bottom. A
+ * start near the top wins over any end near the bottom, so a section shorter
+ * than the outline shows from its beginning; otherwise the nearer pull wins.
+ * `undefined` when nothing pulls.
+ */
+export function gravityTarget(
+  top: number,
+  height: number,
+  boundaries: number[],
+  scrollHeight = Infinity,
+): number | undefined {
+  const nearest = (pairs: [number, number][]) =>
+    pairs.sort((left, right) => left[0] - right[0])[0]?.[1];
+  const starts: [number, number][] = [];
+  const ends: [number, number][] = [];
+  for (const boundary of boundaries) {
+    const at = boundary - top;
+    if (at >= -GRAVITY.beyondTop * height && at <= GRAVITY.nearTop * height)
+      starts.push([Math.abs(at), boundary]);
+    else if (at >= (1 - GRAVITY.nearBottom) * height && at <= height)
+      ends.push([height - at, boundary - height]);
+  }
+  let target = nearest(starts) ?? nearest(ends);
+  if (target == null) return undefined;
+  target = Math.max(0, Math.min(target, scrollHeight - height));
+  return Math.abs(target - top) < 2 ? undefined : target;
+}

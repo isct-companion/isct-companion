@@ -9,7 +9,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /** Which school page is on screen. Two entries share the resident views: the
  * ウェブ tab (site switcher) and pushes from a course or assignment. Opening a
@@ -25,7 +28,11 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         private set
     var tabSite by mutableStateOf(firstSite)
         private set
-    val titles = mutableStateMapOf<SchoolSite, String>()
+    /** Popups open over each site's view (Core's `school-web-popups`). */
+    val popups = mutableStateMapOf<SchoolSite, Int>()
+    /** What Core says about the page on screen (`school-web-notice`). */
+    val notices = mutableStateMapOf<SchoolSite, Notice>()
+    private var reopenedClear: Job? = null
     var loading by mutableStateOf<SchoolSite?>(null)
         private set
     var error by mutableStateOf<String?>(null)
@@ -37,9 +44,46 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     private val opened = mutableSetOf<SchoolSite>()
 
     init {
-        browser.onTitleChange = { site, title -> titles[site] = title }
+        // Plain HTTP and other sites Core sends out; cleartext stays off in the app.
         browser.onOpenExternal = { uri ->
-            context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            runCatching {
+                context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+    }
+
+    /** A Core notice about the page on screen. */
+    sealed interface Notice {
+        /** The page did not load; `url` is where it was going. */
+        data class LoadFailed(val url: String?, val reason: String) : Notice
+
+        /** A reload would have resent a form; the page was opened with GET. */
+        data class Reopened(val url: String) : Notice
+    }
+
+    /** Core's school web events, from the app's event stream. */
+    fun handle(name: String, payload: String) {
+        val row = runCatching { JSONObject(payload) }.getOrNull() ?: return
+        val site = site(row.optString("site")) ?: return
+        when (name) {
+            "school-web-popups" -> {
+                popups[site] = row.optInt("open")
+                notices.remove(site)
+            }
+            // A page loaded in front: the failure it answered is over.
+            "school-web-url" -> if (notices[site] is Notice.LoadFailed) notices.remove(site)
+            "school-web-notice" -> when (row.optString("kind")) {
+                "load-failed" -> notices[site] = Notice.LoadFailed(row.text("url"), row.optString("reason"))
+                "reopened" -> {
+                    val notice = Notice.Reopened(row.optString("url"))
+                    notices[site] = notice
+                    reopenedClear?.cancel()
+                    reopenedClear = scope.launch {
+                        delay(6_000)
+                        if (notices[site] == notice) notices.remove(site)
+                    }
+                }
+            }
         }
     }
 
@@ -107,6 +151,19 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         runCatching { session?.reloadSchool(site) }
     }
 
+    /** The notice's Reopen: the engine's reload of the failed entry. A
+     * form result WebView would not show again asks onFormResubmission, and
+     * Core opens it with GET. */
+    fun retry(site: SchoolSite) {
+        notices.remove(site)
+        reload(site)
+    }
+
+    /** The close bar over a popup; Core hears it closed and closes its own. */
+    fun closePopup(site: SchoolSite) {
+        browser.closeFront(site)
+    }
+
     companion object {
         private const val FIRST_SITE = "firstSite"
 
@@ -127,6 +184,8 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
             SchoolSite.SYLLABUS -> t("Syllabus")
             SchoolSite.STUDY_GUIDE -> t("Study guide")
         }
+
+        fun site(raw: String?): SchoolSite? = SchoolSite.entries.firstOrNull { wireName(it) == raw }
 
         /** Core's wire name for a site (`SchoolSite` serde names). */
         fun wireName(site: SchoolSite): String = when (site) {
