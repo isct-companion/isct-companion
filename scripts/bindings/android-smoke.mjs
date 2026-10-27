@@ -77,11 +77,26 @@ try {
     `${remote}/libapp_ffi.so`,
     `${remote}/libjnidispatch.so`,
   ]);
+  run("adb", ["logcat", "-c"]);
   // No UI, network or school account is needed; app_process uses Android's VM and linker.
-  const result = capture("adb", [
-    "shell",
-    `CLASSPATH=${remote}/smoke.zip app_process -Djna.boot.library.path=${remote} -Djna.library.path=${remote} /system/bin app.isctcompanion.core.SmokeKt ${remote}/data`,
-  ]);
+  let result;
+  try {
+    result = capture("adb", [
+      "shell",
+      `CLASSPATH=${remote}/smoke.zip app_process -Djna.boot.library.path=${remote} -Djna.library.path=${remote} /system/bin app.isctcompanion.core.SmokeKt ${remote}/data`,
+    ]);
+  } catch (error) {
+    // The shell only reports "Killed"; the kernel and lmkd say who and why.
+    for (const args of [
+      ["logcat", "-d", "-b", "all", "-t", "300"],
+      ["shell", "dmesg | tail -n 80"],
+    ]) {
+      try {
+        console.error(capture("adb", args));
+      } catch {}
+    }
+    throw error;
+  }
   console.log(result);
   if (!result.includes("KOTLIN_CORE_SDK_SMOKE_PASSED"))
     throw new Error("Android SDK smoke did not finish");
