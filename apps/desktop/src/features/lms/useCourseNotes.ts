@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
-import type { LmsSection } from "../../platform/desktop-bridge";
 import {
   listNotes,
   saveNote,
@@ -9,9 +8,12 @@ import {
 } from "./files";
 import type { OpenedContent } from "./reading-state";
 
+/** A course section notes are kept under. */
+type NoteSection = { id: number; title: string };
+
 export function useCourseNotes(
   folder: CourseFolder,
-  sections: LmsSection[],
+  sections: NoteSection[],
   active: boolean,
   open: (content: OpenedContent) => void,
 ) {
@@ -38,7 +40,7 @@ export function useCourseNotes(
     return () =>
       window.removeEventListener("course-storage-changed", refreshNotes);
   }, [active, folder, sections]);
-  const newNote = async (section: LmsSection) => {
+  const newNote = async (section: NoteSection) => {
     if (noteCreation.current) return;
     noteCreation.current = true;
     setCreatingNote(true);

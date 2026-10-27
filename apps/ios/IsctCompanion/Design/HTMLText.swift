@@ -36,10 +36,12 @@ struct HTMLText: View {
     }
 
     /// WebKit's HTML import runs on the main thread; the body's own colours
-    /// and fonts are dropped so the app's text style applies.
+    /// and fonts are dropped so the app's text style applies. Core marks the
+    /// current row of a lesson schedule table and the cancelled ones.
     @MainActor
     static func render(_ html: String) -> AttributedString {
-        let styled = "<style>body{font-family:-apple-system;font-size:16px}</style>" + html
+        let styled = "<style>body{font-family:-apple-system;font-size:16px}"
+            + "tr.lmsRowNow{font-weight:600}tr.lmsRowOff{text-decoration:line-through}</style>" + html
         guard let data = styled.data(using: .utf8),
             let imported = try? NSMutableAttributedString(
                 data: data,

@@ -102,9 +102,11 @@ struct CourseDetailScreen: View {
     /// finger (or the chip row) points.
     private var pages: some View {
         let number = lesson ?? 0
+        let shown = lessons.first { Int($0.section) == number }
+        let set = workIds(shown)
         let page = LessonPage(
-            lesson: lessons.first { Int($0.section) == number },
-            work: assignments.filter { Int($0.sectionNumber ?? 0) == number },
+            lesson: shown,
+            work: assignments.filter { set.contains($0.assignmentId) },
             files: detail?.files,
             opened: $opened)
         let forward = step == .next
@@ -122,6 +124,14 @@ struct CourseDetailScreen: View {
             let target = lessons[turn == .next ? index + 1 : index - 1]
             select(Int(target.section))
         }
+    }
+
+    /// The assignments Core sets in a lesson; those outside any section go
+    /// with the first page.
+    private func workIds(_ shown: LessonContent?) -> [String] {
+        guard let shown else { return [] }
+        let others = shown.section == lessons.first?.section ? content?.otherAssignmentIds ?? [] : []
+        return shown.assignmentIds + others
     }
 
     private func select(_ target: Int) {
@@ -339,7 +349,9 @@ private struct LessonPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if let heading = lesson?.title, !heading.isEmpty {
+            // Headed by the plan's first line, as a desktop lesson is, else
+            // by its title.
+            if let heading = lesson.flatMap({ $0.summary.isEmpty ? $0.title : .some($0.summary) }), !heading.isEmpty {
                 Text(heading)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Theme.ink)

@@ -180,9 +180,11 @@ private fun Lessons(
     }
     HorizontalPager(pager, verticalAlignment = Alignment.Top, pageSpacing = 16.dp) { index ->
         val lesson = lessons[index]
+        // Assignments outside any section go with the first page.
+        val set = lesson.assignmentIds + if (index == 0) content.otherAssignmentIds else emptyList()
         LessonPage(
             lesson,
-            assignments.filter { (it.sectionNumber ?: 0) == lesson.section },
+            assignments.filter { it.assignmentId in set },
             files,
             expanded,
         ) { id, open -> expanded = if (open) expanded + id else expanded - id }
@@ -254,7 +256,8 @@ private fun LessonPage(
     expand: (String, Boolean) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        lesson.title?.takeIf { it.isNotEmpty() }?.let {
+        // Headed by the plan's first line, as a desktop lesson is, else by its title.
+        (lesson.summary.ifEmpty { null } ?: lesson.title)?.takeIf { it.isNotEmpty() }?.let {
             Text(it, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         }
         if (lesson.summaryHtml.isNotEmpty()) Surface { HtmlText(lesson.summaryHtml) }

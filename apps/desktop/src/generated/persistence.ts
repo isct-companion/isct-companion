@@ -1114,8 +1114,6 @@ export type AssignmentDetail = {
    */
   details: string;
   attachments: Array<AssignmentAttachment>;
-  sectionNumber: number | null;
-  sectionTitle: string | null;
   /**
    * Where opened attachments are kept.
    */
@@ -1130,6 +1128,11 @@ export type CourseContent = {
    */
   lessons: Array<LessonContent>;
   /**
+   * The course's assignments set outside any section (their LMS activity
+   * is not among the materials).
+   */
+  otherAssignmentIds: Array<string>;
+  /**
    * Where the course is, as the lesson rail marks it: the lesson the
    * person last marked for a class, or the one after it once a later
    * class has begun. Without a mark, the last numbered lesson with
@@ -1139,9 +1142,9 @@ export type CourseContent = {
    */
   currentSection: number | null;
   /**
-   * The class a "this class" mark is recorded against
-   * (`CourseTimeline.class_at`): the one in progress or held earlier
-   * today, else the next one. `None` when the course has no meetings.
+   * The class a "this class" mark is recorded against: the one in
+   * progress or held earlier today, else the next one. `None` when the
+   * course has no meetings.
    */
   classAt: string | null;
 };
@@ -1171,10 +1174,23 @@ export type LessonContent = {
    */
   label: string;
   /**
-   * The section's own text (授業計画 and the like), made safe to render.
+   * The section's own text (授業計画 and the like), made safe to render,
+   * with its lesson schedule tables marked against the current lesson:
+   * earlier rows `lmsRowPast`, its row `lmsRowNow`, cancelled rows
+   * `lmsRowOff`.
    */
   summaryHtml: string;
+  /**
+   * The first line of that text without a short leading label
+   * (授業計画：, Course schedule:), which heads a folded lesson.
+   */
+  summary: string;
   items: Array<LessonItem>;
+  /**
+   * The assignments set in this section, which have pages of their own
+   * (`AssignmentDetail`).
+   */
+  assignmentIds: Array<string>;
   /**
    * Whether the section has material besides assignments and labels: a
    * label alone ("posted after class") is not the lesson's material.
@@ -1187,13 +1203,19 @@ export type LessonItem = {
   kind: LessonItemKind;
   title: string;
   /**
-   * The text shown in place, for pages, labels and announcements.
+   * The text shown in place, for pages, labels and announcements, with
+   * schedule tables marked as in `LessonContent.summary_html`.
    */
   bodyHtml: string | null;
   /**
    * The LMS page or file Core resolves and downloads.
    */
   source: string | null;
+  /**
+   * A label of LMS pictures only, which shells lay side by side with the
+   * labels like it next to it rather than one block each.
+   */
+  imageOnly: boolean;
 };
 
 export type LessonItemKind =
@@ -1282,12 +1304,6 @@ export type LectureSearch = {
   courseIds: Array<string>;
   assignmentIds: Array<string>;
   examKeys: Array<string>;
-};
-
-export type CourseTimeline = {
-  lastStarted: string | null;
-  next: string | null;
-  classAt: string | null;
 };
 
 export type TaskDeadlineView = {
@@ -1394,8 +1410,11 @@ export type MaterialItem = {
    * `pdf`, `link` or `video`.
    */
   kind: string;
-  section: bigint | null;
-  sectionTitle: string | null;
+  /**
+   * Where the material sits: its LMS section title, else the section's
+   * number as a lesson in the content language (第3回, Lesson 3).
+   */
+  sectionLabel: string | null;
   url: string | null;
   updatedAt: string | null;
   addedToday: boolean;
@@ -1512,13 +1531,6 @@ export type WorkspaceQuery =
   | { kind: "planningWeek"; term: string }
   | { kind: "academicYears"; date: string; selectedYear: number }
   | { kind: "planCivilStart"; plan: PlanStartInput }
-  | {
-      kind: "courseTimeline";
-      courseId: string;
-      now: string;
-      beforeDays: number;
-      afterDays: number;
-    }
   | { kind: "taskView"; now: string }
   | { kind: "today"; now: string }
   | { kind: "assignmentBoard"; now: string; term: string | null }
@@ -1583,7 +1595,6 @@ export type WorkspaceQueryResult =
   | { kind: "planningWeek"; value: PlanningWeek }
   | { kind: "academicYears"; value: AcademicYearIndex }
   | { kind: "planCivilStart"; value: PlanCivilStart }
-  | { kind: "courseTimeline"; value: CourseTimeline }
   | { kind: "taskView"; value: TaskView }
   | { kind: "today"; value: TodayView }
   | { kind: "assignmentBoard"; value: AssignmentBoard }

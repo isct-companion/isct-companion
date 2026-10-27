@@ -5030,7 +5030,7 @@ checks:
     why_manual: |
       Scroll positions and the spring after scrolling need real layout,
       which jsdom does not compute; gravityTarget itself is pure and lives in
-      lessons.ts.
+      spring-scroll.ts.
     covers:
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
     verified: null
@@ -5136,12 +5136,14 @@ checks:
 
   - id: COURSE-LESSON-SERIES-LABELS
     area: native
-    title: Lectures and recitations keep their own lesson numbers on desktop and iPad
+    title: Course pages show Core's lesson labels, summaries and schedule marks on desktop and iPad
     persona: undergraduate-first-term
     preconditions: |
       LMS content pulled for Linear Algebra II【X】 (lms-course:12470), whose
-      sections interleave 第1回–第14回 with 演習第1回–演習第7回; the desktop app
-      and the iPad app on the same account.
+      sections interleave 第1回–第14回 with 演習第1回–演習第7回, and for a course
+      whose text holds a lesson schedule table (rows such as 1回目, 2回目, 休講)
+      and an assignment set in one of its lessons; the desktop app and the iPad
+      app on the same account.
     steps:
       - action: |
           Open Linear Algebra II【X】 on the desktop Lecture Desk and read the
@@ -5157,19 +5159,51 @@ checks:
           The chips used to read 5, 6, 3, 7, 4, 8 … because 演習第3回 lost its
           演習 and showed a bare 3. They must match the desktop rail exactly,
           with no chip cut off for 演習 labels.
-    observe: The desktop lesson rail and the iPad lesson chip row.
+      - action: |
+          On the desktop, read the heading of a lesson page beside its big
+          number; then open the same lesson on the iPad and read its heading.
+        reason: |
+          Both are Core's summary, the first line of the lesson's 授業計画
+          without its "授業計画：" label. The desktop used to cut it in the
+          shell and the iPad showed the bare title; a heading that still
+          starts with the label, or differs between the two, means a shell
+          kept its own rule.
+      - action: |
+          Open the course with the schedule table on the desktop and on the
+          iPad, and find the row of the lesson the course is at.
+        reason: |
+          Core marks the rows against the current lesson. On the desktop the
+          current row is highlighted, earlier rows are dimmed and 休講 rows
+          are struck through; on the iPad the current row is bold and 休講
+          rows are struck through. An unmarked table means the shell's HTML
+          cleaning dropped Core's row classes.
+      - action: |
+          On that course's iPad page, turn to the lesson that holds the
+          assignment, then to the first page.
+        reason: |
+          The assignment card sits on its own lesson's page, as on the
+          desktop. Assignments outside any section go with the first page; the
+          iPad used to place them by a section number of its own.
+    observe: The desktop lesson rail, lesson headings and schedule table; the iPad chip row, page headings and schedule table.
     expected: |
-      Both read 1, 2, 演習 1, 3, 4, 演習 2, … 13, 演習 7, 14, with 一般 and
-      連絡先・オフィスアワー ahead of them.
+      Both rails read 1, 2, 演習 1, 3, 4, 演習 2, … 13, 演習 7, 14, with 一般
+      and 連絡先・オフィスアワー ahead of them. Lesson headings are the plan's first
+      line without its label, the same on both. The schedule table marks the
+      current row and struck-through 休講 rows on both, and the assignment
+      shows on its lesson's page.
     why_manual: |
-      Labels read at a glance on two real shells over a real LMS course. The
-      series rule is covered by `course_content_follows_the_desktop_lecture_desk`;
-      this checks that each shell renders Core's label unchanged and fits it.
+      Labels, headings and table marks are read at a glance on two real
+      shells over real LMS courses. The rules are covered by
+      `course_content_follows_the_desktop_lecture_desk` and the `lms_html`
+      tests; this checks that each shell renders Core's answer unchanged.
     covers:
       - crates/app-core/src/schedule/course_content.rs
+      - crates/app-core/src/schedule/lms_html.rs
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/features/lms/content.ts
       - apps/desktop/src/features/lms/lms.css
       - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
+      - apps/ios/IsctCompanion/Design/HTMLText.swift
     verified: null
 
   - id: IOS-COURSE-EXAM-LINE

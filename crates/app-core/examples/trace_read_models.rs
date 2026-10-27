@@ -43,7 +43,6 @@ fn page_queries(course: &str) -> Vec<serde_json::Value> {
         serde_json::json!({"kind":"assignmentBoard","now":now}),
         serde_json::json!({"kind":"courseDetail","courseId":course}),
         serde_json::json!({"kind":"courseContent","courseId":course,"now":now}),
-        serde_json::json!({"kind":"courseTimeline","courseId":course,"now":now}),
         serde_json::json!({"kind":"lectureSearch","term":"2026-2Q","query":"report"}),
         serde_json::json!({"kind":"timetableYear","year":2026}),
         serde_json::json!({"kind":"glance","now":now}),

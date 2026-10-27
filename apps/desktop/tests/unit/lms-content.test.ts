@@ -26,10 +26,9 @@ import type { MatrixCaptureMetrics } from "@app/generated/persistence";
 import { textLanguage } from "@app/features/lms/TextDocument";
 import {
   gravityTarget,
-  lessonSummary,
-  markSchedule,
-} from "@app/features/lms/lessons";
-import { springStep, stiffnessFor } from "@app/features/lms/spring-scroll";
+  springStep,
+  stiffnessFor,
+} from "@app/features/lms/spring-scroll";
 import {
   MATRIX_SIZE,
   matrixConfidence,
@@ -455,53 +454,8 @@ describe("note persistence", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Lessons
+// Outline scrolling
 // ---------------------------------------------------------------------------
-
-describe("lesson summary", () => {
-  it("summarises a lesson by the first line of its plan, without a short leading label", () => {
-    expect(lessonSummary("<p>授業計画：正規文法<br>課題：確認する</p>")).toBe(
-      "正規文法",
-    );
-    expect(
-      lessonSummary("<p>Course schedule: Basic syntax</p><p>Objectives: …</p>"),
-    ).toBe("Basic syntax");
-  });
-
-  it("has no summary for a lesson without a plan", () => {
-    expect(lessonSummary(undefined)).toBe("");
-    expect(lessonSummary("")).toBe("");
-  });
-});
-
-describe("lesson schedule marking", () => {
-  const html =
-    "<table><tr><th>日付</th><th>授業回目</th></tr><tr><td>10/2</td><td>1回目</td></tr><tr><td>10/16</td><td>休講</td></tr><tr><td>10/20</td><td>2回目</td></tr><tr><td>10/23</td><td>3回目</td></tr></table>";
-  const rowClasses = (marked: string) =>
-    [
-      ...new DOMParser()
-        .parseFromString(marked, "text/html")
-        .querySelectorAll("tr"),
-    ].map((row) => row.className);
-
-  it("marks the rows before the current lesson, the current row and a cancelled one", () => {
-    expect(rowClasses(markSchedule(html, 2))).toEqual([
-      "",
-      "lmsRowPast",
-      "lmsRowOff lmsRowPast",
-      "lmsRowNow",
-      "",
-    ]);
-  });
-
-  it("leaves a page without a qualifying lesson table untouched", () => {
-    expect(markSchedule("<p>no table</p>", 2)).toBe("<p>no table</p>");
-    const single =
-      "<table><tr><td>1回目</td><td>intro</td></tr><tr><td>reading</td><td>—</td></tr></table>";
-    expect(markSchedule(single, 2)).toBe(single);
-    expect(markSchedule(html)).toBe(html);
-  });
-});
 
 describe("outline scroll gravity", () => {
   const height = 500;

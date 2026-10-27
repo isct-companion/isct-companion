@@ -851,7 +851,6 @@ export function WorkspaceApp() {
           <Suspense fallback={<p role="status">{t("Loading…")}</p>}>
             <LmsWorkspace
               course={course}
-              record={record}
               entry={entry}
               active={active}
               navigationProvided

@@ -10,7 +10,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::course_detail::lms_record;
-use super::lms_html::safe_html;
+use super::lms_html::{image_only, lesson_summary, mark_schedule, safe_html};
 use super::occurrence::course_timeline;
 use super::{array, text};
 
@@ -22,6 +22,9 @@ pub struct CourseContent {
     /// Sections with anything in them, and every lesson of a course that
     /// numbers its lessons, in section order.
     pub lessons: Vec<LessonContent>,
+    /// The course's assignments set outside any section (their LMS activity
+    /// is not among the materials).
+    pub other_assignment_ids: Vec<String>,
     /// Where the course is, as the lesson rail marks it: the lesson the
     /// person last marked for a class, or the one after it once a later
     /// class has begun. Without a mark, the last numbered lesson with
@@ -29,9 +32,9 @@ pub struct CourseContent {
     /// advance it); in a course without numbered lessons, the last section
     /// with any.
     pub current_section: Option<i32>,
-    /// The class a "this class" mark is recorded against
-    /// (`CourseTimeline.class_at`): the one in progress or held earlier
-    /// today, else the next one. `None` when the course has no meetings.
+    /// The class a "this class" mark is recorded against: the one in
+    /// progress or held earlier today, else the next one. `None` when the
+    /// course has no meetings.
     pub class_at: Option<String>,
 }
 
@@ -55,9 +58,18 @@ pub struct LessonContent {
     /// whose numbers skip or repeat by its order; any other section by its
     /// own title.
     pub label: String,
-    /// The section's own text (授業計画 and the like), made safe to render.
+    /// The section's own text (授業計画 and the like), made safe to render,
+    /// with its lesson schedule tables marked against the current lesson:
+    /// earlier rows `lmsRowPast`, its row `lmsRowNow`, cancelled rows
+    /// `lmsRowOff`.
     pub summary_html: String,
+    /// The first line of that text without a short leading label
+    /// (授業計画：, Course schedule:), which heads a folded lesson.
+    pub summary: String,
     pub items: Vec<LessonItem>,
+    /// The assignments set in this section, which have pages of their own
+    /// (`AssignmentDetail`).
+    pub assignment_ids: Vec<String>,
     /// Whether the section has material besides assignments and labels: a
     /// label alone ("posted after class") is not the lesson's material.
     pub posted: bool,
@@ -70,10 +82,14 @@ pub struct LessonItem {
     pub material_id: String,
     pub kind: LessonItemKind,
     pub title: String,
-    /// The text shown in place, for pages, labels and announcements.
+    /// The text shown in place, for pages, labels and announcements, with
+    /// schedule tables marked as in `LessonContent.summary_html`.
     pub body_html: Option<String>,
     /// The LMS page or file Core resolves and downloads.
     pub source: Option<String>,
+    /// A label of LMS pictures only, which shells lay side by side with the
+    /// labels like it next to it rather than one block each.
+    pub image_only: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -94,8 +110,8 @@ pub enum LessonItemKind {
 }
 
 /// A numbered section title: its lesson number and the series it counts.
-struct LessonTitle {
-    number: u32,
+pub(super) struct LessonTitle {
+    pub(super) number: u32,
     /// The title up to its number with the number taken out, without
     /// whitespace or case: 第回, 演習第回, lecture. Lectures and recitations
     /// numbered side by side (第3回, 演習第3回) are two series, told apart
@@ -108,7 +124,7 @@ struct LessonTitle {
 
 /// `第3回`, `Lecture 3`, `Week 3`, `#3.`, on NFKC text so full-width digits
 /// count.
-fn lesson_title(title: &str) -> Option<LessonTitle> {
+pub(super) fn lesson_title(title: &str) -> Option<LessonTitle> {
     use unicode_normalization::UnicodeNormalization;
     static LESSON: std::sync::LazyLock<Result<regex::Regex, regex::Error>> =
         std::sync::LazyLock::new(|| {
@@ -139,11 +155,6 @@ fn lesson_title(title: &str) -> Option<LessonTitle> {
             .collect(),
         name: name.to_owned(),
     })
-}
-
-/// The lesson number a section title gives, if any.
-pub fn lesson_number(title: &str) -> Option<u32> {
-    lesson_title(title).map(|title| title.number)
 }
 
 /// The rail's labels, section by section (`None` off the rail). The series
@@ -195,6 +206,48 @@ fn section_of(row: &Value) -> i32 {
         .unwrap_or_default() as i32
 }
 
+/// The course's syllabus link among its materials, which the course page
+/// offers on its own rather than as course content.
+fn syllabus(row: &Value) -> bool {
+    let title = text(row, "title").unwrap_or_default().trim().to_lowercase();
+    title == "シラバス"
+        || title == "syllabus"
+        || text(row, "resourceUrl")
+            .is_some_and(|url| url.starts_with("https://syllabus.s.isct.ac.jp/"))
+}
+
+/// The section a material row sits in: the one with its section id, else
+/// its section number; a section the LMS record lacks is added from the row.
+fn place(lessons: &mut Vec<(Option<u64>, LessonContent)>, row: &Value) -> usize {
+    let section = section_of(row);
+    let section_id = row.get("sectionId").and_then(Value::as_u64);
+    if let Some(index) = lessons
+        .iter()
+        .position(|(id, lesson)| match (section_id, id) {
+            (Some(section_id), Some(id)) => section_id == *id,
+            _ => lesson.section == section,
+        })
+    {
+        return index;
+    }
+    lessons.push((
+        section_id,
+        LessonContent {
+            section,
+            section_id,
+            title: text(row, "sectionTitle").map(str::to_owned),
+            number: None,
+            label: String::new(),
+            summary_html: String::new(),
+            summary: String::new(),
+            items: Vec::new(),
+            assignment_ids: Vec::new(),
+            posted: false,
+        },
+    ));
+    lessons.len() - 1
+}
+
 fn kind_of(module: Option<&str>) -> LessonItemKind {
     match module {
         Some("resource") => LessonItemKind::File,
@@ -223,6 +276,7 @@ pub fn course_content(
             visible(row)
                 && text(row, "courseId") == Some(course_id)
                 && row.get("visible").and_then(Value::as_bool) != Some(false)
+                && !syllabus(row)
         })
         .collect();
     // Sections from the LMS record, which also carries each section's text;
@@ -253,36 +307,17 @@ pub fn course_content(
                 summary_html: text(section, "bodyHtml")
                     .map(|html| safe_html(html, false))
                     .unwrap_or_default(),
+                summary: text(section, "bodyHtml")
+                    .map(lesson_summary)
+                    .unwrap_or_default(),
                 items: Vec::new(),
+                assignment_ids: Vec::new(),
                 posted: false,
             },
         ));
     }
     for row in &rows {
-        let section = section_of(row);
-        let section_id = row.get("sectionId").and_then(Value::as_u64);
-        let index = lessons
-            .iter()
-            .position(|(id, lesson)| match (section_id, id) {
-                (Some(section_id), Some(id)) => section_id == *id,
-                _ => lesson.section == section,
-            })
-            .unwrap_or_else(|| {
-                lessons.push((
-                    section_id,
-                    LessonContent {
-                        section,
-                        section_id,
-                        title: text(row, "sectionTitle").map(str::to_owned),
-                        number: None,
-                        label: String::new(),
-                        summary_html: String::new(),
-                        items: Vec::new(),
-                        posted: false,
-                    },
-                ));
-                lessons.len() - 1
-            });
+        let index = place(&mut lessons, row);
         let lesson = &mut lessons[index].1;
         let module = text(row, "module");
         // Assignments and quizzes have pages of their own (AssignmentDetail).
@@ -295,31 +330,47 @@ pub fn course_content(
             kind,
             LessonItemKind::Page | LessonItemKind::Label | LessonItemKind::Forum
         );
+        let body = text(row, "bodyHtml");
         lesson.items.push(LessonItem {
             material_id: text(row, "id").unwrap_or_default().into(),
             kind,
             title: text(row, "title").unwrap_or_default().into(),
             body_html: inline
-                .then(|| text(row, "bodyHtml").map(|html| safe_html(html, true)))
+                .then(|| body.map(|html| safe_html(html, true)))
                 .flatten()
                 .filter(|html| !html.is_empty()),
             source: text(row, "url")
                 .or_else(|| text(row, "resourceUrl"))
                 .map(str::to_owned),
+            image_only: kind == LessonItemKind::Label && body.is_some_and(image_only),
         });
     }
-    let assignment_sections: Vec<i32> = array(workspace, "assignments")
-        .iter()
-        .filter(|row| visible(row) && text(row, "courseId") == Some(course_id))
-        .filter_map(|row| row.get("lmsCmid").and_then(Value::as_u64))
-        .filter_map(|cmid| {
-            rows.iter()
-                .find(|row| row.get("cmid").and_then(Value::as_u64) == Some(cmid))
-                .map(|row| section_of(row))
-        })
-        .collect();
-    let mut lessons: Vec<LessonContent> =
-        lessons.into_iter().map(|(_, lesson)| lesson).collect();
+    // Each assignment sits where its LMS activity does.
+    let mut other_assignment_ids = Vec::new();
+    for assignment in array(workspace, "assignments").iter().filter(|row| {
+        visible(row)
+            && text(row, "courseId") == Some(course_id)
+            && row.get("hidden").and_then(Value::as_bool) != Some(true)
+    }) {
+        let Some(id) = text(assignment, "id") else {
+            continue;
+        };
+        let source = assignment
+            .get("lmsCmid")
+            .and_then(Value::as_u64)
+            .and_then(|cmid| {
+                rows.iter()
+                    .find(|row| row.get("cmid").and_then(Value::as_u64) == Some(cmid))
+            });
+        match source {
+            Some(row) => {
+                let index = place(&mut lessons, row);
+                lessons[index].1.assignment_ids.push(id.into());
+            }
+            None => other_assignment_ids.push(id.into()),
+        }
+    }
+    let mut lessons: Vec<LessonContent> = lessons.into_iter().map(|(_, lesson)| lesson).collect();
     lessons.sort_by_key(|lesson| lesson.section);
     // Lessons are numbered and labelled over every visible section, so a
     // lesson with nothing posted yet keeps its place in the count.
@@ -348,7 +399,7 @@ pub fn course_content(
         lesson.number.is_some()
             || !lesson.summary_html.is_empty()
             || !lesson.items.is_empty()
-            || assignment_sections.contains(&lesson.section)
+            || !lesson.assignment_ids.is_empty()
     });
     // The rail: numbered lessons in a lesson course, else every section.
     let rail: Vec<&LessonContent> = lessons
@@ -397,11 +448,25 @@ pub fn course_content(
                 .or(lessons.first())
         }
     });
+    let current_section = current.map(|lesson| lesson.section);
+    // Schedule tables are marked against the lesson the course is at.
+    let current_number = current.and_then(|lesson| lesson.number);
+    for lesson in &mut lessons {
+        lesson.summary_html = mark_schedule(&lesson.summary_html, current_number);
+        for html in lesson
+            .items
+            .iter_mut()
+            .filter_map(|item| item.body_html.as_mut())
+        {
+            *html = mark_schedule(html, current_number);
+        }
+    }
     Some(CourseContent {
         course_id: course_id.into(),
-        current_section: current.map(|lesson| lesson.section),
+        current_section,
         class_at: timeline.and_then(|timeline| timeline.class_at),
         lessons,
+        other_assignment_ids,
     })
 }
 

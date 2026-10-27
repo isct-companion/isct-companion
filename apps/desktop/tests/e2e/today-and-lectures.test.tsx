@@ -46,7 +46,7 @@ import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
  * Two local helpers stand in where the harness has no equivalent:
  *
  * - `mountCompactToday`: the shipped `Today` is never rendered with `compact`
- *   (only the dev-only `?preview=lms` workbench passes it), so the Today course
+ *   (the dev-only `?preview=lms` workbench that passed it is gone), so the Today course
  *   list is mounted as the real page over the same scripted host, inside the
  *   same shell tokens.
  * - `taskViewFor`: the harness has no `TaskView` builder, so the scripted Core

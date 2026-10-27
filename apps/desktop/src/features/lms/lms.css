@@ -419,12 +419,6 @@
 /* Quiet overlay-width scrollbars, even where the system always shows them. */
 .lmsWorkspace *, .lectureList { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 
-/* ---------- Development preview (?preview=lms) ---------- */
-.lmsPreviewShell { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); }
-.lmsPreviewNotice { display: flex; justify-content: space-between; padding: 9px 24px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: calc(var(--type-block-size) * var(--text)); }
-.lmsPreviewNotice label { display: flex; align-items: center; gap: 6px; }
-.lmsPreviewMain { display: flex; flex: 1; min-height: 0; padding: 20px 24px; }
-
 /* ---------- Outline items: typed rows, not one card for everything ----------
    Files are list rows marked by their type's icon and colour; tasks carry a
    state bar, announcements read as quotes, tables are hairline grids. */

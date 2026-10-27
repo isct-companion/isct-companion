@@ -16,9 +16,9 @@ use super::calendar::{quarter_range, teaching_week};
 use super::reminders::reminder_term;
 use super::tasks::{countdown_tone, task_view, AssignmentGroups};
 use super::{
-    array, assignment_submitted, calendar_between, display_color, parse_civil_date,
-    teaching_periods, text, tokyo_date, visible, Occurrence, OccurrenceKind, ScheduleError,
-    TeachingPeriod,
+    array, assignment_submitted, calendar_between, content_language, display_color,
+    parse_civil_date, teaching_periods, text, tokyo_date, visible, Occurrence, OccurrenceKind,
+    ScheduleError, TeachingPeriod,
 };
 
 /// Classes the Today stack previews: the next one and two after it.
@@ -87,8 +87,9 @@ pub struct MaterialItem {
     pub title: String,
     /// `pdf`, `link` or `video`.
     pub kind: String,
-    pub section: Option<i64>,
-    pub section_title: Option<String>,
+    /// Where the material sits: its LMS section title, else the section's
+    /// number as a lesson in the content language (第3回, Lesson 3).
+    pub section_label: Option<String>,
     pub url: Option<String>,
     pub updated_at: Option<String>,
     pub added_today: bool,
@@ -282,11 +283,16 @@ fn material_item(workspace: &Value, row: &Value, date: &str) -> Option<MaterialI
         color: course.map(display_color),
         title: text(row, "title").unwrap_or_default().into(),
         kind: text(row, "type").unwrap_or("link").into(),
-        section: row
-            .get("sectionNumber")
-            .and_then(Value::as_i64)
-            .or_else(|| row.get("session").and_then(Value::as_i64)),
-        section_title: text(row, "sectionTitle").map(str::to_owned),
+        section_label: text(row, "sectionTitle").map(str::to_owned).or_else(|| {
+            let number = row
+                .get("sectionNumber")
+                .and_then(Value::as_i64)
+                .or_else(|| row.get("session").and_then(Value::as_i64))?;
+            Some(match content_language(workspace) {
+                "ja" => format!("第{number}回"),
+                _ => format!("Lesson {number}"),
+            })
+        }),
         url: text(row, "resourceUrl")
             .or_else(|| text(row, "url"))
             .map(str::to_owned),

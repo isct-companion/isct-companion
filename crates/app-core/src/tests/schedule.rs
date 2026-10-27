@@ -1112,6 +1112,11 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     assert_eq!(class.phase, TodayPhase::InClass);
     assert_eq!(class.class_materials[0].material_id, "slides-2");
     assert!(class.class_materials[0].added_today);
+    // Without a section title, the row names the lesson by its number.
+    assert_eq!(
+        class.class_materials[0].section_label.as_deref(),
+        Some("Lesson 2")
+    );
     assert!(class
         .class_materials
         .iter()
@@ -2809,10 +2814,6 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
             url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf".into(),
         }]
     );
-    assert_eq!(
-        (view.section_number, view.section_title.as_deref()),
-        (Some(6), Some("第6回"))
-    );
     assert_eq!(view.files.unwrap().course, "CSC.T273");
     assert!(assignment_detail(&data, "gone").is_none());
     // Names decode; a link to a folder falls back to its text; plain http,
@@ -2852,16 +2853,18 @@ fn course_content_follows_the_desktop_lecture_desk() {
         ("連絡先・オフィスアワー", None),
         ("2026年度 講義資料", None),
     ] {
-        assert_eq!(lesson_number(title), number, "{title}");
+        let read = course_content::lesson_title(title).map(|title| title.number);
+        assert_eq!(read, number, "{title}");
     }
 
     // Sections and their text come from the LMS record; section numbers and
-    // lesson numbers differ (section 6 is 第5回).
+    // lesson numbers differ (section 6 is 第5回). Moodle may send a section
+    // id as a string, and its files still sit in it.
     let data = json!({
         "courses":[{"id":"c","termId":"2026-3Q","offeringId":"o"}],
         "lmsCourses":[{"lmsId":8,"offeringId":"o","sections":[
             {"id":100,"number":0,"title":"一般","bodyHtml":""},
-            {"id":105,"number":5,"title":"第4回","bodyHtml":"<div class=\"summarytext\"><div>授業計画：配列<br>課題：確認</div></div><ul data-for=\"cmlist\"></ul>"},
+            {"id":"105","number":5,"title":"第4回","bodyHtml":"<div class=\"summarytext\"><div>授業計画：配列<br>課題：確認</div></div><ul data-for=\"cmlist\"></ul>"},
             {"id":106,"number":6,"title":"第5回","bodyHtml":"<script>x()</script><p>授業計画：継承</p>"},
             {"id":107,"number":7,"title":"第6回","bodyHtml":""},
             {"id":108,"number":8,"title":"第7回","bodyHtml":"<p>hidden</p>","visible":false},
@@ -2875,7 +2878,11 @@ fn course_content_follows_the_desktop_lecture_desk() {
             {"id":"task","courseId":"c","session":7,"sectionId":107,"module":"assign","cmid":5,"title":"Report"},
             {"id":"quiz","courseId":"c","session":7,"sectionId":107,"module":"quiz","title":"Quiz"}
         ],
-        "assignments":[{"id":"r","courseId":"c","title":"Report","details":"","lmsCmid":5}]
+        "assignments":[
+            {"id":"r","courseId":"c","title":"Report","details":"","lmsCmid":5},
+            {"id":"loose","courseId":"c","title":"Essay","details":""},
+            {"id":"gone","courseId":"c","title":"Gone","details":"","lmsCmid":5,"hidden":true}
+        ]
     });
     let request: WorkspaceQuery = serde_json::from_value(
         json!({"kind":"courseContent","courseId":"c","now":"2026-11-24T12:00:00+09:00"}),
@@ -2912,8 +2919,19 @@ fn course_content_follows_the_desktop_lecture_desk() {
         ]
     );
     assert_eq!(view.current_section, Some(6));
+    // An assignment sits where its LMS activity does; one without an
+    // activity is the course's own, and a hidden one is in neither.
+    assert_eq!(view.lessons[3].assignment_ids, ["r"]);
+    assert_eq!(view.other_assignment_ids, ["loose"]);
     let fifth = &view.lessons[2];
     assert_eq!(fifth.summary_html, "<p>授業計画：継承</p>");
+    // A folded lesson is headed by its plan's first line, without the label.
+    let summaries: Vec<_> = view
+        .lessons
+        .iter()
+        .map(|lesson| lesson.summary.as_str())
+        .collect();
+    assert_eq!(summaries, ["", "配列", "継承", "", ""]);
     assert_eq!(
         view.lessons[1].summary_html,
         "<div><div>授業計画：配列<br>課題：確認</div></div><ul></ul>"
@@ -2963,15 +2981,20 @@ fn course_content_follows_the_desktop_lecture_desk() {
         "演習第7回",
         "第14回",
     ];
+    // 一般 holds the course's schedule table, which Core marks against the
+    // lesson the course is at.
+    let schedule =
+        "<table><tr><td>1回目</td><td>行列</td></tr><tr><td>2回目</td><td>行列式</td></tr></table>";
     let mut algebra = data.clone();
     algebra["lmsCourses"][0]["sections"] = titles
         .iter()
         .enumerate()
         .map(|(number, title)| {
-            let body = if number == 1 {
-                "<p>Office hours</p>"
-            } else {
-                ""
+            let body = match number {
+                0 => schedule,
+                1 => "<p>Office hours</p>",
+                2 => "<p>Course schedule: Basic syntax</p><p>Objectives: …</p>",
+                _ => "",
             };
             json!({"id":200 + number,"number":number,"title":title,"bodyHtml":body})
         })
@@ -2979,10 +3002,14 @@ fn course_content_follows_the_desktop_lecture_desk() {
     algebra["materials"] = json!([
         {"id":"g","courseId":"c","session":0,"sectionId":200,"module":"forum","title":"お知らせ"},
         {"id":"s","courseId":"c","session":3,"sectionId":203,"module":"resource","title":"slides"},
-        {"id":"n","courseId":"c","session":4,"sectionId":204,"module":"label","title":"note","bodyHtml":"<p>Posted after class</p>"}
+        {"id":"n","courseId":"c","session":4,"sectionId":204,"module":"label","title":"board","bodyHtml":"<p><img src=\"https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_label/intro/board.png\" alt=\"\"></p>"}
     ]);
     let view = course_content(&algebra, &SchoolReads::fixture(&algebra), "c", now).unwrap();
-    let labels: Vec<_> = view.lessons.iter().map(|lesson| lesson.label.as_str()).collect();
+    let labels: Vec<_> = view
+        .lessons
+        .iter()
+        .map(|lesson| lesson.label.as_str())
+        .collect();
     assert_eq!(
         labels,
         [
@@ -3012,6 +3039,16 @@ fn course_content_follows_the_desktop_lecture_desk() {
         ]
     );
     assert_eq!(view.current_section, Some(3));
+    assert_eq!(view.lessons[2].summary, "Basic syntax");
+    assert_eq!(
+        view.lessons[0].summary_html,
+        concat!(
+            r#"<table><tbody><tr class="lmsRowPast"><td>1回目</td><td>行列</td></tr>"#,
+            r#"<tr class="lmsRowNow"><td>2回目</td><td>行列式</td></tr></tbody></table>"#
+        )
+    );
+    // A label of pictures only is marked for laying out side by side.
+    assert!(view.lessons[4].items[0].image_only);
 
     // One series whose titles skip and repeat a number counts in order.
     algebra["materials"] = json!([]);
@@ -3045,13 +3082,21 @@ fn course_content_follows_the_desktop_lecture_desk() {
     plain["lmsCourses"] = json!([]);
     plain["materials"] = json!([
         {"id":"g","courseId":"c","session":0,"sectionTitle":"一般","title":"Syllabus"},
+        {"id":"h","courseId":"c","session":0,"sectionTitle":"一般","title":"Guide"},
         {"id":"a","courseId":"c","session":3,"sectionTitle":"第1回","title":"slides"},
         {"id":"r","courseId":"c","session":4,"sectionTitle":"Reading","title":"paper"}
     ]);
     let view = course_content(&plain, &SchoolReads::fixture(&plain), "c", now).unwrap();
     assert!(view.lessons.iter().all(|lesson| lesson.number.is_none()));
-    let labels: Vec<_> = view.lessons.iter().map(|lesson| lesson.label.as_str()).collect();
+    let labels: Vec<_> = view
+        .lessons
+        .iter()
+        .map(|lesson| lesson.label.as_str())
+        .collect();
     assert_eq!(labels, ["一般", "第1回", "Reading"]);
+    // The syllabus link is the course page's own, not course content.
+    assert_eq!(view.lessons[0].items.len(), 1);
+    assert_eq!(view.lessons[0].items[0].title, "Guide");
     assert_eq!(view.current_section, Some(4));
 
     // A mark for the class it is recorded against (the next one here, as
@@ -3121,7 +3166,6 @@ fn every_query_lists_the_changes_its_result_reads() {
         json!({"kind":"assignmentBoard","now":now}),
         json!({"kind":"courseDetail","courseId":"course"}),
         json!({"kind":"courseContent","courseId":"course","now":now}),
-        json!({"kind":"courseTimeline","courseId":"course","now":now}),
         json!({"kind":"lectureSearch","term":"2026-1Q","query":"slides"}),
         json!({"kind":"scheduledCourses","term":"2026-1Q"}),
         json!({"kind":"quarterRange","term":"2026-1Q"}),
