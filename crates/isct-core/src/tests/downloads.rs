@@ -26,6 +26,7 @@ impl SessionCookies for CookieSession {
 }
 
 enum DownloadStep {
+    Login,
     Complete(Vec<u8>),
     PartialThenError(Vec<u8>),
     Wait(Vec<u8>),
@@ -125,6 +126,7 @@ impl DownloadTransport for FakeTransport {
                 .pop_front()
                 .ok_or(FetchError::Network)?;
             match step {
+                DownloadStep::Login => Err(FetchError::Login),
                 DownloadStep::Complete(bytes) => {
                     file.write_all(&bytes)
                         .await
@@ -265,6 +267,101 @@ async fn failed_flight_is_removed_and_a_retry_starts_fresh() {
     );
     assert_eq!(transport.downloads.load(Ordering::SeqCst), 2);
     assert_eq!(std::fs::read(path).unwrap(), b"complete");
+}
+
+struct SavedSignIn {
+    calls: AtomicUsize,
+    outcome: Result<(), NetError>,
+}
+
+impl crate::net::SignIn for SavedSignIn {
+    fn sign_in<'a>(
+        &'a self,
+        _: crate::school_auth::SchoolAuthProfile,
+    ) -> crate::net::BoxFuture<'a, Result<(), NetError>> {
+        Box::pin(async move {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.outcome.clone()
+        })
+    }
+}
+
+// Expired cookies used to fail immediately on mobile. The real downloader
+// now renews once, cleans the failed temp file, and never loops on rejection.
+#[tokio::test]
+async fn an_expired_download_renews_once_and_keeps_failures_retryable() {
+    for (auth, second, expected) in [
+        (
+            Ok(()),
+            DownloadStep::Complete(b"signed-in file".to_vec()),
+            Ok(Fetched::Saved),
+        ),
+        (Ok(()), DownloadStep::Login, Err(FetchError::Login)),
+        (
+            Err(NetError::SignInRequired),
+            DownloadStep::Login,
+            Err(FetchError::Login),
+        ),
+        (
+            Err(NetError::Deadline),
+            DownloadStep::Login,
+            Err(FetchError::Timeout),
+        ),
+    ] {
+        let attempts = if auth.is_ok() { 2 } else { 1 };
+        let transport = Arc::new(FakeTransport::new(10, [DownloadStep::Login, second]));
+        let downloader = Downloader::with_transport(transport.clone());
+        let sign_in = Arc::new(SavedSignIn {
+            calls: AtomicUsize::new(0),
+            outcome: auth,
+        });
+        downloader.attach_sign_in(SignInGate::new(sign_in.clone()));
+        let path = target("expired-session");
+        assert_eq!(
+            downloader
+                .fetch(session(), &url(), path.clone(), None, true)
+                .await,
+            expected
+        );
+        assert_eq!(sign_in.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(transport.downloads.load(Ordering::SeqCst), attempts);
+        assert!(part_files(&path).is_empty());
+        if expected.is_ok() {
+            assert_eq!(std::fs::read(&path).unwrap(), b"signed-in file");
+            // A cached file must not require a live session again.
+            assert_eq!(
+                downloader.fetch(session(), &url(), path, None, true).await,
+                expected
+            );
+            assert_eq!(sign_in.calls.load(Ordering::SeqCst), 1);
+        } else {
+            assert!(!path.exists());
+        }
+        downloader.shutdown().await;
+    }
+}
+
+#[test]
+fn download_redirects_recognize_sso_without_sending_cookies_outside_lms() {
+    let source = url();
+    for login in [
+        "/2025/login/index.php",
+        "https://isct.ex-tic.com/auth/session",
+    ] {
+        assert_eq!(download_redirect(&source, login), Err(FetchError::Login));
+    }
+    for external in [
+        "https://example.com/auth/session",
+        "http://lms.s.isct.ac.jp/2025/",
+        "https://student:secret@lms.s.isct.ac.jp/2025/",
+    ] {
+        assert_eq!(
+            download_redirect(&source, external),
+            Err(FetchError::Invalid)
+        );
+    }
+    let target = download_redirect(&source, "/2025/pluginfile.php/2/file.pdf").unwrap();
+    assert!(is_plugin_file_url(&target));
 }
 
 #[tokio::test]

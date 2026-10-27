@@ -34,6 +34,7 @@ use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
 use url::Url;
 
 mod history;
+mod jobs;
 mod lane;
 mod login;
 mod otp_enroll;
@@ -41,7 +42,7 @@ mod otp_setup;
 mod pull;
 mod restore;
 
-use self::{history::*, login::*, pull::*};
+use self::{history::*, jobs::*, login::*, pull::*};
 
 const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
 const LAUNCH_INTERVAL: Duration = Duration::from_secs(90);
@@ -74,13 +75,13 @@ struct Inner {
     browser: Arc<dyn SchoolBrowser>,
     state: Mutex<State>,
     lane: AsyncMutex<()>,
-    lifecycle: AsyncMutex<()>,
     traces: broadcast::Sender<Trace>,
     browsing_changed: Notify,
     tasks: RuntimeTasks,
     runtime: tokio::runtime::Handle,
     next_generation: AtomicU64,
     next_action: AtomicU64,
+    next_job: AtomicU64,
     listener: Mutex<Option<Arc<dyn SchoolBrowserListener>>>,
     restore_io: Mutex<()>,
     transport: std::sync::OnceLock<Transport>,
@@ -101,9 +102,14 @@ struct State {
     revision: u64,
     last_focus: Option<Instant>,
     last_launch: Option<Instant>,
-    heartbeat: Option<SchoolAuthProfile>,
-    pending_profiles: HashSet<SchoolAuthProfile>,
-    lifecycle_epoch: u64,
+    heartbeat: Option<Heartbeat>,
+    /// The one session job each profile may have; every caller joins it.
+    jobs: HashMap<SchoolAuthProfile, SessionJob>,
+    /// Bumped when a new attempt takes a profile over (a session check, a
+    /// sign-in, new credentials). A result that finishes after its attempt
+    /// was superseded must not publish the profile's state.
+    attempts: HashMap<SchoolAuthProfile, u64>,
+    session_retry: HashMap<SchoolAuthProfile, tokio::time::Instant>,
     customizations: HashMap<SchoolSite, SchoolPageCustomization>,
     guide: Vec<crate::kyomu_guide::GuideItem>,
     submission: Option<super::submission::PendingSubmission>,
@@ -160,13 +166,13 @@ impl SchoolBrowserEngine {
             browser: browser.clone(),
             state: Mutex::new(State::default()),
             lane: AsyncMutex::new(()),
-            lifecycle: AsyncMutex::new(()),
             traces,
             browsing_changed: Notify::new(),
             tasks: RuntimeTasks::default(),
             runtime,
             next_generation: AtomicU64::new(1),
             next_action: AtomicU64::new(1),
+            next_job: AtomicU64::new(1),
             listener: Mutex::new(None),
             restore_io: Mutex::new(()),
             transport: std::sync::OnceLock::new(),
@@ -184,16 +190,43 @@ impl SchoolBrowserEngine {
 
     pub fn user_browsing(&self, site: Option<SchoolSite>) -> Result<(), SchoolBrowserError> {
         let mut state = self.0.state.guard();
+        if state.browsing == site {
+            return Ok(());
+        }
         if state.browsing == Some(SchoolSite::SciencePortal)
             && site != Some(SchoolSite::SciencePortal)
         {
             state.otp_setup = None;
             state.otp_enrollment = None;
         }
+        // Transfer ownership before notifying the hidden waiter. Its later
+        // cleanup must not erase a new visible login, or leave a stale run
+        // blocking the newly opened page's saved-credential read.
+        state.heartbeat = None;
+        state.login = None;
         state.browsing = site;
+        let login_page = site
+            .and_then(|site| state.views.get(&site))
+            .and_then(|view| {
+                let url = Url::parse(&view.url).ok()?;
+                is_identity_login(&url).then(|| {
+                    (
+                        PageId {
+                            browser: view.id,
+                            sequence: view.last_page,
+                        },
+                        url,
+                        view.auth_relay.clone(),
+                    )
+                })
+            });
         drop(state);
         let _ = self.0.traces.send(Trace::Browsing(site));
         self.0.browsing_changed.notify_waiters();
+        // Revealing a resident login page does not produce another load.
+        if let Some((page, url, relay)) = login_page {
+            self.0.arm_saved_login(page, url, relay);
+        }
         Ok(())
     }
 
@@ -594,16 +627,20 @@ impl Inner {
             self.otp_enrollment_page(&event);
             return;
         }
+        // A sign-in and a session check belong to the view they run in; a
+        // page from any other view neither finishes nor drives them.
+        let login = login.filter(|active| active.browser == event.page.browser);
+        let heartbeat = heartbeat.filter(|heartbeat| heartbeat.browser == event.page.browser);
         if let Some(active) = login {
             if login_succeeded(event.url.as_str(), active.profile) {
                 self.finish_login(active);
             } else if let Some(script) = login_script(event.url.as_str(), &active, &auth_relay) {
                 let _ = self.dispatch_eval(event.page.browser, script, true);
             }
-        } else if let Some(profile) =
-            heartbeat.filter(|profile| login_succeeded(event.url.as_str(), *profile))
+        } else if let Some(heartbeat) =
+            heartbeat.filter(|heartbeat| login_succeeded(event.url.as_str(), heartbeat.profile))
         {
-            self.set_session_from_inner(profile, SchoolSessionState::Active);
+            self.set_session_from_inner(heartbeat.profile, SchoolSessionState::Active);
         } else if is_identity_login(&event.url) {
             self.arm_saved_login(event.page, event.url.clone(), auth_relay);
         }
@@ -644,10 +681,10 @@ impl Inner {
             let heartbeat = self.state.with(|state| {
                 state
                     .heartbeat
-                    .filter(|profile| profile.start_site() == event.page.browser.site)
+                    .filter(|heartbeat| heartbeat.browser == event.page.browser)
             });
-            if let Some(profile) = heartbeat {
-                self.set_session_from_inner(profile, SchoolSessionState::Failed);
+            if let Some(heartbeat) = heartbeat {
+                self.set_session_from_inner(heartbeat.profile, SchoolSessionState::Failed);
             }
         }
     }
@@ -667,7 +704,7 @@ impl Inner {
                 self.otp_enrollment_relay(page, encoded);
                 return;
             }
-            self.login_relay(&encoded);
+            self.login_relay(page.browser, &encoded);
         }
     }
 

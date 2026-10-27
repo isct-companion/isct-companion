@@ -6,7 +6,7 @@ through Swift, Kotlin or MCP bindings.
 
 ## Shared services
 
-`CoreRuntime` owns one `Downloader` and one `LmsSession`. Construct
+`CoreRuntime` owns one `Downloader`. Construct
 `CourseMaterials` with the shared data store, the platform's storage root, that
 downloader and an optional `net::SessionCookies` port (the same port LMS and
 教務Web requests use). Do not create a downloader
@@ -18,8 +18,8 @@ shared by every caller.
 | `CourseMaterials::open(context, source, download, read_text, limit)` | Resolve an LMS resource and return a cached file, folder, external URL, missing result, size limit or typed failure. `download=false` permits resolution but does not fetch file bytes. |
 | `CourseMaterials::preview(context, source, explicit, foreground)` | Apply the saved automatic size limit (default 20 MiB, bounded to 1–1024 MiB). An explicit download has no size limit and foreground priority. |
 | `CourseMaterials::clean(days)` | Remove stale complete material cache files from current and legacy layouts. Retention is bounded to 1–3650 days. |
-| `LmsSession::cookie_header(port, url)` | For LMS URLs, prepare the shared native session, apply readiness/retry policy and obtain cookies. For 教務Web and GetAccess, read the school store directly; no session cookie is `SignInRequired`. |
-| `LmsSession::store_set_cookies(port, url, values)` | Write Set-Cookie values from a Rust response back to the school store, keeping only cookies for the response's own site. |
+| `lms_session::cookie_header(port, url)` | Read the school store's cookies for an LMS, 教務Web, GetAccess or Science account URL. LMS needs `MoodleSession` and 教務Web `ASP.NET_SessionId`; without its session cookie the read is `SignInRequired`, and the caller's transport asks the school browser's session job for a sign-in. |
+| `lms_session::store_set_cookies(port, url, values)` | Write Set-Cookie values from a Rust response back to the school store, keeping only cookies for the response's own site. |
 | `Downloader::shutdown()` | Stop admission, signal cancellation and drain owned download/resolution workers. Called by `CoreRuntime::shutdown()`. |
 
 The serialized `Material` results preserve desktop's `state` discriminator.
@@ -31,13 +31,12 @@ own protocol or UI response without repeating material acquisition policy.
 ## Native boundary
 
 Cookie storage belongs to the native browser session: WKWebView, Android
-WebView and Tauri expose different APIs. On desktop, `SchoolCookiePort` reports
-school and LMS readiness, requests the existing school session,
-creates/navigates the native view, and reads and writes the school store's
-cookies. iOS and Android implement `NativeDownloadSession` over
-`WKHTTPCookieStore` and `CookieManager`. The Core session owns the wait and retry decisions;
-HTTP requests consume its cookie header. No second persistent cookie jar is
-introduced.
+WebView and Tauri expose different APIs. On desktop, `SchoolCookiePort` only reads and
+writes the school store's cookies; iOS and Android implement
+`NativeDownloadSession` over `WKHTTPCookieStore` and `CookieManager`. No shell
+waits for a session or starts a sign-in on its own: a read that finds none
+answers `SignInRequired`, and every such read joins the school browser's one
+session job for the profile. No second persistent cookie jar is introduced.
 
 The existing school queue still executes login and browser navigation. Its
 full state-machine migration is Phase 3. This checkpoint moves only the

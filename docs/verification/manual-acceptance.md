@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 113 checks must be re-run before the next release.**
+**10 of 115 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**103 checks have never been run or could not be run:**
+**105 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -74,6 +74,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-WINDOWS-UPDATES` — never verified
 - `DESKTOP-DEV-BUILD-UPDATES` — never verified
 - `DESKTOP-WINDOWS-SCHOOL-PULL` — never verified
+- `DESKTOP-LMS-SESSION-RECOVERY` — never verified
 - `DESKTOP-WINDOWS-SIGNED-INSTALL` — never verified
 - `DESKTOP-WINDOWS-LAUNCH` — never verified
 - `SCHOOL-OTP-QR` — never verified
@@ -133,6 +134,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-EXAM-MARKS` — never verified
 - `SCHOOL-COURSE-AFTER-ENROLMENT` — never verified
 - `IOS-SIGNIN-REASON-AND-RETRY` — never verified
+- `IOS-LMS-ATTACHMENT-SESSION` — never verified
 - `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
 - `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
 
@@ -157,7 +159,7 @@ an unverified area becomes an assumed-good one.
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/isct-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-ffi/src/matrix.rs<br>crates/isct-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/isct-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/isct-core/src/matrix_scan.rs<br>crates/isct-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/isct-ocr/src/engine/grid/**<br>crates/isct-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
-| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/isct-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
@@ -192,6 +194,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/settings/AboutSettings.tsx<br>crates/isct-core/src/app_updates.rs |
 | `DESKTOP-DEV-BUILD-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs |
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/net/tls.rs<br>crates/isct-core/src/net/moodle/mod.rs<br>crates/isct-core/src/net/kyomu.rs |
+| `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lms_downloader.rs<br>crates/isct-core/src/lms_session.rs<br>crates/isct-core/src/net/sign_in.rs<br>crates/isct-core/src/school_browser/engine/jobs.rs |
 | `DESKTOP-WINDOWS-SIGNED-INSTALL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | .github/workflows/desktop-release.yml<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-WINDOWS-LAUNCH` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/main.rs<br>.github/workflows/desktop-release.yml |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/isct-core/src/school_auth/otp_setup.rs<br>crates/isct-core/src/school_auth/otp_enrollment.rs<br>crates/isct-core/src/school_browser/assets/*.js<br>crates/isct-core/src/school_browser/engine/*.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
@@ -251,6 +254,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/exams/ExamEditor.tsx<br>apps/desktop/src/app/notify.ts<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
 | `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/isct-core/src/sync_engine/planner.rs<br>crates/isct-core/src/sync_engine/runner.rs<br>crates/isct-core/src/school_browser/engine/pull.rs<br>apps/desktop/src/app/sync-text.ts |
 | `IOS-SIGNIN-REASON-AND-RETRY` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>crates/isct-core/src/school_browser/assets/school-login.js |
+| `IOS-LMS-ATTACHMENT-SESSION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/isct-core/src/school_auth.rs<br>crates/isct-core/src/school_auth/otp_enrollment.rs<br>crates/isct-core/src/school_browser/engine/login.rs |
 
@@ -1445,6 +1449,14 @@ A Signed in account; at least one course with downloadable material.
 3. Download a material and choose Show in Finder / Show in Explorer.
    - *Why:* The file lands in Downloads through the native layer; only the OS
      reveal proves the hand-off, not the download counter.
+4. On macOS, open an LMS assignment's file draft area and drag a small
+   local file from Finder into it, without submitting the assignment.
+   Switch between the app's native pages and school WebView, let a
+   background school read finish, then repeat the drag and remove the
+   draft file. Do not restart between attempts.
+   - *Why:* The main Tauri view and hidden school views must leave native file
+     drag events to the visible WKWebView. Repeating after view changes
+     exercises the intermittent loss of drag delivery reported on macOS.
 
 **Where to look**
 
@@ -1455,6 +1467,8 @@ download list, and the OS file manager.
 
 Navigation stays inside the school origins, Back does not replay a POST,
 the popup returns to its opener, and the OS reveals the saved file.
+On macOS the LMS draft area accepts Finder files before and after view
+changes without restarting the app.
 
 **Why this is manual**
 
@@ -1465,6 +1479,7 @@ manager. jsdom cannot produce native navigation, popups or a reveal.
 
 - `crates/isct-core/src/school_browser/engine/**`
 - `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
 
 **Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
@@ -3300,6 +3315,50 @@ Needs a real school account, a Windows PC with WebView2's cookie store and the W
 - `crates/isct-core/src/net/tls.rs`
 - `crates/isct-core/src/net/moodle/mod.rs`
 - `crates/isct-core/src/net/kyomu.rs`
+
+**Last recorded** never run
+
+### A desktop LMS read without a session signs in once and goes on (`DESKTOP-LMS-SESSION-RECOVERY`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A macOS or Windows build from this source, saved Science Tokyo
+credentials, and a course with at least one PDF material in Lecture Desk.
+
+**Steps**
+
+1. Open Settings > Diagnostics and clear the log, then in Settings > Reset clear the school caches with "Also sign out of school web pages" checked.
+   - *Why:* Leaves the school store without a MoodleSession cookie, the state the removed desktop-only LMS view used to repair by polling. Reads now take what the store holds and ask Core for a sign-in.
+2. Without opening any school page, open a PDF material of the course and, at the same time, start an LMS refresh from the course list.
+   - *Why:* Two readers find the session gone at once; they must join one sign-in, and the file must arrive over the cookies that sign-in left in the shared store.
+3. Copy the diagnostics log.
+   - *Why:* The log is where one sign-in and its service entry can be told apart from one per request.
+
+**Where to look**
+
+The opened material, the refresh status, and the copied log.
+
+**Expected**
+
+The PDF opens and the refresh finishes without the person signing in.
+For that burst the log shows one `service entry profile=Science
+result=Ok(true)`, no session timeout, and no token, sesskey or cookie
+value.
+
+**Why this is manual**
+
+Needs the school's real sign-on and the native WebKit or WebView2 cookie store that the HTTP reads share; the joining itself is covered in Core, but no headless suite holds a real school session cookie.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/lms_downloader.rs`
+- `crates/isct-core/src/lms_session.rs`
+- `crates/isct-core/src/net/sign_in.rs`
+- `crates/isct-core/src/school_browser/engine/jobs.rs`
 
 **Last recorded** never run
 
@@ -6669,6 +6728,64 @@ school's answer and the native page a person reads.
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
 - `apps/ios/IsctCompanion/Core/AppModel.swift`
 - `crates/isct-core/src/school_browser/assets/school-login.js`
+
+**Last recorded** never run
+
+### iOS LMS attachments use the resident session and open a system preview (`IOS-LMS-ATTACHMENT-SESSION`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An iPhone or iPad build with saved Science Tokyo credentials and a
+course containing a PDF and an attachment the WebView cannot display.
+
+**Steps**
+
+1. Sign in inside the app's school WebView, open the course, and tap
+   both an attachment download link and a PDF attachment link.
+   - *Why:* Both download-action and download-response callbacks must retain the
+     authenticated WKWebView session rather than hand an unauthenticated
+     URL to Safari. Displayable attachments must not become blank pages.
+2. In each system preview, use Share to save a copy to Files, dismiss
+   the preview, and reopen the course page. Download a second file.
+   - *Why:* The preview must own a real downloaded file until dismissal; cleanup
+     must not remove it while the share sheet reads it or block the next
+     queued preview.
+3. Sign out from the school page while keeping the app's saved
+   credentials. Return to the native course page and open an uncached
+   material. Then reveal the resident school login page and switch
+   between school views without restarting the app.
+   - *Why:* Core must renew the expired service session once before retrying the
+     material. Revealing an already loaded login page must arm saved
+     credentials, and an old view's disappearance must not hide the new one.
+
+**Where to look**
+
+The in-app school page, system Quick Look preview, saved Files copy,
+native course material, and school sign-in status.
+
+**Expected**
+
+Attachments produce readable local previews and saved copies. The app
+restores its own expired session with the saved credentials and remains
+responsive when school views change. Safari has its own sign-in session.
+
+**Why this is manual**
+
+Requires real LMS authentication, WKDownload delegate delivery, Quick
+Look and the iOS share sheet. Core retry and redirect classification are
+already covered by the downloads tests; those tests cannot run WebKit or
+prove that the native share sheet receives the file.
+
+**Covers**
+
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/ios/IsctCompanion/Core/WebRouter.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+- `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
 
 **Last recorded** never run
 

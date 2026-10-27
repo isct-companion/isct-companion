@@ -27,6 +27,7 @@ use chrono::{DateTime, Utc};
 /// The HTTP clients the executors read with. Built once, when the shell
 /// attaches its cookie port.
 pub(crate) struct Transport {
+    pub(super) sign_in: SignInGate,
     pub(super) otp_setup: crate::school_auth::otp_setup::OtpSetupClient,
     pub(crate) moodle: MoodleClient,
     pub(crate) kyomu: Arc<KyomuClient>,
@@ -53,7 +54,9 @@ impl SignIn for EngineSignIn {
             }
             let engine = SchoolBrowserEngine(inner);
             let fail = |error: SchoolBrowserError| match error {
-                SchoolBrowserError::Cancelled => NetError::Cancelled,
+                SchoolBrowserError::Cancelled | SchoolBrowserError::Stopped => NetError::Cancelled,
+                SchoolBrowserError::Timeout(_) => NetError::Deadline,
+                SchoolBrowserError::Platform(detail) => NetError::Connect(detail),
                 error => NetError::Invalid(error.to_string()),
             };
             if !engine
@@ -86,6 +89,7 @@ impl SchoolBrowserEngine {
             sign_in.clone(),
         ));
         let transport = Transport {
+            sign_in: sign_in.clone(),
             otp_setup: crate::school_auth::otp_setup::OtpSetupClient::new(
                 http.clone(),
                 cookies.clone(),
@@ -102,6 +106,10 @@ impl SchoolBrowserEngine {
     /// The 教務Web client the official catalog executor reads with.
     pub fn kyomu_client(&self) -> Result<Arc<KyomuClient>, SchoolBrowserError> {
         Ok(self.transport()?.kyomu.clone())
+    }
+
+    pub(crate) fn sign_in_gate(&self) -> Result<SignInGate, SchoolBrowserError> {
+        Ok(self.transport()?.sign_in.clone())
     }
 
     pub(super) fn transport(&self) -> Result<&Transport, SchoolBrowserError> {

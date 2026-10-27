@@ -16,16 +16,25 @@ pub(super) struct ActiveLogin {
     pub(super) profile: SchoolAuthProfile,
     pub(super) credentials: SchoolCredentials,
     pub(super) run: String,
+    /// The view this run signs in. Pages and relays from any other view, or
+    /// from an earlier generation of this one, are not this run's.
+    pub(super) browser: BrowserId,
     /// Login form steps this run filled in and submitted.
     pub(super) submitted: HashSet<String>,
 }
 
 impl ActiveLogin {
-    pub(super) fn new(profile: SchoolAuthProfile, credentials: SchoolCredentials) -> Self {
+    pub(super) fn new(
+        profile: SchoolAuthProfile,
+        credentials: SchoolCredentials,
+        browser: BrowserId,
+        run: String,
+    ) -> Self {
         Self {
             profile,
             credentials,
-            run: new_id(),
+            run,
+            browser,
             submitted: HashSet::new(),
         }
     }
@@ -39,6 +48,24 @@ impl ActiveLogin {
         };
         self.submitted.contains("password") && self.submitted.contains(second)
     }
+}
+
+/// A hidden session check, in the view it navigated.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Heartbeat {
+    pub(super) profile: SchoolAuthProfile,
+    pub(super) browser: BrowserId,
+}
+
+/// Starts a new attempt for `profile`; results of earlier ones stop counting.
+fn begin_attempt(state: &mut State, profile: SchoolAuthProfile) -> u64 {
+    let attempt = state.attempts.entry(profile).or_default();
+    *attempt = attempt.wrapping_add(1);
+    *attempt
+}
+
+fn current_attempt(state: &State, profile: SchoolAuthProfile) -> u64 {
+    state.attempts.get(&profile).copied().unwrap_or_default()
 }
 
 #[derive(Clone, Debug)]
@@ -129,13 +156,43 @@ fn problem_kind(state: &str) -> Option<SchoolSignInProblemKind> {
 }
 
 impl SchoolBrowserEngine {
+    /// A shell wake consumes due retries. No timer owns a second login loop;
+    /// the retry joins or starts the profile's session job.
+    pub(crate) fn retry_sessions(self: &Arc<Self>) {
+        let due = self.0.state.with(|state| {
+            if state.browsing.is_some() || state.login.is_some() || state.heartbeat.is_some() {
+                return Vec::new();
+            }
+            let now = tokio::time::Instant::now();
+            let due: Vec<_> = state
+                .session_retry
+                .iter()
+                .filter(|(profile, at)| **at <= now && !state.jobs.contains_key(profile))
+                .map(|(profile, _)| *profile)
+                .collect();
+            for profile in &due {
+                state.session_retry.remove(profile);
+            }
+            due
+        });
+        for profile in due {
+            if let Err(error) = self.request_session(profile) {
+                log::warn!(target: "isct_core::school_browser", "session retry could not start profile={profile:?}: {error}");
+            }
+        }
+    }
+
     pub fn credentials_changed(
         &self,
         profile: SchoolAuthProfile,
         configured: bool,
     ) -> Result<SchoolSessionSnapshot, SchoolBrowserError> {
-        // New credentials are the person's answer to whatever failed before.
-        self.0.state.guard().sign_in.remove(&profile);
+        // New credentials are the person's answer to whatever failed before,
+        // and no result of a sign-in with the old ones may land after this.
+        self.0.state.with(|state| {
+            state.sign_in.remove(&profile);
+            begin_attempt(state, profile);
+        });
         self.set_session(
             profile,
             if configured {
@@ -152,9 +209,13 @@ impl SchoolBrowserEngine {
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        let _lane = self.acquire_lane().await?;
         loop {
-            match self.login_locked(profile, credentials.clone()).await {
+            // Waiting for a visible page to hide never holds the lane.
+            self.wait_until_hidden_without_context().await?;
+            let lane = self.acquire_lane().await?;
+            let result = self.login_locked(profile, credentials.clone()).await;
+            drop(lane);
+            match result {
                 // A visible page paused this sign-in. Resume it once the page
                 // hides instead of reporting the pause as a sign-in failure.
                 Err(SchoolBrowserError::Preempted) => continue,
@@ -189,7 +250,17 @@ impl SchoolBrowserEngine {
         })
     }
 
+    /// Joins or starts the profile's session check.
     pub async fn ensure_session(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<bool, SchoolBrowserError> {
+        self.session(profile, Reach::Portal).await
+    }
+
+    /// The body of a portal job: one check at a time on the lane, paused
+    /// while a school page is visible and resumed once it hides.
+    pub(super) async fn portal_session(
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<bool, SchoolBrowserError> {
@@ -210,59 +281,37 @@ impl SchoolBrowserEngine {
     }
 
     /// Admit a background session check without making the native caller own
-    /// its lifetime. Repeated requests for the same active or pending profile
-    /// coalesce into the existing check.
+    /// its lifetime. A request for a profile whose job is running joins it:
+    /// `false`.
     pub fn request_session(
         self: &Arc<Self>,
         profile: SchoolAuthProfile,
     ) -> Result<bool, SchoolBrowserError> {
-        {
-            let mut state = self.0.state.guard();
-            if !state.pending_profiles.insert(profile) {
-                return Ok(false);
-            }
-        }
-        let engine = self.clone();
-        let _entered = self.0.runtime.enter();
-        if !self.0.tasks.spawn(async move {
-            let _ = engine.ensure_session(profile).await;
-            {
-                let mut state = engine.0.state.guard();
-                state.pending_profiles.remove(&profile);
-            }
-        }) {
-            {
-                let mut state = self.0.state.guard();
-                state.pending_profiles.remove(&profile);
-            }
-            return Err(SchoolBrowserError::Stopped);
-        }
-        Ok(true)
+        self.start_session(profile)
     }
 
     pub async fn launch_sessions(&self) -> Result<SchoolSessionSnapshot, SchoolBrowserError> {
-        let epoch = self.0.state.guard().lifecycle_epoch;
-        let _run = self.0.lifecycle.lock().await;
-        if self.0.state.guard().lifecycle_epoch != epoch {
-            return self.session_snapshot();
-        }
-        {
-            let mut state = self.0.state.guard();
+        const PROFILES: [SchoolAuthProfile; 2] =
+            [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech];
+        let throttled = self.0.state.with(|state| {
             let now = Instant::now();
             if state
                 .last_launch
                 .is_some_and(|last| now.duration_since(last) < LAUNCH_INTERVAL)
             {
-                return Ok(snapshot(&state));
+                return true;
             }
             state.last_launch = Some(now);
-        }
-        for profile in [SchoolAuthProfile::Science, SchoolAuthProfile::TokyoTech] {
-            let _ = self.ensure_session(profile).await;
-        }
-        {
-            let mut state = self.0.state.guard();
-            state.lifecycle_epoch = state.lifecycle_epoch.saturating_add(1);
+            false
+        });
+        if throttled {
+            // A launch just ran: answer with what its checks find.
+            self.join_running(&PROFILES).await;
+        } else {
+            for profile in PROFILES {
+                let _ = self.start_session(profile);
+            }
+            self.join_running(&PROFILES).await;
         }
         self.session_snapshot()
     }
@@ -302,9 +351,8 @@ impl SchoolBrowserEngine {
         profile: SchoolAuthProfile,
         credentials: SchoolCredentials,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        let login = ActiveLogin::new(profile, credentials);
-        let run = login.run.clone();
-        let result = self.login_attempt(login).await;
+        let run = new_id();
+        let result = self.login_attempt(profile, credentials, run.clone()).await;
         // No exit may leave this run active: a stale run blocks automatic
         // sign-in for the profile. A completed sign-in has already cleared it.
         self.clear_login(&run);
@@ -313,11 +361,11 @@ impl SchoolBrowserEngine {
 
     pub(super) async fn login_attempt(
         &self,
-        login: ActiveLogin,
+        profile: SchoolAuthProfile,
+        credentials: SchoolCredentials,
+        run: String,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        let profile = login.profile;
-        let run = &login.run.clone();
-        self.wait_until_hidden_without_context().await?;
+        let run = &run;
         let site = profile.start_site();
         let url = safe_url(site.start_url())?;
         let mut traces = self.hidden_traces()?;
@@ -329,7 +377,8 @@ impl SchoolBrowserEngine {
             }
             // Signing in on request is how the person retries after a pause.
             state.sign_in.remove(&profile);
-            state.login = Some(login);
+            begin_attempt(&mut state, profile);
+            state.login = Some(ActiveLogin::new(profile, credentials, browser, run.clone()));
         }
         self.set_session(profile, SchoolSessionState::Pending);
         if let Err(error) = self.dispatch(browser, BrowserAction::Navigate(url)) {
@@ -457,7 +506,15 @@ impl SchoolBrowserEngine {
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<bool, SchoolBrowserError> {
-        if !self.ensure_session(profile).await? {
+        self.session(profile, Reach::Service).await
+    }
+
+    /// The body of a service job: the portal check, then the service entry.
+    pub(super) async fn service_session(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<bool, SchoolBrowserError> {
+        if !self.portal_session(profile).await? {
             return Ok(false);
         }
         loop {
@@ -550,7 +607,8 @@ impl SchoolBrowserEngine {
             if state.browsing.is_some() {
                 return Err(SchoolBrowserError::Preempted);
             }
-            state.heartbeat = Some(profile);
+            begin_attempt(&mut state, profile);
+            state.heartbeat = Some(Heartbeat { profile, browser });
         }
         // Credentials another device saved since the last check sign in here.
         self.0.auth.refresh();
@@ -606,7 +664,10 @@ impl SchoolBrowserEngine {
 
     pub(super) fn clear_heartbeat(&self, profile: SchoolAuthProfile) -> bool {
         let mut state = self.0.state.guard();
-        if state.heartbeat != Some(profile) {
+        if !state
+            .heartbeat
+            .is_some_and(|heartbeat| heartbeat.profile == profile)
+        {
             return false;
         }
         state.heartbeat = None;
@@ -664,7 +725,8 @@ impl Inner {
                     return;
                 }
             };
-            let login = ActiveLogin::new(profile, saved.credentials.clone());
+            let login =
+                ActiveLogin::new(profile, saved.credentials.clone(), page.browser, new_id());
             let (accepted, blocked_heartbeat, lifted) = inner.state.with(|state| {
                 if state.login.is_some()
                     || !owns_sign_in(state, profile, page.browser)
@@ -680,7 +742,10 @@ impl Inner {
                 }
                 let blocked = state.sign_in.contains_key(&profile);
                 if !auto_allowed(state, profile, &saved.credentials) {
-                    return (false, state.heartbeat == Some(profile), false);
+                    let checking = state
+                        .heartbeat
+                        .is_some_and(|heartbeat| heartbeat.profile == profile);
+                    return (false, checking, false);
                 }
                 state.login = Some(login.clone());
                 (
@@ -707,7 +772,7 @@ impl Inner {
         });
     }
 
-    pub(super) fn login_relay(&self, encoded: &str) {
+    pub(super) fn login_relay(&self, browser: BrowserId, encoded: &str) {
         if encoded.len() > 4 * 1024 {
             return;
         }
@@ -731,11 +796,11 @@ impl Inner {
         let mut needs_user = false;
         let mut paused = None;
         let matched = self.state.with(|state| {
-            let Some(active) = state
-                .login
-                .as_mut()
-                .filter(|active| active.profile == relay.profile && active.run == relay.run)
-            else {
+            let Some(active) = state.login.as_mut().filter(|active| {
+                active.profile == relay.profile
+                    && active.run == relay.run
+                    && active.browser == browser
+            }) else {
                 return false;
             };
             let steps = relay
@@ -812,16 +877,17 @@ impl Inner {
     /// before the session counts as signed in, so a connect that reports
     /// success has already promoted them.
     pub(super) fn finish_login(self: &Arc<Self>, active: ActiveLogin) {
-        let finished = self.state.with(|state| {
+        let (finished, attempt) = self.state.with(|state| {
+            let attempt = current_attempt(state, active.profile);
             if state
                 .login
                 .as_ref()
                 .is_some_and(|login| login.run == active.run)
             {
                 state.sign_in.remove(&active.profile);
-                state.login.take()
+                (state.login.take(), attempt)
             } else {
-                None
+                (None, attempt)
             }
         });
         let _ = self.events.emit(CoreEvent::SchoolLogin(SchoolLoginEvent {
@@ -844,8 +910,10 @@ impl Inner {
             if let Ok(Err(error)) = &promoted {
                 log::warn!(target: "isct_core::school_browser", "verified credentials not saved profile={profile:?}: {error}");
             }
+            // Saving can outlast the attempt: new credentials or another
+            // check may own the profile by now, and their result stands.
             if let Some(inner) = weak.upgrade() {
-                inner.set_session_from_inner(profile, SchoolSessionState::Active);
+                inner.publish_session(profile, SchoolSessionState::Active, Some(attempt));
             }
         });
         if !spawned {
@@ -858,8 +926,26 @@ impl Inner {
         profile: SchoolAuthProfile,
         value: SchoolSessionState,
     ) {
+        self.publish_session(profile, value, None);
+    }
+
+    /// Publishes the profile's state; with `attempt`, only while that attempt
+    /// still owns the profile.
+    pub(super) fn publish_session(
+        &self,
+        profile: SchoolAuthProfile,
+        value: SchoolSessionState,
+        attempt: Option<u64>,
+    ) {
         let event = self.state.with(|state| {
-            if value != SchoolSessionState::Pending && state.heartbeat == Some(profile) {
+            if attempt.is_some_and(|attempt| attempt != current_attempt(state, profile)) {
+                return None;
+            }
+            if value != SchoolSessionState::Pending
+                && state
+                    .heartbeat
+                    .is_some_and(|heartbeat| heartbeat.profile == profile)
+            {
                 state.heartbeat = None;
                 if state
                     .login
@@ -870,13 +956,33 @@ impl Inner {
                 }
             }
             state.sessions.insert(profile, value);
+            match value {
+                SchoolSessionState::Failed | SchoolSessionState::Maintenance => {
+                    let record = state.sign_in.get(&profile);
+                    if record.is_some_and(|record| record.auto == SchoolAutoSignIn::Paused) {
+                        state.session_retry.remove(&profile);
+                    } else {
+                        let at = record
+                            .and_then(|record| record.retry_at)
+                            .unwrap_or_else(|| tokio::time::Instant::now() + SESSION_TIMEOUT);
+                        state.session_retry.insert(profile, at);
+                    }
+                }
+                SchoolSessionState::Active | SchoolSessionState::NotConfigured => {
+                    state.session_retry.remove(&profile);
+                }
+                SchoolSessionState::Pending => {}
+            }
             state.revision = state.revision.saturating_add(1);
-            SchoolSessionEvent {
+            Some(SchoolSessionEvent {
                 profile,
                 state: value,
                 revision: state.revision,
-            }
+            })
         });
+        let Some(event) = event else {
+            return;
+        };
         if value == SchoolSessionState::Active {
             self.hints.send(Hint::SignedIn { profile });
         }
@@ -965,7 +1071,10 @@ pub(super) fn owns_sign_in(state: &State, profile: SchoolAuthProfile, browser: B
     if profile == SchoolAuthProfile::Science && state.otp_setup.is_some() {
         return false;
     }
-    state.heartbeat == Some(profile) || state.browsing == Some(browser.site)
+    state
+        .heartbeat
+        .is_some_and(|heartbeat| heartbeat.profile == profile && heartbeat.browser == browser)
+        || state.browsing == Some(browser.site)
 }
 
 pub(super) fn profile_session(state: &State, profile: SchoolAuthProfile) -> SchoolProfileSession {

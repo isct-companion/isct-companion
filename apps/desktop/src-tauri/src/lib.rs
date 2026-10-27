@@ -210,7 +210,6 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
         .manage(commands::matrix_camera::MatrixScan::default())
-        .manage(lms_downloader::SessionView::default())
         .manage(desktop_updates::DesktopUpdates::default())
         .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(target_os = "macos")]
@@ -379,7 +378,10 @@ pub fn run() {
                 );
                 #[cfg(not(dev))]
                 let main_url = WebviewUrl::App("index.html".into());
-                let window = WebviewWindowBuilder::new(app, "main", main_url);
+                // File drops belong to WebKit's page/file inputs, including
+                // child school views. No shell listener consumes Tauri drops.
+                let window =
+                    WebviewWindowBuilder::new(app, "main", main_url).disable_drag_drop_handler();
                 #[cfg(target_os = "windows")]
                 let window = if window_material().is_some() {
                     window.transparent(true).effects(

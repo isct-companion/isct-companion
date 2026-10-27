@@ -27,12 +27,17 @@ impl SchoolBrowserEngine {
             if self.0.tasks.is_closed() {
                 return Err(SchoolBrowserError::Stopped);
             }
+            // Register before reading visibility: notify_waiters does not
+            // retain a permit when the last visible page hides in this gap.
+            let changed = self.0.browsing_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
             let visible = self.0.state.guard().browsing.is_some();
             if !visible {
                 return Ok(());
             }
             tokio::select! {
-                _ = self.0.browsing_changed.notified() => {}
+                _ = &mut changed => {}
                 _ = self.0.tasks.closed() => return Err(SchoolBrowserError::Stopped),
             }
         }

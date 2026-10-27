@@ -923,10 +923,12 @@ async fn heartbeat_timeout_publishes_failed_releases_the_lane_and_allows_retry()
         SchoolSessionState::Failed
     );
 
-    let retry = {
-        let engine = engine.clone();
-        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::TokyoTech).await })
-    };
+    // A shell wake alone must recover it; no click, focus or restart.
+    engine.retry_sessions();
+    assert_eq!(browser.commands.lock().unwrap().len(), 1);
+    tokio::time::advance(std::time::Duration::from_secs(90)).await;
+    engine.retry_sessions();
+    engine.retry_sessions(); // Repeated wakes cannot queue duplicate checks.
     let navigation = browser.navigation(1).await;
     browser.listener().page_loaded(PageLoaded {
         page: PageId {
@@ -936,11 +938,21 @@ async fn heartbeat_timeout_publishes_failed_releases_the_lane_and_allows_retry()
         cause: None,
         url: Url::parse("https://portal.nap.gsic.titech.ac.jp/portal.pl").unwrap(),
     });
-    assert!(!retry.await.unwrap().unwrap());
+    for attempt in 0..6_000 {
+        if engine.session_snapshot().unwrap().profiles.tokyo_tech.state
+            == SchoolSessionState::NotConfigured
+        {
+            break;
+        }
+        settle(attempt).await;
+    }
     assert_eq!(
         engine.session_snapshot().unwrap().profiles.tokyo_tech.state,
         SchoolSessionState::NotConfigured
     );
+    tokio::time::advance(std::time::Duration::from_secs(600)).await;
+    engine.retry_sessions();
+    assert_eq!(browser.commands.lock().unwrap().len(), 2);
     engine.shutdown().await;
 }
 
@@ -982,7 +994,7 @@ async fn manual_login_timeout_emits_error_and_failed_session() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn heartbeat_timeout_rejects_the_old_login_relay_and_retry_can_connect() {
+async fn heartbeat_timeout_rejects_the_old_login_relay_and_revealing_the_page_can_connect() {
     let (started_send, _started_receive) = mpsc::channel();
     let (_release_send, release_receive) = mpsc::channel();
     let vault = BlockingVault {
@@ -1045,29 +1057,25 @@ async fn heartbeat_timeout_rejects_the_old_login_relay_and_retry_can_connect() {
         CoreEvent::SchoolLogin(SchoolLoginEvent { state, .. }) if state == "invalid-credentials"
     )));
 
-    let retry = {
-        let engine = engine.clone();
-        tokio::spawn(async move { engine.ensure_session(SchoolAuthProfile::Science).await })
-    };
-    let retry_navigation = browser.navigation(1).await;
+    // The native view already shows the login page: revealing it generates
+    // no new load callback, so ownership transfer must arm saved login.
+    engine.open(SchoolSite::SciencePortal, None).await.unwrap();
+    let next_config = login_config(&browser.eval(1).await);
+    assert_ne!(next_config["run"], first_config["run"]);
     listener.page_loaded(PageLoaded {
         page: PageId {
-            browser: retry_navigation.browser,
-            sequence: 2,
-        },
-        cause: None,
-        url: Url::parse("https://isct.ex-tic.com/auth?return=discarded").unwrap(),
-    });
-    browser.eval(1).await;
-    listener.page_loaded(PageLoaded {
-        page: PageId {
-            browser: retry_navigation.browser,
+            browser: first_navigation.browser,
             sequence: 3,
         },
         cause: None,
         url: Url::parse("https://lms.s.isct.ac.jp/2025/").unwrap(),
     });
-    assert!(retry.await.unwrap().unwrap());
+    for attempt in 0..6_000 {
+        if engine.session_snapshot().unwrap().profiles.science.state == SchoolSessionState::Active {
+            break;
+        }
+        settle(attempt).await;
+    }
     assert_eq!(
         engine.session_snapshot().unwrap().profiles.science.state,
         SchoolSessionState::Active
@@ -1312,6 +1320,67 @@ async fn two_profile_requests_coalesce_per_profile_without_overwriting_the_activ
         tokio::task::yield_now().await;
     }
     panic!("both session requests did not settle");
+}
+
+// A caller that stops waiting (a download's timeout, a dropped request) must
+// not stop the sign-in it started. The job goes on with nobody waiting, and
+// the next caller joins it instead of queueing behind a paused one.
+#[tokio::test]
+async fn a_session_job_keeps_running_after_its_only_caller_stops_waiting() {
+    let (engine, browser, _, _) = engine();
+    let first = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .ensure_transport_session(SchoolAuthProfile::Science)
+                .await
+        })
+    };
+    let portal = browser.navigation(0).await;
+    first.abort();
+    assert!(first.await.unwrap_err().is_cancelled());
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: portal.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse("https://isct.ex-tic.com/idm/user/portal/").unwrap(),
+    });
+    let service = browser.navigation(1).await;
+    assert_eq!(service.browser.site, SchoolSite::ScienceLms);
+    let second = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .ensure_transport_session(SchoolAuthProfile::Science)
+                .await
+        })
+    };
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    browser.listener().page_loaded(PageLoaded {
+        page: PageId {
+            browser: service.browser,
+            sequence: 1,
+        },
+        cause: None,
+        url: Url::parse(crate::lms_session::LMS_HOME).unwrap(),
+    });
+    assert!(second.await.unwrap().unwrap());
+    assert_eq!(
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+            .count(),
+        2,
+        "the second caller joined the running job"
+    );
+    engine.shutdown().await;
 }
 
 fn saved_science_vault() -> BlockingVault {
@@ -1735,6 +1804,10 @@ async fn a_rejected_code_is_retried_in_a_later_window_a_few_times() {
         tokio::time::advance(std::time::Duration::from_secs(30 * round as u64 + 1)).await;
     }
     tokio::time::advance(std::time::Duration::from_secs(600)).await;
+    engine.retry_sessions();
+    let commands = browser.commands.lock().unwrap().len();
+    tokio::task::yield_now().await;
+    assert_eq!(browser.commands.lock().unwrap().len(), commands);
     let (check, _) = checks.reach_login().await;
     assert!(!check.await.unwrap().unwrap());
     assert_eq!(checks.scripts().len(), 3);
@@ -1793,4 +1866,53 @@ async fn connect_promotes_only_credentials_the_school_saw_in_full() {
     assert!(vault_item(&vault, "school-accounts").is_some_and(|item| item.contains("student")));
     assert!(vault_item(&vault, "school-candidates").is_none());
     engine.shutdown().await;
+}
+
+// Saving proved credentials can outlast the sign-in that proved them. When
+// new credentials arrive meanwhile, the late save must not publish the old
+// sign-in as the profile's current session.
+#[tokio::test]
+async fn a_slow_credential_save_cannot_publish_a_superseded_sign_in() {
+    let (started_send, started_receive) = mpsc::channel();
+    let (release_send, release_receive) = mpsc::channel();
+    let block = Arc::new(AtomicBool::new(false));
+    let vault = BlockingVault {
+        value: Arc::default(),
+        block: block.clone(),
+        started: started_send,
+        release: Arc::new(Mutex::new(release_receive)),
+    };
+    let auth = Arc::new(SchoolAuthService::new(vault));
+    let (engine, browser, _, _) = engine_with_auth(auth);
+    let mut checks = Checks::new(&engine, &browser);
+    let connect = {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            engine
+                .connect(SchoolAuthProfile::Science, manual_credentials())
+                .await
+        })
+    };
+    let page = checks.load("https://isct.ex-tic.com/auth/session").await;
+    browser.eval(0).await;
+    checks.relay(page, "progress", "password", &["identifier", "password"]);
+    checks.relay(page, "progress", "otp", &[]);
+    block.store(true, Ordering::Release);
+    checks.follow(page, "https://isct.ex-tic.com/idm/user/portal");
+    tokio::task::spawn_blocking(move || {
+        started_receive.recv_timeout(std::time::Duration::from_secs(5))
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    engine
+        .credentials_changed(SchoolAuthProfile::Science, true)
+        .unwrap();
+    release_send.send(()).unwrap();
+    for attempt in 0..2_000 {
+        settle(attempt).await;
+    }
+    assert_eq!(checks.science().state, SchoolSessionState::Pending);
+    engine.shutdown().await;
+    let _ = connect.await;
 }

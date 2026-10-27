@@ -2,12 +2,14 @@
 
 pub use crate::school_parser::lms::ResolvedResource;
 use crate::{
-    net::{NetError, SessionCookies, USER_AGENT},
+    net::{NetError, SessionCookies, SignInGate, USER_AGENT},
     runtime_tasks::RuntimeTasks,
     school_browser::is_login_url,
     school_parser::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page},
 };
-use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, RANGE};
+use reqwest::header::{
+    CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, LOCATION, RANGE, SET_COOKIE,
+};
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -16,7 +18,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex, Weak,
+        Arc, Mutex, OnceLock, Weak,
     },
     time::Duration,
 };
@@ -115,15 +117,7 @@ impl Default for HttpTransport {
     fn default() -> Self {
         Self {
             client: crate::net::client_builder()
-                .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                    if !is_lms_origin(attempt.url()) {
-                        attempt.stop()
-                    } else if attempt.previous().len() >= 5 {
-                        attempt.error("too many LMS redirects")
-                    } else {
-                        attempt.follow()
-                    }
-                }))
+                .redirect(reqwest::redirect::Policy::none())
                 .user_agent(USER_AGENT)
                 .build()
                 .map_err(|_| FetchError::Network),
@@ -142,28 +136,77 @@ impl HttpTransport {
         if !is_lms_origin(url) {
             return Err(FetchError::Invalid);
         }
-        let cookie = tokio::select! {
-            _ = tasks.closed() => return Err(FetchError::Cancelled),
-            cookie = tokio::time::timeout(SESSION_TIMEOUT, session.cookie_header(url)) => {
-                cookie.map_err(|_| FetchError::Timeout)?.map_err(session_error)?
-            },
-        };
-        if cookie.trim().is_empty() {
-            return Err(FetchError::Login);
-        }
         let client = self.client.as_ref().map_err(|error| *error)?;
-        let mut request = client.get(url.as_str()).header(COOKIE, cookie);
-        if let Some(range) = range {
-            request = request.header(RANGE, range);
-        }
-        tokio::select! {
-            _ = tasks.closed() => Err(FetchError::Cancelled),
-            response = tokio::time::timeout(REQUEST_TIMEOUT, request.send()) => {
-                response.map_err(|_| FetchError::Timeout)?
-                    .map_err(|_| FetchError::Network)
+        let mut current = url.clone();
+        for _ in 0..=5 {
+            let cookie = tokio::select! {
+                _ = tasks.closed() => return Err(FetchError::Cancelled),
+                cookie = tokio::time::timeout(SESSION_TIMEOUT, session.cookie_header(&current)) => {
+                    cookie.map_err(|_| FetchError::Timeout)?.map_err(session_error)?
+                },
+            };
+            if cookie.trim().is_empty() {
+                return Err(FetchError::Login);
             }
+            let mut request = client.get(current.as_str()).header(COOKIE, cookie);
+            if let Some(range) = range {
+                request = request.header(RANGE, range);
+            }
+            let response = tokio::select! {
+                _ = tasks.closed() => return Err(FetchError::Cancelled),
+                response = tokio::time::timeout(REQUEST_TIMEOUT, request.send()) => {
+                    response.map_err(|_| FetchError::Timeout)?
+                        .map_err(|_| FetchError::Network)
+                }
+            }?;
+            // Redirects can rotate the browser's session too. Store every hop
+            // and re-read its destination cookies; never forward the old header.
+            let set_cookie: Vec<String> = response
+                .headers()
+                .get_all(SET_COOKIE)
+                .iter()
+                .filter_map(|value| value.to_str().ok().map(str::to_owned))
+                .collect();
+            if !set_cookie.is_empty() {
+                tokio::select! {
+                    _ = tasks.closed() => return Err(FetchError::Cancelled),
+                    saved = tokio::time::timeout(REQUEST_TIMEOUT, session.store_set_cookies(&current, &set_cookie)) => {
+                        saved.map_err(|_| FetchError::Timeout)?.map_err(session_error)?;
+                    }
+                }
+            }
+            if matches!(response.status().as_u16(), 401 | 403) {
+                return Err(FetchError::Login);
+            }
+            if !response.status().is_redirection() {
+                return Ok(response);
+            }
+            current = download_redirect(
+                &current,
+                response
+                    .headers()
+                    .get(LOCATION)
+                    .and_then(|value| value.to_str().ok())
+                    .ok_or(FetchError::Invalid)?,
+            )?;
         }
+        Err(FetchError::Network)
     }
+}
+
+fn download_redirect(current: &Url, location: &str) -> Result<Url, FetchError> {
+    let target = current.join(location).map_err(|_| FetchError::Invalid)?;
+    // Recognize login before the allowlist check: an SSO redirect is a
+    // renewable session, not a permanently invalid file URL.
+    if crate::school_browser::sanitize_school_url(target.as_str()).is_some()
+        && is_login_url(&target)
+    {
+        return Err(FetchError::Login);
+    }
+    if !is_lms_origin(&target) {
+        return Err(FetchError::Invalid);
+    }
+    Ok(target)
 }
 
 impl DownloadTransport for HttpTransport {
@@ -422,6 +465,7 @@ impl Drop for TempPath {
 
 struct DownloaderInner {
     transport: Arc<dyn DownloadTransport>,
+    sign_in: OnceLock<SignInGate>,
     flights: tokio::sync::Mutex<HashMap<FlightKey, Arc<Flight>>>,
     target_locks: Mutex<HashMap<PathBuf, Weak<tokio::sync::Mutex<()>>>>,
     source_locks: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
@@ -444,6 +488,7 @@ impl Downloader {
     fn with_transport(transport: Arc<dyn DownloadTransport>) -> Self {
         Self(Arc::new(DownloaderInner {
             transport,
+            sign_in: OnceLock::new(),
             flights: tokio::sync::Mutex::new(HashMap::new()),
             target_locks: Mutex::new(HashMap::new()),
             source_locks: Mutex::new(HashMap::new()),
@@ -452,6 +497,34 @@ impl Downloader {
             tasks: RuntimeTasks::default(),
             temp_sequence: AtomicU64::new(1),
         }))
+    }
+
+    /// Shares the browser's one sign-in flight with ordinary school reads.
+    /// Called once when Core attaches the native browser.
+    pub(crate) fn attach_sign_in(&self, sign_in: SignInGate) {
+        let _ = self.0.sign_in.set(sign_in);
+    }
+
+    async fn authenticated<T, F: Future<Output = Result<T, FetchError>>>(
+        &self,
+        mut read: impl FnMut() -> F,
+    ) -> Result<T, FetchError> {
+        let result = read().await;
+        if !matches!(result, Err(FetchError::Login)) {
+            return result;
+        }
+        let Some(sign_in) = self.0.sign_in.get() else {
+            return result;
+        };
+        tokio::select! {
+            _ = self.0.tasks.closed() => return Err(FetchError::Cancelled),
+            renewed = tokio::time::timeout(SESSION_TIMEOUT,
+                sign_in.ensure(crate::school_auth::SchoolAuthProfile::Science)) => {
+                renewed.map_err(|_| FetchError::Timeout)?.map_err(session_error)?;
+            }
+        }
+        // A rejected second read is final; never loop on a wrong password.
+        read().await
     }
 
     pub async fn fetch(
@@ -497,7 +570,15 @@ impl Downloader {
                 let work_downloader = downloader.clone();
                 let outcome = match tokio::spawn(async move {
                     work_downloader
-                        .fetch_once(worker_session, &worker_url, target, limit, foreground)
+                        .authenticated(|| {
+                            work_downloader.fetch_once(
+                                worker_session.clone(),
+                                &worker_url,
+                                target.clone(),
+                                limit,
+                                foreground,
+                            )
+                        })
                         .await
                 })
                 .await
@@ -637,6 +718,7 @@ impl Downloader {
         let url = url.clone();
         let module = module.to_owned();
         let worker_tasks = self.0.tasks.clone();
+        let downloader = self.clone();
         self.0
             .tasks
             .run(async move {
@@ -645,7 +727,7 @@ impl Downloader {
                     _ = worker_tasks.closed() => Err(FetchError::Cancelled),
                     outcome = tokio::time::timeout(
                         RESOURCE_TIMEOUT,
-                        transport.resolve(session, &url, cmid, &module, transport_tasks),
+                        downloader.authenticated(|| transport.resolve(session.clone(), &url, cmid, &module, transport_tasks.clone())),
                     ) => outcome.map_err(|_| FetchError::Timeout)?,
                 }
             })

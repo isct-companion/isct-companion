@@ -268,6 +268,9 @@ impl Core {
         let http = crate::net::Http::new()
             .map_err(|error| SchoolBrowserError::Platform(error.to_string()))?;
         engine.attach_transport(http, cookies)?;
+        self.runtime
+            .downloads
+            .attach_sign_in(engine.sign_in_gate()?);
         *owner = Some(engine.clone());
         self.sync.attach_school(engine.clone());
         Ok(engine)
@@ -396,6 +399,11 @@ impl Core {
     /// Run every periodic domain service once. Each result is retained so a
     /// failed refresh cannot suppress cloud journaling or reminder delivery.
     pub async fn wake(&self, services: WakeServices) -> WakeReport {
+        if self.sync.can_retry_school_sessions() {
+            if let Ok(browser) = self.school_browser() {
+                browser.retry_sessions();
+            }
+        }
         let runtime = self.runtime.wake(services.scheduler).await;
         let cloud = services
             .cloud

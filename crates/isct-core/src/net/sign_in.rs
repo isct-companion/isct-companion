@@ -3,15 +3,7 @@
 
 use super::{BoxFuture, NetError};
 use crate::school_auth::SchoolAuthProfile;
-use futures_util::future::{FutureExt, Shared};
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
-use tokio::sync::Mutex;
+use std::sync::Arc;
 
 pub trait SignIn: Send + Sync {
     /// Run (or join) the WebView SSO for this profile using saved credentials.
@@ -24,56 +16,21 @@ pub(crate) enum Session<T> {
     Gone,
 }
 
-type Flight = Shared<BoxFuture<'static, Result<(), NetError>>>;
-
-struct Gate {
-    inner: Arc<dyn SignIn>,
-    flights: Mutex<HashMap<SchoolAuthProfile, (u64, Flight)>>,
-    next_id: AtomicU64,
-}
-
-/// Single-flight per profile: concurrent callers join one sign-in.
+/// The transports' way into the school browser's session jobs. Joining a
+/// sign-in already under way, and keeping it running when every caller has
+/// stopped waiting, belong to the engine's job for the profile, so this holds
+/// no flights of its own.
 #[derive(Clone)]
-pub struct SignInGate(Arc<Gate>);
+pub struct SignInGate(Arc<dyn SignIn>);
 
 impl SignInGate {
     pub fn new(inner: Arc<dyn SignIn>) -> Self {
-        Self(Arc::new(Gate {
-            inner,
-            flights: Mutex::new(HashMap::new()),
-            next_id: AtomicU64::new(0),
-        }))
+        Self(inner)
     }
 
-    /// Signs in, or joins the sign-in already running for `profile`. A
-    /// sign-in that finished, either way, is not reused: the next caller
-    /// starts a fresh one. If every waiter is dropped, the sign-in pauses with
-    /// them and the next caller resumes it.
+    /// Signs in, or joins the sign-in already running for `profile`.
     pub async fn ensure(&self, profile: SchoolAuthProfile) -> Result<(), NetError> {
-        let (id, flight) = {
-            let mut flights = self.0.flights.lock().await;
-            match flights.get(&profile) {
-                Some((id, flight)) => (*id, flight.clone()),
-                None => {
-                    let id = self.0.next_id.fetch_add(1, Ordering::Relaxed);
-                    let inner = self.0.inner.clone();
-                    let flight: BoxFuture<'static, Result<(), NetError>> =
-                        Box::pin(async move { inner.sign_in(profile).await });
-                    let flight = flight.shared();
-                    flights.insert(profile, (id, flight.clone()));
-                    (id, flight)
-                }
-            }
-        };
-        let result = flight.await;
-        let mut flights = self.0.flights.lock().await;
-        if flights
-            .get(&profile)
-            .is_some_and(|(current, _)| *current == id)
-        {
-            flights.remove(&profile);
-        }
-        result
+        self.0.sign_in(profile).await
     }
 
     /// Runs `read`; when the session is gone, signs in once (or joins the

@@ -826,6 +826,19 @@ impl SyncEngine {
         state.facts.foreground && !state.facts.suspended
     }
 
+    pub(crate) fn can_retry_school_sessions(&self) -> bool {
+        let state = guard(&self.0.state);
+        if state.facts.suspended || state.facts.resetting || state.facts.network == Network::Offline
+        {
+            return false;
+        }
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        if !state.facts.foreground {
+            return false;
+        }
+        true
+    }
+
     /// Evaluates once more, then waits until no key is leased and none the
     /// facts allow is left to lease, at most `limit`. An OS background wake
     /// holds the process open this long.

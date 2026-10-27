@@ -27,7 +27,10 @@ impl SchoolBrowserEngine {
         {
             state.login = None;
         }
-        if state.heartbeat == Some(SchoolAuthProfile::Science) {
+        if state
+            .heartbeat
+            .is_some_and(|heartbeat| heartbeat.profile == SchoolAuthProfile::Science)
+        {
             state.heartbeat = None;
         }
         drop(state);

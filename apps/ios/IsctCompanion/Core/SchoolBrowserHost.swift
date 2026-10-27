@@ -27,6 +27,8 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     }()
     @MainActor var onTitleChange: ((SchoolSite, String) -> Void)?
     @MainActor var onOpenExternal: ((URL) -> Void)?
+    @MainActor var onDownload: ((URL) -> Void)?
+    @MainActor var onDownloadError: ((Error) -> Void)?
 
     // MARK: NativeBrowser (Core worker threads)
 
@@ -61,7 +63,10 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             urls.removeAll()
         }
         DispatchQueue.main.async {
-            for view in self.views.values { view.webView.removeFromSuperview() }
+            for view in self.views.values {
+                view.cancelDownloads()
+                view.webView.removeFromSuperview()
+            }
             self.views.removeAll()
         }
     }
@@ -124,6 +129,7 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     @MainActor private func create(_ id: BrowserId, _ initialUrl: String) {
         if views[id.site]?.id == id { return }
         if let previous = views.removeValue(forKey: id.site) {
+            previous.cancelDownloads()
             previous.webView.removeFromSuperview()
         }
         let configuration = WKWebViewConfiguration()
@@ -192,6 +198,7 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     @MainActor private func discard(_ id: BrowserId) {
         guard let resident = views[id.site], resident.id == id else { return }
+        resident.cancelDownloads()
         resident.webView.removeFromSuperview()
         views.removeValue(forKey: id.site)
         lock.withLock { _ = urls.removeValue(forKey: id) }
@@ -247,12 +254,15 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
 /// One site's WKWebView and its load sequence.
 @MainActor
-private final class ResidentView: NSObject, WKNavigationDelegate, WKUIDelegate {
+private final class ResidentView: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     let id: BrowserId
     let webView: WKWebView
     private(set) var sequence: UInt64 = 0
     private weak var host: SchoolBrowserHost?
     private var titleObservation: NSKeyValueObservation?
+    /// WebKit holds its delegate weakly. The resident owns each native
+    /// transfer until completion or disposal, including its temporary file.
+    private var downloads: [ObjectIdentifier: (download: WKDownload, file: URL?)] = [:]
 
     init(id: BrowserId, webView: WKWebView, host: SchoolBrowserHost) {
         self.id = id
@@ -282,9 +292,76 @@ private final class ResidentView: NSObject, WKNavigationDelegate, WKUIDelegate {
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
         guard let url = action.request.url, let host else { return decisionHandler(.cancel) }
-        if ["about", "blob", "data"].contains(url.scheme ?? "") { return decisionHandler(.allow) }
+        if ["about", "blob", "data"].contains(url.scheme ?? "") {
+            return decisionHandler(action.shouldPerformDownload ? .download : .allow)
+        }
         let mainFrame = action.targetFrame?.isMainFrame ?? true
-        decisionHandler(host.decide(self, url: url, mainFrame: mainFrame) ? .allow : .cancel)
+        guard host.decide(self, url: url, mainFrame: mainFrame) else { return decisionHandler(.cancel) }
+        decisionHandler(action.shouldPerformDownload ? .download : .allow)
+    }
+
+    func webView(
+        _ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
+    ) {
+        let disposition = (response.response as? HTTPURLResponse)?
+            .value(forHTTPHeaderField: "Content-Disposition")?
+            .split(separator: ";").first?.trimmingCharacters(in: .whitespaces).lowercased()
+        // Displayable Moodle attachments otherwise commit an empty page.
+        decisionHandler(disposition == "attachment" || !response.canShowMIMEType ? .download : .allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        receive(download)
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        receive(download)
+    }
+
+    private func receive(_ download: WKDownload) {
+        downloads[ObjectIdentifier(download)] = (download, nil)
+        download.delegate = self
+    }
+
+    func download(
+        _ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
+        completionHandler: @escaping @MainActor (URL?) -> Void
+    ) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("isct-web-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let name = (suggestedFilename as NSString).lastPathComponent
+            let file = directory.appendingPathComponent(name.isEmpty || name == "." || name == ".." ? "download" : name)
+            downloads[ObjectIdentifier(download)] = (download, file)
+            completionHandler(file)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            completionHandler(nil)
+            host?.onDownloadError?(error)
+        }
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let item = downloads.removeValue(forKey: ObjectIdentifier(download)), let file = item.file else { return }
+        host?.onDownload?(file)
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        if let file = downloads.removeValue(forKey: ObjectIdentifier(download))?.file {
+            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        }
+        host?.onDownloadError?(error)
+    }
+
+    func cancelDownloads() {
+        for item in downloads.values {
+            item.download.delegate = nil
+            item.download.cancel { _ in
+                if let file = item.file { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            }
+        }
+        downloads.removeAll()
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

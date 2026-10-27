@@ -1180,18 +1180,31 @@ checks:
         reason: |
           The file lands in Downloads through the native layer; only the OS
           reveal proves the hand-off, not the download counter.
+      - action: |
+          On macOS, open an LMS assignment's file draft area and drag a small
+          local file from Finder into it, without submitting the assignment.
+          Switch between the app's native pages and school WebView, let a
+          background school read finish, then repeat the drag and remove the
+          draft file. Do not restart between attempts.
+        reason: |
+          The main Tauri view and hidden school views must leave native file
+          drag events to the visible WKWebView. Repeating after view changes
+          exercises the intermittent loss of drag delivery reported on macOS.
     observe: |
       The WebView address and page body, the popup's return to its opener, the
       download list, and the OS file manager.
     expected: |
       Navigation stays inside the school origins, Back does not replay a POST,
       the popup returns to its opener, and the OS reveals the saved file.
+      On macOS the LMS draft area accepts Finder files before and after view
+      changes without restarting the app.
     why_manual: |
       Depends on the platform WebView, its popup handling and the OS file
       manager. jsdom cannot produce native navigation, popups or a reveal.
     covers:
       - crates/isct-core/src/school_browser/engine/**
       - apps/desktop/src-tauri/src/school_web.rs
+      - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
     verified:
       version: 1.0.0-rc.1
@@ -2790,6 +2803,45 @@ checks:
       - crates/isct-core/src/net/tls.rs
       - crates/isct-core/src/net/moodle/mod.rs
       - crates/isct-core/src/net/kyomu.rs
+    verified: null
+
+  - id: DESKTOP-LMS-SESSION-RECOVERY
+    area: desktop
+    title: A desktop LMS read without a session signs in once and goes on
+    persona: undergraduate-senior
+    preconditions: |
+      A macOS or Windows build from this source, saved Science Tokyo
+      credentials, and a course with at least one PDF material in Lecture Desk.
+    steps:
+      - action: Open Settings > Diagnostics and clear the log, then in Settings >
+          Reset clear the school caches with "Also sign out of school web pages"
+          checked.
+        reason: Leaves the school store without a MoodleSession cookie, the
+          state the removed desktop-only LMS view used to repair by polling.
+          Reads now take what the store holds and ask Core for a sign-in.
+      - action: Without opening any school page, open a PDF material of the
+          course and, at the same time, start an LMS refresh from the course
+          list.
+        reason: Two readers find the session gone at once; they must join one
+          sign-in, and the file must arrive over the cookies that sign-in left
+          in the shared store.
+      - action: Copy the diagnostics log.
+        reason: The log is where one sign-in and its service entry can be told
+          apart from one per request.
+    observe: The opened material, the refresh status, and the copied log.
+    expected: |
+      The PDF opens and the refresh finishes without the person signing in.
+      For that burst the log shows one `service entry profile=Science
+      result=Ok(true)`, no session timeout, and no token, sesskey or cookie
+      value.
+    why_manual: Needs the school's real sign-on and the native WebKit or WebView2
+      cookie store that the HTTP reads share; the joining itself is covered in
+      Core, but no headless suite holds a real school session cookie.
+    covers:
+      - apps/desktop/src-tauri/src/lms_downloader.rs
+      - crates/isct-core/src/lms_session.rs
+      - crates/isct-core/src/net/sign_in.rs
+      - crates/isct-core/src/school_browser/engine/jobs.rs
     verified: null
 
   - id: DESKTOP-WINDOWS-SIGNED-INSTALL
@@ -5718,6 +5770,56 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
       - crates/isct-core/src/school_browser/assets/school-login.js
+    verified: null
+
+  - id: IOS-LMS-ATTACHMENT-SESSION
+    area: native
+    title: iOS LMS attachments use the resident session and open a system preview
+    persona: undergraduate-senior
+    preconditions: |
+      An iPhone or iPad build with saved Science Tokyo credentials and a
+      course containing a PDF and an attachment the WebView cannot display.
+    steps:
+      - action: |
+          Sign in inside the app's school WebView, open the course, and tap
+          both an attachment download link and a PDF attachment link.
+        reason: |
+          Both download-action and download-response callbacks must retain the
+          authenticated WKWebView session rather than hand an unauthenticated
+          URL to Safari. Displayable attachments must not become blank pages.
+      - action: |
+          In each system preview, use Share to save a copy to Files, dismiss
+          the preview, and reopen the course page. Download a second file.
+        reason: |
+          The preview must own a real downloaded file until dismissal; cleanup
+          must not remove it while the share sheet reads it or block the next
+          queued preview.
+      - action: |
+          Sign out from the school page while keeping the app's saved
+          credentials. Return to the native course page and open an uncached
+          material. Then reveal the resident school login page and switch
+          between school views without restarting the app.
+        reason: |
+          Core must renew the expired service session once before retrying the
+          material. Revealing an already loaded login page must arm saved
+          credentials, and an old view's disappearance must not hide the new one.
+    observe: |
+      The in-app school page, system Quick Look preview, saved Files copy,
+      native course material, and school sign-in status.
+    expected: |
+      Attachments produce readable local previews and saved copies. The app
+      restores its own expired session with the saved credentials and remains
+      responsive when school views change. Safari has its own sign-in session.
+    why_manual: |
+      Requires real LMS authentication, WKDownload delegate delivery, Quick
+      Look and the iOS share sheet. Core retry and redirect classification are
+      already covered by the downloads tests; those tests cannot run WebKit or
+      prove that the native share sheet receives the file.
+    covers:
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+      - apps/ios/IsctCompanion/Core/WebRouter.swift
+      - apps/ios/IsctCompanion/Features/Web/WebScreens.swift
+      - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
     verified: null
 
   - id: SCHOOL-CREDENTIALS-VERIFIED-SYNC

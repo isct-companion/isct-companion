@@ -18,7 +18,6 @@ const SIGN_OUT_LABEL: &str = "school-sign-out";
 /// The resident school views and the course-file view all share the school
 /// data store (`school_web::school_profile`).
 const SCHOOL_VIEW_PREFIX: &str = "school-web-";
-const FILES_VIEW: &str = "lms-files";
 
 struct DesktopReset(AppHandle);
 
@@ -46,7 +45,7 @@ fn sign_out(app: &AppHandle) -> Result<(), String> {
     let existing = app
         .webviews()
         .into_iter()
-        .find(|(label, _)| label == FILES_VIEW || label.starts_with(SCHOOL_VIEW_PREFIX))
+        .find(|(label, _)| label.starts_with(SCHOOL_VIEW_PREFIX))
         .map(|(_, view)| view);
     let (view, temporary) = match existing {
         Some(view) => (view, false),
