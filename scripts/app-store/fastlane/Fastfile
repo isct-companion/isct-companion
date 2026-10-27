@@ -44,6 +44,11 @@ platform :ios do
       if draft && Gem::Version.new(draft.version_string) > Gem::Version.new(version_number)
         UI.user_error!("Refusing to replace newer draft #{draft.version_string}")
       end
+      # ensure_version! renames whatever version is open, and Apple's open
+      # versions include one waiting for review: never rename that one.
+      if draft && draft.version_string != version_number && !editable.include?(draft.app_store_state)
+        UI.user_error!("#{draft.version_string} is #{draft.app_store_state}; submit #{version_number} once it is released or withdrawn")
+      end
       app.ensure_version!(version_number, platform: "IOS")
       current = app.get_edit_app_store_version(platform: "IOS")
       UI.user_error!("Unexpected editable version") unless current&.version_string == version_number
