@@ -217,6 +217,14 @@ export async function openMaterial(
 }
 export const openStoredFile = (path: string, reveal = false): Promise<void> =>
   invoke("open_course_file", { path, reveal });
+/** Puts a stored file itself on the system clipboard (macOS, Windows). */
+export const copyStoredFile = (path: string): Promise<void> =>
+  invoke("copy_course_file", { path });
+/** Opens the system share UI for a stored file at `anchor` (macOS, Windows). */
+export const shareStoredFile = (
+  path: string,
+  anchor: { x: number; y: number; width: number; height: number },
+): Promise<void> => invoke("share_course_file", { path, anchor });
 /** Remove downloaded files not opened for `days` days. */
 export const cleanMaterials = (days: number): Promise<number> =>
   desktopBridge

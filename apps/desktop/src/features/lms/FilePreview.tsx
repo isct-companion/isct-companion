@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { desktopBridge } from "../../app/native";
+import { notify } from "../../app/notify";
 import { nativeOs } from "../../platform/desktop-bridge";
 import { ExternalLink } from "../../components/ExternalLink";
 import { t } from "../../i18n";
@@ -17,8 +18,10 @@ import { FileTile, LmsIcon } from "./LmsIcon";
 import {
   LmsFileError,
   localFileUrl,
+  copyStoredFile,
   openMaterial,
   openStoredFile,
+  shareStoredFile,
   previewKind,
   type CourseFolder,
   type LmsFileReason,
@@ -52,6 +55,8 @@ const megabytes = (bytes: number) =>
   `${Math.max(0.1, bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 const revealLabel =
   nativeOs() === "macos" ? "Show in Finder" : "Show in folder";
+// Only macOS and Windows have a system Copy and Share for a file (file_share.rs).
+const systemShare = nativeOs() === "macos" || nativeOs() === "windows";
 const deniedNote =
   nativeOs() === "windows"
     ? "Windows blocked saving to the course folder. If Controlled folder access is on, allow IsctCompanion in Windows Security, or choose another course folder in Settings."
@@ -353,7 +358,10 @@ export function FilePreview({
   );
 }
 
-/** Secondary actions: Show in Finder (once on disk), Open in LMS, Open in browser. */
+/**
+ * Secondary actions: Show in Finder, Copy and Share (once on disk), Open in
+ * LMS, Open in browser.
+ */
 function FileActions({
   course,
   openInApp,
@@ -366,6 +374,23 @@ function FileActions({
     const material = await openMaterial(context, url, { download: true });
     if (material.state === "ready")
       await openStoredFile(material.file.path, !open);
+  };
+  const withStored = async (act: (path: string) => Promise<void>) => {
+    try {
+      const material = await openMaterial(context, url, { download: true });
+      if (material.state === "ready") await act(material.file.path);
+    } catch (error) {
+      notify.error(error);
+    }
+  };
+  const copy = () =>
+    withStored(async (path) => {
+      await copyStoredFile(path);
+      notify.info("File copied");
+    });
+  const share = (button: HTMLElement) => {
+    const { x, y, width, height } = button.getBoundingClientRect();
+    return withStored((path) => shareStoredFile(path, { x, y, width, height }));
   };
   // In the reader panel these collapse to icons; the label stays as tooltip and name.
   const label = (text: string) => ({ "aria-label": t(text), title: t(text) });
@@ -380,6 +405,26 @@ function FileActions({
           <LmsIcon name="folder" size={15} />
           <span className="lmsToolLabel">{t(revealLabel)}</span>
         </button>
+      )}
+      {view.state === "ready" && course.managed && systemShare && (
+        <>
+          <button
+            type="button"
+            {...label("Copy file")}
+            onClick={() => void copy()}
+          >
+            <LmsIcon name="copy" size={15} />
+            <span className="lmsToolLabel">{t("Copy file")}</span>
+          </button>
+          <button
+            type="button"
+            {...label("Share")}
+            onClick={(event) => void share(event.currentTarget)}
+          >
+            <LmsIcon name="share" size={15} />
+            <span className="lmsToolLabel">{t("Share")}</span>
+          </button>
+        </>
       )}
       {openInApp && (
         <button type="button" {...label("Open in LMS")} onClick={openInApp}>

@@ -160,6 +160,55 @@ fn a_refused_course_folder_is_denied_and_works_after_access_is_allowed() {
     assert!(material_path(&root, &course(), &url).is_ok());
 }
 
+/// Opening, revealing, copying and sharing a stored file all pass a path
+/// from the page through this; only a file below the root gets through.
+#[test]
+fn stored_file_accepts_only_a_file_under_the_course_folder() {
+    let root = root("stored-scope");
+    let folder = root.join("2026-3Q").join("CSC.T251");
+    fs::create_dir_all(&folder).unwrap();
+    let handout = folder.join("handout.pdf");
+    fs::write(&handout, "safe").unwrap();
+    let outside = root.with_extension("outside");
+    fs::create_dir_all(&outside).unwrap();
+    let secret = outside.join("secret.txt");
+    fs::write(&secret, "secret").unwrap();
+    let text = |path: &Path| path.to_string_lossy().into_owned();
+
+    assert_eq!(
+        stored_file(&root, &text(&handout)).unwrap(),
+        handout.canonicalize().unwrap()
+    );
+    for refused in [
+        text(&secret),
+        text(
+            &folder
+                .join("..")
+                .join("..")
+                .join("..")
+                .join(secret.file_name().unwrap()),
+        ),
+        text(
+            &root
+                .join("..")
+                .join(outside.file_name().unwrap())
+                .join("secret.txt"),
+        ),
+        text(&root),
+        text(&folder),
+        text(&folder.join("missing.pdf")),
+        "2026-3Q/CSC.T251/handout.pdf".into(),
+    ] {
+        assert!(
+            stored_file(&root, &refused).is_err(),
+            "{refused} must be refused"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn stored_file_accepts_an_alias_for_the_same_root_without_following_children() {

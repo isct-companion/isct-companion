@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ChevronRight,
   Code,
+  Copy,
   Download,
   ExternalLink,
   File,
@@ -21,6 +22,7 @@ import {
   Presentation,
   RefreshCw,
   Search,
+  Share,
   Trash2,
   Video,
   X,
@@ -40,6 +42,8 @@ const glyphs: Record<
   | "back"
   | "download"
   | "external"
+  | "copy"
+  | "share"
   | "trash"
   | "code",
   LucideIcon
@@ -71,6 +75,8 @@ const glyphs: Record<
   trash: Trash2,
   code: Code,
   external: ExternalLink,
+  copy: Copy,
+  share: Share,
 };
 export type IconName = keyof typeof glyphs;
 

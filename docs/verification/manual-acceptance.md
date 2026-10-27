@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 126 checks must be re-run before the next release.**
+**10 of 130 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**116 checks have never been run or could not be run:**
+**120 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -43,11 +43,15 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-RESILIENCE` — never verified
 - `OCR-CAMERA-GEOMETRY` — never verified
+- `DESKTOP-SCHOOL-NATIVE-CONFIRM` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
 - `DESKTOP-PAGE-OVERLAYS` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
+- `DESKTOP-FILE-SHARE-MACOS` — never verified
+- `DESKTOP-FILE-SHARE-WINDOWS` — never verified
+- `DESKTOP-LECTURES-PANE-MOTION` — never verified
 - `DESKTOP-LOG-EXPORT` — never verified
 - `DESKTOP-PULL-STRESS` — never verified
 - `DESKTOP-SYNC-STATUS` — never verified
@@ -170,12 +174,16 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
+| `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
+| `DESKTOP-LECTURES-PANE-MOTION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
 | `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
@@ -1470,6 +1478,65 @@ Recorded in docs/verification/core-consolidation.md.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
 
+### School pages get the browser's own confirm and alert, and file dialogs still open (`DESKTOP-SCHOOL-NATIVE-CONFIRM`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to the Tokyo Tech Portal
+and TSUBAME.
+
+**Steps**
+
+1. On the Portal tab, click the logout link and press Cancel in the
+   dialog that appears.
+   - *Why:* A plugin init script once replaced window.confirm in every webview
+     with an async function, so `if (!confirm(...))` never stopped and
+     logout happened with no question. A native confirm that keeps the
+     session on Cancel means the school view runs no plugin script.
+2. On TSUBAME, open the password change form and press its submit
+   button; stop at the confirmation without changing the password.
+   - *Why:* The page tests `confirm(...) == true`; with the replaced confirm
+     the comparison was always false and the button did nothing. A
+     native confirmation box is the evidence.
+3. In Settings, choose another course folder, then cancel the
+   picker; export a backup and save it.
+   - *Why:* The file dialogs now come from rfd instead of the dialog plugin; a
+     picker that does not open, ignores Cancel, or saves without the
+     backup's name and extension means the replacement lost a setting.
+
+**Where to look**
+
+The dialogs on the Portal and TSUBAME pages, whether the Portal session
+survives Cancel, and the folder picker and save panel attached to the
+main window.
+
+**Expected**
+
+Both school pages show the native confirmation and honour Cancel; the
+folder picker titled "Course materials and notes" keeps the old folder
+on Cancel, and the save panel offers the backup's file name with its
+extension filter and writes the file.
+
+**Why this is manual**
+
+Needs real school accounts and the school pages' own scripts inside
+the native webview, and the native file panels, none of which a
+headless suite runs.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/src/native_dialog.rs`
+- `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src-tauri/src/commands/backup.rs`
+- `apps/desktop/src-tauri/src/lms_files.rs`
+
+**Last recorded** never run
+
 ### Keyboard-only use in a narrow window (`DESKTOP-NARROW-WINDOW`)
 
 **Area** desktop · **Persona** Narrow window, keyboard only · **Result** —
@@ -1780,6 +1847,166 @@ whether the PDF.js data files ship with it.
 - `apps/desktop/src/components/workspace-chrome.css`
 - `apps/desktop/vite.config.ts`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+
+**Last recorded** never run
+
+### Copying and sharing a downloaded course file on macOS (`DESKTOP-FILE-SHARE-MACOS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to LMS, with a course
+whose materials include a PDF and a non-preview file (a .zip or .docx).
+
+**Steps**
+
+1. Open the PDF from the course outline and wait for it to render.
+   Look at the reader toolbar.
+   - *Why:* Copy and Share appear only once the file is on disk and only on
+     macOS and Windows; a missing pair here means the nativeOs() gate or
+     the download state hides them.
+2. Click Copy, then paste in a Finder window and into a new Mail
+   message.
+   - *Why:* The pasteboard must carry the file URL, not its path as text: a
+     pasted name or path instead of a file means the wrong pasteboard
+     type was written.
+3. Click Share.
+   - *Why:* The NSSharingServicePicker must open at the button; a menu at the
+     window's corner means the page-to-AppKit coordinate flip is wrong.
+4. Choose AirDrop or Messages from the picker and send the file to
+   yourself.
+   - *Why:* The picker is released after it closes; a crash or an empty share
+     means it was freed while its menu was showing.
+5. Repeat Copy on the non-preview file's card.
+   - *Why:* The command accepts only files under the course-files root; the
+     card's file lives there too and must copy the same way.
+
+**Where to look**
+
+The reader toolbar, the "File copied" notice, Finder and Mail after the
+paste, and where the share picker opens.
+
+**Expected**
+
+Pasting gives the file itself in Finder and Mail, the share picker
+opens below the Share button with AirDrop, Messages and Mail, and the
+chosen service receives the file.
+
+**Why this is manual**
+
+The system pasteboard, the paste in other apps and the share picker
+are native UI outside the WebView that no headless suite can drive or
+read; the path restriction is covered by the app-core suite.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/file_share.rs`
+- `apps/desktop/src-tauri/src/file_share_macos.rs`
+- `apps/desktop/src/features/lms/FilePreview.tsx`
+
+**Last recorded** never run
+
+### Copying and sharing a downloaded course file on Windows (`DESKTOP-FILE-SHARE-WINDOWS`)
+
+**Area** desktop · **Persona** Windows user snapping the desktop app · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Windows 10 or 11 desktop build of this commit, signed in to LMS, with
+a course whose materials include a PDF.
+
+**Steps**
+
+1. Open the PDF from the course outline and look at the reader toolbar.
+   - *Why:* Copy and Share must show once the file is downloaded; this build is
+     the first that compiles the Windows half, so a missing pair or a
+     failed launch shows here first.
+2. Click Copy, then paste in File Explorer and attach by pasting into
+   an Outlook or Teams message.
+   - *Why:* The clipboard must hold CF_HDROP with a wide, double-null-terminated
+     path; a paste that does nothing or a garbled name means the
+     DROPFILES block is wrong.
+3. Click Share, choose Nearby Sharing or Mail, then click Share again
+   and choose a different target.
+   - *Why:* The share UI asks the window's DataRequested handler for the file;
+     an empty or "nothing to share" sheet means the handler or the
+     package title failed, and the second share must send the newly
+     chosen file rather than register a second handler.
+
+**Where to look**
+
+The reader toolbar, the "File copied" notice, Explorer and the message
+after the paste, and the Windows share sheet.
+
+**Expected**
+
+Pasting in Explorer creates a copy of the PDF, the message gets the PDF
+as an attachment, and the share sheet lists the PDF by name and sends
+it each time.
+
+**Why this is manual**
+
+The Windows clipboard, Explorer and the share sheet are native UI that
+only a real Windows session runs, and this Mac cannot build the
+Windows app (ring needs the MSVC headers); the path restriction is
+covered by the app-core suite.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/file_share.rs`
+- `apps/desktop/src-tauri/src/file_share_windows.rs`
+- `apps/desktop/src/features/lms/FilePreview.tsx`
+
+**Last recorded** never run
+
+### Choosing a course on Lectures moves only the course pane (`DESKTOP-LECTURES-PANE-MOTION`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Desktop build of this commit with a quarter of lectures.
+
+**Steps**
+
+1. On Lectures, click one course in the list, then another, then an
+   exam under Exams.
+   - *Why:* Only the right-hand pane may enter; the list, the quarter picker
+     and the page fading as well means the page transition still runs
+     for a change within Lecture Desk.
+2. Open a course from a Today row, then go back to Today.
+   - *Why:* Coming from another page keeps its page transition and the morph
+     from the clicked row; the pane must not slide in on top of it.
+3. Turn on Reduce Motion in the system settings and click another
+   course.
+   - *Why:* Under Reduce Motion the pane only fades.
+
+**Where to look**
+
+The list column and the course pane while each course opens.
+
+**Expected**
+
+The list stays still and the course pane slides in from the right
+(fades under Reduce Motion); opening from Today still morphs the row.
+
+**Why this is manual**
+
+Whether a column moves during a 250 ms animation is seen at a glance in
+the real app; a headless DOM runs no View Transitions or animations.
+
+**Covers**
+
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/pages/lectures/lectures.css`
+- `apps/desktop/src/app/App.tsx`
 
 **Last recorded** never run
 

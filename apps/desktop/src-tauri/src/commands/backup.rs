@@ -1,9 +1,8 @@
-//! Backup command adapters and native file dialogs.
+//! Backup command adapters and saving exported files.
 use crate::{cloud_sync, data, lms_files, require_local_main};
 use crate::{coded, shell, CommandError};
 use app_core::backup::BackupService;
 use tauri::Manager;
-use tauri_plugin_dialog::DialogExt;
 
 pub(crate) fn service(app: &tauri::AppHandle) -> Result<BackupService, CommandError> {
     Ok(BackupService::new(
@@ -31,7 +30,6 @@ pub(crate) async fn export_data(
 #[tauri::command]
 pub(crate) async fn save_file(
     webview: tauri::Webview,
-    app: tauri::AppHandle,
     name: String,
     contents: String,
 ) -> Result<bool, CommandError> {
@@ -42,20 +40,14 @@ pub(crate) async fn save_file(
     if contents.len() > 64 * 1024 * 1024 {
         return Err("file exceeds the 64 MiB limit".into());
     }
-    tauri::async_runtime::spawn_blocking(move || -> Result<bool, CommandError> {
-        let mut dialog = app.dialog().file().set_file_name(&name);
-        if let Some((_, extension)) = name.rsplit_once('.') {
-            dialog = dialog.add_filter(extension.to_uppercase(), &[extension]);
-        }
-        let Some(chosen) = dialog.blocking_save_file() else {
-            return Ok(false);
-        };
-        let path = chosen.into_path().map_err(shell)?;
-        std::fs::write(path, contents).map_err(shell)?;
-        Ok(true)
-    })
-    .await
-    .map_err(shell)?
+    let Some(path) = crate::native_dialog::save_file(&webview.window(), name).await? else {
+        return Ok(false);
+    };
+    tauri::async_runtime::spawn_blocking(move || std::fs::write(path, contents))
+        .await
+        .map_err(shell)?
+        .map_err(shell)?;
+    Ok(true)
 }
 
 pub(crate) fn write_scheduled_export_inner(app: &tauri::AppHandle) -> Result<String, CommandError> {

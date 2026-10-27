@@ -16,6 +16,11 @@ mod command_error;
 pub(crate) use command_error::{coded, shell, CommandError};
 mod commands;
 mod desktop_updates;
+mod file_share;
+#[cfg(target_os = "macos")]
+mod file_share_macos;
+#[cfg(target_os = "windows")]
+mod file_share_windows;
 pub use app_core::contracts;
 pub use app_core::data;
 #[cfg(target_os = "macos")]
@@ -25,6 +30,7 @@ use app_core::lifecycle;
 mod lms_downloader;
 mod lms_files;
 mod lms_protocol;
+mod native_dialog;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
 #[cfg(matrix_ocr)]
@@ -207,7 +213,6 @@ pub fn run() {
                 .open_js_links_on_click(false)
                 .build(),
         )
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())
@@ -241,6 +246,8 @@ pub fn run() {
             lms_files::list_course_notes,
             lms_files::open_course_material,
             lms_files::open_course_file,
+            file_share::copy_course_file,
+            file_share::share_course_file,
             lms_files::clean_course_materials,
             workspaces::assignment_workspace,
             workspaces::create_assignment_workspace,

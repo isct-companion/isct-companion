@@ -115,6 +115,7 @@ function LectureDeskBody({
   const choose = (courseId: string, assignmentId?: string) => {
     setFloating(false);
     setQuery("");
+    chosenHere.current = true;
     select(courseId, assignmentId, shownTerm);
   };
 
@@ -139,9 +140,22 @@ function LectureDeskBody({
     setQuery("");
     setShownTerm(term);
   });
+  // A course or exam chosen from this list enters its pane; one opened from
+  // another page arrives with that page's transition instead.
+  const chosenHere = useRef(false);
+  const takeChoice = () => {
+    const here = chosenHere.current;
+    chosenHere.current = false;
+    return here;
+  };
+  const [entering, setEntering] = useState<string | null>(null);
+  const endEntrance = (event: React.AnimationEvent) => {
+    if (event.target === event.currentTarget) setEntering(null);
+  };
   // Only a new navigation selects its mode and quarter.
   useEntrance(entry?.request, () => {
     if (!entry) return;
+    if (takeChoice()) setEntering(entry.courseId);
     setMode(entry.assignmentId ? "assignments" : "lectures");
     setQuery("");
     const course = data.courses.find((course) => course.id === entry.courseId);
@@ -154,6 +168,7 @@ function LectureDeskBody({
     setQuery("");
     setExamKey(examEntry.key);
     setShownTerm(examEntry.term);
+    if (takeChoice()) setEntering(`exam:${examEntry.key}`);
   });
   const nowIso = useClock(active);
   const now = useMemo(() => new Date(nowIso), [nowIso]);
@@ -467,6 +482,7 @@ function LectureDeskBody({
                   onClick={() => {
                     setQuery("");
                     setFloating(false);
+                    chosenHere.current = true;
                     selectExam(exam.key, exam.term);
                   }}
                 >
@@ -574,7 +590,10 @@ function LectureDeskBody({
         </nav>
         <div className="lectureContent">
           {mode === "exams" && (
-            <div className="lectureExamDetails">
+            <div
+              className={`lectureExamDetails${selectedExam && entering === `exam:${selectedExam.key}` ? " entering" : ""}`}
+              onAnimationEnd={endEntrance}
+            >
               {sidebarToggle}
               {selectedExam ? (
                 <>
@@ -606,9 +625,10 @@ function LectureDeskBody({
             )}
             {retained.map((item) => (
               <div
-                className="lectureSlot"
+                className={`lectureSlot${entering === item.courseId ? " entering" : ""}`}
                 key={item.courseId}
                 hidden={entry?.courseId !== item.courseId}
+                onAnimationEnd={endEntrance}
               >
                 {/* Its own overlay layer, so a course's popovers hide with it
                     when the exam list or another course takes the pane. */}

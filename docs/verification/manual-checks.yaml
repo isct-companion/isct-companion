@@ -1185,6 +1185,57 @@ checks:
       notes: Recorded in docs/verification/core-consolidation.md.
       evidence: docs/verification/core-consolidation.md#live-macos-acceptance
 
+  - id: DESKTOP-SCHOOL-NATIVE-CONFIRM
+    area: desktop
+    title: School pages get the browser's own confirm and alert, and file dialogs still open
+    persona: undergraduate-senior
+    preconditions: |
+      macOS desktop build of this commit, signed in to the Tokyo Tech Portal
+      and TSUBAME.
+    steps:
+      - action: |
+          On the Portal tab, click the logout link and press Cancel in the
+          dialog that appears.
+        reason: |
+          A plugin init script once replaced window.confirm in every webview
+          with an async function, so `if (!confirm(...))` never stopped and
+          logout happened with no question. A native confirm that keeps the
+          session on Cancel means the school view runs no plugin script.
+      - action: |
+          On TSUBAME, open the password change form and press its submit
+          button; stop at the confirmation without changing the password.
+        reason: |
+          The page tests `confirm(...) == true`; with the replaced confirm
+          the comparison was always false and the button did nothing. A
+          native confirmation box is the evidence.
+      - action: |
+          In Settings, choose another course folder, then cancel the
+          picker; export a backup and save it.
+        reason: |
+          The file dialogs now come from rfd instead of the dialog plugin; a
+          picker that does not open, ignores Cancel, or saves without the
+          backup's name and extension means the replacement lost a setting.
+    observe: |
+      The dialogs on the Portal and TSUBAME pages, whether the Portal session
+      survives Cancel, and the folder picker and save panel attached to the
+      main window.
+    expected: |
+      Both school pages show the native confirmation and honour Cancel; the
+      folder picker titled "Course materials and notes" keeps the old folder
+      on Cancel, and the save panel offers the backup's file name with its
+      extension filter and writes the file.
+    why_manual: |
+      Needs real school accounts and the school pages' own scripts inside
+      the native webview, and the native file panels, none of which a
+      headless suite runs.
+    covers:
+      - apps/desktop/src-tauri/src/lib.rs
+      - apps/desktop/src-tauri/src/native_dialog.rs
+      - apps/desktop/src-tauri/src/school_web.rs
+      - apps/desktop/src-tauri/src/commands/backup.rs
+      - apps/desktop/src-tauri/src/lms_files.rs
+    verified: null
+
   - id: DESKTOP-NARROW-WINDOW
     area: desktop
     title: Keyboard-only use in a narrow window
@@ -1455,6 +1506,146 @@ checks:
       - apps/desktop/src/components/workspace-chrome.css
       - apps/desktop/vite.config.ts
       - apps/desktop/src-tauri/src/school_downloads.rs
+    verified: null
+
+  - id: DESKTOP-FILE-SHARE-MACOS
+    area: desktop
+    title: Copying and sharing a downloaded course file on macOS
+    persona: undergraduate-senior
+    preconditions: |
+      macOS desktop build of this commit, signed in to LMS, with a course
+      whose materials include a PDF and a non-preview file (a .zip or .docx).
+    steps:
+      - action: |
+          Open the PDF from the course outline and wait for it to render.
+          Look at the reader toolbar.
+        reason: |
+          Copy and Share appear only once the file is on disk and only on
+          macOS and Windows; a missing pair here means the nativeOs() gate or
+          the download state hides them.
+      - action: |
+          Click Copy, then paste in a Finder window and into a new Mail
+          message.
+        reason: |
+          The pasteboard must carry the file URL, not its path as text: a
+          pasted name or path instead of a file means the wrong pasteboard
+          type was written.
+      - action: |
+          Click Share.
+        reason: |
+          The NSSharingServicePicker must open at the button; a menu at the
+          window's corner means the page-to-AppKit coordinate flip is wrong.
+      - action: |
+          Choose AirDrop or Messages from the picker and send the file to
+          yourself.
+        reason: |
+          The picker is released after it closes; a crash or an empty share
+          means it was freed while its menu was showing.
+      - action: |
+          Repeat Copy on the non-preview file's card.
+        reason: |
+          The command accepts only files under the course-files root; the
+          card's file lives there too and must copy the same way.
+    observe: |
+      The reader toolbar, the "File copied" notice, Finder and Mail after the
+      paste, and where the share picker opens.
+    expected: |
+      Pasting gives the file itself in Finder and Mail, the share picker
+      opens below the Share button with AirDrop, Messages and Mail, and the
+      chosen service receives the file.
+    why_manual: |
+      The system pasteboard, the paste in other apps and the share picker
+      are native UI outside the WebView that no headless suite can drive or
+      read; the path restriction is covered by the app-core suite.
+    covers:
+      - apps/desktop/src-tauri/src/file_share.rs
+      - apps/desktop/src-tauri/src/file_share_macos.rs
+      - apps/desktop/src/features/lms/FilePreview.tsx
+    verified: null
+
+  - id: DESKTOP-FILE-SHARE-WINDOWS
+    area: desktop
+    title: Copying and sharing a downloaded course file on Windows
+    persona: windows-snap-user
+    preconditions: |
+      Windows 10 or 11 desktop build of this commit, signed in to LMS, with
+      a course whose materials include a PDF.
+    steps:
+      - action: |
+          Open the PDF from the course outline and look at the reader toolbar.
+        reason: |
+          Copy and Share must show once the file is downloaded; this build is
+          the first that compiles the Windows half, so a missing pair or a
+          failed launch shows here first.
+      - action: |
+          Click Copy, then paste in File Explorer and attach by pasting into
+          an Outlook or Teams message.
+        reason: |
+          The clipboard must hold CF_HDROP with a wide, double-null-terminated
+          path; a paste that does nothing or a garbled name means the
+          DROPFILES block is wrong.
+      - action: |
+          Click Share, choose Nearby Sharing or Mail, then click Share again
+          and choose a different target.
+        reason: |
+          The share UI asks the window's DataRequested handler for the file;
+          an empty or "nothing to share" sheet means the handler or the
+          package title failed, and the second share must send the newly
+          chosen file rather than register a second handler.
+    observe: |
+      The reader toolbar, the "File copied" notice, Explorer and the message
+      after the paste, and the Windows share sheet.
+    expected: |
+      Pasting in Explorer creates a copy of the PDF, the message gets the PDF
+      as an attachment, and the share sheet lists the PDF by name and sends
+      it each time.
+    why_manual: |
+      The Windows clipboard, Explorer and the share sheet are native UI that
+      only a real Windows session runs, and this Mac cannot build the
+      Windows app (ring needs the MSVC headers); the path restriction is
+      covered by the app-core suite.
+    covers:
+      - apps/desktop/src-tauri/src/file_share.rs
+      - apps/desktop/src-tauri/src/file_share_windows.rs
+      - apps/desktop/src/features/lms/FilePreview.tsx
+    verified: null
+
+  - id: DESKTOP-LECTURES-PANE-MOTION
+    area: desktop
+    title: Choosing a course on Lectures moves only the course pane
+    persona: undergraduate-senior
+    preconditions: |
+      Desktop build of this commit with a quarter of lectures.
+    steps:
+      - action: |
+          On Lectures, click one course in the list, then another, then an
+          exam under Exams.
+        reason: |
+          Only the right-hand pane may enter; the list, the quarter picker
+          and the page fading as well means the page transition still runs
+          for a change within Lecture Desk.
+      - action: |
+          Open a course from a Today row, then go back to Today.
+        reason: |
+          Coming from another page keeps its page transition and the morph
+          from the clicked row; the pane must not slide in on top of it.
+      - action: |
+          Turn on Reduce Motion in the system settings and click another
+          course.
+        reason: |
+          Under Reduce Motion the pane only fades.
+    observe: |
+      The list column and the course pane while each course opens.
+    expected: |
+      The list stays still and the course pane slides in from the right
+      (fades under Reduce Motion); opening from Today still morphs the row.
+    why_manual: |
+      Whether a column moves during a 250 ms animation is seen at a glance in
+      the real app; a headless DOM runs no View Transitions or animations.
+    covers:
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/pages/lectures/lectures.css
+      - apps/desktop/src/app/App.tsx
     verified: null
 
   - id: DESKTOP-LOG-EXPORT
