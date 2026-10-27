@@ -153,6 +153,7 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
         ("/textSize", json!("huge")),
         ("/contentLanguage", json!("fr")),
         ("/density", json!(3)),
+        ("/closeWindow", json!("minimize")),
         ("/cloud/provider", json!("dropbox")),
     ] {
         let error = service
@@ -217,6 +218,36 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
         },
     );
     assert_eq!(year.workspace["academicProfile"]["admissionYear"], 2024);
+
+    // The close prompt remembers a choice without a settings form; the shell
+    // reads it back as a device preference that cloud sync never carries.
+    let remembered = mutate(
+        &service,
+        WorkspaceIntent::SetCloseWindow {
+            action: "background".into(),
+        },
+    );
+    assert_eq!(
+        remembered.workspace["settings"]["closeWindow"],
+        "background"
+    );
+    assert_eq!(remembered.workspace["settings"]["textSize"], "large");
+    assert_eq!(
+        service.store.device_preference("/closeWindow").unwrap(),
+        Some(json!("background"))
+    );
+    let mut synced = json!({"key":"userPreferences","value":{"closeWindow":"quit"}});
+    crate::data::cloud_merge::sanitize_setting(&mut synced);
+    assert_eq!(synced["value"], json!({}));
+    let error = service
+        .apply(WorkspaceMutation {
+            expected_revision: remembered.revision.clone(),
+            intent: WorkspaceIntent::SetCloseWindow {
+                action: "minimize".into(),
+            },
+        })
+        .unwrap_err();
+    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
 }
 
 #[test]

@@ -280,6 +280,11 @@ pub enum WorkspaceIntent {
         semester: String,
         group: Option<ClassGroup>,
     },
+    /// The desktop window's close prompt remembered the user's choice.
+    SetCloseWindow {
+        #[cfg_attr(feature = "ts", ts(type = "\"ask\" | \"quit\" | \"background\""))]
+        action: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -750,6 +755,14 @@ fn apply_intent(
                 }
             }
             write.save_setting("classGroups", &groups)
+        }
+        WorkspaceIntent::SetCloseWindow { action } => {
+            let mut settings = current
+                .get("settings")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            object_mut(&mut settings, "settings")?.insert("closeWindow".into(), action.into());
+            write.save_settings(&settings)
         }
     }
 }

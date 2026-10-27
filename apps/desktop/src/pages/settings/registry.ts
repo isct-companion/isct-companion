@@ -87,6 +87,8 @@ export type SettingEntry = {
   id: string;
   title: string;
   terms?: string;
+  /** False on a platform whose page leaves this row out. */
+  available?: () => boolean;
 };
 
 export const SETTING_ENTRIES: SettingEntry[] = [
@@ -219,6 +221,14 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   },
   {
     section: "appearance",
+    id: "close-window",
+    title: "When closing the window",
+    terms: "close quit tray dock background 关闭 退出 托盘 閉じる 終了 トレイ",
+    // Only the macOS and Windows shells keep running after the window closes.
+    available: () => nativeOs() === "macos" || nativeOs() === "windows",
+  },
+  {
+    section: "appearance",
     id: "background",
     title: "Background image",
     terms: "wallpaper 背景",
@@ -276,7 +286,8 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     section: "backup",
     id: "full-reset",
     title: "settings.reset.full.title",
-    terms: "reset erase delete wipe first launch 初期化 リセット 消去 重置 清除",
+    terms:
+      "reset erase delete wipe first launch 初期化 リセット 消去 重置 清除",
   },
   {
     section: "sources",
@@ -338,7 +349,8 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     section: "about",
     id: "guide",
     title: "Show welcome and tips again",
-    terms: "tutorial onboarding help hints guide チュートリアル ヒント 教程 提示",
+    terms:
+      "tutorial onboarding help hints guide チュートリアル ヒント 教程 提示",
   },
   {
     section: "about",

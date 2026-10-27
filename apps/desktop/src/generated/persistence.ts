@@ -543,6 +543,10 @@ export type Settings = {
   textSize?: "small" | "medium" | "large";
   automaticAppUpdates?: boolean;
   restoreSchoolPage?: boolean;
+  /**
+   * What closing the desktop window does; absent reads as `ask`.
+   */
+  closeWindow?: "ask" | "quit" | "background";
   activeSchoolSite?: string;
   schoolWebZoom?: number;
   showGrades?: boolean;
@@ -1697,7 +1701,8 @@ export type WorkspaceIntent =
   | { kind: "markTimetableReviewed" }
   | { kind: "markRecentSeen"; list: RecentKind; id: string }
   | { kind: "markAllRecentSeen" }
-  | { kind: "setClassGroup"; semester: string; group: ClassGroup | null };
+  | { kind: "setClassGroup"; semester: string; group: ClassGroup | null }
+  | { kind: "setCloseWindow"; action: "ask" | "quit" | "background" };
 
 export type CourseBatchChanges = {
   language?: string;

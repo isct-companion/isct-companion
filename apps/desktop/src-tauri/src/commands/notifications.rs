@@ -99,7 +99,7 @@ async fn show(app: &tauri::AppHandle, content: &NotificationContent) -> Result<(
             .text1(&body)
             .sound(Some(tauri_winrt_notification::Sound::Default))
             .on_activated(move |_| {
-                if let Some(window) = activate.get_webview_window("main") {
+                if let Some(window) = activate.get_window("main") {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_focus();

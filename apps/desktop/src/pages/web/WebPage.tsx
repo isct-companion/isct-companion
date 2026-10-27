@@ -293,6 +293,17 @@ function WebBody({
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
+    // Choosing the site already shown returns its view to the start page. The
+    // open effect only runs when `site` changes, so this has to navigate itself.
+    // Popups over the view close first: the address bar acts on the front one.
+    if (next === site && embedded) {
+      void (async () => {
+        for (let open = 0; open < 8; open++)
+          if (!(await desktopBridge?.closeSchoolWebPopup?.(site))) break;
+        await openTarget(official[next].url, next);
+      })().catch((error) => setStatus(errorText(error) ?? "Unavailable"));
+      return;
+    }
     sessionStorage.setItem("isct-companion-active-school-site", next);
     update((draft) => {
       draft.settings.activeSchoolSite = next;
