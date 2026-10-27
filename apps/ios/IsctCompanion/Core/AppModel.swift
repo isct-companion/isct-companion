@@ -270,7 +270,9 @@ final class AppModel {
                         await refreshCloud()
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
-                    case "school-web-url", "school-download", "catalog-changed":
+                    case "school-web-url", "school-web-popups", "school-web-notice":
+                        web.receive(event.name, payload: event.payload)
+                    case "school-download", "catalog-changed":
                         break
                     case "workspace-changed":
                         latestSeq = max(latestSeq, Self.seq(event.payload))

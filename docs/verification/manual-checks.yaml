@@ -6427,6 +6427,211 @@ checks:
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
     verified: null
 
+  - id: IOS-SCHOOL-NATIVE-CONFIRM
+    area: native
+    title: iOS school pages show confirm, alert and prompt only when on screen
+    persona: undergraduate-senior
+    preconditions: |
+      An iPhone and an iPad build of this commit, signed in to the Tokyo
+      Tech Portal and TSUBAME.
+    steps:
+      - action: |
+          In ウェブ, open the Portal, tap its logout link and press Cancel in
+          the dialog that appears.
+        reason: |
+          Without a UI delegate WKWebView answers confirm() with Cancel unseen,
+          so `if (!confirm(...))` pages looked dead. The school view now shows
+          an alert titled with the page's origin; a session that survives
+          Cancel proves the answer reaches the page.
+      - action: |
+          Open TSUBAME's password change form and press its submit button;
+          stop at the confirmation without changing the password.
+        reason: |
+          The page tests `confirm(...) == true`; the unseen Cancel made the
+          button do nothing. An alert is the evidence.
+      - action: |
+          Leave ウェブ for another tab and pull to refresh Today so a
+          background school refresh runs.
+        reason: |
+          A view that is parked off screen raises no alert and gets Cancel;
+          background work must never put an alert over another screen.
+    observe: |
+      The alerts over the Portal and TSUBAME pages, the Portal session after
+      Cancel, and the Today screen during the refresh.
+    expected: |
+      Both pages show a system alert headed by the page's origin with OK and
+      Cancel; Cancel keeps the Portal session; no alert appears while ウェブ
+      is not on screen.
+    why_manual: |
+      Needs real school pages inside WKWebView and UIKit alerts on a device;
+      whether an alert appears is a glance.
+    covers:
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+    verified: null
+
+  - id: IOS-SCHOOL-POPUPS
+    area: native
+    title: iOS school popups cover their opener and close back to it
+    persona: undergraduate-senior
+    preconditions: |
+      An iPhone and an iPad build of this commit, signed in to 教務Web.
+    steps:
+      - action: |
+          On 教務Web, open a page with a picker button (for example the 申告
+          page's 科目 search, during a 申告 period). Press the button, look at
+          the page that opens, then close it with its own 閉じる button;
+          open it again and close it with the app's Close window.
+        reason: |
+          教務Web's showDialog opens a named window that answers through
+          `window.opener` and closes itself. Before, the popup's page replaced
+          the opener and was reported closed at once. Now it is a real
+          WKWebView built from WebKit's configuration over the opener, and
+          `window.close()` (webViewDidClose) and the close bar must both bring
+          the opener back unchanged. Choosing would post back to the 申告
+          form, so the check stops before it.
+      - action: |
+          On 教務Web's top page, open 「マニュアル」, use Back and Forward and
+          Share while it is open, then Close window.
+        reason: |
+          A `target=_blank` PDF opens as a popup now; the toolbar and the page
+          menu act on the popup in front, and the page behind must still be
+          there after closing.
+    observe: |
+      The web screen while the popup is open, the Popup window bar under the
+      navigation bar, and the opener page after closing.
+    expected: |
+      Each popup fills the web screen under a Popup window bar with Close
+      window; Back, Forward and Share act on the popup; closing either way
+      returns to the opener exactly as it was, with no reload.
+    why_manual: |
+      Needs a 教務Web account and WebKit's own windows on a device; where
+      the popup sits and that the opener survives is a glance. The
+      child-window lifecycle is Core's and tested there.
+    covers:
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+      - apps/ios/IsctCompanion/Core/WebRouter.swift
+      - apps/ios/IsctCompanion/Features/Web/WebScreens.swift
+    verified: null
+
+  - id: IOS-SCHOOL-NO-RESUBMIT
+    area: native
+    title: iOS reload and history never send a postback form again
+    persona: undergraduate-senior
+    preconditions: |
+      An iPhone and an iPad build of this commit, signed in to 教務Web.
+    steps:
+      - action: |
+          On the 成績 list, switch the 学期 (a postback that changes nothing
+          on the school's side), then choose Reload in the page menu, and once
+          pull down to refresh.
+        reason: |
+          WebKit reloads a POST result by sending the form again, silently,
+          as `.formResubmitted`. On a 申告 page that repeats an action; here
+          it is harmless, which is why this page is used. The reload must
+          become a GET of the same page with a short notice.
+      - action: |
+          Switch the 学期 twice more, open another page, go to a third site
+          in the picker and back, then press Back repeatedly.
+        reason: |
+          Switching sites lets WebKit drop the cached postback pages. Going
+          back to one would resend its form; the host must cancel that and
+          step past the entry instead. This rests on WebKit having moved its
+          history to the target when it asks, which was probed on macOS only.
+    observe: |
+      The line under the navigation bar after Reload, the 成績 page, and
+      where each Back lands.
+    expected: |
+      Reload shows "Reopened this page without sending the form again." for
+      a few seconds and opens the page in its initial state, without the
+      教務Web error page. Back either shows a cached page as it was or skips
+      past a postback page to the one before it; it never shows the 教務Web
+      error page and never stalls on the same page.
+    why_manual: |
+      Needs real WebForms postbacks inside WebKit on a device, and WebKit's
+      cache eviction. The resubmission rule is Core's and tested there.
+    covers:
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+      - apps/ios/IsctCompanion/Features/Web/WebScreens.swift
+    verified: null
+
+  - id: IOS-SCHOOL-LOAD-FAILURE
+    area: native
+    title: iOS campus-only page explains itself off VPN and opens on it
+    persona: undergraduate-senior
+    preconditions: |
+      An iPhone and an iPad build of this commit, signed in to the Tokyo
+      Tech Portal; the campus VPN available to switch on and off on the
+      device.
+    steps:
+      - action: |
+          With the VPN off, open 「Education Computer Systems」 from the
+          Portal's resource list.
+        reason: |
+          The host resolves only inside the campus network. WKWebView shows
+          nothing when a load fails and stays on the old page, so without a
+          reported failure the link looks broken.
+      - action: Switch the VPN on and tap Retry in the notice.
+        reason: Retry must load the same address; the page opening proves the notice kept it.
+    observe: The bar under the navigation bar after each tap, and the page.
+    expected: |
+      Off VPN, a notice says the server was not found or did not answer and
+      that campus-only services need the campus network or VPN, with Retry
+      and Open in browser. On VPN, Retry opens the page and the notice goes.
+    why_manual: |
+      Needs the campus network and a real failed load inside WebKit; the
+      notice is a glance. Which failures are shown is Core's and tested there.
+    covers:
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+      - apps/ios/IsctCompanion/Core/WebRouter.swift
+      - apps/ios/IsctCompanion/Features/Web/WebScreens.swift
+    verified: null
+
+  - id: IOS-SCHOOL-HTTP-EXTERNAL
+    area: native
+    title: iOS plain-HTTP school file opens in Safari
+    persona: undergraduate-senior
+    preconditions: |
+      An iPhone and an iPad build of this commit, signed in to 教務Web.
+    steps:
+      - action: On 教務Web's top page, open 「緊急時避難場所」.
+        reason: |
+          The PDF exists only over plain HTTP. Nothing relaxes App Transport
+          Security, so Core sends it to the system browser; a tap that does
+          nothing means the rule or the host lost it.
+    observe: Safari and the school page.
+    expected: The PDF opens in Safari; the school page stays where it was.
+    why_manual: |
+      Needs the real school link and Safari on a device; where the tap lands
+      is a glance. The cleartext rule is Core's and tested there.
+    covers:
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+    verified: null
+
+  - id: IOS-SCHOOL-PRINT
+    area: native
+    title: iOS school page's print button opens the print sheet
+    persona: undergraduate-senior
+    preconditions: |
+      An iPhone and an iPad build of this commit, signed in to 教務Web.
+    steps:
+      - action: |
+          On a 教務Web page with 「この画面を印刷」 (for example 成績), tap it,
+          look at the preview, then cancel.
+        reason: |
+          `window.print()` reaches only WebKit's private
+          `_webView:printFrame:pdfFirstPageSize:completionHandler:`; without
+          it nothing happens. The host answers it with
+          UIPrintInteractionController, which must show the page.
+    observe: The print sheet (a popover from the page on iPad) and its preview.
+    expected: |
+      The system print options open with the page in the preview; Cancel
+      closes them and the page is unchanged.
+    why_manual: |
+      The print sheet is native UI on a real school page; it is a glance.
+    covers:
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+    verified: null
+
   - id: SCHOOL-CREDENTIALS-VERIFIED-SYNC
     area: school
     title: Credentials typed wrong on iPad never reach the Mac

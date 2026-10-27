@@ -111,6 +111,7 @@ struct WebTabScreen: View {
                 .padding(12)
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
+        .safeAreaInset(edge: .top, spacing: 0) { PageBars(site: web.tabSite) }
         .background(Theme.bg)
         .navigationTitle(WebRouter.name(web.tabSite))
         .navigationBarTitleDisplayMode(.inline)
@@ -155,7 +156,7 @@ private struct PageActions: View {
     var body: some View {
         Menu {
             Button(t("Reload"), systemImage: "arrow.clockwise") { web.reload(site) }
-            if let url = web.browser.webView(for: site)?.url {
+            if let url = web.browser.frontWebView(for: site)?.url {
                 ShareLink(item: url) { Label(t("Share"), systemImage: "square.and.arrow.up") }
                 Link(destination: url) { Label(t("Open in browser"), systemImage: "safari") }
             }
@@ -186,7 +187,7 @@ extension WebRouter {
         case let .site(site): choose(site)
         case .reload: reload(tabSite)
         case .openInBrowser:
-            if let url = browser.webView(for: tabSite)?.url { UIApplication.shared.open(url) }
+            if let url = browser.frontWebView(for: tabSite)?.url { UIApplication.shared.open(url) }
         }
     }
 }
@@ -209,7 +210,7 @@ struct SitePickerRows: View {
         }
         Divider()
         row(.reload, t("Reload"), icon: "arrow.clockwise")
-        if web.browser.webView(for: web.tabSite)?.url != nil {
+        if web.browser.frontWebView(for: web.tabSite)?.url != nil {
             row(.openInBrowser, t("Open in browser"), icon: "safari")
         }
     }
@@ -240,6 +241,7 @@ struct WebPageScreen: View {
                 ProblemNote(text: error)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) { PageBars(site: page.site) }
         .background(Theme.bg)
         .navigationTitle(page.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -255,7 +257,7 @@ struct WebPageScreen: View {
                 Button { web.forward(page.site) } label: { Image(systemName: "chevron.forward") }
                     .accessibilityLabel(t("Next page"))
                 Spacer()
-                if let url = web.browser.webView(for: page.site)?.url {
+                if let url = web.browser.frontWebView(for: page.site)?.url {
                     ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
                     Spacer()
                     Link(destination: url) { Image(systemName: "safari") }
@@ -268,6 +270,87 @@ struct WebPageScreen: View {
             web.appear(page.site, owner: visibilityOwner)
         }
         .onDisappear { web.disappear(owner: visibilityOwner) }
+    }
+}
+
+/// What sits between the navigation bar and the page, outside the school
+/// page: the close bar of a popup the page opened over itself, and Core's
+/// notice about the page the person sees (it did not load, or a reload was
+/// opened again without resending a form).
+private struct PageBars: View {
+    let site: SchoolSite
+    @Environment(WebRouter.self) private var web
+
+    /// What the notice says when a page did not load, by Core's `LoadFailure`.
+    private static let failureText: [String: String] = [
+        "offline": "This page could not be opened: there is no network connection.",
+        "host-not-found":
+            "This page could not be opened: its server was not found. Campus-only services need the campus network or VPN.",
+        "unreachable":
+            "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN.",
+        "insecure": "This page could not be opened: the secure connection failed.",
+        "cleartext": "This page uses an unencrypted connection, so it opens only in your browser.",
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if (web.popups[site] ?? 0) > 0 {
+                HStack {
+                    Label(t("Popup window"), systemImage: "macwindow.on.rectangle")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(t("Close window")) { web.closePopup(site) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                Divider()
+            }
+            if let notice = web.notices[site] {
+                note(notice)
+                Divider()
+            }
+        }
+        .background(.bar)
+        .animation(.default, value: web.popups[site] ?? 0)
+        .animation(.default, value: web.notices[site])
+    }
+
+    @ViewBuilder
+    private func note(_ notice: WebRouter.Notice) -> some View {
+        switch notice.kind {
+        case let .loadFailed(reason):
+            VStack(alignment: .leading, spacing: 8) {
+                Label(t(Self.failureText[reason] ?? "This page could not be opened."), systemImage: "exclamationmark.triangle")
+                    .font(.subheadline)
+                    .symbolRenderingMode(.multicolor)
+                HStack {
+                    if let url = notice.url {
+                        if reason != "cleartext" {
+                            Button(t("Retry")) { web.retry(site) }
+                        }
+                        Button(t("Open in browser")) { UIApplication.shared.open(url) }
+                    }
+                    Spacer()
+                    Button { web.dismissNotice(site) } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel(t("Close"))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        case .reopened:
+            Label(t("Reopened this page without sending the form again."), systemImage: "arrow.clockwise")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+        }
     }
 }
 
