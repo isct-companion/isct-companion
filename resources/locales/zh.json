@@ -1354,5 +1354,11 @@
   "Close IsctCompanion?": "要关闭 IsctCompanion 吗？",
   "Keeping it running lets reminders and sync continue.": "保持运行时，提醒和同步会继续进行。",
   "Remember my choice": "记住我的选择",
-  "Show IsctCompanion": "显示 IsctCompanion"
+  "Show IsctCompanion": "显示 IsctCompanion",
+  "Print": "打印",
+  "OK": "确定",
+  "Reopen this page": "重新打开此页",
+  "Leave this page?": "要离开此页吗？",
+  "Leave": "离开",
+  "Stay": "留在此页"
 }

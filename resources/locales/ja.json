@@ -1354,5 +1354,11 @@
   "Close IsctCompanion?": "IsctCompanion を閉じますか？",
   "Keeping it running lets reminders and sync continue.": "実行したままにすると、リマインダーと同期が続きます。",
   "Remember my choice": "この選択を記憶する",
-  "Show IsctCompanion": "IsctCompanion を表示"
+  "Show IsctCompanion": "IsctCompanion を表示",
+  "Print": "印刷",
+  "OK": "OK",
+  "Reopen this page": "このページを開き直す",
+  "Leave this page?": "このページを離れますか？",
+  "Leave": "離れる",
+  "Stay": "このページに留まる"
 }

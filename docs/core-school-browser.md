@@ -183,24 +183,32 @@ Nothing is injected into a school page to show these.
 person is looking at, titled with the initiating frame's origin, and answered
 Cancel for a hidden view without any UI. `window.print()` opens the system
 print panel for the foreground view only (WebKit: the private
-`_webView:printFrame:pdfFirstPageSize:completionHandler:`; Android:
-`PrintManager`). School pages get no app script: Tauri injects every plugin's
-page script into every webview, so a desktop plugin must not have one.
+`_webView:printFrame:pdfFirstPageSize:completionHandler:`). Android WebView
+has no hook for a page's `window.print()`, so the page's button does
+nothing there and the app's page menu prints the page on screen through
+`PrintManager`. A `beforeunload` question is shown the same way, and a
+hidden view always leaves. School pages get no app script: Tauri injects
+every plugin's page script into every webview, so a desktop plugin must not
+have one.
 
 ## Platform status
 
-| Host                       | Facts                                                             | Popups                                             | Print, dialogs                       |
-| -------------------------- | ----------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------ |
-| macOS (`school_webkit.rs`) | Full, `formResubmission`                                          | Inline over the opener                             | Done                                 |
-| Windows (interim)          | URL only (`Unknown`, no method or gesture); no resubmission facts | Separate windows (`NewWindowResponse::Create`)     | WebView2's own                       |
-| iOS (`SchoolBrowserHost`)  | Full but gesture, `formResubmission`                              | Inline over the opener                             | Done                                 |
-| Android (interim)          | URL, frame and gesture (`Unknown` kind)                           | Load in the opener's view; reported closed at once | WebView's own dialogs; print pending |
+| Host                             | Facts                                                                                           | Popups                                         | Print, dialogs                                                                |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| macOS (`school_webkit.rs`)       | Full, `formResubmission`                                                                        | Inline over the opener                         | Done                                                                          |
+| Windows (interim)                | URL only (`Unknown`, no method or gesture); no resubmission facts                               | Separate windows (`NewWindowResponse::Create`) | WebView2's own                                                                |
+| iOS (`SchoolBrowserHost.swift`)  | Full but gesture, `formResubmission`                                                            | Inline over the opener                         | Done                                                                          |
+| Android (`SchoolBrowserHost.kt`) | URL, method, frame, gesture, redirect; `onFormResubmission`; `ERR_CACHE_MISS` as a load failure | `WebViewTransport`, inline over the opener     | Dialogs done; print from the page menu (WebView has no `window.print()` hook) |
 
-The Android host implements this contract in full in its own change: real
-popups (`WebViewTransport`), the full `NavigationRequest` (Android
-`onFormResubmission` and an app notice for `ERR_CACHE_MISS`), `SkipEntry`,
-`closed` on `window.close()`, `becameDownload`, dialogs, printing,
-`LoadFailure` mapping, and
-`capabilities` set to true. The Windows WebView2 host (`NavigationStarting`,
-`NewWindowRequested` with a deferral and the same environment, `ScriptDialogOpening`,
-its own record of POST entries) replaces the interim later.
+Android never resends a form from history: back or forward to an uncached
+POST result fails with `ERR_CACHE_MISS`, reported as `Other`, and the
+notice's reopen reloads that entry, which asks `onFormResubmission` and so
+reaches Core's GET. `onCreateWindow` names no URL, so a popup is requested as
+`about:blank` and its first navigation is decided from inside it; a popup
+whose first page went to the system browser or was refused is closed.
+
+Neither mobile host reports `becameDownload` yet, so an empty popup whose
+file is saved stays open there until closed. The Windows WebView2 host
+(`NavigationStarting`, `NewWindowRequested` with a deferral and the same
+environment, `ScriptDialogOpening`, `DownloadStarting`, its own record of
+POST entries) replaces the interim later.
