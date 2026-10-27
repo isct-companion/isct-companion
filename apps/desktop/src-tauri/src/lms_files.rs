@@ -8,7 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager};
-use tauri_plugin_dialog::DialogExt;
 
 use app_core::course_materials::CourseMaterials;
 pub use app_core::course_materials::{CourseKey, Material};
@@ -113,24 +112,22 @@ pub async fn choose_course_storage(
     reset: bool,
 ) -> Result<StorageInfo, CommandError> {
     crate::require_local_main(&webview)?;
+    let chosen = if reset {
+        None
+    } else {
+        let Some(chosen) =
+            crate::native_dialog::pick_folder(&webview.window(), "Course materials and notes")
+                .await?
+        else {
+            return course_storage_info(webview, app).await;
+        };
+        Some(chosen)
+    };
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), CommandError> {
-        let selection = if reset {
-            default_root(&handle)?
-        } else {
-            let Some(chosen) = handle
-                .dialog()
-                .file()
-                .set_title("Course materials and notes")
-                .blocking_pick_folder()
-            else {
-                return Ok(());
-            };
-            chosen
-                .into_path()
-                .map_err(shell)?
-                .canonicalize()
-                .map_err(shell)?
+        let selection = match chosen {
+            None => default_root(&handle)?,
+            Some(chosen) => chosen.canonicalize().map_err(shell)?,
         };
         let config = config(&handle)?;
         let bytes = serde_json::to_vec(&selection).map_err(shell)?;

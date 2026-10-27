@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**10 of 129 checks must be re-run before the next release.**
+**10 of 130 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -30,7 +30,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**119 checks have never been run or could not be run:**
+**120 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -43,6 +43,7 @@ an unverified area becomes an assumed-good one.
 - `CLOUD-DRIVE-WRITE` — never verified
 - `CLOUD-RESILIENCE` — never verified
 - `OCR-CAMERA-GEOMETRY` — never verified
+- `DESKTOP-SCHOOL-NATIVE-CONFIRM` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
 - `DESKTOP-PAGE-OVERLAYS` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
@@ -173,6 +174,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
@@ -1475,6 +1477,65 @@ manager. jsdom cannot produce native navigation, popups or a reveal.
 Recorded in docs/verification/core-consolidation.md.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
+
+### School pages get the browser's own confirm and alert, and file dialogs still open (`DESKTOP-SCHOOL-NATIVE-CONFIRM`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, signed in to the Tokyo Tech Portal
+and TSUBAME.
+
+**Steps**
+
+1. On the Portal tab, click the logout link and press Cancel in the
+   dialog that appears.
+   - *Why:* A plugin init script once replaced window.confirm in every webview
+     with an async function, so `if (!confirm(...))` never stopped and
+     logout happened with no question. A native confirm that keeps the
+     session on Cancel means the school view runs no plugin script.
+2. On TSUBAME, open the password change form and press its submit
+   button; stop at the confirmation without changing the password.
+   - *Why:* The page tests `confirm(...) == true`; with the replaced confirm
+     the comparison was always false and the button did nothing. A
+     native confirmation box is the evidence.
+3. In Settings, choose another course folder, then cancel the
+   picker; export a backup and save it.
+   - *Why:* The file dialogs now come from rfd instead of the dialog plugin; a
+     picker that does not open, ignores Cancel, or saves without the
+     backup's name and extension means the replacement lost a setting.
+
+**Where to look**
+
+The dialogs on the Portal and TSUBAME pages, whether the Portal session
+survives Cancel, and the folder picker and save panel attached to the
+main window.
+
+**Expected**
+
+Both school pages show the native confirmation and honour Cancel; the
+folder picker titled "Course materials and notes" keeps the old folder
+on Cancel, and the save panel offers the backup's file name with its
+extension filter and writes the file.
+
+**Why this is manual**
+
+Needs real school accounts and the school pages' own scripts inside
+the native webview, and the native file panels, none of which a
+headless suite runs.
+
+**Covers**
+
+- `apps/desktop/src-tauri/src/lib.rs`
+- `apps/desktop/src-tauri/src/native_dialog.rs`
+- `apps/desktop/src-tauri/src/school_web.rs`
+- `apps/desktop/src-tauri/src/commands/backup.rs`
+- `apps/desktop/src-tauri/src/lms_files.rs`
+
+**Last recorded** never run
 
 ### Keyboard-only use in a narrow window (`DESKTOP-NARROW-WINDOW`)
 

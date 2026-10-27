@@ -30,6 +30,7 @@ use app_core::lifecycle;
 mod lms_downloader;
 mod lms_files;
 mod lms_protocol;
+mod native_dialog;
 #[cfg(target_os = "macos")]
 mod notifications_macos;
 #[cfg(matrix_ocr)]
@@ -212,7 +213,6 @@ pub fn run() {
                 .open_js_links_on_click(false)
                 .build(),
         )
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(core_ports::DesktopRuntime::default())

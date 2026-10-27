@@ -23,7 +23,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.12", features = ["unstable", "protocol-asset"] }
 tauri-plugin-opener = "2.5"
-tauri-plugin-dialog = "2"
+# Native file dialogs (native_dialog.rs); the same rfd and backends
+# tauri-plugin-dialog used (GTK 3 on Linux), without that plugin's init script
+# in the school webviews.
+rfd = { version = "0.16", default-features = false, features = ["gtk3", "common-controls-v6"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1", features = ["v4", "v7"] }
