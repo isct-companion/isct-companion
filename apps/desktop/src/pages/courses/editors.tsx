@@ -445,7 +445,7 @@ export function CourseEditor({
 
 export type EventDraft = Pick<
   PersonalEvent,
-  "title" | "room" | "days" | "startTime" | "endTime"
+  "title" | "room" | "days" | "startTime" | "endTime" | "color"
 >;
 
 export function EventEditor({
@@ -468,6 +468,7 @@ export function EventEditor({
     days: event?.days ?? [3],
     startTime: event?.startTime ?? "13:30",
     endTime: event?.endTime ?? "15:10",
+    color: event?.color,
   });
   const [error, setError] = useState("");
   const submit = (e: FormEvent) => {
@@ -546,6 +547,29 @@ export function EventEditor({
               value={draft.days}
               onChange={(days) => setDraft({ ...draft, days })}
             />
+          </div>
+          <div className="field wide">
+            <span>{t("Color")}</span>
+            {/* A new event without a choice gets its colour from Core. */}
+            <div className="swatches">
+              {palette.map((color) => (
+                <UiButton
+                  type="button"
+                  key={color}
+                  className={draft.color === color ? "on" : ""}
+                  style={{ background: color }}
+                  aria-label={color}
+                  aria-pressed={draft.color === color}
+                  onClick={() => setDraft({ ...draft, color })}
+                />
+              ))}
+              <UiInput
+                type="color"
+                value={draft.color ?? palette[0]}
+                aria-label={t("Custom color")}
+                onChange={(e) => setDraft({ ...draft, color: e.target.value })}
+              />
+            </div>
           </div>
           <label className="field">
             <span>{t("Starts")}</span>

@@ -407,11 +407,15 @@ pub(crate) fn save_event(
     validate_term(term_id)?;
     let id = existing_id.unwrap_or_else(|| Uuid::now_v7().to_string());
     let mut row = Map::new();
-    for key in ["title", "room", "days", "startTime", "endTime"] {
+    for key in ["title", "room", "days", "startTime", "endTime", "color"] {
         row.insert(key.into(), draft.get(key).cloned().unwrap_or(Value::Null));
     }
     if let Some(Value::String(title)) = row.get_mut("title") {
         *title = title.trim().to_string();
+    }
+    if row.get("color").is_none_or(Value::is_null) {
+        let color = crate::schedule::event_color(&Value::Object(row.clone()));
+        row.insert("color".into(), Value::String(color));
     }
     match row.get_mut("room") {
         Some(Value::String(room)) => *room = room.trim().to_string(),

@@ -419,12 +419,20 @@ fn weekly_events_are_normalized_validated_atomically_and_copied() {
     assert_eq!(event["days"], json!([1, 3]));
     assert_eq!(event["termId"], "2026-3Q");
     assert!(event.get("date").is_none() && event.get("blocking").is_none());
+    // Without a choice Core picks a palette colour by title and stores it.
+    let color = event["color"].as_str().unwrap();
+    assert!(crate::schedule::COURSE_PALETTE.contains(&color));
+    assert_eq!(
+        color,
+        crate::schedule::event_color(&json!({"title":"Lab meeting"}))
+    );
 
     for draft in [
         json!({"title":"No days", "days":[], "startTime":"13:30", "endTime":"15:10"}),
         json!({"title":"Day eight", "days":[8], "startTime":"13:30", "endTime":"15:10"}),
         json!({"title":"Backwards", "days":[1], "startTime":"15:10", "endTime":"13:30"}),
         json!({"title":"  ", "days":[1], "startTime":"13:30", "endTime":"15:10"}),
+        json!({"title":"Red", "days":[1], "startTime":"13:30", "endTime":"15:10", "color":"red"}),
     ] {
         let before = service.read_back().unwrap();
         let error = service
@@ -459,8 +467,8 @@ fn weekly_events_are_normalized_validated_atomically_and_copied() {
         .unwrap();
     assert_ne!(copy["id"], event["id"]);
     assert_eq!(
-        (&copy["title"], &copy["days"]),
-        (&event["title"], &event["days"])
+        (&copy["title"], &copy["days"], &copy["color"]),
+        (&event["title"], &event["days"], &event["color"])
     );
 
     // A quarter without weekly events has nothing to copy.

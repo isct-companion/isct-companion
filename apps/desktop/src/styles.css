@@ -692,13 +692,8 @@ summary,
   display: block;
   max-width: 100%;
 }
-.ttBlock.event {
-  background: color-mix(in srgb, var(--surface-2) 82%, var(--surface));
-  color: var(--ink);
-}
-/* A plan, or a course only planned for the quarter, is intent, not a
-   booked class: an outline in the course colour, no fill. */
-.ttBlock.plan,
+/* A course only planned for the quarter is intent, not a booked class: an
+   outline in the course colour, no fill. */
 .ttBlock.planned {
   background: var(--surface);
   box-shadow: inset 0 0 0 1.5px

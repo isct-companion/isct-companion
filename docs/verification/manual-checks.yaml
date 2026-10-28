@@ -7275,6 +7275,12 @@ checks:
           Repeats switch, a date field or the old conflict checkbox means the
           removed paths are still drawn.
       - action: |
+          Look at 组会's colour, then open it, pick another swatch and save.
+        reason: |
+          A new event takes a palette colour from Core and keeps the one
+          picked; a grey block, or a colour that snaps back after saving,
+          means the colour is not stored or not drawn from the event.
+      - action: |
           Look at the conflict badge and at the class under 组会.
         reason: |
           Core counts a weekly event over a class as a clash. A badge that
@@ -7301,8 +7307,9 @@ checks:
       The timetable toolbar and editor, the conflict badge, the later
       quarter's grid, Today's list, and Apple Calendar after the import.
     expected: |
-      One ＋ 固定日程 button; the editor asks only title, room, weekdays and
-      times; the clash adds one to the badge; the later quarter gets 组会
+      One ＋ 固定日程 button; the editor asks only title, room, weekdays,
+      times and colour; 组会 is drawn in a palette colour, then in the picked
+      one, on the timetable and Today; the clash adds one to the badge; the later quarter gets 组会
       with one press; Today opens it but cannot add one; Apple Calendar shows
       组会 every Wednesday of the quarter beside the classes.
     why_manual: |

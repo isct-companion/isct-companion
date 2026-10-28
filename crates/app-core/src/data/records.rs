@@ -82,6 +82,13 @@ pub(super) fn validate_local_record(table: &str, value: &Value) -> Result<(), Da
             if !ordered {
                 return Err(invalid(&"the event must end after it starts"));
             }
+            if event
+                .color
+                .as_deref()
+                .is_some_and(|color| !crate::schedule::is_hex_color(color))
+            {
+                return Err(invalid(&"color must be #rrggbb"));
+            }
             Ok(())
         }
         "schedule_overrides" => {

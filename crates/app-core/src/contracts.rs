@@ -177,6 +177,8 @@ contract!(PersonalEvent {
     /// event without days, which then never occurs.
     #[serde(default)] pub days: Vec<u8>,
     pub start_time: String, pub end_time: String,
+    /// `#rrggbb`; Core gives a new event a palette colour when none is chosen.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub color: Option<String>,
 });
 contract!(PlanItem {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,

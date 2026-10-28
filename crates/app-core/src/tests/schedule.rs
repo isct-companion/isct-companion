@@ -2008,7 +2008,7 @@ fn weekly_events_clash_with_classes_and_carry_into_an_empty_quarter() {
     data["courses"][0]["meetings"] = json!([{"days":[1],"periods":[7,8],"room":"M-156"}]);
     data["events"] = json!([
         {"id":"lab","termId":"2026-1Q","days":[1],"title":"Lab meeting","room":"","startTime":"15:00","endTime":"16:00"},
-        {"id":"club","termId":"2026-1Q","days":[5],"title":"Club","room":"","startTime":"18:00","endTime":"19:00"},
+        {"id":"club","termId":"2026-1Q","days":[5],"title":"Club","room":"","startTime":"18:00","endTime":"19:00","color":"#a34e5d"},
         {"id":"old","termId":"2025-4Q","days":[2],"title":"Old seminar","room":"","startTime":"10:00","endTime":"11:00"}
     ]);
     let week = planning_week(&data, "2026-1Q").unwrap();
@@ -2026,6 +2026,11 @@ fn weekly_events_clash_with_classes_and_carry_into_an_empty_quarter() {
         [(course, None, "Lab meeting")]
     );
     assert!(week.days[4].blocks.iter().all(|b| b.conflict != Some(true)));
+    // A chosen colour is drawn as chosen; an event without one (synced
+    // from an older app) still gets a palette colour, not grey.
+    assert_eq!(week.days[4].blocks[0].color, "#a34e5d");
+    let lab = week.days[0].blocks.iter().find(|b| b.id == "lab").unwrap();
+    assert!(COURSE_PALETTE.contains(&lab.color.as_str()));
     assert!(week.carry_over.is_none());
 
     let later = planning_week(&data, "2026-2Q").unwrap();

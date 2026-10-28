@@ -8567,19 +8567,23 @@ on Wednesday afternoon, and a later quarter with no weekly events.
    - *Why:* ＋ 计划 and the one-date choice are gone; a second add button, a
      Repeats switch, a date field or the old conflict checkbox means the
      removed paths are still drawn.
-2. Look at the conflict badge and at the class under 组会.
+2. Look at 组会's colour, then open it, pick another swatch and save.
+   - *Why:* A new event takes a palette colour from Core and keeps the one
+     picked; a grey block, or a colour that snaps back after saving,
+     means the colour is not stored or not drawn from the event.
+3. Look at the conflict badge and at the class under 组会.
    - *Why:* Core counts a weekly event over a class as a clash. A badge that
      stays at its old count means the event left the template's
      conflict pass.
-3. Switch to the later quarter and press 沿用 … 的 1 个固定日程.
+4. Switch to the later quarter and press 沿用 … 的 1 个固定日程.
    - *Why:* The offer comes from Core's planning week; the button missing, or
      组会 not appearing after the press, means the carry-over or the
      copy intent broke.
-4. Open 今天 on a Wednesday of that quarter, click 组会, then look for
+5. Open 今天 on a Wednesday of that quarter, click 组会, then look for
    any way to add an event there.
    - *Why:* Today shows and edits weekly events but has no add entry; an add
      button or a dead click means the page kept or lost the wrong path.
-5. Export ICS → 课程＋固定日程 and import the file into Apple Calendar.
+6. Export ICS → 课程＋固定日程 and import the file into Apple Calendar.
    - *Why:* The export used to skip events entirely. 组会 missing on the
      Wednesdays of the quarter means the scope did not reach Core.
 
@@ -8590,8 +8594,9 @@ quarter's grid, Today's list, and Apple Calendar after the import.
 
 **Expected**
 
-One ＋ 固定日程 button; the editor asks only title, room, weekdays and
-times; the clash adds one to the badge; the later quarter gets 组会
+One ＋ 固定日程 button; the editor asks only title, room, weekdays,
+times and colour; 组会 is drawn in a palette colour, then in the picked
+one, on the timetable and Today; the clash adds one to the badge; the later quarter gets 组会
 with one press; Today opens it but cannot add one; Apple Calendar shows
 组会 every Wednesday of the quarter beside the classes.
 

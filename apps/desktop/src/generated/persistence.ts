@@ -176,6 +176,10 @@ export type PersonalEvent = {
   days: Array<number>;
   startTime: string;
   endTime: string;
+  /**
+   * `#rrggbb`; Core gives a new event a palette colour when none is chosen.
+   */
+  color?: string;
   id: string;
   rev: number;
   updatedAt: string;

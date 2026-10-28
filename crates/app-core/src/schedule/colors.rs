@@ -25,10 +25,30 @@ pub fn display_color(course: &Value) -> String {
         .filter(|value| !value.is_empty())
         .or_else(|| text(course, "id"))
         .unwrap_or_default();
+    palette_color(key).into()
+}
+
+/// A weekly personal event's colour: the one the person chose, else a
+/// palette colour picked by its title, so one meeting keeps its colour in
+/// every quarter it is copied to.
+pub fn event_color(event: &Value) -> String {
+    text(event, "color")
+        .filter(|color| is_hex_color(color))
+        .map(str::to_owned)
+        .unwrap_or_else(|| palette_color(text(event, "title").unwrap_or_default().trim()).into())
+}
+
+pub(crate) fn is_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn palette_color(key: &str) -> &'static str {
     let hash = key.chars().fold(2_166_136_261_u32, |value, character| {
         let mut units = [0_u16; 2];
         let code_unit = character.encode_utf16(&mut units)[0];
         (value ^ u32::from(code_unit)).wrapping_mul(16_777_619)
     });
-    COURSE_PALETTE[hash as usize % COURSE_PALETTE.len()].into()
+    COURSE_PALETTE[hash as usize % COURSE_PALETTE.len()]
 }
