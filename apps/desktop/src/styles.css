@@ -613,12 +613,17 @@ summary,
 .ttLunch {
   background: color-mix(in srgb, var(--surface-2) 80%, transparent);
 }
+/* Every block style lives here. Blocks fill their schedule cell; blocks
+   that overlap share it side by side (Core's grid lanes), so no kind of
+   block is raised over another and all of them sit in one layer. */
 .ttBlock {
   --course: #777;
   position: absolute;
   z-index: 2;
   left: 3px;
   right: 3px;
+  width: auto;
+  min-width: 0;
   overflow: hidden;
   border: 0;
   border-radius: var(--radius-block);
@@ -630,33 +635,57 @@ summary,
   color: color-mix(in srgb, var(--course) var(--course-tint-ink), var(--ink));
   padding: 6px 7px;
   text-align: left;
-  display: grid;
-  align-content: start;
-  gap: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   transition:
     filter var(--motion-duration-fast) var(--motion-easing-standard),
     opacity var(--motion-duration-fast) var(--motion-easing-standard);
+}
+[data-density="compact"] .ttBlock {
+  padding: 4px 6px;
 }
 .ttBlock:hover {
   filter: brightness(0.97);
 }
 .ttBlock b {
-  font-size: calc(var(--type-block-size) * var(--text));
-  font-weight: var(--type-block-weight);
-  line-height: 1.3;
-  overflow: hidden;
+  flex: none;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-weight: var(--type-block-weight);
+  line-height: 1.35;
 }
 .ttBlock span,
 .ttBlock small {
   font-size: calc(var(--type-block-size) * var(--text));
   color: inherit;
   opacity: 0.8;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ttBlock .ttRoom,
+.ttBlock .ttAlternation,
+.ttBlock .ttCode {
+  flex: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ttBlock .ttRoom {
+  opacity: 1;
+  font-weight: 700;
+}
+.ttBlock .ttCode {
+  display: block;
+  max-width: 100%;
 }
 .ttBlock.event {
   background: color-mix(in srgb, var(--surface-2) 82%, var(--surface));
@@ -674,7 +703,6 @@ summary,
    (a ring means the class in progress) nor striped (stripes mean the class
    is not held). Each says what it is with a tag before its title. */
 .ttBlock.exam {
-  z-index: 4;
   background: color-mix(
     in srgb,
     var(--course) var(--course-tint-exam),
@@ -689,7 +717,6 @@ summary,
   );
 }
 /* Solid in the course's own colour; a quiz's is outlined. */
-.ttExamTag,
 .ttBlock .ttExamTag {
   display: inline-block;
   margin-right: 4px;
@@ -731,6 +758,29 @@ summary,
 .ttBlock.selected {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
+/* Preserve timetable context on holidays without implying a class takes place. */
+.ttHead.noClasses,
+.ttCol.noClasses {
+  background: color-mix(in srgb, var(--muted) 8%, var(--surface));
+}
+.ttHead.noClasses {
+  color: var(--muted);
+}
+/* A class not held: grey, striped and struck through; stripes mean nothing
+   else. A holiday column is flat grey and draws its classes this way. Last
+   of the block styles, so it wins over the kind and the selection. */
+.ttBlock.cancelled {
+  --course: var(--muted) !important;
+  background:
+    repeating-linear-gradient(135deg, var(--line) 0 3px, transparent 3px 8px),
+    color-mix(in srgb, var(--muted) 10%, var(--surface));
+  color: var(--muted);
+  box-shadow: none;
+}
+.ttBlock.cancelled b {
+  text-decoration: line-through;
+}
+/* The one layer over the blocks, as the phones draw it last. */
 .ttNow {
   position: absolute;
   z-index: 3;
@@ -1434,9 +1484,6 @@ summary,
   min-height: 44px;
   padding-block: 5px;
 }
-[data-density="compact"] .ttBlock {
-  padding: 4px 6px;
-}
 
 /* Reduced motion (slotledger approach/motion-reduced): nothing moves, but
    changes still read. Every animation and transition runs at the fast
@@ -1993,26 +2040,6 @@ summary,
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface);
-}
-
-.ttBlock {
-  min-width: 0;
-  overflow: hidden;
-}
-.ttBlock b {
-  display: block;
-  -webkit-line-clamp: unset;
-  overflow: visible;
-  white-space: normal;
-  word-break: normal;
-  overflow-wrap: anywhere;
-  font-size: calc(var(--type-block-size) * var(--text));
-  line-height: 1.35;
-}
-.ttBlock span,
-.ttBlock small {
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 /* ---------- Course finder (address-bar style search) ---------- */
@@ -2877,56 +2904,6 @@ summary,
   flex-direction: column;
   min-height: 0;
 }
-
-/* Timetable blocks fill their schedule cell; blocks that overlap share it
-   side by side (Core's grid lanes). */
-.ttCol {
-  container-type: inline-size;
-}
-.tt .ttBlock {
-  left: 3px;
-  right: 3px;
-  width: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.tt .ttBlock b {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  flex: none;
-}
-.tt .ttBlock .ttRoom {
-  flex: none;
-  color: inherit;
-  opacity: 1;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tt .ttBlock .ttAlternation {
-  flex: none;
-  color: inherit;
-  opacity: 0.8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tt .ttBlock .ttCode {
-  display: block;
-  flex: none;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tt .ttBlock.exam {
-  z-index: 4;
-}
 .weekLength {
   margin-left: auto;
   flex: none;
@@ -3292,28 +3269,6 @@ summary,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* Preserve timetable context on holidays without implying a class takes place. */
-.ttHead.noClasses,
-.ttCol.noClasses {
-  background: color-mix(in srgb, var(--muted) 8%, var(--surface));
-}
-.ttHead.noClasses {
-  color: var(--muted);
-}
-/* A class not held: grey, striped and struck through; stripes mean nothing
-   else. A holiday column is flat grey and draws its classes this way. */
-.ttBlock.cancelled {
-  --course: var(--muted) !important;
-  background:
-    repeating-linear-gradient(135deg, var(--line) 0 3px, transparent 3px 8px),
-    color-mix(in srgb, var(--muted) 10%, var(--surface));
-  color: var(--muted);
-  box-shadow: none;
-}
-.ttBlock.cancelled b {
-  text-decoration: line-through;
 }
 /* ---------- settings: lists, configs ---------- */
 /* One-time notice on data accuracy. */

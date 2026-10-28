@@ -5407,16 +5407,26 @@ checks:
           had dropped.
       - action: Wait a minute.
         reason: The line moves; a line that never moves was computed once.
+      - action: |
+          During a period that holds an exam or a class marked as a quiz,
+          look where the now line crosses that block.
+        reason: |
+          The line runs across the block from edge to edge. Only the dot and
+          the 3px gutters showing means a block kind is raised over the line
+          again (exam blocks once carried their own z-index).
       - action: Look at the date field beside This week.
         reason: |
           WebKit lays a date field's value at the top of its box; the date
           must sit centred and start where a text field's value starts.
     observe: The Calendar view and the planner's current quarter.
-    expected: Today is tinted and the now line tracks the clock on both.
+    expected: |
+      Today is tinted and the now line tracks the clock on both, drawn over
+      every block it crosses.
     why_manual: |
       A line position read at a glance; agendaColumns' isToday is covered by
       the schedule-and-dates unit test.
     covers:
+      - apps/desktop/src/styles.css
       - apps/desktop/src/components/timetable/workspace.ts
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/components/ui/ui.css

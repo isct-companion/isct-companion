@@ -281,7 +281,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-COURSE-ZOOM-AND-FIGURES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
+| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/styles.css<br>apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
@@ -6373,7 +6373,12 @@ The desktop app during a teaching hour on a weekday.
      had dropped.
 2. Wait a minute.
    - *Why:* The line moves; a line that never moves was computed once.
-3. Look at the date field beside This week.
+3. During a period that holds an exam or a class marked as a quiz,
+   look where the now line crosses that block.
+   - *Why:* The line runs across the block from edge to edge. Only the dot and
+     the 3px gutters showing means a block kind is raised over the line
+     again (exam blocks once carried their own z-index).
+4. Look at the date field beside This week.
    - *Why:* WebKit lays a date field's value at the top of its box; the date
      must sit centred and start where a text field's value starts.
 
@@ -6383,7 +6388,8 @@ The Calendar view and the planner's current quarter.
 
 **Expected**
 
-Today is tinted and the now line tracks the clock on both.
+Today is tinted and the now line tracks the clock on both, drawn over
+every block it crosses.
 
 **Why this is manual**
 
@@ -6392,6 +6398,7 @@ the schedule-and-dates unit test.
 
 **Covers**
 
+- `apps/desktop/src/styles.css`
 - `apps/desktop/src/components/timetable/workspace.ts`
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/components/ui/ui.css`
