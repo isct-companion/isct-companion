@@ -33,7 +33,7 @@ const SLOT_DAYS = 6;
 export type Block = {
   key: string;
   id: string;
-  kind: "course" | "event" | "plan" | "exam";
+  kind: "course" | "event" | "exam";
   date?: string;
   termId?: string;
   title: string;

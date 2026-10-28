@@ -54,8 +54,8 @@ fn trace_keeps_validation_write_audit_and_read_shape_together() {
     let service = fixture.service();
     let created = service
         .call(
-            "plan_event_create",
-            &json!({"title":"Review","start":"2026-10-19T09:00:00+09:00","duration":45}),
+            "weekly_event_create",
+            &json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}),
             WRITES,
         )
         .unwrap();
@@ -65,8 +65,8 @@ fn trace_keeps_validation_write_audit_and_read_shape_together() {
 
     let updated = service
         .call(
-            "plan_event_update",
-            &json!({"id":id,"room":"W9","duration":60}),
+            "weekly_event_update",
+            &json!({"id":id,"room":"W9","endTime":"10:00"}),
             WRITES,
         )
         .unwrap();
@@ -78,8 +78,9 @@ fn trace_keeps_validation_write_audit_and_read_shape_together() {
             WRITES,
         )
         .unwrap();
-    assert_eq!(schedule["plans"][0]["room"], "W9");
-    assert!(schedule["plans"][0].get("rev").is_none());
+    assert_eq!(schedule["events"][0]["room"], "W9");
+    assert_eq!(schedule["events"][0]["endTime"], "10:00");
+    assert!(schedule["events"][0].get("rev").is_none());
 
     let workspace = fixture.store.load_workspace().unwrap();
     let writes = workspace
@@ -87,127 +88,72 @@ fn trace_keeps_validation_write_audit_and_read_shape_together() {
         .and_then(Value::as_array)
         .unwrap();
     assert_eq!(writes.len(), 2);
-    assert_eq!(writes[0]["tool"], "plan_event_update");
-    assert_eq!(writes[1]["tool"], "plan_event_create");
+    assert_eq!(writes[0]["tool"], "weekly_event_update");
+    assert_eq!(writes[1]["tool"], "weekly_event_create");
 }
 
 #[test]
-fn plan_tools_share_civil_jst_time_and_invalid_updates_do_not_commit() {
+fn weekly_event_tools_meet_the_editor_rules_and_invalid_writes_do_not_commit() {
     let fixture = Fixture::new();
     let service = fixture.service();
-    let civil = service
+    let lab = service
         .call(
-            "plan_event_create",
-            &json!({"title":"Civil","start":"2026-10-14T09:00","duration":45}),
+            "weekly_event_create",
+            &json!({"term":"2026-3Q","title":"Lab","days":[2],"startTime":"13:30","endTime":"15:10"}),
             WRITES,
         )
         .unwrap();
-    let offset = service
-        .call(
-            "plan_event_create",
-            &json!({"title":"Offset","start":"2026-10-13T18:00:00-04:00","duration":45}),
-            WRITES,
-        )
-        .unwrap();
-    let plans = fixture.store.user_rows("plans").unwrap();
-    assert!(plans
-        .iter()
-        .any(|row| { row["id"] == civil["id"] && row["start"] == "2026-10-14T09:00:00+09:00" }));
-    assert!(plans
-        .iter()
-        .any(|row| { row["id"] == offset["id"] && row["start"] == "2026-10-14T07:00:00+09:00" }));
-    let schedule = service
-        .call(
-            "schedule",
-            &json!({"from":"2026-10-14","to":"2026-10-14"}),
-            WRITES,
-        )
-        .unwrap();
-    assert_eq!(schedule["plans"].as_array().unwrap().len(), 2);
-
-    fixture
-        .store
-        .put_user_record(
-            "plans",
-            json!({
-                "title":"Excluded legacy", "start":"2026-10-14T11:00", "duration":30,
-                "exdates":["2026-10-14"]
-            }),
-        )
-        .unwrap();
-    let schedule = service
-        .call(
-            "schedule",
-            &json!({"from":"2026-10-14","to":"2026-10-14"}),
-            WRITES,
-        )
-        .unwrap();
-    assert_eq!(schedule["plans"].as_array().unwrap().len(), 2);
-
-    let before_invalid_create = fixture.store.user_rows("plans").unwrap();
-    let error = service
-        .call(
-            "plan_event_create",
-            &json!({"title":"Loose","start":"2026-10-4T9:00","duration":30}),
-            WRITES,
-        )
-        .unwrap_err();
-    assert!(matches!(error, AgentError::InvalidInput(_)));
-    assert_eq!(
-        fixture.store.user_rows("plans").unwrap(),
-        before_invalid_create
-    );
-
-    let before = fixture.store.user_rows("plans").unwrap();
-    let error = service
-        .call(
-            "plan_event_update",
-            &json!({"id":civil["id"],"start":"not-a-date"}),
-            WRITES,
-        )
-        .unwrap_err();
-    assert!(matches!(error, AgentError::InvalidInput(_)));
-    assert_eq!(fixture.store.user_rows("plans").unwrap(), before);
-}
-
-#[test]
-fn plan_writes_accept_civil_until_and_the_contract_rejects_unusable_recurrence() {
-    let fixture = Fixture::new();
-    let service = fixture.service();
-    service
-        .call(
-            "plan_event_create",
-            &json!({"title":"Until","start":"2026-10-14T09:00","duration":30,"rrule":"FREQ=DAILY;UNTIL=20261016"}),
-            WRITES,
-        )
-        .unwrap();
-    let schedule = service
-        .call(
-            "schedule",
-            &json!({"from":"2026-10-16","to":"2026-10-17"}),
-            WRITES,
-        )
-        .unwrap();
-    assert_eq!(schedule["plans"].as_array().unwrap().len(), 1);
-
-    // Writers that bypass the editor canonicalization meet the same contract.
-    let before = fixture.store.user_rows("plans").unwrap();
-    for plan in [
-        json!({"title":"Rule","start":"2026-10-14T09:00:00+09:00","duration":30,"rrule":"FREQ=DAILY;INTERVAL=x","exdates":[]}),
-        json!({"title":"Start","start":"14 Oct","duration":30,"exdates":[]}),
+    let before = fixture.store.user_rows("personal_events").unwrap();
+    for (tool, args) in [
+        (
+            "weekly_event_create",
+            json!({"term":"2026-5Q","title":"Q","days":[1],"startTime":"09:00","endTime":"10:00"}),
+        ),
+        (
+            "weekly_event_create",
+            json!({"term":"2026-3Q","title":"Sunday+1","days":[8],"startTime":"09:00","endTime":"10:00"}),
+        ),
+        (
+            "weekly_event_create",
+            json!({"term":"2026-3Q","title":"No days","startTime":"09:00","endTime":"10:00"}),
+        ),
+        (
+            "weekly_event_update",
+            json!({"id":lab["id"],"endTime":"12:00"}),
+        ),
+        (
+            "weekly_event_update",
+            json!({"id":"missing","title":"Ghost"}),
+        ),
     ] {
-        let error = fixture
-            .store
-            .agent_write("plan_event_create", |write, _| {
-                write.put("plans", plan, None)
-            })
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            AgentWriteError::Data(DataError::InvalidInput(_))
-        ));
+        let error = service.call(tool, &args, WRITES).unwrap_err();
+        assert!(matches!(error, AgentError::InvalidInput(_)), "{args}");
+        assert_eq!(fixture.store.user_rows("personal_events").unwrap(), before);
     }
-    assert_eq!(fixture.store.user_rows("plans").unwrap(), before);
+
+    // Writers that bypass the shared save meet the same contract.
+    let error = fixture
+        .store
+        .agent_write("weekly_event_create", |write, _| {
+            write.put(
+                "personal_events",
+                json!({"kind":"event","termId":"2026-3Q","title":"Raw","room":"","days":[],"startTime":"09:00","endTime":"10:00"}),
+                None,
+            )
+        })
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        AgentWriteError::Data(DataError::InvalidInput(_))
+    ));
+
+    service
+        .call("weekly_event_delete", &json!({"id":lab["id"]}), WRITES)
+        .unwrap();
+    let error = service
+        .call("weekly_event_delete", &json!({"id":lab["id"]}), WRITES)
+        .unwrap_err();
+    assert!(matches!(error, AgentError::InvalidInput(_)));
 }
 
 #[test]
@@ -216,15 +162,19 @@ fn authorization_and_write_policy_fail_before_mutation() {
     let service = fixture.service();
     let denied = service
         .call(
-            "plan_event_create",
-            &json!({"title":"No","start":"2026-10-19T09:00:00+09:00","duration":30}),
+            "weekly_event_create",
+            &json!({"term":"2026-3Q","title":"No","days":[1],"startTime":"09:00","endTime":"09:30"}),
             AgentPolicy {
                 allow_writes: false,
             },
         )
         .unwrap_err();
     assert!(matches!(denied, AgentError::WritesDisabled));
-    assert!(fixture.store.user_rows("plans").unwrap().is_empty());
+    assert!(fixture
+        .store
+        .user_rows("personal_events")
+        .unwrap()
+        .is_empty());
 
     fixture
         .store
@@ -250,7 +200,7 @@ fn transaction_rechecks_revoked_access_before_running_the_write() {
         )
         .unwrap();
     let ran = std::cell::Cell::new(false);
-    let result = fixture.store.agent_write("plan_event_create", |_, _| {
+    let result = fixture.store.agent_write("weekly_event_create", |_, _| {
         ran.set(true);
         Ok(())
     });
@@ -516,8 +466,8 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
         .unwrap();
     service
         .call(
-            "plan_event_create",
-            &json!({"title":"Review","start":"2026-10-19T09:00:00+09:00","duration":45}),
+            "weekly_event_create",
+            &json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}),
             WRITES,
         )
         .unwrap();

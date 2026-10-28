@@ -211,10 +211,9 @@ Android WebView displays no PDF and cannot finish a download itself, so every
 file a school page hands over reaches its `DownloadListener`, reported as
 `becameDownload` with `Saved`, and goes to Core (`save_school_file`). School
 hosts are reached only through a WebView or Core
-(`constraint/school-network-two-stacks`), never the system `DownloadManager`,
-whose platform TLS cannot complete 教務Web's chain. Core fetches the file
-with the WebView's cookies and each host's TLS (`net::host_client_builder`,
-which gives kyomu0 its vendored intermediate), from school-domain HTTPS hosts
+(`constraint/school-network-two-stacks`), never the system `DownloadManager`.
+Core fetches the file with the WebView's cookies and platform TLS verification,
+from school-domain HTTPS hosts
 only (`school_file_url`, checked on every redirect hop; a redirect to an
 identity provider is a lost session), streams it to a `.part` file in the
 shell's staging folder and publishes it under the name Core reads from

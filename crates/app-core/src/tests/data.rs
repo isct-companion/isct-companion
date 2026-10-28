@@ -5,14 +5,14 @@ fn corrupt_stored_rows_are_storage_failures() {
     let connection = Connection::open_in_memory().unwrap();
     connection
         .execute_batch(
-            "CREATE TABLE plans (id TEXT, value TEXT);
+            "CREATE TABLE personal_events (id TEXT, value TEXT);
              CREATE TABLE assignments (id TEXT, value TEXT, missing_since TEXT);
-             INSERT INTO plans VALUES ('broken', 'not JSON');
+             INSERT INTO personal_events VALUES ('broken', 'not JSON');
              INSERT INTO assignments VALUES ('broken', 'not JSON', NULL);",
         )
         .unwrap();
     for result in [
-        read_rows(&connection, "plans"),
+        read_rows(&connection, "personal_events"),
         read_visible_rows(&connection, "assignments"),
     ] {
         let error = result.unwrap_err();
@@ -103,13 +103,13 @@ fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
     let store = store("restore-generation");
     store
         .put_user_record(
-            "plans",
-            json!({"title":"Later","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+            "personal_events",
+            json!({"title":"Later","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
         )
         .unwrap();
     let old: Value = store.export_document(json!([])).unwrap();
     let mut restored = old.clone();
-    restored["tables"]["plans"] = json!([]);
+    restored["tables"]["personal_events"] = json!([]);
     restored["sync"] =
         json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"restore-a"}});
     store
@@ -118,7 +118,7 @@ fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
     store
         .merge_cloud_data(&old, crate::data::WorkspaceChangeSource::CloudSync)
         .unwrap();
-    assert!(store.user_rows("plans").unwrap().is_empty());
+    assert!(store.user_rows("personal_events").unwrap().is_empty());
     let current: Value = store.export_document(json!([])).unwrap();
     assert_eq!(current["sync"], restored["sync"]);
     assert!(store.load_workspace().unwrap()["deviceId"].is_string());
@@ -133,18 +133,18 @@ fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes(
         .unwrap();
     let row_a = a
         .put_user_record(
-            "plans",
-            json!({"title":"A","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+            "personal_events",
+            json!({"title":"A","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
         )
         .unwrap();
     b.put_user_record(
-        "plans",
-        json!({"title":"B","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+        "personal_events",
+        json!({"title":"B","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
     )
     .unwrap();
     let exported_a: Value = a.export_document(json!([])).unwrap();
     let exported_b: Value = b.export_document(json!([])).unwrap();
-    a.delete_user_record("plans", row_a["id"].as_str().unwrap())
+    a.delete_user_record("personal_events", row_a["id"].as_str().unwrap())
         .unwrap();
     a.merge_cloud_data(
         &cloud_merge::merge(&exported_a, &exported_b),
@@ -155,14 +155,17 @@ fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes(
     b.merge_cloud_data(&latest, crate::data::WorkspaceChangeSource::CloudSync)
         .unwrap();
     assert_eq!(
-        a.user_rows("plans")
+        a.user_rows("personal_events")
             .unwrap()
             .iter()
             .filter(|row| row.get("deletedAt").is_none())
             .count(),
         1
     );
-    assert_eq!(a.user_rows("plans").unwrap(), b.user_rows("plans").unwrap());
+    assert_eq!(
+        a.user_rows("personal_events").unwrap(),
+        b.user_rows("personal_events").unwrap()
+    );
     assert_eq!(
         a.load_workspace().unwrap()["settings"]["density"],
         "compact"
@@ -171,7 +174,13 @@ fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes(
         b.load_workspace().unwrap()["settings"]["density"],
         "comfortable"
     );
-    assert_eq!(latest["tables"]["plans"].as_array().unwrap().len(), 2); // includes tombstone
+    assert_eq!(
+        latest["tables"]["personal_events"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    ); // includes tombstone
     let _ = fs::remove_dir_all(a.directory());
     let _ = fs::remove_dir_all(b.directory());
 }
@@ -286,21 +295,21 @@ fn checked_record_mutations_reject_stale_writers() {
     let store = store("record-conflict");
     let row = store
         .put_user_record(
-            "plans",
-            json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+            "personal_events",
+            json!({"title":"One","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
         )
         .unwrap();
     let untouched = store
         .put_user_record(
-            "plans",
-            json!({"title":"Two","start":"2026-10-07T10:00:00+09:00","duration":60,"exdates":[]}),
+            "personal_events",
+            json!({"title":"Two","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
         )
         .unwrap();
     let mut first = row.clone();
     first["title"] = json!("First writer");
     store
         .put_user_record_checked(
-            "plans",
+            "personal_events",
             first,
             crate::data::WorkspaceChangeSource::UserIntent,
             Some(1),
@@ -310,7 +319,7 @@ fn checked_record_mutations_reject_stale_writers() {
     stale["title"] = json!("Stale writer");
     let error = store
         .put_user_record_checked(
-            "plans",
+            "personal_events",
             stale,
             crate::data::WorkspaceChangeSource::UserIntent,
             Some(1),
@@ -318,7 +327,7 @@ fn checked_record_mutations_reject_stale_writers() {
         .unwrap_err();
     assert!(error.to_string().contains("revision conflict"));
     // Rows are written one at a time: a write never deletes the rows it omits.
-    let rows = store.user_rows("plans").unwrap();
+    let rows = store.user_rows("personal_events").unwrap();
     assert_eq!(rows.len(), 2);
     assert!(rows
         .iter()
@@ -332,15 +341,15 @@ fn unchanged_checked_put_returns_the_stored_revision() {
     let store = store("record-unchanged");
     let row = store
         .put_user_record(
-            "plans",
-            json!({"title":"One","start":"2026-10-06T10:00:00+09:00","duration":60,"exdates":[]}),
+            "personal_events",
+            json!({"title":"One","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
         )
         .unwrap();
     let mut edited = row.clone();
     edited["title"] = json!("Edited");
     let edited = store
         .put_user_record_checked(
-            "plans",
+            "personal_events",
             edited,
             crate::data::WorkspaceChangeSource::UserIntent,
             Some(1),
@@ -349,13 +358,13 @@ fn unchanged_checked_put_returns_the_stored_revision() {
     assert_eq!(edited["rev"], 2);
     let same = store
         .put_user_record_checked(
-            "plans",
+            "personal_events",
             edited.clone(),
             crate::data::WorkspaceChangeSource::UserIntent,
             Some(2),
         )
         .unwrap();
-    let stored = store.user_rows("plans").unwrap()[0].clone();
+    let stored = store.user_rows("personal_events").unwrap()[0].clone();
     assert_eq!(same["rev"], stored["rev"]);
     assert_eq!(same, stored);
     assert_eq!(same["rev"], 2);
@@ -363,7 +372,7 @@ fn unchanged_checked_put_returns_the_stored_revision() {
     next["title"] = json!("Edited again");
     let next = store
         .put_user_record_checked(
-            "plans",
+            "personal_events",
             next,
             crate::data::WorkspaceChangeSource::UserIntent,
             Some(2),
@@ -371,7 +380,7 @@ fn unchanged_checked_put_returns_the_stored_revision() {
         .unwrap();
     assert_eq!(next["rev"], 3);
     assert_eq!(
-        store.user_rows("plans").unwrap()[0]["title"],
+        store.user_rows("personal_events").unwrap()[0]["title"],
         "Edited again"
     );
     let _ = fs::remove_dir_all(store.directory());
@@ -783,9 +792,10 @@ fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
     insert_school_assignment(&store);
     store
         .put_user_record(
-            "plans",
+            "personal_events",
             json!({
-                "title":"Study", "start":"2026-10-06T10:00:00+09:00", "duration":60, "exdates":[]
+                "title":"Study", "kind":"event", "termId":"2026-3Q", "room":"",
+                "days":[1], "startTime":"10:00", "endTime":"11:00"
             }),
         )
         .unwrap();
@@ -807,7 +817,13 @@ fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
     assert_eq!(document["localNotes"][0]["text"], "# local");
     assert!(document.pointer("/tables/assignments").is_none());
     assert!(document.pointer("/tables/lms_items").is_none());
-    assert_eq!(document["tables"]["plans"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        document["tables"]["personal_events"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(
         document["tables"]["assignment_marks"]
             .as_array()
@@ -823,10 +839,10 @@ fn invalid_study_history_rolls_back_restore_and_cloud_replacement() {
     let store = store("cloud-study-history");
     store
         .put_user_record(
-            "plans",
+            "personal_events",
             json!({
-                "title":"Keep me", "start":"2026-10-06T10:00:00+09:00",
-                "duration":60, "exdates":[]
+                "title":"Keep me", "kind":"event", "termId":"2026-3Q", "room":"",
+                "days":[1], "startTime":"10:00", "endTime":"11:00"
             }),
         )
         .unwrap();
@@ -863,7 +879,7 @@ fn invalid_study_history_rolls_back_restore_and_cloud_replacement() {
         ));
         let after = store.load_workspace().unwrap();
         assert_eq!(after["academicProfile"], before["academicProfile"]);
-        assert_eq!(after["plans"], before["plans"]);
+        assert_eq!(after["events"], before["events"]);
     }
     let _ = fs::remove_dir_all(store.directory());
 }

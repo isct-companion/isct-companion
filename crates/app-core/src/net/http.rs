@@ -62,7 +62,7 @@ impl Http {
     pub fn new() -> Result<Self, NetError> {
         let mut lanes = HashMap::new();
         for host in Host::ALL {
-            let client = super::host_client_builder(host.name())?
+            let client = super::client_builder()
                 .user_agent(USER_AGENT)
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(CONNECT)

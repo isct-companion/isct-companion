@@ -369,7 +369,6 @@ export const CoursePanel = withRecords(
     "courses",
     "materials",
     "events",
-    "plans",
     "memberships",
     "planItems",
     "intensiveSchedules",

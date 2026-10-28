@@ -415,7 +415,6 @@ async function mountCompactToday(opened: string[]): Promise<Mounted> {
         term={TERM}
         open={(courseId) => opened.push(courseId)}
         openEvent={() => undefined}
-        openPlan={() => undefined}
         openTask={() => undefined}
         hideAssignment={() => undefined}
         openSchedule={() => undefined}

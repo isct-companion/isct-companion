@@ -92,7 +92,6 @@ dependencies = [
  "rrule",
  "rusqlite",
  "rustls",
- "rustls-platform-verifier",
  "scraper",
  "semver",
  "serde",

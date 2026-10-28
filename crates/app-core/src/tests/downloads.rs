@@ -448,23 +448,8 @@ fn school_file_redirects_stay_on_school_hosts() {
     );
 }
 
-// The one owner of kyomu0's intermediate: the file transport builds each
-// host's client through `net::host_client_builder`, which gives kyomu0 the
-// vendored G7 config and every other school host the plain platform verifier.
 #[test]
-fn school_file_clients_take_their_hosts_tls() {
-    use crate::net::HostTls;
-    assert_eq!(
-        HostTls::of(crate::net::Host::Kyomu.name()),
-        HostTls::KyomuIntermediate
-    );
-    for host in [
-        "www.isct.ac.jp",
-        "lms.s.isct.ac.jp",
-        "portal.nap.gsic.titech.ac.jp",
-    ] {
-        assert_eq!(HostTls::of(host), HostTls::Platform, "{host}");
-    }
+fn school_file_clients_are_cached_per_host() {
     let transport = HttpTransport::default();
     for raw in [
         "https://kyomu0.gakumu.titech.ac.jp/Titech/Common/student_manual_j.pdf",

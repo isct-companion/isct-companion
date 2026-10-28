@@ -37,7 +37,7 @@ function CalendarViewBody({
   // its sources already say so.
   const actionsFor = (block: Block): BlockAction[] => {
     if (!mark) return [];
-    if (block.kind === "event" || block.kind === "plan")
+    if (block.kind === "event")
       return [{ label: t("Edit"), run: () => open(block) }];
     const state = block.cancelled
       ? "cancelled"
@@ -160,7 +160,6 @@ export const CalendarView = withRecords(
     "assignments",
     "courses",
     "events",
-    "plans",
     "memberships",
     "planItems",
     "exceptions",

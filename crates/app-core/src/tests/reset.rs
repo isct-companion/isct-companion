@@ -153,8 +153,8 @@ fn seed(fixture: &Fixture) {
     }
     store
         .put_user_record(
-            "plans",
-            json!({"title":"Study group","start":"2026-10-13T10:00:00+09:00","duration":60,"exdates":[]}),
+            "personal_events",
+            json!({"title":"Study group","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
         )
         .unwrap();
     store
@@ -284,7 +284,7 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
     );
 
     for table in [
-        "plans",
+        "personal_events",
         "assignment_marks",
         "course_overrides",
         "subscriptions",
@@ -389,7 +389,7 @@ async fn concurrent_resets_join_the_running_one() {
     assert_eq!(first, second);
     assert_eq!(other, Err(ResetError::Busy));
     assert_eq!(core.sync.generation(), generation + 1);
-    assert_eq!(store_plans(core), 1);
+    assert_eq!(store_events(core), 1);
     // The lease is released: the next reset runs on its own.
     assert_eq!(core.reset(scope).await.unwrap().removed_rows, 0);
     assert_eq!(core.sync.generation(), generation + 2);
@@ -406,12 +406,12 @@ async fn concurrent_resets_join_the_running_one() {
     .unwrap();
     core.reset(ResetScope::Everything).await.unwrap();
     assert_eq!(core.sync.generation(), generation + 4);
-    assert_eq!(store_plans(core), 0);
+    assert_eq!(store_events(core), 0);
     let _ = fs::remove_dir_all(core.store.directory());
 }
 
-fn store_plans(core: &Core) -> usize {
-    core.store.user_rows("plans").unwrap().len()
+fn store_events(core: &Core) -> usize {
+    core.store.user_rows("personal_events").unwrap().len()
 }
 
 /// A full reset is the first-launch state: user data, settings, device
@@ -427,7 +427,7 @@ async fn full_reset_returns_to_first_launch() {
     core.reset(ResetScope::Everything).await.unwrap();
 
     for table in SCHOOL_TABLES.into_iter().chain([
-        "plans",
+        "personal_events",
         "assignment_marks",
         "course_overrides",
         "subscriptions",

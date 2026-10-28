@@ -24,7 +24,7 @@ macro_rules! codes {
         impl ErrorCode {
             pub const ALL: &'static [Self] = &[$(Self::$variant,)*];
 
-            /// The code shells receive, e.g. `plan-invalid-title`.
+            /// The code shells receive, e.g. `note-too-large`.
             pub fn name(self) -> &'static str {
                 match self {
                     $(Self::$variant => $name,)*
@@ -64,16 +64,6 @@ codes! {
     HandInTooLarge => "hand-in-too-large",
     DesktopOnly => "desktop-only",
     NoteTooLarge => "note-too-large",
-    PlanInvalidStart => "plan-invalid-start",
-    PlanInvalidTitle => "plan-invalid-title",
-    PlanInvalidDuration => "plan-invalid-duration",
-    PlanInvalidExdate => "plan-invalid-exdate",
-    PlanInvalidReminder => "plan-invalid-reminder",
-    PlanInvalidRule => "plan-invalid-rule",
-    PlanRuleOnly => "plan-rule-only",
-    PlanRuleFrequency => "plan-rule-frequency",
-    PlanRepeatUnsupported => "plan-repeat-unsupported",
-    PlanRepeatSubdaily => "plan-repeat-subdaily",
     StudyAdmissionTerm => "study-admission-term",
     StudyEntryGrade => "study-entry-grade",
     StudyDuplicateTerm => "study-duplicate-term",
@@ -190,7 +180,6 @@ use crate::{
     net::NetError,
     notes::NoteError,
     notification::NotificationContentError,
-    plans::PlanError,
     ports::{EventError, SecretError},
     reference_refresh::ReferenceError,
     reset::ResetError,
@@ -455,20 +444,6 @@ coded!(ReminderError, |e| match e {
     ReminderError::Policy(e) => e.code(),
     ReminderError::Task(e) => e.code(),
     ReminderError::Delivery(e) => e.code(),
-});
-coded!(PlanError, |e| match e {
-    PlanError::InvalidStart => C::PlanInvalidStart,
-    PlanError::InvalidTitle => C::PlanInvalidTitle,
-    PlanError::InvalidDuration => C::PlanInvalidDuration,
-    PlanError::InvalidExdate => C::PlanInvalidExdate,
-    PlanError::InvalidReminder => C::PlanInvalidReminder,
-    PlanError::InvalidRule(_) => C::PlanInvalidRule,
-    PlanError::AdditionalCalendarProperties => C::PlanRuleOnly,
-    PlanError::MissingFrequency => C::PlanRuleFrequency,
-    PlanError::UnsupportedFrequency => C::PlanRepeatUnsupported,
-    PlanError::SubdailyFrequency => C::PlanRepeatSubdaily,
-    PlanError::InvalidDraft | PlanError::InvalidRangeStart | PlanError::InvalidRangeEnd =>
-        C::InvalidInput,
 });
 coded!(GuideError, |e| match e {
     GuideError::TooManyCourses => C::GuideTooManyCourses,

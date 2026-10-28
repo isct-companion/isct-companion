@@ -144,7 +144,6 @@ describe("workspace seeding", () => {
     "planItems",
     "exceptions",
     "intensiveSchedules",
-    "plans",
     "academicCalendar",
     "gpaSummary",
     "departments",

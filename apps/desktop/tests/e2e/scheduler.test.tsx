@@ -8,30 +8,26 @@ import {
   overviewFor,
   planningWeekFor,
   scheduleViewFor,
-  typeInto,
   until,
   workspaceFixture,
   type FakeCore,
   type MountedApp,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
-import type { Plan, ScheduledTask, Workspace } from "@app/lib/model";
+import type { PersonalEvent, ScheduledTask, Workspace } from "@app/lib/model";
 import type { WorkspaceIntent } from "@app/lib/workspace-intents";
 
 /**
- * The plan editor and the scheduled-task automation page, over the real shell
- * and a scripted Core.
+ * The weekly event editor and the scheduled-task automation page, over the
+ * real shell and a scripted Core.
  *
- * The legacy suites mounted `PlanEditor` and `Settings` directly and replaced
- * `platform/core-query` with `vi.mock`, so the "next occurrences" preview was
- * really an assertion about the mock. Here both surfaces are reached through
- * the shipped routes: the plan editor opens from the timetable block a person
- * clicks, the automation page from its settings route, and Core answers the
- * real query path through the harness `queries` table.
+ * Both surfaces are reached through the shipped routes: the event editor
+ * opens from the timetable block a person clicks, the automation page from
+ * its settings route, and Core answers the real query path through the
+ * harness `queries` table.
  *
- * Local helpers below exist because the harness has no plan-block builder
- * (`planningWeekWithPlan`), no modal reader (`modal`, `modalText`) and no
- * labelled-field lookup (`fieldInput`).
+ * Local helpers below exist because the harness has no event-block builder
+ * (`planningWeekWithEvent`) and no dialog reader (`modal`).
  *
  * Durable run records: the shipped frontend never emits
  * `recordScheduledTaskRun` itself — Core records a run inside
@@ -46,34 +42,18 @@ import type { WorkspaceIntent } from "@app/lib/workspace-intents";
  * Fixtures.
  * ------------------------------------------------------------------ */
 
-const WEEKLY_RULE = "FREQ=WEEKLY;BYDAY=TU,FR";
-/** What Core answers for the plan's weekly recurrence. */
-const WEEKLY_OCCURRENCES = [
-  "2026-09-29",
-  "2026-10-02",
-  "2026-10-06",
-  "2026-10-09",
-  "2026-10-13",
-];
-/** A daily recurrence overlaps two of those dates and adds 09-30, 10-01, 10-03. */
-const DAILY_OCCURRENCES = [
-  "2026-09-29",
-  "2026-09-30",
-  "2026-10-01",
-  "2026-10-02",
-  "2026-10-03",
-];
-
-const plan: Plan = {
-  id: "plan-weekly-study",
+const event: PersonalEvent = {
+  id: "event-lab-meeting",
   rev: 1,
   updatedAt: "2026-09-28T00:00:00.000Z",
   updatedBy: "device:test",
-  title: "Weekly study plan",
-  start: "2026-09-29T19:00:00+09:00",
-  duration: 60,
-  rrule: WEEKLY_RULE,
-  exdates: [],
+  kind: "event",
+  termId: "2026-3Q",
+  title: "Lab meeting",
+  room: "W9",
+  days: [2],
+  startTime: "19:00",
+  endTime: "20:00",
 };
 
 const DAILY_EXPORT: ScheduledTask = {
@@ -91,23 +71,23 @@ const DAILY_EXPORT: ScheduledTask = {
  * Local helpers the harness does not provide.
  * ------------------------------------------------------------------ */
 
-/** Core's planning week with one plan block, so the timetable can show it. */
-function planningWeekWithPlan(workspace: Workspace): Record<string, unknown> {
+/** Core's planning week with the event's block, so the timetable can show it. */
+function planningWeekWithEvent(workspace: Workspace): Record<string, unknown> {
   const week = planningWeekFor(workspace) as {
     days: { day: number; blocks: Record<string, unknown>[] }[];
   };
   const tuesday = week.days.find((day) => day.day === 2);
   if (!tuesday) throw new Error("the planning week has no Tuesday");
   tuesday.blocks.push({
-    key: `plan-${plan.id}`,
-    id: plan.id,
-    kind: "plan",
+    key: `${event.id}-2`,
+    id: event.id,
+    kind: "event",
     date: "",
-    title: plan.title,
-    room: "",
-    startTime: "19:00",
-    endTime: "20:00",
-    color: "#556b8d",
+    title: event.title,
+    room: event.room,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    color: "#8a887f",
   });
   return week;
 }
@@ -120,30 +100,14 @@ function withTask(workspace: Workspace, task: ScheduledTask): Workspace {
   return next;
 }
 
-/** The plan editor renders in a portal, outside the mounted shell. */
+/** The event editor renders in a portal, outside the mounted shell. */
 function modal(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[role="dialog"]');
-}
-
-function modalText(): string {
-  return modal()?.textContent ?? "";
 }
 
 function modalButton(label: string): HTMLButtonElement | undefined {
   const root = modal();
   return root ? buttonByText(root, label) : undefined;
-}
-
-/** The input behind a field label, so a rewrite does not depend on order. */
-function fieldInput(label: string): HTMLInputElement {
-  const root = modal();
-  if (!root) throw new Error("The plan editor is not open.");
-  const wrapper = [...root.querySelectorAll<HTMLElement>(".uiField")].find(
-    (node) => node.querySelector("label")?.textContent?.trim() === label,
-  );
-  const input = wrapper?.querySelector<HTMLInputElement>("input");
-  if (!input) throw new Error(`The "${label}" field is not on screen.`);
-  return input;
 }
 
 function taskSwitch(host: HTMLElement): HTMLInputElement | null {
@@ -162,30 +126,16 @@ function intentsOfKind<T extends WorkspaceIntent["kind"]>(
   >[];
 }
 
-type OccurrenceQuery = {
-  kind: string;
-  plan?: { rrule?: string };
-  limit?: number;
-};
-
-/** Every `nextPlanOccurrences` request Core received, in order. */
-function occurrenceQueries(core: FakeCore): OccurrenceQuery[] {
-  return core
-    .commands("schedule_query")
-    .flatMap((call) => call.args.queries as OccurrenceQuery[])
-    .filter((query) => query.kind === "nextPlanOccurrences");
-}
-
-/** Opens the existing plan the way a person does: the plan block in the planner. */
-async function openPlanEditor(app: MountedApp): Promise<void> {
+/** Opens the existing event the way a person does: its block in the planner. */
+async function openEventEditor(app: MountedApp): Promise<void> {
   const block = await until(() => {
-    const node = app.host.querySelector<HTMLButtonElement>(".ttBlock.plan");
-    if (!node) throw new Error("The plan is not on the timetable.");
+    const node = app.host.querySelector<HTMLButtonElement>(".ttBlock.event");
+    if (!node) throw new Error("The event is not on the timetable.");
     return node;
   });
   await click(block);
   await until(() => {
-    if (!modal()) throw new Error("The plan editor did not open.");
+    if (!modal()) throw new Error("The event editor did not open.");
     return true;
   });
 }
@@ -204,8 +154,7 @@ async function openAutomation(app: MountedApp): Promise<void> {
 
 let app: MountedApp | undefined;
 
-/** The editor's Save once Core has answered the plan's start, as a person
- * sees it: enabled. */
+/** The editor's Save as a person sees it: enabled. */
 const enabledSave = () =>
   until(() => {
     const button = modalButton("Save");
@@ -219,70 +168,33 @@ afterEach(async () => {
   app = undefined;
 });
 
-function planQueries() {
+function eventQueries() {
   return {
     workspaceOverview: (_query: unknown, core: FakeCore) =>
       overviewFor(core.workspace),
     planningWeek: (_query: unknown, core: FakeCore) =>
-      planningWeekWithPlan(core.workspace),
+      planningWeekWithEvent(core.workspace),
     scheduleView: (_query: unknown, core: FakeCore) =>
       scheduleViewFor(core.workspace),
-    planCivilStart: () => ({ date: "2026-09-29", time: "19:00" }),
-    // Core derives occurrences from the recurrence in the request.
-    nextPlanOccurrences: (query: unknown) =>
-      (query as { plan?: { rrule?: string } }).plan?.rrule?.includes("DAILY")
-        ? DAILY_OCCURRENCES
-        : WEEKLY_OCCURRENCES,
   };
 }
 
 /* ------------------------------------------------------------------ *
- * The plan editor.
+ * The weekly event editor.
  * ------------------------------------------------------------------ */
 
-describe("The plan editor", () => {
-  it("shows Core's next five occurrences for the plan's recurrence and follows a rule change", async () => {
-    const workspace = workspaceFixture();
-    workspace.plans = [plan];
-
-    app = await mountApp(
-      { workspace, queries: planQueries() },
-      { route: paths.timetable() },
-    );
-    const { core } = app;
-
-    await openPlanEditor(app);
-    await until(() => expect(modalText()).toContain("Next 5 occurrences"));
-    for (const date of WEEKLY_OCCURRENCES) {
-      expect(modalText()).toContain(date);
-    }
-
-    // Core was asked about the plan's chosen recurrence, five at a time.
-    const first = occurrenceQueries(core)[0];
-    expect(first.plan?.rrule).toBe(WEEKLY_RULE);
-    expect(first.limit).toBe(5);
-
-    // Choosing another recurrence asks Core again and shows its new answer.
-    await typeInto(fieldInput("RRULE"), "FREQ=DAILY");
-    await until(() => expect(modalText()).toContain("2026-09-30"));
-    for (const date of DAILY_OCCURRENCES) {
-      expect(modalText()).toContain(date);
-    }
-    expect(modalText()).not.toContain("2026-10-13");
-    expect(occurrenceQueries(core).at(-1)?.plan?.rrule).toBe("FREQ=DAILY");
-  }, 40_000);
-
+describe("The weekly event editor", () => {
   it("saves once when Save is pressed twice before the first save settles", async () => {
     const workspace = workspaceFixture();
-    workspace.plans = [plan];
+    workspace.events = [event];
 
     app = await mountApp(
-      { workspace, queries: planQueries() },
+      { workspace, queries: eventQueries() },
       { route: paths.timetable() },
     );
     const { core } = app;
 
-    await openPlanEditor(app);
+    await openEventEditor(app);
     const save = await enabledSave();
 
     // Two clicks in one frame, before React can render the busy state.
@@ -292,22 +204,29 @@ describe("The plan editor", () => {
     });
     expect(save.disabled).toBe(true);
 
-    await until(() => expect(intentsOfKind(core, "savePlan")).toHaveLength(1));
-    const saved = intentsOfKind(core, "savePlan")[0];
-    expect(saved.existingId).toBe(plan.id);
-    expect(saved.draft).toMatchObject({ title: plan.title, duration: 60 });
+    await until(() => expect(intentsOfKind(core, "saveEvent")).toHaveLength(1));
+    const saved = intentsOfKind(core, "saveEvent")[0];
+    expect(saved.existingId).toBe(event.id);
+    expect(saved.termId).toBe(event.termId);
+    expect(saved.draft).toEqual({
+      title: event.title,
+      room: event.room,
+      days: event.days,
+      startTime: event.startTime,
+      endTime: event.endTime,
+    });
     await until(() => expect(modal()).toBeNull());
   }, 40_000);
 
   it("reports a save Core rejects and accepts a later retry", async () => {
     const workspace = workspaceFixture();
-    workspace.plans = [plan];
+    workspace.events = [event];
     let rejectFirst = true;
 
     app = await mountApp(
       {
         workspace,
-        queries: planQueries(),
+        queries: eventQueries(),
         handle: (command) => {
           if (command === "mutate_workspace" && rejectFirst) {
             rejectFirst = false;
@@ -320,7 +239,7 @@ describe("The plan editor", () => {
     );
     const { core } = app;
 
-    await openPlanEditor(app);
+    await openEventEditor(app);
     await click(await enabledSave());
     await until(() =>
       expect(
@@ -330,7 +249,7 @@ describe("The plan editor", () => {
     expect(modal()).not.toBeNull();
 
     await click(modalButton("Save"));
-    await until(() => expect(intentsOfKind(core, "savePlan")).toHaveLength(1));
+    await until(() => expect(intentsOfKind(core, "saveEvent")).toHaveLength(1));
     await until(() => expect(modal()).toBeNull());
   }, 40_000);
 });

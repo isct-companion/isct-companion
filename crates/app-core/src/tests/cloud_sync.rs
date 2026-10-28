@@ -15,7 +15,7 @@ use std::{
 use tokio::sync::Notify;
 
 fn document(revision: u64) -> Value {
-    json!({"tables":{"plans":[{"id":"plan","rev":revision}]},"localNotes":[]})
+    json!({"tables":{"personal_events":[{"id":"plan","rev":revision}]},"localNotes":[]})
 }
 
 fn journal() -> Journal {
@@ -437,7 +437,7 @@ impl MemoryClouds {
 
     fn titles(&self, provider: CloudProvider) -> Vec<String> {
         titles(
-            self.document(provider)["tables"]["plans"]
+            self.document(provider)["tables"]["personal_events"]
                 .as_array()
                 .unwrap(),
         )
@@ -516,22 +516,20 @@ impl Fixture {
         }
     }
 
-    fn add_plan(&self, title: &str) {
+    fn add_event(&self, title: &str) {
         self.store
             .put_user_record(
-                "plans",
+                "personal_events",
                 json!({
-                    "title":title,
-                    "start":"2026-10-13T10:00:00+09:00",
-                    "duration":60,
-                    "exdates":[]
+                    "kind":"event", "termId":"2026-3Q", "title":title, "room":"",
+                    "days":[1], "startTime":"10:00", "endTime":"11:00"
                 }),
             )
             .unwrap();
     }
 
     fn titles(&self) -> Vec<String> {
-        titles(&self.store.user_rows("plans").unwrap())
+        titles(&self.store.user_rows("personal_events").unwrap())
     }
 
     fn workspace(&self) -> Option<String> {
@@ -669,7 +667,7 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
     assert_eq!(fixture.transport.pushes.load(Ordering::SeqCst), 1);
     let reads = fixture.transport.reads.load(Ordering::SeqCst);
     for title in ["first", "second"] {
-        fixture.add_plan(title);
+        fixture.add_event(title);
         fixture.sync.changed(fixture.services()).await.unwrap();
     }
     let waiting = fixture.sync.resume(fixture.services()).await.unwrap();
@@ -741,7 +739,13 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
     fixture.sync.resume(fixture.services()).await.unwrap();
     assert_eq!(fixture.transport.pushes.load(Ordering::SeqCst), 2);
     let remote = fixture.transport.remote.lock().unwrap().clone().unwrap();
-    assert_eq!(remote["tables"]["plans"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        remote["tables"]["personal_events"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     fixture.sync.changed(fixture.services()).await.unwrap();
     fixture
         .sync
@@ -773,7 +777,7 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
             Ok(())
         })
         .unwrap();
-    fixture.add_plan("manual");
+    fixture.add_event("manual");
     fixture.sync.changed(fixture.services()).await.unwrap();
     fixture
         .sync
@@ -814,14 +818,14 @@ async fn automatic_launch_pulls_other_devices_changes_once_and_manual_launch_doe
         .unwrap()
         .is_none());
 
-    mac.add_plan("from mac");
+    mac.add_event("from mac");
     mac.sync
         .sync(mac.services(), Direction::Upload)
         .await
         .unwrap();
     phone.sync.resume(phone.services()).await.unwrap();
     assert!(
-        phone.store.user_rows("plans").unwrap().is_empty(),
+        phone.store.user_rows("personal_events").unwrap().is_empty(),
         "only the first pass of a launch pulls"
     );
 
@@ -834,7 +838,7 @@ async fn automatic_launch_pulls_other_devices_changes_once_and_manual_launch_doe
     .unwrap();
     let pushes = mac.transport.pushes.load(Ordering::SeqCst);
     phone.sync.resume(phone.services()).await.unwrap();
-    assert_eq!(phone.store.user_rows("plans").unwrap().len(), 1);
+    assert_eq!(phone.store.user_rows("personal_events").unwrap().len(), 1);
     assert_eq!(
         mac.transport.pushes.load(Ordering::SeqCst),
         pushes,
@@ -844,7 +848,11 @@ async fn automatic_launch_pulls_other_devices_changes_once_and_manual_launch_doe
     let mut manual = Fixture::new("launch-manual");
     manual.transport = mac.transport.clone();
     manual.sync.resume(manual.services()).await.unwrap();
-    assert!(manual.store.user_rows("plans").unwrap().is_empty());
+    assert!(manual
+        .store
+        .user_rows("personal_events")
+        .unwrap()
+        .is_empty());
     phone.sync.shutdown().await;
     mac.sync.shutdown().await;
     manual.sync.shutdown().await;
@@ -853,7 +861,7 @@ async fn automatic_launch_pulls_other_devices_changes_once_and_manual_launch_doe
 #[tokio::test]
 async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
     let fixture = Fixture::new("retry");
-    fixture.add_plan("first");
+    fixture.add_event("first");
     fixture.transport.fail_push.store(true, Ordering::SeqCst);
 
     let failed = fixture
@@ -878,7 +886,7 @@ async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
         .await
         .unwrap();
     for name in ["second", "third"] {
-        fixture.add_plan(name);
+        fixture.add_event(name);
         fixture.sync.changed(fixture.services()).await.unwrap();
     }
     let reads = fixture.transport.reads.load(Ordering::SeqCst);
@@ -923,7 +931,7 @@ async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
 #[tokio::test]
 async fn history_and_observer_failures_do_not_retry_a_completed_delivery() {
     let fixture = Fixture::new("broken-observer");
-    fixture.add_plan("saved");
+    fixture.add_event("saved");
     fixture.observer.broken.store(true, Ordering::SeqCst);
     fixture
         .transport
@@ -949,7 +957,7 @@ async fn history_and_observer_failures_do_not_retry_a_completed_delivery() {
 #[tokio::test]
 async fn provider_panic_is_settled_and_the_same_delivery_can_retry() {
     let fixture = Fixture::new("provider-panic");
-    fixture.add_plan("saved");
+    fixture.add_event("saved");
     fixture.transport.panic_push.store(true, Ordering::SeqCst);
 
     let error = fixture
@@ -983,14 +991,14 @@ async fn provider_panic_is_settled_and_the_same_delivery_can_retry() {
 #[tokio::test]
 async fn caller_drop_does_not_cancel_delivery_or_overwrite_a_new_local_edit() {
     let fixture = Fixture::new("caller-drop");
-    fixture.add_plan("before");
+    fixture.add_event("before");
     fixture.transport.block_push.store(true, Ordering::SeqCst);
     let sync = fixture.sync.clone();
     let services = fixture.services();
     let caller = tokio::spawn(async move { sync.sync(services, Direction::Upload).await });
     fixture.transport.started.notified().await;
 
-    fixture.add_plan("during-network");
+    fixture.add_event("during-network");
     caller.abort();
     fixture.transport.release.notify_one();
 
@@ -1008,7 +1016,7 @@ async fn caller_drop_does_not_cancel_delivery_or_overwrite_a_new_local_edit() {
     })
     .await
     .unwrap();
-    assert_eq!(fixture.store.user_rows("plans").unwrap().len(), 2);
+    assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 2);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1062,7 +1070,7 @@ async fn slow_note_gate_does_not_starve_unrelated_runtime_work() {
 #[tokio::test]
 async fn shutdown_interrupts_remote_work_and_leaves_delivery_retryable() {
     let fixture = Fixture::new("shutdown");
-    fixture.add_plan("pending");
+    fixture.add_event("pending");
     fixture.transport.block_push.store(true, Ordering::SeqCst);
     let sync = fixture.sync.clone();
     let services = fixture.services();
@@ -1086,7 +1094,7 @@ async fn shutdown_interrupts_remote_work_and_leaves_delivery_retryable() {
 async fn pending_apply_survives_journal_failure_after_writing_notes_and_replays() {
     let fixture = Fixture::new("pending-apply-commit-failure");
     let source = Fixture::new("pending-apply-commit-source");
-    source.add_plan("replayed");
+    source.add_event("replayed");
     source
         .notes
         .save(
@@ -1139,7 +1147,7 @@ async fn pending_apply_survives_journal_failure_after_writing_notes_and_replays(
         .unwrap());
     // The record tables are applied in the same attempt, before the journal
     // acknowledgement fails.
-    assert_eq!(fixture.store.user_rows("plans").unwrap().len(), 1);
+    assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 1);
 
     let connection = rusqlite::Connection::open(&fixture.sync.0.journal.path).unwrap();
     connection
@@ -1156,7 +1164,7 @@ async fn pending_apply_survives_journal_failure_after_writing_notes_and_replays(
         1
     );
     // The replay applies the record tables too, not only the notes.
-    assert_eq!(fixture.store.user_rows("plans").unwrap().len(), 1);
+    assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 1);
     assert!(fixture
         .sync
         .0
@@ -1168,7 +1176,7 @@ async fn pending_apply_survives_journal_failure_after_writing_notes_and_replays(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn storage_root_change_keeps_pending_apply_for_the_fresh_backup_service() {
     let fixture = Fixture::new("storage-root-change");
-    fixture.add_plan("start-upload");
+    fixture.add_event("start-upload");
     let source = Fixture::new("storage-root-change-source");
     source
         .notes
@@ -1268,22 +1276,22 @@ async fn storage_root_change_keeps_pending_apply_for_the_fresh_backup_service() 
 #[tokio::test]
 async fn invalid_restore_is_compatibility_error_before_local_mutation() {
     let fixture = Fixture::new("invalid-restore");
-    fixture.add_plan("keep");
+    fixture.add_event("keep");
     let error = fixture
         .sync
         .restore_document(fixture.services(), json!({"not":"a backup"}))
         .await
         .unwrap_err();
     assert!(matches!(error, CloudSyncError::Compatibility(_)));
-    assert_eq!(fixture.store.user_rows("plans").unwrap().len(), 1);
+    assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 1);
 }
 
 #[tokio::test]
 async fn maximum_remote_generation_restore_is_rejected_before_enqueue_or_apply() {
     let fixture = Fixture::new("restore-generation-overflow");
-    fixture.add_plan("keep-local");
+    fixture.add_event("keep-local");
     let source = Fixture::new("restore-generation-overflow-source");
-    source.add_plan("must-not-apply");
+    source.add_event("must-not-apply");
     let document = source.backup.snapshot().unwrap();
     let mut remote = document.clone();
     remote["sync"] = json!({"generation":{"counter":u64::MAX,"id":"maximum-generation"}});
@@ -1299,7 +1307,7 @@ async fn maximum_remote_generation_restore_is_rejected_before_enqueue_or_apply()
         CloudSyncError::Compatibility("Cloud generation is too large.".into())
     );
     assert!(fixture.sync.state().unwrap().tasks.is_empty());
-    let plans = fixture.store.user_rows("plans").unwrap();
+    let plans = fixture.store.user_rows("personal_events").unwrap();
     assert_eq!(plans.len(), 1);
     assert_eq!(plans[0]["title"], "keep-local");
 }
@@ -1348,7 +1356,7 @@ async fn separately_started_workspaces_join_across_providers_and_every_device_co
     use CloudProvider::{GoogleDrive as Drive, Icloud};
     let clouds = Arc::new(MemoryClouds::default());
     let android = Fixture::on("join-android", &[Drive], &clouds);
-    android.add_plan("android");
+    android.add_event("android");
     let imported = android.backup.snapshot().unwrap();
     android
         .sync
@@ -1356,7 +1364,7 @@ async fn separately_started_workspaces_join_across_providers_and_every_device_co
         .await
         .unwrap();
     let iphone = Fixture::on("join-iphone", &[Icloud], &clouds);
-    iphone.add_plan("iphone");
+    iphone.add_event("iphone");
     iphone
         .sync
         .sync(iphone.services(), Direction::Upload)
@@ -1369,7 +1377,7 @@ async fn separately_started_workspaces_join_across_providers_and_every_device_co
     assert_eq!(cloud_merge::generation(&clouds.document(Icloud)).0, 0);
 
     let mac = Fixture::on("join-mac", &[Drive, Icloud], &clouds);
-    mac.add_plan("mac");
+    mac.add_event("mac");
     let state = mac
         .sync
         .sync(mac.services(), Direction::Upload)
@@ -1391,7 +1399,7 @@ async fn separately_started_workspaces_join_across_providers_and_every_device_co
     assert_eq!(mac.workspace().as_deref(), Some(older.as_str()));
 
     let tablet = Fixture::on("join-tablet", &[Drive], &clouds);
-    tablet.add_plan("tablet");
+    tablet.add_event("tablet");
     for device in [&iphone, &android, &tablet] {
         device
             .sync
@@ -1425,7 +1433,7 @@ async fn a_device_with_both_providers_relays_on_its_remote_checks_without_a_loca
     let clouds = Arc::new(MemoryClouds::default());
     let mac = Fixture::on("relay-mac", &[Drive, Icloud], &clouds);
     mac.automatic();
-    mac.add_plan("mac");
+    mac.add_event("mac");
     mac.sync
         .sync(mac.services(), Direction::Upload)
         .await
@@ -1436,7 +1444,7 @@ async fn a_device_with_both_providers_relays_on_its_remote_checks_without_a_loca
         .sync(iphone.services(), Direction::Pull)
         .await
         .unwrap();
-    iphone.add_plan("iphone");
+    iphone.add_event("iphone");
     iphone
         .sync
         .sync(iphone.services(), Direction::Upload)

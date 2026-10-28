@@ -15,7 +15,7 @@ fn workspace() -> Value {
             {"id":"m3","termId":"2026-3Q","courseId":"ex","status":"lms-member"},
             {"id":"m4","termId":"2026-4Q","courseId":"ex","status":"lms-member"}
         ],
-        "planItems":[], "events":[], "plans":[], "intensiveSchedules":[], "exceptions":[],
+        "planItems":[], "events":[], "intensiveSchedules":[], "exceptions":[],
         "scheduleOverrides":[], "exams":[],
         "classSchedules":[{"id":"class-schedule:2026:2026-LAS.P106-EN","academicYear":2026,"courseCode":"LAS.P106",
             "offeringIds":["202600215"],"quarters":["3Q","4Q"],"sourceIds":["pdf"],"sessions":[

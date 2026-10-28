@@ -111,23 +111,21 @@ pub fn calendar_between(
                 exams,
             )?);
         }
-        // Dated events follow their date. Weekly template events follow their
-        // term's range. Plans are global and must only be generated once.
+        // Weekly events follow their term's range.
         let events: Vec<_> = array(workspace, "events")
             .iter()
             .filter(|event| {
                 visible(event)
-                    && (text(event, "date").is_some()
-                        || ranges.iter().any(|(term, range)| {
-                            text(event, "termId") == Some(term.as_str())
-                                && range
-                                    .as_ref()
-                                    .is_some_and(|range| date >= range.from && date <= range.to)
-                        }))
+                    && ranges.iter().any(|(term, range)| {
+                        text(event, "termId") == Some(term.as_str())
+                            && range
+                                .as_ref()
+                                .is_some_and(|range| date >= range.from && date <= range.to)
+                    })
             })
             .cloned()
             .collect();
-        blocks.extend(personal_occurrences(workspace, &date, &events)?);
+        blocks.extend(personal_occurrences(&date, &events)?);
         // A course may have placements in overlapping configured quarters.
         // Keep its effective occurrence once, preferring a class that runs.
         blocks.sort_by_key(|block| block.cancelled == Some(true));

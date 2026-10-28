@@ -59,7 +59,6 @@ import { LectureDesk } from "../pages/lectures/LectureDesk";
 import { Courses } from "../pages/courses/CoursesPage";
 import { Web } from "../pages/web/WebPage";
 import { Settings } from "../pages/settings/SettingsPage";
-import { PlanEditor, type PlanDraft } from "../pages/schedule/PlanEditor";
 import { IntensiveEditor } from "../pages/courses/IntensiveEditor";
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -100,7 +99,6 @@ import type {
   ClassGroupChoice,
   Course,
   PersonalEvent,
-  Plan,
   TermId,
   Workspace,
 } from "../lib/model";
@@ -139,7 +137,6 @@ const icons: Record<Page, React.ReactElement> = {
 const SHELL_RECORDS = [
   "courses",
   "memberships",
-  "plans",
   "events",
   "intensiveSchedules",
   "assignments",
@@ -421,7 +418,6 @@ export function WorkspaceApp() {
     event?: PersonalEvent;
     term: TermId;
   } | null>(null);
-  const [planEditor, setPlanEditor] = useState<Plan | "new" | null>(null);
   const [intensiveCourseId, setIntensiveCourseId] = useState<string | null>(
     null,
   );
@@ -726,14 +722,12 @@ export function WorkspaceApp() {
     });
   const deleteEvent = (event: PersonalEvent) =>
     academicIntentOrThrow({ kind: "deleteEvent", eventId: event.id });
-  const savePlan = (draft: PlanDraft, existing?: Plan) =>
+  const copyEvents = (from: TermId, term: TermId) =>
     academicIntentOrThrow({
-      kind: "savePlan",
-      draft,
-      existingId: existing?.id,
+      kind: "copyEvents",
+      fromTermId: from,
+      termId: term,
     });
-  const deletePlan = (plan: Plan) =>
-    academicIntentOrThrow({ kind: "deletePlan", planId: plan.id });
   const openWeb = (url: string, from: "home" | "lectures" = "home") => {
     setWebContext({
       page: from,
@@ -975,7 +969,6 @@ export function WorkspaceApp() {
             openEvent={(event) =>
               !readOnly && setEventEditor({ event, term: event.termId })
             }
-            openPlan={(plan) => !readOnly && setPlanEditor(plan)}
             openTask={(assignmentId) => {
               const assignment = data.assignments.find(
                 (item) => item.id === assignmentId,
@@ -1023,10 +1016,7 @@ export function WorkspaceApp() {
                   startTime: block.startTime,
                   endTime: block.endTime,
                 });
-              else if (block.kind === "plan") {
-                const plan = data.plans.find((row) => row.id === block.id);
-                if (plan && !readOnly) setPlanEditor(plan);
-              } else {
+              else {
                 const event = data.events.find((row) => row.id === block.id);
                 if (event && !readOnly)
                   setEventEditor({ event, term: event.termId });
@@ -1041,8 +1031,6 @@ export function WorkspaceApp() {
     <div className="quarterPage">
       {" "}
       <Courses
-        openPlan={(plan) => !readOnly && setPlanEditor(plan)}
-        newPlan={() => !readOnly && setPlanEditor("new")}
         side={
           <CourseFinder
             key={finderSession}
@@ -1158,6 +1146,15 @@ export function WorkspaceApp() {
         openEvent={(event, term) =>
           !readOnly && setEventEditor({ event, term })
         }
+        copyEvents={
+          readOnly
+            ? undefined
+            : (from, term) =>
+                copyEvents(from, term).then(
+                  () => notify.info("Weekly events copied"),
+                  notify.error,
+                )
+        }
         onSlot={toggleFinderSlot}
         activeSlots={finder.slots}
         onIntensive={(append) => pickFinderTime("集中", append)}
@@ -1184,7 +1181,7 @@ export function WorkspaceApp() {
         }
         exportIcs={(term, scope = "courses") =>
           saveExportFile(
-            `IsctCompanion-${term}${scope === "courses-and-plans" ? "-with-plans" : ""}.ics`,
+            `IsctCompanion-${term}${scope === "courses-and-events" ? "-with-events" : ""}.ics`,
             () =>
               scheduleQuery<string>({
                 kind: "quarterIcs",
@@ -1303,31 +1300,6 @@ export function WorkspaceApp() {
               .setClassGroup(groupPrompt.semester, group)
               .catch(notify.error);
           }}
-        />
-      )}
-      {planEditor && (
-        <PlanEditor
-          key={planEditor === "new" ? "new" : planEditor.id}
-          opened
-          plan={planEditor === "new" ? undefined : planEditor}
-          close={() => setPlanEditor(null)}
-          save={async (draft) => {
-            await savePlan(
-              draft,
-              planEditor === "new" ? undefined : planEditor,
-            );
-            setPlanEditor(null);
-            notify.info("Plan saved");
-          }}
-          remove={
-            planEditor === "new"
-              ? undefined
-              : async () => {
-                  await deletePlan(planEditor);
-                  setPlanEditor(null);
-                  notify.info("Plan deleted");
-                }
-          }
         />
       )}
       {intensiveCourseId &&

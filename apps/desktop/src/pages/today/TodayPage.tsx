@@ -12,7 +12,6 @@ import {
   pickLocalized,
   type Assignment,
   type PersonalEvent,
-  type Plan,
   type TermId,
   type Workspace,
 } from "../../lib/model";
@@ -44,7 +43,6 @@ export function TodayBody({
   open,
   openExam,
   openEvent,
-  openPlan,
   openTask,
   openAssignments,
   hideAssignment,
@@ -63,7 +61,6 @@ export function TodayBody({
   ) => void;
   openExam?: (key: string, term: string) => void;
   openEvent: (event: PersonalEvent) => void;
-  openPlan: (plan: Plan) => void;
   openTask: (assignmentId: string) => void;
   /** Lecture Desk's full list of the quarter's assignments. */
   openAssignments?: () => void;
@@ -406,16 +403,11 @@ export function TodayBody({
                           startTime: block.startTime,
                           endTime: block.endTime,
                         });
-                      } else if (block.kind === "event") {
+                      } else {
                         const event = data.events.find(
                           (item) => item.id === block.id,
                         );
                         if (event) openEvent(event);
-                      } else {
-                        const plan = data.plans.find(
-                          (item) => item.id === block.id,
-                        );
-                        if (plan) openPlan(plan);
                       }
                     }}
                     key={block.key}
@@ -473,11 +465,6 @@ export function TodayBody({
                           (item) => item.id === nextClass.id,
                         );
                         if (event) openEvent(event);
-                      } else if (nextClass.kind === "plan") {
-                        const plan = data.plans.find(
-                          (item) => item.id === nextClass.id,
-                        );
-                        if (plan) openPlan(plan);
                       } else {
                         zoomFrom(event.currentTarget);
                         open(nextClass.id, undefined, {
@@ -552,7 +539,6 @@ export const Today = withRecords(
     "courses",
     "materials",
     "events",
-    "plans",
     "memberships",
     "planItems",
     "exceptions",

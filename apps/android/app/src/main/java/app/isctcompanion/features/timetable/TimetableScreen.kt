@@ -303,15 +303,15 @@ private fun ExportButton(term: String) {
                 onClick = { export(CalendarExportScope.COURSES) },
             )
             DropdownMenuItem(
-                text = { Text(t("Courses + personal plans")) }, leadingIcon = { Icon(Icons.Rounded.EditCalendar, null) },
-                onClick = { export(CalendarExportScope.COURSES_AND_PLANS) },
+                text = { Text(t("Courses + weekly events")) }, leadingIcon = { Icon(Icons.Rounded.EditCalendar, null) },
+                onClick = { export(CalendarExportScope.COURSES_AND_EVENTS) },
             )
         }
     }
 }
 
 private suspend fun share(context: Context, term: String, scope: CalendarExportScope, text: String) {
-    val suffix = if (scope == CalendarExportScope.COURSES_AND_PLANS) "-with-plans" else ""
+    val suffix = if (scope == CalendarExportScope.COURSES_AND_EVENTS) "-with-events" else ""
     val file = withContext(Dispatchers.IO) {
         File(context.cacheDir, "exports").apply { mkdirs() }.resolve("IsctCompanion-$term$suffix.ics").apply { writeText(text) }
     }

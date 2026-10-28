@@ -170,9 +170,10 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
         &connection,
         "tools/call",
         call(
-            "plan_event_create",
+            "weekly_event_create",
             json!({
-                "title":"HTTP fixture", "start":"2026-10-19T09:00:00+09:00", "duration":45
+                "term":"2026-3Q", "title":"HTTP fixture", "days":[1],
+                "startTime":"09:00", "endTime":"09:45"
             }),
         ),
     )
@@ -186,13 +187,13 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
     )
     .await;
     assert_eq!(
-        schedule["result"]["structuredContent"]["plans"][0]["title"],
+        schedule["result"]["structuredContent"]["events"][0]["title"],
         "HTTP fixture"
     );
     assert_eq!(
         fixture.core.store.load_workspace().unwrap()["settings"]["agentAccess"]["lastWrites"][0]
             ["tool"],
-        "plan_event_create"
+        "weekly_event_create"
     );
     let denied = rpc(
         &client,
@@ -280,12 +281,17 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .unwrap();
-    let caller =
-        tokio::spawn(async move {
-            handler.execute("plan_event_create".into(), json!({
-        "title":"Still committed", "start":"2026-10-19T09:00:00+09:00", "duration":45
-    })).await
-        });
+    let caller = tokio::spawn(async move {
+        handler
+            .execute(
+                "weekly_event_create".into(),
+                json!({
+                    "term":"2026-3Q", "title":"Still committed", "days":[1],
+                    "startTime":"09:00", "endTime":"09:45"
+                }),
+            )
+            .await
+    });
     tokio::time::timeout(Duration::from_secs(3), async {
         while permits.available_permits() != 0 {
             tokio::task::yield_now().await;
@@ -304,7 +310,7 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
     let snapshot = fixture.core.store.load_workspace().unwrap();
     assert_eq!(
         snapshot["settings"]["agentAccess"]["lastWrites"][0]["tool"],
-        "plan_event_create"
+        "weekly_event_create"
     );
     let schedule = fixture
         .core
@@ -315,7 +321,7 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
             AgentPolicy { allow_writes: true },
         )
         .unwrap();
-    assert_eq!(schedule["plans"][0]["title"], "Still committed");
+    assert_eq!(schedule["events"][0]["title"], "Still committed");
     fixture.core.shutdown().await;
 }
 

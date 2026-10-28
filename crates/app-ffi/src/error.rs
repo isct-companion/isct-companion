@@ -1,5 +1,5 @@
 /// A failure across the SDK boundary. When Core raised it, `detail` is its
-/// stable `ErrorCode` name (e.g. `plan-invalid-title`): shells show the copy
+/// stable `ErrorCode` name (e.g. `note-too-large`): shells show the copy
 /// `error.<detail>` from the shared locale catalogs, and the variant says how
 /// to react. Failures shells raise into Core carry free text, which Core
 /// only logs.
@@ -76,16 +76,6 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         C::InvalidInput
         | C::TooLarge
         | C::NoteTooLarge
-        | C::PlanInvalidStart
-        | C::PlanInvalidTitle
-        | C::PlanInvalidDuration
-        | C::PlanInvalidExdate
-        | C::PlanInvalidReminder
-        | C::PlanInvalidRule
-        | C::PlanRuleOnly
-        | C::PlanRuleFrequency
-        | C::PlanRepeatUnsupported
-        | C::PlanRepeatSubdaily
         | C::StudyAdmissionTerm
         | C::StudyEntryGrade
         | C::StudyDuplicateTerm
