@@ -426,15 +426,15 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
     // at once: it is the first background change.
     core.agent
         .call(
-            "plan_event_create",
-            &json!({"title":"Review","start":"2026-10-19T09:00:00+09:00","duration":45}),
+            "weekly_event_create",
+            &json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}),
             AgentPolicy { allow_writes: true },
         )
         .unwrap();
     let (source, revision, names) = changes().last().cloned().unwrap();
     assert_eq!((source, revision), (WorkspaceChangeSource::Mcp, None));
-    // A plan event is a row of `plans`.
-    assert!(names.contains(&WorkspaceChange::Plans), "{names:?}");
+    // A weekly event is a row of `personal_events`.
+    assert!(names.contains(&WorkspaceChange::Events), "{names:?}");
 
     // A failed delivery neither fails nor undoes the committed write.
     events.fail.store(true, Ordering::Relaxed);
@@ -819,13 +819,14 @@ fn seeded_store(name: &str) -> DataStore {
         .clone();
     for (table, value) in [
         (
-            "plans",
-            json!({"title":"Gym","start":"2026-10-06T07:00:00+09:00","duration":60,"exdates":[],"rrule":"FREQ=WEEKLY"}),
+            "personal_events",
+            json!({"kind":"event","termId":"2026-3Q","title":"Gym","room":"",
+            "days":[2],"startTime":"07:00","endTime":"08:00"}),
         ),
         (
             "personal_events",
             json!({"kind":"event","termId":"2026-3Q","title":"Club","room":"",
-            "date":"2026-10-07","startTime":"18:00","endTime":"19:00","blocking":true}),
+            "days":[3],"startTime":"18:00","endTime":"19:00"}),
         ),
         (
             "calendar_exceptions",

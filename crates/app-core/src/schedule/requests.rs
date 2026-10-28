@@ -4,12 +4,6 @@ use ts_rs::TS;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
-pub struct PlanStartInput {
-    pub start: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
 pub struct ColorCourse {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]

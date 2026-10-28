@@ -168,11 +168,14 @@ export type PersonalEvent = {
   termId: `${number}-${Quarter}`;
   title: string;
   room: string;
-  date?: string;
-  days?: Array<number>;
+  /**
+   * 1 = Monday … 7 = Sunday; the event repeats on these days every week
+   * of its quarter. A copy synced from an older app may hold a one-date
+   * event without days, which then never occurs.
+   */
+  days: Array<number>;
   startTime: string;
   endTime: string;
-  blocking: boolean;
   id: string;
   rev: number;
   updatedAt: string;
@@ -230,22 +233,6 @@ export type IntensiveSchedule = {
   periods: [number, number];
   days?: Array<IntensiveDay>;
   room?: string;
-  id: string;
-  rev: number;
-  updatedAt: string;
-  updatedBy: string;
-  deletedAt?: string;
-};
-
-export type Plan = {
-  title: string;
-  courseId?: string;
-  room?: string;
-  start: string;
-  duration: number;
-  rrule?: string;
-  exdates: Array<string>;
-  reminder?: number;
   id: string;
   rev: number;
   updatedAt: string;
@@ -628,7 +615,6 @@ export type Workspace = {
   planItems: Array<PlanItem>;
   exceptions: Array<CalendarException>;
   intensiveSchedules: Array<IntensiveSchedule>;
-  plans: Array<Plan>;
   academicCalendar: Array<AcademicCalendarDay>;
   gpaSummary: Array<GpaSummary>;
   departments: Array<Department>;
@@ -833,7 +819,7 @@ export type TimetableYear = {
   weeks: Array<TimetableWeek>;
 };
 
-export type CalendarExportScope = "courses" | "courses-and-plans";
+export type CalendarExportScope = "courses" | "courses-and-events";
 
 export type ClassGroup = "red" | "white";
 
@@ -908,7 +894,7 @@ export type ClassGroupChoice = {
   next: ClassGroupSession | null;
 };
 
-export type OccurrenceKind = "course" | "event" | "plan" | "exam";
+export type OccurrenceKind = "course" | "event" | "exam";
 
 export type GridSlot = {
   startTime: string;
@@ -969,7 +955,7 @@ export type Occurrence = {
   grid?: GridSlot | null;
 };
 
-export type ScheduleProblemKind = "courseMeeting" | "plan" | "scheduleOverride";
+export type ScheduleProblemKind = "courseMeeting" | "scheduleOverride";
 
 export type ScheduleProblem = {
   kind: ScheduleProblemKind;
@@ -1051,11 +1037,14 @@ export type PlanningWeek = {
    * red block without re-deriving overlaps.
    */
   conflicts: Array<CourseConflict>;
+  /**
+   * The latest earlier quarter with weekly events, offered while this
+   * quarter has none of its own.
+   */
+  carryOver?: EventCarryOver;
 };
 
-export type PlanCivilStart = { date: string; time: string };
-
-export type PlanStartInput = { start: string };
+export type EventCarryOver = { termId: string; count: number };
 
 export type ColorCourse = {
   id?: string;
@@ -1530,7 +1519,6 @@ export type WorkspaceQuery =
   | { kind: "subscriptionViews" }
   | { kind: "planningWeek"; term: string }
   | { kind: "academicYears"; date: string; selectedYear: number }
-  | { kind: "planCivilStart"; plan: PlanStartInput }
   | { kind: "taskView"; now: string }
   | { kind: "today"; now: string }
   | { kind: "assignmentBoard"; now: string; term: string | null }
@@ -1574,7 +1562,6 @@ export type WorkspaceQuery =
       to: string;
       periods: [number, number];
     }
-  | { kind: "nextPlanOccurrences"; plan: Plan; limit: number }
   | { kind: "validateAcademicProfile"; profile: AcademicProfile }
   | { kind: "academicTermForDate"; date: string; profile: AcademicProfile }
   | { kind: "glance"; now: string }
@@ -1594,7 +1581,6 @@ export type WorkspaceQueryResult =
   | { kind: "subscriptionViews"; value: unknown }
   | { kind: "planningWeek"; value: PlanningWeek }
   | { kind: "academicYears"; value: AcademicYearIndex }
-  | { kind: "planCivilStart"; value: PlanCivilStart }
   | { kind: "taskView"; value: TaskView }
   | { kind: "today"; value: TodayView }
   | { kind: "assignmentBoard"; value: AssignmentBoard }
@@ -1614,7 +1600,6 @@ export type WorkspaceQueryResult =
   | { kind: "declaredCredits"; value: number | null }
   | { kind: "displayColor"; value: string }
   | { kind: "intensiveDays"; value: Array<ScheduleIntensiveDay> }
-  | { kind: "nextPlanOccurrences"; value: Array<string> }
   | { kind: "academicProfile"; value: unknown }
   | { kind: "academicTerm"; value: string | null }
   | { kind: "glance"; value: GlanceSnapshot }
@@ -1667,8 +1652,7 @@ export type WorkspaceIntent =
   | { kind: "undoCatalogCourses"; termId: string; offeringIds: Array<string> }
   | { kind: "saveEvent"; draft: unknown; termId: string; existingId?: string }
   | { kind: "deleteEvent"; eventId: string }
-  | { kind: "savePlan"; draft: unknown; existingId?: string }
-  | { kind: "deletePlan"; planId: string }
+  | { kind: "copyEvents"; fromTermId: string; termId: string }
   | { kind: "saveCalendarException"; draft: unknown; existingId?: string }
   | { kind: "deleteCalendarException"; exceptionId: string }
   | { kind: "saveSubscription"; draft: unknown; existingId?: string }
@@ -2024,16 +2008,6 @@ export type ErrorCode =
   | "hand-in-too-large"
   | "desktop-only"
   | "note-too-large"
-  | "plan-invalid-start"
-  | "plan-invalid-title"
-  | "plan-invalid-duration"
-  | "plan-invalid-exdate"
-  | "plan-invalid-reminder"
-  | "plan-invalid-rule"
-  | "plan-rule-only"
-  | "plan-rule-frequency"
-  | "plan-repeat-unsupported"
-  | "plan-repeat-subdaily"
   | "study-admission-term"
   | "study-entry-grade"
   | "study-duplicate-term"
@@ -2178,7 +2152,6 @@ export const EMPTY_WORKSPACE: Workspace = {
   materials: [],
   memberships: [],
   planItems: [],
-  plans: [],
   recommendedCourses: [],
   scheduleOverrides: [],
   scheduledTasks: [

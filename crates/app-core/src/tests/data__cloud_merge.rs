@@ -12,10 +12,10 @@ fn later_revision_survives_a_clock_moving_backwards() {
 }
 #[test]
 fn restore_generation_prevents_stale_device_resurrection() {
-    let old = json!({"tables":{"plans":[{"id":"p","rev":999,"updatedAt":"2099-01-01T00:00:00Z"}]},"localNotes":[{"id":"n"}]});
+    let old = json!({"tables":{"personal_events":[{"id":"p","rev":999,"updatedAt":"2099-01-01T00:00:00Z"}]},"localNotes":[{"id":"n"}]});
     let restored =
         json!({"sync":{"generation":{"counter":1,"id":"restore-a"}},"tables":{},"localNotes":[]});
-    assert!(merge(&old, &restored)["tables"]["plans"]
+    assert!(merge(&old, &restored)["tables"]["personal_events"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -42,7 +42,13 @@ fn restore_generation_prevents_stale_device_resurrection() {
     let joined = merge(&separate, &restored);
     assert_eq!(joined, merge(&restored, &separate));
     assert_eq!(joined["sync"], restored["sync"]);
-    assert_eq!(joined["tables"]["plans"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        joined["tables"]["personal_events"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(joined["localNotes"].as_array().unwrap().len(), 1);
 }
 #[test]
@@ -58,11 +64,14 @@ fn edits_deletes_and_ties_converge() {
     assert!(compare(&revived, &deleted).is_gt());
     assert!(compare(&record("2026-01-02T09:00:00+09:00", 3, "a"), &edit).is_gt());
     assert!(compare(&record("2026-01-02T00:00:00Z", 2, "b"), &edit).is_gt());
-    let a = json!({"tables":{"plans":[deleted],"settings":[{"key":"devicePreferences","value":{"density":"compact"}}]},"localNotes":[]});
-    let b = json!({"tables":{"plans":[revived,{"id":"b","updatedAt":"2026-01-01T00:00:00Z"}]},"localNotes":[]});
+    let a = json!({"tables":{"personal_events":[deleted],"settings":[{"key":"devicePreferences","value":{"density":"compact"}}]},"localNotes":[]});
+    let b = json!({"tables":{"personal_events":[revived,{"id":"b","updatedAt":"2026-01-01T00:00:00Z"}]},"localNotes":[]});
     assert_eq!(contents(&merge(&a, &b)), contents(&merge(&b, &a)));
     assert_eq!(
-        merge(&a, &b)["tables"]["plans"].as_array().unwrap().len(),
+        merge(&a, &b)["tables"]["personal_events"]
+            .as_array()
+            .unwrap()
+            .len(),
         2
     );
     assert!(merge(&a, &b)["tables"]["settings"]

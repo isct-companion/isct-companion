@@ -1,6 +1,5 @@
 import { CalendarPlus } from "lucide-react";
 import { COURSE_PALETTE } from "../../generated/persistence";
-import { tokyoDate } from "../../lib/civil-date";
 import { t } from "../../i18n";
 import { UiButton, UiInput, UiSelect, EmptyState } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
@@ -446,7 +445,7 @@ export function CourseEditor({
 
 export type EventDraft = Pick<
   PersonalEvent,
-  "title" | "room" | "date" | "days" | "startTime" | "endTime" | "blocking"
+  "title" | "room" | "days" | "startTime" | "endTime"
 >;
 
 export function EventEditor({
@@ -466,19 +465,16 @@ export function EventEditor({
   const [draft, setDraft] = useState<EventDraft>({
     title: event?.title ?? "",
     room: event?.room ?? "",
-    date: event?.date,
-    days: event?.date ? undefined : (event?.days ?? [3]),
+    days: event?.days ?? [3],
     startTime: event?.startTime ?? "13:30",
     endTime: event?.endTime ?? "15:10",
-    blocking: event?.blocking ?? true,
   });
   const [error, setError] = useState("");
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (draft.startTime >= draft.endTime)
       return setError(t("The event must end after it starts."));
-    if (!draft.date && !draft.days?.length)
-      return setError(t("Pick at least one weekday or a date."));
+    if (!draft.days.length) return setError(t("Pick at least one weekday."));
     void submission.run(() =>
       onSave({ ...draft, title: draft.title.trim(), room: draft.room.trim() }),
     );
@@ -493,7 +489,9 @@ export function EventEditor({
       size="min(440px, 100%)"
       title={
         <div>
-          <Text fw={700}>{t(event ? "Edit event" : "New event")}</Text>
+          <Text fw={700}>
+            {t(event ? "Edit weekly event" : "New weekly event")}
+          </Text>
           <Text c="dimmed" size="xs">
             {term.replace("-", " ")}
           </Text>
@@ -543,48 +541,12 @@ export function EventEditor({
             />
           </label>
           <div className="field wide">
-            <span>{t("Repeats")}</span>
-            <SegmentedControl
-              value={draft.date ? "date" : "weekly"}
-              data={[
-                { value: "weekly", label: t("Weekly") },
-                { value: "date", label: t("One date") },
-              ]}
-              onChange={(value) => {
-                if (value === "weekly")
-                  setDraft({
-                    ...draft,
-                    date: undefined,
-                    days: draft.days?.length ? draft.days : [3],
-                  });
-                else
-                  setDraft({
-                    ...draft,
-                    days: undefined,
-                    date: draft.date ?? tokyoDate(new Date()),
-                  });
-              }}
+            <span>{t("Every week on")}</span>
+            <DayChips
+              value={draft.days}
+              onChange={(days) => setDraft({ ...draft, days })}
             />
           </div>
-          {draft.date ? (
-            <label className="field wide">
-              <span>{t("Date")}</span>
-              <UiInput
-                type="date"
-                required
-                value={draft.date}
-                onChange={(e) => setDraft({ ...draft, date: e.target.value })}
-              />
-            </label>
-          ) : (
-            <div className="field wide">
-              <span>{t("Weekdays")}</span>
-              <DayChips
-                value={draft.days ?? []}
-                onChange={(days) => setDraft({ ...draft, days })}
-              />
-            </div>
-          )}
           <label className="field">
             <span>{t("Starts")}</span>
             <UiInput
@@ -605,14 +567,6 @@ export function EventEditor({
               onChange={(e) => setDraft({ ...draft, endTime: e.target.value })}
             />
           </label>
-          <Checkbox
-            className="wide"
-            checked={draft.blocking}
-            label={t("Count as a conflict when it overlaps a class")}
-            onCheckedChange={(checked) =>
-              setDraft({ ...draft, blocking: checked === true })
-            }
-          />
           {error && (
             <p className="formError wide" role="alert">
               {error}

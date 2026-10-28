@@ -449,9 +449,9 @@ struct TimetableScreen: View {
 
 /// What the 時間割 tab's long press offers: the shown quarter as an .ics.
 enum CalendarExportPick: Hashable {
-    case courses, coursesAndPlans
+    case courses, coursesAndEvents
 
-    var scope: CalendarExportScope { self == .courses ? .courses : .coursesAndPlans }
+    var scope: CalendarExportScope { self == .courses ? .courses : .coursesAndEvents }
 }
 
 /// The export panel's rows; the workstation's rail row shows the same in a menu.
@@ -471,7 +471,7 @@ struct CalendarExportRows: View {
             .padding(.bottom, 2)
         TabPressRow(choice: CalendarExportPick.courses, title: t("Courses only"), icon: "calendar",
                     highlighted: highlighted, report: report, pick: pick)
-        TabPressRow(choice: CalendarExportPick.coursesAndPlans, title: t("Courses + personal plans"),
+        TabPressRow(choice: CalendarExportPick.coursesAndEvents, title: t("Courses + weekly events"),
                     icon: "calendar.badge.plus", highlighted: highlighted, report: report, pick: pick)
     }
 }
@@ -485,7 +485,7 @@ struct QuarterCalendarFile: Identifiable {
 
     static func write(model: AppModel, term: String, pick: CalendarExportPick) async throws -> Self {
         let text = try await model.quarterIcs(term: term, scope: pick.scope)
-        let suffix = pick == .coursesAndPlans ? "-with-plans" : ""
+        let suffix = pick == .coursesAndEvents ? "-with-events" : ""
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("IsctCompanion-\(term)\(suffix).ics")
         try Data(text.utf8).write(to: url, options: .atomic)

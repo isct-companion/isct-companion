@@ -140,7 +140,7 @@ impl WorkspaceChange {
             ),
             // The exam timetable stays in Core; its views query again.
             Exams => fields(false, &[], &[]),
-            Plans => fields(false, &["plans", "planItems"], &[]),
+            Plans => fields(false, &["planItems"], &[]),
             Events => fields(false, &["events"], &[]),
             Subscriptions => fields(false, &["subscriptions"], &[]),
             ScheduledTasks => fields(false, &["scheduledTasks"], &[]),
@@ -262,7 +262,6 @@ const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("schedule_overrides", &[Calendar], Owner::User),
     ("intensive_schedules", &[Calendar], Owner::User),
     ("exams", &[Exams], Owner::Cache),
-    ("plans", &[Plans], Owner::User),
     ("plan_items", &[Plans], Owner::User),
     ("personal_events", &[Events], Owner::User),
     ("subscriptions", &[Subscriptions], Owner::User),

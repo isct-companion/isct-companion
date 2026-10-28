@@ -26,8 +26,8 @@ impl Fixture {
         let note = serde_json::from_value(json!({"id": uuid::Uuid::new_v4().to_string(), "term":"2026-3Q", "course":"CSC.T251", "section":"intro", "text":"# A preserved note", "updatedAt":"2026-10-13T10:00:00Z", "updatedBy":"fixture", "rev":1})).unwrap();
         self.notes.merge(&[note]).unwrap();
     }
-    fn add_plan(&self, title: &str) {
-        self.store.put_user_record("plans", json!({"title": title, "start":"2026-10-13T10:00:00+09:00", "duration":60, "exdates":[]})).unwrap();
+    fn add_event(&self, title: &str) {
+        self.store.put_user_record("personal_events", json!({"title": title, "kind": "event", "termId": "2026-3Q", "room": "", "days": [1], "startTime": "10:00", "endTime": "11:00"})).unwrap();
     }
 }
 impl Drop for Fixture {
@@ -40,7 +40,7 @@ impl Drop for Fixture {
 fn backup_roundtrip_preserves_notes_records_identity_and_later_edits() {
     let source = Fixture::new();
     source.add_note();
-    source.add_plan("original");
+    source.add_event("original");
     let document = source.backup.snapshot().unwrap();
     BackupService::validate(&document).unwrap();
     let target = Fixture::new();
@@ -50,25 +50,25 @@ fn backup_roundtrip_preserves_notes_records_identity_and_later_edits() {
         .apply(&document, crate::data::WorkspaceChangeSource::CloudSync)
         .unwrap();
     assert_eq!(target.notes.export().unwrap()[0].text, "# A preserved note");
-    assert_eq!(target.store.user_rows("plans").unwrap().len(), 1);
+    assert_eq!(target.store.user_rows("personal_events").unwrap().len(), 1);
     assert_eq!(target.backup.device_id().unwrap(), identity);
-    target.add_plan("edited while remote request was running");
+    target.add_event("edited while remote request was running");
     target
         .backup
         .apply(&document, crate::data::WorkspaceChangeSource::CloudSync)
         .unwrap();
-    assert_eq!(target.store.user_rows("plans").unwrap().len(), 2);
+    assert_eq!(target.store.user_rows("personal_events").unwrap().len(), 2);
 }
 
 #[test]
 fn replayed_restore_generation_cannot_resurrect_removed_notes_or_records() {
     let fixture = Fixture::new();
     fixture.add_note();
-    fixture.add_plan("before restore");
+    fixture.add_event("before restore");
     let old = fixture.backup.snapshot().unwrap();
     let mut restored = old.clone();
     restored["localNotes"] = json!([]);
-    restored["tables"]["plans"] = json!([]);
+    restored["tables"]["personal_events"] = json!([]);
     restored["sync"] =
         json!({"workspaceId":"workspace", "generation":{"counter":1,"id":"restore"}});
     fixture
@@ -84,18 +84,22 @@ fn replayed_restore_generation_cannot_resurrect_removed_notes_or_records() {
         .apply(&old, crate::data::WorkspaceChangeSource::CloudSync)
         .unwrap();
     assert!(fixture.notes.export().unwrap().is_empty());
-    assert!(fixture.store.user_rows("plans").unwrap().is_empty());
+    assert!(fixture
+        .store
+        .user_rows("personal_events")
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
 fn invalid_notes_are_rejected_before_any_local_changes() {
     let fixture = Fixture::new();
     fixture.add_note();
-    fixture.add_plan("kept");
+    fixture.add_event("kept");
     let before = fixture.backup.snapshot().unwrap();
     let mut invalid = before.clone();
     invalid["localNotes"][0]["term"] = json!("../../outside");
-    invalid["tables"]["plans"] = json!([]);
+    invalid["tables"]["personal_events"] = json!([]);
     assert!(BackupService::validate(&invalid).is_err());
     assert!(fixture
         .backup
@@ -113,11 +117,17 @@ fn scheduled_export_replaces_a_complete_document_in_the_same_format() {
     fixture.add_note();
     let directory = fixture.root.join("scheduled");
     let path = fixture.backup.write_scheduled(&directory).unwrap();
-    fixture.add_plan("second snapshot");
+    fixture.add_event("second snapshot");
     assert_eq!(fixture.backup.write_scheduled(&directory).unwrap(), path);
     let document: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     BackupService::validate(&document).unwrap();
-    assert_eq!(document["tables"]["plans"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        document["tables"]["personal_events"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(std::fs::read_dir(directory).unwrap().count(), 1);
     #[cfg(unix)]
     {

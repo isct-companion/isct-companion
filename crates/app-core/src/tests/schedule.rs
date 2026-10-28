@@ -12,7 +12,7 @@ fn workspace() -> Value {
         "academicProfile":{"years":[]},
         "courses":[{"id":"course","termId":"2026-1Q","title":"授業, A; B","code":"CSC.T241","color":"#526e91","meetings":[{"days":[1],"startTime":"08:50","endTime":"10:30","room":"M-101"}]}],
         "memberships":[{"id":"member","termId":"2026-1Q","courseId":"course","status":"registered","evidence":{"provider":"school"}}],
-        "planItems":[], "events":[], "plans":[], "intensiveSchedules":[], "exceptions":[], "scheduleOverrides":[], "exams":[], "assignments":[], "registrations":[], "importantDates":[],
+        "planItems":[], "events":[], "intensiveSchedules":[], "exceptions":[], "scheduleOverrides":[], "exams":[], "assignments":[], "registrations":[], "importantDates":[],
         "academicCalendar":[
           {"id":"calendar:2026:quarter-start:1Q","academicYear":2026,"quarter":"1Q","date":"2026-04-07","type":"quarter-start","label":{"en":"start"},"teachingRanges":[{"start":"2026-04-07","end":"2026-05-27"}]},
           {"id":"calendar:2026:quarter-end:1Q","academicYear":2026,"quarter":"1Q","date":"2026-06-09","type":"quarter-end","label":{"en":"end"}}
@@ -143,10 +143,8 @@ fn teaching_period_query_returns_resolved_default_and_profile_override() {
 #[test]
 fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
     let mut data = workspace();
-    data["plans"] = json!([
-        {"id":"good","title":"Study","start":"2026-04-13T18:00:00+09:00","duration":60,"rrule":"FREQ=DAILY;UNTIL=20260420","exdates":[]},
-        {"id":"bad-rule","title":"Broken","start":"2026-04-13T19:00:00+09:00","duration":60,"rrule":"FREQ=DAILY;INTERVAL=garbage","exdates":[]},
-        {"id":"bad-start","title":"No start","start":"tomorrow","duration":60,"exdates":[]}
+    data["events"] = json!([
+        {"id":"good","termId":"2026-1Q","title":"Study","room":"","days":[1],"startTime":"18:00","endTime":"19:00"}
     ]);
     data["scheduleOverrides"] = json!([
         {"id":"descending","targetKey":"course-weekly-0-2026-04-13","targetKind":"course","periods":[5,3],"room":"Elsewhere","hidden":false},
@@ -177,8 +175,6 @@ fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
             .map(|problem| (problem.kind, problem.id.as_str()))
             .collect::<Vec<_>>(),
         [
-            (ScheduleProblemKind::Plan, "bad-rule"),
-            (ScheduleProblemKind::Plan, "bad-start"),
             (ScheduleProblemKind::ScheduleOverride, "descending"),
             (ScheduleProblemKind::ScheduleOverride, "wrapped"),
         ]
@@ -258,14 +254,19 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
 }
 
 #[test]
-fn civil_plans_survive_holidays_and_conflict() {
+fn weekly_events_survive_holidays_and_conflict() {
     let mut data = workspace();
     data["academicCalendar"]
         .as_array_mut()
         .unwrap()
         .push(json!({"id":"off","date":"2026-04-13","type":"holiday","label":{"en":"Off"}}));
-    data["events"] = json!([{"id":"event","termId":"2026-1Q","date":"2026-04-13","title":"Event","room":"","startTime":"09:30","endTime":"10:00"}]);
-    data["plans"] = json!([{"id":"plan","title":"Plan","start":"2026-04-13T09:00:00+09:00","duration":60,"exdates":[]}]);
+    // "dated" is a one-date event synced from an older app: it has no
+    // weekday, so it never occurs.
+    data["events"] = json!([
+        {"id":"lab","termId":"2026-1Q","days":[1],"title":"Lab","room":"","startTime":"09:00","endTime":"10:00"},
+        {"id":"event","termId":"2026-1Q","days":[1,3],"title":"Event","room":"","startTime":"09:30","endTime":"10:00"},
+        {"id":"dated","termId":"2026-1Q","date":"2026-04-13","title":"Dated","room":"","startTime":"09:00","endTime":"10:00"}
+    ]);
     let rows = occurrences_on_date(
         &data,
         "2026-1Q",
@@ -277,31 +278,15 @@ fn civil_plans_survive_holidays_and_conflict() {
     )
     .unwrap();
     assert_eq!(
-        rows.iter().map(|row| row.kind).collect::<Vec<_>>(),
-        vec![OccurrenceKind::Plan, OccurrenceKind::Event]
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        ["lab", "event"]
     );
+    assert!(rows.iter().all(|row| row.kind == OccurrenceKind::Event));
     assert!(rows.iter().all(|row| row.conflict == Some(true)));
 }
 
 #[test]
-fn recurrence_and_intensive_dates_are_strict() {
-    let plan = json!({"start":"2026-03-30T09:00:00+09:00","rrule":"FREQ=MONTHLY;BYDAY=1MO;COUNT=3","exdates":["2026-05-04"]});
-    assert_eq!(
-        next_plan_occurrences(&plan, 5).unwrap(),
-        vec!["2026-04-06T09:00:00+09:00", "2026-06-01T09:00:00+09:00"]
-    );
-    assert_eq!(
-        next_plan_occurrences(
-            &json!({
-                "start":"2026-04-12T15:30:00Z",
-                "rrule":"FREQ=DAILY;UNTIL=20260413T153000Z",
-                "exdates":[]
-            }),
-            5
-        )
-        .unwrap(),
-        vec!["2026-04-13T00:30:00+09:00", "2026-04-14T00:30:00+09:00"]
-    );
+fn intensive_dates_are_strict() {
     assert_eq!(
         intensive_days(
             &default_teaching_periods(),
@@ -360,7 +345,9 @@ fn advanced_calendar_and_course_rules_match_desktop_cases() {
             "id":"replacement","date":"2026-04-14","type":"replacement",
             "replacementDay":1,"label":{"en":"Monday classes"}
         }));
-    data["plans"] = json!([{"id":"plan","title":"Personal","start":"2026-04-13T09:00:00+09:00","duration":60,"rrule":"FREQ=WEEKLY;COUNT=2","exdates":[]}]);
+    // A weekly event keeps its own weekday; only classes follow the
+    // replacement day.
+    data["events"] = json!([{"id":"event","termId":"2026-1Q","days":[1],"title":"Personal","room":"","startTime":"09:00","endTime":"10:00"}]);
     let replacement =
         occurrences_on_date(&data, "2026-1Q", "2026-04-14", Default::default()).unwrap();
     assert_eq!(
@@ -389,7 +376,7 @@ fn advanced_calendar_and_course_rules_match_desktop_cases() {
             .any(|row| row.kind == OccurrenceKind::Course)
     );
 
-    data["plans"] = json!([]);
+    data["events"] = json!([]);
     data["courses"][0]["meetings"] = json!([]);
     data["intensiveSchedules"] = json!([{
         "id":"intensive","courseId":"course","from":"2026-04-12","to":"2026-04-14",
@@ -451,7 +438,7 @@ fn exams_and_single_occurrence_overrides_preserve_identity_and_conflicts() {
     assert_eq!(rows[0].room, "W9-101");
 
     data["exams"][0]["periods"] = json!([1, 2]);
-    data["events"] = json!([{"id":"event","termId":"2026-1Q","title":"Interview","date":"2026-04-13","room":"Online","startTime":"08:50","endTime":"10:30","blocking":true}]);
+    data["events"] = json!([{"id":"event","termId":"2026-1Q","title":"Interview","days":[1],"room":"Online","startTime":"08:50","endTime":"10:30"}]);
     let rows = resolve_day_agenda(
         &data,
         &SchoolReads::fixture(&data),
@@ -527,18 +514,8 @@ fn exams_and_single_occurrence_overrides_preserve_identity_and_conflicts() {
 }
 
 #[test]
-fn recurrence_ics_and_cancelled_context_cover_desktop_boundaries() {
+fn ics_and_cancelled_context_cover_desktop_boundaries() {
     let mut data = workspace();
-    let plan = json!({"id":"plan","title":"Personal plan","start":"2026-04-06T09:00:00+09:00","duration":60,"rrule":"FREQ=WEEKLY;INTERVAL=2;COUNT=2","exdates":[]});
-    assert!(occurrences_on_date(
-        &json!({"plans":[plan.clone()]}),
-        "2026-1Q",
-        "2026-04-13",
-        Default::default()
-    )
-    .unwrap()
-    .is_empty());
-    assert_eq!(next_plan_occurrences(&plan, 5).unwrap().len(), 2);
     assert!(intensive_days(
         &default_teaching_periods(),
         "2026-04-01",
@@ -554,7 +531,7 @@ fn recurrence_ics_and_cancelled_context_cover_desktop_boundaries() {
     )
     .is_err());
 
-    data["plans"] = json!([plan]);
+    data["events"] = json!([{"id":"seminar","termId":"2026-1Q","days":[1],"title":"Weekly seminar","room":"","startTime":"18:00","endTime":"19:00"}]);
     data["academicCalendar"]
         .as_array_mut()
         .unwrap()
@@ -571,12 +548,14 @@ fn recurrence_ics_and_cancelled_context_cover_desktop_boundaries() {
         &data,
         &SchoolReads::fixture(&data),
         "2026-1Q",
-        CalendarExportScope::CoursesAndPlans,
+        CalendarExportScope::CoursesAndEvents,
         DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap(),
     )
     .unwrap();
-    assert!(!standard.contains("SUMMARY:Personal plan"));
-    assert!(expanded.contains("SUMMARY:Personal plan"));
+    assert!(!standard.contains("SUMMARY:Weekly seminar"));
+    // Every Monday of the quarter, the holiday included.
+    assert!(expanded.contains("UID:seminar-2026-04-13@isctcompanion.local"));
+    assert!(expanded.contains("UID:seminar-2026-04-20@isctcompanion.local"));
     let range = calendar::quarter_range(&data, "2026-1Q").unwrap().unwrap();
     let day_count =
         (parse_civil_date(&range.to).unwrap() - parse_civil_date(&range.from).unwrap()).num_days();
@@ -606,7 +585,7 @@ fn recurrence_ics_and_cancelled_context_cover_desktop_boundaries() {
             .as_array_mut()
             .unwrap()
             .push(json!({"id":"off","date":"2026-04-13","type":kind,"label":{"en":"Off"}}));
-        let rows=occurrences_on_date(&data,"2026-1Q","2026-04-13",AgendaOptions{include_cancelled_courses:true,events:Some(vec![json!({"id":"personal","termId":"2026-1Q","title":"Personal","date":"2026-04-13","room":"","startTime":"09:00","endTime":"10:00"})]),..Default::default()}).unwrap();
+        let rows=occurrences_on_date(&data,"2026-1Q","2026-04-13",AgendaOptions{include_cancelled_courses:true,events:Some(vec![json!({"id":"personal","termId":"2026-1Q","title":"Personal","days":[1],"room":"","startTime":"09:00","endTime":"10:00"})]),..Default::default()}).unwrap();
         assert!(rows
             .iter()
             .any(|row| row.kind == OccurrenceKind::Course && row.cancelled == Some(true)));
@@ -1284,18 +1263,18 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
 }
 
 #[test]
-fn ics_folds_utf8_and_rolls_overnight() {
+fn ics_folds_utf8() {
     let mut data = workspace();
-    data["plans"] = json!([{"id":"plan","title":"日本語".repeat(30),"start":"2026-04-13T23:30:00+09:00","duration":90,"exdates":[]}]);
+    data["events"] = json!([{"id":"event","termId":"2026-1Q","days":[1],"title":"日本語".repeat(30),"room":"","startTime":"22:30","endTime":"23:30"}]);
     let ics = export_quarter_ics(
         &data,
         &SchoolReads::fixture(&data),
         "2026-1Q",
-        CalendarExportScope::CoursesAndPlans,
+        CalendarExportScope::CoursesAndEvents,
         DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap(),
     )
     .unwrap();
-    assert!(ics.contains("DTEND;TZID=Asia/Tokyo:20260414T010000"));
+    assert!(ics.contains("DTEND;TZID=Asia/Tokyo:20260413T233000"));
     assert!(ics.split("\r\n").all(|line| line.len() <= 75));
 }
 
@@ -1347,10 +1326,6 @@ fn matches_committed_typescript_schedule_trace() {
         expected["credits"].as_f64()
     );
     assert_eq!(
-        serde_json::to_value(next_plan_occurrences(&workspace["plans"][0], 5).unwrap()).unwrap(),
-        expected["nextPlanOccurrences"]
-    );
-    assert_eq!(
         serde_json::to_value(academic_year_calendar(workspace, 2026).unwrap()).unwrap(),
         expected["academicYear"]
     );
@@ -1358,7 +1333,7 @@ fn matches_committed_typescript_schedule_trace() {
         workspace,
         &SchoolReads::fixture(workspace),
         "2026-1Q",
-        CalendarExportScope::CoursesAndPlans,
+        CalendarExportScope::Courses,
         DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap(),
     )
     .unwrap();
@@ -1673,25 +1648,12 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
 #[test]
 fn query_request_contracts_reject_unstructured_inputs() {
     for request in [
-        json!({"kind":"planCivilStart","plan":{}}),
         json!({"kind":"displayColor","course":{"color":42}}),
-        json!({"kind":"nextPlanOccurrences","plan":{"start":"2026-10-16"}}),
         json!({"kind":"validateAcademicProfile","profile":[]}),
         json!({"kind":"academicTermForDate","date":"2026-10-16","profile":{"name":"missing years"}}),
     ] {
         assert!(serde_json::from_value::<WorkspaceQuery>(request).is_err());
     }
-    let request = serde_json::from_value(
-        json!({"kind":"planCivilStart","plan":{"start":"2026-10-16T09:00:00+09:00"}}),
-    )
-    .unwrap();
-    let WorkspaceQueryResult::PlanCivilStart(value) =
-        query(&json!({}), &SchoolReads::default(), request).unwrap()
-    else {
-        panic!("wrong result kind")
-    };
-    assert_eq!(value.date, "2026-10-16");
-    assert_eq!(value.time, "09:00");
 }
 
 #[test]
@@ -1723,7 +1685,6 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
     ]);
     // Only planned for 4Q: on the timetable, without a membership there.
     data["planItems"] = json!([{"id":"p4","courseId":"maybe","termId":"2026-4Q"}]);
-    data["plans"] = json!([{"id":"daily","title":"Walk","start":"2026-11-30T18:00:00+09:00","duration":30,"rrule":"FREQ=DAILY;COUNT=7"}]);
     data["events"] = json!([
         {"id":"weekly3","termId":"2026-3Q","title":"Third-quarter event","days":[1],"startTime":"12:30","endTime":"13:00"},
         {"id":"weekly4","termId":"2026-4Q","title":"Fourth-quarter event","days":[1],"startTime":"12:30","endTime":"13:00"},
@@ -1748,7 +1709,10 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
         .iter()
         .any(|b| b.id == "course" && b.cancelled == Some(true)));
     assert!(!agendas[2].occurrences.iter().any(|b| b.id == "course"));
-    assert!(agendas[2].occurrences.iter().any(|b| b.id == "dated"));
+    // A one-date event synced from an older app has no weekday to repeat on.
+    assert!(!agendas
+        .iter()
+        .any(|day| day.occurrences.iter().any(|b| b.id == "dated")));
     assert!(agendas[3].occurrences.iter().any(|b| b.id == "fourth"));
     // Planned is judged against each block's own quarter, so it holds
     // whichever quarter the view is asked from (the loop below).
@@ -1765,12 +1729,14 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
         .occurrences
         .iter()
         .any(|b| b.id == "course" && b.overridden == Some(true)));
-    for day in &agendas {
-        assert_eq!(
-            day.occurrences.iter().filter(|b| b.id == "daily").count(),
-            1
-        );
-    }
+    assert_eq!(
+        agendas[0]
+            .occurrences
+            .iter()
+            .filter(|b| b.id == "weekly3")
+            .count(),
+        1
+    );
     // Changing the selected quarter must never change a date's content.
     for term in ["2026-3Q", "2026-4Q"] {
         let WorkspaceQueryResult::ScheduleView(view) = query(
@@ -1796,7 +1762,7 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
         &SchoolReads::fixture(&data),
         "2026-11-30",
         "2026-12-06",
-        CalendarExportScope::CoursesAndPlans,
+        CalendarExportScope::CoursesAndEvents,
         DateTime::parse_from_rfc3339("2026-10-16T00:00:00Z").unwrap(),
     )
     .unwrap();
@@ -1805,7 +1771,7 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
         .flat_map(|day| &day.occurrences)
         .filter(|b| {
             b.cancelled != Some(true)
-                && matches!(b.kind, OccurrenceKind::Course | OccurrenceKind::Plan)
+                && matches!(b.kind, OccurrenceKind::Course | OccurrenceKind::Event)
         })
         .collect();
     assert_eq!(ics.matches("BEGIN:VEVENT").count(), expected.len());
@@ -1904,7 +1870,7 @@ fn date_range_crosses_academic_years_and_merges_conflicts_once() {
         {"id":"old","courseId":"course","termId":"2026-4Q"},
         {"id":"new","courseId":"course","termId":"2027-1Q"}
     ]);
-    data["plans"] = json!([{"id":"plan","title":"Appointment","start":"2027-04-01T09:00:00+09:00","duration":30}]);
+    data["events"] = json!([{"id":"event","termId":"2027-1Q","days":[4],"title":"Appointment","room":"","startTime":"09:00","endTime":"09:30"}]);
     let days = calendar_between(
         &data,
         &SchoolReads::fixture(&data),
@@ -2031,6 +1997,49 @@ fn contained_import_slots_do_not_make_a_course_conflict_with_itself() {
         named(data["courses"][0]["id"].as_str().unwrap()),
         Some(vec!["Other course".to_string()])
     );
+}
+
+/// A weekly event is part of the quarter template: a class over it is a
+/// conflict, and a quarter without events is offered the latest earlier
+/// quarter's.
+#[test]
+fn weekly_events_clash_with_classes_and_carry_into_an_empty_quarter() {
+    let mut data = workspace();
+    data["courses"][0]["meetings"] = json!([{"days":[1],"periods":[7,8],"room":"M-156"}]);
+    data["events"] = json!([
+        {"id":"lab","termId":"2026-1Q","days":[1],"title":"Lab meeting","room":"","startTime":"15:00","endTime":"16:00"},
+        {"id":"club","termId":"2026-1Q","days":[5],"title":"Club","room":"","startTime":"18:00","endTime":"19:00"},
+        {"id":"old","termId":"2025-4Q","days":[2],"title":"Old seminar","room":"","startTime":"10:00","endTime":"11:00"}
+    ]);
+    let week = planning_week(&data, "2026-1Q").unwrap();
+    assert_eq!(week.conflict_count, 1);
+    let course = data["courses"][0]["id"].as_str().unwrap();
+    assert_eq!(
+        week.conflicts
+            .iter()
+            .map(|c| (
+                c.course_id.as_str(),
+                c.with_course_id.as_deref(),
+                c.with_title.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [(course, None, "Lab meeting")]
+    );
+    assert!(week.days[4].blocks.iter().all(|b| b.conflict != Some(true)));
+    assert!(week.carry_over.is_none());
+
+    let later = planning_week(&data, "2026-2Q").unwrap();
+    let offer = later.carry_over.unwrap();
+    assert_eq!((offer.term_id.as_str(), offer.count), ("2026-1Q", 2));
+    // Nothing earlier than the oldest quarter with events.
+    assert!(planning_week(&data, "2025-4Q")
+        .unwrap()
+        .carry_over
+        .is_none());
+    assert!(planning_week(&data, "2025-3Q")
+        .unwrap()
+        .carry_over
+        .is_none());
 }
 
 #[test]
@@ -3146,8 +3155,7 @@ fn course_content_follows_the_desktop_lecture_desk() {
 #[test]
 fn every_query_lists_the_changes_its_result_reads() {
     let mut data = phone_workspace();
-    data["events"] = json!([{"id":"event","title":"Club","start":"2026-04-13T18:00:00+09:00","end":"2026-04-13T19:00:00+09:00"}]);
-    data["plans"] = json!([{"id":"plan","title":"Gym","start":"2026-04-13T07:00:00+09:00","durationMinutes":60,"rrule":"FREQ=WEEKLY"}]);
+    data["events"] = json!([{"id":"event","termId":"2026-1Q","days":[1],"title":"Club","room":"","startTime":"18:00","endTime":"19:00"}]);
     data["courses"].as_array_mut().unwrap().push(json!({"id":"planned","termId":"2026-1Q","title":"Planned","code":"CSC.T400","meetings":[{"days":[2],"startTime":"10:45","endTime":"12:25"}]}));
     data["planItems"] = json!([{"id":"item","termId":"2026-1Q","courseId":"planned"}]);
     data["exceptions"] =
@@ -3174,7 +3182,7 @@ fn every_query_lists_the_changes_its_result_reads() {
         json!({"kind":"glance","now":now}),
         json!({"kind":"notificationPlan","now":now,"horizon":"2026-04-20T10:00:00+09:00"}),
         json!({"kind":"classGroups","today":"2026-04-13"}),
-        json!({"kind":"records","fields":["plans","events","exceptions"]}),
+        json!({"kind":"records","fields":["events","exceptions"]}),
     ];
     let answer = |data: &Value, request: &WorkspaceQuery| {
         serde_json::to_value(query(data, &SchoolReads::fixture(data), request.clone()).unwrap())

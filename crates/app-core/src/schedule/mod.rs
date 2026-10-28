@@ -62,11 +62,11 @@ pub use exams::{
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
-    course_terms, course_timeline, intensive_days, next_plan_occurrences, occurrences_on_date,
-    plan_start, planning_week, resolve_day_agenda, schedule_problems, scheduled_courses,
-    term_courses, validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline,
-    GridSlot, Occurrence, OccurrenceKind, PlanCivilStart, PlanningDay, PlanningWeek,
-    ScheduleProblem, ScheduleProblemKind,
+    course_terms, course_timeline, intensive_days, occurrences_on_date, planning_week,
+    resolve_day_agenda, schedule_problems, scheduled_courses, term_courses,
+    validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline, EventCarryOver,
+    GridSlot, Occurrence, OccurrenceKind, PlanningDay, PlanningWeek, ScheduleProblem,
+    ScheduleProblemKind,
 };
 pub use range::calendar_between;
 pub use reminders::{
@@ -74,7 +74,7 @@ pub use reminders::{
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
     ReminderService, DEFAULT_ASSIGNMENT_LEADS,
 };
-pub use requests::{ColorCourse, ColorOverrides, PlanStartInput};
+pub use requests::{ColorCourse, ColorOverrides};
 pub use school::SchoolReads;
 pub(crate) use school::{CatalogEntry, ExamTimetable};
 pub use search::LectureSearch;
@@ -142,9 +142,6 @@ pub enum WorkspaceQuery {
     AcademicYears {
         date: String,
         selected_year: i32,
-    },
-    PlanCivilStart {
-        plan: PlanStartInput,
     },
     TaskView {
         now: String,
@@ -228,11 +225,6 @@ pub enum WorkspaceQuery {
         to: String,
         periods: [u8; 2],
     },
-    NextPlanOccurrences {
-        plan: crate::contracts::Plan,
-        #[serde(default = "default_occurrence_limit")]
-        limit: u16,
-    },
     ValidateAcademicProfile {
         profile: crate::contracts::AcademicProfile,
     },
@@ -293,9 +285,7 @@ impl WorkspaceQuery {
     fn fixed_reads(&self) -> &'static [WorkspaceChange] {
         match self {
             Self::Records { .. } => &[Settings],
-            Self::PlanCivilStart { .. }
-            | Self::DisplayColor { .. }
-            | Self::NextPlanOccurrences { .. }
+            Self::DisplayColor { .. }
             | Self::ValidateAcademicProfile { .. }
             | Self::AcademicTermForDate { .. } => &[],
             Self::TeachingPeriods
@@ -475,7 +465,6 @@ pub enum WorkspaceQueryResult {
     SubscriptionViews(#[cfg_attr(feature = "ts", ts(type = "unknown"))] Value),
     PlanningWeek(PlanningWeek),
     AcademicYears(AcademicYearIndex),
-    PlanCivilStart(PlanCivilStart),
     TaskView(TaskView),
     Today(TodayView),
     AssignmentBoard(AssignmentBoard),
@@ -495,7 +484,6 @@ pub enum WorkspaceQueryResult {
     DeclaredCredits(Option<f64>),
     DisplayColor(String),
     IntensiveDays(Vec<ScheduleIntensiveDay>),
-    NextPlanOccurrences(Vec<String>),
     AcademicProfile(#[cfg_attr(feature = "ts", ts(type = "unknown"))] Value),
     AcademicTerm(Option<String>),
     Glance(GlanceSnapshot),
@@ -611,9 +599,6 @@ pub fn query(
         WorkspaceQuery::AssignmentDetail { assignment_id } => Ok(
             WorkspaceQueryResult::AssignmentDetail(assignment_detail(workspace, &assignment_id)),
         ),
-        WorkspaceQuery::PlanCivilStart { plan } => Ok(WorkspaceQueryResult::PlanCivilStart(
-            plan_start(&request_value(plan)?)?,
-        )),
         WorkspaceQuery::TaskView { now } => Ok(WorkspaceQueryResult::TaskView(task_view(
             workspace,
             parse_timestamp(&now)?,
@@ -724,11 +709,6 @@ pub fn query(
                 &to,
                 periods,
             )?))
-        }
-        WorkspaceQuery::NextPlanOccurrences { plan, limit } => {
-            Ok(WorkspaceQueryResult::NextPlanOccurrences(
-                next_plan_occurrences(&request_value(plan)?, limit)?,
-            ))
         }
         WorkspaceQuery::ValidateAcademicProfile { profile } => {
             Ok(WorkspaceQueryResult::AcademicProfile(
@@ -909,9 +889,6 @@ const ALWAYS_RECORDS: [&str; 6] = [
 fn default_true() -> bool {
     true
 }
-fn default_occurrence_limit() -> u16 {
-    5
-}
 
 pub(crate) fn parse_timestamp(raw: &str) -> Result<DateTime<FixedOffset>, ScheduleError> {
     static RFC3339: std::sync::LazyLock<Result<regex::Regex, regex::Error>> =
@@ -1000,8 +977,7 @@ pub fn declarations() -> Vec<String> {
         PlanningDay::decl(),
         CourseConflict::decl(),
         PlanningWeek::decl(),
-        PlanCivilStart::decl(),
-        PlanStartInput::decl(),
+        EventCarryOver::decl(),
         ColorCourse::decl(),
         ColorOverrides::decl(),
         CourseDetail::decl(),

@@ -151,7 +151,6 @@ const COURSE_REFERENCES: &[(&str, &str)] = &[
     ("main.manual_memberships", "courseId"),
     ("main.plan_items", "courseId"),
     ("main.intensive_schedules", "courseId"),
-    ("main.plans", "courseId"),
     ("main.schedule_overrides", "courseId"),
     ("main.course_overrides", "courseId"),
     ("cache.memberships", "courseId"),
@@ -292,7 +291,6 @@ fn course_fields(table: &str) -> &'static [&'static str] {
         "manual_memberships"
         | "plan_items"
         | "intensive_schedules"
-        | "plans"
         | "schedule_overrides"
         | "course_overrides" => &["courseId"],
         _ => &[],

@@ -172,9 +172,11 @@ contract!(PersonalEvent {
     #[cfg_attr(feature = "ts", ts(type = "\"event\""))] pub kind: String,
     #[cfg_attr(feature = "ts", ts(type = "`${number}-${Quarter}`"))] pub term_id: String,
     pub title: String, pub room: String,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub date: Option<String>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub days: Option<Vec<u8>>,
-    pub start_time: String, pub end_time: String, pub blocking: bool,
+    /// 1 = Monday … 7 = Sunday; the event repeats on these days every week
+    /// of its quarter. A copy synced from an older app may hold a one-date
+    /// event without days, which then never occurs.
+    #[serde(default)] pub days: Vec<u8>,
+    pub start_time: String, pub end_time: String,
 });
 contract!(PlanItem {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
@@ -247,22 +249,6 @@ contract!(IntensiveSchedule {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub days: Option<Vec<IntensiveDay>>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub room: Option<String>,
 });
-contract!(Plan {
-    #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub title: String,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub course_id: Option<String>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub room: Option<String>,
-    pub start: String, #[cfg_attr(feature = "ts", ts(type = "number"))] pub duration: u64,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub rrule: Option<String>,
-    pub exdates: Vec<String>, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub reminder: Option<u64>,
-});
-impl Plan {
-    /// Every local writer stores a plan the schedule can evaluate: a JST
-    /// start and, when it repeats, a supported RRULE.
-    pub fn validate(&self) -> Result<(), crate::plans::PlanError> {
-        crate::plans::validate_plan_recurrence(&self.start, self.rrule.as_deref())
-    }
-}
 contract!(DateRange { pub start: String, pub end: String, });
 contract!(AcademicCalendarDay {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
@@ -557,7 +543,7 @@ contract!(Workspace {
     pub courses: Vec<Course>, pub memberships: Vec<Membership>, pub assignments: Vec<Assignment>,
     pub materials: Vec<Material>, pub events: Vec<PersonalEvent>, pub plan_items: Vec<PlanItem>,
     pub exceptions: Vec<CalendarException>,
-    pub intensive_schedules: Vec<IntensiveSchedule>, pub plans: Vec<Plan>,
+    pub intensive_schedules: Vec<IntensiveSchedule>,
     pub academic_calendar: Vec<AcademicCalendarDay>, pub gpa_summary: Vec<GpaSummary>,
     pub departments: Vec<Department>, pub recommended_courses: Vec<RecommendedCourse>,
     pub important_dates: Vec<ImportantDate>,
@@ -635,7 +621,6 @@ pub fn declarations() -> Vec<String> {
         ClassFormat::decl(),
         IntensiveDay::decl(),
         IntensiveSchedule::decl(),
-        Plan::decl(),
         DateRange::decl(),
         AcademicCalendarDay::decl(),
         GpaSummary::decl(),

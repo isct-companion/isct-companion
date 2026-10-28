@@ -14,7 +14,7 @@ import {
   type Block,
 } from "../../components/timetable/timetable";
 
-import type { PersonalEvent, Plan, TermId, Workspace } from "../../lib/model";
+import type { PersonalEvent, TermId, Workspace } from "../../lib/model";
 
 import { planningColumns } from "../../components/timetable/workspace";
 import { tokyoDate } from "../../lib/civil-date";
@@ -61,11 +61,8 @@ function CoursesBody({
   pullProgress = null,
   register,
   academic,
-  openPlan,
-  newPlan,
+  copyEvents,
 }: {
-  openPlan?: (plan: Plan) => void;
-  newPlan?: () => void;
   data: Workspace;
   currentTerm: TermId;
   term: TermId;
@@ -77,6 +74,8 @@ function CoursesBody({
   /** Shows a course's details over the search panel. */
   open: (courseId: string) => void;
   openEvent: (event: PersonalEvent | undefined, term: TermId) => void;
+  /** Copies an earlier quarter's weekly events into this one; absent when read-only. */
+  copyEvents?: (from: TermId, term: TermId) => Promise<unknown>;
   addTerm: () => void;
   exportIcs: (term: TermId, scope?: CalendarExportScope) => void;
   /** The syllabus search panel. */
@@ -163,12 +162,7 @@ function CoursesBody({
     !courseCount && !events.length && (data.terms ?? []).includes(term);
   const select = (block: Block) => {
     if (block.kind === "course") open(block.id);
-    else if (block.kind === "plan") {
-      const plan = data.plans.find(
-        (item) => item.id === block.id && !item.deletedAt,
-      );
-      if (plan) openPlan?.(plan);
-    } else {
+    else {
       const event = data.events.find((e) => !e.deletedAt && e.id === block.id);
       if (event) openEvent(event, event.termId);
     }
@@ -279,15 +273,26 @@ function CoursesBody({
                 <Menu.Item onClick={() => exportIcs(term, "courses")}>
                   {t("Courses only")}
                 </Menu.Item>
-                <Menu.Item onClick={() => exportIcs(term, "courses-and-plans")}>
-                  {t("Courses + personal plans")}
+                <Menu.Item
+                  onClick={() => exportIcs(term, "courses-and-events")}
+                >
+                  {t("Courses + weekly events")}
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>
           </Button.Group>
-          {canEdit && newPlan && (
-            <Button size="xs" variant="default" onClick={newPlan}>
-              {t("＋ Plan")}
+          {canEdit && copyEvents && planning?.carryOver && (
+            <Button
+              size="xs"
+              variant="subtle"
+              onClick={() =>
+                void copyEvents(planning.carryOver!.termId as TermId, term)
+              }
+            >
+              {t("Copy {{count}} weekly events from {{term}}", {
+                count: planning.carryOver.count,
+                term: planning.carryOver.termId.replace("-", " "),
+              })}
             </Button>
           )}
           {canEdit && (
@@ -295,7 +300,7 @@ function CoursesBody({
               className="button"
               onClick={() => openEvent(undefined, term)}
             >
-              {t("＋ Event")}
+              {t("＋ Weekly event")}
             </UiButton>
           )}
         </div>
@@ -393,7 +398,6 @@ export const Courses = withRecords(
     "assignments",
     "courses",
     "events",
-    "plans",
     "memberships",
     "planItems",
     "intensiveSchedules",

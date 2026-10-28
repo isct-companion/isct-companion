@@ -396,67 +396,84 @@ fn invalid_record_rolls_back_the_whole_intent() {
 }
 
 #[test]
-fn save_plan_canonicalizes_civil_time_and_rejects_invalid_drafts_atomically() {
-    let service = service("plan-validation");
+fn weekly_events_are_normalized_validated_atomically_and_copied() {
+    let service = service("event-validation");
     let original = service.read_back().unwrap();
+    // Fields of the old one-date and conflict-toggle editor are dropped.
     let saved = service
         .apply(WorkspaceMutation {
             expected_revision: original.revision,
-            intent: WorkspaceIntent::SavePlan {
+            intent: WorkspaceIntent::SaveEvent {
                 draft: json!({
-                    "title":" Study ", "start":"2026-10-14T09:00", "duration":60,
-                    "rrule":"freq=weekly;count=2", "exdates":["2026-10-21T18:00:00+09:00"]
+                    "title":" Lab meeting ", "days":[3,1,3], "startTime":"13:30",
+                    "endTime":"15:10", "date":"2026-10-14", "blocking":true
                 }),
+                term_id: "2026-3Q".into(),
                 existing_id: None,
             },
         })
         .unwrap();
-    assert_eq!(saved.workspace["plans"][0]["title"], "Study");
+    let event = &saved.workspace["events"][0];
+    assert_eq!(event["title"], "Lab meeting");
+    assert_eq!(event["room"], "");
+    assert_eq!(event["days"], json!([1, 3]));
+    assert_eq!(event["termId"], "2026-3Q");
+    assert!(event.get("date").is_none() && event.get("blocking").is_none());
+
+    for draft in [
+        json!({"title":"No days", "days":[], "startTime":"13:30", "endTime":"15:10"}),
+        json!({"title":"Day eight", "days":[8], "startTime":"13:30", "endTime":"15:10"}),
+        json!({"title":"Backwards", "days":[1], "startTime":"15:10", "endTime":"13:30"}),
+        json!({"title":"  ", "days":[1], "startTime":"13:30", "endTime":"15:10"}),
+    ] {
+        let before = service.read_back().unwrap();
+        let error = service
+            .apply(WorkspaceMutation {
+                expected_revision: before.revision.clone(),
+                intent: WorkspaceIntent::SaveEvent {
+                    draft,
+                    term_id: "2026-3Q".into(),
+                    existing_id: None,
+                },
+            })
+            .unwrap_err();
+        assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
+        assert_eq!(service.read_back().unwrap().revision, before.revision);
+    }
+
+    let before = service.read_back().unwrap();
+    let copied = service
+        .apply(WorkspaceMutation {
+            expected_revision: before.revision,
+            intent: WorkspaceIntent::CopyEvents {
+                from_term_id: "2026-3Q".into(),
+                term_id: "2026-4Q".into(),
+            },
+        })
+        .unwrap();
+    let events = copied.workspace["events"].as_array().unwrap();
+    assert_eq!(events.len(), 2);
+    let copy = events
+        .iter()
+        .find(|row| row["termId"] == "2026-4Q")
+        .unwrap();
+    assert_ne!(copy["id"], event["id"]);
     assert_eq!(
-        saved.workspace["plans"][0]["start"],
-        "2026-10-14T09:00:00+09:00"
-    );
-    assert_eq!(
-        saved.workspace["plans"][0]["exdates"],
-        json!(["2026-10-21"])
+        (&copy["title"], &copy["days"]),
+        (&event["title"], &event["days"])
     );
 
-    let before_invalid = service.read_back().unwrap();
+    // A quarter without weekly events has nothing to copy.
     let error = service
         .apply(WorkspaceMutation {
-            expected_revision: before_invalid.revision.clone(),
-            intent: WorkspaceIntent::SavePlan {
-                draft: json!({
-                    "title":"Broken", "start":"not-a-date", "duration":0, "exdates":[]
-                }),
-                existing_id: None,
+            expected_revision: copied.revision.clone(),
+            intent: WorkspaceIntent::CopyEvents {
+                from_term_id: "2026-2Q".into(),
+                term_id: "2026-4Q".into(),
             },
         })
         .unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    let after_invalid = service.read_back().unwrap();
-    assert_eq!(after_invalid.revision, before_invalid.revision);
-    assert_eq!(
-        after_invalid.workspace["plans"].as_array().unwrap().len(),
-        1
-    );
-
-    let error = service
-        .apply(WorkspaceMutation {
-            expected_revision: after_invalid.revision.clone(),
-            intent: WorkspaceIntent::SavePlan {
-                draft: json!({
-                    "title":"Broken recurrence", "start":"2026-10-14T09:00",
-                    "duration":60, "rrule":"FREQ=DAILY;INTERVAL=garbage", "exdates":[]
-                }),
-                existing_id: None,
-            },
-        })
-        .unwrap_err();
-    assert!(matches!(error, WorkspaceError::InvalidIntent(_)));
-    let after_rule = service.read_back().unwrap();
-    assert_eq!(after_rule.revision, after_invalid.revision);
-    assert_eq!(after_rule.workspace["plans"].as_array().unwrap().len(), 1);
 }
 
 #[test]

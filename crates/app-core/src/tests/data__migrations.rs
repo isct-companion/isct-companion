@@ -116,10 +116,11 @@ fn a_legacy_school_db_moves_every_user_row_into_user_db_once() {
         attach_as(&connection, &backup, "legacy").unwrap();
         let count =
             |sql: String| -> i64 { connection.query_row(&sql, [], |row| row.get(0)).unwrap() };
-        // The identity map becomes course keys; every other table is copied.
+        // The identity map becomes course keys and personal plans are
+        // dropped; every other table is copied.
         for table in LEGACY_USER_TABLES
             .iter()
-            .filter(|table| **table != "course_identity_map")
+            .filter(|table| !matches!(**table, "course_identity_map" | "plans"))
         {
             assert!(
                 count(format!("SELECT COUNT(*) FROM legacy.{table}")) > 0,
@@ -150,7 +151,7 @@ fn a_legacy_school_db_moves_every_user_row_into_user_db_once() {
         let (store, changed) = DataStore::initialize_dir(directory.clone()).unwrap();
         assert!(!changed);
         assert!(backup.is_file());
-        assert_eq!(store.user_rows("plans").unwrap().len(), 1);
+        assert_eq!(store.user_rows("personal_events").unwrap().len(), 1);
         drop(store);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -173,7 +174,7 @@ fn unreadable_databases_are_refused_and_left_intact() {
     assert!(!directory.join(STAGING_FILE).exists());
     fs::remove_dir_all(directory).unwrap();
 
-    for version in [0, 3, 99] {
+    for version in [0, 4, 99] {
         let directory = scratch("user-refused");
         let user = directory.join(USER_FILE);
         Connection::open(&user)
@@ -214,8 +215,8 @@ fn a_cache_db_of_another_version_or_unreadable_is_rebuilt_and_user_data_stays() 
     let (store, _) = DataStore::initialize_dir(directory.clone()).unwrap();
     store
         .put_user_record(
-            "plans",
-            json!({"title":"Study group","start":"2026-10-13T10:00:00+09:00","duration":60,"exdates":[]}),
+            "personal_events",
+            json!({"title":"Study group","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
         )
         .unwrap();
     drop(store);
@@ -241,7 +242,7 @@ fn a_cache_db_of_another_version_or_unreadable_is_rebuilt_and_user_data_stays() 
         assert!(changed);
         assert!(store.table_rows("lms_courses").unwrap().is_empty());
         assert!(store.freshness(None).unwrap().is_empty());
-        assert_eq!(store.user_rows("plans").unwrap().len(), 1);
+        assert_eq!(store.user_rows("personal_events").unwrap().len(), 1);
     }
     fs::remove_dir_all(directory).unwrap();
 }

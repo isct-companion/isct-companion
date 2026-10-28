@@ -76,9 +76,9 @@ pub fn is_write_tool(name: &str) -> bool {
         name,
         "plan_add"
             | "plan_remove"
-            | "plan_event_create"
-            | "plan_event_update"
-            | "plan_event_delete"
+            | "weekly_event_create"
+            | "weekly_event_update"
+            | "weekly_event_delete"
             | "hide_assignment"
             | "restore_assignment"
     )
@@ -174,39 +174,24 @@ fn classes_on(workspace: &Value, term: &str, date: chrono::NaiveDate) -> Vec<Val
     .collect()
 }
 
-/// Personal plans with at least one occurrence in the inclusive range.
-fn plans_between(workspace: &Value, from: chrono::NaiveDate, to: chrono::NaiveDate) -> Vec<Value> {
-    visible_rows(workspace, "plans")
-        .into_iter()
-        .filter_map(|mut row| {
-            let start = text(&row, "start")?.to_string();
-            if let Some(rule) = text(&row, "rrule") {
-                let exdates = row
-                    .get("exdates")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>();
-                let occurrences =
-                    crate::plans::occurrences_between(&start, rule, &exdates, from, to).ok()?;
-                if occurrences.is_empty() {
-                    return None;
-                }
-                row["occurrences"] = json!(occurrences);
-                Some(row)
-            } else {
-                crate::schedule::next_plan_occurrences(&row, 1)
-                    .ok()?
-                    .into_iter()
-                    .next()
-                    .and_then(|value| crate::plans::parse_plan_timestamp(&value).ok())
-                    .filter(|value| value.date_naive() >= from && value.date_naive() <= to)
-                    .map(|_| row)
-            }
+/// Weekly personal events that fall on `date` in `term`.
+fn events_on(workspace: &Value, term: &str, date: chrono::NaiveDate) -> Vec<Value> {
+    crate::schedule::occurrences_on_date(
+        workspace,
+        term,
+        &date.to_string(),
+        crate::schedule::AgendaOptions::default(),
+    )
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|row| row.kind == crate::schedule::OccurrenceKind::Event)
+    .map(|row| {
+        json!({
+            "id": row.id, "title": row.title,
+            "startTime": row.start_time, "endTime": row.end_time, "room": row.room
         })
-        .collect()
+    })
+    .collect()
 }
 
 /// Sync bookkeeping an agent never needs; dropping it keeps answers small.
@@ -253,25 +238,13 @@ fn agent_write_result<T>(result: Result<T, AgentWriteError>) -> Result<T, AgentE
     }
 }
 
-/// A personal plan that has not been deleted, in the write's own snapshot.
-fn live_plan(workspace: &Value, id: &str) -> Result<Value, DataError> {
-    visible_rows(workspace, "plans")
+/// A weekly personal event that has not been deleted, in the write's own
+/// snapshot.
+fn live_event(workspace: &Value, id: &str) -> Result<Value, DataError> {
+    visible_rows(workspace, "events")
         .into_iter()
         .find(|row| text(row, "id") == Some(id))
-        .ok_or_else(|| DataError::InvalidInput("plan was not found".into()))
-}
-
-fn canonicalize_plan(plan: &mut Value) -> Result<(), AgentError> {
-    crate::plans::canonicalize_plan_draft(plan).map_err(|error| {
-        let message = match error {
-            crate::plans::PlanError::InvalidStart => "start must be an RFC 3339 timestamp".into(),
-            crate::plans::PlanError::InvalidDuration => {
-                "duration must be between 1 and 10080 minutes".into()
-            }
-            error => error.to_string(),
-        };
-        AgentError::InvalidInput(message)
-    })
+        .ok_or_else(|| DataError::InvalidInput("event was not found".into()))
 }
 
 type View = (
@@ -298,7 +271,16 @@ fn tool_reads(name: &str) -> &'static [crate::workspace_changes::WorkspaceChange
             Grades,
             Settings,
         ],
-        "schedule" | "courses" => &[Courses, Registrations, Finder, Calendar, Plans, Settings],
+        "schedule" => &[
+            Courses,
+            Registrations,
+            Finder,
+            Calendar,
+            Plans,
+            Events,
+            Settings,
+        ],
+        "courses" => &[Courses, Registrations, Finder, Calendar, Plans, Settings],
         "course" => &[
             Courses,
             Registrations,
@@ -355,7 +337,7 @@ fn call_inner(
                 "now": now.to_rfc3339(), "date": iso, "term": term,
                 "calendar": calendar_state(&workspace, &iso),
                 "classes": classes_on(&workspace, &term, date),
-                "plans": plans_between(&workspace, date, date),
+                "events": events_on(&workspace, &term, date),
                 "assignments": upcoming,
                 "overdue": overdue.into_iter()
                     .filter(|row| due(row).is_some_and(|due| due >= recent)).collect::<Vec<_>>(),
@@ -381,7 +363,9 @@ fn call_inner(
                         let end = row.get("to").and_then(Value::as_str).and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok());
                         matches!((start,end),(Some(start),Some(end)) if start <= to && end >= from)
                     }).collect::<Vec<_>>(),
-                "plans": plans_between(&workspace, from, to)
+                "events": visible_rows(&workspace, "events").into_iter()
+                    .filter(|row| text(row, "termId").is_some_and(|term| terms.contains(term)))
+                    .collect::<Vec<_>>()
             }))
         }
         "courses" => {
@@ -646,47 +630,40 @@ fn call_inner(
             }))?;
             Ok(write_result(json!({"removed": removed})))
         }
-        "plan_event_create" => {
-            let duration = args
-                .get("duration")
-                .cloned()
-                .ok_or_else(|| AgentError::InvalidInput("duration is required".into()))?;
-            let mut value = json!({
-            "title": required(args, "title")?,
-            "start": required(args, "start")?,
-            "duration": duration,
-            "rrule": args.get("rrule").cloned().unwrap_or(Value::Null),
-            "room": args.get("room").cloned().unwrap_or(Value::Null),
-            "exdates": [], "source": {"provider":"mcp"}
+        "weekly_event_create" => {
+            let term = required(args, "term")?;
+            parse_term(term)?;
+            let draft = json!({
+                "title": required(args, "title")?,
+                "days": args.get("days").cloned().unwrap_or(Value::Null),
+                "startTime": required(args, "startTime")?,
+                "endTime": required(args, "endTime")?,
+                "room": args.get("room").cloned().unwrap_or(Value::Null),
             });
-            // MCP wording for malformed input; the shared rule below applies
-            // the same canonicalization again.
-            canonicalize_plan(&mut value)?;
             let id = agent_write_result(store.agent_write(name, |write, current| {
-                crate::workspace::save_plan(write, current, value, None)
+                crate::workspace::save_event(write, current, &draft, term, None)
             }))?;
             Ok(write_result(json!({ "id": id })))
         }
-        "plan_event_update" => {
+        "weekly_event_update" => {
             let id = required(args, "id")?;
             agent_write_result(store.agent_write(name, |write, current| {
-                let mut row = live_plan(current, id)?;
-                for key in ["title", "start", "duration", "rrule", "room"] {
+                let mut row = live_event(current, id)?;
+                for key in ["title", "days", "startTime", "endTime", "room"] {
                     if let Some(value) = args.get(key) {
                         row[key] = value.clone();
                     }
                 }
-                canonicalize_plan(&mut row)
-                    .map_err(|error| DataError::InvalidInput(error.to_string()))?;
-                crate::workspace::save_plan(write, current, row, Some(id.into()))
+                let term = text(&row, "termId").unwrap_or_default().to_string();
+                crate::workspace::save_event(write, current, &row, &term, Some(id.into()))
             }))?;
             Ok(write_result(json!({ "id": id })))
         }
-        "plan_event_delete" => {
+        "weekly_event_delete" => {
             let id = required(args, "id")?;
             agent_write_result(store.agent_write(name, |write, current| {
-                live_plan(current, id)?;
-                crate::workspace::delete_plan(write, current, id)
+                live_event(current, id)?;
+                crate::workspace::delete_event(write, current, id)
             }))?;
             Ok(write_result(json!({ "id": id })))
         }

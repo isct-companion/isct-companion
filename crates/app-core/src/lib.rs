@@ -36,7 +36,6 @@ pub mod matrix_scan;
 pub mod net;
 pub mod notes;
 pub mod notification;
-pub mod plans;
 pub mod ports;
 pub mod reference_refresh;
 pub mod reset;

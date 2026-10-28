@@ -19,10 +19,12 @@ use std::path::Path;
 pub(super) const USER_FILE: &str = "user.db";
 pub(super) const CACHE_FILE: &str = "cache.db";
 pub(super) const SYNC_FILE: &str = "sync.db";
-pub const USER_SCHEMA_VERSION: i64 = 2;
+pub const USER_SCHEMA_VERSION: i64 = 3;
 /// user.db with `course_identity_map`, before `course_keys`; new and legacy
 /// files are created at it and upgraded at once.
 const USER_IDENTITY_MAP_VERSION: i64 = 1;
+/// user.db with personal plans, before personal events became weekly only.
+const USER_WITH_PLANS_VERSION: i64 = 2;
 pub const CACHE_SCHEMA_VERSION: i64 = 5;
 /// cache.db before merged courses: upgraded in place (`MERGED_SCHEMA`).
 const CACHE_WITHOUT_MERGE_VERSION: i64 = 4;
@@ -53,7 +55,6 @@ pub(crate) const USER_TABLES: &[&str] = &[
     "assignment_marks",
     "settings",
     "intensive_schedules",
-    "plans",
     "subscriptions",
     "schedule_overrides",
     "scheduled_tasks",
@@ -85,6 +86,10 @@ CREATE TABLE course_keys (
 );
 CREATE INDEX course_keys_by_course ON course_keys(course_id);
 "#;
+
+/// user.db 2 → 3: personal plans are gone. A one-date personal event left
+/// from schema 2 has no weekdays and never occurs.
+const WEEKLY_EVENTS_SCHEMA: &str = "DROP TABLE IF EXISTS plans;";
 
 /// Tables of cache.db: school and reference records, the catalog and its
 /// index.
@@ -401,6 +406,9 @@ pub(super) fn upgrade_user(connection: &mut Connection) -> Result<bool, DataErro
         super::course_keys::migrate_identity_map(&transaction)?;
         super::course_keys::key_manual_courses(&transaction)?;
         transaction.execute_batch("DROP TABLE course_identity_map;")?;
+    }
+    if version <= USER_WITH_PLANS_VERSION {
+        transaction.execute_batch(WEEKLY_EVENTS_SCHEMA)?;
     }
     transaction.pragma_update(Some("main"), "user_version", USER_SCHEMA_VERSION)?;
     transaction.commit()?;

@@ -65,10 +65,25 @@ pub(super) fn validate_local_record(table: &str, value: &Value) -> Result<(), Da
             }
             Ok(())
         }
-        "plans" => serde_json::from_value::<crate::contracts::Plan>(value.clone())
-            .map_err(|error| invalid(&error))?
-            .validate()
-            .map_err(|error| invalid(&error)),
+        "personal_events" => {
+            let event = serde_json::from_value::<crate::contracts::PersonalEvent>(value.clone())
+                .map_err(|error| invalid(&error))?;
+            if event.title.trim().is_empty() {
+                return Err(invalid(&"title is required"));
+            }
+            if event.days.is_empty() || event.days.iter().any(|day| !(1..=7).contains(day)) {
+                return Err(invalid(&"days must be weekdays 1 to 7"));
+            }
+            let clock = chrono::NaiveTime::parse_from_str;
+            let ordered = clock(&event.start_time, "%H:%M")
+                .ok()
+                .zip(clock(&event.end_time, "%H:%M").ok())
+                .is_some_and(|(start, end)| start < end);
+            if !ordered {
+                return Err(invalid(&"the event must end after it starts"));
+            }
+            Ok(())
+        }
         "schedule_overrides" => {
             serde_json::from_value::<crate::contracts::ScheduleOverride>(value.clone())
                 .map_err(|error| invalid(&error))?
@@ -90,7 +105,6 @@ pub(super) fn validate_user_record(table: &str, value: &Value) -> Result<(), Dat
         "assignment_marks" => validate_contract::<AssignmentMark>(table, value),
         "course_overrides" => validate_contract::<CourseOverride>(table, value),
         "intensive_schedules" => validate_contract::<IntensiveSchedule>(table, value),
-        "plans" => validate_contract::<Plan>(table, value),
         "schedule_overrides" => validate_contract::<ScheduleOverride>(table, value),
         "subscriptions" => validate_contract::<Subscription>(table, value),
         "scheduled_tasks" => validate_contract::<ScheduledTask>(table, value),

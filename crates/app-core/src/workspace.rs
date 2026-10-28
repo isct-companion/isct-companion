@@ -131,15 +131,10 @@ pub enum WorkspaceIntent {
     DeleteEvent {
         event_id: String,
     },
-    SavePlan {
-        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
-        draft: Value,
-        #[serde(default)]
-        #[cfg_attr(feature = "ts", ts(optional))]
-        existing_id: Option<String>,
-    },
-    DeletePlan {
-        plan_id: String,
+    /// Copies every weekly event of `from_term_id` into `term_id`.
+    CopyEvents {
+        from_term_id: String,
+        term_id: String,
     },
     SaveCalendarException {
         #[cfg_attr(feature = "ts", ts(type = "unknown"))]
@@ -399,35 +394,84 @@ impl WorkspaceService {
     }
 }
 
-/// Saves one personal plan and returns its id. Shared by the `SavePlan`
-/// intent and agent tools, so both meet one set of plan rules.
-pub(crate) fn save_plan(
+/// Saves one weekly personal event in `term_id` and returns its id. Shared
+/// by the `SaveEvent` intent and agent tools, so both meet one set of rules
+/// (`data::records::validate_local_record`).
+pub(crate) fn save_event(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
-    mut draft: Value,
+    draft: &Value,
+    term_id: &str,
     existing_id: Option<String>,
 ) -> Result<String, DataError> {
-    crate::plans::canonicalize_plan_draft(&mut draft)
-        .map_err(|error| DataError::InvalidInput(error.to_string()))?;
+    validate_term(term_id)?;
     let id = existing_id.unwrap_or_else(|| Uuid::now_v7().to_string());
+    let mut row = Map::new();
+    for key in ["title", "room", "days", "startTime", "endTime"] {
+        row.insert(key.into(), draft.get(key).cloned().unwrap_or(Value::Null));
+    }
+    if let Some(Value::String(title)) = row.get_mut("title") {
+        *title = title.trim().to_string();
+    }
+    match row.get_mut("room") {
+        Some(Value::String(room)) => *room = room.trim().to_string(),
+        Some(room) => *room = Value::String(String::new()),
+        None => {}
+    }
+    if let Some(Value::Array(days)) = row.get_mut("days") {
+        days.sort_by_key(|day| day.as_u64());
+        days.dedup();
+    }
     save_simple_record(
         write,
         current,
-        "plans",
-        "plans",
-        draft,
+        "events",
+        "personal_events",
+        Value::Object(row),
         Some(id.clone()),
-        |_| Ok(()),
+        |row| {
+            row.insert("kind".into(), Value::String("event".into()));
+            row.insert("termId".into(), Value::String(term_id.into()));
+            Ok(())
+        },
     )?;
     Ok(id)
 }
 
-pub(crate) fn delete_plan(
+pub(crate) fn delete_event(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
-    plan_id: &str,
+    event_id: &str,
 ) -> Result<(), DataError> {
-    delete_visible(write, current, "plans", "plans", plan_id)
+    delete_visible(write, current, "events", "personal_events", event_id)
+}
+
+/// Copies the weekly events of one quarter into another, for a new quarter
+/// that keeps last quarter's fixed meetings.
+fn copy_events(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    from_term_id: &str,
+    term_id: &str,
+) -> Result<(), DataError> {
+    validate_term(from_term_id)?;
+    if from_term_id == term_id {
+        return Err("events cannot be copied into their own quarter".into());
+    }
+    let events: Vec<Value> = rows(current, "events")?
+        .filter(|row| {
+            row.get("deletedAt").is_none()
+                && object_string(row, "termId").as_deref() == Some(from_term_id)
+        })
+        .cloned()
+        .collect();
+    if events.is_empty() {
+        return Err("that quarter has no weekly events".into());
+    }
+    for event in events {
+        save_event(write, current, &event, term_id, None)?;
+    }
+    Ok(())
 }
 
 fn apply_intent(
@@ -548,27 +592,12 @@ fn apply_intent(
             draft,
             term_id,
             existing_id,
-        } => save_simple_record(
-            write,
-            current,
-            "events",
-            "personal_events",
-            draft,
-            existing_id,
-            |row| {
-                validate_term(&term_id)?;
-                row.insert("kind".into(), Value::String("event".into()));
-                row.insert("termId".into(), Value::String(term_id));
-                Ok(())
-            },
-        ),
-        WorkspaceIntent::DeleteEvent { event_id } => {
-            delete_visible(write, current, "events", "personal_events", &event_id)
-        }
-        WorkspaceIntent::SavePlan { draft, existing_id } => {
-            save_plan(write, current, draft, existing_id).map(|_| ())
-        }
-        WorkspaceIntent::DeletePlan { plan_id } => delete_plan(write, current, &plan_id),
+        } => save_event(write, current, &draft, &term_id, existing_id).map(|_| ()),
+        WorkspaceIntent::DeleteEvent { event_id } => delete_event(write, current, &event_id),
+        WorkspaceIntent::CopyEvents {
+            from_term_id,
+            term_id,
+        } => copy_events(write, current, &from_term_id, &term_id),
         WorkspaceIntent::SaveCalendarException { draft, existing_id } => {
             save_calendar_exception(write, current, draft, existing_id)
         }

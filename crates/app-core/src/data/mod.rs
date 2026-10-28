@@ -49,7 +49,6 @@ const COLLECTIONS: &[(&str, &str)] = &[
     ("planItems", "plan_items"),
     ("exceptions", "calendar_exceptions"),
     ("intensiveSchedules", "intensive_schedules"),
-    ("plans", "plans"),
     ("academicCalendar", "academic_calendar"),
     ("gpaSummary", "gpa_summary"),
     ("departments", "departments"),
@@ -95,7 +94,6 @@ pub(crate) const USER_BACKUP_TABLES: &[&str] = &[
     "calendar_exceptions",
     "assignment_marks",
     "intensive_schedules",
-    "plans",
     "schedule_overrides",
     "subscriptions",
 ];
@@ -906,7 +904,6 @@ impl DataStore {
                 | "assignment_marks"
                 | "course_overrides"
                 | "intensive_schedules"
-                | "plans"
                 | "schedule_overrides"
                 | "subscriptions"
                 | "scheduled_tasks"

@@ -52,10 +52,13 @@ fn failures_serialize_their_stable_code_and_params() {
             "detail": "study stages cannot share admission term 2026-1Q",
         })
     );
-    let plain = CoreFailure::of(&PlanError::InvalidTitle);
+    let plain = CoreFailure::of(&crate::kyomu_guide::GuideError::TooManyCourses);
     assert_eq!(
         serde_json::to_value(&plain).unwrap(),
-        serde_json::json!({ "code": "plan-invalid-title", "detail": "Plan title is required." })
+        serde_json::json!({
+            "code": "guide-too-many-courses",
+            "detail": "Too many courses for the registration guide.",
+        })
     );
     // A wrapped error reports the code of the failure inside it.
     let nested = ReadModelError::Schedule(ScheduleError::InvalidInput("bad".into()));

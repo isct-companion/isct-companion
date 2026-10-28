@@ -30,10 +30,10 @@ The server contract is recorded in slotledger as `approach/mcp-local-server`.
 ## Read tools
 
 - `today()`: today in Japan time: the school-calendar state (holiday,
-  no-class, replacement day), classes actually held, personal plans, open
-  assignments not yet due, and open assignments overdue in the last 14 days
+  no-class, replacement day), classes actually held, weekly personal events
+  falling today, open assignments not yet due, and open assignments overdue in the last 14 days
 - `schedule(from, to)`: registered or planned courses of the quarters in the
-  range, intensive dates, and personal plans with their occurrences
+  range, intensive dates, and the weekly personal events of those quarters
 - `courses(year, quarter)`: registered or planned courses of one quarter
 - `course(id)`
 - `search_catalog(query)`: each row carries `plannable`; only plannable rows
@@ -60,8 +60,11 @@ account/cloud settings.
   returns those `terms`; `plan_remove` removes one quarter's plan. A course
   already in the workspace is reused, never replaced, whichever quarter it was
   added in.
-- `plan_event_create(title, start, duration, rrule?, room?)`
-- `plan_event_update(id, …)` / `plan_event_delete(id)`: deleted plans can
+- `weekly_event_create(term, title, days, startTime, endTime, room?)`: a
+  weekly personal event (lab meeting, club, seminar) in one quarter; `days`
+  are 1 = Monday … 7 = Sunday and times are `HH:MM` in Japan time. One-off
+  events belong in the person's own calendar app.
+- `weekly_event_update(id, …)` / `weekly_event_delete(id)`: deleted events can
   be neither changed nor deleted again
 - `hide_assignment(id)` / `restore_assignment(id)`
 

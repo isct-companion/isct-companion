@@ -60,7 +60,7 @@ export function AgentSettings({
         <Row
           id="mcp"
           title="Allow local agents"
-          hint="Agents can read school data and change only plans, personal events and hidden assignments. They never see passwords or sessions."
+          hint="Agents can read school data and change only course plans, weekly events and hidden assignments. They never see passwords or sessions."
         >
           <Toggle
             checked={access?.enabled === true}

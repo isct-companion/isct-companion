@@ -698,21 +698,24 @@ async fn backup_import_restores_through_the_journal_without_a_cloud_store() {
         panic!("wrong backup result")
     };
     // Core publishes only writes that change rows, so the backup carries a
-    // plan this device does not have yet.
+    // weekly event this device does not have yet.
     let mut document: serde_json::Value = serde_json::from_str(&value).unwrap();
-    document["tables"]["plans"]
+    document["tables"]["personal_events"]
         .as_array_mut()
         .unwrap()
         .push(json!({
-            "id": "restored-plan",
+            "id": "restored-event",
             "rev": 1,
             "updatedAt": "2026-10-13T01:00:00Z",
             "updatedBy": "other-device",
             "source": {"provider": "manual"},
             "title": "Restored",
-            "start": "2026-10-13T10:00:00+09:00",
-            "duration": 60,
-            "exdates": []
+            "kind": "event",
+            "termId": "2026-3Q",
+            "room": "",
+            "days": [1],
+            "startTime": "10:00",
+            "endTime": "11:00"
         }));
     let events = f.session.subscribe().unwrap();
     f.session
@@ -741,15 +744,15 @@ async fn backup_import_restores_through_the_journal_without_a_cloud_store() {
         event.payload.0["changes"]
             .as_array()
             .unwrap()
-            .contains(&json!("plans")),
+            .contains(&json!("events")),
         "{}",
         event.payload.0
     );
-    assert!(f.records(&["plans"]).await["plans"]
+    assert!(f.records(&["events"]).await["events"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|plan| plan["id"] == "restored-plan"));
+        .any(|event| event["id"] == "restored-event"));
     f.finish().await;
 }
 struct BrokenVault;
@@ -1034,19 +1037,22 @@ async fn sessions_sharing_one_cloud_record_load_each_others_data() {
         panic!("wrong backup result")
     };
     let mut document: serde_json::Value = serde_json::from_str(&value).unwrap();
-    document["tables"]["plans"]
+    document["tables"]["personal_events"]
         .as_array_mut()
         .unwrap()
         .push(json!({
-            "id": "mac-plan",
+            "id": "mac-event",
             "rev": 1,
             "updatedAt": "2026-10-13T01:00:00Z",
             "updatedBy": "mac",
             "source": {"provider": "manual"},
             "title": "From the Mac",
-            "start": "2026-10-13T10:00:00+09:00",
-            "duration": 60,
-            "exdates": []
+            "kind": "event",
+            "termId": "2026-3Q",
+            "room": "",
+            "days": [1],
+            "startTime": "10:00",
+            "endTime": "11:00"
         }));
     mac.session
         .apply_backup(JsonValue(document))
@@ -1068,11 +1074,11 @@ async fn sessions_sharing_one_cloud_record_load_each_others_data() {
         state.providers.iter().all(|p| p.error.is_none()),
         "{state:?}"
     );
-    assert!(phone.records(&["plans"]).await["plans"]
+    assert!(phone.records(&["events"]).await["events"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|plan| plan["id"] == "mac-plan"));
+        .any(|event| event["id"] == "mac-event"));
 
     let before = record.writes.load(Ordering::SeqCst);
     record.race_next_write.store(true, Ordering::SeqCst);
@@ -1089,19 +1095,22 @@ async fn sessions_sharing_one_cloud_record_load_each_others_data() {
         };
         serde_json::from_str(&value).unwrap()
     };
-    document["tables"]["plans"]
+    document["tables"]["personal_events"]
         .as_array_mut()
         .unwrap()
         .push(json!({
-            "id": "phone-plan",
+            "id": "phone-event",
             "rev": 1,
             "updatedAt": "2026-10-13T02:00:00Z",
             "updatedBy": "phone",
             "source": {"provider": "manual"},
             "title": "From the phone",
-            "start": "2026-10-14T10:00:00+09:00",
-            "duration": 60,
-            "exdates": []
+            "kind": "event",
+            "termId": "2026-3Q",
+            "room": "",
+            "days": [1],
+            "startTime": "10:00",
+            "endTime": "11:00"
         }));
     phone
         .session
@@ -1119,12 +1128,12 @@ async fn sessions_sharing_one_cloud_record_load_each_others_data() {
     assert!(!record.race_next_write.load(Ordering::SeqCst));
     assert!(record.writes.load(Ordering::SeqCst) >= before + 2);
     cloud_op(mac.session.sync_cloud(Direction::Pull).unwrap()).await;
-    let plans = mac.records(&["plans"]).await["plans"].clone();
-    assert!(plans
+    let events = mac.records(&["events"]).await["events"].clone();
+    assert!(events
         .as_array()
         .unwrap()
         .iter()
-        .any(|plan| plan["id"] == "phone-plan"));
+        .any(|event| event["id"] == "phone-event"));
 
     mac.finish().await;
     phone.finish().await;

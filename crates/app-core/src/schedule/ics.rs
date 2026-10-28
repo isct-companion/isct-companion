@@ -14,7 +14,8 @@ use super::{calendar_between, OccurrenceKind, ScheduleError, Term};
 pub enum CalendarExportScope {
     #[default]
     Courses,
-    CoursesAndPlans,
+    /// Courses and the weekly personal events of the same quarters.
+    CoursesAndEvents,
 }
 
 pub fn export_quarter_ics(
@@ -73,8 +74,8 @@ pub fn export_calendar_ics(
                 continue;
             }
             if block.kind != OccurrenceKind::Course
-                && !(matches!(scope, CalendarExportScope::CoursesAndPlans)
-                    && block.kind == OccurrenceKind::Plan)
+                && !(matches!(scope, CalendarExportScope::CoursesAndEvents)
+                    && block.kind == OccurrenceKind::Event)
             {
                 continue;
             }

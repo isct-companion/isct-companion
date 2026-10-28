@@ -560,8 +560,8 @@ fn tool(
 
 fn tools() -> Vec<Tool> {
     vec![
-        tool("today", "Today in Japan time: the calendar state (holiday, replacement day), classes actually held, personal plans, open assignments not yet due, open assignments overdue in the last 14 days, and the GPA summary.", json!({}), &[]),
-        tool("schedule", "Registered or planned courses of the quarters in an inclusive ISO date range (maximum 366 days), intensive dates and personal plans with their occurrences.", json!({"from":{"type":"string","format":"date"},"to":{"type":"string","format":"date"}}), &["from","to"]),
+        tool("today", "Today in Japan time: the calendar state (holiday, replacement day), classes actually held, weekly personal events falling today, open assignments not yet due, open assignments overdue in the last 14 days, and the GPA summary.", json!({}), &[]),
+        tool("schedule", "Registered or planned courses of the quarters in an inclusive ISO date range (maximum 366 days), intensive dates and the weekly personal events of those quarters.", json!({"from":{"type":"string","format":"date"},"to":{"type":"string","format":"date"}}), &["from","to"]),
         tool("courses", "Registered or planned courses for one academic quarter.", json!({"year":{"type":"integer"},"quarter":{"enum":["1Q","2Q","3Q","4Q"]}}), &["year","quarter"]),
         tool("course", "One course with its LMS items, assignments and the link to its syllabus page.", json!({"id":{"type":"string"}}), &["id"]),
         tool("search_catalog", "Search the local bilingual course catalog (the 教務 course search the app last read).", json!({"query":{"type":"string"}}), &["query"]),
@@ -572,9 +572,9 @@ fn tools() -> Vec<Tool> {
         tool("recommended", "Recommended courses for the person's admission year. departmentId defaults to the department chosen in Settings.", json!({"departmentId":{"type":"string"}}), &[]),
         tool("plan_add", "Add a catalog offering from search_catalog to the person's local plan. term is YYYY-nQ and must be one of the offering's quarters; an offering running over several quarters (e.g. 3Q–4Q) is planned into all of them.", json!({"offeringId":{"type":"string"},"term":{"type":"string"}}), &["offeringId","term"]),
         tool("plan_remove", "Remove an offering from the person's local plan.", json!({"offeringId":{"type":"string"},"term":{"type":"string"}}), &["offeringId","term"]),
-        tool("plan_event_create", "Create a personal one-off or repeating plan and return its id. start is RFC 3339; duration is minutes.", json!({"title":{"type":"string"},"start":{"type":"string","format":"date-time"},"duration":{"type":"integer","minimum":1,"maximum":10080,"description":"Duration in minutes."},"rrule":{"type":"string"},"room":{"type":"string"}}), &["title","start","duration"]),
-        tool("plan_event_update", "Update a personal plan. start is RFC 3339; duration is minutes.", json!({"id":{"type":"string"},"title":{"type":"string"},"start":{"type":"string","format":"date-time"},"duration":{"type":"integer","minimum":1,"maximum":10080,"description":"Duration in minutes."},"rrule":{"type":"string"},"room":{"type":"string"}}), &["id"]),
-        tool("plan_event_delete", "Delete a personal plan.", json!({"id":{"type":"string"}}), &["id"]),
+        tool("weekly_event_create", "Create a weekly personal event (a lab meeting, club meeting or seminar) in one quarter and return its id. term is YYYY-nQ; times are HH:MM in Japan time. One-off events belong in the person's own calendar app.", json!({"term":{"type":"string"},"title":{"type":"string"},"days":{"type":"array","items":{"type":"integer","minimum":1,"maximum":7},"minItems":1,"description":"Weekdays, 1 = Monday … 7 = Sunday."},"startTime":{"type":"string","pattern":"^[0-2][0-9]:[0-5][0-9]$"},"endTime":{"type":"string","pattern":"^[0-2][0-9]:[0-5][0-9]$"},"room":{"type":"string"}}), &["term","title","days","startTime","endTime"]),
+        tool("weekly_event_update", "Update a weekly personal event. Times are HH:MM in Japan time.", json!({"id":{"type":"string"},"title":{"type":"string"},"days":{"type":"array","items":{"type":"integer","minimum":1,"maximum":7},"minItems":1,"description":"Weekdays, 1 = Monday … 7 = Sunday."},"startTime":{"type":"string","pattern":"^[0-2][0-9]:[0-5][0-9]$"},"endTime":{"type":"string","pattern":"^[0-2][0-9]:[0-5][0-9]$"},"room":{"type":"string"}}), &["id"]),
+        tool("weekly_event_delete", "Delete a weekly personal event.", json!({"id":{"type":"string"}}), &["id"]),
         tool("hide_assignment", "Hide an assignment locally without changing LMS.", json!({"id":{"type":"string"}}), &["id"]),
         tool("restore_assignment", "Restore a locally hidden assignment.", json!({"id":{"type":"string"}}), &["id"]),
     ]

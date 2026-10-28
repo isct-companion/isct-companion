@@ -1,7 +1,7 @@
 use super::SchoolReads;
 use std::collections::HashSet;
 
-use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{DateTime, Duration, FixedOffset, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 #[cfg(feature = "ts")]
@@ -22,7 +22,6 @@ use super::{clock_for_periods, teaching_periods, TeachingPeriod};
 pub enum OccurrenceKind {
     Course,
     Event,
-    Plan,
     Exam,
 }
 
@@ -117,7 +116,6 @@ impl Occurrence {
 #[serde(rename_all = "camelCase")]
 pub enum ScheduleProblemKind {
     CourseMeeting,
-    Plan,
     ScheduleOverride,
 }
 
@@ -159,6 +157,19 @@ pub struct PlanningWeek {
     /// Every clash, once per course involved, so a shell can explain a
     /// red block without re-deriving overlaps.
     pub conflicts: Vec<CourseConflict>,
+    /// The latest earlier quarter with weekly events, offered while this
+    /// quarter has none of its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub carry_over: Option<EventCarryOver>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct EventCarryOver {
+    pub term_id: String,
+    pub count: usize,
 }
 
 /// One meeting of a course that overlaps another block in the quarter template.
@@ -176,14 +187,6 @@ pub struct CourseConflict {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub with_course_id: Option<String>,
     pub with_title: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
-#[serde(rename_all = "camelCase")]
-pub struct PlanCivilStart {
-    pub date: String,
-    pub time: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -212,9 +215,7 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
     let courses = scheduled_courses(workspace, term);
     let events: Vec<_> = array(workspace, "events")
         .iter()
-        .filter(|row| {
-            visible(row) && text(row, "termId") == Some(term) && text(row, "date").is_none()
-        })
+        .filter(|row| visible(row) && text(row, "termId") == Some(term))
         .collect();
     let mut days = Vec::new();
     let mut conflict_count = 0;
@@ -336,19 +337,29 @@ pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, Sche
         });
         days.push(PlanningDay { day, blocks });
     }
+    let carry_over = if events.is_empty() {
+        let mut earlier = std::collections::BTreeMap::<&str, usize>::new();
+        for event in array(workspace, "events").iter().filter(|row| visible(row)) {
+            if let Some(from) = text(event, "termId").filter(|from| *from < term) {
+                *earlier.entry(from).or_default() += 1;
+            }
+        }
+        earlier
+            .last_key_value()
+            .map(|(from, count)| EventCarryOver {
+                term_id: (*from).into(),
+                count: *count,
+            })
+    } else {
+        None
+    };
     Ok(PlanningWeek {
         courses,
         days,
         conflict_count,
         conflicts,
+        carry_over,
     })
-}
-
-pub fn plan_start(plan: &Value) -> Result<PlanCivilStart, ScheduleError> {
-    let (date, time) = plan_civil_start(text(plan, "start").ok_or_else(|| {
-        ScheduleError::InvalidInput("Plan start must be an ISO date or date-time.".into())
-    })?)?;
-    Ok(PlanCivilStart { date, time })
 }
 
 /// The course's meetings around `now` across every quarter it belongs to, so a
@@ -687,31 +698,25 @@ pub fn occurrences_on_date(
                 .cloned()
                 .collect()
         });
-        blocks.extend(personal_occurrences(workspace, date, &events)?);
+        blocks.extend(personal_occurrences(date, &events)?);
     }
     mark_conflicts(&mut blocks)?;
     blocks.sort_by(|a, b| a.start_time.cmp(&b.start_time).then(a.key.cmp(&b.key)));
     Ok(blocks)
 }
 
-/// Personal items are resolved once per civil date, independently of course terms.
+/// The weekly personal events, of the term the caller picked, that fall on `date`.
 pub(crate) fn personal_occurrences(
-    workspace: &Value,
     date: &str,
     events: &[Value],
 ) -> Result<Vec<Occurrence>, ScheduleError> {
     let day = weekday(date)?;
     let mut blocks = Vec::new();
     for event in events.iter().filter(|row| visible(row)) {
-        let occurs = text(event, "date").map_or_else(
-            || {
-                event
-                    .get("days")
-                    .and_then(Value::as_array)
-                    .is_some_and(|days| days.iter().any(|v| v.as_u64() == Some(u64::from(day))))
-            },
-            |value| value == date,
-        );
+        let occurs = event
+            .get("days")
+            .and_then(Value::as_array)
+            .is_some_and(|days| days.iter().any(|v| v.as_u64() == Some(u64::from(day))));
         if !occurs {
             continue;
         }
@@ -743,85 +748,7 @@ pub(crate) fn personal_occurrences(
             grid: None,
         });
     }
-    for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
-        // A stored plan that cannot be evaluated is reported by
-        // `schedule_problems`; it must not hide every other block.
-        if let Ok(Some(block)) = plan_occurrence(plan, date) {
-            blocks.push(block);
-        }
-    }
     Ok(blocks)
-}
-
-fn plan_occurrence(plan: &Value, date: &str) -> Result<Option<Occurrence>, ScheduleError> {
-    let start = plan_civil_start(text(plan, "start").unwrap_or_default())?;
-    let exdates: Vec<String> = plan
-        .get("exdates")
-        .and_then(Value::as_array)
-        .map(|v| {
-            v.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
-    let excluded = exdates
-        .iter()
-        .any(|value| plan_civil_start(value).is_ok_and(|start| start.0 == date));
-    let occurs = if excluded {
-        false
-    } else if let Some(rule) = text(plan, "rrule") {
-        let recurrence_start = format!("{}T{}:00+09:00", start.0, start.1);
-        crate::plans::occurrences_between(
-            &recurrence_start,
-            rule,
-            &exdates,
-            parse_civil_date(date)?,
-            parse_civil_date(date)?,
-        )
-        .map_err(|e| ScheduleError::InvalidInput(e.to_string()))?
-        .into_iter()
-        .any(|v| v.starts_with(date))
-    } else {
-        start.0 == date
-    };
-    if !occurs {
-        return Ok(None);
-    }
-    let duration = plan.get("duration").and_then(Value::as_i64).unwrap_or(0);
-    let start_clock =
-        NaiveDateTime::parse_from_str(&format!("{date}T{}:00", start.1), "%Y-%m-%dT%H:%M:%S")
-            .map_err(|_| {
-                ScheduleError::InvalidInput("Plan start must be an ISO date or date-time.".into())
-            })?;
-    let end = start_clock + Duration::minutes(duration);
-    let id = text(plan, "id").unwrap_or_default();
-    Ok(Some(Occurrence {
-        key: format!("{id}-{date}"),
-        id: id.into(),
-        kind: OccurrenceKind::Plan,
-        term_id: None,
-        course_id: text(plan, "courseId").map(str::to_owned),
-        date: date.into(),
-        title: text(plan, "title").unwrap_or_default().into(),
-        subtitle: None,
-        room: text(plan, "room").unwrap_or_default().into(),
-        start_time: start.1,
-        end_time: end.format("%H:%M").to_string(),
-        end_date: (end.date() != start_clock.date()).then(|| end.date().to_string()),
-        color: "#5f6b8a".into(),
-        conflict: None,
-        dim: None,
-        cancelled: None,
-        time_label: None,
-        conflict_with: None,
-        overridden: None,
-        alternation: None,
-        planned: None,
-        quiz: None,
-        source_changed: None,
-        grid: None,
-    }))
 }
 
 /// Stored user records the schedule skips or leaves unapplied. Read models
@@ -849,19 +776,6 @@ pub fn schedule_problems(workspace: &Value) -> Vec<ScheduleProblem> {
                     });
                 }
             }
-        }
-    }
-    for plan in array(workspace, "plans").iter().filter(|row| visible(row)) {
-        if let Err(error) = crate::plans::validate_plan_recurrence(
-            text(plan, "start").unwrap_or_default(),
-            text(plan, "rrule"),
-        ) {
-            problems.push(ScheduleProblem {
-                kind: ScheduleProblemKind::Plan,
-                id: text(plan, "id").unwrap_or_default().into(),
-                title: text(plan, "title").unwrap_or_default().into(),
-                message: error.to_string(),
-            });
         }
     }
     for row in array(workspace, "scheduleOverrides")
@@ -1420,47 +1334,6 @@ fn meeting_clock(
     }
     let (start, end) = clock_for_periods(teaching_periods, [first, last])?;
     Ok((start.into(), end.into()))
-}
-
-fn plan_civil_start(raw: &str) -> Result<(String, String), ScheduleError> {
-    let (date, time) = crate::plans::plan_civil_start(raw)
-        .map_err(|error| ScheduleError::InvalidInput(error.to_string()))?;
-    Ok((date.to_string(), time.format("%H:%M").to_string()))
-}
-
-pub fn next_plan_occurrences(plan: &Value, limit: u16) -> Result<Vec<String>, ScheduleError> {
-    if limit == 0 {
-        return Ok(vec![]);
-    }
-    let start = text(plan, "start").ok_or_else(|| {
-        ScheduleError::InvalidInput("Plan start must be an ISO date or date-time.".into())
-    })?;
-    let exdates: Vec<String> = plan
-        .get("exdates")
-        .and_then(Value::as_array)
-        .map(|v| {
-            v.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
-    if let Some(rule) = text(plan, "rrule") {
-        let civil_start = plan_civil_start(start)?;
-        let recurrence_start = format!("{}T{}:00+09:00", civil_start.0, civil_start.1);
-        let preview = crate::plans::preview_rrule(&recurrence_start, rule, &exdates, limit)
-            .map_err(|error| ScheduleError::InvalidInput(error.to_string()))?;
-        return Ok(preview.occurrences);
-    }
-    let civil = plan_civil_start(start)?;
-    if exdates
-        .iter()
-        .any(|v| plan_civil_start(v).is_ok_and(|p| p.0 == civil.0))
-    {
-        Ok(vec![])
-    } else {
-        Ok(vec![format!("{}T{}:00+09:00", civil.0, civil.1)])
-    }
 }
 
 pub fn intensive_days(

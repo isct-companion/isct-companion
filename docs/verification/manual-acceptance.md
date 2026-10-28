@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 150 checks must be re-run before the next release.**
+**9 of 151 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**141 checks have never been run or could not be run:**
+**142 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -166,6 +166,7 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
 - `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
 - `DESKTOP-ERROR-CODE-COPY` — never verified
+- `DESKTOP-WEEKLY-EVENTS` — never verified
 - `MOBILE-ERROR-CODE-COPY` — never verified
 - `DESKTOP-COURSE-KEYS-UPGRADE` — never verified
 - `DESKTOP-VIEWS-FROM-TABLES` — never verified
@@ -321,6 +322,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>crates/app-core/src/school_browser/engine/login.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
+| `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
 | `DESKTOP-COURSE-KEYS-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/course_keys.rs<br>crates/app-core/src/data/course_merge.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/backup_store.rs |
 | `DESKTOP-VIEWS-FROM-TABLES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/views.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/workspace_changes.rs |
@@ -4402,11 +4404,11 @@ client connected, and a second device signed in to the same Drive.
    - *Why:* A page opened by the person is ingested by Core, not by a pull. That
      ingest used to commit without publishing, so the window kept the old
      list until something else reloaded it.
-2. From the MCP client, create a plan event for tomorrow, then look at
+2. From the MCP client, create a weekly event on tomorrow's weekday, then look at
    the Calendar in the app window.
    - *Why:* The desktop agent server no longer emits the change itself; Core's
      commit path must publish it with source mcp.
-3. Edit a plan in the app, save a course note, then watch the cloud
+3. Edit a weekly event in the app, save a course note, then watch the cloud
    sync status and open the other device about ten seconds later.
    - *Why:* The shell no longer captures right after a mutation or note save.
      Core brings the next capture forward and the one-second wake runs
@@ -4429,12 +4431,12 @@ client connected, and a second device signed in to the same Drive.
 
 The Assignments list, the Calendar, Today, Courses, Grades, the finder,
 the Settings cloud sync status and the second device's copy of the
-edited plan and note.
+edited weekly event and note.
 
 **Expected**
 
 The new assignment and the MCP event appear without a refresh, the
-edited plan and the note reach the second device within a few seconds,
+edited weekly event and the note reach the second device within a few seconds,
 both the import and the reset show in the window and upload without
 pressing Sync, and after the refill every page shows the pulled data
 without navigating away and back.
@@ -4472,13 +4474,13 @@ shell, which no longer does either, still gets there.
 **Preconditions**
 
 macOS desktop app data folder from a build before the split, with a
-real `school.db` holding plans, assignment marks, course overrides,
+real `school.db` holding weekly events, assignment marks, course overrides,
 subscriptions, scheduled tasks and settings, and cloud backup on. Copy
 the whole folder aside first.
 
 **Steps**
 
-1. Note the device id, a few plans, a hidden assignment and a renamed
+1. Note the device id, a few weekly events, a hidden assignment and a renamed
    course in the old build, then quit it and launch the new build.
    - *Why:* The split copies every user table out of the real file once; a
      column or table the fixture does not have would lose data here and
@@ -6712,7 +6714,7 @@ CloudKit database; `codesign -d --entitlements - <app>` on each shows it.
 
 1. On the Mac, Settings → Backup: turn on iCloud and Upload. On the
    iPhone, 設定 › バックアップ: turn on iCloud and Pull.
-   - *Why:* The phone must load the Mac's plans, notes and hidden assignments.
+   - *Why:* The phone must load the Mac's weekly events, notes and hidden assignments.
      Nothing arriving usually means the two builds use different CloudKit
      environments or containers, not a merge bug.
 2. On the iPhone hide an assignment and Upload; on the Mac Pull.
@@ -6723,12 +6725,12 @@ CloudKit database; `codesign -d --entitlements - <app>` on each shows it.
    - *Why:* The second upload must lose CloudKit's conditional save, re-read and
      merge. Losing either edit means a write replaced a record it had not
      read.
-4. Turn on Sync automatically on both. Add a plan on the Mac and Upload,
+4. Turn on Sync automatically on both. Add a weekly event on the Mac and Upload,
    then force-quit the iPhone app and open it again without pressing
    Pull.
    - *Why:* Automatic mode pulls at launch and when the app comes to the front; a
      phone that is only read never uploads, so this is the only way it
-     sees the Mac's edits. The plan missing after the relaunch means the
+     sees the Mac's edits. The weekly event missing after the relaunch means the
      launch pull did not run or read another database.
 5. Sign out of iCloud on the iPhone (Settings › Apple Account), reopen
    バックアップ, then sign back in.
@@ -6837,27 +6839,27 @@ and history survive a build without iCloud is unit-tested in
 One Apple Account and one Google account. A signed Mac app (iCloud and
 Drive), an iPhone app with only iCloud on, and an Android phone with only
 Drive on. Each device starts with its own data: before any device has
-both providers, add a different plan on the iPhone (Upload to iCloud)
+both providers, add a different weekly event on the iPhone (Upload to iCloud)
 and on the Android phone (Upload to Drive). Import a backup file on the
 Android phone first, so its copy is a restore generation ahead.
 
 **Steps**
 
-1. On the Mac, add a third plan, turn on iCloud and Google Drive in
+1. On the Mac, add a third weekly event, turn on iCloud and Google Drive in
    Settings → Backup (Drive through the browser consent), then Upload.
    - *Why:* The two clouds hold copies with different workspace ids. The old
      build refused the second provider with "a different workspace"; any
-     error here, or a missing plan, means the copies were not joined.
+     error here, or a missing weekly event, means the copies were not joined.
 2. Pull on the iPhone and on the Android phone.
-   - *Why:* Each must show all three plans. A phone that loses its own plan means
+   - *Why:* Each must show all three weekly events. A phone that loses its own weekly event means
      the joined copy replaced its data by generation instead of merging.
-3. Turn on Sync automatically on the Mac and leave it open. Add a plan
+3. Turn on Sync automatically on the Mac and leave it open. Add a weekly event
    on the iPhone and Upload; do nothing on the Mac for an hour, then
    Pull on the Android phone.
    - *Why:* The Mac must relay iCloud's change to Drive from its hourly remote
-     check, with no local edit. The plan missing on Android after the hour
+     check, with no local edit. The weekly event missing on Android after the hour
      means the relay still waits for an edit or a relaunch.
-4. On the Mac turn Drive off, add a plan, Upload, then turn Drive on
+4. On the Mac turn Drive off, add a weekly event, Upload, then turn Drive on
    again.
    - *Why:* Turning a provider back on must merge its old copy and upload the
      merged data at once, not wait out the hourly limit or report a
@@ -6865,13 +6867,13 @@ Android phone first, so its copy is a restore generation ahead.
 
 **Where to look**
 
-The plans on each device, each device's Backup page (provider lines,
+The weekly events on each device, each device's Backup page (provider lines,
 errors) and the version lists of both providers.
 
 **Expected**
 
-No device reports a workspace error; every device ends with every plan;
-the iPhone's plan reaches Android through the Mac within about two hours
+No device reports a workspace error; every device ends with every weekly event;
+the iPhone's weekly event reaches Android through the Mac within about two hours
 without touching the Mac; re-enabling Drive brings it up to date at once.
 
 **Why this is manual**
@@ -6900,7 +6902,7 @@ and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_ed
 
 An iPhone build from this branch and a Google account added as a test
 user of the IsctCompanion OAuth consent screen; a Windows or Mac desktop
-app with Drive on and at least one plan uploaded.
+app with Drive on and at least one weekly event uploaded.
 
 **Steps**
 
@@ -6910,7 +6912,7 @@ app with Drive on and at least one plan uploaded.
      or a switch left on means the cancelled session was treated as a
      failed or successful sign-in.
 2. Turn Google Drive on again and finish the consent, then Pull.
-   - *Why:* The page must return to the app and the desktop's plan arrive. A
+   - *Why:* The page must return to the app and the desktop's weekly event arrive. A
      Google error page ("redirect_uri_mismatch", "invalid_client") means
      the iOS client ID or its reversed redirect scheme does not match the
      registered client.
@@ -6959,7 +6961,7 @@ The release-signed APK from the Android release workflow, with its package
 and certificate SHA-1 registered on the Android release OAuth client,
 installed on a phone with Play services. The OAuth app is in production;
 use a Google account outside its test-user list. A desktop app has Drive
-on and at least one plan uploaded.
+on and at least one weekly event uploaded.
 
 **Steps**
 
@@ -6968,7 +6970,7 @@ on and at least one plan uploaded.
    - *Why:* The switch must stay off with the reason under it. A crash or a
      switch left on means the consent result was not read.
 2. Turn it on again, allow the prompt, then Pull.
-   - *Why:* The desktop's plan must arrive. If Google does not know the build
+   - *Why:* The desktop's weekly event must arrive. If Google does not know the build
      (UNREGISTERED_ON_API_CONSOLE), the Drive row says so and names the
      SHA-1 to register on the Android client; each signing key (each
      machine's debug key, the release key) needs its own entry. A
@@ -6990,7 +6992,7 @@ on and at least one plan uploaded.
    クラウドから復元する, acknowledge and reset; repeat once with
    新しい端末として始める.
    - *Why:* Restore turns the providers that were on back on and pulls, as on
-     desktop, so the desktop's plan returns; a new start leaves Drive off
+     desktop, so the desktop's weekly event returns; a new start leaves Drive off
      and the device empty. The choice only appears while a provider is
      on, and クラウドのコピーとほかの端末 is listed under what stays.
 
@@ -7314,7 +7316,7 @@ each OS verifier; no test can reach the school server.
 The desktop app signed in to Science Tokyo with saved credentials, school
 data synced (Today, assignments, 教務Web grades, course search all
 populated), at least one downloaded course file and one course note, one
-plan and one hidden assignment, and iCloud or Google Drive sync on with a
+weekly event and one hidden assignment, and iCloud or Google Drive sync on with a
 recent upload.
 
 **Steps**
@@ -7333,7 +7335,7 @@ recent upload.
 3. Open Today, Assignments and the course search, then a course with
    the downloaded file and its notes.
    - *Why:* The views must show the empty state with cold-start progress and
-     then refill; the plan, the hidden assignment's mark and the notes
+     then refill; the weekly event, the hidden assignment's mark and the notes
      must still be there; the file card must read "not downloaded" and
      download again on open; the school browser must sign in again with
      the saved credentials before LMS data arrives.
@@ -7342,12 +7344,12 @@ recent upload.
    クラウドから復元する and confirm.
    - *Why:* A full reset deletes user data, settings and saved logins; the
      extra confirmation and the cloud question are the only guard. With
-     restore chosen, the plan and the hidden assignment must come back
+     restore chosen, the weekly event and the hidden assignment must come back
      from the cloud copy, while school data resyncs only after signing in
      again.
 5. On the second device, Pull.
    - *Why:* A reset must not write tombstones: the second device must keep every
-     plan, mark and note.
+     weekly event, mark and note.
 
 **Where to look**
 
@@ -7357,7 +7359,7 @@ and notes, Settings → School accounts, and the second device.
 
 **Expected**
 
-Clearing keeps plans, marks, notes and saved logins, deletes downloaded
+Clearing keeps weekly events, marks, notes and saved logins, deletes downloaded
 files and the web sign-in, and resyncs everything; the course folder's
 notes are untouched. Full reset returns to first launch, restores the
 user data from the cloud when asked, and the second device loses
@@ -8503,10 +8505,11 @@ empty.
 
 **Steps**
 
-1. Open the plan editor, clear the title and save.
-   - *Why:* Core now rejects with the code `plan-invalid-title` instead of an
-     English sentence. English text here means the bridge did not turn
-     the code into the catalog's copy.
+1. In Settings → Study history add a second stage with the same
+   admission term as the first and save.
+   - *Why:* Core rejects with the code `study-duplicate-term` and the term as a
+     parameter instead of an English sentence. English text here means
+     the bridge did not turn the code into the catalog's copy.
 2. On the assignment's card choose Prepare in LMS with the submit
    folder empty.
    - *Why:* The hand-in path crosses SubmissionError in the browser layer; a
@@ -8522,14 +8525,15 @@ empty.
 
 **Where to look**
 
-The plan editor's error line, the assignment card's notice, and the
+The study history's error line, the assignment card's notice, and the
 exported log.
 
 **Expected**
 
 Each failure shows the catalog's copy for its code in the current UI
-language (タイトルを入力してください。 / 提出フォルダーが空です。 /
-请输入标题。), never an English sentence from Core.
+language, with the term filled in (… に始まる課程を 2 つ登録することは
+できません。 / 提出フォルダーが空です。 / 不能有两个学习阶段都从 … 开始。),
+never an English sentence from Core.
 
 **Why this is manual**
 
@@ -8542,6 +8546,66 @@ and catalogs themselves are pinned by the Core and locale suites.
 - `apps/desktop/src-tauri/src/command_error.rs`
 - `crates/app-core/src/error_code.rs`
 - `resources/locales/*.json`
+
+**Last recorded** never run
+
+### Weekly events are the only personal times, made on the timetable (`DESKTOP-WEEKLY-EVENTS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+macOS desktop build of this commit, UI in 中文, a quarter with classes
+on Wednesday afternoon, and a later quarter with no weekly events.
+
+**Steps**
+
+1. Open 课表. Look at the toolbar, press ＋ 固定日程, add 组会 on
+   Wednesday over one of the classes and save.
+   - *Why:* ＋ 计划 and the one-date choice are gone; a second add button, a
+     Repeats switch, a date field or the old conflict checkbox means the
+     removed paths are still drawn.
+2. Look at the conflict badge and at the class under 组会.
+   - *Why:* Core counts a weekly event over a class as a clash. A badge that
+     stays at its old count means the event left the template's
+     conflict pass.
+3. Switch to the later quarter and press 沿用 … 的 1 个固定日程.
+   - *Why:* The offer comes from Core's planning week; the button missing, or
+     组会 not appearing after the press, means the carry-over or the
+     copy intent broke.
+4. Open 今天 on a Wednesday of that quarter, click 组会, then look for
+   any way to add an event there.
+   - *Why:* Today shows and edits weekly events but has no add entry; an add
+     button or a dead click means the page kept or lost the wrong path.
+5. Export ICS → 课程＋固定日程 and import the file into Apple Calendar.
+   - *Why:* The export used to skip events entirely. 组会 missing on the
+     Wednesdays of the quarter means the scope did not reach Core.
+
+**Where to look**
+
+The timetable toolbar and editor, the conflict badge, the later
+quarter's grid, Today's list, and Apple Calendar after the import.
+
+**Expected**
+
+One ＋ 固定日程 button; the editor asks only title, room, weekdays and
+times; the clash adds one to the badge; the later quarter gets 组会
+with one press; Today opens it but cannot add one; Apple Calendar shows
+组会 every Wednesday of the quarter beside the classes.
+
+**Why this is manual**
+
+The toolbar, the editor and where a click lands are a glance at the
+real app, and the import needs Apple Calendar; the conflict, copy and
+export logic is pinned by the Core schedule and workspace suites.
+
+**Covers**
+
+- `apps/desktop/src/pages/courses/CoursesPage.tsx`
+- `apps/desktop/src/pages/courses/editors.tsx`
+- `apps/desktop/src/pages/today/TodayPage.tsx`
 
 **Last recorded** never run
 
@@ -8713,7 +8777,7 @@ suite and by trace_read_models on a data copy.
 
 macOS desktop build of this commit with signed-in school accounts and
 a quarter with classes and assignments; a second device or the MCP
-agent able to add a plan.
+agent able to add a weekly event.
 
 **Steps**
 
@@ -8723,9 +8787,9 @@ agent able to add a plan.
      mark that Today or the calendar still shows the old way means an
      answer was kept although its reads named the change.
 2. Hide the window for a minute while the other device or the agent
-   adds a plan, then bring the window back.
+   adds a weekly event, then bring the window back.
    - *Why:* Coming back refetches every query in use, so a missed event cannot
-     leave a page stale; the plan missing until another change means
+     leave a page stale; the weekly event missing until another change means
      the window's return was not heard.
 3. Press Refresh in the sync status while the calendar is open.
    - *Why:* Background reads arrive as merged events; the calendar flickering
@@ -8739,12 +8803,12 @@ agent able to add a plan.
 
 **Where to look**
 
-The marked block, Today's list, the new plan on the calendar, and the
+The marked block, Today's list, the new weekly event on the calendar, and the
 calendar while the sync runs.
 
 **Expected**
 
-Each change shows at once on every page that reads it, the plan shows
+Each change shows at once on every page that reads it, the weekly event shows
 as soon as the window returns, and the calendar never goes blank.
 
 **Why this is manual**
@@ -8820,7 +8884,7 @@ desktop; the FFI calls themselves are covered by the SDK suite.
 **Preconditions**
 
 macOS desktop build of this commit with a quarter of classes and a
-backup exported earlier (Settings → Backup) after which a plan and a
+backup exported earlier (Settings → Backup) after which a weekly event and a
 session mark were added.
 
 **Steps**
@@ -8828,7 +8892,7 @@ session mark were added.
 1. Open the calendar and the planner, then import the earlier backup
    from Settings → Backup.
    - *Why:* The import answers nothing now; the pages hear the restore's
-     commit by name. A page still showing the later plan or mark means
+     commit by name. A page still showing the later weekly event or mark means
      the restore's changes did not reach its query.
 2. Mark a session 休講 right after the import.
    - *Why:* The store reads the revision again after an import; a conflict
@@ -8837,12 +8901,12 @@ session mark were added.
 
 **Where to look**
 
-The planner's plans, the calendar's marks, and any error toast after
+The planner's weekly events, the calendar's marks, and any error toast after
 the mark.
 
 **Expected**
 
-Without restarting, the later plan and mark are gone, everything from
+Without restarting, the later weekly event and mark are gone, everything from
 the backup shows, and the new mark saves without an error.
 
 **Why this is manual**

@@ -79,7 +79,6 @@ export type PlanningWeek = Omit<Protocol.PlanningWeek, "courses" | "days"> & {
   days: { day: number; blocks: ScheduleOccurrence[] }[];
 };
 export type AcademicYearIndex = Protocol.AcademicYearIndex;
-export type PlanCivilStart = Protocol.PlanCivilStart;
 export type TaskView = Protocol.TaskView;
 export type CourseDetail = Protocol.CourseDetail;
 export type CourseContent = Protocol.CourseContent;

@@ -352,7 +352,6 @@ export const Settings = withRecords(
     "logs",
     "classGroups",
     "courses",
-    "plans",
     "events",
     "academicCalendar",
   ],
