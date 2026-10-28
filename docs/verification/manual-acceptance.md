@@ -281,7 +281,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-COURSE-ZOOM-AND-FIGURES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/styles.css<br>apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
+| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/styles.css<br>apps/desktop/src/lib/timetable-layout.ts<br>resources/locales/en.json<br>resources/locales/ja.json<br>resources/locales/zh.json<br>apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
@@ -6355,7 +6355,7 @@ checked by the text-and-locales suite.
 
 **Last recorded** never run
 
-### Desktop calendar tints today and draws the moving now line (`DESKTOP-CALENDAR-NOW-LINE`)
+### Desktop calendar tints today, draws the moving now line and labels the break band (`DESKTOP-CALENDAR-NOW-LINE`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -6382,6 +6382,12 @@ The desktop app during a teaching hour on a weekday.
 4. Look at the date field beside This week.
    - *Why:* WebKit lays a date field's value at the top of its box; the date
      must sit centred and start where a text field's value starts.
+5. Look at the half-row band between periods 3-4 and 5-6 on the time
+   axis, in English, Japanese and Chinese (Settings › Appearance ›
+   Language), with Text size at its largest.
+   - *Why:* The band reads BREAK, 休憩 or 休息 on one line inside the band. A
+     second line crossing the 5-6 rule is the old CLASS BREAK / 课间休息
+     label, which did not fit the 50px axis column.
 
 **Where to look**
 
@@ -6390,7 +6396,7 @@ The Calendar view and the planner's current quarter.
 **Expected**
 
 Today is tinted and the now line tracks the clock on both, drawn over
-every block it crosses.
+every block it crosses; the break band's label stays on one line.
 
 **Why this is manual**
 
@@ -6400,6 +6406,10 @@ the schedule-and-dates unit test.
 **Covers**
 
 - `apps/desktop/src/styles.css`
+- `apps/desktop/src/lib/timetable-layout.ts`
+- `resources/locales/en.json`
+- `resources/locales/ja.json`
+- `resources/locales/zh.json`
 - `apps/desktop/src/components/timetable/workspace.ts`
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/components/ui/ui.css`

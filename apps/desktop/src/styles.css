@@ -574,11 +574,16 @@ summary,
 .ttAxis .lunch {
   background: var(--surface-2);
 }
+/* The band is half a row: its label is one short word, and a longer
+   translation is clipped at the column rather than wrapping across the
+   next row's rule. */
 .ttAxis .lunch b {
   color: var(--muted);
   font-size: calc(var(--type-tick-size) * var(--text));
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .ttAxis .lunch small {
   display: none;

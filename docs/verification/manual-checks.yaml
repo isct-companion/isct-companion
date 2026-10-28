@@ -5395,7 +5395,7 @@ checks:
 
   - id: DESKTOP-CALENDAR-NOW-LINE
     area: desktop
-    title: Desktop calendar tints today and draws the moving now line
+    title: Desktop calendar tints today, draws the moving now line and labels the break band
     persona: undergraduate-senior
     preconditions: |
       The desktop app during a teaching hour on a weekday.
@@ -5419,15 +5419,27 @@ checks:
         reason: |
           WebKit lays a date field's value at the top of its box; the date
           must sit centred and start where a text field's value starts.
+      - action: |
+          Look at the half-row band between periods 3-4 and 5-6 on the time
+          axis, in English, Japanese and Chinese (Settings › Appearance ›
+          Language), with Text size at its largest.
+        reason: |
+          The band reads BREAK, 休憩 or 休息 on one line inside the band. A
+          second line crossing the 5-6 rule is the old CLASS BREAK / 课间休息
+          label, which did not fit the 50px axis column.
     observe: The Calendar view and the planner's current quarter.
     expected: |
       Today is tinted and the now line tracks the clock on both, drawn over
-      every block it crosses.
+      every block it crosses; the break band's label stays on one line.
     why_manual: |
       A line position read at a glance; agendaColumns' isToday is covered by
       the schedule-and-dates unit test.
     covers:
       - apps/desktop/src/styles.css
+      - apps/desktop/src/lib/timetable-layout.ts
+      - resources/locales/en.json
+      - resources/locales/ja.json
+      - resources/locales/zh.json
       - apps/desktop/src/components/timetable/workspace.ts
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/components/ui/ui.css

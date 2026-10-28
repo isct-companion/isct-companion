@@ -251,7 +251,7 @@
   "Backup file": "备份文件",
   "Backup restored.": "已恢复备份。",
   "Break": "假期",
-  "Class break": "课间休息",
+  "timetable.breakBand": "休息",
   "Calendar saved": "校历已保存",
   "Calendar, exams and study guide · once a day": "校历、考试和学修指南 · 每天一次",
   "Capabilities": "功能支持情况",

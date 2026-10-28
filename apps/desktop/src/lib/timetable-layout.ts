@@ -63,7 +63,9 @@ export function axisPosition(axis: TimetableAxis, start: string, end: string) {
 /** The axis rows to draw: teaching blocks and the lunch band. */
 export const axisRows = (axis: TimetableAxis) =>
   axis.rows.map((row) => ({
-    label: row.periods ? `${row.periods[0]}-${row.periods[1]}` : "Class break",
+    label: row.periods
+      ? `${row.periods[0]}-${row.periods[1]}`
+      : "timetable.breakBand",
     periods: row.periods ?? null,
     start: row.startTime,
     end: row.endTime,

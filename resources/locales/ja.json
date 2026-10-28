@@ -251,7 +251,7 @@
   "Backup file": "バックアップファイル",
   "Backup restored.": "バックアップから復元しました。",
   "Break": "休業",
-  "Class break": "休憩",
+  "timetable.breakBand": "休憩",
   "Calendar saved": "学年暦を保存しました",
   "Calendar, exams and study guide · once a day": "学年暦・試験・学修案内 · 1日1回",
   "Capabilities": "対応状況",
