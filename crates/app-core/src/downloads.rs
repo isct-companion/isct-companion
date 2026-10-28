@@ -1,14 +1,18 @@
-//! Authenticated LMS resource resolution and bounded file downloads.
+//! Authenticated LMS resource resolution and bounded file downloads, and the
+//! school files a page hands over (`save_school_file`).
 
 use crate::{
     net::{NetError, SessionCookies, SignInGate, USER_AGENT},
     runtime_tasks::RuntimeTasks,
-    school_browser::is_login_url,
+    school_auth::SchoolAuthProfile,
+    school_browser::{browsing_url, is_login_url, school_file_url},
+    school_files::{self, SchoolFile, SchoolFileRequest},
 };
 pub use adpt_isct::lms::ResolvedResource;
 use adpt_isct::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page};
 use reqwest::header::{
-    CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, LOCATION, RANGE, SET_COOKIE,
+    CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, LOCATION, RANGE,
+    REFERER, SET_COOKIE,
 };
 use std::{
     collections::HashMap,
@@ -82,6 +86,44 @@ fn write_error(error: std::io::Error) -> FetchError {
 
 type FetchFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, FetchError>> + Send + 'a>>;
 
+/// Which URLs a request may reach, checked on every redirect hop.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Scope {
+    /// Course files: the LMS only, always with its session.
+    Lms,
+    /// Files a school page hands over: any school host, with the session's
+    /// cookies when the store holds some (public pages need none).
+    School,
+}
+
+impl Scope {
+    fn admits(self, url: &Url) -> bool {
+        match self {
+            Scope::Lms => is_lms_origin(url),
+            Scope::School => school_file_url(url.as_str()).is_some(),
+        }
+    }
+
+    /// A sign-in page instead of the file: the session is gone. A school
+    /// file is never served by an identity provider, so any page there
+    /// (GetAccess's resource list after a 教務Web timeout) counts.
+    fn signed_out(self, url: &Url) -> bool {
+        is_login_url(url)
+            || (self == Scope::School
+                && url
+                    .host_str()
+                    .is_some_and(|host| SchoolAuthProfile::for_auth_host(host).is_some()))
+    }
+}
+
+/// What the school answered for a file Core streamed into the staging file.
+#[derive(Clone, Debug, Default)]
+struct SchoolResponse {
+    url: Option<Url>,
+    disposition: Option<Vec<u8>>,
+    content_type: Option<String>,
+}
+
 trait DownloadTransport: Send + Sync {
     fn probe<'a>(
         &'a self,
@@ -107,48 +149,79 @@ trait DownloadTransport: Send + Sync {
         module: &'a str,
         tasks: RuntimeTasks,
     ) -> FetchFuture<'a, ResolvedResource>;
+
+    /// Streams the school file at `url` into `file`, whatever its size.
+    fn school_file<'a>(
+        &'a self,
+        session: Arc<dyn SessionCookies>,
+        url: &'a Url,
+        referer: Option<&'a Url>,
+        file: File,
+        tasks: RuntimeTasks,
+    ) -> FetchFuture<'a, SchoolResponse>;
 }
 
+/// One client per host, each built with the TLS its host needs
+/// (`net::host_client_builder`): 教務Web files take its vendored intermediate.
+#[derive(Default)]
 struct HttpTransport {
-    client: Result<reqwest::Client, FetchError>,
-}
-
-impl Default for HttpTransport {
-    fn default() -> Self {
-        Self {
-            client: crate::net::client_builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .user_agent(USER_AGENT)
-                .build()
-                .map_err(|_| FetchError::Network),
-        }
-    }
+    clients: Mutex<HashMap<String, reqwest::Client>>,
 }
 
 impl HttpTransport {
+    fn client(&self, url: &Url) -> Result<reqwest::Client, FetchError> {
+        let host = url.host_str().ok_or(FetchError::Invalid)?;
+        let mut clients = self.clients.lock().map_err(|_| FetchError::Network)?;
+        if let Some(client) = clients.get(host) {
+            return Ok(client.clone());
+        }
+        let client = crate::net::host_client_builder(host)
+            .map_err(|_| FetchError::Network)?
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(USER_AGENT)
+            .build()
+            .map_err(|_| FetchError::Network)?;
+        clients.insert(host.to_owned(), client.clone());
+        Ok(client)
+    }
+
     async fn request(
         &self,
         session: Arc<dyn SessionCookies>,
         url: &Url,
+        scope: Scope,
+        referer: Option<&Url>,
         range: Option<&str>,
         tasks: &RuntimeTasks,
     ) -> Result<reqwest::Response, FetchError> {
-        if !is_lms_origin(url) {
+        if !scope.admits(url) {
             return Err(FetchError::Invalid);
         }
-        let client = self.client.as_ref().map_err(|error| *error)?;
         let mut current = url.clone();
         for _ in 0..=5 {
             let cookie = tokio::select! {
                 _ = tasks.closed() => return Err(FetchError::Cancelled),
                 cookie = tokio::time::timeout(SESSION_TIMEOUT, session.cookie_header(&current)) => {
-                    cookie.map_err(|_| FetchError::Timeout)?.map_err(session_error)?
+                    match (cookie.map_err(|_| FetchError::Timeout)?, scope) {
+                        (Ok(cookie), _) => cookie,
+                        // A public school page needs no session.
+                        (Err(NetError::SignInRequired), Scope::School) => String::new(),
+                        (Err(error), _) => return Err(session_error(error)),
+                    }
                 },
             };
-            if cookie.trim().is_empty() {
+            if cookie.trim().is_empty() && scope == Scope::Lms {
                 return Err(FetchError::Login);
             }
-            let mut request = client.get(current.as_str()).header(COOKIE, cookie);
+            let mut request = self.client(&current)?.get(current.as_str());
+            if !cookie.trim().is_empty() {
+                request = request.header(COOKIE, cookie);
+            }
+            // Only to the linking page's own origin, as a browser's default
+            // policy sends a full Referer; the page URL may carry state.
+            if let Some(referer) = referer.filter(|referer| referer.origin() == current.origin()) {
+                request = request.header(REFERER, referer.as_str());
+            }
             if let Some(range) = range {
                 request = request.header(RANGE, range);
             }
@@ -182,6 +255,7 @@ impl HttpTransport {
                 return Ok(response);
             }
             current = download_redirect(
+                scope,
                 &current,
                 response
                     .headers()
@@ -194,15 +268,16 @@ impl HttpTransport {
     }
 }
 
-fn download_redirect(current: &Url, location: &str) -> Result<Url, FetchError> {
+fn download_redirect(scope: Scope, current: &Url, location: &str) -> Result<Url, FetchError> {
     let target = current.join(location).map_err(|_| FetchError::Invalid)?;
     // Recognize login before the allowlist check: an SSO redirect is a
     // renewable session, not a permanently invalid file URL.
-    if crate::school_browser::automation_target(target.as_str()).is_some() && is_login_url(&target)
+    if crate::school_browser::automation_target(target.as_str()).is_some()
+        && scope.signed_out(&target)
     {
         return Err(FetchError::Login);
     }
-    if !is_lms_origin(&target) {
+    if !scope.admits(&target) {
         return Err(FetchError::Invalid);
     }
     Ok(target)
@@ -217,9 +292,9 @@ impl DownloadTransport for HttpTransport {
     ) -> FetchFuture<'a, u64> {
         Box::pin(async move {
             let response = self
-                .request(session, url, Some("bytes=0-0"), &tasks)
+                .request(session, url, Scope::Lms, None, Some("bytes=0-0"), &tasks)
                 .await?;
-            let final_url = checked_response_url(&response)?;
+            let final_url = checked_response_url(Scope::Lms, &response)?;
             if is_login_url(&final_url) {
                 return Err(FetchError::Login);
             }
@@ -253,8 +328,10 @@ impl DownloadTransport for HttpTransport {
         tasks: RuntimeTasks,
     ) -> FetchFuture<'a, Fetched> {
         Box::pin(async move {
-            let mut response = self.request(session, url, None, &tasks).await?;
-            let final_url = checked_response_url(&response)?;
+            let mut response = self
+                .request(session, url, Scope::Lms, None, None, &tasks)
+                .await?;
+            let final_url = checked_response_url(Scope::Lms, &response)?;
             if is_login_url(&final_url) {
                 return Err(FetchError::Login);
             }
@@ -291,8 +368,10 @@ impl DownloadTransport for HttpTransport {
         tasks: RuntimeTasks,
     ) -> FetchFuture<'a, ResolvedResource> {
         Box::pin(async move {
-            let mut response = self.request(session, url, None, &tasks).await?;
-            let final_url = checked_response_url(&response)?;
+            let mut response = self
+                .request(session, url, Scope::Lms, None, None, &tasks)
+                .await?;
+            let final_url = checked_response_url(Scope::Lms, &response)?;
             if response.status().is_redirection() || is_login_url(&final_url) {
                 return Err(FetchError::Login);
             }
@@ -340,6 +419,55 @@ impl DownloadTransport for HttpTransport {
                 &final_url,
                 module,
             ))
+        })
+    }
+
+    fn school_file<'a>(
+        &'a self,
+        session: Arc<dyn SessionCookies>,
+        url: &'a Url,
+        referer: Option<&'a Url>,
+        mut file: File,
+        tasks: RuntimeTasks,
+    ) -> FetchFuture<'a, SchoolResponse> {
+        Box::pin(async move {
+            let mut response = self
+                .request(session, url, Scope::School, referer, None, &tasks)
+                .await?;
+            let final_url = checked_response_url(Scope::School, &response)?;
+            let status = response.status();
+            if Scope::School.signed_out(&final_url) {
+                return Err(FetchError::Login);
+            }
+            if status.is_server_error() {
+                return Err(FetchError::Network);
+            }
+            if !status.is_success() {
+                return Err(FetchError::Invalid);
+            }
+            let answer = SchoolResponse {
+                url: Some(final_url),
+                disposition: response
+                    .headers()
+                    .get(CONTENT_DISPOSITION)
+                    .map(|value| value.as_bytes().to_vec()),
+                content_type: response
+                    .headers()
+                    .get(CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+            };
+            loop {
+                let chunk = tokio::select! {
+                    _ = tasks.closed() => return Err(FetchError::Cancelled),
+                    chunk = response.chunk() => chunk.map_err(|_| FetchError::Network)?,
+                };
+                let Some(chunk) = chunk else { break };
+                file.write_all(&chunk).await.map_err(write_error)?;
+            }
+            file.flush().await.map_err(write_error)?;
+            file.sync_all().await.map_err(write_error)?;
+            Ok(answer)
         })
     }
 }
@@ -734,10 +862,124 @@ impl Downloader {
             .map_err(|_| FetchError::Cancelled)?
     }
 
+    /// Saves a file a school page handed over into `directory`, the shell's
+    /// staging folder, under the name Core gives it
+    /// (`school_files::file_name`). The shell moves it to the person's
+    /// downloads. A file off the school hosts is answered `External` and never
+    /// fetched. No sign-in is renewed: the person is on the signed-in page
+    /// that linked the file, so a lost session is reported as `Login`.
+    pub async fn save_school_file(
+        &self,
+        session: Arc<dyn SessionCookies>,
+        request: SchoolFileRequest,
+        directory: PathBuf,
+    ) -> Result<SchoolFile, FetchError> {
+        if self.0.tasks.is_closed() {
+            return Err(FetchError::Cancelled);
+        }
+        let Some(url) = school_file_url(&request.url) else {
+            return browsing_url(&request.url)
+                .map(|url| SchoolFile::External { url })
+                .ok_or(FetchError::Invalid);
+        };
+        let referer = request
+            .referer
+            .as_deref()
+            .and_then(|raw| Url::parse(raw).ok())
+            .filter(|referer| referer.scheme() == "https");
+        let downloader = self.clone();
+        let worker_tasks = self.0.tasks.clone();
+        self.0
+            .tasks
+            .run(async move {
+                tokio::select! {
+                    _ = worker_tasks.closed() => Err(FetchError::Cancelled),
+                    outcome = tokio::time::timeout(
+                        DOWNLOAD_TIMEOUT,
+                        downloader.school_file_once(session, &url, referer.as_ref(), &request, &directory),
+                    ) => outcome.map_err(|_| FetchError::Timeout)?,
+                }
+            })
+            .await
+            .map_err(|_| FetchError::Cancelled)?
+    }
+
+    async fn school_file_once(
+        &self,
+        session: Arc<dyn SessionCookies>,
+        url: &Url,
+        referer: Option<&Url>,
+        request: &SchoolFileRequest,
+        directory: &Path,
+    ) -> Result<SchoolFile, FetchError> {
+        tokio::fs::create_dir_all(directory)
+            .await
+            .map_err(write_error)?;
+        school_files::sweep_staging(directory);
+        let (file, temp) = self.create_temp(&directory.join("download")).await?;
+        let answer = self
+            .0
+            .transport
+            .school_file(session, url, referer, file, self.0.tasks.clone())
+            .await?;
+        // The bare type (`application/pdf`), as a file store records it.
+        let essence = |value: &str| {
+            let essence = value.split(';').next().unwrap_or("").trim();
+            (!essence.is_empty()).then(|| essence.to_ascii_lowercase())
+        };
+        let mime_type = answer
+            .content_type
+            .as_deref()
+            .and_then(essence)
+            .or_else(|| request.mime_type.as_deref().and_then(essence))
+            .unwrap_or_else(|| "application/octet-stream".into());
+        // An HTML page where the engine saw a file is a sign-in or error
+        // page; the person keeps the page they are on.
+        if mime_type == "text/html"
+            && request.mime_type.as_deref().and_then(essence).as_deref() != Some("text/html")
+        {
+            return Err(FetchError::Invalid);
+        }
+        let name = school_files::file_name(
+            answer
+                .disposition
+                .as_deref()
+                .or(request.content_disposition.as_deref().map(str::as_bytes)),
+            answer.url.as_ref().unwrap_or(url),
+            Some(&mime_type),
+        );
+        publish(temp, directory, &name, mime_type).await
+    }
+
     pub async fn shutdown(&self) {
         self.0.tasks.close();
         self.0.tasks.wait().await;
     }
+}
+
+/// Moves a finished staging file to the first free name in `directory`.
+async fn publish(
+    mut temp: TempPath,
+    directory: &Path,
+    name: &str,
+    mime_type: String,
+) -> Result<SchoolFile, FetchError> {
+    for candidate in school_files::name_candidates(name) {
+        let path = directory.join(&candidate);
+        if tokio::fs::try_exists(&path).await.map_err(write_error)? {
+            continue;
+        }
+        tokio::fs::rename(&temp.path, &path)
+            .await
+            .map_err(write_error)?;
+        temp.disarm();
+        return Ok(SchoolFile::Saved {
+            path,
+            name: candidate,
+            mime_type,
+        });
+    }
+    Err(FetchError::WriteDenied)
 }
 
 fn uses_small_lane(size: u64) -> bool {
@@ -769,11 +1011,9 @@ async fn cancellable_lock(
     }
 }
 
-fn checked_response_url(response: &reqwest::Response) -> Result<Url, FetchError> {
+fn checked_response_url(scope: Scope, response: &reqwest::Response) -> Result<Url, FetchError> {
     let url = Url::parse(response.url().as_str()).map_err(|_| FetchError::Invalid)?;
-    is_lms_origin(&url)
-        .then_some(url)
-        .ok_or(FetchError::Invalid)
+    scope.admits(&url).then_some(url).ok_or(FetchError::Invalid)
 }
 
 #[cfg(test)]

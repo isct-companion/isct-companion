@@ -34,6 +34,8 @@ enum DownloadStep {
     Cancel,
 }
 
+type SchoolAnswer = Result<(SchoolResponse, Vec<u8>), FetchError>;
+
 struct FakeTransport {
     size: u64,
     probes: AtomicUsize,
@@ -47,6 +49,9 @@ struct FakeTransport {
     wait_started: Notify,
     wait_release: AsyncSemaphore,
     gate_first_probe: bool,
+    /// What the school answers for `school_file`, with the body it streams.
+    school: Mutex<Option<SchoolAnswer>>,
+    school_files: AtomicUsize,
 }
 
 impl FakeTransport {
@@ -64,7 +69,14 @@ impl FakeTransport {
             wait_started: Notify::new(),
             wait_release: AsyncSemaphore::new(0),
             gate_first_probe: false,
+            school: Mutex::new(None),
+            school_files: AtomicUsize::new(0),
         }
+    }
+
+    fn answering(self, answer: SchoolAnswer) -> Self {
+        *self.school.lock().unwrap() = Some(answer);
+        self
     }
 
     fn with_gated_probe(mut self) -> Self {
@@ -180,6 +192,30 @@ impl DownloadTransport for FakeTransport {
         Box::pin(async move {
             self.resolves.fetch_add(1, Ordering::SeqCst);
             Ok(ResolvedResource::Unresolved)
+        })
+    }
+
+    fn school_file<'a>(
+        &'a self,
+        _session: Arc<dyn SessionCookies>,
+        _url: &'a Url,
+        _referer: Option<&'a Url>,
+        mut file: File,
+        _tasks: RuntimeTasks,
+    ) -> FetchFuture<'a, SchoolResponse> {
+        Box::pin(async move {
+            self.school_files.fetch_add(1, Ordering::SeqCst);
+            let answer = self
+                .school
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or(FetchError::Network)?;
+            let (response, body) = answer?;
+            file.write_all(&body)
+                .await
+                .map_err(|_| FetchError::Network)?;
+            Ok(response)
         })
     }
 }
@@ -348,20 +384,212 @@ fn download_redirects_recognize_sso_without_sending_cookies_outside_lms() {
         "/2025/login/index.php",
         "https://isct.ex-tic.com/auth/session",
     ] {
-        assert_eq!(download_redirect(&source, login), Err(FetchError::Login));
+        assert_eq!(
+            download_redirect(Scope::Lms, &source, login),
+            Err(FetchError::Login)
+        );
     }
     for external in [
         "https://example.com/auth/session",
         "http://lms.s.isct.ac.jp/2025/",
         "https://student:secret@lms.s.isct.ac.jp/2025/",
+        "https://www.isct.ac.jp/file.pdf",
     ] {
         assert_eq!(
-            download_redirect(&source, external),
+            download_redirect(Scope::Lms, &source, external),
             Err(FetchError::Invalid)
         );
     }
-    let target = download_redirect(&source, "/2025/pluginfile.php/2/file.pdf").unwrap();
+    let target = download_redirect(Scope::Lms, &source, "/2025/pluginfile.php/2/file.pdf").unwrap();
     assert!(is_plugin_file_url(&target));
+}
+
+// A school file may move between school hosts, never off them; an identity
+// provider answering instead (GetAccess after a 教務Web timeout) is a lost
+// session, not a file.
+#[test]
+fn school_file_redirects_stay_on_school_hosts() {
+    let manual =
+        Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Common/student_manual_j.pdf")
+            .unwrap();
+    for login in [
+        "https://portal.nap.gsic.titech.ac.jp/GetAccess/ResourceList",
+        "https://isct.ex-tic.com/auth/session",
+        "/Titech/login/",
+    ] {
+        assert_eq!(
+            download_redirect(Scope::School, &manual, login),
+            Err(FetchError::Login),
+            "{login}"
+        );
+    }
+    for outside in [
+        "https://example.com/manual.pdf",
+        "https://isct.ac.jp.example.com/manual.pdf",
+        "http://www.isct.ac.jp/manual.pdf",
+        "https://www.isct.ac.jp:8443/manual.pdf",
+        "https://student:secret@www.isct.ac.jp/manual.pdf",
+    ] {
+        assert_eq!(
+            download_redirect(Scope::School, &manual, outside),
+            Err(FetchError::Invalid),
+            "{outside}"
+        );
+    }
+    assert_eq!(
+        download_redirect(
+            Scope::School,
+            &manual,
+            "https://www.isct.ac.jp/ja/025/manual.pdf"
+        )
+        .unwrap()
+        .as_str(),
+        "https://www.isct.ac.jp/ja/025/manual.pdf"
+    );
+}
+
+// The one owner of kyomu0's intermediate: the file transport builds each
+// host's client through `net::host_client_builder`, which gives kyomu0 the
+// vendored G7 config and every other school host the plain platform verifier.
+#[test]
+fn school_file_clients_take_their_hosts_tls() {
+    use crate::net::HostTls;
+    assert_eq!(
+        HostTls::of(crate::net::Host::Kyomu.name()),
+        HostTls::KyomuIntermediate
+    );
+    for host in [
+        "www.isct.ac.jp",
+        "lms.s.isct.ac.jp",
+        "portal.nap.gsic.titech.ac.jp",
+    ] {
+        assert_eq!(HostTls::of(host), HostTls::Platform, "{host}");
+    }
+    let transport = HttpTransport::default();
+    for raw in [
+        "https://kyomu0.gakumu.titech.ac.jp/Titech/Common/student_manual_j.pdf",
+        "https://kyomu0.gakumu.titech.ac.jp/Titech/Common/other.pdf",
+        "https://www.isct.ac.jp/file.pdf",
+    ] {
+        transport.client(&Url::parse(raw).unwrap()).unwrap();
+    }
+    assert_eq!(transport.clients.lock().unwrap().len(), 2);
+}
+
+fn school_request(url: &str, mime: &str) -> SchoolFileRequest {
+    SchoolFileRequest {
+        url: url.into(),
+        referer: Some(
+            "https://www.isct.ac.jp/ja/025/about/disclosure/environment/index.html".into(),
+        ),
+        content_disposition: None,
+        mime_type: Some(mime.into()),
+    }
+}
+
+fn staged(directory: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(directory)
+        .unwrap()
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    names
+}
+
+#[tokio::test]
+async fn a_school_file_is_staged_under_the_responses_name() {
+    let report = "https://www.isct.ac.jp/component_download_file.php?id=1";
+    let transport = Arc::new(
+        FakeTransport::new(0, []).answering(Ok((
+            SchoolResponse {
+                url: Some(Url::parse(report).unwrap()),
+                disposition: Some(
+                    "inline; filename=\"環境報告書2026.pdf\""
+                        .as_bytes()
+                        .to_vec(),
+                ),
+                content_type: Some("application/pdf".into()),
+            },
+            b"%PDF-1.7".to_vec(),
+        ))),
+    );
+    let downloader = Downloader::with_transport(transport.clone());
+    let directory = target("school").parent().unwrap().join("staging");
+    let mut saved = Vec::new();
+    for _ in 0..2 {
+        let file = downloader
+            .save_school_file(
+                session(),
+                school_request(report, "application/pdf"),
+                directory.clone(),
+            )
+            .await
+            .unwrap();
+        let SchoolFile::Saved {
+            path,
+            name,
+            mime_type,
+        } = file
+        else {
+            panic!("{file:?}");
+        };
+        assert_eq!(mime_type, "application/pdf");
+        assert_eq!(std::fs::read(&path).unwrap(), b"%PDF-1.7");
+        saved.push(name);
+    }
+    // A second save never overwrites a file the shell has not collected.
+    assert_eq!(saved, ["環境報告書2026.pdf", "環境報告書2026 (1).pdf"]);
+    assert_eq!(
+        staged(&directory),
+        ["環境報告書2026 (1).pdf", "環境報告書2026.pdf"]
+    );
+    downloader.shutdown().await;
+}
+
+#[tokio::test]
+async fn school_files_off_school_hosts_or_answered_by_a_page_are_not_saved() {
+    let transport = Arc::new(FakeTransport::new(0, []).answering(Ok((
+        SchoolResponse {
+            url: Some(
+                Url::parse("https://kyomu0.gakumu.titech.ac.jp/Titech/Common/x.pdf").unwrap(),
+            ),
+            disposition: None,
+            content_type: Some("text/html; charset=utf-8".into()),
+        },
+        b"<html>sign in</html>".to_vec(),
+    ))));
+    let downloader = Downloader::with_transport(transport.clone());
+    let directory = target("school-refused").parent().unwrap().join("staging");
+    let save = |url: &str| {
+        downloader.save_school_file(
+            session(),
+            school_request(url, "application/pdf"),
+            directory.clone(),
+        )
+    };
+    // Core never fetches another site's file; the system browser gets it.
+    assert_eq!(
+        save("https://example.com/paper.pdf").await,
+        Ok(SchoolFile::External {
+            url: "https://example.com/paper.pdf".into()
+        })
+    );
+    for refused in [
+        "blob:https://www.isct.ac.jp/1",
+        "data:application/pdf,x",
+        "file:///etc/hosts",
+    ] {
+        assert_eq!(save(refused).await, Err(FetchError::Invalid), "{refused}");
+    }
+    assert_eq!(transport.school_files.load(Ordering::SeqCst), 0);
+    // An HTML page where the engine saw a PDF: nothing is published or left behind.
+    assert_eq!(
+        save("https://kyomu0.gakumu.titech.ac.jp/Titech/Common/x.pdf").await,
+        Err(FetchError::Invalid)
+    );
+    assert_eq!(transport.school_files.load(Ordering::SeqCst), 1);
+    assert!(staged(&directory).is_empty());
+    downloader.shutdown().await;
 }
 
 #[tokio::test]

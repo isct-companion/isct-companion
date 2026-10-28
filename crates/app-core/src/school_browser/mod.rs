@@ -7,7 +7,7 @@ pub use adpt_isct::scripts::{SCHOOL_LOGIN, SCHOOL_STOP};
 pub use engine::SchoolBrowserEngine;
 pub use policy::{
     automation_target, browsing_target, browsing_url, download_permitted, is_login_url,
-    is_school_cookie_domain, restore_record, DenyReason, ViewRole,
+    is_school_cookie_domain, restore_record, school_file_url, DenyReason, ViewRole,
 };
 pub use port::*;
 pub use submission::{

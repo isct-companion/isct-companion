@@ -273,7 +273,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
 | `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
-| `ANDROID-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolDownloads.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
@@ -281,7 +281,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-COURSE-ZOOM-AND-FIGURES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
+| `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/styles.css<br>apps/desktop/src/lib/timetable-layout.ts<br>resources/locales/en.json<br>resources/locales/ja.json<br>resources/locales/zh.json<br>apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
 | `IOS-COURSE-LESSON-PAGING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
 | `IOS-COURSE-LESSON-MARK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift |
@@ -5950,7 +5950,7 @@ school browser tests.
 
 **Last recorded** never run
 
-### Android school popups open over their opener, and a file popup closes once saved (`ANDROID-SCHOOL-POPUPS`)
+### Android school popups open over their opener, and school files save through Core (`ANDROID-SCHOOL-POPUPS`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -5976,39 +5976,54 @@ The Android debug build of this commit on a phone, signed in to
      × and back (when the popup has no page of its own to go back to)
      must each bring the opener back unchanged. Choosing would post back
      to the 申告 form, so the check stops before it.
-2. On 教務Web's top page, open 「マニュアル」 and wait for the download
-   notification. Open Files → Downloads.
+2. On 教務Web, open the menu (≡) → 「マニュアル」 and wait for the
+   「…を保存しました」 toast. Open Files → Downloads.
    - *Why:* The manual is a `target=_blank` PDF, which WebView cannot show, so
      it opens a popup whose only navigation becomes a download. The
      host reports `becameDownload` (no page, saved) and Core closes the
-     empty popup at once, while DownloadManager, not the popup, carries
-     the transfer on with the session cookies.
+     empty popup at once, while Core downloads the file with the
+     session cookies. kyomu0 sends the wrong intermediate certificate:
+     only Core's kyomu TLS completes the chain, which the system
+     DownloadManager never could.
+3. Open https://www.isct.ac.jp/ja/025/about/disclosure/environment/index.html
+   in the address bar and tap 「環境報告書2026（PDF）」.
+   - *Why:* A public school host outside the adapter sites, which serves the
+     PDF `inline; filename="環境報告書2026.pdf"` from a PHP script, in
+     raw UTF-8. Core reads the name from the response itself, whatever
+     the disposition type.
+4. From 時間割, open a course with LMS slides and open one Slides row.
+   - *Why:* Course files share the downloader the school files now go
+     through; an LMS file must still open.
 
 **Where to look**
 
 The web screen while the picker popup is open, the bar above it, the
-opener page after closing; for the manual, the web screen, the
-download notification and the saved file.
+opener page after closing; for each file, the web screen, the toast
+and Files → Downloads; for the slides, the viewer that opens.
 
 **Expected**
 
 The picker fills the page area under a ポップアップウィンドウ bar with
 ×; closing it by its own button, by × or by back shows the opener
 exactly as it was, with no reload, and the bar goes. For the manual no
-blank popup or bar stays on screen, the notification finishes, and
+blank popup or bar stays on screen, the toast says it was saved, and
 Downloads holds the manual as a PDF that opens (not an HTML sign-in
-page).
+page). The environment report is saved as `環境報告書2026.pdf`, not
+after the script that served it (`…download_file.php`). The slides
+open in a PDF viewer.
 
 **Why this is manual**
 
-Needs a 教務Web account, Android WebView's own windows and the system
-DownloadManager; whether the popup shows, the opener survives and the
-file arrives is seen at a glance. The child-window lifecycle and the
-close on `becameDownload` are Core's and tested there.
+Needs a 教務Web account, Android WebView's own windows, kyomu0's real
+certificate chain and MediaStore; whether the popup shows, the opener
+survives and the file arrives is seen at a glance. The child-window
+lifecycle, the close on `becameDownload`, the host allowlist and the
+file naming are Core's and tested there.
 
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolDownloads.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
 
@@ -6354,7 +6369,7 @@ checked by the text-and-locales suite.
 
 **Last recorded** never run
 
-### Desktop calendar tints today and draws the moving now line (`DESKTOP-CALENDAR-NOW-LINE`)
+### Desktop calendar tints today, draws the moving now line and labels the break band (`DESKTOP-CALENDAR-NOW-LINE`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -6373,9 +6388,20 @@ The desktop app during a teaching hour on a weekday.
      had dropped.
 2. Wait a minute.
    - *Why:* The line moves; a line that never moves was computed once.
-3. Look at the date field beside This week.
+3. During a period that holds an exam or a class marked as a quiz,
+   look where the now line crosses that block.
+   - *Why:* The line runs across the block from edge to edge. Only the dot and
+     the 3px gutters showing means a block kind is raised over the line
+     again (exam blocks once carried their own z-index).
+4. Look at the date field beside This week.
    - *Why:* WebKit lays a date field's value at the top of its box; the date
      must sit centred and start where a text field's value starts.
+5. Look at the half-row band between periods 3-4 and 5-6 on the time
+   axis, in English, Japanese and Chinese (Settings › Appearance ›
+   Language), with Text size at its largest.
+   - *Why:* The band reads BREAK, 休憩 or 休息 on one line inside the band. A
+     second line crossing the 5-6 rule is the old CLASS BREAK / 课间休息
+     label, which did not fit the 50px axis column.
 
 **Where to look**
 
@@ -6383,7 +6409,8 @@ The Calendar view and the planner's current quarter.
 
 **Expected**
 
-Today is tinted and the now line tracks the clock on both.
+Today is tinted and the now line tracks the clock on both, drawn over
+every block it crosses; the break band's label stays on one line.
 
 **Why this is manual**
 
@@ -6392,6 +6419,11 @@ the schedule-and-dates unit test.
 
 **Covers**
 
+- `apps/desktop/src/styles.css`
+- `apps/desktop/src/lib/timetable-layout.ts`
+- `resources/locales/en.json`
+- `resources/locales/ja.json`
+- `resources/locales/zh.json`
 - `apps/desktop/src/components/timetable/workspace.ts`
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/components/ui/ui.css`

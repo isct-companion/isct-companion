@@ -46,6 +46,7 @@ pub mod schedule;
 pub mod scheduler;
 pub mod school_auth;
 pub mod school_browser;
+pub mod school_files;
 pub mod school_service;
 pub mod storage;
 pub mod study_profile;

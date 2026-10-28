@@ -60,6 +60,9 @@ pub enum OperationResult {
     Material {
         material: Material,
     },
+    SchoolFile {
+        file: crate::services::SchoolFile,
+    },
     Recognitions {
         cells: Vec<Recognition>,
     },

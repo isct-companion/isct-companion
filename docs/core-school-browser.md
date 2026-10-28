@@ -207,12 +207,24 @@ reaches Core's GET. `onCreateWindow` names no URL, so a popup is requested as
 `about:blank` and its first navigation is decided from inside it; a popup
 whose first page went to the system browser or was refused is closed.
 
-Android WebView displays no PDF, so every file a school page hands over
-reaches its `DownloadListener`, reported as `becameDownload` with `Saved`.
-`DownloadManager` saves it to Downloads with the page's cookies, so a popup
-Core then closes does not stop it. Only HTTPS files are saved, only for a
-site on screen; WebView gives no request body, so a file that answered a
-POST is fetched again with GET, and `blob:` or `data:` files are not saved.
+Android WebView displays no PDF and cannot finish a download itself, so every
+file a school page hands over reaches its `DownloadListener`, reported as
+`becameDownload` with `Saved`, and goes to Core (`save_school_file`). School
+hosts are reached only through a WebView or Core
+(`constraint/school-network-two-stacks`), never the system `DownloadManager`,
+whose platform TLS cannot complete 教務Web's chain. Core fetches the file
+with the WebView's cookies and each host's TLS (`net::host_client_builder`,
+which gives kyomu0 its vendored intermediate), from school-domain HTTPS hosts
+only (`school_file_url`, checked on every redirect hop; a redirect to an
+identity provider is a lost session), streams it to a `.part` file in the
+shell's staging folder and publishes it under the name Core reads from
+`Content-Disposition` (`inline` included, `filename*` first) or the URL and
+type. The shell moves it into Downloads through MediaStore and shows a
+toast. A file on another host opens in the system browser. The transfer
+runs in the app's process, so it outlives a popup Core closes but not the
+app being killed. Only a site on screen saves files; WebView gives no
+request body, so a file that answered a POST is fetched again with GET, and
+`blob:` or `data:` files are not saved.
 
 The iOS host reports `becameDownload` as `Saved`: it writes every file and
 previews it outside the web view. The Windows WebView2 host

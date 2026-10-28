@@ -133,5 +133,6 @@
   "error.matrix-unreadable": "The card could not be read. Hold it steady in good light.",
   "error.guide-too-many-courses": "Too many courses for the registration guide.",
   "error.logs-unavailable": "Application logs are unavailable.",
-  "error.lms-not-enrolled": "You are not enrolled in this LMS course."
+  "error.lms-not-enrolled": "You are not enrolled in this LMS course.",
+  "timetable.breakBand": "Break"
 }
