@@ -122,6 +122,9 @@ dependencies {
     // Pull to refresh around the school WebView, which Compose's nested
     // scrolling cannot see into.
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+    // URLUtilCompat names a saved school file from `inline` and RFC 6266
+    // `filename*` dispositions, which the platform's URLUtil ignores.
+    implementation("androidx.webkit:webkit:1.14.0")
     // Matrix live scanning: YUV frames for Core's camera session.
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")

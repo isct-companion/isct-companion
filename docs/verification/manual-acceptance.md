@@ -5997,7 +5997,8 @@ The picker fills the page area under a ポップアップウィンドウ bar wit
 exactly as it was, with no reload, and the bar goes. For the manual no
 blank popup or bar stays on screen, the notification finishes, and
 Downloads holds the manual as a PDF that opens (not an HTML sign-in
-page).
+page), named as the site names it with a .pdf extension, not after
+the script that served it (for example `…download_file.php`).
 
 **Why this is manual**
 

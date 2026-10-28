@@ -20,7 +20,6 @@ import android.webkit.DownloadListener
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.RenderProcessGoneDetail
-import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -31,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.webkit.URLUtilCompat
 
 /** `NativeBrowser` over one resident WebView per school site and the popups
  * its pages open (docs/core-school-browser.md). Core decides every
@@ -302,7 +302,11 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     private fun save(tab: Tab, url: String, userAgent: String, contentDisposition: String?, mimeType: String?): Boolean {
         val uri = Uri.parse(url)
         if (uri.scheme != "https") return false
-        val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
+        // A file handed over here is saved whatever its disposition says, and
+        // Chrome names it from an `inline` one too; URLUtilCompat reads the
+        // filename only from `attachment` (isct.ac.jp serves PDFs `inline`).
+        val disposition = contentDisposition?.replaceFirst(INLINE, "attachment;")
+        val name = URLUtilCompat.guessFileName(url, disposition, mimeType)
         val request = DownloadManager.Request(uri)
             .setTitle(name)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -535,6 +539,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     companion object {
         private const val TEXT_SCALE = "textScale"
         private const val BLANK = "about:blank"
+        private val INLINE = Regex("^\\s*inline\\s*;", RegexOption.IGNORE_CASE)
 
         /** The text scales offered for school pages, in percent. */
         val textScales = listOf(100, 115, 130)
