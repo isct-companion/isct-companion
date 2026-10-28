@@ -298,7 +298,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-LOG-ROW-TAP` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `ANDROID-TLS-VERIFIER` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-ffi/src/android_tls.rs<br>bindings/kotlin/src/main/kotlin/app/isctcompanion/core/TlsVerifier.kt<br>apps/android/app/build.gradle.kts<br>apps/android/app/proguard-rules.pro |
-| `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/certs/nii-odca4g7rsa.pem<br>crates/app-core/src/school_browser/engine/login.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
+| `SCHOOL-KYOMU-RUST-TLS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/mod.rs<br>crates/app-core/src/school_browser/engine/login.rs<br>apps/desktop/src-tauri/src/lms_downloader.rs<br>apps/ios/IsctCompanion/Core/WebCookieSession.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSession.kt |
 | `SETTINGS-RESET` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/ResetSettings.tsx<br>apps/desktop/src-tauri/src/commands/reset.rs |
 | `TODAY-NOW-LINE-NEXT-DAY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
 | `MOBILE-SETTINGS-RESET` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/ResetScreen.swift<br>apps/ios/IsctCompanion/Core/SchoolWebSignOut.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolWebSignOut.kt |
@@ -3854,7 +3854,7 @@ many LMS courses, and saved school credentials.
 2. While the pull runs, open the LMS and 教務Web school pages and browse for a minute.
    - *Why:* Reading no longer shares the WebView, so browsing must not pause or restart the pull.
 3. Start a 教務Web refresh, then copy the diagnostics log.
-   - *Why:* kyomu0 needs the bundled G7 intermediate on top of Windows' verifier; the log shows whether TLS or the session failed.
+   - *Why:* The log distinguishes a platform TLS failure from a session failure on the real Windows build.
 
 **Where to look**
 
@@ -5984,9 +5984,7 @@ The Android debug build of this commit on a phone, signed in to
      it opens a popup whose only navigation becomes a download. The
      host reports `becameDownload` (no page, saved) and Core closes the
      empty popup at once, while Core downloads the file with the
-     session cookies. kyomu0 sends the wrong intermediate certificate:
-     only Core's kyomu TLS completes the chain, which the system
-     DownloadManager never could.
+     session cookies and Android's platform TLS verifier.
 3. Open https://www.isct.ac.jp/ja/025/about/disclosure/environment/index.html
    in the address bar and tap 「環境報告書2026（PDF）」.
    - *Why:* A public school host outside the adapter sites, which serves the
@@ -7262,9 +7260,8 @@ iPhone or Android (repeat per platform).
 
 1. Sign in to 教務Web in the app, then refresh 教務Web data from
    Settings.
-   - *Why:* kyomu0 sends the wrong intermediate certificate. Apple and Windows
-     may repair the chain on their own, Android does not, so only a run on
-     each platform shows the vendored G7 intermediate is what makes it work.
+   - *Why:* This exercises the server's certificate chain with the platform TLS
+     verifier and the real school session on each OS.
 2. Open the 教務Web page in the app's school browser afterwards.
    - *Why:* Cookies the server set on Core's requests are written back to the
      WebView store; a broken write-back shows up as the browser being
@@ -7297,7 +7294,7 @@ each OS verifier; no test can reach the school server.
 **Covers**
 
 - `crates/app-core/src/net/tls.rs`
-- `crates/app-core/src/net/certs/nii-odca4g7rsa.pem`
+- `crates/app-core/src/net/mod.rs`
 - `crates/app-core/src/school_browser/engine/login.rs`
 - `apps/desktop/src-tauri/src/lms_downloader.rs`
 - `apps/ios/IsctCompanion/Core/WebCookieSession.swift`

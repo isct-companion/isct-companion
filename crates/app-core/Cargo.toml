@@ -31,7 +31,6 @@ uuid = { version = "1", features = ["v4", "v7"] }
 # target. `net::client_builder` installs ring as the process provider.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "charset", "system-proxy", "json", "form", "query", "stream", "cookies"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-rustls-platform-verifier = "0.7"
 bytes = "1"
 encoding_rs = "0.8"
 md-5 = "0.10"

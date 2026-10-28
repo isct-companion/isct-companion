@@ -161,8 +161,7 @@ trait DownloadTransport: Send + Sync {
     ) -> FetchFuture<'a, SchoolResponse>;
 }
 
-/// One client per host, each built with the TLS its host needs
-/// (`net::host_client_builder`): 教務Web files take its vendored intermediate.
+/// One client per host, using the same platform TLS verification as Core requests.
 #[derive(Default)]
 struct HttpTransport {
     clients: Mutex<HashMap<String, reqwest::Client>>,
@@ -175,8 +174,7 @@ impl HttpTransport {
         if let Some(client) = clients.get(host) {
             return Ok(client.clone());
         }
-        let client = crate::net::host_client_builder(host)
-            .map_err(|_| FetchError::Network)?
+        let client = crate::net::client_builder()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(USER_AGENT)
             .build()

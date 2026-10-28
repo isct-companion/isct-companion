@@ -3202,8 +3202,8 @@ checks:
         reason: Reading no longer shares the WebView, so browsing must not
           pause or restart the pull.
       - action: Start a 教務Web refresh, then copy the diagnostics log.
-        reason: kyomu0 needs the bundled G7 intermediate on top of Windows'
-          verifier; the log shows whether TLS or the session failed.
+        reason: The log distinguishes a platform TLS failure from a session
+          failure on the real Windows build.
     observe: The course list, the pull status, and the copied diagnostics log.
     expected: |
       Both pulls finish with every enrolled course listed, no timeout and no
@@ -5096,9 +5096,7 @@ checks:
           it opens a popup whose only navigation becomes a download. The
           host reports `becameDownload` (no page, saved) and Core closes the
           empty popup at once, while Core downloads the file with the
-          session cookies. kyomu0 sends the wrong intermediate certificate:
-          only Core's kyomu TLS completes the chain, which the system
-          DownloadManager never could.
+          session cookies and Android's platform TLS verifier.
       - action: |
           Open https://www.isct.ac.jp/ja/025/about/disclosure/environment/index.html
           in the address bar and tap 「環境報告書2026（PDF）」.
@@ -6176,9 +6174,8 @@ checks:
           Sign in to 教務Web in the app, then refresh 教務Web data from
           Settings.
         reason: |
-          kyomu0 sends the wrong intermediate certificate. Apple and Windows
-          may repair the chain on their own, Android does not, so only a run on
-          each platform shows the vendored G7 intermediate is what makes it work.
+          This exercises the server's certificate chain with the platform TLS
+          verifier and the real school session on each OS.
       - action: |
           Open the 教務Web page in the app's school browser afterwards.
         reason: |
@@ -6207,7 +6204,7 @@ checks:
       each OS verifier; no test can reach the school server.
     covers:
       - crates/app-core/src/net/tls.rs
-      - crates/app-core/src/net/certs/nii-odca4g7rsa.pem
+      - crates/app-core/src/net/mod.rs
       - crates/app-core/src/school_browser/engine/login.rs
       - apps/desktop/src-tauri/src/lms_downloader.rs
       - apps/ios/IsctCompanion/Core/WebCookieSession.swift
