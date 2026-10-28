@@ -573,7 +573,7 @@ async fn notes_parser_backup_and_disabled_ocr_share_the_real_core() {
 }
 #[test]
 fn generated_contract_preserves_intents_fixed_arrays_and_unknown_payloads() {
-    let value = json!({"kind":"savePlan","draft":{"title":"future field","unknown":{"keep":true}},"existingId":null});
+    let value = json!({"kind":"saveEvent","draft":{"title":"future field","unknown":{"keep":true}},"termId":"2026-3Q","existingId":null});
     let ffi: WorkspaceIntent = serde_json::from_value(value.clone()).unwrap();
     let core: app_core::workspace::WorkspaceIntent = crate::json::project_input(ffi).unwrap();
     assert_eq!(serde_json::to_value(core).unwrap(), value);
