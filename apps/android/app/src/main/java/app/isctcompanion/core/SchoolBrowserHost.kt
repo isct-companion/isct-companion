@@ -2,12 +2,10 @@ package app.isctcompanion.core
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.DownloadManager
 import android.content.Context
 import android.content.MutableContextWrapper
 import android.graphics.Bitmap
 import android.net.Uri
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -30,7 +28,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.webkit.URLUtilCompat
 
 /** `NativeBrowser` over one resident WebView per school site and the popups
  * its pages open (docs/core-school-browser.md). Core decides every
@@ -51,6 +48,9 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     private val tabs = mutableMapOf<BrowserId, Tab>()
     private var parking: FrameLayout? = null
     var onOpenExternal: ((Uri) -> Unit)? = null
+    /** A file a page handed over: its URL, the linking page, and WebView's
+     * Content-Disposition and MIME type. Core fetches and names it. */
+    var onDownload: ((url: String, referer: String?, contentDisposition: String?, mimeType: String?) -> Unit)? = null
 
     /** Bumped when a view or popup appears or leaves, so containers re-attach. */
     var revision by mutableIntStateOf(0)
@@ -294,30 +294,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         revision++
     }
 
-    /** Saves an HTTPS file through DownloadManager with the page's session.
-     * The system service owns the transfer, so it finishes after the view
-     * or popup that asked is gone. WebView offers no request body, so a
-     * file that answered a POST is fetched again with GET; `blob:` and
-     * `data:` files would need a page script and are not saved. */
-    private fun save(tab: Tab, url: String, userAgent: String, contentDisposition: String?, mimeType: String?): Boolean {
-        val uri = Uri.parse(url)
-        if (uri.scheme != "https") return false
-        // A file handed over here is saved whatever its disposition says, and
-        // Chrome names it from an `inline` one too; URLUtilCompat reads the
-        // filename only from `attachment` (isct.ac.jp serves PDFs `inline`).
-        val disposition = contentDisposition?.replaceFirst(INLINE, "attachment;")
-        val name = URLUtilCompat.guessFileName(url, disposition, mimeType)
-        val request = DownloadManager.Request(uri)
-            .setTitle(name)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
-            .addRequestHeader("User-Agent", userAgent)
-        mimeType?.takeIf { it.isNotEmpty() }?.let(request::setMimeType)
-        CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
-        tab.webView.url?.takeIf { it.startsWith("https:") }?.let { request.addRequestHeader("Referer", it) }
-        return runCatching { context.getSystemService(DownloadManager::class.java).enqueue(request) }.isSuccess
-    }
-
     /** Whether the person has `tab`'s site on screen, whichever of its pages
      * is in front: a popup opened for a file may not be attached yet. */
     private fun siteShown(tab: Tab): Boolean =
@@ -442,12 +418,18 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
             }
         }
 
-        /** WebView hands over a response it cannot show. Only a site the
+        /** WebView hands over a response it cannot show; Core downloads it
+         * (`onDownload`), never the system DownloadManager. Only a site the
          * person is looking at saves files: Core's `download_permitted` would
          * let a hidden view save adapter-site files, but it is not in the FFI
          * and no hidden work on Android needs one. */
-        val downloads = DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-            if (!siteShown(this) || !save(this, url, userAgent, contentDisposition, mimeType)) return@DownloadListener
+        val downloads = DownloadListener { url, _, contentDisposition, mimeType, _ ->
+            val save = onDownload
+            if (!siteShown(this) || save == null) return@DownloadListener
+            // The page that linked the file; a popup opened for it has none yet.
+            val referer = generateSequence(this) { it.opener }
+                .firstNotNullOfOrNull { tab -> tab.webView.url?.takeIf { it.startsWith("https:") } }
+            save(url, referer, contentDisposition, mimeType)
             // A popup opened only for this file has nothing left; Core closes it.
             runCatching { listener()?.becameDownload(page, loaded, DownloadDisposition.SAVED) }
         }
@@ -539,7 +521,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     companion object {
         private const val TEXT_SCALE = "textScale"
         private const val BLANK = "about:blank"
-        private val INLINE = Regex("^\\s*inline\\s*;", RegexOption.IGNORE_CASE)
 
         /** The text scales offered for school pages, in percent. */
         val textScales = listOf(100, 115, 130)

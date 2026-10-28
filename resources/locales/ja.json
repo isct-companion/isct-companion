@@ -874,6 +874,7 @@
   "Past deadline": "締切済み",
   "Downloading {{name}}…": "{{name}}をダウンロード中…",
   "Download failed: {{name}}": "ダウンロードに失敗しました：{{name}}",
+  "The file could not be downloaded.": "ファイルをダウンロードできませんでした。",
   "Back to {{page}}": "{{page}}に戻る",
   "Current URL": "現在のURL",
   "Previous page": "前のページ",

@@ -4,7 +4,7 @@
 use super::{
     breaker::{Admission, Breaker, Outcome},
     redact::redact_text,
-    tls, Body, Host, NetError, NetRequest, Response, USER_AGENT,
+    Body, Host, NetError, NetRequest, Response, USER_AGENT,
 };
 use std::{collections::HashMap, error::Error as _, sync::Arc, time::Duration};
 use tokio::{
@@ -62,17 +62,11 @@ impl Http {
     pub fn new() -> Result<Self, NetError> {
         let mut lanes = HashMap::new();
         for host in Host::ALL {
-            let builder = super::client_builder()
+            let client = super::host_client_builder(host.name())?
                 .user_agent(USER_AGENT)
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(CONNECT)
-                .pool_idle_timeout(Duration::from_secs(90));
-            let builder = if host == Host::Kyomu {
-                builder.tls_backend_preconfigured(tls::kyomu_config().map_err(NetError::Tls)?)
-            } else {
-                builder
-            };
-            let client = builder
+                .pool_idle_timeout(Duration::from_secs(90))
                 .build()
                 .map_err(|error| NetError::Invalid(format!("HTTP client: {error}")))?;
             let (concurrent, spacing) = host.budget();

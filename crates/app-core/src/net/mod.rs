@@ -33,6 +33,37 @@ pub fn client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
 }
 
+/// The TLS a school host needs on top of the platform verifier.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HostTls {
+    Platform,
+    /// kyomu0's missing intermediate, offered to the platform verifier (`tls`).
+    KyomuIntermediate,
+}
+
+impl HostTls {
+    pub(crate) fn of(host: &str) -> Self {
+        if host == Host::Kyomu.name() {
+            Self::KyomuIntermediate
+        } else {
+            Self::Platform
+        }
+    }
+}
+
+/// [`client_builder`] with the TLS `host` needs. Every Core client for a
+/// school host is built through this, so the 教務Web workaround has one owner
+/// whether the request goes through [`Http`] or a file download.
+pub(crate) fn host_client_builder(host: &str) -> Result<reqwest::ClientBuilder, NetError> {
+    let builder = client_builder();
+    Ok(match HostTls::of(host) {
+        HostTls::Platform => builder,
+        HostTls::KyomuIntermediate => {
+            builder.tls_backend_preconfigured(tls::kyomu_config().map_err(NetError::Tls)?)
+        }
+    })
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Host {
     Moodle,

@@ -874,6 +874,7 @@
   "Past deadline": "已过截止时间",
   "Downloading {{name}}…": "正在下载 {{name}}…",
   "Download failed: {{name}}": "下载失败：{{name}}",
+  "The file could not be downloaded.": "无法下载该文件。",
   "Back to {{page}}": "返回{{page}}",
   "Current URL": "当前 URL",
   "Previous page": "上一页",

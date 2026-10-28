@@ -94,6 +94,56 @@ impl Session {
             })
         })
     }
+    /// Saves a file a school page handed over (the WebView's download
+    /// callback) into `directory`, the shell's staging folder: Core fetches
+    /// it with the school session and names it, and the shell moves it to the
+    /// person's downloads. School hosts are reached only through a WebView or
+    /// Core (`constraint/school-network-two-stacks`), never a system
+    /// download service.
+    pub fn save_school_file(
+        &self,
+        url: String,
+        referer: Option<String>,
+        content_disposition: Option<String>,
+        mime_type: Option<String>,
+        directory: String,
+    ) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let session: Arc<dyn app_core::net::SessionCookies> = match i.download_session.clone() {
+                Some(port) => Arc::new(crate::ports::NativeCookies(port)),
+                None => return Err(crate::session::unavailable("School downloads")),
+            };
+            let request = app_core::school_files::SchoolFileRequest {
+                url,
+                referer,
+                content_disposition,
+                mime_type,
+            };
+            let file = i
+                .core
+                .runtime
+                .downloads
+                .save_school_file(session, request, directory.into())
+                .await
+                .map_err(|error| crate::error::coded(&error))?;
+            Ok(OperationResult::SchoolFile {
+                file: match file {
+                    app_core::school_files::SchoolFile::Saved {
+                        path,
+                        name,
+                        mime_type,
+                    } => SchoolFile::Saved {
+                        path: path.to_string_lossy().into_owned(),
+                        name,
+                        mime_type,
+                    },
+                    app_core::school_files::SchoolFile::External { url } => {
+                        SchoolFile::External { url }
+                    }
+                },
+            })
+        })
+    }
     pub fn clean_materials(&self, days: u64) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
             let service = app_core::course_materials::CourseMaterials::new(
@@ -248,6 +298,20 @@ impl Session {
 pub struct SharedFile {
     pub path: String,
     pub name: String,
+}
+
+/// What became of a file a school page handed over (`save_school_file`).
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum SchoolFile {
+    /// Staged at `path` under `name`; the shell moves it to Downloads.
+    Saved {
+        path: String,
+        name: String,
+        mime_type: String,
+    },
+    /// Not on a school host: Core fetches only school files, so the shell
+    /// opens it in the system browser.
+    External { url: String },
 }
 
 /// A newer release for this device: its version and the package to install.

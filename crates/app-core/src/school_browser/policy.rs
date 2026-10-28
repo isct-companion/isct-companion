@@ -29,6 +29,27 @@ pub fn automation_target(raw: &str) -> Option<Url> {
     .then_some(url)
 }
 
+/// A URL Core fetches a school file from: HTTPS on the default port to a
+/// host under the school domains, without embedded credentials. Wider than
+/// `automation_target`: a page the person reads may link a file on
+/// `www.isct.ac.jp`, which has no adapter but is still a school host, and
+/// school hosts are reached only through a WebView or Core
+/// (`constraint/school-network-two-stacks`). Every redirect hop is checked.
+pub fn school_file_url(raw: &str) -> Option<Url> {
+    let url = Url::parse(raw).ok()?;
+    (url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.host_str().is_some_and(|host| {
+            !host.starts_with('.')
+                && SCHOOL_DOMAINS
+                    .iter()
+                    .any(|school| host.ends_with(&format!(".{school}")))
+        }))
+    .then_some(url)
+}
+
 /// An automation target in the form that may be written to disk or compared
 /// as a page identity: no fragment, and only bounded identifying query
 /// parameters, so SSO tokens and session state never reach a restore record.

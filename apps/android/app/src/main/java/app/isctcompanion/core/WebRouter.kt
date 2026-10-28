@@ -43,11 +43,22 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     var session: Session? = null
     private val opened = mutableSetOf<SchoolSite>()
 
+    private val downloads = SchoolDownloads(context)
+
     init {
         // Plain HTTP and other sites Core sends out; cleartext stays off in the app.
         browser.onOpenExternal = { uri ->
             runCatching {
                 context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+        browser.onDownload = { url, referer, contentDisposition, mimeType ->
+            session?.let { session ->
+                scope.launch {
+                    downloads.save(session, url, referer, contentDisposition, mimeType) { uri ->
+                        browser.onOpenExternal?.invoke(uri)
+                    }
+                }
             }
         }
     }

@@ -273,7 +273,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
 | `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
-| `ANDROID-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolDownloads.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
@@ -5950,7 +5950,7 @@ school browser tests.
 
 **Last recorded** never run
 
-### Android school popups open over their opener, and a file popup closes once saved (`ANDROID-SCHOOL-POPUPS`)
+### Android school popups open over their opener, and school files save through Core (`ANDROID-SCHOOL-POPUPS`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -5976,40 +5976,54 @@ The Android debug build of this commit on a phone, signed in to
      × and back (when the popup has no page of its own to go back to)
      must each bring the opener back unchanged. Choosing would post back
      to the 申告 form, so the check stops before it.
-2. On 教務Web's top page, open 「マニュアル」 and wait for the download
-   notification. Open Files → Downloads.
+2. On 教務Web, open the menu (≡) → 「マニュアル」 and wait for the
+   「…を保存しました」 toast. Open Files → Downloads.
    - *Why:* The manual is a `target=_blank` PDF, which WebView cannot show, so
      it opens a popup whose only navigation becomes a download. The
      host reports `becameDownload` (no page, saved) and Core closes the
-     empty popup at once, while DownloadManager, not the popup, carries
-     the transfer on with the session cookies.
+     empty popup at once, while Core downloads the file with the
+     session cookies. kyomu0 sends the wrong intermediate certificate:
+     only Core's kyomu TLS completes the chain, which the system
+     DownloadManager never could.
+3. Open https://www.isct.ac.jp/ja/025/about/disclosure/environment/index.html
+   in the address bar and tap 「環境報告書2026（PDF）」.
+   - *Why:* A public school host outside the adapter sites, which serves the
+     PDF `inline; filename="環境報告書2026.pdf"` from a PHP script, in
+     raw UTF-8. Core reads the name from the response itself, whatever
+     the disposition type.
+4. From 時間割, open a course with LMS slides and open one Slides row.
+   - *Why:* Course files share the downloader the school files now go
+     through; an LMS file must still open.
 
 **Where to look**
 
 The web screen while the picker popup is open, the bar above it, the
-opener page after closing; for the manual, the web screen, the
-download notification and the saved file.
+opener page after closing; for each file, the web screen, the toast
+and Files → Downloads; for the slides, the viewer that opens.
 
 **Expected**
 
 The picker fills the page area under a ポップアップウィンドウ bar with
 ×; closing it by its own button, by × or by back shows the opener
 exactly as it was, with no reload, and the bar goes. For the manual no
-blank popup or bar stays on screen, the notification finishes, and
+blank popup or bar stays on screen, the toast says it was saved, and
 Downloads holds the manual as a PDF that opens (not an HTML sign-in
-page), named as the site names it with a .pdf extension, not after
-the script that served it (for example `…download_file.php`).
+page). The environment report is saved as `環境報告書2026.pdf`, not
+after the script that served it (`…download_file.php`). The slides
+open in a PDF viewer.
 
 **Why this is manual**
 
-Needs a 教務Web account, Android WebView's own windows and the system
-DownloadManager; whether the popup shows, the opener survives and the
-file arrives is seen at a glance. The child-window lifecycle and the
-close on `becameDownload` are Core's and tested there.
+Needs a 教務Web account, Android WebView's own windows, kyomu0's real
+certificate chain and MediaStore; whether the popup shows, the opener
+survives and the file arrives is seen at a glance. The child-window
+lifecycle, the close on `becameDownload`, the host allowlist and the
+file naming are Core's and tested there.
 
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolDownloads.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
 
