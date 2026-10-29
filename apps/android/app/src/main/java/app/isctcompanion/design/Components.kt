@@ -79,7 +79,7 @@ fun androidx.compose.ui.text.TextStyle.tabular() = merge(tabular)
 fun DeadlineChip(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label) {
     val (ink, fill) = toneColors(if (item.submitted) "done" else item.tone)
     Tag(
-        if (item.submitted) item.grade ?: t("Submitted") else Format.countdown(item.dueAt, now, overdueStyle),
+        if (item.submitted) item.grade ?: t("common.submitted") else Format.countdown(item.dueAt, now, overdueStyle),
         color = ink, soft = fill,
     )
 }
@@ -101,7 +101,7 @@ fun ExamConflictLabel(conflict: ExamConflict) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.warn, modifier = Modifier.size(14.dp))
         Text(
-            if (conflict.removed) t("No longer in the published timetable.") else t("Timetable changed"),
+            if (conflict.removed) t("exam.noLongerInThePublished") else t("common.timetableChanged"),
             style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.warn,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
@@ -192,7 +192,7 @@ fun DeadlineRow(
             // in; Core counts them until LMS shows the work submitted.
             LocalModel.current.waiting[item.assignmentId]?.let { waiting ->
                 Text(
-                    t("{{count}} files to hand in", "count" to waiting),
+                    t("components.countFilesToHandIn", "count" to waiting),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = Theme.colors.accent,
@@ -229,28 +229,28 @@ fun DeadlineLink(item: DeadlineItem, chevron: Boolean = false, hidden: Boolean =
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             item.courseId?.let { course ->
-                MenuItem(t("Open course"), Icons.AutoMirrored.Rounded.MenuBook) {
+                MenuItem(t("common.openCourse"), Icons.AutoMirrored.Rounded.MenuBook) {
                     menu = false
                     navigator.openCourse(course)
                 }
             }
             item.sourceUrl?.let { url ->
-                MenuItem(t("Submit in LMS"), Icons.AutoMirrored.Rounded.OpenInNew) {
+                MenuItem(t("common.submitInLMS"), Icons.AutoMirrored.Rounded.OpenInNew) {
                     menu = false
                     navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title))
                 }
             }
             if (hidden) {
-                MenuItem(t("Restore"), Icons.Rounded.Visibility) {
+                MenuItem(t("common.restore"), Icons.Rounded.Visibility) {
                     menu = false
                     scope.launch { model.setHidden(item, false) }
                 }
             } else {
-                MenuItem(if (item.pinned) t("Unpin") else t("Pin"), Icons.Rounded.PushPin) {
+                MenuItem(if (item.pinned) t("common.unpin") else t("common.pin"), Icons.Rounded.PushPin) {
                     menu = false
                     scope.launch { model.setPinned(item, !item.pinned) }
                 }
-                MenuItem(t("Hide"), Icons.Rounded.VisibilityOff, Theme.colors.danger) {
+                MenuItem(t("common.hide"), Icons.Rounded.VisibilityOff, Theme.colors.danger) {
                     menu = false
                     scope.launch { model.setHidden(item, true) }
                 }
@@ -305,7 +305,7 @@ fun MaterialRow(item: MaterialItem) {
         if (opener.opening) {
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
         } else if (item.addedToday) {
-            Tag(t("Added today"))
+            Tag(t("common.addedToday"))
         }
     }
 }
@@ -389,10 +389,10 @@ fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
             modifier = Modifier.weight(1f).padding(vertical = 10.dp),
         )
         onRetry?.let { retry ->
-            TextButton(onClick = retry) { Text(t("Retry"), fontWeight = FontWeight.SemiBold, color = Theme.colors.danger) }
+            TextButton(onClick = retry) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold, color = Theme.colors.danger) }
         }
         IconButton(onClick = { model.dismissProblem() }) {
-            Icon(Icons.Rounded.Close, t("Close"), tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.Close, t("common.close"), tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         }
     }
 }

@@ -52,9 +52,9 @@ import kotlinx.coroutines.launch
  * calendar is unknown: a week is only 休み when Core knows the quarters. */
 fun weekLabel(week: TimetableWeek, year: TimetableYear): String? {
     if (year.quarters.isEmpty()) return null
-    val term = week.term ?: return t("Break between quarters")
-    val name = listOfNotNull(Format.quarter(term), week.week?.let { t("Week {{week}}", "week" to it) }).joinToString(" ")
-    return if (week.exams) "$name · ${t("Exams")}" else name
+    val term = week.term ?: return t("timetable.breakBetweenQuarters")
+    val name = listOfNotNull(Format.quarter(term), week.week?.let { t("timetable.weekNumber", "week" to it) }).joinToString(" ")
+    return if (week.exams) "$name · ${t("common.exams")}" else name
 }
 
 /** The timetable's time picker: quarter chips that jump to a quarter's first
@@ -74,14 +74,14 @@ fun WeekPicker(year: TimetableYear?, monday: LocalDate, dismiss: () -> Unit, pic
     }
     ModalBottomSheet(onDismissRequest = dismiss, containerColor = Theme.colors.bg) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-            IconButton(onClick = { step(-1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("Previous year")) }
-            IconButton(onClick = { step(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("Next year")) }
+            IconButton(onClick = { step(-1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("timetable.previousYear")) }
+            IconButton(onClick = { step(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("timetable.nextYear")) }
             Text(
-                shown?.let { t("AY {{year}}", "year" to it.year) } ?: t("Choose a week"),
+                shown?.let { t("timetable.academicYear", "year" to it.year) } ?: t("timetable.chooseAWeek"),
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = { pick(thisWeek()) }) { Text(t("Back to today")) }
+            TextButton(onClick = { pick(thisWeek()) }) { Text(t("timetable.backToToday")) }
         }
         val quarterOfShown = shown?.weeks?.firstOrNull { it.monday == selected }?.term
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

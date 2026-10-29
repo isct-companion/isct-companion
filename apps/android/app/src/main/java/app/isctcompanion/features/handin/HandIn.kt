@@ -127,7 +127,7 @@ private fun InboxSheet(close: () -> Unit) {
     LaunchedEffect(SharedInbox.items.isEmpty()) { if (SharedInbox.items.isEmpty()) close() }
     ModalBottomSheet(onDismissRequest = close, containerColor = Theme.colors.bg) {
         Text(
-            t("Hand in to"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+            t("common.handInTo"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
         AssignmentPicker(
@@ -144,7 +144,7 @@ private fun InboxSheet(close: () -> Unit) {
                                     SharedInbox.remove(context, item)
                                     haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                                 }, modifier = Modifier.align(Alignment.TopEnd).size(28.dp)) {
-                                    Icon(Icons.Rounded.Delete, t("Delete"), tint = Theme.colors.muted, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Rounded.Delete, t("common.delete"), tint = Theme.colors.muted, modifier = Modifier.size(16.dp))
                                 }
                             }
                             Text(item.name, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -172,11 +172,11 @@ private fun AssignmentPicker(header: @Composable () -> Unit, pick: (String) -> U
         item(key = "header") { header() }
         if (groups == null) return@LazyColumn
         for ((title, rows) in listOf(
-            t("Pinned") to groups.pinned,
-            t("This week") to groups.dueThisWeek,
-            t("Next week and later") to groups.later,
-            t("No deadline") to groups.undated,
-            t("Past") to groups.pastRecent,
+            t("common.pinned") to groups.pinned,
+            t("common.thisWeek") to groups.dueThisWeek,
+            t("assignments.nextWeekAndLater") to groups.later,
+            t("common.noDeadline") to groups.undated,
+            t("common.past") to groups.pastRecent,
         )) {
             if (rows.isEmpty()) continue
             item(key = title) { SectionLabel(title) }
@@ -264,7 +264,7 @@ fun HandInCard(assignment: AssignmentDetail) {
                             .onSuccess { files = it }
                             .onFailure { error = AppModel.describe(it) }
                     }
-                }) { Icon(Icons.Rounded.RemoveCircleOutline, t("Delete"), tint = Theme.colors.danger) }
+                }) { Icon(Icons.Rounded.RemoveCircleOutline, t("common.delete"), tint = Theme.colors.danger) }
             }
             RowDivider(16.dp)
         }
@@ -274,8 +274,8 @@ fun HandInCard(assignment: AssignmentDetail) {
             modifier = Modifier.fillMaxWidth().clickable { documents.launch(arrayOf("*/*")) }.padding(vertical = 18.dp),
         ) {
             Icon(Icons.Rounded.UploadFile, null, tint = Theme.colors.accent)
-            Text(t("Drop files here, or tap to choose"), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
-            Text(t("Up to 32 files, 20 MB in all"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
+            Text(t("handIn.dropFilesHereOrTap"), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
+            Text(t("handIn.upTo32Files20"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -284,12 +284,12 @@ fun HandInCard(assignment: AssignmentDetail) {
             TextButton(onClick = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                 Icon(Icons.Rounded.PhotoLibrary, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(t("Photos"), fontWeight = FontWeight.SemiBold)
+                Text(t("handIn.photos"), fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.weight(1f))
             if (files.isNotEmpty()) {
                 ActionButton(
-                    t("Upload to LMS"),
+                    t("handIn.uploadToLMS"),
                     {
                         scope.launch {
                             working = true

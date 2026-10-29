@@ -149,10 +149,10 @@ fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?, co
                     is Material.Ready -> if (!view(context, File(material.file.path))) push(target)
                     is Material.TooLarge -> notice(
                         context,
-                        t("This file is too large ({{size}}). Open it in the LMS.", "size" to Formatter.formatShortFileSize(context, material.bytes.toLong())),
+                        t("lmsFile.thisFileIsTooLarge", "size" to Formatter.formatShortFileSize(context, material.bytes.toLong())),
                     )
                     is Material.Failed -> when (material.reason) {
-                        MaterialFailure.LOGIN -> notice(context, t("Sign in to the LMS again. Check your school account in Settings."))
+                        MaterialFailure.LOGIN -> notice(context, t("lmsFile.signInToTheLMS"))
                         MaterialFailure.NETWORK, MaterialFailure.TIMEOUT, MaterialFailure.CANCELLED -> retry = true
                         else -> push(target)
                     }
@@ -169,18 +169,18 @@ fun rememberMaterialOpener(title: String, source: String?, files: CourseKey?, co
     if (retry) {
         AlertDialog(
             onDismissRequest = { retry = false },
-            text = { Text(t("The file could not be downloaded. Try again, or open it in the LMS.")) },
+            text = { Text(t("lmsFile.theFileCouldNotBe")) },
             confirmButton = {
                 TextButton(onClick = {
                     retry = false
                     open()
-                }) { Text(t("Try again")) }
+                }) { Text(t("common.tryAgain")) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     retry = false
                     source?.let(::push)
-                }) { Text(t("Open in LMS")) }
+                }) { Text(t("common.openInLMS")) }
             },
         )
     }

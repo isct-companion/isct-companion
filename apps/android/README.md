@@ -99,6 +99,8 @@ Recognition of a real Matrix card on an arm64 device, Google Drive sign-in on a
 device (needs the Android OAuth client registered with the signing
 certificate's SHA-1), widgets (Glance) and the tablet two-pane 授業 split.
 
-UI strings are keyed by their English text and translated at runtime from the
-desktop's `resources/locales` catalogs, packaged as assets
-(`design/Localization.kt`), so the language follows `settings.locale`.
+UI strings are keyed by namespaced message keys (`settings.reset.caches.title`)
+and read at runtime from the desktop's `resources/locales` catalogs, packaged
+as assets (`design/Localization.kt`), so the language follows
+`settings.locale`. `en.json` holds every key with its English copy; a test in
+`apps/desktop/tests` checks that each key used here exists.

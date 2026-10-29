@@ -131,7 +131,7 @@ private fun clipboardText(context: Context): String? =
  * of front Android hides the clipboard, and the clip is cleared regardless. */
 private fun copySensitive(context: Context, text: String) {
     val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
-    val clip = ClipData.newPlainText(t("OTP setup"), text)
+    val clip = ClipData.newPlainText(t("settings.credentialImport.otpSetup"), text)
     clip.description.extras = android.os.PersistableBundle().apply {
         putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
     }
@@ -182,9 +182,9 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
             if (accounts.size == 1) choose(accounts.first()) else choices = accounts
         } catch (failure: OtpImportException) {
             error = when (failure) {
-                is OtpImportException.MultiplePages -> t("Export only your school account, then load it again.")
-                is OtpImportException.Unsupported -> t("This account uses a code format that is not supported.")
-                is OtpImportException.Invalid -> t("This is not a QR code from a supported authenticator app.")
+                is OtpImportException.MultiplePages -> t("settings.credentialImport.exportOnlyYourSchoolAccount")
+                is OtpImportException.Unsupported -> t("settings.credentialImport.thisAccountUsesACode")
+                is OtpImportException.Invalid -> t("settings.credentialImport.thisIsNotAQR")
             }
         }
     }
@@ -193,20 +193,20 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
             val payload = qrPayload(context, uri)
-            if (payload == null) error = t("No QR code found. Choose an image that shows the whole code.") else read(payload)
+            if (payload == null) error = t("settings.credentialImport.noQRCodeFoundChoose") else read(payload)
         }
     }
 
     if (saved && !changing && setup.isEmpty()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
-            Text(t("Codes are filled in for you at sign-in."), color = Theme.colors.ink, modifier = Modifier.weight(1f))
-            TextButton(onClick = { changing = true }) { Text(t("Change")) }
+            Text(t("settings.credentialImport.codesAreFilledInFor"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+            TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
         }
         // A QR on this screen cannot be scanned by this phone, so the
         // `otpauth://` link goes straight to the installed authenticator.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceChip(t("Add to authenticator"), Icons.Rounded.Key) {
+            SourceChip(t("settings.credentialImport.addToAuthenticator"), Icons.Rounded.Key) {
                 scope.launch {
                     error = null
                     runCatching { model.otpSetupLink() }
@@ -214,13 +214,13 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
                             try {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
                             } catch (missing: ActivityNotFoundException) {
-                                error = t("No authenticator app on this device can add this setup. Copy it instead.")
+                                error = t("settings.credentialImport.noAuthenticatorAppOnThis")
                             }
                         }
                         .onFailure { error = AppModel.describe(it) }
                 }
             }
-            SourceChip(if (copied) t("Copied") else t("Copy setup"), Icons.Rounded.ContentCopy) {
+            SourceChip(if (copied) t("settings.credentialImport.copied") else t("settings.credentialImport.copySetup"), Icons.Rounded.ContentCopy) {
                 scope.launch {
                     error = null
                     runCatching { model.otpSetupLink() }
@@ -234,30 +234,30 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
                 }
             }
         }
-        Hint(t("If you reset OTP at school, the old school entry in your authenticator no longer works: delete it and add this one."))
+        Hint(t("settings.credentialImport.ifYouResetOTPAt"))
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
         return
     }
-    Choices(listOf("export" to t("From an authenticator app"), "paste" to t("Setup link or secret")), path) { path = it }
+    Choices(listOf("export" to t("settings.credentialImport.fromAnAuthenticatorApp"), "paste" to t("settings.credentialImport.setupLinkOrSecret")), path) { path = it }
     if (path == "export") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SourceChip(t("Scan QR"), Icons.Rounded.QrCodeScanner) {
+            SourceChip(t("settings.credentialImport.scanQR"), Icons.Rounded.QrCodeScanner) {
                 scope.launch {
                     when (val result = scanQr(context)) {
                         null -> Unit
-                        else -> result.fold(::read) { error = t("Could not open the scanner. Use From photo instead.") }
+                        else -> result.fold(::read) { error = t("settings.credentialImport.couldNotOpenTheScanner") }
                     }
                 }
             }
-            SourceChip(t("From photo"), Icons.Rounded.Image) {
+            SourceChip(t("settings.credentialImport.fromPhoto"), Icons.Rounded.Image) {
                 photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
         }
-        Hint(t("Google Authenticator: Transfer accounts → Export accounts, select only the school account."))
+        Hint(t("settings.credentialImport.googleAuthenticatorTransferAccountsExport"))
     } else {
         OutlinedTextField(
             setup, { onSetup(it); label = null }, singleLine = true,
-            label = { Text(t("otpauth://… or secret key")) },
+            label = { Text(t("settings.credentialImport.otpauthOrSecretKey")) },
             // Masked like a password, but not typed as one: Autofill must not offer
             // the school login here.
             visualTransformation = PasswordVisualTransformation(),
@@ -266,22 +266,22 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
             ),
             modifier = Modifier.fillMaxWidth(),
         )
-        SourceChip(t("Paste"), Icons.Rounded.ContentPaste) {
-            clipboardText(context)?.let(::read) ?: run { error = t("The clipboard is empty.") }
+        SourceChip(t("settings.credentialImport.paste"), Icons.Rounded.ContentPaste) {
+            clipboardText(context)?.let(::read) ?: run { error = t("settings.credentialImport.theClipboardIsEmpty") }
         }
-        Hint(t("Not the six-digit code that changes every 30 seconds."))
+        Hint(t("settings.credentialImport.notTheSixDigitCode"))
     }
-    label?.let { Text(t("Read “{{label}}”. Save to use it.", "label" to it), style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
+    label?.let { Text(t("settings.credentialImport.readLabelSaveToUse", "label" to it), style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
     if (!saved) {
-        Hint(t("Not registered yet? The desktop app registers with the school for you."))
+        Hint(t("settings.credentialImport.notRegisteredYetTheDesktop"))
     } else if (setup.isEmpty()) {
-        TextButton(onClick = { changing = false }) { Text(t("Keep the saved setup")) }
+        TextButton(onClick = { changing = false }) { Text(t("settings.credentialImport.keepTheSavedSetup")) }
     }
     if (choices.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { choices = emptyList() },
-            title = { Text(t("Which account should be used?")) },
+            title = { Text(t("settings.credentialImport.whichAccountShouldBeUsed")) },
             text = {
                 Column {
                     for (account in choices) {
@@ -293,7 +293,7 @@ fun OtpImportField(saved: Boolean, setup: String, onSetup: (String) -> Unit) {
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { choices = emptyList() }) { Text(t("Cancel")) } },
+            dismissButton = { TextButton(onClick = { choices = emptyList() }) { Text(t("common.cancel")) } },
         )
     }
 }
@@ -359,7 +359,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 val jpeg = withContext(Dispatchers.IO) { jpeg(context, uri) }
                 val result = model.scanMatrix(jpeg)
                 if (result.size != 70) {
-                    error = t("Could not find the grid. Retake the photo with the whole grid in view.")
+                    error = t("settings.credentialImport.couldNotFindTheGrid")
                 } else {
                     result.forEachIndexed { index, cell ->
                         cells[index] = cell.text
@@ -367,7 +367,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                     }
                     publish()
                     editing = true
-                    note = t("Check the coloured cells against your card.")
+                    note = t("settings.credentialImport.checkTheColouredCellsAgainst")
                 }
             } catch (failure: Exception) {
                 error = AppModel.describe(failure)
@@ -388,7 +388,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 }
                 publish()
                 editing = true
-                note = t("Check the coloured cells against your card.")
+                note = t("settings.credentialImport.checkTheColouredCellsAgainst")
             }
         }
     }
@@ -412,16 +412,16 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     // An app that declares the camera permission must hold it to start the
     // system camera.
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
-        if (allowed) takePhoto() else error = t("Camera access was denied. Allow camera access in system settings, then try again.")
+        if (allowed) takePhoto() else error = t("settings.matrixCamera.cameraAccessWasDeniedAllow")
     }
 
     if (!editing) {
-        Text(if (saved) t("Saved") else t("Not set"), color = if (saved) Theme.colors.ok else Theme.colors.muted)
+        Text(if (saved) t("settings.credentialImport.saved") else t("settings.studyProfile.notSet"), color = if (saved) Theme.colors.ok else Theme.colors.muted)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (canScan) {
             if (hasCamera) {
-                SourceChip(t("Auto scan"), Icons.Rounded.DocumentScanner, enabled = !reading) {
+                SourceChip(t("settings.credentialImport.autoScan"), Icons.Rounded.DocumentScanner, enabled = !reading) {
                     error = null
                     note = null
                     runCatching { model.beginMatrixCamera() }
@@ -430,10 +430,10 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 }
             }
             Box {
-                SourceChip(t("Upload image"), Icons.Rounded.Image, enabled = !reading) { choosing = true }
+                SourceChip(t("settings.credentialImport.uploadImage"), Icons.Rounded.Image, enabled = !reading) { choosing = true }
                 DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
                     if (hasCamera) {
-                        DropdownMenuItem(text = { Text(t("Take photo")) }, onClick = {
+                        DropdownMenuItem(text = { Text(t("settings.credentialImport.takePhoto")) }, onClick = {
                             choosing = false
                             error = null
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -443,14 +443,14 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                             }
                         })
                     }
-                    DropdownMenuItem(text = { Text(t("Choose from library")) }, onClick = {
+                    DropdownMenuItem(text = { Text(t("settings.credentialImport.chooseFromLibrary")) }, onClick = {
                         choosing = false
                         photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     })
                 }
             }
         }
-        SourceChip(t("Paste"), Icons.Rounded.ContentPaste, enabled = !reading) {
+        SourceChip(t("settings.credentialImport.paste"), Icons.Rounded.ContentPaste, enabled = !reading) {
             // An image on the clipboard is read like a photo, as on iOS;
             // otherwise its text must be the 70 letters.
             clipboardImage(context)?.takeIf { canScan }?.let {
@@ -460,9 +460,9 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
             val text = clipboardText(context)
             val letters = text.orEmpty().uppercase().filterNot { it.isWhitespace() }
             if (text == null) {
-                error = t("The clipboard has no image or 70 letters.")
+                error = t("settings.credentialImport.theClipboardHasNoImage")
             } else if (letters.length != 70 || !letters.all { it in 'A'..'Z' }) {
-                error = t("Paste exactly 70 letters in row order (A1…J1, A2…J2, …). Spaces and line breaks are ignored.")
+                error = t("settings.credentialImport.pasteExactly70LettersIn")
             } else {
                 error = null
                 letters.forEachIndexed { index, c ->
@@ -473,25 +473,25 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
                 editing = true
             }
         }
-        if (!editing) SourceChip(t("Enter manually"), Icons.Rounded.Keyboard) { editing = true }
+        if (!editing) SourceChip(t("settings.credentialImport.enterManually"), Icons.Rounded.Keyboard) { editing = true }
     }
     if (reading) {
-        Text(t("Reading {{done}}/70", "done" to model.ocrProgress), style = MaterialTheme.typography.bodySmall)
+        Text(t("settings.credentialImport.readingDone70", "done" to model.ocrProgress), style = MaterialTheme.typography.bodySmall)
         LinearProgressIndicator(progress = { model.ocrProgress / 70f }, modifier = Modifier.fillMaxWidth())
     }
     if (editing) {
         MatrixGrid(cells, confidence) { publish() }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Swatch(Theme.colors.okSoft, t("Certain"))
-            Swatch(Theme.colors.warnSoft, t("Check"))
-            Swatch(Theme.colors.dangerSoft, t("Unreadable"))
+            Swatch(Theme.colors.okSoft, t("settings.credentialImport.certain"))
+            Swatch(Theme.colors.warnSoft, t("settings.credentialImport.check"))
+            Swatch(Theme.colors.dangerSoft, t("settings.credentialImport.unreadable"))
         }
     }
     note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted) }
     error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.danger) }
     Text(
-        if (canScan) t("Lay the card flat and photograph the whole grid.")
-        else t("Reading is not available on this device. Paste the 70 letters copied from the desktop app, or type them."),
+        if (canScan) t("settings.credentialImport.layTheCardFlatAnd")
+        else t("settings.credentialImport.readingIsNotAvailableOn"),
         style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
     )
 }

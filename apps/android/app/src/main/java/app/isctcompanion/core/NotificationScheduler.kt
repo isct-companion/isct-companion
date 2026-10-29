@@ -83,7 +83,7 @@ object NotificationScheduler {
         // A repost only updates the shown one, which Android does not alert
         // again; each test should show its banner.
         context.getSystemService(NotificationManager::class.java)?.cancel("test".hashCode())
-        post(context, "test", "IsctCompanion", app.isctcompanion.design.t("This is a test notification."), null)
+        post(context, "test", "IsctCompanion", app.isctcompanion.design.t("settings.notification.thisIsATestNotification"), null)
         return true
     }
 

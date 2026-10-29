@@ -185,15 +185,15 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         )
 
         fun name(site: SchoolSite): String = when (site) {
-            SchoolSite.SCIENCE_PORTAL -> t("Portal")
+            SchoolSite.SCIENCE_PORTAL -> t("webRouter.portal")
             SchoolSite.SCIENCE_LMS -> "LMS"
-            SchoolSite.KYOMU -> t("Kyomu Web")
-            SchoolSite.TOKYO_MAIL -> t("Mail")
-            SchoolSite.LIBRARY -> t("Library")
-            SchoolSite.TOKYO_PORTAL -> t("Tokyo Tech Portal")
+            SchoolSite.KYOMU -> t("webRouter.kyomuWeb")
+            SchoolSite.TOKYO_MAIL -> t("webRouter.mail")
+            SchoolSite.LIBRARY -> t("webRouter.library")
+            SchoolSite.TOKYO_PORTAL -> t("webRouter.tokyoTechPortal")
             SchoolSite.TSUBAME -> "TSUBAME"
-            SchoolSite.SYLLABUS -> t("Syllabus")
-            SchoolSite.STUDY_GUIDE -> t("Study guide")
+            SchoolSite.SYLLABUS -> t("common.syllabus")
+            SchoolSite.STUDY_GUIDE -> t("webRouter.studyGuide")
         }
 
         fun site(raw: String?): SchoolSite? = SchoolSite.entries.firstOrNull { wireName(it) == raw }

@@ -49,7 +49,7 @@ import kotlinx.coroutines.launch
 internal enum class ResetKind { SchoolCaches, Everything }
 
 /** What every reset removes; the item keys live under `settings.reset.item`. */
-private val SCHOOL_CACHES = listOf("schoolData", "catalog", "references", "syncRecords", "lmsToken")
+private val SCHOOL_CACHES = listOf("settings.reset.item.schoolData", "settings.reset.item.catalog", "settings.reset.item.references", "settings.reset.item.syncRecords", "settings.reset.item.lmsToken")
 
 /** Settings → Reset, the desktop's `ResetSettings` as a page: clear the
  * school caches and read them again, or return this device to its
@@ -85,15 +85,15 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
         freed = preview?.let { Formatter.formatShortFileSize(context, it.freedBytes.toLong()) } ?: "–"
     }
     val deletes = if (everything) {
-        SCHOOL_CACHES + listOf("webSession", "userData", "settings", "logins")
+        SCHOOL_CACHES + listOf("settings.reset.item.webSession", "settings.reset.item.userData", "settings.reset.item.settings", "settings.reset.item.logins")
     } else {
-        SCHOOL_CACHES + listOfNotNull("webSession".takeIf { signOutWeb }, "downloads".takeIf { deleteDownloads })
+        SCHOOL_CACHES + listOfNotNull("settings.reset.item.webSession".takeIf { signOutWeb }, "settings.reset.item.downloads".takeIf { deleteDownloads })
     }
     val keeps = if (everything) {
-        listOf("downloads", "cloud", "logs")
+        listOf("settings.reset.item.downloads", "settings.reset.item.cloud", "settings.reset.item.logs")
     } else {
-        listOf("userData", "settings", "logins") +
-            listOfNotNull("webSession".takeIf { !signOutWeb }, "downloads".takeIf { !deleteDownloads })
+        listOf("settings.reset.item.userData", "settings.reset.item.settings", "settings.reset.item.logins") +
+            listOfNotNull("settings.reset.item.webSession".takeIf { !signOutWeb }, "settings.reset.item.downloads".takeIf { !deleteDownloads })
     }
     val confirmLabel = t(if (everything) "settings.reset.full.confirm" else "settings.reset.caches.confirm")
     fun reset() = scope.launch {
@@ -224,7 +224,7 @@ private fun Items(title: String, keys: List<String>, icon: ImageVector) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 Icon(icon, null, tint = Theme.colors.muted)
-                Text(t("settings.reset.item.$key"), color = Theme.colors.ink)
+                Text(t(key), color = Theme.colors.ink)
             }
         }
     }

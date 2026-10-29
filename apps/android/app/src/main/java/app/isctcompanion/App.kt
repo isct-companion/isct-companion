@@ -205,11 +205,11 @@ class Navigator(private val controller: NavHostController) {
 private enum class AppTab(
     val route: String, val start: String, val label: String, val icon: ImageVector, val wideOnly: Boolean = false,
 ) {
-    Today("tab/today", "today", "Today", Icons.Rounded.CalendarToday),
-    Timetable("tab/timetable", "timetable", "Timetable", Icons.Rounded.GridView),
-    Lectures("tab/lectures", "lectures", "Courses", Icons.AutoMirrored.Rounded.LibraryBooks, wideOnly = true),
-    Web("tab/web", "web", "Web", Icons.Rounded.Language),
-    Settings("tab/settings", "settings", "Settings", Icons.Rounded.Settings),
+    Today("tab/today", "today", "common.today", Icons.Rounded.CalendarToday),
+    Timetable("tab/timetable", "timetable", "common.timetable", Icons.Rounded.GridView),
+    Lectures("tab/lectures", "lectures", "common.courses", Icons.AutoMirrored.Rounded.LibraryBooks, wideOnly = true),
+    Web("tab/web", "web", "common.web", Icons.Rounded.Language),
+    Settings("tab/settings", "settings", "common.settings", Icons.Rounded.Settings),
 }
 
 /** Window width from which the layout is a tablet's, as iOS tells iPad. */
@@ -229,7 +229,7 @@ private fun RootView() {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(Icons.Rounded.WarningAmber, null, tint = Theme.colors.muted)
-            Text(t("Could not start"), style = MaterialTheme.typography.titleLarge)
+            Text(t("common.couldNotStart"), style = MaterialTheme.typography.titleLarge)
             Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
         }
         AppModel.Status.Ready -> Tabs()
@@ -281,7 +281,7 @@ private fun Tabs() {
     LaunchedEffect(model.undo) {
         val undo = model.undo ?: return@LaunchedEffect
         val result = snackbar.showSnackbar(
-            t("Hid “{{title}}”", "title" to undo.title), actionLabel = t("Undo"), duration = SnackbarDuration.Short,
+            t("app.hidTitle", "title" to undo.title), actionLabel = t("common.undo"), duration = SnackbarDuration.Short,
         )
         // undoHide clears `undo`, which restarts this effect; run it outside so
         // the restart cannot cancel the mutation.

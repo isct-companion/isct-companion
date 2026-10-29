@@ -73,7 +73,7 @@ class AppUpdater(private val context: Context) {
         val downloads = context.getSystemService(DownloadManager::class.java)
         val id = downloads.enqueue(
             DownloadManager.Request(Uri.parse(release.url))
-                .setTitle(t("IsctCompanion {{version}}", "version" to release.version))
+                .setTitle(t("appUpdater.isctcompanionVersion", "version" to release.version))
                 .setMimeType(APK)
                 .setDestinationInExternalFilesDir(context, "updates", name)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED),

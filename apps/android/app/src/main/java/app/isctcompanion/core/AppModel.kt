@@ -1,5 +1,6 @@
 package app.isctcompanion.core
 
+import app.isctcompanion.design.lookup
 import app.isctcompanion.design.t
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -579,9 +580,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun handIn(assignment: String): String {
         val session = session ?: throw SdkException.Closed()
         val messages = UploadMessages(
-            t("Preparing your LMS upload…"),
-            t("Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself."),
-            t("The upload area is not available. Choose the files in LMS."),
+            t("failure.preparingYourLMSUpload"),
+            t("failure.filesSentToTheUpload"),
+            t("failure.theUploadAreaIsNot"),
         )
         return (session.handInAssignment(assignment, messages).value() as? OperationResult.Text)?.value
             ?: throw SdkException.Unavailable("")
@@ -761,9 +762,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** The saved school OTP setup as an `otpauth://` link, read only when the
      * person asks to add it to an authenticator or copy it. */
     suspend fun otpSetupLink(): String {
-        val session = session ?: throw IllegalStateException(t("This is not available right now."))
+        val session = session ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
         return (session.schoolOtpLink(null).value() as? OperationResult.Text)?.value
-            ?: throw IllegalStateException(t("This is not available right now."))
+            ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
     }
 
     /** Edits `settings.notifications` and replaces the settings object. */
@@ -907,13 +908,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         /** Core's sign-in failure in the person's words, then the page's own. */
         fun reason(problem: SchoolSignInProblem): String {
             val reason = when (problem.kind) {
-                SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("The ID or password was not accepted.")
-                SchoolSignInProblemKind.LOCKED -> t("The school locked this account.")
-                SchoolSignInProblemKind.INVALID_OTP -> t("The one-time password was not accepted.")
-                SchoolSignInProblemKind.INVALID_MATRIX -> t("The Matrix answer was not accepted.")
-                SchoolSignInProblemKind.PAGE_WARNING -> t("The sign-in page showed a warning.")
-                SchoolSignInProblemKind.NEEDS_USER -> t("This sign-in step needs you.")
-                SchoolSignInProblemKind.UNAVAILABLE -> t("The school site is not responding.")
+                SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("failure.theIDOrPasswordWas")
+                SchoolSignInProblemKind.LOCKED -> t("failure.theSchoolLockedThisAccount")
+                SchoolSignInProblemKind.INVALID_OTP -> t("failure.theOneTimePasswordWas")
+                SchoolSignInProblemKind.INVALID_MATRIX -> t("failure.theMatrixAnswerWasNot")
+                SchoolSignInProblemKind.PAGE_WARNING -> t("failure.theSignInPageShowed")
+                SchoolSignInProblemKind.NEEDS_USER -> t("failure.thisSignInStepNeeds")
+                SchoolSignInProblemKind.UNAVAILABLE -> t("failure.theSchoolSiteIsNot")
             }
             return if (problem.message.isEmpty() || problem.message == reason) reason else "$reason\n${problem.message}"
         }
@@ -924,17 +925,15 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             // copy is the shared catalog's `error.<code>`. Other details are
             // never shown.
             coreCode(error)?.let { code ->
-                val key = "error.$code"
-                val copy = t(key)
-                if (copy != key) return copy
+                lookup("error.$code")?.let { return it }
             }
             return when (error) {
-                is SdkException.Network -> t("You're offline. Showing saved data.")
-                is SdkException.Authentication -> t("Sign in to your school account again.")
-                is SdkException.Maintenance -> t("The school site is under maintenance.")
-                is SdkException.Timeout -> t("The school site is not responding.")
-                is SdkException.Busy -> t("The previous task has not finished yet.")
-                is SdkException.Unavailable -> t("This is not available right now.")
+                is SdkException.Network -> t("failure.youreOfflineShowingSavedData")
+                is SdkException.Authentication -> t("failure.signInToYourSchool")
+                is SdkException.Maintenance -> t("failure.theSchoolSiteIsUnder")
+                is SdkException.Timeout -> t("failure.theSchoolSiteIsNot")
+                is SdkException.Busy -> t("failure.thePreviousTaskHasNot")
+                is SdkException.Unavailable -> t("failure.thisIsNotAvailableRight")
                 is SdkException -> t("error.internal")
                 else -> error.message ?: error.toString()
             }

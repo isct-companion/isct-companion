@@ -78,6 +78,6 @@ fun GuideTip(id: String, title: String, text: String? = null, modifier: Modifier
     ) {
         Text(t(title), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         text?.let { Text(t(it), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
-        TextButton(onClick = { Guide.dismiss(id) }, modifier = Modifier.align(Alignment.End)) { Text(t("Got it")) }
+        TextButton(onClick = { Guide.dismiss(id) }, modifier = Modifier.align(Alignment.End)) { Text(t("guide.gotIt")) }
     }
 }

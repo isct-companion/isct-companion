@@ -140,7 +140,7 @@ fun TodayScreen() {
     var exams by remember { mutableStateOf<List<ExamView>>(emptyList()) }
     LaunchedEffect(model.contentRevision, model.today?.date) { exams = model.upcomingExams() }
     TabPage(
-        t("Today"),
+        t("common.today"),
         actions = { SyncRingButton() },
         onRefresh = { model.refreshFromSchool() },
     ) {
@@ -182,9 +182,9 @@ private fun subtitle(today: TodayView?): String {
     today ?: return ""
     val parts = mutableListOf(Format.dayTitle(today.date))
     if (today.noClasses) {
-        parts.add(today.calendarNotice ?: t("Holiday"))
+        parts.add(today.calendarNotice ?: t("common.holiday"))
     } else {
-        today.teachingWeek?.let { parts.add(t("{{quarter}} week {{week}}", "quarter" to Format.quarter(today.term), "week" to it)) }
+        today.teachingWeek?.let { parts.add(t("today.quarterWeek", "quarter" to Format.quarter(today.term), "week" to it)) }
     }
     return parts.joinToString(" · ")
 }
@@ -199,7 +199,7 @@ private fun TodayContent(today: TodayView, now: Instant, exams: List<ExamView>) 
         TodayPhase.IN_CLASS -> {
             today.hero?.let { CurrentClassHero(it, now) }
             if (today.classMaterials.isNotEmpty() || today.classAssignments.isNotEmpty()) {
-                SectionLabel(t("This class"))
+                SectionLabel(t("today.thisClass"))
                 ThisClassCard(today.classMaterials, today.classAssignments, now)
             }
             ClassStack(today.upcoming, now)
@@ -226,12 +226,12 @@ private fun RecentLabel() {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Box(Modifier.weight(1f)) { SectionLabel(t("New")) }
+        Box(Modifier.weight(1f)) { SectionLabel(t("today.new")) }
         TextButton(
             onClick = { scope.launch { model.markAllRecentSeen() } },
             modifier = Modifier.padding(end = 4.dp, top = 8.dp),
         ) {
-            Text(t("Mark all as read"), fontWeight = FontWeight.SemiBold)
+            Text(t("today.markAllAsRead"), fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -353,8 +353,8 @@ private fun stackTitle(item: TodayClass, first: Boolean, now: Instant): String {
     val date = Format.civilDate(item.occurrence.date)
     val today = Format.today(now)
     return when (date) {
-        today -> if (first) t(if (exam) "Next exam" else "Next class") else t("Later today")
-        today.plusDays(1) -> t(if (exam) "Tomorrow’s exam" else "Tomorrow’s class")
+        today -> if (first) t(if (exam) "today.nextExam" else "today.nextClass") else t("today.laterToday")
+        today.plusDays(1) -> t(if (exam) "today.tomorrowsExam" else "today.tomorrowsClass")
         else -> Format.dayTitle(item.occurrence.date)
     }
 }
@@ -383,11 +383,11 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             Modifier.fillMaxHeight().nowTint(tint, Theme.colors, RoundedCornerShape(Theme.radiusPanel)),
             onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it, zoom) } },
         ) {
-            HeroLine(listOfNotNull(if (quiz) t("Quiz") else if (exam) t("Exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
+            HeroLine(listOfNotNull(if (quiz) t("common.quiz") else if (exam) t("common.exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
                 if (leads && today && starts != null) {
                     val minutes = maxOf(Format.minutes(starts, now), 0)
                     Tag(
-                        if (minutes < 60) t("{{count}} min left", "count" to minutes) else Format.time(starts),
+                        if (minutes < 60) t("today.countMinLeft", "count" to minutes) else Format.time(starts),
                         color = if (exam) Theme.colors.warn else tint, soft = Theme.colors.surface, counting = true,
                     )
                 }
@@ -465,23 +465,23 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
         HeroLine(
             listOfNotNull(
                 when {
-                    item.occurrence.kind != OccurrenceKind.EXAM -> t("In class")
-                    item.occurrence.quiz == true -> t("Quiz in progress")
-                    else -> t("Exam in progress")
+                    item.occurrence.kind != OccurrenceKind.EXAM -> t("today.inClass")
+                    item.occurrence.quiz == true -> t("today.quizInProgress")
+                    else -> t("today.examInProgress")
                 },
                 Format.periods(item.periods), firstRoom(item.occurrence.room),
             ).filter { it.isNotEmpty() }.joinToString(" · "),
             tint,
         ) {
             Text(
-                t("Until {{time}}", "time" to item.occurrence.endTime), style = MaterialTheme.typography.bodyMedium.tabular(),
+                t("today.untilTime", "time" to item.occurrence.endTime), style = MaterialTheme.typography.bodyMedium.tabular(),
                 fontWeight = FontWeight.SemiBold, color = tint,
             )
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             // The figure sits where the language puts the count: あと 45 分,
             // 45 min left, 还剩 45 分钟.
-            val words = t("{{count}} min left").split("{{count}}").map { it.trim() }
+            val words = t("today.countMinLeft").split("{{count}}").map { it.trim() }
             words.first().takeIf { it.isNotEmpty() }?.let {
                 Text(it, style = MaterialTheme.typography.titleLarge, color = Theme.colors.ink, modifier = Modifier.padding(bottom = 8.dp))
             }
@@ -506,7 +506,7 @@ private fun CurrentClassHero(item: TodayClass, now: Instant) {
 private fun TonightHero(item: DeadlineItem, now: Instant) {
     val navigator = LocalNavigator.current
     Hero(Modifier.background(Theme.colors.dangerSoft, RoundedCornerShape(Theme.radiusPanel))) {
-        HeroLine(t("Due tonight"), Theme.colors.danger) { DeadlineChip(item, now) }
+        HeroLine(t("today.dueTonight"), Theme.colors.danger) { DeadlineChip(item, now) }
         Text(
             Format.date(item.dueAt)?.let(Format::time) ?: Format.due(item.dueAt, now), fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.displaySmall.tabular(), color = Theme.colors.ink,
@@ -515,7 +515,7 @@ private fun TonightHero(item: DeadlineItem, now: Instant) {
         item.courseTitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
         item.sourceUrl?.let { url ->
             ActionButton(
-                t("Open submission page"),
+                t("today.openSubmissionPage"),
                 { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, item.title)) },
                 icon = Icons.AutoMirrored.Rounded.OpenInNew,
                 danger = true,
@@ -569,7 +569,7 @@ private fun ThisClassCard(materials: List<MaterialItem>, assignments: List<Deadl
 private fun UpcomingExams(exams: List<ExamView>) {
     if (exams.isEmpty()) return
     val navigator = LocalNavigator.current
-    SectionLabel(t("Exam"))
+    SectionLabel(t("common.exam"))
     Card {
         exams.forEachIndexed { index, exam ->
             if (index > 0) RowDivider()
@@ -598,7 +598,7 @@ private fun UpcomingExams(exams: List<ExamView>) {
  * quiz says 小テスト first. */
 private fun examDetail(exam: ExamView): String {
     val time = Format.periods(exam.periods) ?: exam.startTime?.let { start -> listOfNotNull(start, exam.endTime).joinToString("–") }
-    return listOfNotNull(if (exam.kind == "quiz") t("Quiz") else null, Format.dayTitle(exam.date), time, exam.room).filter { it.isNotEmpty() }.joinToString(" · ")
+    return listOfNotNull(if (exam.kind == "quiz") t("common.quiz") else null, Format.dayTitle(exam.date), time, exam.room).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
 /**
@@ -614,11 +614,11 @@ private fun RecentCard(items: List<RecentItem>) {
                 is RecentItem.Grade -> RecentRow(
                     item.v1.color, listOfNotNull(item.v1.title, item.v1.grade).joinToString(" · "), item.v1.courseTitle,
                     item.v1.courseId, RecentKind.GRADE to item.v1.assignmentId,
-                ) { Tag(t("Graded"), color = Theme.colors.ok, soft = Theme.colors.okSoft) }
+                ) { Tag(t("common.graded"), color = Theme.colors.ok, soft = Theme.colors.okSoft) }
                 is RecentItem.Material -> RecentRow(
                     item.v1.color, item.v1.title, item.v1.courseTitle, item.v1.courseId,
                     RecentKind.MATERIAL to item.v1.materialId,
-                ) { Tag(t("Material")) }
+                ) { Tag(t("today.material")) }
             }
         }
     }
@@ -674,12 +674,12 @@ private fun ConnectCard(onConnect: () -> Unit) {
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(t("Connect school accounts"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
+        Text(t("common.connectSchoolAccounts"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
         Text(
-            t("Reads your timetable, assignments and materials from the school sites. Your password is encrypted in this device’s keystore and sent only to the school sites."),
+            t("today.readsYourTimetableAssignmentsAndMaterials"),
             style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted,
         )
-        ActionButton(t("Connect with Science Tokyo"), onConnect, Modifier.fillMaxWidth())
+        ActionButton(t("today.connectWithScienceTokyo"), onConnect, Modifier.fillMaxWidth())
     }
 }
 
@@ -697,13 +697,13 @@ private fun UpdateBanner(version: String) {
             .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
     ) {
         Text(
-            t("Version {{version}} is available", "version" to version),
+            t("today.versionIsAvailable", "version" to version),
             style = MaterialTheme.typography.bodyMedium,
             color = Theme.colors.ink,
             modifier = Modifier.weight(1f).padding(vertical = 10.dp),
         )
         TextButton(onClick = { updater.install() }, enabled = !updater.downloading) {
-            Text(if (updater.downloading) t("Downloading…") else t("Update"), fontWeight = FontWeight.SemiBold)
+            Text(if (updater.downloading) t("common.downloading") else t("today.update"), fontWeight = FontWeight.SemiBold)
         }
     }
 }

@@ -50,25 +50,25 @@ fun WelcomeSheet(connect: () -> Unit) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    t("Welcome to IsctCompanion"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                    t("common.welcomeToIsctCompanion"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                     color = Theme.colors.ink, modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { close() }) { Text(t(if (model.needsAccount) "Later" else "Done")) }
+                TextButton(onClick = { close() }) { Text(t(if (model.needsAccount) "common.later" else "common.done")) }
             }
-            SectionLabel(t("App language"))
+            SectionLabel(t("common.appLanguage"))
             Choices(
                 listOf("en" to "English", "ja" to "日本語", "zh" to "中文"),
                 settings.optString("locale").ifEmpty { "en" },
             ) { set("locale", it) }
-            SectionLabel(t("Course and syllabus language"))
+            SectionLabel(t("guide.courseAndSyllabusLanguage"))
             Choices(
-                listOf("auto" to t("Automatic"), "en" to "English", "ja" to "日本語"),
+                listOf("auto" to t("common.automatic"), "en" to "English", "ja" to "日本語"),
                 settings.optString("contentLanguage").ifEmpty { "auto" },
             ) { set("contentLanguage", it) }
-            Footer(t("Can differ from the app language."))
+            Footer(t("guide.canDifferFromTheApp"))
             if (model.needsAccount) {
                 Button(onClick = { close(connect) }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                    Text(t("Connect school accounts"), fontWeight = FontWeight.SemiBold)
+                    Text(t("common.connectSchoolAccounts"), fontWeight = FontWeight.SemiBold)
                 }
             }
         }

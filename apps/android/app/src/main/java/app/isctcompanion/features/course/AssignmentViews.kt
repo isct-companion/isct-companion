@@ -74,7 +74,7 @@ fun AssignmentScreen(assignmentId: String) {
     TabPage(
         assignment?.title.orEmpty(),
         navigationIcon = {
-            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) }
+            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
         },
     ) {
         Column(
@@ -129,7 +129,7 @@ fun AssignmentCard(assignment: AssignmentDetail, expanded: Boolean, onExpand: (B
 fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
     val navigator = LocalNavigator.current
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        val due = assignment.dueAt?.let { t("Due {{date}}", "date" to Format.due(it)) }
+        val due = assignment.dueAt?.let { t("course.dueDate", "date" to Format.due(it)) }
         if (showsState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssignmentState(assignment)
@@ -153,7 +153,7 @@ fun AssignmentBody(assignment: AssignmentDetail, showsState: Boolean = true) {
         }
         assignment.sourceUrl?.let { url ->
             ActionButton(
-                t("Submit in LMS"),
+                t("common.submitInLMS"),
                 { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, assignment.title)) },
                 icon = Icons.AutoMirrored.Rounded.OpenInNew,
             )
@@ -168,5 +168,5 @@ private fun AssignmentState(assignment: AssignmentDetail) {
     val done = assignment.submission in setOf("submitted", "graded")
     val past = Format.date(assignment.dueAt)?.isBefore(now) == true
     val (ink, fill) = toneColors(if (done) "done" else if (past) "past" else "soon")
-    Tag(if (done) assignment.grade ?: t("Submitted") else Format.countdown(assignment.dueAt, now), color = ink, soft = fill)
+    Tag(if (done) assignment.grade ?: t("common.submitted") else Format.countdown(assignment.dueAt, now), color = ink, soft = fill)
 }

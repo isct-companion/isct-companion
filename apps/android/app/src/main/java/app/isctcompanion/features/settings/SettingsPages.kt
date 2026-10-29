@@ -76,11 +76,11 @@ internal object ReminderLeads {
     const val MAX_ASSIGNMENT = 8
 
     fun label(minutes: Int): String = when {
-        minutes == 1440 -> t("1 day before")
-        minutes % 1440 == 0 -> t("{{days}} days before", "days" to minutes / 1440)
-        minutes == 60 -> t("1 hour before")
-        minutes % 60 == 0 -> t("{{hours}} hours before", "hours" to minutes / 60)
-        else -> t("{{minutes}} minutes before", "minutes" to minutes)
+        minutes == 1440 -> t("settings.notification.oneDayBefore")
+        minutes % 1440 == 0 -> t("settings.notification.daysBefore", "days" to minutes / 1440)
+        minutes == 60 -> t("settings.notification.oneHourBefore")
+        minutes % 60 == 0 -> t("settings.notification.hoursBefore", "hours" to minutes / 60)
+        else -> t("settings.notification.minutesBefore", "minutes" to minutes)
     }
 
     fun classLead(settings: JSONObject?): Int = settings?.optInt("classLeadMinutes", DEFAULT_CLASS) ?: DEFAULT_CLASS
@@ -104,12 +104,12 @@ internal object ReminderLeads {
 
     fun summary(settings: JSONObject?): String {
         val parts = mutableListOf<String>()
-        if (settings?.optBoolean("classes") == true) parts.add(t("Classes {{lead}}", "lead" to label(classLead(settings))))
-        if (exams(settings)) parts.add(t("Exams {{lead}}", "lead" to label(examLead(settings))))
+        if (settings?.optBoolean("classes") == true) parts.add(t("settings.main.classesLead", "lead" to label(classLead(settings))))
+        if (exams(settings)) parts.add(t("settings.main.examsLead", "lead" to label(examLead(settings))))
         if (settings?.optBoolean("assignments") == true) {
-            parts.add(t("Assignments ×{{count}}", "count" to assignmentLeads(settings).size))
+            parts.add(t("settings.main.assignmentsCount", "count" to assignmentLeads(settings).size))
         }
-        return if (parts.isEmpty()) t("Off") else parts.joinToString(" · ")
+        return if (parts.isEmpty()) t("settings.main.off") else parts.joinToString(" · ")
     }
 }
 
@@ -169,33 +169,33 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
     fun lead(key: String, minutes: Int) = scope.launch { model.setNotifications { it.put(key, minutes) } }
     Page {
         Card {
-            SwitchRow(t("Remind me before classes"), settings?.optBoolean("classes") == true) { toggle("classes", it) }
+            SwitchRow(t("settings.main.remindMeBeforeClasses"), settings?.optBoolean("classes") == true) { toggle("classes", it) }
             if (settings?.optBoolean("classes") == true) {
                 RowDivider(inset = 16.dp)
-                PickerRow(t("Remind me"), ReminderLeads.classLead(settings), ReminderLeads.classChoices) { lead("classLeadMinutes", it) }
+                PickerRow(t("settings.main.remindMe"), ReminderLeads.classLead(settings), ReminderLeads.classChoices) { lead("classLeadMinutes", it) }
             }
         }
         Card(Modifier.padding(top = 8.dp)) {
-            SwitchRow(t("Remind me before exams"), ReminderLeads.exams(settings)) { toggle("exams", it) }
+            SwitchRow(t("settings.main.remindMeBeforeExams"), ReminderLeads.exams(settings)) { toggle("exams", it) }
             if (ReminderLeads.exams(settings)) {
                 val current = ReminderLeads.examLead(settings)
                 RowDivider(inset = 16.dp)
-                PickerRow(t("Remind me"), current, (ReminderLeads.examChoices + current).distinct().sorted()) { lead("examLeadMinutes", it) }
+                PickerRow(t("settings.main.remindMe"), current, (ReminderLeads.examChoices + current).distinct().sorted()) { lead("examLeadMinutes", it) }
             }
             // Also decides Today's upcoming exams, so it stays while reminders
             // are off and asks for no permission.
             RowDivider(inset = 16.dp)
             SwitchRow(
-                t("Count quizzes as exams"), ReminderLeads.quizzes(settings),
-                detail = t("Quizzes appear in upcoming exams and get exam reminders."),
+                t("settings.main.countQuizzesAsExams"), ReminderLeads.quizzes(settings),
+                detail = t("settings.main.quizzesAppearInUpcomingExams"),
             ) { on -> scope.launch { model.setNotifications { it.put("quizzes", on) } } }
         }
         Card(Modifier.padding(top = 8.dp)) {
-            SwitchRow(t("Remind me before assignment deadlines"), settings?.optBoolean("assignments") == true) { toggle("assignments", it) }
+            SwitchRow(t("settings.main.remindMeBeforeAssignmentDeadlines"), settings?.optBoolean("assignments") == true) { toggle("assignments", it) }
             if (settings?.optBoolean("assignments") == true) {
                 RowDivider(inset = 16.dp)
                 NavRow(
-                    t("Remind me"),
+                    t("settings.main.remindMe"),
                     ReminderLeads.assignmentLeads(settings).sortedDescending().joinToString("、", transform = ReminderLeads::label),
                     onClick = openLeads,
                 )
@@ -206,7 +206,7 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             ) {
-                Text(t("Test notification"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+                Text(t("settings.main.testNotification"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 TextButton(onClick = {
                     if (NotificationScheduler.allowed(context)) {
                         sendTest()
@@ -215,11 +215,11 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
                         NotificationScheduler.asking(context)
                         launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
-                }) { Text(t("Send")) }
+                }) { Text(t("settings.notification.send")) }
             }
             if (denied) {
                 RowDivider(inset = 16.dp)
-                NavRow(t("Open Settings"), null) {
+                NavRow(t("settings.main.openSettings"), null) {
                     context.startActivity(
                         Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
@@ -228,9 +228,9 @@ internal fun NotificationsPage(openLeads: () -> Unit) {
             }
         }
         if (denied) {
-            Footer(t("Notifications are not allowed. Allow them in the Settings app under Notifications."), Theme.colors.danger)
+            Footer(t("settings.main.notificationsAreNotAllowedAllow"), Theme.colors.danger)
         } else if (tested) {
-            Footer(t("The system accepted the test notification. If no banner appears, check notification settings, Focus, and screen sharing."))
+            Footer(t("settings.notification.theSystemAcceptedTheTest"))
         }
     }
 }
@@ -270,7 +270,7 @@ internal fun AssignmentLeadsPage() {
                 }
             }
         }
-        Footer(t("Reminds you at every time you choose before the deadline (1–{{max}}).", "max" to ReminderLeads.MAX_ASSIGNMENT))
+        Footer(t("settings.main.remindsYouAtEveryTime", "max" to ReminderLeads.MAX_ASSIGNMENT))
     }
 }
 
@@ -304,7 +304,7 @@ internal fun StudyProfilePage() {
     // (a plain id or a subscription-scoped "2026:cs").
     val raw = model.records.settings.optString("departmentId")
     val departmentId = departments.firstOrNull { raw == it.id || raw.endsWith(":${it.id}") }?.id ?: raw
-    val departmentOptions = listOf("" to t("Not set")) +
+    val departmentOptions = listOf("" to t("settings.studyProfile.notSet")) +
         departments.map { it.id to (Localizer.pick(it.name, model.records.settings) ?: it.id) } +
         // A stored id this list does not hold still shows.
         listOfNotNull(departmentId.takeIf { id -> id.isNotEmpty() && departments.none { it.id == id } }?.let { it to it })
@@ -312,8 +312,8 @@ internal fun StudyProfilePage() {
     val now = currentYear ?: Format.today().year
     val years = ((0 until 10).map { now + 1 - it } + listOfNotNull(year)).distinct().sortedDescending()
     val stages = listOf(
-        StudyStage.UNKNOWN to t("Not set"), StudyStage.UNDERGRADUATE to t("Undergraduate"), StudyStage.MASTER to t("Master"),
-        StudyStage.PROFESSIONAL to t("Professional degree"), StudyStage.DOCTORAL to t("Doctoral"),
+        StudyStage.UNKNOWN to t("settings.studyProfile.notSet"), StudyStage.UNDERGRADUATE to t("settings.studyProfile.undergraduate"), StudyStage.MASTER to t("settings.studyProfile.master"),
+        StudyStage.PROFESSIONAL to t("settings.studyProfile.professionalDegree"), StudyStage.DOCTORAL to t("settings.studyProfile.doctoral"),
     )
 
     /** Builds the profile the desktop's save would: the programme replaces the
@@ -331,7 +331,7 @@ internal fun StudyProfilePage() {
         }
         if (enrollments.any { it.admittedTerm.isEmpty() }) {
             if (chosenYear == null) {
-                error = t("Choose an admission year.")
+                error = t("settings.studyProfile.chooseAnAdmissionYear")
                 return
             }
             enrollments.replaceAll { if (it.admittedTerm.isEmpty()) it.copy(admittedTerm = "$chosenYear-1Q") else it }
@@ -351,19 +351,19 @@ internal fun StudyProfilePage() {
 
     Page {
         Card {
-            PickerRow(t("Department"), departmentId, departmentOptions) { id ->
+            PickerRow(t("settings.main.department"), departmentId, departmentOptions) { id ->
                 scope.launch { model.updateSettings { if (id.isEmpty()) it.remove("departmentId") else it.put("departmentId", id) } }
             }
             RowDivider(inset = 16.dp)
             PickerRow(
-                t("Admission year"), year,
-                listOf<Pair<Int?, String>>(null to t("Not set")) + years.map { it to t("Entered {{year}}", "year" to it) },
+                t("settings.main.admissionYear"), year,
+                listOf<Pair<Int?, String>>(null to t("settings.studyProfile.notSet")) + years.map { it to t("settings.main.enteredYear", "year" to it) },
             ) { choose(it, stage) }
             RowDivider(inset = 16.dp)
-            PickerRow(t("Degree stage"), stage, stages) { choose(year, it) }
+            PickerRow(t("settings.main.degreeStage"), stage, stages) { choose(year, it) }
         }
         error?.let { Footer(it, Theme.colors.danger) }
-            ?: Footer(t("Used for course suggestions and the study guide. Syncs with the desktop app."))
+            ?: Footer(t("settings.main.usedForCourseSuggestionsAnd"))
     }
 }
 
@@ -377,7 +377,7 @@ internal fun DataUpdatesPage() {
     val cellular = model.records.settings.optJSONObject("subscriptionRefresh")?.optBoolean("allowCellular") == true
     Page {
         Card {
-            SwitchRow(t("Update on cellular data"), cellular) { on ->
+            SwitchRow(t("settings.main.updateOnCellularData"), cellular) { on ->
                 scope.launch {
                     model.updateSettings { settings ->
                         val refresh = settings.optJSONObject("subscriptionRefresh") ?: JSONObject()
@@ -387,14 +387,14 @@ internal fun DataUpdatesPage() {
                 }
             }
         }
-        Footer(t("When off, automatic updates wait until you are on Wi-Fi."))
+        Footer(t("settings.main.whenOffAutomaticUpdatesWait"))
         SyncSections()
         Card(Modifier.padding(top = 8.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().clickable { model.refreshFromSchool() }.padding(16.dp),
             ) {
-                Text(t("Refresh now"), color = Theme.colors.accent, modifier = Modifier.weight(1f))
+                Text(t("common.refreshNow"), color = Theme.colors.accent, modifier = Modifier.weight(1f))
                 model.syncSnapshot?.indicator?.let { SyncIndicatorView(it) }
             }
         }
@@ -403,9 +403,9 @@ internal fun DataUpdatesPage() {
 
 internal fun dataSummary(settings: JSONObject): String =
     if (settings.optJSONObject("subscriptionRefresh")?.optBoolean("allowCellular") == true) {
-        t("Update on cellular data")
+        t("settings.main.updateOnCellularData")
     } else {
-        t("Updates automatically on Wi-Fi only")
+        t("settings.main.updatesAutomaticallyOnWiFi")
     }
 
 /** A labelled choice that opens a menu of `options`, the Form picker row. */

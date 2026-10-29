@@ -112,7 +112,7 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
     val preview = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
         granted = allowed
-        if (!allowed) error = t("Camera access was denied. Allow camera access in system settings, then try again.")
+        if (!allowed) error = t("settings.matrixCamera.cameraAccessWasDeniedAllow")
     }
     fun finish(cells: List<MatrixCell>?) {
         camera.stop()
@@ -144,7 +144,7 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
         // As on desktop: leaving the app stops acquisition for good.
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP && state?.phase != MatrixCameraPhase.COMPLETE) {
-                fail(t("Camera scan stopped while the app was in the background. Open it again to continue."))
+                fail(t("settings.matrixCamera.cameraScanStoppedWhileThe"))
             }
         }
         lifecycle.lifecycle.addObserver(observer)
@@ -220,7 +220,7 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
                     onClick = { finish(null) },
                     modifier = Modifier.padding(12.dp).size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)),
                 ) {
-                    Icon(Icons.Rounded.Close, t("Cancel"), tint = Color.White)
+                    Icon(Icons.Rounded.Close, t("common.cancel"), tint = Color.White)
                 }
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     // Where to hold the card: an ID-1 card's outline.
@@ -240,9 +240,9 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
                     val ready = state?.readyCells?.toInt() ?: 0
                     Text(
                         error ?: if (ready > 0 && state?.phase != MatrixCameraPhase.COMPLETE) {
-                            t("Recognizing Matrix… {{count}}/70 cells confirmed.", "count" to ready)
+                            t("settings.matrixCamera.recognizingMatrixCount70Cells", "count" to ready)
                         } else {
-                            t("Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within ten seconds.")
+                            t("settings.matrixCamera.keepTheMatrixFramedAnd")
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (error == null) Color.White.copy(alpha = 0.85f) else Theme.colors.danger,
@@ -310,7 +310,7 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
         future.addListener({
             if (closed.get()) return@addListener
             val cameras = runCatching { future.get() }.getOrElse {
-                update(Update.Failed(t("The camera is unavailable. Close other apps using it and try again.")))
+                update(Update.Failed(t("settings.matrixCamera.theCameraIsUnavailableClose")))
                 return@addListener
             }
             provider = cameras
@@ -339,7 +339,7 @@ private class LiveCamera(private val scan: MatrixCameraSession) {
                 cameras.unbindAll()
                 control = cameras.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis).cameraControl
             }.onFailure {
-                update(Update.Failed(t("The camera is unavailable. Close other apps using it and try again.")))
+                update(Update.Failed(t("settings.matrixCamera.theCameraIsUnavailableClose")))
             }
         }, main)
     }
