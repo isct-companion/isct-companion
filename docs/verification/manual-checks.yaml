@@ -5327,6 +5327,49 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt
     verified: null
 
+  - id: ANDROID-SCHOOL-SELECT-AND-FILES
+    area: native
+    title: Android school pages open select lists and file pickers
+    persona: undergraduate-senior
+    preconditions: |
+      The Android debug build of this commit on a phone, signed in to LMS,
+      with a PDF in the phone's Downloads and an assignment that takes a
+      file submission.
+    steps:
+      - action: |
+          On the LMS ダッシュボード, tap 年度 in 時間割, pick the other year,
+          then turn dark mode on and tap 年度 again.
+        reason: |
+          WebView adds the list's window with the view's context. Built over
+          the application context, it had no window token: the select took
+          focus and no list opened. Dark mode recreates the activity, so the
+          second tap shows the views follow the new one.
+      - action: |
+          Open the assignment's submission form, open Moodle's file picker,
+          choose its upload option and press the file button; pick the PDF.
+          Press the file button again, back out of the system picker, then
+          close Moodle's picker without uploading and leave the form unsaved.
+        reason: |
+          Without onShowFileChooser a file input did nothing. The PDF's name
+          beside the button shows the choice reached the page; backing out
+          must leave the input usable instead of holding the page's request.
+          Nothing is saved, so the real submission stays as it was.
+    observe: |
+      The list over the page, the 年度 shown after picking, and the file name
+      in Moodle's upload form.
+    expected: |
+      Both taps on 年度 open the list and the picked year shows; the system
+      picker opens from the file button, the PDF's name appears, and the
+      button still opens the picker after backing out.
+    why_manual: |
+      Needs a real LMS session; the list and the system picker are native
+      windows a person sees at a glance.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt
+      - apps/android/app/src/main/java/app/isctcompanion/App.kt
+    verified: null
+
   - id: ANDROID-COURSE-ZOOM-AND-FIGURES
     area: native
     title: Android courses grow out of what was tapped and counting figures roll

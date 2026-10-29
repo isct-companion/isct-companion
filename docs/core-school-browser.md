@@ -187,18 +187,25 @@ print panel for the foreground view only (WebKit: the private
 has no hook for a page's `window.print()`, so the page's button does
 nothing there and the app's page menu prints the page on screen through
 `PrintManager`. A `beforeunload` question is shown the same way, and a
-hidden view always leaves. School pages get no app script: Tauri injects
+hidden view always leaves. A file input opens the system picker for the
+view on screen the same way, and a hidden view chooses nothing; WebKit shows
+its own picker, Android's `onShowFileChooser` launches `ACTION_GET_CONTENT`.
+Android WebView adds its own windows for a `<select>` list or a date picker
+with the context the view was built on, so the host builds views over the
+activity in front (through a `MutableContextWrapper`, since views outlive it):
+over the application context those windows have no token and never open.
+School pages get no app script: Tauri injects
 every plugin's page script into every webview, so a desktop plugin must not
 have one.
 
 ## Platform status
 
-| Host                             | Facts                                                                                           | Popups                                         | Print, dialogs                                                                |
-| -------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------- |
-| macOS (`school_webkit.rs`)       | Full, `formResubmission`                                                                        | Inline over the opener                         | Done                                                                          |
-| Windows (interim)                | URL only (`Unknown`, no method or gesture); no resubmission facts                               | Separate windows (`NewWindowResponse::Create`) | WebView2's own                                                                |
-| iOS (`SchoolBrowserHost.swift`)  | Full but gesture, `formResubmission`                                                            | Inline over the opener                         | Done                                                                          |
-| Android (`SchoolBrowserHost.kt`) | URL, method, frame, gesture, redirect; `onFormResubmission`; `ERR_CACHE_MISS` as a load failure | `WebViewTransport`, inline over the opener     | Dialogs done; print from the page menu (WebView has no `window.print()` hook) |
+| Host                             | Facts                                                                                           | Popups                                         | Print, dialogs                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| macOS (`school_webkit.rs`)       | Full, `formResubmission`                                                                        | Inline over the opener                         | Done                                                                              |
+| Windows (interim)                | URL only (`Unknown`, no method or gesture); no resubmission facts                               | Separate windows (`NewWindowResponse::Create`) | WebView2's own                                                                    |
+| iOS (`SchoolBrowserHost.swift`)  | Full but gesture, `formResubmission`                                                            | Inline over the opener                         | Done                                                                              |
+| Android (`SchoolBrowserHost.kt`) | URL, method, frame, gesture, redirect; `onFormResubmission`; `ERR_CACHE_MISS` as a load failure | `WebViewTransport`, inline over the opener     | Dialogs and file inputs done; print from the page menu (no `window.print()` hook) |
 
 Android never resends a form from history: back or forward to an uncached
 POST result fails with `ERR_CACHE_MISS`, reported as `Other`, and the

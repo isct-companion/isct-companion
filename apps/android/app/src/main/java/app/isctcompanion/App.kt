@@ -138,6 +138,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        (application as IsctApplication).model.browser.detachActivity(this)
+        super.onDestroy()
+    }
+
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch(Dispatchers.IO) { SharedInbox.refresh(this@MainActivity) }

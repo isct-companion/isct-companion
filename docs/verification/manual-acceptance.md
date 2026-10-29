@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 151 checks must be re-run before the next release.**
+**9 of 152 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**142 checks have never been run or could not be run:**
+**143 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -124,6 +124,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-SCHOOL-HTTP-EXTERNAL` — never verified
 - `ANDROID-SCHOOL-PRINT` — never verified
 - `ANDROID-SCHOOL-NATIVE-CONFIRM` — never verified
+- `ANDROID-SCHOOL-SELECT-AND-FILES` — never verified
 - `ANDROID-COURSE-ZOOM-AND-FIGURES` — never verified
 - `MOBILE-UI-LANGUAGE` — never verified
 - `DESKTOP-CALENDAR-NOW-LINE` — never verified
@@ -280,6 +281,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
 | `ANDROID-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
+| `ANDROID-SCHOOL-SELECT-AND-FILES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-COURSE-ZOOM-AND-FIGURES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt |
 | `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/styles.css<br>apps/desktop/src/lib/timetable-layout.ts<br>resources/locales/en.json<br>resources/locales/ja.json<br>resources/locales/zh.json<br>apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css |
@@ -6265,6 +6267,59 @@ glance. Which view counts as on screen is the host's own fact.
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+
+**Last recorded** never run
+
+### Android school pages open select lists and file pickers (`ANDROID-SCHOOL-SELECT-AND-FILES`)
+
+**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android debug build of this commit on a phone, signed in to LMS,
+with a PDF in the phone's Downloads and an assignment that takes a
+file submission.
+
+**Steps**
+
+1. On the LMS ダッシュボード, tap 年度 in 時間割, pick the other year,
+   then turn dark mode on and tap 年度 again.
+   - *Why:* WebView adds the list's window with the view's context. Built over
+     the application context, it had no window token: the select took
+     focus and no list opened. Dark mode recreates the activity, so the
+     second tap shows the views follow the new one.
+2. Open the assignment's submission form, open Moodle's file picker,
+   choose its upload option and press the file button; pick the PDF.
+   Press the file button again, back out of the system picker, then
+   close Moodle's picker without uploading and leave the form unsaved.
+   - *Why:* Without onShowFileChooser a file input did nothing. The PDF's name
+     beside the button shows the choice reached the page; backing out
+     must leave the input usable instead of holding the page's request.
+     Nothing is saved, so the real submission stays as it was.
+
+**Where to look**
+
+The list over the page, the 年度 shown after picking, and the file name
+in Moodle's upload form.
+
+**Expected**
+
+Both taps on 年度 open the list and the picked year shows; the system
+picker opens from the file button, the PDF's name appears, and the
+button still opens the picker after backing out.
+
+**Why this is manual**
+
+Needs a real LMS session; the list and the system picker are native
+windows a person sees at a glance.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/App.kt`
 
 **Last recorded** never run
 
