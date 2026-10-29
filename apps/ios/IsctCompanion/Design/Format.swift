@@ -60,12 +60,12 @@ enum Format {
 
     /// `今日 23:59`, `Tomorrow 23:59`, `10/18(日) 23:59`
     static func due(_ raw: String?, now: Date = Date()) -> String {
-        guard let due = date(raw) else { return t("No deadline") }
+        guard let due = date(raw) else { return t("common.noDeadline") }
         let calendar = Calendar.tokyo
         let time = self.time(due)
-        if calendar.isDate(due, inSameDayAs: now) { return t("Today {{time}}", ["time": time]) }
+        if calendar.isDate(due, inSameDayAs: now) { return t("format.todayTime", ["time": time]) }
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(due, inSameDayAs: tomorrow) {
-            return t("Tomorrow {{time}}", ["time": time])
+            return t("format.tomorrowTime", ["time": time])
         }
         return "\(written(due, "MdEEE")) \(time)"
     }
@@ -77,21 +77,21 @@ enum Format {
 
     /// Countdown words for a deadline chip.
     static func countdown(_ raw: String?, now: Date, overdueStyle: OverdueStyle = .label) -> String {
-        guard let due = date(raw) else { return t("No deadline") }
+        guard let due = date(raw) else { return t("common.noDeadline") }
         let minutes = minutes(until: due, now: now)
         if minutes < 0 {
             switch overdueStyle {
-            case .label: return t("Overdue")
+            case .label: return t("common.overdue")
             case .elapsed:
-                return t("{{count}}d overdue", ["count": max(1, -minutes / (60 * 24))])
+                return t("format.countDOverdue", ["count": max(1, -minutes / (60 * 24))])
             }
         }
-        if minutes < 60 { return t("{{count}} min left", ["count": max(minutes, 1)]) }
-        if minutes < 60 * 24 { return t("{{count}}h left", ["count": minutes / 60]) }
+        if minutes < 60 { return t("today.countMinLeft", ["count": max(minutes, 1)]) }
+        if minutes < 60 * 24 { return t("format.countHLeft", ["count": minutes / 60]) }
         if Calendar.tokyo.isDate(due, inSameDayAs: Calendar.tokyo.date(byAdding: .day, value: 1, to: now) ?? now) {
-            return t("Tomorrow")
+            return t("common.tomorrow")
         }
-        return t("{{count}}d left", ["count": Int((Double(minutes) / (60 * 24)).rounded())])
+        return t("format.countDLeft", ["count": Int((Double(minutes) / (60 * 24)).rounded())])
     }
 
     enum OverdueStyle { case label, elapsed }
@@ -99,7 +99,7 @@ enum Format {
     /// `3–4限`, `Periods 3–4`
     static func periods<Periods: Collection>(_ value: Periods?) -> String? where Periods.Element == UInt8 {
         guard let value, value.count == 2, let first = value.first, let last = value.dropFirst().first else { return nil }
-        return t("Periods {{range}}", ["range": first == last ? "\(first)" : "\(first)–\(last)"])
+        return t("format.periodsRange", ["range": first == last ? "\(first)" : "\(first)–\(last)"])
     }
 }
 
@@ -140,7 +140,7 @@ struct DeadlineChip: View {
 
     var body: some View {
         let (ink, fill) = Self.colors(item.submitted ? "done" : item.tone)
-        Tag(text: item.submitted ? (item.grade ?? t("Submitted")) : Format.countdown(item.dueAt, now: now, overdueStyle: overdueStyle),
+        Tag(text: item.submitted ? (item.grade ?? t("common.submitted")) : Format.countdown(item.dueAt, now: now, overdueStyle: overdueStyle),
             ink: ink, fill: fill)
     }
 
@@ -168,7 +168,7 @@ struct ExamConflictLabel: View {
     let conflict: ExamConflict
 
     var body: some View {
-        Label(conflict.removed ? t("No longer in the published timetable.") : t("Timetable changed"),
+        Label(conflict.removed ? t("exam.noLongerInThePublished") : t("common.timetableChanged"),
             systemImage: "exclamationmark.circle.fill")
             .font(.caption.weight(.semibold))
             .foregroundStyle(Theme.warn)
@@ -199,7 +199,7 @@ struct DeadlineRow: View {
                 // Files put in its upload card wait for the person to hand
                 // them in; Core counts them until LMS shows the work submitted.
                 if let waiting = model.waiting[item.assignmentId] {
-                    Label(t("{{count}} files to hand in", ["count": waiting]), systemImage: "arrow.up.doc")
+                    Label(t("components.countFilesToHandIn", ["count": waiting]), systemImage: "arrow.up.doc")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Theme.accent)
                         .lineLimit(1)

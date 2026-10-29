@@ -9,19 +9,22 @@ export function SyllabusFrame({ url }: { url?: string | null }) {
   if (!url)
     return (
       <p className="syllabusStatus" role="status">
-        {t("No syllabus is linked to this course.")}
+        {t("courses.noSyllabusIsLinkedTo")}
       </p>
     );
   return (
-    <section className="syllabusFrame" aria-label={t("Official syllabus")}>
+    <section
+      className="syllabusFrame"
+      aria-label={t("courses.officialSyllabus")}
+    >
       <iframe
         key={url}
-        title={t("Official syllabus")}
+        title={t("courses.officialSyllabus")}
         src={url}
         referrerPolicy="no-referrer"
       />
       <ExternalLink className="syllabusOutside" href={url}>
-        {t("Open in browser")} ↗
+        {t("common.openInBrowser")} ↗
       </ExternalLink>
     </section>
   );

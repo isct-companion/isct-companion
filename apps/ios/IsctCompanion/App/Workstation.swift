@@ -92,7 +92,7 @@ private struct BenchRoot: View {
         page
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(t("Close"), systemImage: "xmark") { navigator.closeBench() }
+                    Button(t("common.close"), systemImage: "xmark") { navigator.closeBench() }
                 }
             }
     }
@@ -108,7 +108,7 @@ private struct BenchRoot: View {
         default:
             // Pages pushed before the window widened, without what they were
             // pushed from.
-            ContentUnavailableView(t("Choose a course"), systemImage: "books.vertical")
+            ContentUnavailableView(t("common.chooseACourse"), systemImage: "books.vertical")
         }
     }
 }
@@ -132,7 +132,7 @@ struct SchoolStatusBar: View {
                                 Text(SyncText.source(source.source))
                                     .font(.caption.weight(.bold))
                                     .foregroundStyle(Theme.ink)
-                                Text(source.lastUpdated.map { t("Updated {{date}}", ["date": Format.due($0)]) } ?? t("Never updated"))
+                                Text(source.lastUpdated.map { t("syncStatus.updatedDate", ["date": Format.due($0)]) } ?? t("common.neverUpdated"))
                                     .font(.caption2.monospacedDigit())
                                     .foregroundStyle(Theme.muted)
                             }
@@ -143,7 +143,7 @@ struct SchoolStatusBar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(t("School connection"))
+            .accessibilityLabel(t("common.schoolConnection"))
             SyncRingButton()
         }
         .padding(.horizontal, 16)

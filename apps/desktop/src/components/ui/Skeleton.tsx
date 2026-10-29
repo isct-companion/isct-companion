@@ -22,13 +22,18 @@ export function Skeleton({
       className={cx("skeleton", className)}
       data-shape={shape}
       role="status"
-      aria-label={t("Loading…")}
+      aria-label={t("common.loading")}
     >
       {shape === "week"
         ? Array.from({ length: 5 }, (_, column) => (
             <span key={column} className="skeletonColumn">
               {Array.from({ length: count }, (_, block) => (
-                <i key={block} style={{ "--block": (block + column) % 3 } as React.CSSProperties} />
+                <i
+                  key={block}
+                  style={
+                    { "--block": (block + column) % 3 } as React.CSSProperties
+                  }
+                />
               ))}
             </span>
           ))

@@ -18,8 +18,13 @@ export function DueChip({
   const text = deadlineText(due, locale);
   if (submitted)
     return (
-      <Tag component="time" tone="ok" className="dueChip done" title={text.label}>
-        {t("Submitted")}
+      <Tag
+        component="time"
+        tone="ok"
+        className="dueChip done"
+        title={text.label}
+      >
+        {t("common.submitted")}
       </Tag>
     );
   return due.overdue ? (

@@ -627,13 +627,13 @@ final class AppModel {
     static func reason(_ problem: SchoolSignInProblem) -> String {
         let reason: String
         switch problem.kind {
-        case .invalidCredentials: reason = t("The ID or password was not accepted.")
-        case .locked: reason = t("The school locked this account.")
-        case .invalidOtp: reason = t("The one-time password was not accepted.")
-        case .invalidMatrix: reason = t("The Matrix answer was not accepted.")
-        case .pageWarning: reason = t("The sign-in page showed a warning.")
-        case .needsUser: reason = t("This sign-in step needs you.")
-        case .unavailable: reason = t("The school site is not responding.")
+        case .invalidCredentials: reason = t("failure.theIDOrPasswordWas")
+        case .locked: reason = t("failure.theSchoolLockedThisAccount")
+        case .invalidOtp: reason = t("failure.theOneTimePasswordWas")
+        case .invalidMatrix: reason = t("failure.theMatrixAnswerWasNot")
+        case .pageWarning: reason = t("failure.theSignInPageShowed")
+        case .needsUser: reason = t("failure.thisSignInStepNeeds")
+        case .unavailable: reason = t("failure.theSchoolSiteIsNot")
         }
         return problem.message.isEmpty || problem.message == reason ? reason : "\(reason)\n\(problem.message)"
     }
@@ -720,17 +720,15 @@ final class AppModel {
         // A failure Core raised carries its stable code as `detail`; its copy
         // is the shared catalog's `error.<code>`. Other details are never shown.
         if let code = coreCode(error) {
-            let key = "error.\(code)"
-            let copy = t(key)
-            if copy != key { return copy }
+            if let copy = lookup("error.\(code)") { return copy }
         }
         switch error {
-        case SdkError.Network: return t("You're offline. Showing saved data.")
-        case SdkError.Authentication: return t("Sign in to your school account again.")
-        case SdkError.Maintenance: return t("The school site is under maintenance.")
-        case SdkError.Timeout: return t("The school site is not responding.")
-        case SdkError.Busy: return t("The previous task has not finished yet.")
-        case SdkError.Unavailable: return t("This is not available right now.")
+        case SdkError.Network: return t("failure.youreOfflineShowingSavedData")
+        case SdkError.Authentication: return t("failure.signInToYourSchool")
+        case SdkError.Maintenance: return t("failure.theSchoolSiteIsUnder")
+        case SdkError.Timeout: return t("failure.theSchoolSiteIsNot")
+        case SdkError.Busy: return t("failure.thePreviousTaskHasNot")
+        case SdkError.Unavailable: return t("failure.thisIsNotAvailableRight")
         case is SdkError: return t("error.internal")
         default: return error.localizedDescription
         }
@@ -1091,9 +1089,9 @@ extension AppModel {
     func handIn(_ assignment: String) async throws -> String {
         guard let session else { throw SdkError.Closed }
         let messages = UploadMessages(
-            waiting: t("Preparing your LMS upload…"),
-            queued: t("Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself."),
-            failed: t("The upload area is not available. Choose the files in LMS."))
+            waiting: t("failure.preparingYourLMSUpload"),
+            queued: t("failure.filesSentToTheUpload"),
+            failed: t("failure.theUploadAreaIsNot"))
         guard case let .text(url) = try await session.handInAssignment(assignmentId: assignment, messages: messages).value()
         else { throw SdkError.Unavailable(detail: "") }
         return url

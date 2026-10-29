@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { Channel, isTauri } from "@tauri-apps/api/core";
 import { invoke } from "../platform/native-error";
 
@@ -28,9 +29,7 @@ export function normalizeMatrixText(value: string): string {
 export function parseMatrixText(text: string): string[] {
   const compact = text.toUpperCase().replace(/\s/g, "");
   if (!/^[A-Z]{70}$/.test(compact))
-    throw new Error(
-      "Paste exactly 70 letters in row order (A1…J1, A2…J2, …). Spaces and line breaks are ignored.",
-    );
+    throw new Error(t("settings.credentialImport.pasteExactly70LettersIn"));
   return [...compact];
 }
 
@@ -51,29 +50,23 @@ async function base64(blob: Blob): Promise<string> {
  * compositing and both OCR working sizes belong to the Rust library. */
 export async function prepareMatrixImage(file: File): Promise<string> {
   if (!file.size || file.size > MAX_IMAGE_BYTES)
-    throw new Error("Choose a valid image smaller than 20 MB.");
+    throw new Error(t("matrixScan.chooseAValidImageSmaller"));
   const { isHeic, heicTo } = await import("heic-to/csp");
   let input: Blob = file;
   let heic = false;
   try {
     heic = await isHeic(file);
   } catch {
-    throw new Error(
-      "Cannot read this image. Choose a valid PNG, JPEG, WebP or HEIC photo.",
-    );
+    throw new Error(t("matrixScan.cannotReadThisImageChoose"));
   }
   if (heic) {
     try {
       input = await heicTo({ blob: file, type: "image/jpeg", quality: 0.95 });
     } catch {
-      throw new Error(
-        "Cannot decode this HEIC image. Try exporting it as PNG or JPEG.",
-      );
+      throw new Error(t("matrixScan.cannotDecodeThisHEICImage"));
     }
     if (!input.size || input.size > MAX_IMAGE_BYTES)
-      throw new Error(
-        "Decoded HEIC image exceeds 20 MB. Try exporting it as JPEG.",
-      );
+      throw new Error(t("matrixScan.decodedHEICImageExceeds20"));
   }
   return base64(input);
 }
@@ -82,8 +75,7 @@ export async function recognizeMatrixImage(
   file: File,
   onProgress?: (completed: number, total: number) => void,
 ): Promise<Recognition[]> {
-  if (!isTauri())
-    throw new Error("Scan image is available in the desktop app.");
+  if (!isTauri()) throw new Error(t("matrixScan.scanImageIsAvailableIn"));
   const image = await prepareMatrixImage(file);
   const onProgressChannel = new Channel<OcrProgress>();
   onProgressChannel.onmessage = (progress) =>

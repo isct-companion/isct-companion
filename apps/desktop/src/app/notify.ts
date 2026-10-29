@@ -25,19 +25,19 @@ export const notify = {
     changedTimer = setTimeout(() => {
       notifications.show({
         id: "school-update",
-        message: t("Updated {{count}} items", { count: changedItems }),
+        message: t("app.updatedCountItems", { count: changedItems }),
         autoClose: NOTICE_MS,
         withCloseButton: false,
       });
       changedItems = 0;
     }, 600);
   },
-  info: (message: string) => show(t(message)),
+  info: (message: string) => show(message),
   /** A finished change with a button that reverses it. */
   undoable: (message: string, undo: () => void) =>
-    show(t(message), { label: t("Undo"), run: undo }),
+    show(message, { label: t("common.undo"), run: undo }),
   error: (error: unknown, retry?: () => void) => {
-    const message = t(errorText(error) ?? "unknown error");
-    show(message, retry && { label: t("Retry saving"), run: retry });
+    const message = errorText(error) ?? t("common.unknownError");
+    show(message, retry && { label: t("app.retrySaving"), run: retry });
   },
 };

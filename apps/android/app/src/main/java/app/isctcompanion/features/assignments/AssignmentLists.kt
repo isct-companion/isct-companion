@@ -92,28 +92,28 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().padding(top = 20.dp, start = 4.dp),
         ) {
-            Text(t("Assignments"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
+            Text(t("common.assignments"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
             Text(
-                t("{{quarter}} · Unsubmitted only", "quarter" to Format.quarter(board.term)),
+                t("assignments.quarterUnsubmittedOnly", "quarter" to Format.quarter(board.term)),
                 style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
                 modifier = Modifier.weight(1f).padding(bottom = 3.dp),
             )
-            TextButton(onClick = openRecord) { Text(t("See all")) }
+            TextButton(onClick = openRecord) { Text(t("assignments.seeAll")) }
         }
     }
     val today = board.today
     if (!today.isEmpty()) {
         item(key = "assignments-tip") {
-            GuideTip("assignment-swipe", "Pin or hide", "Swipe right to pin an assignment, left to hide it.", Modifier.padding(top = 8.dp))
+            GuideTip("assignment-swipe", "guide.pinOrHide", "guide.swipeRightToPinAn", Modifier.padding(top = 8.dp))
         }
     }
-    group(t("Pinned"), today.pinned, now, Format.OverdueStyle.Elapsed)
-    group(t("This week"), today.dueThisWeek, now, Format.OverdueStyle.Elapsed)
-    group(t("Next week and later"), today.later, now, Format.OverdueStyle.Elapsed)
-    group(t("Overdue"), today.pastRecent, now, Format.OverdueStyle.Elapsed)
+    group(t("common.pinned"), today.pinned, now, Format.OverdueStyle.Elapsed)
+    group(t("common.thisWeek"), today.dueThisWeek, now, Format.OverdueStyle.Elapsed)
+    group(t("assignments.nextWeekAndLater"), today.later, now, Format.OverdueStyle.Elapsed)
+    group(t("common.overdue"), today.pastRecent, now, Format.OverdueStyle.Elapsed)
     if (today.isEmpty()) {
         item(key = "assignments-empty") {
-            EmptyState(Icons.Rounded.CheckCircle, t("No unsubmitted assignments"))
+            EmptyState(Icons.Rounded.CheckCircle, t("assignments.noUnsubmittedAssignments"))
         }
     }
 }
@@ -194,9 +194,9 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
         backgroundContent = {
             when (state.dismissDirection) {
                 SwipeToDismissBoxValue.StartToEnd ->
-                    SwipeAction(Theme.colors.accent, if (item.pinned) t("Unpin") else t("Pin"), Icons.Rounded.PushPin, Alignment.CenterStart)
+                    SwipeAction(Theme.colors.accent, if (item.pinned) t("common.unpin") else t("common.pin"), Icons.Rounded.PushPin, Alignment.CenterStart)
                 SwipeToDismissBoxValue.EndToStart ->
-                    SwipeAction(Theme.colors.muted, t("Hide"), Icons.Rounded.VisibilityOff, Alignment.CenterEnd, Theme.colors.surface)
+                    SwipeAction(Theme.colors.muted, t("common.hide"), Icons.Rounded.VisibilityOff, Alignment.CenterEnd, Theme.colors.surface)
                 SwipeToDismissBoxValue.Settled -> Unit
             }
         },
@@ -223,7 +223,7 @@ private fun RestoreRow(item: DeadlineItem, now: Instant) {
     SwipeToDismissBox(
         state = state,
         enableDismissFromStartToEnd = false,
-        backgroundContent = { SwipeAction(Theme.colors.accent, t("Restore"), Icons.Rounded.Visibility, Alignment.CenterEnd) },
+        backgroundContent = { SwipeAction(Theme.colors.accent, t("common.restore"), Icons.Rounded.Visibility, Alignment.CenterEnd) },
     ) {
         Box(Modifier.background(Theme.colors.surface)) {
             DeadlineLink(item, hidden = true) { DeadlineRow(item, now) }
@@ -254,28 +254,28 @@ fun RecordScreen() {
     val record = model.board?.record
     Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
         TopAppBar(
-            title = { Text(t("All assignments")) },
+            title = { Text(t("common.allAssignments")) },
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) }
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
             if (record != null) {
-                group(t("Pinned"), record.pinned, now)
-                group(t("This week"), record.dueThisWeek, now)
-                group(t("Next week and later"), record.later, now)
-                group(t("No deadline"), record.undated, now)
-                group(t("Past"), record.pastRecent, now)
+                group(t("common.pinned"), record.pinned, now)
+                group(t("common.thisWeek"), record.dueThisWeek, now)
+                group(t("assignments.nextWeekAndLater"), record.later, now)
+                group(t("common.noDeadline"), record.undated, now)
+                group(t("common.past"), record.pastRecent, now)
                 if (record.pastEarlier.isNotEmpty()) {
                     if (unfolded) {
-                        group(t("Earlier"), record.pastEarlier, now)
+                        group(t("common.earlier"), record.pastEarlier, now)
                     } else {
                         item {
                             Box(Modifier.padding(top = 12.dp)) {
                                 GroupCard {
                                     Text(
-                                        t("Show {{count}} earlier", "count" to record.pastEarlier.size), color = Theme.colors.accent,
+                                        t("assignments.showCountEarlier", "count" to record.pastEarlier.size), color = Theme.colors.accent,
                                         modifier = Modifier.fillMaxWidth().clickable { unfolded = true }.padding(16.dp),
                                     )
                                 }
@@ -283,7 +283,7 @@ fun RecordScreen() {
                         }
                     }
                 }
-                group(t("Hidden"), record.hidden, now, restores = true)
+                group(t("assignments.hidden"), record.hidden, now, restores = true)
             }
         }
     }

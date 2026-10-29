@@ -17,7 +17,12 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
     const href = safeUrl(link.getAttribute("href"));
     if (!href) continue;
     const url = new URL(href);
-    if (url.hostname === "lms.s.isct.ac.jp" && url.pathname.endsWith("/course/view.php") && (href.endsWith("#") || /^#coursecontentcollapse\d+$/.test(url.hash))) link.remove();
+    if (
+      url.hostname === "lms.s.isct.ac.jp" &&
+      url.pathname.endsWith("/course/view.php") &&
+      (href.endsWith("#") || /^#coursecontentcollapse\d+$/.test(url.hash))
+    )
+      link.remove();
   }
   // Only explicit block language metadata can filter arbitrary content.
   if (language && source.body.querySelector(`[lang="${language}"]`))
@@ -70,12 +75,18 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
         const link = document.createElement("a");
         link.href = url;
         link.className = "lmsAttachmentCard";
-        link.textContent = node.getAttribute("alt") || t("Image");
+        link.textContent = node.getAttribute("alt") || t("lms.image");
         const placeholder = document.createElement("span");
         placeholder.dataset.imageSrc = url;
         placeholder.dataset.imageAlt = link.textContent;
-        if (parent.tagName === "A") { parent.classList.add("lmsImageCard"); parent.append(placeholder, caption(link.textContent)); }
-        else { link.classList.add("lmsImageCard"); link.replaceChildren(placeholder, caption(link.textContent)); parent.append(link); }
+        if (parent.tagName === "A") {
+          parent.classList.add("lmsImageCard");
+          parent.append(placeholder, caption(link.textContent));
+        } else {
+          link.classList.add("lmsImageCard");
+          link.replaceChildren(placeholder, caption(link.textContent));
+          parent.append(link);
+        }
       }
       return;
     }
@@ -88,7 +99,8 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
         const url = safeUrl(node.getAttribute("href"));
         if (url) {
           el.setAttribute("href", url);
-          if (new URL(url).pathname.includes("/pluginfile.php/")) el.className = "lmsAttachmentCard";
+          if (new URL(url).pathname.includes("/pluginfile.php/"))
+            el.className = "lmsAttachmentCard";
         }
       }
       for (const attr of ["colspan", "rowspan"]) {
@@ -104,13 +116,21 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
     node.childNodes.forEach((child) => copy(child, el));
     if (node.tagName === "A" && el !== parent) {
       const url = el.getAttribute("href");
-      if (url && previewKind(url) === "image" && !el.querySelector("[data-image-src]")) {
+      if (
+        url &&
+        previewKind(url) === "image" &&
+        !el.querySelector("[data-image-src]")
+      ) {
         const placeholder = document.createElement("span");
         placeholder.dataset.imageSrc = url;
-        placeholder.dataset.imageAlt = el.textContent || t("Image");
+        placeholder.dataset.imageAlt = el.textContent || t("lms.image");
         el.classList.add("lmsImageCard", "lmsAttachmentCard");
         el.replaceChildren(placeholder, caption(placeholder.dataset.imageAlt));
-      } else if (url && el.classList.contains("lmsAttachmentCard") && !el.classList.contains("lmsImageCard")) {
+      } else if (
+        url &&
+        el.classList.contains("lmsAttachmentCard") &&
+        !el.classList.contains("lmsImageCard")
+      ) {
         fileCard(el, url);
       }
     }
@@ -162,7 +182,8 @@ function caption(text: string) {
 function fileCard(link: HTMLElement, url: string) {
   const name = document.createElement("span");
   name.className = "lmsAttachmentName";
-  name.textContent = link.textContent?.trim() || url.split("/").pop() || t("File");
+  name.textContent =
+    link.textContent?.trim() || url.split("/").pop() || t("lms.file");
   const meta = document.createElement("small");
   meta.textContent = extension(url).toUpperCase() || "FILE";
   link.dataset.family = fileFamily(url);
@@ -179,14 +200,26 @@ function fileLists(root: HTMLElement) {
     const items = [...list.children];
     const cards = items.map((item) => {
       const links = item.querySelectorAll("a");
-      const card = links.length === 1 && links[0].classList.contains("lmsAttachmentCard") && !links[0].classList.contains("lmsImageCard") ? links[0] : undefined;
-      const rest = card ? (item.textContent ?? "").replace(card.textContent ?? "", "").trim() : "";
-      return item.tagName === "LI" && card && rest.length <= 40 ? { card, rest } : undefined;
+      const card =
+        links.length === 1 &&
+        links[0].classList.contains("lmsAttachmentCard") &&
+        !links[0].classList.contains("lmsImageCard")
+          ? links[0]
+          : undefined;
+      const rest = card
+        ? (item.textContent ?? "").replace(card.textContent ?? "", "").trim()
+        : "";
+      return item.tagName === "LI" && card && rest.length <= 40
+        ? { card, rest }
+        : undefined;
     });
     if (!items.length || cards.some((card) => !card)) continue;
     const grid = document.createElement("div");
     grid.className = "lmsFileList";
-    for (const { card, rest } of cards as { card: HTMLAnchorElement; rest: string }[]) {
+    for (const { card, rest } of cards as {
+      card: HTMLAnchorElement;
+      rest: string;
+    }[]) {
       if (rest) card.querySelector("small")!.textContent += ` · ${rest}`;
       grid.append(card);
     }
@@ -218,14 +251,28 @@ export function contentText(html?: string): string {
 
 export function announcements(html?: string) {
   if (!html) return [];
-  const page = new DOMParser().parseFromString(html.slice(0, 100000), "text/html");
+  const page = new DOMParser().parseFromString(
+    html.slice(0, 100000),
+    "text/html",
+  );
   return [...page.getElementsByTagName("article")].map((article, index) => {
     const titleNode = article.getElementsByTagName("h5")[0];
-    const title = titleNode?.textContent?.trim() || t("Announcement");
-    const time = article.getElementsByTagName("time")[0] || (article.getElementsByTagName("p")[0]?.textContent?.match(/^\d{4}年/) ? article.getElementsByTagName("p")[0] : undefined);
+    const title = titleNode?.textContent?.trim() || t("lms.announcement");
+    const time =
+      article.getElementsByTagName("time")[0] ||
+      (article.getElementsByTagName("p")[0]?.textContent?.match(/^\d{4}年/)
+        ? article.getElementsByTagName("p")[0]
+        : undefined);
     const date = time?.textContent || "";
-    titleNode?.remove(); time?.remove();
-    return { id: article.id || String(index), title, date, html: article.innerHTML, url: safeUrl(article.getAttribute("data-source-url")) };
+    titleNode?.remove();
+    time?.remove();
+    return {
+      id: article.id || String(index),
+      title,
+      date,
+      html: article.innerHTML,
+      url: safeUrl(article.getAttribute("data-source-url")),
+    };
   });
 }
 

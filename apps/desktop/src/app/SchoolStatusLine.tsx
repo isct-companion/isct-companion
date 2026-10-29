@@ -31,7 +31,7 @@ function SyncProgressLine({
     return (
       <span className="syncProgress" data-kind="busy">
         <i className="schoolStatusSpinner" aria-hidden="true" />
-        <span>{t("Resetting…")}</span>
+        <span>{t("app.resetting")}</span>
       </span>
     );
   switch (line.kind) {
@@ -65,15 +65,13 @@ function SyncProgressLine({
           title={runText(line.run)}
         >
           <i className="schoolStatusSpinner" aria-hidden="true" />
-          <span>{t("Updating in the background")}</span>
+          <span>{t("app.updatingInTheBackground")}</span>
         </span>
       );
     case "held":
       return (
         <span className="syncProgress" data-kind="held">
-          <span title={runText(line.run)}>
-            {heldText(line.held, locale)}
-          </span>
+          <span title={runText(line.run)}>{heldText(line.held, locale)}</span>
         </span>
       );
   }
@@ -101,7 +99,7 @@ function SyncFailures({
             disabled={snapshot.resetting}
             onClick={() => sendRefresh(retryScope(run))}
           >
-            {t("Retry")}
+            {t("common.retry")}
           </UiButton>
         </li>
       ))}
@@ -164,7 +162,7 @@ export function SchoolStatusLine({
             disabled={snapshot.resetting}
             onClick={refresh}
           >
-            {t(snapshot.resetting ? "Resetting…" : "Refresh now")}
+            {t(snapshot.resetting ? "app.resetting" : "common.refreshNow")}
           </UiButton>
         )}
       </div>

@@ -189,7 +189,7 @@ fun TimetableScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Header(monday, chip(year, monday), term, openPicker = { picker = true }) { go(thisWeek(), slow = false) }
-        GuideTip("timetable-marks", "Swipe to change weeks", "Long-press a class to mark it as an exam or cancelled.")
+        GuideTip("timetable-marks", "guide.swipeToChangeWeeks", "timetable.longPressAClassTo")
         // Period rows share the height the screen leaves, so the week fits
         // without scrolling (with a floor for very short windows).
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
@@ -252,7 +252,7 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
         // The way into the week picker, a secondary button.
         ActionButton(
             chip, openPicker,
-            Modifier.semantics { contentDescription = t("Choose a week") },
+            Modifier.semantics { contentDescription = t("timetable.chooseAWeek") },
             level = ButtonLevel.Secondary, icon = Icons.Rounded.CalendarMonth,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -269,8 +269,8 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
             // 今日 rests while this week is shown, which doubles as "you are here".
             val atThisWeek = monday == thisWeek()
             ActionButton(
-                t("Today"), toToday,
-                Modifier.semantics { contentDescription = t("Back to this week") },
+                t("common.today"), toToday,
+                Modifier.semantics { contentDescription = t("timetable.backToThisWeek") },
                 level = ButtonLevel.Secondary, enabled = !atThisWeek,
             )
         }
@@ -288,22 +288,22 @@ private fun ExportButton(term: String) {
     fun export(scope0: CalendarExportScope) = scope.launch {
         menu = false
         runCatching { share(context, term, scope0, model.quarterIcs(term, scope0)) }.onFailure {
-            Toast.makeText(context, t("Export failed: {{reason}}", "reason" to AppModel.describe(it)), Toast.LENGTH_LONG).show()
+            Toast.makeText(context, t("settings.main.exportFailedReason", "reason" to AppModel.describe(it)), Toast.LENGTH_LONG).show()
         }
     }
     Box {
-        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.IosShare, t("Export ICS"), tint = Theme.colors.accent) }
+        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.IosShare, t("common.exportICS"), tint = Theme.colors.accent) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text(
-                t("Export ICS") + " · " + Format.quarter(term), style = MaterialTheme.typography.labelMedium,
+                t("common.exportICS") + " · " + Format.quarter(term), style = MaterialTheme.typography.labelMedium,
                 color = Theme.colors.muted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             )
             DropdownMenuItem(
-                text = { Text(t("Courses only")) }, leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
+                text = { Text(t("common.coursesOnly")) }, leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
                 onClick = { export(CalendarExportScope.COURSES) },
             )
             DropdownMenuItem(
-                text = { Text(t("Courses + weekly events")) }, leadingIcon = { Icon(Icons.Rounded.EditCalendar, null) },
+                text = { Text(t("common.coursesWeeklyEvents")) }, leadingIcon = { Icon(Icons.Rounded.EditCalendar, null) },
                 onClick = { export(CalendarExportScope.COURSES_AND_EVENTS) },
             )
         }
@@ -323,9 +323,9 @@ private suspend fun share(context: Context, term: String, scope: CalendarExportS
 
 /** "2026年度 · 3Q 第 2 週", from Core's week list; between quarters, 休み. */
 private fun chip(year: TimetableYear?, monday: LocalDate): String {
-    year ?: return t("Timetable")
+    year ?: return t("common.timetable")
     val label = year.weeks.firstOrNull { it.monday == Format.civil(monday) }?.let { weekLabel(it, year) }
-    return listOfNotNull(t("AY {{year}}", "year" to year.year), label).joinToString(" · ")
+    return listOfNotNull(t("timetable.academicYear", "year" to year.year), label).joinToString(" · ")
 }
 
 internal fun thisWeek() = monday(Format.today())
@@ -539,7 +539,7 @@ private fun Block(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     ExamTag(quiz, tint)
                     if (block.sourceChanged == true) {
-                        Icon(Icons.Rounded.Error, t("Timetable changed"), tint = Theme.colors.warn, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Rounded.Error, t("common.timetableChanged"), tint = Theme.colors.warn, modifier = Modifier.size(12.dp))
                     }
                 }
             }
@@ -556,8 +556,8 @@ private fun Block(
                 // or the first room; every room stays on the course page.
                 val moved = grid != null && (grid.startTime != block.startTime || grid.endTime != block.endTime)
                 val line = when {
-                    planned -> t("Planned")
-                    cancelled -> t("No class")
+                    planned -> t("timetable.planned")
+                    cancelled -> t("common.noClass")
                     moved -> "${block.startTime.removePrefix("0")}–${block.endTime.removePrefix("0")}"
                     else -> firstRoom(block.room)
                 }
@@ -569,13 +569,13 @@ private fun Block(
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text(
-                t("This lesson"), style = MaterialTheme.typography.labelMedium, color = Theme.colors.muted,
+                t("timetable.thisLesson"), style = MaterialTheme.typography.labelMedium, color = Theme.colors.muted,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             )
             HorizontalDivider()
             // Choosing the checked mark again sends `class`; Core decides
             // whether that clears the mark.
-            for ((value, label) in listOf("exam" to t("Mark as exam"), "quiz" to t("Mark as quiz"), "cancelled" to t("Mark as cancelled"))) {
+            for ((value, label) in listOf("exam" to t("common.markAsExam"), "quiz" to t("common.markAsQuiz"), "cancelled" to t("common.markAsCancelled"))) {
                 DropdownMenuItem(
                     text = { Text(label) },
                     trailingIcon = { if (value == state) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent) },
@@ -597,9 +597,9 @@ private fun Block(
 @Composable
 private fun ExamTag(quiz: Boolean, tint: Color) {
     if (quiz) {
-        Tag(t("Quiz"), color = tint, variant = TagVariant.Outline, ink = courseMix(tint, Theme.tintInk, Theme.colors.ink))
+        Tag(t("common.quiz"), color = tint, variant = TagVariant.Outline, ink = courseMix(tint, Theme.tintInk, Theme.colors.ink))
     } else {
-        Tag(t("Exam"), color = tint, variant = TagVariant.Solid)
+        Tag(t("common.exam"), color = tint, variant = TagVariant.Solid)
     }
 }
 

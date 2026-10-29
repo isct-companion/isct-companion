@@ -3,7 +3,7 @@ import { notify as appNotify } from "../../app/notify";
 import { Fragment, useState, type ReactNode } from "react";
 import { refresh, useSync } from "../../app/useSync";
 import { runsFor } from "../../platform/sync";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import type { Subscription, Workspace } from "../../lib/model";
 import { UiButton, UiInput } from "../../components/ui";
 import {
@@ -27,14 +27,17 @@ type Update = (f: (d: Workspace) => Workspace) => void;
 
 const DATASETS: Record<
   Subscription["kind"],
-  { title: string; follows: "academic" | "admission" }
+  { title: MessageKey; follows: "academic" | "admission" }
 > = {
-  calendar: { title: "Academic calendar", follows: "academic" },
-  departments: { title: "Study guide", follows: "admission" },
-  "important-dates": { title: "Important dates", follows: "academic" },
-  exams: { title: "Exam timetable", follows: "academic" },
+  calendar: {
+    title: "settings.academicCalendar.academicCalendar",
+    follows: "academic",
+  },
+  departments: { title: "webRouter.studyGuide", follows: "admission" },
+  "important-dates": { title: "today.importantDates", follows: "academic" },
+  exams: { title: "settings.dataUpdates.examTimetable", follows: "academic" },
   "class-schedules": {
-    title: "Alternating class schedules",
+    title: "settings.dataUpdates.alternatingClassSchedules",
     follows: "academic",
   },
 };
@@ -70,7 +73,7 @@ export function DataUpdatesSettings({
   return (
     <>
       <SettingsHeader
-        title="Data updates"
+        title="settings.main.dataUpdates"
         actions={
           refreshReferences && (
             <UiButton
@@ -78,24 +81,26 @@ export function DataUpdatesSettings({
               disabled={busy}
               onClick={checkNow}
             >
-              {busy ? t("Checking…") : t("Check now")}
+              {busy
+                ? t("settings.academicCalendar.checking")
+                : t("settings.academicCalendar.checkNow")}
             </UiButton>
           )
         }
       />
       {tasks}
       <SettingsGroup
-        title="Official data"
+        title="settings.dataUpdates.officialData"
         footer={
           <>
             {lastChecked
-              ? t("Last checked {{date}}", {
+              ? t("settings.dataUpdates.lastCheckedDate", {
                   date: formatDay(lastChecked, locale, {
                     hour: "2-digit",
                     minute: "2-digit",
                   }),
                 })
-              : t("Not checked yet")}
+              : t("settings.dataUpdates.notCheckedYet")}
             {" · "}
             <a
               href="https://github.com/isct-companion/Isct-Data"
@@ -114,14 +119,14 @@ export function DataUpdatesSettings({
           const state = view?.state ?? { state: "pending" as const };
           const hint =
             state.state === "off"
-              ? t("Off")
+              ? t("settings.main.off")
               : state.state === "no-year"
-                ? t("Set the year you started in Study profile")
+                ? t("settings.dataUpdates.setTheYearYouStarted")
                 : state.state === "error"
                   ? state.message
                   : state.state === "current"
-                    ? `${definition.follows === "admission" ? t("{{year}} entry", { year }) : t("AY {{year}}", { year })} · ${t("Updated {{date}}", { date: formatDay(state.fetchedAt, locale) })}`
-                    : `${definition.follows === "admission" ? t("{{year}} entry", { year }) : t("AY {{year}}", { year })} · ${t("Waiting for the next check")}`;
+                    ? `${definition.follows === "admission" ? t("settings.dataUpdates.yearEntry", { year }) : t("timetable.academicYear", { year })} · ${t("syncStatus.updatedDate", { date: formatDay(state.fetchedAt, locale) })}`
+                    : `${definition.follows === "admission" ? t("settings.dataUpdates.yearEntry", { year }) : t("timetable.academicYear", { year })} · ${t("settings.dataUpdates.waitingForTheNextCheck")}`;
           return (
             <Row key={kind} id={kind} title={definition.title} hint={hint}>
               <Toggle
@@ -145,9 +150,11 @@ export function DataUpdatesSettings({
       <SettingsGroup>
         <Row
           id="cellular"
-          title="Update on cellular data"
+          title="settings.main.updateOnCellularData"
           hint={
-            waitingForWifi ? t("Paused until Wi-Fi is available") : undefined
+            waitingForWifi
+              ? t("settings.dataUpdates.pausedUntilWiFiIs")
+              : undefined
           }
         >
           <Toggle
@@ -164,8 +171,8 @@ export function DataUpdatesSettings({
       {!editable && (
         <p className="settingsNote">
           {refreshReferences
-            ? t("Turn individual updates on or off in the desktop app.")
-            : t("Data updates run in the installed app.")}
+            ? t("settings.dataUpdates.turnIndividualUpdatesOnOr")
+            : t("settings.dataUpdates.dataUpdatesRunInThe")}
         </p>
       )}
     </>

@@ -29,9 +29,9 @@ export function CourseStorage() {
   };
   return (
     <div className="courseStorageSettings" data-setting="folder">
-      <b>{t("Course folder")}</b>
-      <p>{info?.root && (info.custom ? info.root : t(info.root))}</p>
-      <small>{t("Changing it only affects new downloads.")}</small>
+      <b>{t("settings.courseStorage.courseFolder")}</b>
+      <p>{info?.root && info.root}</p>
+      <small>{t("settings.courseStorage.changingItOnlyAffectsNew")}</small>
       <div className="actions">
         {info?.canChoose && (
           <UiButton
@@ -39,7 +39,7 @@ export function CourseStorage() {
             disabled={busy}
             onClick={() => void choose(false)}
           >
-            {t("Choose folder…")}
+            {t("settings.courseStorage.chooseFolder")}
           </UiButton>
         )}
         {info?.custom && (
@@ -48,7 +48,7 @@ export function CourseStorage() {
             disabled={busy}
             onClick={() => void choose(true)}
           >
-            {t("Use Documents")}
+            {t("settings.courseStorage.useDocuments")}
           </UiButton>
         )}
       </div>

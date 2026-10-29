@@ -177,7 +177,7 @@ export const RichContent = memo(function RichContent({
         const name =
           link.querySelector<HTMLElement>("[data-image-alt]")?.dataset
             .imageAlt || link.querySelector(".lmsAttachmentName")?.textContent;
-        if (url) openLink(url, name || link.textContent || t("Link"), link);
+        if (url) openLink(url, name || link.textContent || t("lms.link"), link);
       }}
     />
   );

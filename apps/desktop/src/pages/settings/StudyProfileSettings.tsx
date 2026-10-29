@@ -125,18 +125,14 @@ export function StudyProfileSettings({
   const save = async () => {
     if (!dirty || saving) return;
     if (committedKey !== baselineKey) {
-      setError(
-        t(
-          "The study profile changed elsewhere. Cancel to load it, then apply your edits again.",
-        ),
-      );
+      setError(t("settings.studyProfile.theStudyProfileChangedElsewhere"));
       return;
     }
     if (
       draft.enrollments.some((enrollment) => !enrollment.admittedTerm) &&
       !draft.admissionYear
     ) {
-      setError(t("Choose an admission year."));
+      setError(t("settings.studyProfile.chooseAnAdmissionYear"));
       return;
     }
     setSaving(true);
@@ -167,9 +163,9 @@ export function StudyProfileSettings({
 
   return (
     <>
-      <SettingsHeader title="Study" />
+      <SettingsHeader title="settings.academicCalendar.study" />
       <SettingsGroup>
-        <Row id="department" title="Department">
+        <Row id="department" title="settings.main.department">
           <UiSelect
             value={department?.id ?? ""}
             onChange={(value) => {
@@ -180,7 +176,7 @@ export function StudyProfileSettings({
               });
             }}
             data={[
-              { value: "", label: t("Not selected") },
+              { value: "", label: t("settings.studyProfile.notSelected") },
               ...SYLLABUS_DEPARTMENTS.map((item) => ({
                 value: item.id,
                 label: pickLocalized(
@@ -192,7 +188,7 @@ export function StudyProfileSettings({
             ]}
           />
         </Row>
-        <Row id="admission-year" title="Admission year">
+        <Row id="admission-year" title="settings.main.admissionYear">
           <UiSelect
             disabled={saving}
             value={draft.admissionYear ?? ""}
@@ -203,26 +199,32 @@ export function StudyProfileSettings({
               setError("");
             }}
             data={[
-              { value: "", label: t("Not set") },
+              { value: "", label: t("settings.studyProfile.notSet") },
               ...years.map((year) => ({
                 value: String(year),
-                label: t("{{year}} entry", { year }),
+                label: t("settings.dataUpdates.yearEntry", { year }),
               })),
             ]}
           />
         </Row>
-        <Row id="study-stages" title="Degree programme">
+        <Row id="study-stages" title="settings.studyProfile.degreeProgramme">
           <UiSelect
             disabled={saving}
-            aria-label={t("Degree programme")}
+            aria-label={t("settings.studyProfile.degreeProgramme")}
             value={currentEnrollment?.stage ?? "unknown"}
             onChange={(value) => setDegree(value as StudyEnrollment["stage"])}
             data={[
-              { value: "unknown", label: t("Not set") },
-              { value: "undergraduate", label: t("Undergraduate") },
-              { value: "master", label: t("Master") },
-              { value: "professional", label: t("Professional degree") },
-              { value: "doctoral", label: t("Doctoral") },
+              { value: "unknown", label: t("settings.studyProfile.notSet") },
+              {
+                value: "undergraduate",
+                label: t("settings.studyProfile.undergraduate"),
+              },
+              { value: "master", label: t("settings.studyProfile.master") },
+              {
+                value: "professional",
+                label: t("settings.studyProfile.professionalDegree"),
+              },
+              { value: "doctoral", label: t("settings.studyProfile.doctoral") },
             ]}
           />
         </Row>
@@ -233,7 +235,7 @@ export function StudyProfileSettings({
             disabled={!dirty || saving}
             onClick={cancel}
           >
-            {t("Cancel")}
+            {t("common.cancel")}
           </UiButton>
           <UiButton
             type="button"
@@ -241,7 +243,9 @@ export function StudyProfileSettings({
             disabled={!dirty || saving}
             onClick={() => void save()}
           >
-            {saving ? t("Saving…") : t("Save enrollment details")}
+            {saving
+              ? t("settings.studyProfile.saving")
+              : t("settings.studyProfile.saveEnrollmentDetails")}
           </UiButton>
         </div>
         {error && (
@@ -252,12 +256,12 @@ export function StudyProfileSettings({
       </SettingsGroup>
       {openSection && (
         <SettingsGroup>
-          <Row id="calendar" title="Academic calendar">
+          <Row id="calendar" title="settings.academicCalendar.academicCalendar">
             <UiButton
               className="textButton"
               onClick={() => openSection("calendar")}
             >
-              {t("Edit")} ›
+              {t("common.edit")} ›
             </UiButton>
           </Row>
         </SettingsGroup>

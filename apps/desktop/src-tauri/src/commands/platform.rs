@@ -155,7 +155,7 @@ pub(crate) fn copy_application_logs(
     require_local_main(&webview)?;
     app.clipboard()
         .write_text(application_logs_text(&app)?)
-        .map_err(|_| "Logs could not be copied to the clipboard.".to_string())?;
+        .map_err(|_| "settings.diagnostics.copyLogsFailed".to_string())?;
     Ok(true)
 }
 

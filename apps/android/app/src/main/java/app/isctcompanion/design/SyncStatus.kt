@@ -66,22 +66,22 @@ import org.json.JSONObject
 fun sourceName(source: String): String = when (source) {
     "lms" -> "LMS"
     "kyomu" -> "教務Web"
-    "references" -> t("Reference data")
-    "catalog" -> t("Course catalog")
+    "references" -> t("syncStatus.dataset.referenceData")
+    "catalog" -> t("syncStatus.dataset.courseCatalog")
     else -> source
 }
 
 /** Dataset names, keyed by the dataset id Core puts in `RunView.dataset` and
  * in its labels' keys. */
 private fun datasetName(key: String): String? = when (key) {
-    "lms.enrolment" -> t("Courses")
-    "lms.deadlines" -> t("Deadlines")
-    "lms.course" -> t("Course content")
-    "lms.assign" -> t("Assignments")
-    "lms.history" -> t("Past courses")
-    "kyomu.page" -> t("教務Web pages")
-    "catalog.official" -> t("Course catalog")
-    "reference" -> t("Reference data")
+    "lms.enrolment" -> t("common.courses")
+    "lms.deadlines" -> t("syncStatus.dataset.deadlines")
+    "lms.course" -> t("syncStatus.dataset.courseContent")
+    "lms.assign" -> t("common.assignments")
+    "lms.history" -> t("syncStatus.dataset.pastCourses")
+    "kyomu.page" -> t("syncStatus.dataset.kyomuPages")
+    "catalog.official" -> t("syncStatus.dataset.courseCatalog")
+    "reference" -> t("syncStatus.dataset.referenceData")
     else -> null
 }
 
@@ -93,27 +93,27 @@ fun label(label: SyncLabel): String {
     datasetName(label.key.removePrefix("sync."))?.let { return it }
     val args = runCatching { JSONObject(label.args) }.getOrNull()
     val values = args?.keys()?.asSequence()?.map { it to args.get(it) }?.toList().orEmpty()
-    return t(label.key, *values.toTypedArray())
+    return lookup(label.key, *values.toTypedArray()) ?: label.key
 }
 
 fun heldText(held: Held): String = when (held) {
-    is Held.Offline -> t("Waiting for a connection")
-    is Held.Cellular -> t("Waiting for Wi-Fi")
+    is Held.Offline -> t("syncStatus.waitingForAConnection")
+    is Held.Cellular -> t("syncStatus.waitingForWifi")
     // Android's Battery Saver, not iOS's Low Power Mode.
-    is Held.PowerSaver -> t("Paused: power saver")
-    is Held.Background -> t("Resumes when the app is in front")
+    is Held.PowerSaver -> t("syncStatus.pausedPowerSaver")
+    is Held.Background -> t("syncStatus.resumesWhenTheAppIs")
     is Held.Backoff -> retryAt(held.until)
-    is Held.HostPaused -> t("{{host}} is paused until {{time}}", "host" to held.host, "time" to Format.due(held.until))
-    is Held.SignInRequired -> t("Sign in required")
-    is Held.Resetting -> t("Resetting")
-    is Held.Prerequisite -> t("Waiting for the data it depends on")
+    is Held.HostPaused -> t("syncStatus.hostIsPausedUntilTime", "host" to held.host, "time" to Format.due(held.until))
+    is Held.SignInRequired -> t("syncStatus.signInRequired")
+    is Held.Resetting -> t("syncStatus.resetting")
+    is Held.Prerequisite -> t("syncStatus.waitingForTheDataIt")
 }
 
-private fun retryAt(raw: String): String = t("Retry at {{time}}", "time" to Format.due(raw))
+private fun retryAt(raw: String): String = t("syncStatus.retryAtTime", "time" to Format.due(raw))
 
 /** "Could not update Deadlines · Retry at Today 14:05". */
 private fun failureText(failure: SyncFailure, name: String): String =
-    listOfNotNull(t("Could not update {{source}}", "source" to name), failure.retryAt?.let(::retryAt)).joinToString(" · ")
+    listOfNotNull(t("syncStatus.couldNotUpdateSource", "source" to name), failure.retryAt?.let(::retryAt)).joinToString(" · ")
 
 /** What a Retry asks Core to read again for a failed run. */
 private fun retryScope(run: RunView): SyncScope = when {
@@ -173,7 +173,7 @@ val SyncSnapshot.problem: SyncProblem?
     get() {
         val held = runs.mapNotNull { it.held } + sources.mapNotNull { it.held }
         held.firstNotNullOfOrNull { it as? Held.SignInRequired }?.let {
-            return SyncProblem(t("Sign in required"), null, it.profile)
+            return SyncProblem(t("syncStatus.signInRequired"), null, it.profile)
         }
         runs.firstOrNull { it.failure != null }?.let { run ->
             return SyncProblem(failureText(run.failure!!, label(run.label)), retryScope(run), null)
@@ -187,11 +187,11 @@ val SyncSnapshot.problem: SyncProblem?
 /** One line for the first-load card and the indicator's accessibility label. */
 val SyncSnapshot.line: String
     get() {
-        if (resetting) return t("Resetting")
+        if (resetting) return t("syncStatus.resetting")
         activeRuns.firstOrNull()?.let { run -> return listOfNotNull(label(run.label), run.current?.let(::label)).joinToString(" · ") }
         problem?.let { return it.text }
         runs.firstOrNull { it.held != null }?.let { return "${label(it.label)} · ${heldText(it.held!!)}" }
-        return t("Up to date")
+        return t("syncStatus.upToDate")
     }
 
 @Composable
@@ -241,7 +241,7 @@ fun SyncRingButton() {
             enter = if (reduced) fadeIn(Motion.fast()) else scaleIn(Motion.baseSpring()) + fadeIn(Motion.base()),
             exit = if (reduced) fadeOut(Motion.fast()) else scaleOut(Motion.baseSpring()) + fadeOut(Motion.base()),
         ) {
-            Box(Modifier.size(48.dp).semantics { contentDescription = t("Updated") }, Alignment.Center) {
+            Box(Modifier.size(48.dp).semantics { contentDescription = t("syncStatus.updated") }, Alignment.Center) {
                 Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok)
             }
         }
@@ -253,7 +253,7 @@ fun SyncRingButton() {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    t("School connection"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                    t("common.schoolConnection"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                     color = Theme.colors.ink, modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 SyncSections()
@@ -268,7 +268,7 @@ fun SyncRingButton() {
 fun ColumnScope.SyncSections() {
     val snapshot = LocalModel.current.syncSnapshot ?: return
     if (snapshot.sources.isNotEmpty()) {
-        SectionLabel(t("Last updated"))
+        SectionLabel(t("syncStatus.lastUpdated"))
         Card {
             snapshot.sources.forEachIndexed { index, source ->
                 if (index > 0) RowDivider(inset = 16.dp)
@@ -280,7 +280,7 @@ fun ColumnScope.SyncSections() {
         Card(Modifier.padding(top = 8.dp)) {
             if (snapshot.resetting) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(t("Resetting"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+                    Text(t("syncStatus.resetting"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 }
             }
@@ -300,19 +300,19 @@ private fun SourceRow(source: SourceView) {
             Text(sourceName(source.source), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink, modifier = Modifier.weight(1f))
             if (source.running) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
         }
-        Small(source.lastUpdated?.let { t("Updated {{date}}", "date" to Format.due(it)) } ?: t("Never updated"))
+        Small(source.lastUpdated?.let { t("syncStatus.updatedDate", "date" to Format.due(it)) } ?: t("common.neverUpdated"))
         val maintenance = source.maintenance
         val failure = source.failure
         val held = source.held
         when {
             maintenance != null -> Small(
-                listOf(t("{{source}} is under maintenance", "source" to sourceName(source.source)), maintenance)
+                listOf(t("syncStatus.sourceIsUnderMaintenance", "source" to sourceName(source.source)), maintenance)
                     .filter { it.isNotEmpty() }.joinToString(" · "),
                 Theme.colors.warn,
             )
             failure != null -> FailureLine(failureText(failure, sourceName(source.source))) { model.refresh(retryScope(source)) }
             held != null -> Small(heldText(held))
-            source.session == "signed-out" -> Small(t("Not connected"))
+            source.session == "signed-out" -> Small(t("common.notConnected"))
         }
     }
 }
@@ -353,7 +353,7 @@ private fun RunRow(run: RunView) {
 private fun FailureLine(text: String, retry: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Small(text, Theme.colors.danger, Modifier.weight(1f))
-        TextButton(onClick = retry) { Text(t("Retry"), fontWeight = FontWeight.SemiBold) }
+        TextButton(onClick = retry) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold) }
     }
 }
 
@@ -382,9 +382,9 @@ fun SyncProblemBanner(problem: SyncProblem) {
         val profile = problem.signIn
         val retry = problem.retry
         if (profile != null) {
-            TextButton(onClick = { navigator.openSettings(profile) }) { Text(t("Sign in"), fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = { navigator.openSettings(profile) }) { Text(t("syncStatus.signIn"), fontWeight = FontWeight.SemiBold) }
         } else if (retry != null) {
-            TextButton(onClick = { model.refresh(retry) }) { Text(t("Retry"), fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = { model.refresh(retry) }) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold) }
         }
     }
 }
@@ -404,7 +404,7 @@ fun FirstLoadCard(snapshot: SyncSnapshot) {
     ) {
         SyncIndicatorView(snapshot.indicator ?: SyncIndicator.Spinner(true))
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(t("Loading school data"), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
+            Text(t("syncStatus.loadingSchoolData"), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
             Text(snapshot.line, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted, maxLines = 2)
         }
     }

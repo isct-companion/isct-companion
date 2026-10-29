@@ -16,16 +16,16 @@ struct StudyProfileScreen: View {
 
     private static var stages: [(StudyStage, String)] {
         [
-            (.unknown, t("Not set")), (.undergraduate, t("Undergraduate")), (.master, t("Master")),
-            (.professional, t("Professional degree")), (.doctoral, t("Doctoral")),
+            (.unknown, t("settings.studyProfile.notSet")), (.undergraduate, t("settings.studyProfile.undergraduate")), (.master, t("settings.studyProfile.master")),
+            (.professional, t("settings.studyProfile.professionalDegree")), (.doctoral, t("settings.studyProfile.doctoral")),
         ]
     }
 
     var body: some View {
         Form {
             Section {
-                Picker(t("Department"), selection: departmentBinding) {
-                    Text(t("Not set")).tag("")
+                Picker(t("settings.main.department"), selection: departmentBinding) {
+                    Text(t("settings.studyProfile.notSet")).tag("")
                     ForEach(departments, id: \.id) { department in
                         Text(Localizer.shared.pick(department.name, content: model.records.settings) ?? department.id).tag(department.id)
                     }
@@ -34,22 +34,22 @@ struct StudyProfileScreen: View {
                         Text(departmentId).tag(departmentId)
                     }
                 }
-                Picker(t("Admission year"), selection: Binding(get: { year }, set: { choose(year: $0, stage: stage) })) {
-                    Text(t("Not set")).tag(Int32?.none)
-                    ForEach(years, id: \.self) { Text(t("Entered {{year}}", ["year": String($0)])).tag(Int32?.some($0)) }
+                Picker(t("settings.main.admissionYear"), selection: Binding(get: { year }, set: { choose(year: $0, stage: stage) })) {
+                    Text(t("settings.studyProfile.notSet")).tag(Int32?.none)
+                    ForEach(years, id: \.self) { Text(t("settings.main.enteredYear", ["year": String($0)])).tag(Int32?.some($0)) }
                 }
-                Picker(t("Degree stage"), selection: Binding(get: { stage }, set: { choose(year: year, stage: $0) })) {
+                Picker(t("settings.main.degreeStage"), selection: Binding(get: { stage }, set: { choose(year: year, stage: $0) })) {
                     ForEach(Self.stages, id: \.0) { Text($0.1).tag($0.0) }
                 }
             } footer: {
                 if let error {
                     Text(error).foregroundStyle(Theme.danger)
                 } else {
-                    Text(t("Used for course suggestions and the study guide. Syncs with the desktop app."))
+                    Text(t("settings.main.usedForCourseSuggestionsAnd"))
                 }
             }
         }
-        .navigationTitle(t("Study profile"))
+        .navigationTitle(t("settings.main.studyProfile"))
         .navigationBarTitleDisplayMode(.inline)
         .task { departments = await model.departments() }
         .task { currentYear = await model.academicYear(of: Date()) }
@@ -107,7 +107,7 @@ struct StudyProfileScreen: View {
         }
         if enrollments.contains(where: { $0.admittedTerm.isEmpty }) {
             guard let year else {
-                error = t("Choose an admission year.")
+                error = t("settings.studyProfile.chooseAnAdmissionYear")
                 return
             }
             for index in enrollments.indices where enrollments[index].admittedTerm.isEmpty {

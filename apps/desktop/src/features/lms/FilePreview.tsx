@@ -12,7 +12,7 @@ import { desktopBridge } from "../../app/native";
 import { notify } from "../../app/notify";
 import { nativeOs } from "../../platform/desktop-bridge";
 import { ExternalLink } from "../../components/ExternalLink";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import { extension, fileFamily } from "./file-types";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import {
@@ -53,14 +53,14 @@ const isLmsResource = (url: string) => {
 };
 const megabytes = (bytes: number) =>
   `${Math.max(0.1, bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-const revealLabel =
-  nativeOs() === "macos" ? "Show in Finder" : "Show in folder";
+const revealLabel: MessageKey =
+  nativeOs() === "macos" ? "web.showInFinder" : "web.showInFolder";
 // Only macOS and Windows have a system Copy and Share for a file (file_share.rs).
 const systemShare = nativeOs() === "macos" || nativeOs() === "windows";
-const deniedNote =
+const deniedNote: MessageKey =
   nativeOs() === "windows"
-    ? "Windows blocked saving to the course folder. If Controlled folder access is on, allow IsctCompanion in Windows Security, or choose another course folder in Settings."
-    : "The system blocked saving to the course folder. Check its permissions, or choose another course folder in Settings.";
+    ? "lms.windowsBlockedSavingToThe"
+    : "lms.theSystemBlockedSavingTo";
 
 type View =
   | { state: "loading" }
@@ -219,7 +219,7 @@ export function FilePreview({
         <Toolbar title={title} url={url}>
           {actions}
         </Toolbar>
-        <p className="lmsQuiet lmsLoading">{t("Loading preview…")}</p>
+        <p className="lmsQuiet lmsLoading">{t("lms.loadingPreview")}</p>
       </div>
     );
   }
@@ -233,7 +233,7 @@ export function FilePreview({
           <FileTile family="folder" />
           <div>
             <h3>{title}</h3>
-            <small>{t("{{count}} files", { count: view.files.length })}</small>
+            <small>{t("lms.countFiles", { count: view.files.length })}</small>
           </div>
         </header>
         <div className="lmsFolderList">
@@ -265,7 +265,7 @@ export function FilePreview({
             );
           })}
           {!view.files.length && (
-            <p className="lmsQuiet">{t("This folder is empty.")}</p>
+            <p className="lmsQuiet">{t("lms.thisFolderIsEmpty")}</p>
           )}
         </div>
       </div>
@@ -279,7 +279,9 @@ export function FilePreview({
           <div className="lmsFileCardText">
             <h3>{title}</h3>
           </div>
-          <ExternalLink href={view.url}>{t("Open in browser")}</ExternalLink>
+          <ExternalLink href={view.url}>
+            {t("common.openInBrowser")}
+          </ExternalLink>
         </div>
       </div>
     );
@@ -292,11 +294,7 @@ export function FilePreview({
           title={title}
           openInApp={openInApp}
           previewable={Boolean(kind) && !textTooLarge}
-          note={
-            textTooLarge
-              ? t("This text file exceeds the 1 MB preview limit.")
-              : undefined
-          }
+          note={textTooLarge ? t("lms.thisTextFileExceedsThe") : undefined}
         />
       </div>
     );
@@ -310,7 +308,7 @@ export function FilePreview({
     return (
       <Suspense
         fallback={
-          <p className="lmsQuiet lmsLoading">{t("Loading preview…")}</p>
+          <p className="lmsQuiet lmsLoading">{t("lms.loadingPreview")}</p>
         }
       >
         <PdfDocument src={src} title={title} fileToolbar={toolbar} />
@@ -327,7 +325,7 @@ export function FilePreview({
             course.setView({
               state: "failed",
               reason: "network",
-              error: t("This image can't be displayed here."),
+              error: t("lms.thisImageCantBeDisplayed"),
             })
           }
         />
@@ -341,14 +339,16 @@ export function FilePreview({
         </div>
       ) : kind === "markdown" ? (
         <Suspense
-          fallback={<p className="lmsQuiet lmsLoading">{t("Loading…")}</p>}
+          fallback={
+            <p className="lmsQuiet lmsLoading">{t("common.loading")}</p>
+          }
         >
           <MarkdownDocument value={ready?.text ?? ""} />
         </Suspense>
       ) : (
         <Suspense
           fallback={
-            <p className="lmsQuiet lmsLoading">{t("Loading preview…")}</p>
+            <p className="lmsQuiet lmsLoading">{t("lms.loadingPreview")}</p>
           }
         >
           <TextDocument value={ready?.text ?? ""} url={url} />
@@ -386,14 +386,17 @@ function FileActions({
   const copy = () =>
     withStored(async (path) => {
       await copyStoredFile(path);
-      notify.info("File copied");
+      notify.info(t("lms.fileCopied"));
     });
   const share = (button: HTMLElement) => {
     const { x, y, width, height } = button.getBoundingClientRect();
     return withStored((path) => shareStoredFile(path, { x, y, width, height }));
   };
   // In the reader panel these collapse to icons; the label stays as tooltip and name.
-  const label = (text: string) => ({ "aria-label": t(text), title: t(text) });
+  const label = (text: MessageKey) => ({
+    "aria-label": t(text),
+    title: t(text),
+  });
   return (
     <div className="lmsFileActions">
       {view.state === "ready" && course.managed && (
@@ -410,31 +413,35 @@ function FileActions({
         <>
           <button
             type="button"
-            {...label("Copy file")}
+            {...label("lms.copyFile")}
             onClick={() => void copy()}
           >
             <LmsIcon name="copy" size={15} />
-            <span className="lmsToolLabel">{t("Copy file")}</span>
+            <span className="lmsToolLabel">{t("lms.copyFile")}</span>
           </button>
           <button
             type="button"
-            {...label("Share")}
+            {...label("common.share")}
             onClick={(event) => void share(event.currentTarget)}
           >
             <LmsIcon name="share" size={15} />
-            <span className="lmsToolLabel">{t("Share")}</span>
+            <span className="lmsToolLabel">{t("common.share")}</span>
           </button>
         </>
       )}
       {openInApp && (
-        <button type="button" {...label("Open in LMS")} onClick={openInApp}>
+        <button
+          type="button"
+          {...label("common.openInLMS")}
+          onClick={openInApp}
+        >
           <LmsIcon name="page" size={15} />
-          <span className="lmsToolLabel">{t("Open in LMS")}</span>
+          <span className="lmsToolLabel">{t("common.openInLMS")}</span>
         </button>
       )}
-      <ExternalLink href={url} {...label("Open in browser")}>
+      <ExternalLink href={url} {...label("common.openInBrowser")}>
         <LmsIcon name="external" size={15} />
-        <span className="lmsToolLabel">{t("Open in browser")}</span>
+        <span className="lmsToolLabel">{t("common.openInBrowser")}</span>
       </ExternalLink>
     </div>
   );
@@ -461,22 +468,22 @@ function FileCard({
     view.reason === "login" &&
     openInApp ? (
     <button type="button" onClick={openInApp}>
-      {t("Sign in to LMS")}
+      {t("lms.signInToLMS")}
     </button>
   ) : view.state === "failed" &&
     ["unresolved", "network", "timeout"].includes(view.reason) &&
     openInApp ? (
     <button type="button" onClick={openInApp}>
-      {t("Open in LMS")}
+      {t("common.openInLMS")}
     </button>
   ) : view.state === "failed" ? (
     <button type="button" onClick={course.retry}>
-      {t("Retry")}
+      {t("common.retry")}
     </button>
   ) : view.state === "tooLarge" ? (
     <button type="button" onClick={course.fetchNow}>
       <LmsIcon name="download" size={15} />
-      {previewable ? t("Preview") : t("Download")} · {size}
+      {previewable ? t("lms.preview") : t("lms.download")} · {size}
     </button>
   ) : view.state === "ready" ? null : (
     <button
@@ -485,24 +492,24 @@ function FileCard({
       onClick={course.fetchNow}
     >
       <LmsIcon name="download" size={15} />
-      {t(view.state === "loading" ? "Downloading…" : "Download")}
+      {t(view.state === "loading" ? "common.downloading" : "lms.download")}
     </button>
   );
   const note =
     override ??
     (!attachment
-      ? t("This page opens outside the app.")
+      ? t("lms.thisPageOpensOutsideThe")
       : view.state === "failed"
         ? view.reason === "denied"
           ? t(deniedNote)
           : view.error
         : view.state === "tooLarge"
-          ? t("Larger than the automatic download limit ({{size}}).", {
+          ? t("lms.largerThanTheAutomaticDownload", {
               size: megabytes(limit),
             })
           : view.state === "ready"
-            ? t("Saved in your course folder.")
-            : t("This file type can't be previewed here."));
+            ? t("lms.savedInYourCourseFolder")
+            : t("lms.thisFileTypeCantBe"));
   return (
     <div className="lmsFileCard">
       <FileTile family={attachment ? fileFamily(url) : "link"} />
@@ -655,7 +662,7 @@ function ImageView({
         className="lmsImagePreview"
         src={src}
         alt={title}
-        title={t(actual ? "Fit to window" : "Actual size")}
+        title={t(actual ? "lms.fitToWindow" : "lms.actualSize")}
         onClick={() => setActual((value) => !value)}
         onError={onBroken}
       />
@@ -718,21 +725,21 @@ export function InlineFolder({
   const byName = (name: string) =>
     `https://file.invalid/${encodeURIComponent(name)}`;
   if (view.state === "loading")
-    return <p className="lmsQuiet lmsFolderNote">{t("Loading…")}</p>;
+    return <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>;
   if (view.state !== "folder")
     return (
       <p className="lmsQuiet lmsFolderNote">
-        {t("This folder could not be read.")}{" "}
+        {t("lms.thisFolderCouldNotBe")}{" "}
         {openInApp && (
           <button type="button" className="lmsTextLink" onClick={openInApp}>
-            {t("Open in LMS")}
+            {t("common.openInLMS")}
           </button>
         )}
       </p>
     );
   if (!view.files.length)
     return (
-      <p className="lmsQuiet lmsFolderNote">{t("This folder is empty.")}</p>
+      <p className="lmsQuiet lmsFolderNote">{t("lms.thisFolderIsEmpty")}</p>
     );
   return (
     <div className="lmsFolderFiles">

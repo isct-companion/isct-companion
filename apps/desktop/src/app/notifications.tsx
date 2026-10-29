@@ -39,7 +39,7 @@ export function Notifications() {
   const notice = useNotices((state) => state.items[0]);
   useEffect(() => () => useNotices.setState({ items: [] }), []);
   return (
-    <Toast.Provider swipeDirection="right" label={t("Notifications")}>
+    <Toast.Provider swipeDirection="right" label={t("common.notifications")}>
       {notice && (
         <Toast.Root
           key={`${notice.id}:${notice.revision}`}
@@ -67,7 +67,10 @@ export function Notifications() {
             </Toast.Action>
           )}
           {notice.withCloseButton && (
-            <Toast.Close className="uiToastClose" aria-label={t("Close")}>
+            <Toast.Close
+              className="uiToastClose"
+              aria-label={t("common.close")}
+            >
               ×
             </Toast.Close>
           )}
@@ -75,8 +78,8 @@ export function Notifications() {
       )}
       <Toast.Viewport
         className="appNotifications"
-        label={`${t("Notifications")} (F8)`}
-        aria-label={t("Notifications")}
+        label={`${t("common.notifications")} (F8)`}
+        aria-label={t("common.notifications")}
       />
     </Toast.Provider>
   );

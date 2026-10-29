@@ -1,3 +1,5 @@
+import type { MessageKey } from "../i18n";
+
 export type CapabilityState = {
   support: "supported" | "unsupported" | "unknown";
   readiness:
@@ -5,7 +7,7 @@ export type CapabilityState = {
     | "needs-permission"
     | "needs-configuration"
     | "temporarily-unavailable";
-  reason: string;
+  reason: MessageKey;
 };
 export type CapabilityId =
   | "local-notifications"
@@ -20,7 +22,7 @@ export type CapabilityRuntime = {
     schoolImport: boolean;
     schoolWeb: boolean;
     notifications: boolean;
-    notificationUnavailableReason?: string | null;
+    notificationUnavailableReason?: MessageKey | null;
     backgroundSchedule: boolean;
     cloudSync: boolean;
     matrixOcr: boolean;
@@ -85,21 +87,20 @@ export function resolveCapabilities(
                 : "needs-permission",
           reason:
             notificationPermission === "denied"
-              ? "Permission is blocked in system or browser settings."
-              : "Permission is requested only when you enable reminders.",
+              ? "capabilities.permissionIsBlockedInSystem"
+              : "capabilities.permissionIsRequestedOnlyWhen",
         }
       : {
           support: "unsupported",
           readiness: "temporarily-unavailable",
           reason:
             native?.notificationUnavailableReason ??
-            "Notifications are unavailable in this runtime.",
+            "capabilities.notificationsAreUnavailableInThis",
         },
     "remote-push": {
       support: "unsupported",
       readiness: "needs-configuration",
-      reason:
-        "Remote push needs a push service and application server. This no-backend build does not provide one.",
+      reason: "capabilities.remotePushNeedsAPush",
     },
     "school-web-session":
       platform !== "browser-preview" && nativeAvailable("schoolImport")
@@ -111,20 +112,20 @@ export function resolveCapabilities(
                 ? "temporarily-unavailable"
                 : "needs-configuration",
             reason: schoolReady
-              ? "The persistent official-site session has produced a validated import."
+              ? "capabilities.thePersistentOfficialSiteSession"
               : schoolExpired
-                ? "The official site returned a login page. Reconnect once before the next import."
+                ? "capabilities.theOfficialSiteReturnedA"
                 : schoolUnavailable
-                  ? "The last refresh failed or used cached data. Existing records remain available."
-                  : "Sign in through an isolated official-site session; no credentials are stored by the app.",
+                  ? "capabilities.theLastRefreshFailedOr"
+                  : "capabilities.signInThroughAnIsolated",
           }
         : {
             support: platform === "browser-preview" ? "unsupported" : "unknown",
             readiness: "temporarily-unavailable",
             reason:
               platform === "browser-preview"
-                ? "The browser preview cannot access native school sessions."
-                : "The native school adapter has not acknowledged this command.",
+                ? "capabilities.theBrowserPreviewCannotAccess"
+                : "capabilities.theNativeSchoolAdapterHas",
           },
     "cloud-sync": {
       support:
@@ -138,8 +139,8 @@ export function resolveCapabilities(
             ? "ready"
             : "needs-configuration",
       reason: cloudConfigured
-        ? "OAuth setup is present; sign-in is still required before the first transfer."
-        : "Add your own Google or Microsoft OAuth client ID.",
+        ? "capabilities.oauthSetupIsPresentSign"
+        : "capabilities.addYourOwnGoogleOr",
     },
     "background-sync":
       platform === "native-desktop" && nativeAvailable("backgroundSchedule")
@@ -153,33 +154,33 @@ export function resolveCapabilities(
                   : "needs-configuration",
             reason:
               scheduler === "active"
-                ? "A desktop schedule is active while the app is open."
+                ? "capabilities.aDesktopScheduleIsActive"
                 : scheduler === "failed"
-                  ? "The configured desktop schedule is temporarily unavailable."
-                  : "Turn on a task in Settings → Automation.",
+                  ? "capabilities.theConfiguredDesktopScheduleIs"
+                  : "capabilities.turnOnATaskIn",
           }
         : {
             support: platform === "native-desktop" ? "unknown" : "unsupported",
             readiness: "temporarily-unavailable",
             reason:
               platform === "native-desktop"
-                ? "The native scheduler has not acknowledged this command."
-                : "Mobile launch and manual refresh are authoritative.",
+                ? "capabilities.theNativeSchedulerHasNot"
+                : "capabilities.mobileLaunchAndManualRefresh",
           },
     "site-customization":
       platform === "native-desktop" && nativeAvailable("schoolWeb")
         ? {
             support: "supported",
             readiness: "needs-permission",
-            reason: "Enable scripts separately per trusted origin.",
+            reason: "capabilities.enableScriptsSeparatelyPerTrusted",
           }
         : {
             support: platform === "native-desktop" ? "unknown" : "unsupported",
             readiness: "temporarily-unavailable",
             reason:
               platform === "native-desktop"
-                ? "The native school web adapter has not acknowledged this command."
-                : "Site customization is a desktop-only feature.",
+                ? "capabilities.theNativeSchoolWebAdapter"
+                : "capabilities.siteCustomizationIsADesktop",
           },
   };
 }

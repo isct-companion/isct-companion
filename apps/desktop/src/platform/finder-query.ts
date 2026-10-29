@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { getDesktopBridge } from "./desktop-bridge";
 
 export type {
@@ -20,6 +21,8 @@ export type FinderRequest = Omit<CoreFinderRequest, Optional> &
 export function finderQuery(request: FinderRequest): Promise<FinderPage> {
   const bridge = getDesktopBridge();
   if (!bridge)
-    return Promise.reject(new Error("Course search requires the native Core."));
+    return Promise.reject(
+      new Error(t("finderQuery.courseSearchRequiresTheNative")),
+    );
   return bridge.finderQuery(request);
 }

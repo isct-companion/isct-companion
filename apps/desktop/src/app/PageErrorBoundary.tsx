@@ -37,7 +37,7 @@ export class PageErrorBoundary extends Component<
         title={error.message}
         onRetry={() => this.setState({ error: undefined })}
       >
-        {t("This page hit an error.")}
+        {t("app.thisPageHitAnError")}
       </ErrorBanner>
     );
   }

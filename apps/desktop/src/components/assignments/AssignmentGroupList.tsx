@@ -74,10 +74,10 @@ export function AssignmentGroupList({
   return (
     <>
       {nothing && <EmptyState compact>{empty}</EmptyState>}
-      {group("pinned", t("Pinned"), pinned)}
+      {group("pinned", t("common.pinned"), pinned)}
       {group(
         "thisWeek",
-        t("This week"),
+        t("common.thisWeek"),
         thisWeek,
         thisWeek.length > limited.length || allThisWeek ? (
           <UiButton
@@ -85,15 +85,15 @@ export function AssignmentGroupList({
             onClick={() => setAllThisWeek((value) => !value)}
           >
             {allThisWeek
-              ? t("Show less")
-              : t("+{{count}} more", {
+              ? t("common.showLess")
+              : t("assignments.countMore", {
                   count: thisWeek.length - limited.length,
                 })}
           </UiButton>
         ) : undefined,
       )}
-      {group("later", t("Later"), later)}
-      {group("undated", t("No deadline"), undated)}
+      {group("later", t("common.later"), later)}
+      {group("undated", t("common.noDeadline"), undated)}
       {group("past", pastLabel, past)}
       {earlier.length > 0 && (
         <div className="dueGroup earlier">
@@ -103,8 +103,8 @@ export function AssignmentGroupList({
             onClick={() => setShowEarlier((value) => !value)}
           >
             {showEarlier
-              ? t("Show less")
-              : t("{{count}} earlier, back to the quarter start", {
+              ? t("common.showLess")
+              : t("assignments.countEarlierBackToThe", {
                   count: earlier.length,
                 })}
           </UiButton>
@@ -123,7 +123,7 @@ export function AssignmentGroupList({
             ) : (
               <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
             )}{" "}
-            {t("Hidden assignments")} · {hidden.length}
+            {t("assignments.hiddenAssignments")} · {hidden.length}
           </UiButton>
           {showHidden && hidden.map(hiddenRow)}
         </div>

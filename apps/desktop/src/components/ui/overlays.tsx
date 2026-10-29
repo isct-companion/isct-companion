@@ -130,11 +130,11 @@ function DialogSurface({
               <Dialog.Title
                 className={cx("uiDialogTitle", !title && "uiVisuallyHidden")}
               >
-                {title ?? t("Confirm")}
+                {title ?? t("ui.confirm")}
               </Dialog.Title>
               {withCloseButton && (
                 <Dialog.Close asChild>
-                  <CloseButton aria-label={t("Close")} />
+                  <CloseButton aria-label={t("common.close")} />
                 </Dialog.Close>
               )}
             </header>

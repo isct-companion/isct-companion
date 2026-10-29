@@ -10,10 +10,10 @@ import "./exams.css";
 export const examKindLabel = (exam: Pick<ExamView, "kind">) =>
   t(
     exam.kind === "class"
-      ? "Class in exam week"
+      ? "exam.classInExamWeek"
       : exam.kind === "quiz"
-        ? "Quiz"
-        : "Exam",
+        ? "common.quiz"
+        : "common.exam",
   );
 
 /** Why an exam needs the user's eye: the timetable moved past their edit. */
@@ -21,8 +21,8 @@ export const examConflictLabel = (exam: Pick<ExamView, "conflict">) =>
   exam.conflict &&
   t(
     exam.conflict.removed
-      ? "No longer in the published timetable."
-      : "Timetable changed",
+      ? "exam.noLongerInThePublished"
+      : "common.timetableChanged",
   );
 
 /** "2026-12-08 · 10:45–12:25", or the date with "Time not announced". */
@@ -32,7 +32,7 @@ export const examWhen = (
   `${exam.date} · ${
     exam.startTime && exam.endTime
       ? `${exam.startTime}–${exam.endTime}`
-      : t("Time not announced")
+      : t("exam.timeNotAnnounced")
   }`;
 
 export function ExamCards({
@@ -64,7 +64,9 @@ export function ExamCards({
           <div className="examCardHeading">
             <span>
               {examKindLabel(exam)}
-              {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
+              {exam.status === "cancelled"
+                ? ` · ${t("exam.status.cancelled")}`
+                : ""}
               {exam.conflict && (
                 <b className="examConflictTag">
                   {" · "}
@@ -78,7 +80,7 @@ export function ExamCards({
                 setEditing(exam);
               }}
             >
-              {t("Edit")}
+              {t("common.edit")}
             </UiButton>
           </div>
           {openExam || (exam.courseId && open) ? (
@@ -98,8 +100,8 @@ export function ExamCards({
           )}
           <small>
             {exam.code}
-            {!exam.courseId ? ` · ${t("Not linked")}` : ""}
-            {exam.edited ? ` · ${t("Edited")}` : ""}
+            {!exam.courseId ? ` · ${t("common.notLinked")}` : ""}
+            {exam.edited ? ` · ${t("exam.edited")}` : ""}
           </small>
           <time dateTime={exam.date}>{examWhen(exam)}</time>
           {exam.room && <small>{exam.room}</small>}
@@ -109,7 +111,7 @@ export function ExamCards({
       <Modal
         opened={Boolean(editing)}
         onClose={() => setEditing(null)}
-        title={t("Edit exam")}
+        title={t("exam.editExam")}
       >
         {editing && (
           <ExamEditor

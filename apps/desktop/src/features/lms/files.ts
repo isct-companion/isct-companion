@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { invoke } from "../../platform/native-error";
 import { desktopBridge } from "../../app/native";
@@ -92,7 +93,7 @@ export async function storageInfo(): Promise<StorageInfo> {
   return desktopBridge
     ? invoke("course_storage_info")
     : {
-        root: "Browser storage · desktop app saves to Documents",
+        root: t("lms.browserStorageDesktopAppSaves"),
         custom: false,
         canChoose: false,
       };
@@ -132,7 +133,7 @@ export async function readNote(
   await queues.get(key(context, id))?.catch(() => undefined);
   if (desktopBridge) return invoke("read_course_note", { context, id });
   const text = localStorage.getItem(key(context, id));
-  if (text === null) throw new Error("Note was not found");
+  if (text === null) throw new Error(t("lms.noteWasNotFound"));
   return {
     id,
     section: context.section,
@@ -157,7 +158,7 @@ export function saveNote(
     .catch(() => undefined)
     .then(async () => {
       if (new TextEncoder().encode(text).length > 1_000_000)
-        throw new Error("Notes are limited to 1 MB");
+        throw new Error(t("lms.notesAreLimitedTo1"));
       if (desktopBridge)
         return invoke<LocalFile>("save_course_note", {
           context,
@@ -249,9 +250,9 @@ export async function moveNote(
       const source = restore ? trash : name;
       const target = restore ? name : trash;
       const text = localStorage.getItem(source);
-      if (text === null) throw new Error("Note was not found");
+      if (text === null) throw new Error(t("lms.noteWasNotFound"));
       if (localStorage.getItem(target) !== null)
-        throw new Error("A note already exists at the destination");
+        throw new Error(t("lms.aNoteAlreadyExistsAt"));
       localStorage.setItem(target, text);
       localStorage.removeItem(source);
     });

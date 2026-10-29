@@ -26,7 +26,7 @@ export function YearQuarterPicker({
     previous.current = selected;
   }, [selected]);
   return (
-    <div className="yearQuarterPicker" aria-label={t("Quarter")}>
+    <div className="yearQuarterPicker" aria-label={t("common.quarter")}>
       {years.map((year) => {
         const open = expanded === year;
         const selectedYear = selected.startsWith(`${year}-`);
@@ -66,14 +66,16 @@ export function YearQuarterPicker({
                 <div
                   className="yearQuarterQuarters"
                   role="tablist"
-                  aria-label={`${year} · ${t("Quarter")}`}
+                  aria-label={`${year} · ${t("common.quarter")}`}
                 >
                   {groupTerms.map((term, index) => (
                     <span className="yearQuarterStep" key={term}>
                       {index > 0 && (
                         <ChevronRight
                           className="yearQuarterChevron"
-                          size={12} strokeWidth={1.75} aria-hidden
+                          size={12}
+                          strokeWidth={1.75}
+                          aria-hidden
                         />
                       )}
                       <button
@@ -85,7 +87,9 @@ export function YearQuarterPicker({
                         onClick={() => onSelect(term)}
                       >
                         {term.split("-")[1]}
-                        {term === current && <i title={t("Current quarter")} />}
+                        {term === current && (
+                          <i title={t("courses.currentQuarter")} />
+                        )}
                       </button>
                     </span>
                   ))}
@@ -99,7 +103,7 @@ export function YearQuarterPicker({
         <button
           type="button"
           className="yearQuarterAdd"
-          aria-label={t("Add quarter")}
+          aria-label={t("courses.addQuarter")}
           onClick={onAdd}
         >
           ＋

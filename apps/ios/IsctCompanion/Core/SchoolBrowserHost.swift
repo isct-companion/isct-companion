@@ -628,11 +628,11 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
             ? "\(origin.protocol)://\(origin.host)" : "\(origin.protocol)://\(origin.host):\(origin.port)"
         let alert = UIAlertController(title: title ?? message, message: title == nil ? nil : message, preferredStyle: .alert)
         if let field { alert.addTextField { $0.text = field } }
-        alert.addAction(UIAlertAction(title: t("OK"), style: .default) { [weak alert] _ in
+        alert.addAction(UIAlertAction(title: t("common.ok"), style: .default) { [weak alert] _ in
             reply.answer(alert?.textFields?.first?.text ?? "")
         })
         if cancel {
-            alert.addAction(UIAlertAction(title: t("Cancel"), style: .cancel) { _ in reply.answer(nil) })
+            alert.addAction(UIAlertAction(title: t("common.cancel"), style: .cancel) { _ in reply.answer(nil) })
         }
         presenter.present(alert, animated: true)
     }

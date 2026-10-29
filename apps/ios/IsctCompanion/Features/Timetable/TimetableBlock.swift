@@ -35,7 +35,7 @@ struct ExamTag: View {
     let tint: Color
 
     var body: some View {
-        Tag(text: quiz ? t("Quiz") : t("Exam"), style: quiz ? .outline : .solid,
+        Tag(text: quiz ? t("common.quiz") : t("common.exam"), style: quiz ? .outline : .solid,
             ink: quiz ? Theme.courseInk(tint) : tint)
     }
 }
@@ -48,12 +48,12 @@ private struct SessionMarks: ViewModifier {
     @Environment(AppModel.self) private var model
 
     private var marks: [(String, String)] {
-        [("exam", t("Mark as exam")), ("quiz", t("Mark as quiz")), ("cancelled", t("Mark as cancelled"))]
+        [("exam", t("common.markAsExam")), ("quiz", t("common.markAsQuiz")), ("cancelled", t("common.markAsCancelled"))]
     }
 
     func body(content: Content) -> some View {
         content.contextMenu {
-            Section(t("This lesson")) {
+            Section(t("timetable.thisLesson")) {
                 ForEach(marks, id: \.0) { value, label in
                     Toggle(label, isOn: Binding(get: { state == value }, set: { _ in mark(value) }))
                 }

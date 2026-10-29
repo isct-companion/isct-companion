@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { getDesktopBridge } from "../platform/desktop-bridge";
 import type { WorkspaceChangedEvent } from "../platform/desktop-bridge";
 import type { Workspace } from "../lib/model";
@@ -91,7 +92,7 @@ export function createWorkspaceStore(service: WorkspaceService) {
     const operation = writes.then(async () => {
       const current = state.getState();
       if (current.status !== "ready" || !current.revision)
-        throw new Error("Workspace is not ready.");
+        throw new Error(t("workspace.workspaceIsNotReady"));
       try {
         if (revisionStale) {
           revisionStale = false;
@@ -178,8 +179,7 @@ export function createWorkspaceStore(service: WorkspaceService) {
           publish({
             ...state.getState(),
             status: "error",
-            error:
-              "Workspace could not be opened. Stored data was preserved; retry opening.",
+            error: t("workspace.workspaceCouldNotBeOpened"),
           });
         })
         .finally(() => {
@@ -208,7 +208,7 @@ export function createBrowserPreviewService(): WorkspaceService {
       return "preview";
     },
     async mutate() {
-      throw new Error("Workspace edits need the native app.");
+      throw new Error(t("workspace.workspaceEditsNeedTheNative"));
     },
   };
 }
@@ -296,7 +296,7 @@ export const workspaceActions = {
   },
   async importData(document: string) {
     if (!repository.import)
-      throw new Error("This repository cannot import an export document.");
+      throw new Error(t("workspace.thisRepositoryCannotImportAn"));
     await repository.import(document);
     await internalWorkspaceStore.reload();
   },

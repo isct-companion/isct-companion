@@ -114,7 +114,7 @@ fun CourseDetailScreen(courseId: String) {
     TabPage(
         title,
         navigationIcon = {
-            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) }
+            IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
         },
         onRefresh = { lmsCourseId?.let { model.refresh(SyncScope.Course(it)) } },
     ) {
@@ -142,7 +142,7 @@ fun CourseDetailScreen(courseId: String) {
             if (lessons.isNotEmpty()) {
                 Lessons(courseId, content!!, lessons, assignments, detail?.files) { reread -> content = reread }
             } else if (detail != null) {
-                EmptyState(Icons.Rounded.FolderOpen, t("No materials yet"))
+                EmptyState(Icons.Rounded.FolderOpen, t("course.noMaterialsYet"))
             } else {
                 // Nothing read yet: rows in the shape of the materials to come.
                 SkeletonRows(4)
@@ -168,7 +168,7 @@ private fun Lessons(
     val opening = lessons.indexOfFirst { it.section == content.currentSection }.coerceAtLeast(0)
     val pager = rememberPagerState(opening) { lessons.size }
     var expanded by remember { mutableStateOf(emptySet<String>()) }
-    GuideTip("lesson-marks", "Today's lesson", "Long-press a lesson to make it the lesson of today's class.")
+    GuideTip("lesson-marks", "guide.todaysLesson", "guide.longPressALessonTo")
     LessonChips(lessons, pager, content) { marked ->
         val classAt = content.classAt ?: return@LessonChips
         val sectionId = marked.sectionId ?: return@LessonChips
@@ -227,7 +227,7 @@ private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content
                     )
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
-                            text = { Text(t("Make this the {{day}} class", "day" to classDay.orEmpty())) },
+                            text = { Text(t("course.makeThisTheDayClass", "day" to classDay.orEmpty())) },
                             leadingIcon = { Icon(Icons.Rounded.CheckCircle, null) },
                             onClick = {
                                 menu = false
@@ -276,7 +276,7 @@ private fun LessonPage(
         }
         if (work.isNotEmpty()) {
             Text(
-                t("Assignments"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                t("common.assignments"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
                 color = Theme.colors.muted, modifier = Modifier.padding(horizontal = 16.dp),
             )
             for (assignment in work) {
@@ -284,7 +284,7 @@ private fun LessonPage(
             }
         }
         if (lesson.items.isEmpty() && lesson.summaryHtml.isEmpty() && work.isEmpty()) {
-            EmptyState(Icons.Rounded.Description, t("No materials for this lesson"))
+            EmptyState(Icons.Rounded.Description, t("course.noMaterialsForThisLesson"))
         }
     }
 }
@@ -362,7 +362,7 @@ private fun examLine(exam: ExamView): String {
     val start = exam.startTime
     val end = exam.endTime
     if (periods != null) time += " $periods" else if (start != null && end != null) time += " $start–$end"
-    return (listOf(if (exam.kind == "quiz") t("Quiz") else t("Exam"), time) + listOfNotNull(exam.room.ifEmpty { null })).joinToString(" · ")
+    return (listOf(if (exam.kind == "quiz") t("common.quiz") else t("common.exam"), time) + listOfNotNull(exam.room.ifEmpty { null })).joinToString(" · ")
 }
 
 @Composable
@@ -373,7 +373,7 @@ private fun Links(detail: CourseDetail?, title: String) {
             LinkChip("LMS", Icons.Rounded.Language) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, title)) }
         }
         detail?.syllabusUrl?.let { url ->
-            LinkChip(t("Syllabus"), Icons.Rounded.Description) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SYLLABUS, url, title)) }
+            LinkChip(t("common.syllabus"), Icons.Rounded.Description) { navigator.openPage(WebRouter.PushedPage(SchoolSite.SYLLABUS, url, title)) }
         }
     }
 }

@@ -185,7 +185,7 @@ fun SettingsScreen() {
     Column(Modifier.fillMaxSize().background(Theme.colors.bg).imePadding()) {
         when (val current = page) {
             SettingsPage.Root -> {
-                Bar(t("Settings"))
+                Bar(t("common.settings"))
                 RootPage { page = it }
             }
             is SettingsPage.Account -> {
@@ -193,24 +193,24 @@ fun SettingsScreen() {
                 AccountPage(current.profile) { page = SettingsPage.Root }
             }
             SettingsPage.Notifications -> {
-                Bar(t("Notifications"), back = { page = SettingsPage.Root })
+                Bar(t("common.notifications"), back = { page = SettingsPage.Root })
                 NotificationsPage { page = SettingsPage.AssignmentLeads }
             }
             SettingsPage.AssignmentLeads -> {
-                Bar(t("Assignment reminder times"), back = { page = SettingsPage.Notifications })
+                Bar(t("settings.notification.assignmentReminderTimes"), back = { page = SettingsPage.Notifications })
                 AssignmentLeadsPage()
             }
             SettingsPage.StudyProfile -> {
-                Bar(t("Study profile"), back = { page = SettingsPage.Root })
+                Bar(t("settings.main.studyProfile"), back = { page = SettingsPage.Root })
                 StudyProfilePage()
             }
             SettingsPage.DataUpdates -> {
-                Bar(t("Data updates"), back = { page = SettingsPage.Root })
+                Bar(t("settings.main.dataUpdates"), back = { page = SettingsPage.Root })
                 DataUpdatesPage()
             }
 
             SettingsPage.Backup -> {
-                Bar(t("Backup"), back = { page = SettingsPage.Root })
+                Bar(t("settings.main.backup"), back = { page = SettingsPage.Root })
                 BackupPage()
             }
             is SettingsPage.Reset -> {
@@ -228,7 +228,7 @@ private fun Bar(title: String, back: (() -> Unit)? = null) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
-            back?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) } }
+            back?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) } }
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
     )
@@ -248,7 +248,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
     val model = LocalModel.current
     val context = LocalContext.current
     Page {
-        SectionLabel(t("School accounts"))
+        SectionLabel(t("settings.main.schoolAccounts"))
         Card {
             val science = accountName(SchoolAuthProfile.SCIENCE)
             AccountRow(science, model.credentials?.science, model.sessions?.science, model.syncSource("lms")?.lastUpdated) {
@@ -262,17 +262,17 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         }
         Card(Modifier.padding(top = 16.dp)) {
             NavRow(
-                t("Notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications")),
+                t("common.notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications")),
                 Icons.Rounded.Notifications, Theme.colors.danger,
             ) { open(SettingsPage.Notifications) }
             RowDivider(inset = ICON_ROW_INSET)
-            NavRow(t("Study profile"), null, Icons.Rounded.School) { open(SettingsPage.StudyProfile) }
+            NavRow(t("settings.main.studyProfile"), null, Icons.Rounded.School) { open(SettingsPage.StudyProfile) }
             RowDivider(inset = ICON_ROW_INSET)
-            NavRow(t("Data updates"), dataSummary(model.records.settings), Icons.Rounded.Sync, Theme.colors.ok) {
+            NavRow(t("settings.main.dataUpdates"), dataSummary(model.records.settings), Icons.Rounded.Sync, Theme.colors.ok) {
                 open(SettingsPage.DataUpdates)
             }
             RowDivider(inset = ICON_ROW_INSET)
-            NavRow(t("Backup"), backupSummary(model.cloud), Icons.Rounded.Cloud) { open(SettingsPage.Backup) }
+            NavRow(t("settings.main.backup"), backupSummary(model.cloud), Icons.Rounded.Cloud) { open(SettingsPage.Backup) }
         }
         ThemeCard()
         LanguageCard()
@@ -280,7 +280,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         // As on iOS: About holds the version, the tips and the logs, then the
         // desktop note; the destructive Reset group comes last.
         Spacer(Modifier.height(8.dp))
-        SectionLabel(t("About"))
+        SectionLabel(t("settings.main.about"))
         Card {
             Row(
                 Modifier.fillMaxWidth().padding(16.dp),
@@ -293,17 +293,17 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 Text(version.orEmpty(), color = Theme.colors.muted)
             }
             RowDivider(inset = ICON_ROW_INSET)
-            ActionRow(t("Show welcome and tips again"), Icons.Rounded.Lightbulb) { Guide.reset() }
+            ActionRow(t("settings.main.showWelcomeAndTipsAgain"), Icons.Rounded.Lightbulb) { Guide.reset() }
             RowDivider(inset = ICON_ROW_INSET)
             LogsRow()
         }
-        Footer(t("Calendar editing, course folders and developer settings are in the desktop app."))
+        Footer(t("settings.main.calendarEditingCourseFoldersAnd"))
         ResetCard(open)
     }
 }
 
 private fun accountName(profile: SchoolAuthProfile) =
-    if (profile == SchoolAuthProfile.SCIENCE) "Science Tokyo" else t("Tokyo Tech (former)")
+    if (profile == SchoolAuthProfile.SCIENCE) "Science Tokyo" else t("settings.main.tokyoTechFormer")
 
 /** The desktop's Reset group: each row opens its confirmation page. */
 @Composable
@@ -352,16 +352,16 @@ private fun LogsRow() {
                     val stream = context.contentResolver.openOutputStream(uri) ?: throw IOException("No output stream")
                     stream.use { it.write(logText(context).toByteArray()) }
                 }
-            }.onFailure { fail(t("Export failed: {{reason}}", "reason" to AppModel.describe(it))) }
+            }.onFailure { fail(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it))) }
         }
     }
     // One row for both log actions, as a menu (iOS's Application logs row).
     var menu by remember { mutableStateOf(false) }
     Box {
-        ActionRow(t("Application logs"), Icons.Rounded.Description) { menu = true }
+        ActionRow(t("settings.main.applicationLogs"), Icons.Rounded.Description) { menu = true }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(
-                text = { Text(t("Save to file")) },
+                text = { Text(t("settings.main.saveToFile")) },
                 leadingIcon = { Icon(Icons.Rounded.Download, null) },
                 onClick = {
                     menu = false
@@ -369,15 +369,15 @@ private fun LogsRow() {
                 },
             )
             DropdownMenuItem(
-                text = { Text(t("Copy")) },
+                text = { Text(t("settings.schoolAccounts.copy")) },
                 leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) },
                 onClick = {
                     menu = false
                     // Android shows its own confirmation for every clipboard write.
                     runCatching {
                         context.getSystemService(ClipboardManager::class.java)
-                            .setPrimaryClip(ClipData.newPlainText(t("Application logs"), logText(context)))
-                    }.onFailure { fail(t("Copy failed")) }
+                            .setPrimaryClip(ClipData.newPlainText(t("settings.main.applicationLogs"), logText(context)))
+                    }.onFailure { fail(t("settings.otp.copyFailed")) }
                 },
             )
         }
@@ -429,9 +429,9 @@ internal fun Footer(text: String, color: Color = Theme.colors.muted) {
  * so a Drive-only phone reads the same as an iCloud one. */
 private fun backupSummary(cloud: SyncState?): String {
     val enabled = cloud?.providers.orEmpty().filter { it.enabled }
-    if (enabled.isEmpty()) return t("Off")
+    if (enabled.isEmpty()) return t("settings.main.off")
     val synced = enabled.mapNotNull { it.lastSyncedAt }.maxByOrNull { Format.date(it) ?: Instant.EPOCH }
-    return synced?.let { t("Synced {{date}}", "date" to Format.due(it)) } ?: enabled.joinToString(" · ") { providerName(it.provider) }
+    return synced?.let { t("settings.backup.syncedDate", "date" to Format.due(it)) } ?: enabled.joinToString(" · ") { providerName(it.provider) }
 }
 
 /** The ウェブ tab's device preferences: page text size and the site it opens on. */
@@ -439,10 +439,10 @@ private fun backupSummary(cloud: SyncState?): String {
 private fun WebCard() {
     val web = LocalModel.current.web
     Spacer(Modifier.height(8.dp))
-    SectionLabel(t("Web"))
+    SectionLabel(t("common.web"))
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconHeading(t("Text size"), Icons.Rounded.FormatSize, Theme.colors.muted)
+            IconHeading(t("common.textSize"), Icons.Rounded.FormatSize, Theme.colors.muted)
             Choices(SchoolBrowserHost.textScales.map { "$it" to "$it%" }, "${web.browser.textScale}") {
                 web.browser.chooseTextScale(it.toInt())
             }
@@ -456,7 +456,7 @@ private fun WebCard() {
                 modifier = Modifier.fillMaxWidth().clickable { picking = true }.padding(16.dp),
             ) {
                 SettingsIcon(Icons.Rounded.Language, Theme.colors.accent)
-                Text(t("First site"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
+                Text(t("settings.main.firstSite"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 Text(WebRouter.name(web.firstSite), color = Theme.colors.muted)
             }
             DropdownMenu(expanded = picking, onDismissRequest = { picking = false }) {
@@ -486,16 +486,16 @@ private fun AccountRow(
     val connected = credential?.availability == CredentialAvailability.AVAILABLE ||
         credential?.availability == CredentialAvailability.SAVED_LOCKED
     val (label, color) = when {
-        !connected -> t("Not connected") to Theme.colors.muted
+        !connected -> t("common.notConnected") to Theme.colors.muted
         session?.state == SchoolSessionState.ACTIVE -> (
-            lastRun?.let { t("Connected · updated {{time}}", "time" to Format.due(it)) } ?: t("Connected")
+            lastRun?.let { t("settings.main.connectedUpdatedTime", "time" to Format.due(it)) } ?: t("settings.main.connected")
             ) to Theme.colors.ok
         session?.state == SchoolSessionState.FAILED -> (
-            session.problem?.let { t("Sign-in failed: {{reason}}", "reason" to AppModel.reason(it).lines().first()) }
-                ?: t("Sign-in failed")
+            session.problem?.let { t("settings.main.signInFailedReason", "reason" to AppModel.reason(it).lines().first()) }
+                ?: t("common.signInFailed")
             ) to Theme.colors.danger
-        session?.state == SchoolSessionState.MAINTENANCE -> t("Under maintenance") to Theme.colors.warn
-        else -> t("Checking") to Theme.colors.muted
+        session?.state == SchoolSessionState.MAINTENANCE -> t("common.underMaintenance") to Theme.colors.warn
+        else -> t("settings.main.checking") to Theme.colors.muted
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -529,27 +529,27 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
     // Why the last sign-in failed, as Core recorded it, while it still applies.
     val problem = session?.problem?.takeIf { session.state != SchoolSessionState.ACTIVE }?.let {
         AppModel.reason(it) + when (session.auto) {
-            SchoolAutoSignIn.PAUSED -> "\n" + t("Automatic sign-in waits until you change these details.")
-            SchoolAutoSignIn.RETRY_LATER -> "\n" + t("Automatic sign-in tries again shortly.")
+            SchoolAutoSignIn.PAUSED -> "\n" + t("settings.main.automaticSignInWaitsUntil")
+            SchoolAutoSignIn.RETRY_LATER -> "\n" + t("settings.main.automaticSignInTriesAgain")
             SchoolAutoSignIn.ALLOWED -> ""
         }
     }
     Page {
         OutlinedTextField(
-            username, { username = it }, label = { Text(t("Student ID")) }, singleLine = true,
+            username, { username = it }, label = { Text(t("settings.main.studentID")) }, singleLine = true,
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
             ),
             // Compose fields join system Autofill only when they say what they hold.
             modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
         )
-        Secret(password, { password = it }, if (saved) t("Password (enter only to change)") else t("Password"), login = true)
-        Footer(t("The password is encrypted in this device’s keystore and sent only to the school sites."))
+        Secret(password, { password = it }, if (saved) t("settings.main.passwordEnterOnlyToChange") else t("settings.main.password"), login = true)
+        Footer(t("settings.main.thePasswordIsEncryptedIn"))
         if (profile == SchoolAuthProfile.SCIENCE) {
-            SectionLabel(t("One-time password"))
+            SectionLabel(t("settings.main.oneTimePassword"))
             OtpImportField(summary?.hasOtp == true, otpSecret) { otpSecret = it }
         } else {
-            SectionLabel(t("Matrix card"))
+            SectionLabel(t("settings.main.matrixCard"))
             MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
         }
         (error ?: problem.takeUnless { saving })?.let { Footer(it, Theme.colors.danger) }
@@ -563,7 +563,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                         // Stay on the page with the reason, so the person can correct it.
                         if (result != null && result.state != SchoolSessionState.ACTIVE) {
                             error = result.problem?.let(AppModel::reason)
-                                ?: t(if (result.state == SchoolSessionState.MAINTENANCE) "Under maintenance" else "Sign-in failed")
+                                ?: t(if (result.state == SchoolSessionState.MAINTENANCE) "common.underMaintenance" else "common.signInFailed")
                         } else {
                             done()
                         }
@@ -576,7 +576,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
             enabled = !saving && username.isNotEmpty() && (password.isNotEmpty() || saved),
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) {
-            if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("Save and connect"))
+            if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("settings.main.saveAndConnect"))
         }
         if (saved) {
             TextButton(
@@ -587,7 +587,7 @@ private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(t("Remove sign-in details from this device"), color = Theme.colors.danger) }
+            ) { Text(t("settings.main.removeSignInDetailsFrom"), color = Theme.colors.danger) }
         }
     }
 }
@@ -638,13 +638,13 @@ private fun ThemeCard() {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     val selected = model.records.settings.optString("theme").ifEmpty { "warm" }
-    val themes = listOf("warm" to t("Warm"), "cool" to t("Cool"), "paper" to t("Paper"), "mist" to t("Mist"), "moss" to t("Moss"))
+    val themes = listOf("warm" to t("settings.main.warm"), "cool" to t("settings.main.cool"), "paper" to t("settings.main.paper"), "mist" to t("settings.main.mist"), "moss" to t("settings.main.moss"))
     Card(Modifier.padding(top = 16.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            IconHeading(t("Theme"), Icons.Rounded.Palette, Theme.colors.accent, Modifier.weight(1f))
+            IconHeading(t("settings.main.theme"), Icons.Rounded.Palette, Theme.colors.accent, Modifier.weight(1f))
             Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for ((id, label) in themes) {
                     val neutrals = (IsctThemes[id] ?: continue).first
@@ -681,18 +681,18 @@ private fun LanguageCard() {
     fun set(key: String, value: String) = scope.launch { model.updateSettings { it.put(key, value) } }
     Card(Modifier.padding(top = 16.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconHeading(t("Language"), Icons.Rounded.Translate, Theme.colors.accent)
+            IconHeading(t("common.language"), Icons.Rounded.Translate, Theme.colors.accent)
             Choices(
                 listOf("en" to "English", "ja" to "日本語", "zh" to "中文"),
                 settings.optString("locale").ifEmpty { "en" },
             ) { set("locale", it) }
-            IconHeading(t("School content language"), Icons.AutoMirrored.Rounded.MenuBook, Theme.colors.accent, Modifier.padding(top = 6.dp))
+            IconHeading(t("settings.main.schoolContentLanguage"), Icons.AutoMirrored.Rounded.MenuBook, Theme.colors.accent, Modifier.padding(top = 6.dp))
             Choices(
-                listOf("auto" to t("Automatic"), "en" to "English", "ja" to "日本語"),
+                listOf("auto" to t("common.automatic"), "en" to "English", "ja" to "日本語"),
                 settings.optString("contentLanguage").ifEmpty { "auto" },
             ) { set("contentLanguage", it) }
             Text(
-                t("Course names, rooms and syllabus text. Automatic uses the menu language."),
+                t("settings.main.courseNamesRoomsAndSyllabus"),
                 style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
             )
         }

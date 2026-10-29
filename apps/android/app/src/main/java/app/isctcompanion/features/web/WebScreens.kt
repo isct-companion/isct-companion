@@ -130,7 +130,7 @@ private fun PageMenu(site: SchoolSite) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }) { Icon(Icons.Rounded.MoreVert, t("More")) }
+        IconButton(onClick = { open = true }) { Icon(Icons.Rounded.MoreVert, t("web.more")) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             val item = @Composable { label: String, icon: ImageVector, action: () -> Unit ->
                 DropdownMenuItem(text = { Text(label) }, leadingIcon = { Icon(icon, null) }, onClick = {
@@ -138,16 +138,16 @@ private fun PageMenu(site: SchoolSite) {
                     action()
                 })
             }
-            item(t("Reload"), Icons.Rounded.Refresh) { web.reload(site) }
+            item(t("common.reload"), Icons.Rounded.Refresh) { web.reload(site) }
             web.browser.front(site)?.url?.let { url ->
-                item(t("Share"), Icons.Rounded.Share) { share(context, url) }
-                item(t("Open in browser"), Icons.AutoMirrored.Rounded.OpenInNew) { openInBrowser(context, url) }
-                item(t("Print"), Icons.Rounded.Print) { web.browser.print(site, context) }
+                item(t("common.share"), Icons.Rounded.Share) { share(context, url) }
+                item(t("common.openInBrowser"), Icons.AutoMirrored.Rounded.OpenInNew) { openInBrowser(context, url) }
+                item(t("web.print"), Icons.Rounded.Print) { web.browser.print(site, context) }
             }
             HorizontalDivider()
             for (percent in SchoolBrowserHost.textScales) {
                 DropdownMenuItem(
-                    text = { Text(t("Text size ({{percent}}%)", "percent" to percent)) },
+                    text = { Text(t("web.textSizePercent", "percent" to percent)) },
                     leadingIcon = { Icon(Icons.Rounded.FormatSize, null) },
                     trailingIcon = { if (percent == web.browser.textScale) Icon(Icons.Rounded.Check, null) },
                     onClick = {
@@ -175,10 +175,10 @@ private fun HistoryButtons(site: SchoolSite) {
     val web = LocalModel.current.web
     web.browser.loads
     IconButton(onClick = { web.back(site) }, enabled = web.browser.canGoBack(site)) {
-        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("Previous page"))
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("common.previousPage"))
     }
     IconButton(onClick = { web.forward(site) }, enabled = web.browser.canGoForward(site)) {
-        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("Next page"))
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("common.nextPage"))
     }
 }
 
@@ -213,19 +213,19 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
                 Modifier.fillMaxWidth().background(Theme.colors.surface).padding(start = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(t("Popup window"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                IconButton(onClick = { web.closePopup(site) }) { Icon(Icons.Rounded.Close, t("Close window")) }
+                Text(t("web.popupWindow"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                IconButton(onClick = { web.closePopup(site) }) { Icon(Icons.Rounded.Close, t("web.closeWindow")) }
             }
             HorizontalDivider()
         }
         val notice = web.notices[site]
         if (notice is WebRouter.Notice.Reopened) {
-            NoticeBanner(t("Reopened this page without sending the form again."), Theme.colors.accentSoft)
+            NoticeBanner(t("web.reopenedThisPageWithoutSending"), Theme.colors.accentSoft)
         }
         val failure = notice as? WebRouter.Notice.LoadFailed
         if (failure?.reason == "cleartext") {
             NoticeBanner(t(failureText(failure.reason)), Theme.colors.warnSoft) {
-                failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("Open in browser")) } }
+                failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("common.openInBrowser")) } }
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -281,23 +281,23 @@ private fun FailedPage(site: SchoolSite, failure: WebRouter.Notice.LoadFailed) {
     ) {
         Text(t(failureText(failure.reason)), style = MaterialTheme.typography.bodyLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { web.retry(site) }) { Text(t("Reopen this page")) }
-            if (web.browser.canGoBack(site)) TextButton(onClick = { web.back(site) }) { Text(t("Back")) }
-            failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("Open in browser")) } }
+            TextButton(onClick = { web.retry(site) }) { Text(t("web.reopenThisPage")) }
+            if (web.browser.canGoBack(site)) TextButton(onClick = { web.back(site) }) { Text(t("common.back")) }
+            failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("common.openInBrowser")) } }
         }
     }
 }
 
 /** What the notice says when a page did not load, as the desktop's. */
 private fun failureText(reason: String): String = when (reason) {
-    "offline" -> "This page could not be opened: there is no network connection."
+    "offline" -> "web.thisPageCouldNotBe"
     "host-not-found" ->
-        "This page could not be opened: its server was not found. Campus-only services need the campus network or VPN."
+        "web.thisPageCouldNotBeOpened"
     "unreachable" ->
-        "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN."
-    "insecure" -> "This page could not be opened: the secure connection failed."
-    "cleartext" -> "This page uses an unencrypted connection, so it opens only in your browser."
-    else -> "This page could not be opened."
+        "web.thisPageCouldNotBeOpenedIts"
+    "insecure" -> "web.thisPageCouldNotBeOpenedThe"
+    "cleartext" -> "web.thisPageUsesAnUnencrypted"
+    else -> "web.thisPageCouldNotBeOpened2"
 }
 
 /** A page's alert, confirm, prompt or leave question, titled with the asking
@@ -312,7 +312,7 @@ private fun PageDialog(host: SchoolBrowserHost) {
         val leave = dialog.kind == SchoolBrowserHost.PageDialog.Kind.LEAVE
         AlertDialog(
             onDismissRequest = { dialog.answer(dialog.kind == SchoolBrowserHost.PageDialog.Kind.ALERT, null) },
-            title = { Text(if (leave) t("Leave this page?") else dialog.origin) },
+            title = { Text(if (leave) t("web.leaveThisPage") else dialog.origin) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (dialog.message.isNotEmpty()) Text(dialog.message)
@@ -322,10 +322,10 @@ private fun PageDialog(host: SchoolBrowserHost) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { dialog.answer(true, text) }) { Text(if (leave) t("Leave") else t("OK")) }
+                TextButton(onClick = { dialog.answer(true, text) }) { Text(if (leave) t("web.leave") else t("common.ok")) }
             },
             dismissButton = if (dialog.kind == SchoolBrowserHost.PageDialog.Kind.ALERT) null else {
-                { TextButton(onClick = { dialog.answer(false, null) }) { Text(if (leave) t("Stay") else t("Cancel")) } }
+                { TextButton(onClick = { dialog.answer(false, null) }) { Text(if (leave) t("web.stay") else t("common.cancel")) } }
             },
         )
     }
@@ -360,7 +360,7 @@ fun WebTabScreen() {
             web.error?.let { ProblemNote(it, Modifier.align(Alignment.TopCenter)) }
             // The one thing drawn over the page, once: how to reach the other sites.
             GuideTip(
-                "web-sites", t("Switch sites"), t("Tap the title to switch school sites."),
+                "web-sites", "common.switchSites", "web.tapTheTitleToSwitch",
                 Modifier.align(Alignment.BottomCenter).padding(12.dp),
             )
         }
@@ -379,7 +379,7 @@ private fun SiteTitle() {
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
             Text(WebRouter.name(web.tabSite), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Icon(Icons.Rounded.ArrowDropDown, t("Switch sites"))
+            Icon(Icons.Rounded.ArrowDropDown, t("common.switchSites"))
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             for (site in WebRouter.tabSites) {
@@ -414,7 +414,7 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
     Column(Modifier.fillMaxSize().background(Theme.colors.surface)) {
         TopAppBar(
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("Back")) }
+                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
             },
             title = { Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             actions = { PageMenu(page.site) },
@@ -430,10 +430,10 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 HistoryButtons(page.site)
                 IconButton(onClick = { url?.let { share(context, it) } }, enabled = url != null) {
-                    Icon(Icons.Rounded.Share, t("Share"))
+                    Icon(Icons.Rounded.Share, t("common.share"))
                 }
                 IconButton(onClick = { url?.let { openInBrowser(context, it) } }, enabled = url != null) {
-                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("Open in browser"))
+                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("common.openInBrowser"))
                 }
             }
         }

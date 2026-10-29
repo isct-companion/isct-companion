@@ -33,20 +33,20 @@ pub(crate) struct Prompt {
 impl Prompt {
     fn new(app: &AppHandle) -> Self {
         Self {
-            title: text(app, "Close IsctCompanion?"),
-            message: text(app, "Keeping it running lets reminders and sync continue."),
-            quit: text(app, "Quit"),
+            title: text(app, "window.close.prompt.title"),
+            message: text(app, "window.close.prompt.message"),
+            quit: text(app, "common.quit"),
             keep: text(app, KEEP_LABEL),
-            cancel: text(app, "Cancel"),
-            remember: text(app, "Remember my choice"),
+            cancel: text(app, "common.cancel"),
+            remember: text(app, "window.close.prompt.remember"),
         }
     }
 }
 
 #[cfg(target_os = "macos")]
-const KEEP_LABEL: &str = "Keep in Dock";
+const KEEP_LABEL: &str = "window.close.keepInDock";
 #[cfg(target_os = "windows")]
-const KEEP_LABEL: &str = "Minimize to tray";
+const KEEP_LABEL: &str = "window.close.minimizeToTray";
 
 /// The main window's close button, Cmd-W or Alt-F4.
 pub(crate) fn close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
@@ -123,11 +123,13 @@ pub(crate) fn show_main(app: &AppHandle) {
     }
 }
 
+const EN: &str = include_str!("../../../../resources/locales/en.json");
 const JA: &str = include_str!("../../../../resources/locales/ja.json");
 const ZH: &str = include_str!("../../../../resources/locales/zh.json");
 
 /// A string from the shared catalogs in `resources/locales`, in this
-/// device's language. English keys are their own text.
+/// device's language. A language that lacks the key reads the English
+/// catalogue, which has them all.
 pub(crate) fn text(app: &AppHandle, key: &str) -> String {
     let locale = core_ports::core(app)
         .store
@@ -137,10 +139,17 @@ pub(crate) fn text(app: &AppHandle, key: &str) -> String {
     let catalog = match locale.as_ref().and_then(Value::as_str) {
         Some("ja") => JA,
         Some("zh") => ZH,
-        _ => return key.to_string(),
+        _ => EN,
     };
-    serde_json::from_str::<serde_json::Map<String, Value>>(catalog)
-        .ok()
-        .and_then(|catalog| catalog.get(key)?.as_str().map(str::to_owned))
+    entry(catalog, key)
+        .or_else(|| entry(EN, key))
         .unwrap_or_else(|| key.to_string())
+}
+
+fn entry(catalog: &str, key: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Map<String, Value>>(catalog)
+        .ok()?
+        .get(key)?
+        .as_str()
+        .map(str::to_owned)
 }

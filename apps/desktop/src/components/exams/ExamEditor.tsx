@@ -9,7 +9,7 @@ import { t } from "../../i18n";
 import "./exams.css";
 
 const timeRange = (start: string | null, end: string | null) =>
-  start && end ? `${start}–${end}` : t("Time not announced");
+  start && end ? `${start}–${end}` : t("exam.timeNotAnnounced");
 
 /** All exam surfaces use the same editor. The course link applies at once;
  * the schedule form saves only what differs from the published exam, so later
@@ -98,14 +98,14 @@ export function ExamEditor({
     void run({ kind: "removeExam", examKey: exam.key }, () => {
       onRemoved?.();
       notify.undoable(
-        "Exam deleted",
+        t("exam.examDeleted"),
         () => void workspaceActions.mutate(restore).catch(notify.error),
       );
     });
   };
   const source = exam.source;
   const sourceHint = (changed: boolean, value: string) =>
-    changed ? t("Source: {{value}}", { value: value || "—" }) : undefined;
+    changed ? t("exam.sourceValue", { value: value || "—" }) : undefined;
   const conflicts =
     published && exam.courseId ? (association.value?.conflicts ?? []) : [];
   const facts = (value: {
@@ -124,16 +124,16 @@ export function ExamEditor({
           <b>
             {t(
               exam.conflict.removed
-                ? "No longer in the published timetable."
-                : "The published timetable changed after your edit.",
+                ? "exam.noLongerInThePublished"
+                : "exam.thePublishedTimetableChangedAfter",
             )}
           </b>
-          <p>{t("Your edit: {{value}}", { value: facts(exam) })}</p>
+          <p>{t("exam.yourEditValue", { value: facts(exam) })}</p>
           {!exam.conflict.removed && (
             <>
-              <p>{t("Published now: {{value}}", { value: facts(source) })}</p>
+              <p>{t("exam.publishedNowValue", { value: facts(source) })}</p>
               <p>
-                {t("When you edited: {{value}}", {
+                {t("exam.whenYouEditedValue", {
                   value: facts(exam.conflict.base),
                 })}
               </p>
@@ -143,24 +143,24 @@ export function ExamEditor({
                   disabled={saving}
                   onClick={() => settle(source)}
                 >
-                  {t("Use published")}
+                  {t("exam.usePublished")}
                 </Button>
                 <Button
                   variant="subtle"
                   disabled={saving}
                   onClick={() => settle(exam)}
                 >
-                  {t("Keep mine")}
+                  {t("exam.keepMine")}
                 </Button>
               </div>
             </>
           )}
         </section>
       )}
-      {!published && <p>{t("Marked on the calendar")}</p>}
+      {!published && <p>{t("exam.markedOnTheCalendar")}</p>}
       {published && (
         <Select
-          label={t("Linked course")}
+          label={t("exam.linkedCourse")}
           value={exam.courseId ?? ""}
           onChange={(value) =>
             void run({
@@ -170,10 +170,10 @@ export function ExamEditor({
             })
           }
           description={
-            exam.autoLinked ? t("Matched by course code") : undefined
+            exam.autoLinked ? t("exam.matchedByCourseCode") : undefined
           }
           data={[
-            { value: "", label: t("Not linked") },
+            { value: "", label: t("common.notLinked") },
             ...courses.map((course) => ({
               value: course.id,
               label: `${course.title} · ${course.code}`,
@@ -186,7 +186,7 @@ export function ExamEditor({
       )}
       {conflicts.length > 0 && (
         <p className="examEditorNote">
-          {t("This course also has: {{exams}}", {
+          {t("exam.thisCourseAlsoHasExams", {
             exams: conflicts
               .map((other) => `${other.title || other.code} · ${other.date}`)
               .join(", "),
@@ -206,16 +206,12 @@ export function ExamEditor({
           if (!saving) edit(new FormData(event.currentTarget));
         }}
       >
-        <p>
-          {t(
-            "Fields you change stay yours; the rest follows the published timetable.",
-          )}
-        </p>
+        <p>{t("exam.fieldsYouChangeStayYours")}</p>
         {exam.notes && <p>{exam.notes}</p>}
         <TextInput
           name="date"
           type="date"
-          label={t("Date")}
+          label={t("common.date")}
           required
           defaultValue={exam.date}
           description={sourceHint(exam.date !== source.date, source.date)}
@@ -224,13 +220,13 @@ export function ExamEditor({
           <TextInput
             name="startTime"
             type="time"
-            label={t("Start time")}
+            label={t("common.startTime")}
             defaultValue={exam.startTime ?? ""}
           />
           <TextInput
             name="endTime"
             type="time"
-            label={t("End time")}
+            label={t("common.endTime")}
             defaultValue={exam.endTime ?? ""}
           />
         </div>
@@ -242,14 +238,14 @@ export function ExamEditor({
         )}
         <TextInput
           name="room"
-          label={t("Room")}
+          label={t("common.room")}
           defaultValue={exam.room}
           description={sourceHint(exam.room !== source.room, source.room)}
         />
         {(error || association.error) && (
           <p role="alert">{error || association.error}</p>
         )}
-        {saved && <p role="status">{t("Exam saved")}</p>}
+        {saved && <p role="status">{t("exam.examSaved")}</p>}
         <div className="examEditorActions">
           {(!published || exam.courseId) && (
             <Button
@@ -258,16 +254,16 @@ export function ExamEditor({
               disabled={saving}
               onClick={remove}
             >
-              {t("Delete")}
+              {t("common.delete")}
             </Button>
           )}
           {exam.edited && (
             <Button variant="subtle" disabled={saving} onClick={() => edit()}>
-              {t("Reset to source")}
+              {t("exam.resetToSource")}
             </Button>
           )}
           <Button type="submit" loading={saving}>
-            {t("Save")}
+            {t("common.save")}
           </Button>
         </div>
       </form>

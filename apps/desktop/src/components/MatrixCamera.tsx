@@ -45,11 +45,7 @@ export function MatrixCamera({
           next.phase === "complete" &&
           next.cells.every((cell) => !cell.text)
         ) {
-          setError(
-            t(
-              "No readable letters found. Check for blur or covered cells and try again.",
-            ),
-          );
+          setError(t("matrixCamera.noReadableLettersFoundCheck"));
           return;
         }
         if (next.phase === "complete")
@@ -74,21 +70,19 @@ export function MatrixCamera({
         keepMounted
         keepMountedMode="display-none"
         onClose={onClose}
-        title={t("Scan Matrix with camera")}
+        title={t("matrixCamera.scanMatrixWithCamera")}
         size="xl"
       >
         <Stack gap="sm">
           <Text size="sm">
-            {t(
-              "Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within ten seconds.",
-            )}
+            {t("settings.matrixCamera.keepTheMatrixFramedAnd")}
           </Text>
           <CameraPreview ref={setVideo} className="matrixCameraPreview">
             {/* Each analysed frame is drawn here with the outline fitted on
                 it; the live video shows through until the first one. */}
             <canvas
               ref={setDisplay}
-              aria-label={t("Matrix recognition overlay")}
+              aria-label={t("matrixCamera.matrixRecognitionOverlay")}
             />
           </CameraPreview>
           {error ? (
@@ -96,10 +90,10 @@ export function MatrixCamera({
           ) : (
             <Text size="sm" role="status">
               {outline
-                ? t("Recognizing Matrix… {{count}}/70 cells confirmed.", {
+                ? t("settings.matrixCamera.recognizingMatrixCount70Cells", {
                     count: readyCells,
                   })
-                : t("Point the camera at the Matrix on your card.")}
+                : t("matrixCamera.pointTheCameraAtThe")}
             </Text>
           )}
           {error && (
@@ -107,22 +101,22 @@ export function MatrixCamera({
               variant="default"
               onClick={() => setAttempt((value) => value + 1)}
             >
-              {t("Try again")}
+              {t("common.tryAgain")}
             </Button>
           )}
           <Button variant="default" onClick={onClose}>
-            {t("Cancel")}
+            {t("common.cancel")}
           </Button>
         </Stack>
       </Modal>
       {processing && (
         <Stack gap="xs" className="matrixCameraProcessing">
           <Text size="sm" role="status">
-            {t("Processing Matrix… You can put your card down.")}
+            {t("matrixCamera.processingMatrixYouCanPut")}
           </Text>
           <Progress
             value={progress * 100}
-            aria-label={t("Matrix processing progress")}
+            aria-label={t("matrixCamera.matrixProcessingProgress")}
           />
           {error && (
             <ErrorBanner onRetry={() => setAttempt((value) => value + 1)}>
@@ -130,7 +124,7 @@ export function MatrixCamera({
             </ErrorBanner>
           )}
           <Button variant="default" size="compact-xs" onClick={onClose}>
-            {t("Cancel")}
+            {t("common.cancel")}
           </Button>
         </Stack>
       )}

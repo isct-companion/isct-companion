@@ -35,13 +35,13 @@ export function NotificationSettings({
   const leadLabel = (minutes: number) =>
     minutes % 1440 === 0
       ? minutes === 1440
-        ? t("1 day before")
-        : t("{{days}} days before", { days: minutes / 1440 })
+        ? t("settings.notification.oneDayBefore")
+        : t("settings.notification.daysBefore", { days: minutes / 1440 })
       : minutes % 60 === 0
         ? minutes === 60
-          ? t("1 hour before")
-          : t("{{hours}} hours before", { hours: minutes / 60 })
-        : t("{{minutes}} minutes before", { minutes });
+          ? t("settings.notification.oneHourBefore")
+          : t("settings.notification.hoursBefore", { hours: minutes / 60 })
+        : t("settings.notification.minutesBefore", { minutes });
   const capability = caps["local-notifications"];
   const allowed = settings.localPermission === "granted";
   const canAsk = capability.support === "supported";
@@ -49,7 +49,7 @@ export function NotificationSettings({
   // Asking again returns the system's real answer (and prompts only the first
   // time), so the stored permission follows System Settings.
   const requestPermission = async (
-    body = t("Notifications are on."),
+    body = t("settings.notification.notificationsAreOn"),
     confirmDelivery = false,
   ) => {
     if (!desktopBridge || !canAsk) return notify(t(capability.reason));
@@ -62,21 +62,15 @@ export function NotificationSettings({
       if (permission === "granted") {
         await desktopBridge.notify("IsctCompanion", body);
         if (confirmDelivery)
-          notify(
-            t(
-              "The system accepted the test notification. If no banner appears, check notification settings, Focus, and screen sharing.",
-            ),
-          );
+          notify(t("settings.notification.theSystemAcceptedTheTest"));
       } else if (permission === "denied") {
         await desktopBridge.openNotificationSettings();
         notify(
-          t(
-            "Allow IsctCompanion notifications in system settings, then return to the app.",
-          ),
+          t("settings.notification.allowIsctCompanionNotificationsInSystem"),
         );
-      } else notify(t("Notifications are off."));
+      } else notify(t("settings.notification.notificationsAreOff"));
     } catch (error) {
-      notify(t(error instanceof Error ? error.message : String(error)));
+      notify(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -90,7 +84,7 @@ export function NotificationSettings({
 
   return (
     <>
-      <SettingsHeader title="Notifications" />
+      <SettingsHeader title="common.notifications" />
       {!canAsk ? (
         <Status id="permission" tone="warn">
           {t(capability.reason)}
@@ -107,22 +101,22 @@ export function NotificationSettings({
               >
                 {t(
                   settings.localPermission === "denied"
-                    ? "Open notification settings"
-                    : "Allow notifications",
+                    ? "settings.notification.openNotificationSettings"
+                    : "settings.notification.allowNotifications",
                 )}
               </UiButton>
             }
           >
             {t(
               settings.localPermission === "denied"
-                ? "Notifications are blocked in system settings."
-                : "Notifications are off.",
+                ? "settings.notification.notificationsAreBlockedInSystem"
+                : "settings.notification.notificationsAreOff",
             )}
           </Status>
         )
       )}
       <SettingsGroup>
-        <Row id="classes" title="Class reminders">
+        <Row id="classes" title="settings.notification.classReminders">
           <Toggle
             checked={settings.classes}
             onChange={(value) => set((n) => (n.classes = value))}
@@ -132,9 +126,9 @@ export function NotificationSettings({
           <div
             className="settingsSuboptions"
             role="group"
-            aria-label={t("Class reminders")}
+            aria-label={t("settings.notification.classReminders")}
           >
-            <Row id="class-lead" title="Remind me">
+            <Row id="class-lead" title="settings.main.remindMe">
               <UiSelect
                 value={settings.classLeadMinutes ?? DEFAULT_CLASS_LEAD}
                 onChange={(value) => {
@@ -143,13 +137,13 @@ export function NotificationSettings({
                 }}
                 data={CLASS_LEAD_CHOICES.map((minutes) => ({
                   value: String(minutes),
-                  label: t("{{minutes}} minutes before", { minutes }),
+                  label: t("settings.notification.minutesBefore", { minutes }),
                 }))}
               />
             </Row>
           </div>
         )}
-        <Row id="exams" title="Exam reminders">
+        <Row id="exams" title="settings.notification.examReminders">
           <Toggle
             checked={settings.exams ?? settings.classes}
             onChange={(value) => set((n) => (n.exams = value))}
@@ -159,9 +153,9 @@ export function NotificationSettings({
           <div
             className="settingsSuboptions"
             role="group"
-            aria-label={t("Exam reminders")}
+            aria-label={t("settings.notification.examReminders")}
           >
-            <Row id="exam-lead" title="Remind me">
+            <Row id="exam-lead" title="settings.main.remindMe">
               <UiSelect
                 value={
                   settings.examLeadMinutes ??
@@ -194,15 +188,15 @@ export function NotificationSettings({
         )}
         <Row
           id="quizzes"
-          title="Count quizzes as exams"
-          hint="Quizzes appear in upcoming exams and get exam reminders."
+          title="settings.main.countQuizzesAsExams"
+          hint={t("settings.main.quizzesAppearInUpcomingExams")}
         >
           <Toggle
             checked={settings.quizzes ?? true}
             onChange={(value) => set((n) => (n.quizzes = value))}
           />
         </Row>
-        <Row id="assignments" title="Assignment reminders">
+        <Row id="assignments" title="settings.notification.assignmentReminders">
           <Toggle
             checked={settings.assignments}
             onChange={(value) => set((n) => (n.assignments = value))}
@@ -212,12 +206,12 @@ export function NotificationSettings({
           <div
             className="settingsSuboptions"
             role="group"
-            aria-label={t("Assignment reminders")}
+            aria-label={t("settings.notification.assignmentReminders")}
           >
-            <Row id="assignment-lead" title="Remind me" group>
+            <Row id="assignment-lead" title="settings.main.remindMe" group>
               <MultiSelect
                 className="assignmentTimes"
-                aria-label={t("Assignment reminder times")}
+                aria-label={t("settings.notification.assignmentReminderTimes")}
                 value={assignmentLeads.map(String)}
                 data={[
                   ...new Set([...ASSIGNMENT_LEAD_CHOICES, ...assignmentLeads]),
@@ -238,14 +232,17 @@ export function NotificationSettings({
           </div>
         )}
         {canAsk && (
-          <Row id="test-notification" title="Test notification">
+          <Row id="test-notification" title="settings.main.testNotification">
             <UiButton
               className="button small"
               onClick={() =>
-                void requestPermission(t("This is a test notification."), true)
+                void requestPermission(
+                  t("settings.notification.thisIsATestNotification"),
+                  true,
+                )
               }
             >
-              {t("Send")}
+              {t("settings.notification.send")}
             </UiButton>
           </Row>
         )}

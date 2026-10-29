@@ -78,25 +78,25 @@ internal fun BackupPage() {
                     val stream = context.contentResolver.openOutputStream(uri) ?: throw IOException("No output stream")
                     stream.use { it.write(text.toByteArray()) }
                 }
-            }.onFailure { toast(t("Export failed: {{reason}}", "reason" to AppModel.describe(it))) }
+            }.onFailure { toast(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it))) }
         }
     }
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        confirm = t("Restore this file on all connected devices? A recovery copy of current data will be kept.") to {
+        confirm = t("settings.backup.restoreThisFileOnAll") to {
             runCatching {
                 val text = withContext(Dispatchers.IO) {
                     context.contentResolver.openInputStream(uri)?.use { String(it.readBytes()) }
                         ?: throw IOException("No input stream")
                 }
                 model.importBackup(text)
-            }.onSuccess { toast(t("Backup restored.")) }
-                .onFailure { toast(t("Import failed: {{reason}}", "reason" to AppModel.describe(it))) }
+            }.onSuccess { toast(t("settings.backup.backupRestored")) }
+                .onFailure { toast(t("settings.backup.importFailedReason", "reason" to AppModel.describe(it))) }
         }
     }
 
     Page {
-        SectionLabel(t("Sync"))
+        SectionLabel(t("settings.backup.sync"))
         Card {
             val providers = state?.providers.orEmpty()
             providers.forEachIndexed { index, provider ->
@@ -109,9 +109,9 @@ internal fun BackupPage() {
                 RowDivider(inset = 16.dp)
                 val automatic = state?.automatic == true
                 SwitchRow(
-                    t("Sync automatically"),
-                    if (automatic) t("Pulls other devices' changes when opened and every hour. Changed content is uploaded at most once per hour.")
-                    else t("Upload and pull by hand"),
+                    t("settings.backup.syncAutomatically"),
+                    if (automatic) t("settings.backup.pullsOtherDevicesChangesWhen")
+                    else t("settings.backup.uploadAndPullByHand"),
                     false, automatic, !locked,
                 ) { run { model.setCloudAutomatic(it) } }
                 RowDivider(inset = 16.dp)
@@ -120,63 +120,63 @@ internal fun BackupPage() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 ) {
-                    TextButton(onClick = { run { model.syncCloud(Direction.UPLOAD) } }, enabled = !locked) { Text(t("Upload")) }
+                    TextButton(onClick = { run { model.syncCloud(Direction.UPLOAD) } }, enabled = !locked) { Text(t("settings.backup.upload")) }
                     Spacer(Modifier.weight(1f))
                     if (state?.syncing == true) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text(t("Syncing…"), color = Theme.colors.muted)
+                        Text(t("settings.backup.syncing"), color = Theme.colors.muted)
                         Spacer(Modifier.weight(1f))
                     }
-                    TextButton(onClick = { run { model.syncCloud(Direction.PULL) } }, enabled = !locked) { Text(t("Pull")) }
+                    TextButton(onClick = { run { model.syncCloud(Direction.PULL) } }, enabled = !locked) { Text(t("settings.backup.pull")) }
                 }
             }
         }
         val versions = state?.versions.orEmpty().sortedByDescending { it.savedAt }
         if (versions.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            SectionLabel(t("Earlier versions"))
+            SectionLabel(t("settings.backup.earlierVersions"))
             Card {
                 versions.forEachIndexed { index, version ->
                     if (index > 0) RowDivider(inset = 16.dp)
                     RestoreRow(Format.due(version.savedAt), version.device, !(locked || pending)) {
                         confirm = t(
-                            "Restore the version from {{date}} on all connected devices? Unsynced work on older devices will be kept in recovery files.",
+                            "settings.backup.restoreTheVersionFromDate",
                             "date" to Format.due(version.savedAt),
                         ) to {
                             model.restoreCloud(version.id)
-                            toast(t("Restored the earlier version."))
+                            toast(t("settings.backup.restoredTheEarlierVersion"))
                         }
                     }
                 }
             }
-            Footer(t("Backups older than 30 days are removed only when at least four newer backups exist."))
+            Footer(t("settings.backup.backupsOlderThan30Days"))
         }
         val points = state?.recoveryPoints.orEmpty().sortedByDescending { it.savedAt }
         if (points.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            SectionLabel(t("Local recovery files"))
+            SectionLabel(t("settings.backup.localRecoveryFiles"))
             Card {
                 points.forEachIndexed { index, point ->
                     if (index > 0) RowDivider(inset = 16.dp)
                     RestoreRow(Format.due(point.savedAt), null, !(locked || pending)) {
                         confirm = t(
-                            "Restore the version from {{date}} on all connected devices? Unsynced work on older devices will be kept in recovery files.",
+                            "settings.backup.restoreTheVersionFromDate",
                             "date" to Format.due(point.savedAt),
                         ) to {
                             model.restoreCloud(point.id)
-                            toast(t("Restored the earlier version."))
+                            toast(t("settings.backup.restoredTheEarlierVersion"))
                         }
                     }
                 }
             }
-            Footer(t("Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist."))
+            Footer(t("settings.backup.savedBeforeCloudChangesOr"))
         }
         Spacer(Modifier.height(8.dp))
-        SectionLabel(t("Backup file"))
+        SectionLabel(t("settings.backup.backupFile"))
         Card {
-            Action(t("Export…"), !busy) { save.launch("IsctCompanion.json") }
+            Action(t("settings.backup.export"), !busy) { save.launch("IsctCompanion.json") }
             RowDivider(inset = 16.dp)
-            Action(t("Import…"), !busy) { open.launch(arrayOf("application/json")) }
+            Action(t("settings.backup.import"), !busy) { open.launch(arrayOf("application/json")) }
         }
     }
 
@@ -188,9 +188,9 @@ internal fun BackupPage() {
                 TextButton(onClick = {
                     confirm = null
                     run { action() }
-                }) { Text(t("Restore"), color = Theme.colors.danger) }
+                }) { Text(t("common.restore"), color = Theme.colors.danger) }
             },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text(t("Cancel")) } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text(t("common.cancel")) } },
         )
     }
 }
@@ -204,10 +204,10 @@ internal fun providerName(provider: CloudProvider) = when (provider) {
  * it every failure looks the same. A declined sign-in leaves the switch off. */
 private fun providerDetail(provider: ProviderState): String? {
     provider.error?.let {
-        return t("Could not update this cloud copy. Your data is saved on this device.") + "\n" + it
+        return t("settings.backup.couldNotUpdateThisCloud") + "\n" + it
     }
     if (!provider.enabled) return null
-    return provider.lastSyncedAt?.let { t("Synced {{date}}", "date" to Format.due(it)) } ?: t("Waiting for the first sync")
+    return provider.lastSyncedAt?.let { t("settings.backup.syncedDate", "date" to Format.due(it)) } ?: t("settings.backup.waitingForTheFirstSync")
 }
 
 @Composable
@@ -249,7 +249,7 @@ private fun RestoreRow(title: String, detail: String?, enabled: Boolean, onResto
             detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted) }
         }
         // Core refuses a restore while a transfer is unfinished.
-        TextButton(onClick = onRestore, enabled = enabled) { Text(t("Restore")) }
+        TextButton(onClick = onRestore, enabled = enabled) { Text(t("common.restore")) }
     }
 }
 

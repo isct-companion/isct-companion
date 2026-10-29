@@ -102,7 +102,7 @@ struct TodayScreen: View {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)
-                Text(t("Today"))
+                Text(t("common.today"))
                     .font(.largeTitle.bold())
                     .foregroundStyle(Theme.ink)
             }
@@ -117,9 +117,9 @@ struct TodayScreen: View {
         guard let today = model.today else { return "" }
         var parts = [Format.dayTitle(today.date)]
         if today.noClasses {
-            parts.append(today.calendarNotice ?? t("Holiday"))
+            parts.append(today.calendarNotice ?? t("common.holiday"))
         } else if let week = today.teachingWeek {
-            parts.append(t("{{quarter}} week {{week}}", ["quarter": Format.quarter(today.term), "week": week]))
+            parts.append(t("today.quarterWeek", ["quarter": Format.quarter(today.term), "week": week]))
         }
         return parts.joined(separator: " · ")
     }
@@ -131,9 +131,9 @@ private struct RecentLabel: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            SectionLabel(t("New"))
+            SectionLabel(t("today.new"))
             Spacer()
-            Button(t("Mark all as read")) {
+            Button(t("today.markAllAsRead")) {
                 Task { await model.markAllRecentSeen() }
             }
             .font(.subheadline.weight(.semibold))
@@ -158,7 +158,7 @@ private struct TodayContent: View {
         case .inClass:
             if let hero = today.hero { CurrentClassHero(item: hero, now: now) }
             if !today.classMaterials.isEmpty || !today.classAssignments.isEmpty {
-                SectionLabel(t("This class"))
+                SectionLabel(t("today.thisClass"))
                 ThisClassCard(materials: today.classMaterials, assignments: today.classAssignments, now: now)
             }
             ClassStack(items: today.upcoming, now: now, spread: spread)
@@ -289,7 +289,7 @@ private struct ClassStack: View {
                         pull = 0
                     }
                 }))
-            .accessibilityAction(named: t("Next class")) { withAnimation(.smooth(duration: Theme.motionBase)) { front = min(index + 1, items.count - 1) } }
+            .accessibilityAction(named: t("today.nextClass")) { withAnimation(.smooth(duration: Theme.motionBase)) { front = min(index + 1, items.count - 1) } }
             .onChange(of: items.first?.startsAt) { front = 0 }
         }
     }
@@ -308,11 +308,11 @@ private struct ClassStack: View {
         let exam = item.occurrence.kind == .exam
         let date = Format.civilDate(item.occurrence.date)
         if date.map(Calendar.tokyo.isDateInToday) == true {
-            if first { return exam ? t("Next exam") : t("Next class") }
-            return t("Later today")
+            if first { return exam ? t("today.nextExam") : t("today.nextClass") }
+            return t("today.laterToday")
         }
         if date.map(Calendar.tokyo.isDateInTomorrow) == true {
-            return exam ? t("Tomorrow’s exam") : t("Tomorrow’s class")
+            return exam ? t("today.tomorrowsExam") : t("today.tomorrowsClass")
         }
         return Format.dayTitle(item.occurrence.date)
     }
@@ -333,13 +333,13 @@ private struct StackCard: View {
         let today = starts.map { Calendar.tokyo.isDate($0, inSameDayAs: now) } == true
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(([quiz ? t("Quiz") : exam ? t("Exam") : nil, Format.periods(item.periods)] as [String?]).compactMap { $0 }.joined(separator: " · "))
+                Text(([quiz ? t("common.quiz") : exam ? t("common.exam") : nil, Format.periods(item.periods)] as [String?]).compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(exam ? Theme.warn : tint)
                 Spacer()
                 if leads, today, let starts {
                     let minutes = max(Format.minutes(until: starts, now: now), 0)
-                    TagChip(text: minutes < 60 ? t("{{count}} min left", ["count": minutes]) : Format.time(starts),
+                    TagChip(text: minutes < 60 ? t("today.countMinLeft", ["count": minutes]) : Format.time(starts),
                         ink: exam ? Theme.warn : tint, fill: Theme.surface)
                         .countingFigure(minutes)
                 }
@@ -437,14 +437,14 @@ private struct CurrentClassHero: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 Spacer()
-                Text(t("Until {{time}}", ["time": item.occurrence.endTime]))
+                Text(t("today.untilTime", ["time": item.occurrence.endTime]))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(tint)
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // The figure sits where the language puts the count: あと 45 分,
                 // 45 min left, 还剩 45 分钟.
-                let words = t("{{count}} min left").components(separatedBy: "{{count}}")
+                let words = t("today.countMinLeft").components(separatedBy: "{{count}}")
                 let minutes = max(Format.minutes(until: ends, now: now), 0)
                 if let before = words.first?.trimmingCharacters(in: .whitespaces), !before.isEmpty {
                     Text(before).font(.title3.weight(.semibold))
@@ -471,8 +471,8 @@ private struct CurrentClassHero: View {
     }
 
     private func inProgress(_ occurrence: Occurrence) -> String {
-        guard occurrence.kind == .exam else { return t("In class") }
-        return occurrence.quiz == true ? t("Quiz in progress") : t("Exam in progress")
+        guard occurrence.kind == .exam else { return t("today.inClass") }
+        return occurrence.quiz == true ? t("today.quizInProgress") : t("today.examInProgress")
     }
 }
 
@@ -485,7 +485,7 @@ private struct TonightHero: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(t("Due tonight"))
+                Text(t("today.dueTonight"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.danger)
                 Spacer()
@@ -502,7 +502,7 @@ private struct TonightHero: View {
                 Button {
                     push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
                 } label: {
-                    Label(t("Open submission page"), systemImage: "arrow.up.forward.square")
+                    Label(t("today.openSubmissionPage"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
@@ -560,22 +560,22 @@ struct DeadlineLink<Content: View>: View {
         .contextMenu {
             // A NavigationLink inside a menu does not push reliably.
             if let course = item.courseId {
-                Button(t("Open course"), systemImage: "book") { push(CourseRoute(id: course)) }
+                Button(t("common.openCourse"), systemImage: "book") { push(CourseRoute(id: course)) }
             }
             if let url = item.sourceUrl {
-                Button(t("Submit in LMS"), systemImage: "arrow.up.forward.square") {
+                Button(t("common.submitInLMS"), systemImage: "arrow.up.forward.square") {
                     push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
                 }
             }
             Button {
                 Task { await model.setPinned(item, !item.pinned) }
             } label: {
-                Label(item.pinned ? t("Unpin") : t("Pin"), systemImage: "pin")
+                Label(item.pinned ? t("common.unpin") : t("common.pin"), systemImage: "pin")
             }
             Button(role: .destructive) {
                 Task { await model.setHidden(item, true) }
             } label: {
-                Label(t("Hide"), systemImage: "eye.slash")
+                Label(t("common.hide"), systemImage: "eye.slash")
             }
         }
     }
@@ -626,7 +626,7 @@ struct MaterialRow: View {
                 if opening {
                     ProgressView().controlSize(.small)
                 } else if item.addedToday {
-                    TagChip(text: t("Added today"))
+                    TagChip(text: t("common.addedToday"))
                 }
             }
             .padding(.horizontal, 16)
@@ -651,7 +651,7 @@ private struct UpcomingExams: View {
 
     var body: some View {
         if !exams.isEmpty {
-            SectionLabel(t("Exam"))
+            SectionLabel(t("common.exam"))
             Card {
                 ForEach(Array(exams.enumerated()), id: \.element.key) { index, exam in
                     if index > 0 { RowDivider() }
@@ -680,7 +680,7 @@ private struct UpcomingExams: View {
     private func detail(_ exam: ExamView) -> String {
         let time = Format.periods(exam.periods)
             ?? exam.startTime.map { start in [start, exam.endTime].compactMap { $0 }.joined(separator: "–") }
-        return [exam.kind == "quiz" ? t("Quiz") : nil, Format.dayTitle(exam.date), time, exam.room].compactMap { $0 }.filter { !$0.isEmpty }
+        return [exam.kind == "quiz" ? t("common.quiz") : nil, Format.dayTitle(exam.date), time, exam.room].compactMap { $0 }.filter { !$0.isEmpty }
             .joined(separator: " · ")
     }
 }
@@ -698,11 +698,11 @@ private struct RecentCard: View {
                 switch item {
                 case let .grade(row):
                     recentRow(color: row.color, title: [row.title, row.grade].compactMap { $0 }.joined(separator: " · "),
-                              detail: row.courseTitle, tag: TagChip(text: t("Graded"), ink: Theme.ok, fill: Theme.okSoft),
+                              detail: row.courseTitle, tag: TagChip(text: t("common.graded"), ink: Theme.ok, fill: Theme.okSoft),
                               courseId: row.courseId, seen: (.grade, row.assignmentId))
                 case let .material(row):
                     recentRow(color: row.color, title: row.title, detail: row.courseTitle,
-                              tag: TagChip(text: t("Material")), courseId: row.courseId, seen: (.material, row.materialId))
+                              tag: TagChip(text: t("today.material")), courseId: row.courseId, seen: (.material, row.materialId))
                 }
             }
         }
@@ -736,7 +736,7 @@ struct ProblemBanner: View {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
             Text(text).font(.subheadline).foregroundStyle(Theme.ink).lineLimit(2)
             Spacer()
-            Button(t("Retry")) {
+            Button(t("common.retry")) {
                 model.dismissProblem()
                 model.refreshFromSchool()
             }
@@ -754,14 +754,14 @@ private struct ConnectCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(t("Connect school accounts")).font(.title3.weight(.bold)).foregroundStyle(Theme.ink)
-            Text(t("Reads your timetable, assignments and materials from the school sites. Your password is kept in the Keychain and sent only to the school sites."))
+            Text(t("common.connectSchoolAccounts")).font(.title3.weight(.bold)).foregroundStyle(Theme.ink)
+            Text(t("today.readsYourTimetableAssignmentsAnd"))
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
             Button {
                 push(SettingsRoute.account(.science))
             } label: {
-                Text(t("Connect with Science Tokyo"))
+                Text(t("today.connectWithScienceTokyo"))
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -779,9 +779,9 @@ struct UndoToast: View {
     var body: some View {
         if let undo = model.undo {
             HStack {
-                Text(t("Hid “{{title}}”", ["title": undo.title])).lineLimit(1)
+                Text(t("app.hidTitle", ["title": undo.title])).lineLimit(1)
                 Spacer()
-                Button(t("Undo")) { Task { await model.undoHide() } }.fontWeight(.semibold)
+                Button(t("common.undo")) { Task { await model.undoHide() } }.fontWeight(.semibold)
             }
             .font(.subheadline)
             .foregroundStyle(Theme.ink)

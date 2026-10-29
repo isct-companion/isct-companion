@@ -14,7 +14,7 @@ export const CameraPreview = forwardRef<
         autoPlay
         playsInline
         muted
-        aria-label={t("Camera preview")}
+        aria-label={t("cameraPreview.cameraPreview")}
       />
       {children}
     </div>

@@ -1,12 +1,17 @@
 import type { TaskDeadlineView } from "../generated/persistence";
 import { formatJst } from "./civil-date";
-import { t } from "../i18n";
+import { t, type MessageKey } from "../i18n";
 
 /** Core supplies time and urgency; this boundary only formats the view's text. */
 export function deadlineText(deadline: TaskDeadlineView, locale: string) {
   const ms = deadline.remainingMilliseconds;
+  const UNITS: Record<"d" | "h" | "m", MessageKey> = {
+    d: "format.durationDays",
+    h: "format.durationHours",
+    m: "format.durationMinutes",
+  };
   const unit = (count: number, suffix: "d" | "h" | "m") =>
-    t(`{{count}}${suffix}`, { count });
+    t(UNITS[suffix], { count });
   const relative = (value: number) => {
     const hours = Math.max(1, Math.floor(value / 3_600_000));
     return hours < 24
@@ -16,7 +21,7 @@ export function deadlineText(deadline: TaskDeadlineView, locale: string) {
   const hours = Math.floor(Math.max(0, ms) / 3_600_000);
   const days = Math.floor(hours / 24);
   const countdownLabel = deadline.overdue
-    ? t("{{duration}} ago", { duration: relative(Math.abs(ms)) })
+    ? t("deadlineText.durationAgo", { duration: relative(Math.abs(ms)) })
     : hours < 1
       ? unit(Math.max(1, Math.floor(ms / 60_000)), "m")
       : hours < 24
@@ -27,8 +32,8 @@ export function deadlineText(deadline: TaskDeadlineView, locale: string) {
   const label = deadline.overdue
     ? countdownLabel
     : deadline.tone === "warning"
-      ? t("Due in {{duration}}", { duration: relative(ms) })
-      : t("Due {{date}}", {
+      ? t("deadlineText.dueInDuration", { duration: relative(ms) })
+      : t("course.dueDate", {
           date: formatJst(deadline.at, locale, {
             month: "short",
             day: "numeric",

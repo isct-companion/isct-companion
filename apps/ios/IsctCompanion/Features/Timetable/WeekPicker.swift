@@ -16,9 +16,9 @@ struct WeekPicker: View {
     /// when Core knows the quarters around it.
     static func label(_ week: TimetableWeek, in year: TimetableYear) -> String? {
         guard !year.quarters.isEmpty else { return nil }
-        guard let term = week.term else { return t("Break between quarters") }
-        let name = [Format.quarter(term), week.week.map { t("Week {{week}}", ["week": $0]) }].compactMap { $0 }.joined(separator: " ")
-        return week.exams ? "\(name) · \(t("Exams"))" : name
+        guard let term = week.term else { return t("timetable.breakBetweenQuarters") }
+        let name = [Format.quarter(term), week.week.map { t("timetable.weekNumber", ["week": $0]) }].compactMap { $0 }.joined(separator: " ")
+        return week.exams ? "\(name) · \(t("common.exams"))" : name
     }
 
     var body: some View {
@@ -51,15 +51,15 @@ struct WeekPicker: View {
                 }
                 .onAppear { proxy.scrollTo(AppModel.civil(monday), anchor: .center) }
             }
-            .navigationTitle(year.map { t("AY {{year}}", ["year": String($0.year)]) } ?? t("Choose a week"))
+            .navigationTitle(year.map { t("timetable.academicYear", ["year": String($0.year)]) } ?? t("timetable.chooseAWeek"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
-                    Button(t("Previous year"), systemImage: "chevron.left") { Task { await step(-1) } }
-                    Button(t("Next year"), systemImage: "chevron.right") { Task { await step(1) } }
+                    Button(t("timetable.previousYear"), systemImage: "chevron.left") { Task { await step(-1) } }
+                    Button(t("timetable.nextYear"), systemImage: "chevron.right") { Task { await step(1) } }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(t("Back to today")) { pick(TimetableScreen.monday(of: Date())) }
+                    Button(t("timetable.backToToday")) { pick(TimetableScreen.monday(of: Date())) }
                 }
             }
         }

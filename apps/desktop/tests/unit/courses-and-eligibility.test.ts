@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { english } from "@app/i18n";
 import { submissionLabel } from "@app/lib/academic";
 import { COURSE_FILE_POLICY } from "@app/lib/course-file-policy";
 import { SYLLABUS_DEPARTMENTS, departmentById } from "@app/lib/departments";
@@ -41,14 +42,8 @@ function assignment(overrides: Partial<Assignment> = {}): Assignment {
   };
 }
 
-/** Keys the UI catalogue publishes; anything else must never reach the user. */
-const SUBMISSION_LABELS: Record<string, string> = {
-  graded: "Graded",
-  submitted: "Submitted",
-  open: "Open",
-  unknown: "Unknown",
-};
-const label = (key: string) => SUBMISSION_LABELS[key] ?? `⟨${key}⟩`;
+/** The real English catalogue: a key it lacks is a build error, not a label. */
+const label = english;
 
 const DEPARTMENTS_PATH =
   "crates/app-core/tests/fixtures/subscriptions/data/2026/departments.json";
@@ -168,27 +163,27 @@ describe("the state label shown beside an assignment", () => {
         label,
         false,
       ),
-    ).toBe("Graded A");
+    ).toBe("graded A");
     expect(
       submissionLabel(
         assignment({ submission: "graded", grade: "秀" }),
         label,
         true,
       ),
-    ).toBe("Graded 秀");
+    ).toBe("graded 秀");
   });
 
   it("shows only the graded label when the record carries no grade", () => {
     expect(
       submissionLabel(assignment({ submission: "graded" }), label, false),
-    ).toBe("Graded");
+    ).toBe("graded");
     expect(
       submissionLabel(
         assignment({ submission: "graded", grade: "" }),
         label,
         false,
       ),
-    ).toBe("Graded");
+    ).toBe("graded");
   });
 
   it("keeps a recorded grade hidden until Core reports the assignment graded", () => {
@@ -198,25 +193,25 @@ describe("the state label shown beside an assignment", () => {
         label,
         true,
       ),
-    ).toBe("Submitted");
+    ).toBe("submitted");
   });
 
   it("shows the submitted label once the caller marks it submitted", () => {
     expect(
       submissionLabel(assignment({ submission: "open" }), label, true),
-    ).toBe("Submitted");
+    ).toBe("submitted");
   });
 
   it("shows the state Core recorded while the caller has not submitted it", () => {
     expect(
       submissionLabel(assignment({ submission: "open" }), label, false),
-    ).toBe("Open");
+    ).toBe("open");
     expect(
       submissionLabel(assignment({ submission: "submitted" }), label, false),
-    ).toBe("Submitted");
+    ).toBe("submitted");
   });
 
   it("shows the unknown label when Core recorded no state at all", () => {
-    expect(submissionLabel(assignment(), label, false)).toBe("Unknown");
+    expect(submissionLabel(assignment(), label, false)).toBe("unknown");
   });
 });

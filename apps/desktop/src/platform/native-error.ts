@@ -4,7 +4,7 @@ import {
   type InvokeOptions,
 } from "@tauri-apps/api/core";
 import type { ErrorCode } from "../generated/persistence";
-import { t } from "../i18n";
+import { lookup, t } from "../i18n";
 
 /** A native command's rejection. Core rejects with a stable code, shown as
  * the shared catalogs' `error.<code>` copy; its `detail` is for logs only. */
@@ -19,12 +19,16 @@ export class NativeError extends Error {
   }
 }
 
+/** The desktop shell words its own failures as catalog keys
+ * (`share.copyFailed`); any other text shows as it came. */
+const shellText = (text: string) => lookup(text) ?? text;
+
 /** Normalizes what a native command rejects with: a Core failure
  * (`{ code, params?, detail }`), the desktop shell's own copy
  * (`{ message }`), or a plain string from older paths and test hosts. */
 export function nativeError(error: unknown, fallback: string): Error {
   if (error instanceof Error) return error;
-  if (typeof error === "string") return new Error(error);
+  if (typeof error === "string") return new Error(shellText(error));
   if (error && typeof error === "object") {
     if ("code" in error && typeof error.code === "string") {
       const params =
@@ -38,7 +42,7 @@ export function nativeError(error: unknown, fallback: string): Error {
       return new NativeError(error.code as ErrorCode, detail, params);
     }
     if ("message" in error && typeof error.message === "string")
-      return new Error(error.message);
+      return new Error(shellText(error.message));
   }
   return new Error(fallback);
 }

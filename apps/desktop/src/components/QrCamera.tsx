@@ -26,11 +26,7 @@ export function QrCamera({
     const visibility = () => {
       if (document.hidden) {
         stop();
-        setError(
-          t(
-            "Camera scan stopped while the app was in the background. Open it again to continue.",
-          ),
-        );
+        setError(t("settings.matrixCamera.cameraScanStoppedWhileThe"));
       }
     };
     document.addEventListener("visibilitychange", visibility);
@@ -56,10 +52,8 @@ export function QrCamera({
         stop();
         setError(
           reason instanceof DOMException && reason.name === "NotAllowedError"
-            ? t(
-                "Camera access was denied. Allow camera access in system settings, then try again.",
-              )
-            : t("The camera is unavailable. Select a QR code image instead."),
+            ? t("settings.matrixCamera.cameraAccessWasDeniedAllow")
+            : t("qrCamera.theCameraIsUnavailableSelect"),
         );
       });
     return () => {
@@ -71,15 +65,11 @@ export function QrCamera({
     <Modal
       opened
       onClose={onClose}
-      title={t("Scan authenticator QR code")}
+      title={t("qrCamera.scanAuthenticatorQRCode")}
       size="lg"
     >
       <Stack gap="sm">
-        <Text size="sm">
-          {t(
-            "Show the whole QR code to the camera. It is read only on this device.",
-          )}
-        </Text>
+        <Text size="sm">{t("qrCamera.showTheWholeQRCode")}</Text>
         <CameraPreview ref={setVideo} />
         {error && (
           <ErrorBanner onRetry={() => setAttempt((n) => n + 1)}>

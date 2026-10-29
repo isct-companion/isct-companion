@@ -29,7 +29,7 @@ struct MatrixCameraScreen: View {
                             .frame(width: 44, height: 44)
                             .background(.ultraThinMaterial, in: Circle())
                     }
-                    .accessibilityLabel(t("Cancel"))
+                    .accessibilityLabel(t("common.cancel"))
                     Spacer()
                 }
                 .padding(.horizontal, 16)
@@ -58,21 +58,21 @@ struct MatrixCameraScreen: View {
         .onChange(of: scenePhase) { _, phase in
             // As on desktop: leaving the app stops acquisition for good.
             if phase != .active, state?.phase != .complete {
-                fail(t("Camera scan stopped while the app was in the background. Open it again to continue."))
+                fail(t("settings.matrixCamera.cameraScanStoppedWhileThe"))
             }
         }
     }
 
     private var status: String {
         guard let state, state.phase != .complete, state.readyCells > 0 else {
-            return t("Keep the Matrix framed and steady. Recognition finishes after all cells are confirmed, or within ten seconds.")
+            return t("settings.matrixCamera.keepTheMatrixFramedAnd")
         }
-        return t("Recognizing Matrix… {{count}}/70 cells confirmed.", ["count": state.readyCells])
+        return t("settings.matrixCamera.recognizingMatrixCount70Cells", ["count": state.readyCells])
     }
 
     private func start() async {
         guard await AVCaptureDevice.requestAccess(for: .video) else {
-            fail(t("Camera access was denied. Allow camera access in system settings, then try again."))
+            fail(t("settings.matrixCamera.cameraAccessWasDeniedAllow"))
             return
         }
         let controller = MatrixCameraController(session: session) { update in
@@ -273,7 +273,7 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
                   let input = try? AVCaptureDeviceInput(device: device),
                   capture.canAddInput(input), capture.canAddOutput(output)
             else {
-                report(.failed(t("The camera is unavailable. Close other apps using it and try again.")))
+                report(.failed(t("settings.matrixCamera.theCameraIsUnavailableClose")))
                 return
             }
             capture.beginConfiguration()
@@ -315,7 +315,7 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
             interruption = NotificationCenter.default.addObserver(
                 forName: AVCaptureSession.wasInterruptedNotification, object: capture, queue: nil
             ) { [weak self] _ in
-                self?.report(.failed(t("The camera disconnected. Open it again to continue.")))
+                self?.report(.failed(t("matrixCamera.theCameraDisconnectedOpenIt")))
                 self?.stop()
             }
             started = CACurrentMediaTime()

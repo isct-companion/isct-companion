@@ -59,14 +59,14 @@ fun LecturesScreen() {
     var overview by remember { mutableStateOf<WorkspaceOverview?>(null) }
     val term = model.today?.term
     LaunchedEffect(term, model.contentRevision) { term?.let { overview = model.overview(it) } }
-    TabPage(t("Courses")) {
+    TabPage(t("common.courses")) {
         val ids = overview?.termCourseIds.orEmpty()
         Loading(
             overview != null,
             placeholder = { SkeletonRows(6, Modifier.padding(horizontal = Theme.gutter, vertical = 8.dp)) },
         ) {
             if (ids.isEmpty()) {
-                Box(Modifier.fillMaxSize(), Alignment.Center) { EmptyState(Icons.Rounded.School, t("No courses this term yet")) }
+                Box(Modifier.fillMaxSize(), Alignment.Center) { EmptyState(Icons.Rounded.School, t("lectures.noCoursesThisTermYet")) }
             } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = 24.dp)) {
                 overview?.term?.let { item { SectionLabel(Format.quarter(it)) } }
                 item {

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { getDesktopBridge } from "./desktop-bridge";
 import { useViewQuery, type ViewAnswer } from "./view-query";
 import type {
@@ -118,7 +119,7 @@ export async function scheduleAnswers<T extends unknown[]>(
   queries: readonly ScheduleQuery[],
 ): Promise<ViewAnswer<T>> {
   const bridge = getDesktopBridge();
-  if (!bridge) throw new Error("Schedule data requires the native Core.");
+  if (!bridge) throw new Error(t("coreQuery.scheduleDataRequiresTheNative"));
   const response = await bridge.scheduleQuery(queries);
   if (
     !Array.isArray(response.values) ||

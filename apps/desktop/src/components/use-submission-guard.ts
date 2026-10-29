@@ -20,7 +20,7 @@ export function useSubmissionGuard() {
       return true;
     } catch (cause) {
       // Same wording as the toast the rest of the app shows for a failed save.
-      setError(t(errorText(cause) ?? "unknown error"));
+      setError(errorText(cause) ?? t("common.unknownError"));
       return false;
     } finally {
       locked.current = false;

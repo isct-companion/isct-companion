@@ -38,7 +38,7 @@ function CalendarViewBody({
   const actionsFor = (block: Block): BlockAction[] => {
     if (!mark) return [];
     if (block.kind === "event")
-      return [{ label: t("Edit"), run: () => open(block) }];
+      return [{ label: t("common.edit"), run: () => open(block) }];
     const state = block.cancelled
       ? "cancelled"
       : block.kind === "exam"
@@ -48,9 +48,9 @@ function CalendarViewBody({
         : "class";
     return (
       [
-        ["exam", t("Mark as exam")],
-        ["quiz", t("Mark as quiz")],
-        ["cancelled", t("Mark as cancelled")],
+        ["exam", t("common.markAsExam")],
+        ["quiz", t("common.markAsQuiz")],
+        ["cancelled", t("common.markAsCancelled")],
       ] as const
     ).map(([as, label]) => ({
       label,
@@ -81,9 +81,9 @@ function CalendarViewBody({
   const visibleFrom = view.value?.agendas[0]?.date ?? from;
   const visibleTo = view.value?.agendas.at(-1)?.date ?? to;
   return (
-    <section className="calendarWorkspace" aria-label={t("Calendar")}>
+    <section className="calendarWorkspace" aria-label={t("today.calendar")}>
       <header className="scheduleTitleRow">
-        <h1>{t("Calendar")}</h1>
+        <h1>{t("today.calendar")}</h1>
       </header>
       <Paper className="ttCard" withBorder radius="md">
         <header className="timetableViewBar">
@@ -101,7 +101,7 @@ function CalendarViewBody({
           <div className="scheduleControls">
             <Input
               type="date"
-              aria-label={t("Date")}
+              aria-label={t("common.date")}
               value={date}
               onChange={(event) =>
                 event.target.value &&
@@ -112,7 +112,7 @@ function CalendarViewBody({
               }
             />
             <UiButton
-              aria-label={t("Previous week")}
+              aria-label={t("today.previousWeek")}
               onClick={() => step(addCivilDays(date, -7), -1)}
             >
               <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
@@ -122,10 +122,10 @@ function CalendarViewBody({
                 step(undefined, Math.sign(today.localeCompare(date)))
               }
             >
-              {t("This week")}
+              {t("common.thisWeek")}
             </UiButton>
             <UiButton
-              aria-label={t("Next week")}
+              aria-label={t("today.nextWeek")}
               onClick={() => step(addCivilDays(date, 7), 1)}
             >
               <ChevronRight size={14} strokeWidth={1.75} aria-hidden />

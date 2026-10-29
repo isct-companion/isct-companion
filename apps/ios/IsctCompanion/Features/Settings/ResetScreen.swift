@@ -35,21 +35,21 @@ struct ResetScreen: View {
     }
 
     /// What every reset removes; the item keys live under `settings.reset.item`.
-    private static let schoolCaches = ["schoolData", "catalog", "references", "syncRecords", "lmsToken"]
+    private static let schoolCaches = ["settings.reset.item.schoolData", "settings.reset.item.catalog", "settings.reset.item.references", "settings.reset.item.syncRecords", "settings.reset.item.lmsToken"]
 
     private var everything: Bool { kind == .everything }
     private var cloudOn: Bool { model.cloud?.providers.contains { $0.enabled } == true }
 
     private var deletes: [String] {
         everything
-            ? Self.schoolCaches + ["webSession", "userData", "settings", "logins"]
-            : Self.schoolCaches + (signOutWeb ? ["webSession"] : []) + (deleteDownloads ? ["downloads"] : [])
+            ? Self.schoolCaches + ["settings.reset.item.webSession", "settings.reset.item.userData", "settings.reset.item.settings", "settings.reset.item.logins"]
+            : Self.schoolCaches + (signOutWeb ? ["settings.reset.item.webSession"] : []) + (deleteDownloads ? ["settings.reset.item.downloads"] : [])
     }
 
     private var keeps: [String] {
         everything
-            ? ["downloads", "cloud", "logs"]
-            : ["userData", "settings", "logins"] + (signOutWeb ? [] : ["webSession"]) + (deleteDownloads ? [] : ["downloads"])
+            ? ["settings.reset.item.downloads", "settings.reset.item.cloud", "settings.reset.item.logs"]
+            : ["settings.reset.item.userData", "settings.reset.item.settings", "settings.reset.item.logins"] + (signOutWeb ? [] : ["settings.reset.item.webSession"]) + (deleteDownloads ? [] : ["settings.reset.item.downloads"])
     }
 
     private var request: ResetRequest {
@@ -180,7 +180,7 @@ struct ResetScreen: View {
     private func items(_ title: String, _ keys: [String], icon: String) -> some View {
         Section(t(title)) {
             ForEach(keys, id: \.self) { key in
-                Label(t("settings.reset.item.\(key)"), systemImage: icon)
+                Label(t(key), systemImage: icon)
             }
         }
     }

@@ -1,4 +1,4 @@
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { UiInput } from "../../components/ui";
 import { nativeOs } from "../../platform/desktop-bridge";
@@ -17,12 +17,42 @@ type ThemeId = NonNullable<Settings["theme"]>;
 /** Each theme's light background and surface, for its swatch. The values
  * mirror design/tokens (color.light.json for warm, theme.json for the
  * rest); the app itself reads them from generated/design/themes.css. */
-const themes: { id: ThemeId; title: string; bg: string; surface: string }[] = [
-  { id: "warm", title: "Warm", bg: "#f3f3f0", surface: "#ffffff" },
-  { id: "cool", title: "Cool", bg: "#f2f2f7", surface: "#ffffff" },
-  { id: "paper", title: "Paper", bg: "#f3eee4", surface: "#fffdf8" },
-  { id: "mist", title: "Mist", bg: "#edf1f6", surface: "#fbfcfe" },
-  { id: "moss", title: "Moss", bg: "#eef2ec", surface: "#fcfdfb" },
+const themes: {
+  id: ThemeId;
+  title: MessageKey;
+  bg: string;
+  surface: string;
+}[] = [
+  {
+    id: "warm",
+    title: "settings.main.warm",
+    bg: "#f3f3f0",
+    surface: "#ffffff",
+  },
+  {
+    id: "cool",
+    title: "settings.main.cool",
+    bg: "#f2f2f7",
+    surface: "#ffffff",
+  },
+  {
+    id: "paper",
+    title: "settings.main.paper",
+    bg: "#f3eee4",
+    surface: "#fffdf8",
+  },
+  {
+    id: "mist",
+    title: "settings.main.mist",
+    bg: "#edf1f6",
+    surface: "#fbfcfe",
+  },
+  {
+    id: "moss",
+    title: "settings.main.moss",
+    bg: "#eef2ec",
+    surface: "#fcfdfb",
+  },
 ];
 
 /** Five round swatches; choosing one applies and saves at once. */
@@ -34,7 +64,11 @@ function ThemeSwatches({
   onChange: (theme: ThemeId) => void;
 }) {
   return (
-    <div className="themeSwatches" role="radiogroup" aria-label={t("Theme")}>
+    <div
+      className="themeSwatches"
+      role="radiogroup"
+      aria-label={t("settings.main.theme")}
+    >
       {themes.map((theme) => (
         <button
           type="button"
@@ -75,9 +109,9 @@ export function AppearanceSettings({
   const closeOs = os === "macos" || os === "windows" ? os : undefined;
   return (
     <>
-      <SettingsHeader title="Appearance" />
+      <SettingsHeader title="settings.appearance.appearance" />
       <SettingsGroup>
-        <Row id="language" group title="Language">
+        <Row id="language" group title="common.language">
           <Choice
             value={data.settings.locale}
             options={[
@@ -88,56 +122,73 @@ export function AppearanceSettings({
             onChange={(locale) => set("locale", locale)}
           />
         </Row>
-        <Row id="content-language" group title="School content language">
+        <Row
+          id="content-language"
+          group
+          title="settings.main.schoolContentLanguage"
+        >
           <Choice
             value={data.settings.contentLanguage ?? "auto"}
             options={[
-              { value: "auto", label: t("Automatic") },
+              { value: "auto", label: t("common.automatic") },
               { value: "en", label: "English" },
               { value: "ja", label: "日本語" },
             ]}
             onChange={(language) => set("contentLanguage", language)}
           />
         </Row>
-        <Row id="appearance-mode" group title="Light and dark">
+        <Row
+          id="appearance-mode"
+          group
+          title="settings.appearance.lightAndDark"
+        >
           <Choice
             value={data.settings.appearance}
             options={[
-              { value: "system", label: t("Automatic") },
-              { value: "light", label: t("Light") },
-              { value: "dark", label: t("Dark") },
+              { value: "system", label: t("common.automatic") },
+              { value: "light", label: t("settings.appearance.light") },
+              { value: "dark", label: t("settings.appearance.dark") },
             ]}
             onChange={(appearance) => set("appearance", appearance)}
           />
         </Row>
-        <Row id="theme" group title="Theme">
+        <Row id="theme" group title="settings.main.theme">
           <ThemeSwatches
             value={data.settings.theme ?? "warm"}
             onChange={(theme) => set("theme", theme)}
           />
         </Row>
-        <Row id="text-size" group title="Text size">
+        <Row id="text-size" group title="common.textSize">
           <Choice
             value={data.settings.textSize ?? "medium"}
             options={[
-              { value: "small", label: t("Small") },
-              { value: "medium", label: t("Medium") },
-              { value: "large", label: t("Large") },
+              { value: "small", label: t("settings.appearance.small") },
+              { value: "medium", label: t("settings.appearance.medium") },
+              { value: "large", label: t("settings.appearance.large") },
             ]}
             onChange={(textSize) => set("textSize", textSize)}
           />
         </Row>
         {closeOs && (
-          <Row id="close-window" group title="When closing the window">
+          <Row
+            id="close-window"
+            group
+            title="settings.appearance.closeWindow.title"
+          >
             <Choice
               value={data.settings.closeWindow ?? "ask"}
               options={[
-                { value: "ask", label: t("Ask every time") },
-                { value: "quit", label: t("Quit") },
+                {
+                  value: "ask",
+                  label: t("settings.appearance.closeWindow.ask"),
+                },
+                { value: "quit", label: t("common.quit") },
                 {
                   value: "background",
                   label: t(
-                    closeOs === "macos" ? "Keep in Dock" : "Minimize to tray",
+                    closeOs === "macos"
+                      ? "window.close.keepInDock"
+                      : "window.close.minimizeToTray",
                   ),
                 },
               ]}
@@ -145,7 +196,10 @@ export function AppearanceSettings({
             />
           </Row>
         )}
-        <Row id="bilingual" title="Show one language in bilingual LMS">
+        <Row
+          id="bilingual"
+          title="settings.appearance.showOneLanguageInBilingual"
+        >
           <Toggle
             checked={data.settings.lmsBilingualFilter ?? false}
             onChange={(checked) => set("lmsBilingualFilter", checked)}
@@ -153,17 +207,20 @@ export function AppearanceSettings({
         </Row>
       </SettingsGroup>
       <MoreOptions>
-        <Row id="density" group title="Density">
+        <Row id="density" group title="settings.appearance.density">
           <Choice
             value={data.settings.density}
             options={[
-              { value: "comfortable", label: t("Comfortable") },
-              { value: "compact", label: t("Compact") },
+              {
+                value: "comfortable",
+                label: t("settings.appearance.comfortable"),
+              },
+              { value: "compact", label: t("settings.appearance.compact") },
             ]}
             onChange={(density) => set("density", density)}
           />
         </Row>
-        <Row id="background" title="Background image">
+        <Row id="background" title="settings.appearance.backgroundImage">
           <UiInput
             value={data.settings.customization?.background ?? ""}
             placeholder="https://…"

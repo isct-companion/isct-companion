@@ -1,5 +1,5 @@
 import { ReaderTools } from "./ReaderPane";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import {
   toggleStrongCommand,
   toggleEmphasisCommand,
@@ -108,7 +108,7 @@ export function MarkdownDocument({
           attributes: {
             ...options.attributes,
             role: "textbox",
-            "aria-label": t("Note document"),
+            "aria-label": t("lms.noteDocument"),
             "aria-multiline": "true",
           },
         }));
@@ -177,15 +177,15 @@ export function MarkdownDocument({
     }
   }, [value]);
   const tools = [
-    { label: "Bold", text: <b>B</b>, command: toggleStrongCommand },
-    { label: "Italic", text: <i>I</i>, command: toggleEmphasisCommand },
+    { label: "lms.bold", text: <b>B</b>, command: toggleStrongCommand },
+    { label: "lms.italic", text: <i>I</i>, command: toggleEmphasisCommand },
     {
-      label: "Inline code",
+      label: "lms.inlineCode",
       text: <code>&lt;/&gt;</code>,
       command: toggleInlineCodeCommand,
     },
-    { label: "Bullet list", text: "• ≡", command: wrapInBulletListCommand },
-  ];
+    { label: "lms.bulletList", text: "• ≡", command: wrapInBulletListCommand },
+  ] satisfies ({ label: MessageKey } & Record<string, unknown>)[];
   return (
     <>
       {editable && (
@@ -193,7 +193,7 @@ export function MarkdownDocument({
           <div
             className="lmsMarkdownTools"
             role="toolbar"
-            aria-label={t("Markdown tools")}
+            aria-label={t("lms.markdownTools")}
           >
             {tools.map(({ label, text, command }) => (
               <button

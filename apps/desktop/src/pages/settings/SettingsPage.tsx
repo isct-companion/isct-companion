@@ -1,7 +1,7 @@
 import { notify as appNotify } from "../../app/notify";
 import { settingsSection } from "../../app/routes";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { t } from "../../i18n";
+import { english, t, type MessageKey } from "../../i18n";
 import type {
   ScheduledTask,
   StudyEnrollment,
@@ -47,7 +47,7 @@ type Update = (f: (d: Workspace) => Workspace) => void;
 type SearchResult = {
   section: Section;
   id?: string;
-  title: string;
+  title: MessageKey;
 };
 
 function searchSettings(
@@ -62,14 +62,16 @@ function searchSettings(
   };
   const supported = (section: Section) => sectionSupported(section, context);
   const pages: SearchResult[] = visibleSections({ ...context, developer: true })
-    .filter((section) => matches(`${section.label} ${t(section.label)}`))
+    .filter((section) =>
+      matches(`${english(section.label)} ${t(section.label)}`),
+    )
     .map((section) => ({ section: section.id, title: section.label }));
   const settings: SearchResult[] = SETTING_ENTRIES.filter(
     (entry) =>
       supported(entry.section) &&
       (entry.available?.() ?? true) &&
       matches(
-        `${entry.title} ${t(entry.title)} ${sectionLabel(entry.section)} ${t(sectionLabel(entry.section))} ${entry.terms ?? ""}`,
+        `${english(entry.title)} ${t(entry.title)} ${english(sectionLabel(entry.section))} ${t(sectionLabel(entry.section))} ${entry.terms ?? ""}`,
       ),
   ).map((entry) => ({
     section: entry.section,
@@ -151,7 +153,7 @@ function SettingsBody({
           id !== undefined &&
           id !== "developer-mode"));
     if (locked) {
-      notify(t("Turn on Developer options to open this page."));
+      notify(t("settings.main.turnOnDeveloperOptionsTo"));
       setSection("developer");
       setFocus({ id: "developer-mode", at: Date.now() });
     } else {
@@ -199,7 +201,7 @@ function SettingsBody({
   const page =
     current === "accounts" ? (
       <>
-        <SettingsHeader title="School accounts" />
+        <SettingsHeader title="settings.main.schoolAccounts" />
         <SchoolAccounts
           otpSetupRevision={otpSetupRevision}
           notify={notify}
@@ -274,13 +276,16 @@ function SettingsBody({
 
   return (
     <div className="page settings">
-      <nav className="settingsNav" aria-label={t("Settings sections")}>
+      <nav
+        className="settingsNav"
+        aria-label={t("settings.main.settingsSections")}
+      >
         <UiInput
           className="settingsSearch"
           type="search"
           value={query}
-          placeholder={t("Search settings")}
-          aria-label={t("Search settings")}
+          placeholder={t("settings.main.searchSettings")}
+          aria-label={t("settings.main.searchSettings")}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && results[0])
@@ -292,7 +297,7 @@ function SettingsBody({
           <div className="settingsResults" role="list">
             {results.length === 0 && (
               <span className="settingsNoResults">
-                {t("No matching settings")}
+                {t("settings.main.noMatchingSettings")}
               </span>
             )}
             {results.map((result) => (
@@ -316,7 +321,11 @@ function SettingsBody({
                   ) : (
                     item.tier !== "basic" && (
                       <span className="settingsNavGroup">
-                        {t(item.tier === "advanced" ? "Advanced" : "Developer")}
+                        {t(
+                          item.tier === "advanced"
+                            ? "settings.main.advanced"
+                            : "settings.main.developer",
+                        )}
                       </span>
                     )
                   ))}

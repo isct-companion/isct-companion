@@ -21,7 +21,7 @@ struct SettingsDestination: View {
     var body: some View {
         switch route {
         case let .account(profile):
-            AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : t("Tokyo Tech (former)"))
+            AccountScreen(profile: profile, name: profile == .science ? "Science Tokyo" : t("settings.main.tokyoTechFormer"))
         case .notifications:
             NotificationsScreen()
         case .assignmentLeads:
@@ -52,40 +52,40 @@ struct SettingsScreen: View {
 
     var body: some View {
         List {
-            Section(t("School accounts")) {
+            Section(t("settings.main.schoolAccounts")) {
                 NavigationLink(value: SettingsRoute.account(.science)) {
                     accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.syncSource("lms")?.lastUpdated)
                 }
                 NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
-                    accountRow(t("Tokyo Tech (former)"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.syncSource("kyomu")?.lastUpdated)
+                    accountRow(t("settings.main.tokyoTechFormer"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.syncSource("kyomu")?.lastUpdated)
                 }
             }
             Section {
                 NavigationLink(value: SettingsRoute.notifications) {
-                    row(t("Notifications"), notificationSummary, icon: "bell.fill", tint: Theme.danger)
+                    row(t("common.notifications"), notificationSummary, icon: "bell.fill", tint: Theme.danger)
                 }
                 NavigationLink(value: SettingsRoute.studyProfile) {
-                    row(t("Study profile"), nil, icon: "graduationcap.fill", tint: Theme.accent)
+                    row(t("settings.main.studyProfile"), nil, icon: "graduationcap.fill", tint: Theme.accent)
                 }
                 NavigationLink(value: SettingsRoute.dataUpdates) {
-                    row(t("Data updates"), dataSummary, icon: "arrow.triangle.2.circlepath", tint: Theme.ok)
+                    row(t("settings.main.dataUpdates"), dataSummary, icon: "arrow.triangle.2.circlepath", tint: Theme.ok)
                 }
                 NavigationLink(value: SettingsRoute.backup) {
-                    row(t("Backup"), backupSummary, icon: "icloud.fill", tint: Theme.accent)
+                    row(t("settings.main.backup"), backupSummary, icon: "icloud.fill", tint: Theme.accent)
                 }
             }
             ThemeSection()
             LanguageSection()
-            Section(t("Web")) {
+            Section(t("common.web")) {
                 Picker(selection: $textScale) {
                     ForEach(SchoolBrowserHost.textScales, id: \.self) { Text("\($0)%").tag($0) }
                 } label: {
-                    Label { Text(t("Text size")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
+                    Label { Text(t("common.textSize")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
                 }
                 Picker(selection: $firstSite) {
                     ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
                 } label: {
-                    Label { Text(t("First site")) } icon: { SettingsIcon(symbol: "globe", tint: Theme.accent) }
+                    Label { Text(t("settings.main.firstSite")) } icon: { SettingsIcon(symbol: "globe", tint: Theme.accent) }
                 }
             }
             Section {
@@ -97,13 +97,13 @@ struct SettingsScreen: View {
                 Button {
                     Guide.showAgain()
                 } label: {
-                    Label { Text(t("Show welcome and tips again")).foregroundStyle(Theme.ink) } icon: {
+                    Label { Text(t("settings.main.showWelcomeAndTipsAgain")).foregroundStyle(Theme.ink) } icon: {
                         SettingsIcon(symbol: "lightbulb", tint: Theme.muted)
                     }
                 }
                 if let policy = URL(string: "https://github.com/isct-companion/isct-companion/blob/main/docs/legal/PRIVACY.md") {
                     Link(destination: policy) {
-                        Label { Text(t("Privacy policy")) } icon: {
+                        Label { Text(t("settings.main.privacyPolicy")) } icon: {
                             SettingsIcon(symbol: "hand.raised", tint: Theme.muted)
                         }
                     }
@@ -113,10 +113,10 @@ struct SettingsScreen: View {
                 // row, padded into the row insets (taken back outside, keeping
                 // the row's height) so the preview holds the whole icon.
                 Menu {
-                    Button(t("Save to file"), systemImage: "square.and.arrow.down") { saveLogs() }
-                    Button(t("Copy"), systemImage: "doc.on.doc") { copyLogs() }
+                    Button(t("settings.main.saveToFile"), systemImage: "square.and.arrow.down") { saveLogs() }
+                    Button(t("settings.schoolAccounts.copy"), systemImage: "doc.on.doc") { copyLogs() }
                 } label: {
-                    Label { Text(t("Application logs")).foregroundStyle(Theme.ink) } icon: {
+                    Label { Text(t("settings.main.applicationLogs")).foregroundStyle(Theme.ink) } icon: {
                         SettingsIcon(symbol: "doc.text", tint: Theme.muted)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -126,9 +126,9 @@ struct SettingsScreen: View {
                 }
                 .padding(.vertical, -6)
             } header: {
-                Text(t("About"))
+                Text(t("settings.main.about"))
             } footer: {
-                Text(t("Calendar editing, course folders and developer settings are in the desktop app."))
+                Text(t("settings.main.calendarEditingCourseFoldersAnd"))
             }
             // Destructive rows last, as in the system Settings.
             Section(t("settings.reset.group")) {
@@ -141,7 +141,7 @@ struct SettingsScreen: View {
                 }
             }
         }
-        .navigationTitle(t("Settings"))
+        .navigationTitle(t("common.settings"))
         .onChange(of: textScale) { _, percent in web.browser.setTextScale(percent) }
         .onChange(of: firstSite) { _, site in WebRouter.firstSite = site }
         .fileExporter(
@@ -173,16 +173,16 @@ struct SettingsScreen: View {
         do {
             logFile = ExportFile(data: Data(try Self.logText().utf8))
         } catch {
-            notice = t("Export failed: {{reason}}", ["reason": AppModel.describe(error)])
+            notice = t("settings.main.exportFailedReason", ["reason": AppModel.describe(error)])
         }
     }
 
     private func copyLogs() {
         do {
             UIPasteboard.general.string = try Self.logText()
-            notice = t("Copied")
+            notice = t("settings.credentialImport.copied")
         } catch {
-            notice = t("Copy failed")
+            notice = t("settings.otp.copyFailed")
         }
     }
 
@@ -201,27 +201,27 @@ struct SettingsScreen: View {
         let settings = model.records.settings["notifications"] as? [String: Any] ?? [:]
         var parts: [String] = []
         if settings["classes"] as? Bool == true {
-            parts.append(t("Classes {{lead}}", ["lead": ReminderLeads.label(ReminderLeads.classLead(settings))]))
+            parts.append(t("settings.main.classesLead", ["lead": ReminderLeads.label(ReminderLeads.classLead(settings))]))
         }
         if ReminderLeads.exams(settings) {
-            parts.append(t("Exams {{lead}}", ["lead": ReminderLeads.label(ReminderLeads.examLead(settings))]))
+            parts.append(t("settings.main.examsLead", ["lead": ReminderLeads.label(ReminderLeads.examLead(settings))]))
         }
         if settings["assignments"] as? Bool == true {
             let leads = ReminderLeads.assignmentLeads(settings)
-            parts.append(t("Assignments ×{{count}}", ["count": leads.count]))
+            parts.append(t("settings.main.assignmentsCount", ["count": leads.count]))
         }
-        return parts.isEmpty ? t("Off") : parts.joined(separator: " · ")
+        return parts.isEmpty ? t("settings.main.off") : parts.joined(separator: " · ")
     }
 
     private var backupSummary: String {
         let icloud = model.cloud?.providers.first { $0.provider == .icloud }
-        guard icloud?.enabled == true else { return t("Off") }
-        return icloud?.lastSyncedAt.map { t("Synced {{date}}", ["date": Format.due($0)]) } ?? "iCloud"
+        guard icloud?.enabled == true else { return t("settings.main.off") }
+        return icloud?.lastSyncedAt.map { t("settings.backup.syncedDate", ["date": Format.due($0)]) } ?? "iCloud"
     }
 
     private var dataSummary: String {
         let refresh = model.records.settings["subscriptionRefresh"] as? [String: Any] ?? [:]
-        return refresh["allowCellular"] as? Bool == true ? t("Update on cellular data") : t("Updates automatically on Wi-Fi only")
+        return refresh["allowCellular"] as? Bool == true ? t("settings.main.updateOnCellularData") : t("settings.main.updatesAutomaticallyOnWiFi")
     }
 
     private func accountRow(
@@ -229,17 +229,17 @@ struct SettingsScreen: View {
     ) -> some View {
         let connected = credential?.availability == .available || credential?.availability == .savedLocked
         let state: (String, Color) = {
-            guard connected else { return (t("Not connected"), Theme.muted) }
+            guard connected else { return (t("common.notConnected"), Theme.muted) }
             if session?.state == .failed, let problem = session?.problem {
-                return (t("Sign-in failed: {{reason}}", ["reason": AppModel.reason(problem).components(separatedBy: "\n")[0]]), Theme.danger)
+                return (t("settings.main.signInFailedReason", ["reason": AppModel.reason(problem).components(separatedBy: "\n")[0]]), Theme.danger)
             }
             switch session?.state {
             case .active?:
-                if let lastRun { return (t("Connected · updated {{time}}", ["time": Format.due(lastRun)]), Theme.ok) }
-                return (t("Connected"), Theme.ok)
-            case .failed?: return (t("Sign-in failed"), Theme.danger)
-            case .maintenance?: return (t("Under maintenance"), Theme.warn)
-            default: return (t("Checking"), Theme.muted)
+                if let lastRun { return (t("settings.main.connectedUpdatedTime", ["time": Format.due(lastRun)]), Theme.ok) }
+                return (t("settings.main.connected"), Theme.ok)
+            case .failed?: return (t("common.signInFailed"), Theme.danger)
+            case .maintenance?: return (t("common.underMaintenance"), Theme.warn)
+            default: return (t("settings.main.checking"), Theme.muted)
             }
         }()
         return HStack(spacing: 12) {
@@ -292,9 +292,9 @@ private struct AccountScreen: View {
         guard let session, session.state != .active, let problem = session.problem else { return nil }
         var text = AppModel.reason(problem)
         if session.auto == .paused {
-            text += "\n" + t("Automatic sign-in waits until you change these details.")
+            text += "\n" + t("settings.main.automaticSignInWaitsUntil")
         } else if session.auto == .retryLater {
-            text += "\n" + t("Automatic sign-in tries again shortly.")
+            text += "\n" + t("settings.main.automaticSignInTriesAgain")
         }
         return text
     }
@@ -302,21 +302,21 @@ private struct AccountScreen: View {
     var body: some View {
         Form {
             Section {
-                TextField(t("Student ID"), text: $username)
+                TextField(t("settings.main.studentID"), text: $username)
                     .textContentType(.username)
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                SecureField(summary?.saved == true ? t("Password (enter only to change)") : t("Password"), text: $password)
+                SecureField(summary?.saved == true ? t("settings.main.passwordEnterOnlyToChange") : t("settings.main.password"), text: $password)
                     .textContentType(.password)
             } footer: {
-                Text(t("The password is saved in this device’s Keychain. Once the school accepts it, iCloud Keychain shares it with the desktop app."))
+                Text(t("settings.main.thePasswordIsSavedIn"))
             }
             // Pasted keys, not passwords: a second secure field makes AutoFill
             // read the form as a sign-up and offer new credentials instead of
             // the saved login. They stay out of screenshots and the app switcher.
             if profile == .science {
-                Section(t("One-time password")) {
+                Section(t("settings.main.oneTimePassword")) {
                     OtpImportField(saved: summary?.hasOtp == true, setup: $otpSecret)
                 }
             } else {
@@ -329,13 +329,13 @@ private struct AccountScreen: View {
                 Button {
                     Task { await save() }
                 } label: {
-                    if saving { ProgressView() } else { Text(t("Save and connect")) }
+                    if saving { ProgressView() } else { Text(t("settings.main.saveAndConnect")) }
                 }
                 .disabled(saving || username.isEmpty || (password.isEmpty && summary?.saved != true))
             }
             if summary?.saved == true {
                 Section {
-                    Button(t("Remove sign-in details from this device"), role: .destructive) {
+                    Button(t("settings.main.removeSignInDetailsFrom"), role: .destructive) {
                         Task {
                             await model.deleteCredentials(profile)
                             dismiss()
@@ -359,7 +359,7 @@ private struct AccountScreen: View {
                 SchoolCredentials(username: username, password: password, otpSecret: otpSecret, matrix: matrix))
             // Stay on the page with the reason, so the person can correct it.
             if let result, result.state == .failed || result.state == .maintenance {
-                error = result.problem.map(AppModel.reason) ?? t(result.state == .maintenance ? "Under maintenance" : "Sign-in failed")
+                error = result.problem.map(AppModel.reason) ?? t(result.state == .maintenance ? "common.underMaintenance" : "common.signInFailed")
                 return
             }
             dismiss()
@@ -377,13 +377,13 @@ private struct ThemeSection: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var scheme
 
-    private static let names = ["warm": "Warm", "cool": "Cool", "paper": "Paper", "mist": "Mist", "moss": "Moss"]
+    private static let names = ["warm": "settings.main.warm", "cool": "settings.main.cool", "paper": "settings.main.paper", "mist": "settings.main.mist", "moss": "settings.main.moss"]
 
     var body: some View {
         let chosen = model.records.settings.text("theme") ?? "warm"
         Section {
             HStack(spacing: 0) {
-                Label { Text(t("Theme")) } icon: { SettingsIcon(symbol: "paintpalette", tint: Theme.accent) }
+                Label { Text(t("settings.main.theme")) } icon: { SettingsIcon(symbol: "paintpalette", tint: Theme.accent) }
                 Spacer(minLength: 12)
                 HStack(spacing: 10) {
                     ForEach(Theme.themes, id: \.self) { id in swatch(id, selected: id == chosen) }
@@ -420,17 +420,17 @@ private struct LanguageSection: View {
                 Text(verbatim: "日本語").tag("ja")
                 Text(verbatim: "中文").tag("zh")
             } label: {
-                Label { Text(t("Language")) } icon: { SettingsIcon(symbol: "character.bubble", tint: Theme.accent) }
+                Label { Text(t("common.language")) } icon: { SettingsIcon(symbol: "character.bubble", tint: Theme.accent) }
             }
             Picker(selection: binding("contentLanguage", default: "auto")) {
-                Text(t("Automatic")).tag("auto")
+                Text(t("common.automatic")).tag("auto")
                 Text(verbatim: "English").tag("en")
                 Text(verbatim: "日本語").tag("ja")
             } label: {
-                Label { Text(t("School content language")) } icon: { SettingsIcon(symbol: "text.book.closed", tint: Theme.accent) }
+                Label { Text(t("settings.main.schoolContentLanguage")) } icon: { SettingsIcon(symbol: "text.book.closed", tint: Theme.accent) }
             }
         } footer: {
-            Text(t("Course names, rooms and syllabus text. Automatic uses the menu language."))
+            Text(t("settings.main.courseNamesRoomsAndSyllabus"))
         }
     }
 

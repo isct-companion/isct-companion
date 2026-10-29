@@ -76,4 +76,4 @@ export function SyncRing({
 export const progressLabel = (progress: NonNullable<PageProgress>) =>
   progress.total !== null
     ? `${progress.done} / ${progress.total}`
-    : t("Updating…");
+    : t("pullRing.updating");

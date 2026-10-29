@@ -45,7 +45,7 @@ struct CourseDetailScreen: View {
                         mark: mark)
                     pages
                 } else if detail != nil {
-                    ContentUnavailableView(t("No materials yet"), systemImage: "doc.text")
+                    ContentUnavailableView(t("course.noMaterialsYet"), systemImage: "doc.text")
                 } else {
                     SkeletonRows(rows: 4)
                 }
@@ -251,7 +251,7 @@ struct CourseDetailScreen: View {
         } else if let start = exam.startTime, let end = exam.endTime {
             when += " \(start)–\(end)"
         }
-        return ([exam.kind == "quiz" ? t("Quiz") : t("Exam"), when] + (exam.room.isEmpty ? [] : [exam.room])).joined(separator: " · ")
+        return ([exam.kind == "quiz" ? t("common.quiz") : t("common.exam"), when] + (exam.room.isEmpty ? [] : [exam.room])).joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -264,7 +264,7 @@ struct CourseDetailScreen: View {
             }
             if let syllabus = detail?.syllabusUrl {
                 NavigationLink(value: WebRouter.PushedPage(site: .syllabus, target: syllabus, title: title)) {
-                    LinkChip(title: t("Syllabus"), icon: "doc.text")
+                    LinkChip(title: t("common.syllabus"), icon: "doc.text")
                 }
             }
         }
@@ -326,7 +326,7 @@ private struct LessonChips: View {
             .buttonStyle(PressableStyle())
             .contextMenu {
                 if let classDay, lesson.sectionId != nil {
-                    Button(t("Make this the {{day}} class", ["day": classDay]), systemImage: "checkmark.circle") { mark(lesson) }
+                    Button(t("course.makeThisTheDayClass", ["day": classDay]), systemImage: "checkmark.circle") { mark(lesson) }
                 }
             }
             Circle()
@@ -335,7 +335,7 @@ private struct LessonChips: View {
                 .accessibilityHidden(true)
         }
         .id(Int(lesson.section))
-        .accessibilityValue(Int(lesson.section) == current ? Text(t("Current lesson")) : Text(""))
+        .accessibilityValue(Int(lesson.section) == current ? Text(t("course.currentLesson")) : Text(""))
     }
 }
 
@@ -377,7 +377,7 @@ private struct LessonPage: View {
             if !work.isEmpty {
                 // The stack's spacing is the only gap above it (SectionLabel
                 // would add its own top padding).
-                Text(t("Assignments"))
+                Text(t("common.assignments"))
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Theme.muted)
                     .padding(.horizontal, 16)
@@ -390,7 +390,7 @@ private struct LessonPage: View {
                 }
             }
             if lesson?.items.isEmpty != false && lesson?.summaryHtml.isEmpty != false && work.isEmpty {
-                ContentUnavailableView(t("No materials for this lesson"), systemImage: "doc.text")
+                ContentUnavailableView(t("course.noMaterialsForThisLesson"), systemImage: "doc.text")
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)

@@ -85,7 +85,7 @@ export function NoteEditor({
   onDeleted?: () => void;
 }) {
   const [text, setText] = useState<string>();
-  const [status, setStatus] = useState("Loading…");
+  const [status, setStatus] = useState(() => t("common.loading"));
   const [failure, setFailure] = useState(false);
   const [reload, setReload] = useState(0);
   const [deleting, setDeleting] = useState(false);
@@ -104,7 +104,7 @@ export function NoteEditor({
     if (removed.current || !draft.current.dirty) return;
     const value = draft.current.text;
     draft.current.dirty = false;
-    if (mounted.current) setStatus("Saving…");
+    if (mounted.current) setStatus(t("settings.studyProfile.saving"));
     void saveNote(context, id, value)
       .then(() => {
         savedCallback.current();
@@ -116,7 +116,7 @@ export function NoteEditor({
           }
         }
         if (mounted.current && draft.current.text === value) {
-          setStatus("Saved locally");
+          setStatus(t("lms.savedLocally"));
           setFailure(false);
         }
       })
@@ -148,21 +148,20 @@ export function NoteEditor({
     if (loadedNote.current !== noteKey) {
       setText(undefined);
       setFailure(false);
-      setStatus("Loading…");
+      setStatus(t("common.loading"));
       void readNote(context, id)
         .then((file) => {
           if (cancelled) return;
-          if (file.text == null)
-            throw new Error(
-              "This note exceeds the 1 MB editing limit. Open it from its storage folder.",
-            );
+          if (file.text == null) throw new Error(t("lms.thisNoteExceedsThe1"));
           const recovery = readRecovery(id);
           const value = recovery ?? file.text ?? "";
           loadedNote.current = noteKey;
           draft.current = { text: value, dirty: recovery !== null };
           setText(value);
           setStatus(
-            recovery !== null ? "Recovered unsaved draft" : "Saved locally",
+            recovery !== null
+              ? t("lms.recoveredUnsavedDraft")
+              : t("lms.savedLocally"),
           );
         })
         .catch((error) => {
@@ -203,8 +202,8 @@ export function NoteEditor({
     <div className="lmsNoteEditor">
       <ReaderTools>
         <div className="lmsSourceBar">
-          <span>{t("Local note · stored only on this device")}</span>
-          <span role="status">{t(status)}</span>
+          <span>{t("lms.localNoteStoredOnlyOn")}</span>
+          <span role="status">{status}</span>
           <button
             type="button"
             disabled={deleting}
@@ -212,7 +211,13 @@ export function NoteEditor({
               text === undefined ? setReload((value) => value + 1) : flush()
             }
           >
-            {t(text === undefined ? "Retry" : failure ? "Retry save" : "Save")}
+            {t(
+              text === undefined
+                ? "common.retry"
+                : failure
+                  ? "lms.retrySave"
+                  : "common.save",
+            )}
           </button>
           {onDeleted && (
             <button
@@ -220,13 +225,13 @@ export function NoteEditor({
               disabled={deleting || text === undefined}
               onClick={() => void remove()}
             >
-              {t(deleting ? "Deleting…" : "Delete note")}
+              {t(deleting ? "lms.deleting" : "lms.deleteNote")}
             </button>
           )}
         </div>
       </ReaderTools>
       {text !== undefined && (
-        <Suspense fallback={<p>{t("Loading editor…")}</p>}>
+        <Suspense fallback={<p>{t("lms.loadingEditor")}</p>}>
           <MarkdownDocument
             value={text}
             onChange={(value) => {
@@ -234,7 +239,7 @@ export function NoteEditor({
               draft.current = { text: value, dirty: true };
               writeRecovery(id, value);
               setText(value);
-              setStatus("Unsaved changes");
+              setStatus(t("lms.unsavedChanges"));
               clearTimeout(timer.current);
               timer.current = setTimeout(flush, 800);
             }}

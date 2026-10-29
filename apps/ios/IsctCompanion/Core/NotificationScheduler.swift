@@ -67,7 +67,7 @@ enum NotificationScheduler {
         guard await allowed(center) else { return false }
         let content = UNMutableNotificationContent()
         content.title = "IsctCompanion"
-        content.body = t("This is a test notification.")
+        content.body = t("settings.notification.thisIsATestNotification")
         content.sound = .default
         try? await center.add(UNNotificationRequest(identifier: "isct-test", content: content, trigger: nil))
         return true

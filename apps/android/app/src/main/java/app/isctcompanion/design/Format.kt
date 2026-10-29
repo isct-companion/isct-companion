@@ -66,13 +66,13 @@ object Format {
 
     /** `今日 23:59`, `Tomorrow 23:59`, `10/18(日) 23:59` */
     fun due(raw: String?, now: Instant = Instant.now()): String {
-        val due = date(raw) ?: return t("No deadline")
+        val due = date(raw) ?: return t("common.noDeadline")
         val day = tokyo(due).toLocalDate()
         val today = today(now)
         val time = time(due)
         return when (day) {
-            today -> t("Today {{time}}", "time" to time)
-            today.plusDays(1) -> t("Tomorrow {{time}}", "time" to time)
+            today -> t("format.todayTime", "time" to time)
+            today.plusDays(1) -> t("format.tomorrowTime", "time" to time)
             else -> "${written(day, "MdEEE")} $time"
         }
     }
@@ -85,18 +85,18 @@ object Format {
 
     /** Countdown words for a deadline chip. */
     fun countdown(raw: String?, now: Instant, overdueStyle: OverdueStyle = OverdueStyle.Label): String {
-        val due = date(raw) ?: return t("No deadline")
+        val due = date(raw) ?: return t("common.noDeadline")
         val minutes = minutes(due, now)
         if (minutes < 0) {
             return when (overdueStyle) {
-                OverdueStyle.Label -> t("Overdue")
-                OverdueStyle.Elapsed -> t("{{count}}d overdue", "count" to max(1, -minutes / (60 * 24)))
+                OverdueStyle.Label -> t("common.overdue")
+                OverdueStyle.Elapsed -> t("format.countDOverdue", "count" to max(1, -minutes / (60 * 24)))
             }
         }
-        if (minutes < 60) return t("{{count}} min left", "count" to max(minutes, 1))
-        if (minutes < 60 * 24) return t("{{count}}h left", "count" to minutes / 60)
-        if (tokyo(due).toLocalDate() == today(now).plusDays(1)) return t("Tomorrow")
-        return t("{{count}}d left", "count" to (minutes / (60.0 * 24)).roundToInt())
+        if (minutes < 60) return t("today.countMinLeft", "count" to max(minutes, 1))
+        if (minutes < 60 * 24) return t("format.countHLeft", "count" to minutes / 60)
+        if (tokyo(due).toLocalDate() == today(now).plusDays(1)) return t("common.tomorrow")
+        return t("format.countDLeft", "count" to (minutes / (60.0 * 24)).roundToInt())
     }
 
     /** `3–4限`, `Periods 3–4` */
@@ -104,6 +104,6 @@ object Format {
         if (value == null || value.size != 2) return null
         val first = value[0].toUByte()
         val last = value[1].toUByte()
-        return t("Periods {{range}}", "range" to if (first == last) "$first" else "$first–$last")
+        return t("format.periodsRange", "range" to if (first == last) "$first" else "$first–$last")
     }
 }

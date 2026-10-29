@@ -10,13 +10,14 @@ import java.util.Locale
 /**
  * The UI language, read from `settings.locale` like the desktop's.
  *
- * Strings are keyed by their English text and translated from the catalogs
- * the desktop uses (`resources/locales/{en,ja,zh}.json`, i18next format with
- * `{{name}}` placeholders, packaged as assets); English is the key itself,
- * except for the few dotted keys (`settings.reset.…`) that `en.json` spells out.
- * They are read directly rather than through `strings.xml` because the
- * language is an in-app setting, not the system's, and the placeholders must
- * stay the desktop's named ones so every shell shares one translation.
+ * Strings are keyed by namespaced message keys (`settings.reset.caches.title`)
+ * and read from the catalogs the desktop uses
+ * (`resources/locales/{en,ja,zh}.json`, i18next format with `{{name}}`
+ * placeholders, packaged as assets). `en.json` holds every key with its
+ * English copy, and a language that lacks a key reads the English one. They
+ * are read directly rather than through `strings.xml` because the language is
+ * an in-app setting, not the system's, and the placeholders must stay the
+ * desktop's named ones so every shell shares one translation.
  *
  * `language` is snapshot state, so a composable that calls [t] recomposes
  * when it changes; nothing else has to pass it down.
@@ -26,6 +27,7 @@ object Localizer {
     var language by mutableStateOf("en")
         private set
     private var catalog: Map<String, String> = emptyMap()
+    private var english: Map<String, String> = emptyMap()
     private var loaded: String? = null
     private var context: Context? = null
 
@@ -38,15 +40,20 @@ object Localizer {
         val next = stored?.takeIf { it == "ja" || it == "zh" } ?: "en"
         if (next == loaded) return
         catalog = load(next)
+        if (english.isEmpty()) english = load("en")
         loaded = next
         language = next
     }
 
-    fun string(key: String, values: Array<out Pair<String, Any>>): String {
-        var text = catalog[key] ?: key
+    /** The text for a key, `{{name}}` placeholders filled; null when no
+     * catalog has the key (a key another component owns, such as Core's). */
+    fun lookup(key: String, values: Array<out Pair<String, Any>>): String? {
+        var text = catalog[key] ?: english[key] ?: return null
         for ((name, value) in values) text = text.replace("{{$name}}", value.toString())
         return text
     }
+
+    fun string(key: String, values: Array<out Pair<String, Any>>): String = lookup(key, values) ?: key
 
     /** The locale dates are written in, as the desktop's `intlLocale`. */
     val locale: Locale
@@ -73,9 +80,15 @@ object Localizer {
     }.getOrDefault(emptyMap())
 }
 
-/** The UI string for an English key, with `{{name}}` placeholders filled. */
+/** The UI string for a catalog key, with `{{name}}` placeholders filled. */
 fun t(key: String, vararg values: Pair<String, Any>): String {
     // Reading the state here is what makes callers recompose on a switch.
     Localizer.language
     return Localizer.string(key, values)
+}
+
+/** The string for a key another component owns; null when no catalog has it. */
+fun lookup(key: String, vararg values: Pair<String, Any>): String? {
+    Localizer.language
+    return Localizer.lookup(key, values)
 }

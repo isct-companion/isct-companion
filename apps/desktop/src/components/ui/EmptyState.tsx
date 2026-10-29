@@ -60,7 +60,7 @@ export function ErrorBanner({
       <p>{children}</p>
       {onRetry && (
         <button type="button" className="uiBannerAction" onClick={onRetry}>
-          {t("Retry")}
+          {t("common.retry")}
         </button>
       )}
     </div>

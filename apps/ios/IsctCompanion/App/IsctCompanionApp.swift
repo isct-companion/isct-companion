@@ -34,11 +34,11 @@ enum AppTab: Hashable, CaseIterable {
 
     var title: String {
         switch self {
-        case .today: t("Today")
-        case .timetable: t("Timetable")
-        case .lectures: t("Courses")
-        case .web: t("Web")
-        case .settings: t("Settings")
+        case .today: t("common.today")
+        case .timetable: t("common.timetable")
+        case .lectures: t("common.courses")
+        case .web: t("common.web")
+        case .settings: t("common.settings")
         }
     }
 
@@ -197,7 +197,7 @@ struct RootView: View {
         case .opening:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.bg)
         case let .failed(message):
-            ContentUnavailableView(t("Could not start"), systemImage: "exclamationmark.triangle", description: Text(message))
+            ContentUnavailableView(t("common.couldNotStart"), systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
             GeometryReader { proxy in
                 let stacked = Layout.isStacked(proxy.size)
@@ -309,7 +309,7 @@ struct RootView: View {
             do {
                 calendarFile = try await QuarterCalendarFile.write(model: model, term: term, pick: pick)
             } catch {
-                exportError = t("Export failed: {{reason}}", ["reason": AppModel.describe(error)])
+                exportError = t("settings.main.exportFailedReason", ["reason": AppModel.describe(error)])
             }
         }
     }

@@ -2,7 +2,7 @@ import { Button, Paper } from "../../components/ui";
 import type { ReactNode } from "react";
 import { openExternalUrl } from "../../components/ExternalLink";
 import { examWhen } from "../../components/exams/ExamCards";
-import { dayNames } from "../../components/timetable/timetable";
+import { dayShort } from "../../components/timetable/timetable";
 import { t } from "../../i18n";
 import {
   pickLocalized,
@@ -60,7 +60,7 @@ function PlanningPanel({
         </div>
         <div className="courseListTools">
           <button type="button" onClick={close}>
-            {t("Close")}
+            {t("common.close")}
           </button>
         </div>
       </header>
@@ -89,8 +89,8 @@ function OfficialLink({
       <button
         type="button"
         className="officialOutside"
-        title={t("Open in browser")}
-        aria-label={t("Open in browser")}
+        title={t("common.openInBrowser")}
+        aria-label={t("common.openInBrowser")}
         onClick={() => void openExternalUrl(url).catch(() => undefined)}
       >
         ↗
@@ -155,8 +155,11 @@ function CoursePanelBody({
       item.evidence?.provider !== "manual",
   );
   const notice = conflicts.length > 0 && (
-    <section className="coursePanelConflict" aria-label={t("Time conflict")}>
-      <b>{t("Time conflict")}</b>
+    <section
+      className="coursePanelConflict"
+      aria-label={t("courses.timeConflict")}
+    >
+      <b>{t("courses.timeConflict")}</b>
       <ul>
         {conflicts.map((conflict) => (
           <li
@@ -172,20 +175,16 @@ function CoursePanelBody({
                 className="textButton"
                 onClick={() => openCourse(conflict.withCourseId!)}
               >
-                {t("Open")}
+                {t("courses.open")}
               </button>
             )}
           </li>
         ))}
       </ul>
-      <p>
-        {t(
-          "Keep one: open the other course, or find another time for this one.",
-        )}
-      </p>
+      <p>{t("courses.keepOneOpenTheOther")}</p>
       {!readOnly && findOtherTimes && (
         <Button size="xs" variant="light" onClick={findOtherTimes}>
-          {t("Find another class time")}
+          {t("courses.findAnotherClassTime")}
         </Button>
       )}
     </section>
@@ -202,37 +201,37 @@ function CoursePanelBody({
           <>
             {!course.meetings.length && (
               <Button variant="default" onClick={editIntensive}>
-                {t("Intensive dates")}
+                {t("courses.intensiveDates")}
               </Button>
             )}
             <Button variant="default" onClick={edit}>
-              {t("Edit")}
+              {t("common.edit")}
             </Button>
             <Button color="red" variant="light" onClick={remove}>
-              {registered ? t("Remove from local timetable") : t("Remove")}
+              {registered
+                ? t("courses.removeFromLocalTimetable")
+                : t("common.remove")}
             </Button>
           </>
         )
       }
     >
       <dl>
-        <dt>{t("Schedule")}</dt>
+        <dt>{t("common.schedule")}</dt>
         <dd>
           {course.meetings.length
             ? course.meetings.map((meeting, index) => (
                 <div key={index}>
-                  {meeting.days
-                    .map((day) => t(dayNames[day - 1].slice(0, 3)))
-                    .join(" / ")}{" "}
+                  {meeting.days.map((day) => t(dayShort[day - 1])).join(" / ")}{" "}
                   {meeting.startTime}–{meeting.endTime}
                   {meeting.room ? ` · ${meeting.room}` : ""}
                 </div>
               ))
-            : t("集中・時間未定")}
+            : t("timetable.intensiveUnscheduled")}
         </dd>
         {groupChoices.length > 0 && (
           <>
-            <dt>{t("Physics group")}</dt>
+            <dt>{t("courses.physicsGroup")}</dt>
             <dd>
               {groupChoices.map((choice) => (
                 <ClassGroupSwitch
@@ -248,16 +247,16 @@ function CoursePanelBody({
             </dd>
           </>
         )}
-        <dt>{t("Instructor")}</dt>
+        <dt>{t("courses.instructor")}</dt>
         <dd>{course.instructor || "—"}</dd>
-        <dt>{t("Credits")}</dt>
+        <dt>{t("courses.credits")}</dt>
         <dd>
           {course.creditSplit.lecture}-{course.creditSplit.exercise}-
           {course.creditSplit.lab} ({course.credits})
         </dd>
         {detail?.format && (
           <>
-            <dt>{t("Format")}</dt>
+            <dt>{t("courses.format")}</dt>
             <dd>{detail.format.kinds.join(" / ") || "—"}</dd>
           </>
         )}
@@ -265,7 +264,7 @@ function CoursePanelBody({
           <>
             {/* One line each: enough to see a clash while planning; the
                 cards and their editor are in Lectures. */}
-            <dt>{t("Exams")}</dt>
+            <dt>{t("common.exams")}</dt>
             <dd>
               {exams.map((exam) => (
                 <div key={exam.key}>{examWhen(exam)}</div>
@@ -276,7 +275,7 @@ function CoursePanelBody({
       </dl>
       <div className="coursePanelLinks">
         <Button size="xs" variant="light" onClick={openLecture}>
-          {t("Open in Lectures")}
+          {t("courses.openInLectures")}
         </Button>
         {detail?.lmsUrl && (
           <OfficialLink url={detail.lmsUrl} label="LMS" openWeb={openWeb} />
@@ -310,7 +309,7 @@ export function OfferingPanel({
     .map((entry) =>
       entry.kind === "weekly" && entry.day && entry.periods
         ? `${DAYS[entry.day - 1]}${entry.periods[0]}-${entry.periods[1]}${entry.room ? ` · ${pickLocalized(entry.room, language)}` : ""}`
-        : t("集中・時間未定"),
+        : t("timetable.intensiveUnscheduled"),
     )
     .join(" / ");
   return (
@@ -323,7 +322,7 @@ export function OfferingPanel({
           <>
             {!placed && replaces.length > 0 && (
               <span className="coursePanelNote">
-                {t("Replaces")} {replaces.join(", ")}
+                {t("courses.replaces")} {replaces.join(", ")}
               </span>
             )}
             <Button
@@ -332,29 +331,29 @@ export function OfferingPanel({
               onClick={add}
             >
               {placed
-                ? t("On timetable")
+                ? t("courses.onTimetable")
                 : replaces.length
-                  ? t("Replace")
-                  : t("Add")}
+                  ? t("courses.replace")
+                  : t("common.add")}
             </Button>
           </>
         )
       }
     >
       <dl>
-        <dt>{t("Schedule")}</dt>
+        <dt>{t("common.schedule")}</dt>
         <dd>{times || "—"}</dd>
-        <dt>{t("Instructor")}</dt>
+        <dt>{t("courses.instructor")}</dt>
         <dd>
           {course.instructors
             .map((name) => pickLocalized(name, language))
             .join(" / ") || "—"}
         </dd>
-        <dt>{t("Credits")}</dt>
+        <dt>{t("courses.credits")}</dt>
         <dd>
           {`${course.credits.lecture}-${course.credits.exercise}-${course.credits.lab}`}
         </dd>
-        <dt>{t("Format")}</dt>
+        <dt>{t("courses.format")}</dt>
         <dd>{course.format.kinds.join(" / ") || "—"}</dd>
       </dl>
       <SyllabusFrame url={course.syllabusUrl} />

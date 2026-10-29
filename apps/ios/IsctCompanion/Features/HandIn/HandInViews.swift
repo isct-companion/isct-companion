@@ -45,7 +45,7 @@ struct InboxTray: View {
                         .gesture(gesture(in: frame))
                         .transition(.scale.combined(with: .opacity))
                         .accessibilityAddTraits(.isButton)
-                        .accessibilityLabel(t("Shared files"))
+                        .accessibilityLabel(t("handIn.sharedFiles"))
                 }
             }
             .animation(.smooth(duration: Theme.motionBase), value: dragging)
@@ -186,7 +186,7 @@ struct InboxSheet: View {
                                     Text(item.name).font(.caption2).lineLimit(1).frame(width: 80)
                                 }
                                 .contextMenu {
-                                    Button(t("Delete"), systemImage: "trash", role: .destructive) { inbox.remove(item) }
+                                    Button(t("common.delete"), systemImage: "trash", role: .destructive) { inbox.remove(item) }
                                 }
                             }
                         }
@@ -194,18 +194,18 @@ struct InboxSheet: View {
                     }
                 }
                 if let groups = model.board?.today {
-                    section(t("Pinned"), groups.pinned)
-                    section(t("This week"), groups.dueThisWeek)
-                    section(t("Next week and later"), groups.later)
-                    section(t("No deadline"), groups.undated)
-                    section(t("Past"), groups.pastRecent)
+                    section(t("common.pinned"), groups.pinned)
+                    section(t("common.thisWeek"), groups.dueThisWeek)
+                    section(t("assignments.nextWeekAndLater"), groups.later)
+                    section(t("common.noDeadline"), groups.undated)
+                    section(t("common.past"), groups.pastRecent)
                 }
             }
             .disabled(giving)
-            .navigationTitle(t("Hand in to"))
+            .navigationTitle(t("common.handInTo"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(t("Close")) { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(t("common.close")) { dismiss() } }
             }
             .onChange(of: inbox.items.isEmpty) { _, empty in if empty { dismiss() } }
         }
@@ -261,7 +261,7 @@ struct HandInCard: View {
                     Thumbnail(url: URL(fileURLWithPath: file.path)).frame(width: 32, height: 40)
                     Text(file.name).foregroundStyle(Theme.ink).lineLimit(2)
                     Spacer(minLength: 8)
-                    Button(t("Delete"), systemImage: "minus.circle") { remove(file) }
+                    Button(t("common.delete"), systemImage: "minus.circle") { remove(file) }
                         .labelStyle(.iconOnly)
                         .foregroundStyle(Theme.danger)
                 }
@@ -274,8 +274,8 @@ struct HandInCard: View {
             } label: {
                 VStack(spacing: 6) {
                     Image(systemName: "arrow.up.doc").font(.title2).foregroundStyle(Theme.accent)
-                    Text(t("Drop files here, or tap to choose")).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
-                    Text(t("Up to 32 files, 20 MB in all")).font(.footnote).foregroundStyle(Theme.muted)
+                    Text(t("handIn.dropFilesHereOrTap")).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
+                    Text(t("handIn.upTo32Files20")).font(.footnote).foregroundStyle(Theme.muted)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 18)
@@ -284,14 +284,14 @@ struct HandInCard: View {
             .buttonStyle(PressableStyle())
             HStack {
                 PhotosPicker(selection: $photos, maxSelectionCount: 32, matching: .images) {
-                    Label(t("Photos"), systemImage: "photo.on.rectangle").font(.subheadline.weight(.semibold))
+                    Label(t("handIn.photos"), systemImage: "photo.on.rectangle").font(.subheadline.weight(.semibold))
                 }
                 Spacer()
                 if !files.isEmpty {
                     Button {
                         Task { await handIn() }
                     } label: {
-                        Label(t("Upload to LMS"), systemImage: "arrow.up.forward.square")
+                        Label(t("handIn.uploadToLMS"), systemImage: "arrow.up.forward.square")
                             .font(.subheadline.weight(.semibold))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)

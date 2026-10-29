@@ -1,5 +1,5 @@
 import { Check } from "lucide-react";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
 import { useState } from "react";
@@ -16,14 +16,25 @@ import { jstMinutes } from "../../lib/civil-date";
 import { useScheduleQuery } from "../../platform/core-query";
 import type { GridSlot, TimetableAxis } from "../../generated/persistence";
 
-export const dayNames = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
+export const dayNames: MessageKey[] = [
+  "common.weekdayLong.monday",
+  "common.weekdayLong.tuesday",
+  "common.weekdayLong.wednesday",
+  "common.weekdayLong.thursday",
+  "common.weekdayLong.friday",
+  "common.weekdayLong.saturday",
+  "common.weekdayLong.sunday",
+];
+
+/** The three-letter names, in the order of `dayNames`. */
+export const dayShort: MessageKey[] = [
+  "common.weekday.mon",
+  "common.weekday.tue",
+  "common.weekday.wed",
+  "common.weekday.thu",
+  "common.weekday.fri",
+  "common.weekday.sat",
+  "common.weekday.sun",
 ];
 
 const CLOCK = /^\d{1,2}:\d{2}$/;
@@ -68,7 +79,7 @@ export type BlockAction = {
 };
 
 export type DayColumn = {
-  label: string;
+  label: MessageKey;
   date?: string;
   isToday?: boolean;
   calendarNotice?: string;
@@ -154,7 +165,11 @@ export function WeekTimetable({
       className={`tt${days.some((column) => column.calendarNotice) ? " hasCalendarNotice" : ""}`}
       style={{ "--days": days.length } as React.CSSProperties}
     >
-      <div className="ttGrid" role="grid" aria-label={t("Weekly timetable")}>
+      <div
+        className="ttGrid"
+        role="grid"
+        aria-label={t("timetable.weeklyTimetable")}
+      >
         <div className="ttCorner" />
         {days.map((column, index) => {
           const head = (
@@ -162,7 +177,7 @@ export function WeekTimetable({
               className={`ttHead${column.isToday ? " today" : ""}${column.noClasses ? " noClasses" : ""}`}
               key={column.label}
             >
-              <b>{t(column.label.slice(0, 3))}</b>
+              <b>{t(dayShort[dayNames.indexOf(column.label)])}</b>
               {column.date && (
                 <small>{column.date.slice(5).replace("-", "/")}</small>
               )}
@@ -181,7 +196,7 @@ export function WeekTimetable({
             <GuideTip
               key={column.label}
               id="timetable-marks"
-              text="Right-click a class to mark it as an exam or cancelled."
+              text="timetable.rightClickAClassTo"
               when={days.some((day) => day.blocks.length > 0)}
             >
               {head}
@@ -196,13 +211,13 @@ export function WeekTimetable({
             return (
               <div
                 className={period.isBreak ? "lunch" : ""}
-                key={t(period.label)}
+                key={period.label}
                 style={{
                   top: `${position.topPercent}%`,
                   height: `${position.heightPercent}%`,
                 }}
               >
-                <b>{t(period.label)}</b>
+                <b>{period.isBreak ? t("timetable.breakBand") : period.label}</b>
                 <small>{period.start}</small>
               </div>
             );
@@ -234,7 +249,7 @@ export function WeekTimetable({
                       key={`slot-${period.label}`}
                       aria-pressed={Boolean(active)}
                       aria-label={`${t(column.label)} ${period.label}`}
-                      title={t("Find courses at this time")}
+                      title={t("timetable.findCoursesAtThisTime")}
                       style={{
                         top: `${position.topPercent}%`,
                         height: `${position.heightPercent}%`,
@@ -255,7 +270,7 @@ export function WeekTimetable({
               return (
                 <i
                   className={period.isBreak ? "ttLunch" : "ttRule"}
-                  key={t(period.label)}
+                  key={period.label}
                   style={{
                     top: `${position.topPercent}%`,
                     height: period.isBreak
@@ -335,14 +350,12 @@ export function WeekTimetable({
                   {exam ? (
                     <b>
                       <span className="ttExamTag">
-                        {t(block.quiz ? "Quiz" : "Exam")}
+                        {t(block.quiz ? "common.quiz" : "common.exam")}
                       </span>
                       {block.sourceChanged && (
                         <span
                           className="ttSourceChanged"
-                          title={t(
-                            "The published timetable changed after your edit.",
-                          )}
+                          title={t("exam.thePublishedTimetableChangedAfter")}
                         >
                           !
                         </span>
@@ -355,7 +368,7 @@ export function WeekTimetable({
                   {/* A block drawn over whole periods names its own times;
                       a cancelled one says so instead of its room. */}
                   {cancelled ? (
-                    <small className="ttRoom">{t("No class")}</small>
+                    <small className="ttRoom">{t("common.noClass")}</small>
                   ) : snapped ? (
                     <small className="ttRoom">
                       {block.startTime}–{block.endTime}
@@ -406,7 +419,11 @@ export function WeekTimetable({
             <Menu.Item
               key={action.label}
               leftSection={
-                action.current ? <Check size={14} strokeWidth={1.75} aria-hidden /> : <span className="uiMenuGap" />
+                action.current ? (
+                  <Check size={14} strokeWidth={1.75} aria-hidden />
+                ) : (
+                  <span className="uiMenuGap" />
+                )
               }
               onClick={() => {
                 setMenu(null);

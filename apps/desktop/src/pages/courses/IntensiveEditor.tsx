@@ -45,7 +45,9 @@ export function IntensiveEditor({
       setDays(value);
       setError("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("Invalid range"));
+      setError(
+        cause instanceof Error ? cause.message : t("courses.invalidRange"),
+      );
     }
   };
   return (
@@ -54,34 +56,34 @@ export function IntensiveEditor({
       onClose={() => !submission.busy && close()}
       closeOnClickOutside={!submission.busy}
       closeOnEscape={!submission.busy}
-      title={t("Intensive dates")}
+      title={t("courses.intensiveDates")}
       size="lg"
     >
       <Stack aria-busy={submission.busy}>
         <Group grow>
           <TextInput
             type="date"
-            label={t("From")}
+            label={t("courses.from")}
             value={from}
             onChange={(e) => setFrom(e.currentTarget.value)}
           />
           <TextInput
             type="date"
-            label={t("To")}
+            label={t("courses.to")}
             value={to}
             onChange={(e) => setTo(e.currentTarget.value)}
           />
         </Group>
         <Group grow>
           <NumberInput
-            label={t("First period")}
+            label={t("courses.firstPeriod")}
             min={1}
             max={10}
             value={first}
             onChange={(v) => setFirst(Number(v))}
           />
           <NumberInput
-            label={t("Last period")}
+            label={t("courses.lastPeriod")}
             min={1}
             max={10}
             value={last}
@@ -89,7 +91,7 @@ export function IntensiveEditor({
           />
         </Group>
         <Button variant="default" onClick={() => void quickSet()}>
-          {t("Set every day in range")}
+          {t("courses.setEveryDayInRange")}
         </Button>
         {error && <div role="alert">{error}</div>}
         {submission.error && <div role="alert">{submission.error}</div>}
@@ -97,7 +99,9 @@ export function IntensiveEditor({
           <Group key={day.date} justify="space-between">
             <span>
               {day.date} ·{" "}
-              {t("Periods {{range}}", { range: day.periods?.join("–") ?? "" })}
+              {t("format.periodsRange", {
+                range: day.periods?.join("–") ?? "",
+              })}
             </span>
             <Button
               variant="subtle"
@@ -108,13 +112,13 @@ export function IntensiveEditor({
                 )
               }
             >
-              {t("Remove")}
+              {t("common.remove")}
             </Button>
           </Group>
         ))}
         <Group justify="flex-end">
           <Button variant="default" disabled={submission.busy} onClick={close}>
-            {t("Cancel")}
+            {t("common.cancel")}
           </Button>
           <Button
             disabled={submission.busy || !days.length}
@@ -124,7 +128,7 @@ export function IntensiveEditor({
               )
             }
           >
-            {t("Save")}
+            {t("common.save")}
           </Button>
         </Group>
       </Stack>

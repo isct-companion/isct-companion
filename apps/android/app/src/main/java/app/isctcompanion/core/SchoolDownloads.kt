@@ -34,22 +34,22 @@ class SchoolDownloads(private val context: Context) {
         mimeType: String?,
         openExternal: (Uri) -> Unit,
     ) {
-        notice(t("Downloading…"))
+        notice(t("common.downloading"))
         val file = try {
             val result = session.saveSchoolFile(url, referer, contentDisposition, mimeType, staging.absolutePath).value()
             (result as? OperationResult.SchoolFile)?.file
         } catch (failure: SdkException.Authentication) {
-            return notice(t("Sign in to your school account again."))
+            return notice(t("failure.signInToYourSchool"))
         } catch (failure: SdkException) {
             null
         }
         when (file) {
             is SchoolFile.Saved -> {
                 val saved = withContext(Dispatchers.IO) { publish(File(file.path), file.name, file.mimeType) }
-                notice(if (saved) t("Saved {{name}}", "name" to file.name) else t("The file could not be downloaded."))
+                notice(if (saved) t("app.savedName", "name" to file.name) else t("lmsFile.theFileCouldNotBeDownloaded"))
             }
             is SchoolFile.External -> openExternal(Uri.parse(file.url))
-            null -> notice(t("The file could not be downloaded."))
+            null -> notice(t("lmsFile.theFileCouldNotBeDownloaded"))
         }
     }
 

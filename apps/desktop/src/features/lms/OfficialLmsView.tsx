@@ -32,7 +32,7 @@ export function OfficialLmsView({
   const host = useRef<HTMLDivElement>(null);
   const owner = useRef(Symbol("today-lms"));
   const opened = useRef(false);
-  const [status, setStatus] = useState("Opening LMS…");
+  const [status, setStatus] = useState(() => t("lms.openingLMS"));
   const [location, setLocation] = useState(url);
   useEffect(() => {
     setLocation(url);
@@ -121,8 +121,8 @@ export function OfficialLmsView({
             {available && desktopBridge?.schoolWebBack && (
               <button
                 type="button"
-                title={t("Previous page")}
-                aria-label={t("Previous page")}
+                title={t("common.previousPage")}
+                aria-label={t("common.previousPage")}
                 onClick={() => navigate(desktopBridge?.schoolWebBack)}
               >
                 <LmsIcon name="back" size={15} />
@@ -132,8 +132,8 @@ export function OfficialLmsView({
               <button
                 type="button"
                 className="lmsWebForward"
-                title={t("Next page")}
-                aria-label={t("Next page")}
+                title={t("common.nextPage")}
+                aria-label={t("common.nextPage")}
                 onClick={() => navigate(desktopBridge?.schoolWebForward)}
               >
                 <LmsIcon name="back" size={15} />
@@ -142,8 +142,8 @@ export function OfficialLmsView({
             {available && desktopBridge?.reloadSchoolWeb && (
               <button
                 type="button"
-                title={t("Reload")}
-                aria-label={t("Reload")}
+                title={t("common.reload")}
+                aria-label={t("common.reload")}
                 onClick={() => navigate(desktopBridge?.reloadSchoolWeb)}
               >
                 <LmsIcon name="refresh" size={15} />
@@ -151,8 +151,8 @@ export function OfficialLmsView({
             )}
             <ExternalLink
               href={location}
-              title={t("Open in browser")}
-              aria-label={t("Open in browser")}
+              title={t("common.openInBrowser")}
+              aria-label={t("common.openInBrowser")}
             >
               <LmsIcon name="external" size={15} />
             </ExternalLink>
@@ -165,16 +165,14 @@ export function OfficialLmsView({
             icon={Globe}
             action={
               <a href={url} target="_blank" rel="noopener noreferrer">
-                {t("Open LMS in browser")} ↗
+                {t("lms.openLMSInBrowser")} ↗
               </a>
             }
           >
-            {t(
-              "The desktop app opens the signed-in LMS here. Browser preview cannot embed LMS.",
-            )}
+            {t("lms.theDesktopAppOpensThe")}
           </EmptyState>
         ) : (
-          status && <p role="status">{t(status)}</p>
+          status && <p role="status">{status}</p>
         )}
       </div>
     </>

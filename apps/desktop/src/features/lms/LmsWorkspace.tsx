@@ -363,7 +363,7 @@ export function LmsWorkspaceBody({
       sectionId,
       classAt,
       /^\d+$/.test(lesson.label)
-        ? t("Lesson {{number}}", { number: lesson.label })
+        ? t("lms.lessonNumber", { number: lesson.label })
         : lesson.label,
     );
   };
@@ -815,7 +815,7 @@ export function LmsWorkspaceBody({
             </h4>
             {due && (
               <time dateTime={deadline?.at}>
-                {t("Due")}{" "}
+                {t("lms.due")}{" "}
                 {formatJst(due, data.settings.locale, {
                   month: "short",
                   day: "numeric",
@@ -846,12 +846,12 @@ export function LmsWorkspaceBody({
             >
               {t(
                 state === "graded"
-                  ? "Graded"
+                  ? "common.graded"
                   : state === "done"
-                    ? "Submitted"
+                    ? "common.submitted"
                     : state === "missed"
-                      ? "Not submitted"
-                      : "No deadline",
+                      ? "lms.notSubmitted"
+                      : "common.noDeadline",
               )}
               {state === "graded" && a.grade && (
                 <span className="lmsAssignmentGrade">{a.grade}</span>
@@ -904,7 +904,7 @@ export function LmsWorkspaceBody({
                 className={done ? "lmsTextLink" : "lmsSubmit"}
                 onClick={() => submit()}
               >
-                {t(done ? "View in LMS" : "Submit")}{" "}
+                {t(done ? "lms.viewInLMS" : "common.submit")}{" "}
                 <LmsIcon name="external" size={13} />
               </button>
             )}
@@ -950,7 +950,7 @@ export function LmsWorkspaceBody({
           ))
         ) : (
           <p className="lmsQuiet">
-            {t("No announcements yet.")}{" "}
+            {t("lms.noAnnouncementsYet")}{" "}
             {safeUrl(m.url) && (
               <button
                 type="button"
@@ -964,7 +964,7 @@ export function LmsWorkspaceBody({
                   })
                 }
               >
-                {t("Open in LMS")}
+                {t("common.openInLMS")}
               </button>
             )}
           </p>
@@ -990,14 +990,14 @@ export function LmsWorkspaceBody({
             <FileTile family="folder" />
             <span>
               <b>{m.title}</b>
-              <small>{t("Folder")}</small>
+              <small>{t("lms.folder")}</small>
             </span>
             <LmsIcon name="chevron" className="lmsRowAction lmsFolderChevron" />
           </button>
           {isOpen && (
             <Suspense
               fallback={
-                <p className="lmsQuiet lmsFolderNote">{t("Loading…")}</p>
+                <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>
               }
             >
               <InlineFolder
@@ -1036,7 +1036,7 @@ export function LmsWorkspaceBody({
         )}
         <span>
           <b>{m.title}</b>
-          <small>{ext ? ext.toUpperCase() : t(m.module ?? "File")}</small>
+          <small>{ext ? ext.toUpperCase() : (m.module ?? t("lms.file"))}</small>
         </span>
         <LmsIcon name="chevron" className="lmsRowAction" />
       </button>
@@ -1087,15 +1087,15 @@ export function LmsWorkspaceBody({
             type="button"
             className="lmsAddNote"
             disabled={creatingNote}
-            aria-label={`${t("New note")} · ${section.title}`}
-            title={t("New note")}
+            aria-label={`${t("lms.newNote")} · ${section.title}`}
+            title={t("lms.newNote")}
             onClick={() => void newNote(section)}
           >
             <LmsIcon name="plus" />
           </button>
         </div>
         {!isOpen && section.summaryHtml && (
-          <p className="lmsSectionPreview">{t("Section collapsed")}</p>
+          <p className="lmsSectionPreview">{t("lms.sectionCollapsed")}</p>
         )}
         {isOpen && (
           <div id={`lms-panel-${section.id}`} className="lmsSectionBody">
@@ -1163,7 +1163,8 @@ export function LmsWorkspaceBody({
                     open({
                       id: note.id,
                       title:
-                        note.name.trim() || `${section.title} · ${t("Note")}`,
+                        note.name.trim() ||
+                        `${section.title} · ${t("lms.note")}`,
                       kind: "note",
                       section: note.section,
                     })
@@ -1172,11 +1173,10 @@ export function LmsWorkspaceBody({
                   <FileTile family="note" />
                   <span>
                     <b>
-                      {note.name.trim() || `${section.title} · ${t("Note")}`}
+                      {note.name.trim() ||
+                        `${section.title} · ${t("lms.note")}`}
                     </b>
-                    <small>
-                      {t("Local note · stored only on this device")}
-                    </small>
+                    <small>{t("lms.localNoteStoredOnlyOn")}</small>
                   </span>
                   <LmsIcon name="chevron" className="lmsRowAction" />
                 </button>
@@ -1187,7 +1187,7 @@ export function LmsWorkspaceBody({
                   {sectionNotes.length > 1 && (
                     <details className="lmsPreviousNotes">
                       <summary>
-                        {t("Previous notes")} · {sectionNotes.length - 1}
+                        {t("lms.previousNotes")} · {sectionNotes.length - 1}
                       </summary>
                       {sectionNotes.slice(1).map(row)}
                     </details>
@@ -1196,7 +1196,7 @@ export function LmsWorkspaceBody({
               );
             })()}
             {!section.summaryHtml && !items.length && (
-              <p className="lmsQuiet">{t("No content in this section")}</p>
+              <p className="lmsQuiet">{t("lms.noContentInThisSection")}</p>
             )}
           </div>
         )}
@@ -1211,7 +1211,7 @@ export function LmsWorkspaceBody({
         {headerStart}
         {!navigationProvided && (
           <button type="button" className="lmsBack" onClick={close}>
-            <LmsIcon name="back" /> {t("Today")}
+            <LmsIcon name="back" /> {t("common.today")}
           </button>
         )}
         <div className="lmsCourseIdentity">
@@ -1232,13 +1232,13 @@ export function LmsWorkspaceBody({
             onClick={() =>
               open({
                 id: "syllabus",
-                title: t("Syllabus"),
+                title: t("common.syllabus"),
                 kind: "syllabus",
                 url: syllabus,
               })
             }
           >
-            <LmsIcon name="doc" size={14} /> {t("Syllabus")}
+            <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
           </button>
         )}
         {(progress != null || refresh) && (
@@ -1249,7 +1249,7 @@ export function LmsWorkspaceBody({
               <span className="syncPageStatus" role="status">
                 <i className="schoolStatusSpinner" aria-hidden="true" />
                 {updatedAt
-                  ? `${t("Showing data from {{age}}", {
+                  ? `${t("lms.showingDataFromAge", {
                       age: ageText(
                         updatedAt,
                         timelineNow,
@@ -1258,11 +1258,11 @@ export function LmsWorkspaceBody({
                     })} · `
                   : null}
                 {progress.total !== null
-                  ? t("updating this course {{done}} / {{total}}", {
+                  ? t("lms.updatingThisCourseDoneTotal", {
                       done: progress.done,
                       total: progress.total,
                     })
-                  : t("updating this course")}
+                  : t("lms.updatingThisCourse")}
               </span>
             )}
             {refresh && (
@@ -1272,7 +1272,7 @@ export function LmsWorkspaceBody({
                 disabled={progress != null || opened?.kind === "official"}
                 onClick={refresh}
               >
-                {t("Pull from LMS")}
+                {t("lms.pullFromLMS")}
               </button>
             )}
           </div>
@@ -1280,11 +1280,12 @@ export function LmsWorkspaceBody({
       </header>
       <div className="lmsWorkspaceTools">
         {lessons.length > 0 && !query.trim() && (
-          <GuideTip
-            id="lesson-mark"
-            text="Double-click a lesson number to mark it as the lesson of today's class."
-          >
-            <nav className="lmsLessonRail" aria-label={t("Lessons")} ref={rail}>
+          <GuideTip id="lesson-mark" text="lms.doubleClickALessonNumber">
+            <nav
+              className="lmsLessonRail"
+              aria-label={t("lms.lessons")}
+              ref={rail}
+            >
               <span
                 className="lmsRailIndicator"
                 ref={railIndicator}
@@ -1313,7 +1314,7 @@ export function LmsWorkspaceBody({
                   }
                   onClick={() => goLesson(ACTIVITIES)}
                 >
-                  {t("Activities")}
+                  {t("lms.activities")}
                 </button>
               )}
               {(pinned.length > 0 || hasActivities) && (
@@ -1347,8 +1348,8 @@ export function LmsWorkspaceBody({
           <aside className="lmsOutline">
             <div className="lmsOutlineTools">
               <input
-                aria-label={t("Search course content")}
-                placeholder={t("Search this course…")}
+                aria-label={t("lms.searchCourseContent")}
+                placeholder={t("lms.searchThisCourse")}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
@@ -1363,7 +1364,7 @@ export function LmsWorkspaceBody({
                     )
                   }
                 >
-                  {expanded.length ? t("Expand all") : t("Collapse all")}
+                  {expanded.length ? t("lms.expandAll") : t("lms.collapseAll")}
                 </button>
               )}
             </div>
@@ -1402,7 +1403,7 @@ export function LmsWorkspaceBody({
               {noteError && <p role="alert">{noteError}</p>}
               {deletedNote && (
                 <div className="lmsNoteUndo" role="status">
-                  <span>{t("Note deleted")}</span>
+                  <span>{t("lms.noteDeleted")}</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -1420,27 +1421,26 @@ export function LmsWorkspaceBody({
                         .catch((error) => setNoteError(String(error)));
                     }}
                   >
-                    {t("Undo")}
+                    {t("common.undo")}
                   </button>
                 </div>
               )}
               {(courseDetail?.exams?.length ?? 0) > 0 && (
-                <section className="lmsCourseExams" aria-label={t("Exams")}>
-                  <h2>{t("Exams")}</h2>
+                <section
+                  className="lmsCourseExams"
+                  aria-label={t("common.exams")}
+                >
+                  <h2>{t("common.exams")}</h2>
                   <ExamCards
                     exams={courseDetail?.exams ?? []}
                     courses={data.courses.filter((row) => row.id === course.id)}
                   />
                 </section>
               )}
-              {!paged && <h2>{t("Course content")}</h2>}
+              {!paged && <h2>{t("syncStatus.dataset.courseContent")}</h2>}
               {sections.map((section) => sectionView(section))}
               {!sections.length && (
-                <p className="lmsQuiet">
-                  {t(
-                    "No course content synced yet. Refresh LMS to load the outline.",
-                  )}
-                </p>
+                <p className="lmsQuiet">{t("lms.noCourseContentSyncedYet")}</p>
               )}
               <div data-page={paged ? "activities" : undefined}>
                 {/* Only assignments outside any section; the rest sit in their lesson. */}
@@ -1453,7 +1453,7 @@ export function LmsWorkspaceBody({
                       data-reading-section="assignments"
                       className={`lmsActivityGroup${readingSection === "assignments" ? " reading" : ""}`}
                     >
-                      <h2>{t("Assignments")}</h2>
+                      <h2>{t("common.assignments")}</h2>
                       {loose.map(assignmentContent)}
                     </section>
                   ) : null;
@@ -1466,7 +1466,9 @@ export function LmsWorkspaceBody({
                 className="lmsOriginal"
                 onClick={() => setOriginal((value) => !value)}
               >
-                {original ? t("Use preferred language") : t("Show original")}
+                {original
+                  ? t("lms.usePreferredLanguage")
+                  : t("lms.showOriginal")}
               </button>
             )}
           </aside>
@@ -1500,7 +1502,7 @@ export function LmsWorkspaceBody({
                   <SyllabusFrame url={opened.url} />
                 </div>
               ) : opened.kind === "note" ? (
-                <Suspense fallback={<p>{t("Loading editor…")}</p>}>
+                <Suspense fallback={<p>{t("lms.loadingEditor")}</p>}>
                   <NoteEditor
                     key={opened.id}
                     id={opened.id}
@@ -1559,8 +1561,8 @@ export function LmsWorkspaceBody({
                           <p className="lmsQuiet">
                             {t(
                               material.module === "forum"
-                                ? "No announcements yet."
-                                : "No content in this section",
+                                ? "lms.noAnnouncementsYet"
+                                : "lms.noContentInThisSection",
                             )}
                           </p>
                           {official &&
@@ -1578,14 +1580,14 @@ export function LmsWorkspaceBody({
                                   })
                                 }
                               >
-                                {t("Open in LMS")}
+                                {t("common.openInLMS")}
                               </button>
                             )}
                         </>
                       ) : null;
                     }
                     return (
-                      <Suspense fallback={<p>{t("Loading preview…")}</p>}>
+                      <Suspense fallback={<p>{t("lms.loadingPreview")}</p>}>
                         <FilePreview
                           key={url}
                           url={url}

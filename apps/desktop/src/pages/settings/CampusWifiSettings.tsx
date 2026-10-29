@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Progress } from "../../components/ui";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../app/native";
 import {
   CAMPUS_WIFI_STEPS,
@@ -15,19 +15,19 @@ import { errorText } from "../../app/shared";
 
 const OUTCOME_TEXT: Record<
   Exclude<CampusWifiOutcome, "science-tokyo-x">,
-  string
+  MessageKey
 > = {
-  "signed-in": "Signed in to ScienceTokyo",
-  "already-online": "Already connected",
-  "needs-account": "Save the Tokyo Tech Portal account first",
-  rejected: "The portal refused the Tokyo Tech account",
+  "signed-in": "settings.campusWifi.signedInToScienceTokyo",
+  "already-online": "settings.campusWifi.alreadyConnected",
+  "needs-account": "settings.campusWifi.saveTheTokyoTechPortal",
+  rejected: "settings.campusWifi.thePortalRefusedTheTokyo",
 };
 
-const STEP_TEXT: Record<CampusWifiStep, string> = {
-  joining: "Joining ScienceTokyo…",
-  "opening-portal": "Opening the sign-in page…",
-  "signing-in": "Signing in…",
-  verifying: "Waiting for the network to open…",
+const STEP_TEXT: Record<CampusWifiStep, MessageKey> = {
+  joining: "settings.campusWifi.joiningScienceTokyo",
+  "opening-portal": "settings.campusWifi.openingTheSignInPage",
+  "signing-in": "common.signingIn",
+  verifying: "settings.campusWifi.waitingForTheNetworkTo",
 };
 
 /**
@@ -80,7 +80,7 @@ export function CampusWifiSettings({
       setResult(t(OUTCOME_TEXT[outcome]));
       return outcome;
     } catch (error) {
-      const message = errorText(error) ?? t("Sign-in failed");
+      const message = errorText(error) ?? t("common.signInFailed");
       setResult(message);
       notify(message);
     } finally {
@@ -94,11 +94,9 @@ export function CampusWifiSettings({
     if ((await connect(false)) !== "science-tokyo-x") return;
     if (
       await confirmAction(
-        t(
-          "This Mac is on ScienceTokyoX, which needs no sign-in. Switch to ScienceTokyo anyway?",
-        ),
-        t("Switch"),
-        { title: t("Switch to ScienceTokyo?"), danger: false },
+        t("settings.campusWifi.thisMacIsOnScienceTokyoX"),
+        t("settings.campusWifi.switch"),
+        { title: t("settings.campusWifi.switchToScienceTokyo"), danger: false },
       )
     )
       await connect(true);
@@ -110,7 +108,7 @@ export function CampusWifiSettings({
     : 0;
   const hint = connecting ? (
     <>
-      {step ? t(STEP_TEXT[step]) : t("Connecting…")}
+      {step ? t(STEP_TEXT[step]) : t("settings.campusWifi.connecting")}
       <Progress
         className="campusWifiProgress"
         value={progress}
@@ -122,24 +120,25 @@ export function CampusWifiSettings({
   ) : (
     (result ??
     (connected
-      ? t("Signed in to ScienceTokyo")
+      ? t("settings.campusWifi.signedInToScienceTokyo")
       : status === "science-tokyo-x"
-        ? t("Connected to ScienceTokyoX")
+        ? t("settings.campusWifi.connectedToScienceTokyoX")
         : undefined))
   );
 
   return (
     <>
       <SettingsHeader
-        title="Campus Wi-Fi"
-        description="Joins ScienceTokyo and signs in to its login page with your Tokyo Tech Portal ID and password."
+        title="settings.campusWifi.campusWiFi"
+        description="settings.campusWifi.joinsScienceTokyoAndSignsIn"
       />
-      <SettingsGroup
-        footer={t(
-          "Runs only when you click. Sign-in lasts 12 hours; click again after it expires.",
-        )}
-      >
-        <Row group id="campus-wifi" title="ScienceTokyo Wi-Fi" hint={hint}>
+      <SettingsGroup footer={t("settings.campusWifi.runsOnlyWhenYouClick")}>
+        <Row
+          group
+          id="campus-wifi"
+          title="settings.campusWifi.sciencetokyoWiFi"
+          hint={hint}
+        >
           <UiButton
             className={`button small${connected ? " campusWifiConnected" : ""}`}
             disabled={checking || connecting || connected}
@@ -147,12 +146,12 @@ export function CampusWifiSettings({
           >
             {t(
               connected
-                ? "Connected"
+                ? "settings.main.connected"
                 : connecting
-                  ? "Connecting…"
+                  ? "settings.campusWifi.connecting"
                   : checking
-                    ? "Checking…"
-                    : "Connect",
+                    ? "settings.academicCalendar.checking"
+                    : "settings.campusWifi.connect",
             )}
           </UiButton>
         </Row>
