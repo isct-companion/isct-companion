@@ -16,19 +16,35 @@ import type { FinderRowView } from "../../platform/finder-query";
 import type { CourseEligibility } from "../../generated/persistence";
 import { runsFor } from "../../platform/sync";
 import { useSync } from "../../app/useSync";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import type { Finder } from "./useFinder";
 
-const TAG: Partial<Record<Condition["type"], string>> = {
-  quarter: "Quarter",
-  time: "Time",
-  code: "Code",
-  dept: "Department",
-  level: "Level",
-  format: "Format",
-  lang: "Language",
-  kind: "Type",
-  credits: "Credits",
+/** Core names the official filter groups in English; this table gives each
+ * name its catalog key and leaves any other name as Core wrote it. */
+const GROUP_NAMES: Record<string, MessageKey> = {
+  "Course level": "courses.finder.group.level",
+  Quarter: "common.quarter",
+  "Day / delivery": "courses.finder.group.delivery",
+  "Starting period": "courses.finder.group.start",
+  "Course category": "courses.finder.group.category",
+  "Requirement category": "courses.finder.group.requirement",
+  "Teaching language": "courses.finder.group.language",
+  "Official recommendations": "courses.finder.group.recommended",
+  "Other official filters": "courses.finder.group.other",
+};
+const groupName = (name: string) =>
+  GROUP_NAMES[name] ? t(GROUP_NAMES[name]) : name;
+
+const TAG: Partial<Record<Condition["type"], MessageKey>> = {
+  quarter: "common.quarter",
+  time: "courses.time",
+  code: "courses.code",
+  dept: "settings.main.department",
+  level: "courses.level",
+  format: "courses.format",
+  lang: "common.language",
+  kind: "courses.type",
+  credits: "courses.credits",
 };
 
 function schedule(course: FinderCourse) {
@@ -69,25 +85,21 @@ const message = (reason: unknown) =>
 function eligibilityLabel(eligibility: CourseEligibility | undefined) {
   switch (eligibility?.reason) {
     case "undergraduateFirstYearUpperLevel":
-      return t("Not available to regular first-year undergraduate students");
+      return t("courses.notAvailableToRegularFirst");
     case "masterFirstSemesterHumanitiesUpperLevel":
-      return t("Available to master's students from their second semester");
+      return t("courses.availableToMastersStudentsFrom");
     case "graduateCourseApprovalRequired":
-      return t(
-        "Course approval after the research proposal presentation must be confirmed",
-      );
+      return t("courses.courseApprovalAfterTheResearch");
     case "leadershipWorkshopGradeRequired":
-      return t("A Leadership Workshop grade of 80 or higher must be confirmed");
+      return t("courses.aLeadershipWorkshopGradeOf");
     case "doctoralFirstSemesterGenerallyRestricted":
-      return t(
-        "Generally unavailable during the first six months; confirm any exception",
-      );
+      return t("courses.generallyUnavailableDuringTheFirst");
     case "doctoralFirstSemesterRestricted":
-      return t("Not available during the first six months of doctoral study");
+      return t("courses.notAvailableDuringTheFirst");
     case "separateApplicationRequired":
-      return t("A separate course application must be confirmed");
+      return t("courses.aSeparateCourseApplicationMust");
     case "ruleYearUnsupported":
-      return t("This rule is not yet verified for the selected academic year");
+      return t("courses.thisRuleIsNotYet");
     default:
       return undefined;
   }
@@ -95,8 +107,7 @@ function eligibilityLabel(eligibility: CourseEligibility | undefined) {
 const unavailable = (row: FinderRowView) =>
   row.eligibility?.status === "ineligible";
 const unavailableLabel = (row: FinderRowView) =>
-  eligibilityLabel(row.eligibility) ??
-  t("Not available for this study profile");
+  eligibilityLabel(row.eligibility) ?? t("courses.notAvailableForThisStudy");
 
 /** An add or undo the row shows before Core confirms it. `after` is the
  * last request sent when it settled; a page sent later is authoritative. */
@@ -390,10 +401,10 @@ export function CourseFinder({
         setError(
           [
             next.ineligibleCodes.length
-              ? `${t("Not eligible")}: ${next.ineligibleCodes.join(", ")}`
+              ? `${t("courses.notEligible")}: ${next.ineligibleCodes.join(", ")}`
               : "",
             next.missingCodes.length
-              ? `${t("Not found")}: ${next.missingCodes.join(", ")}`
+              ? `${t("courses.notFound")}: ${next.missingCodes.join(", ")}`
               : "",
           ]
             .filter(Boolean)
@@ -410,8 +421,10 @@ export function CourseFinder({
     c.type === "dept" ||
     c.type === "quarter"
       ? c.label
-      : t(c.label);
-  const filteredByText = live ? `· ${t("contains")} “${live}”` : "";
+      : groupName(c.label);
+  const filteredByText = live
+    ? `· ${t("courses.finder.contains")} “${live}”`
+    : "";
 
   return (
     <Paper
@@ -430,10 +443,10 @@ export function CourseFinder({
           {enabled && (
             <span>
               {firstDownload
-                ? t("Downloading the {{year}} course catalog", { year })
+                ? t("courses.downloadingTheYearCourseCatalog", { year })
                 : view
-                  ? `${stored} ${t("stored")}`
-                  : t("Loading…")}
+                  ? `${stored} ${t("courses.finder.stored")}`
+                  : t("common.loading")}
             </span>
           )}
         </div>
@@ -445,13 +458,13 @@ export function CourseFinder({
               onClick={() => finder.showIneligible(!showUnavailable)}
             >
               {showUnavailable
-                ? t("Hide unavailable courses")
-                : t("Show unavailable courses")}
+                ? t("courses.hideUnavailableCourses")
+                : t("courses.showUnavailableCourses")}
             </UiButton>
           )}
           {manual && (
             <UiButton type="button" onClick={manual}>
-              {t("Manual")}
+              {t("courses.manual")}
             </UiButton>
           )}
         </div>
@@ -466,7 +479,7 @@ export function CourseFinder({
                 <button
                   type="button"
                   className={`finderPill ${c.exclude ? "exclude" : c.type}`}
-                  title={t("Remove")}
+                  title={t("common.remove")}
                   onClick={(event) => {
                     event.stopPropagation();
                     finder.replace((current) =>
@@ -475,13 +488,13 @@ export function CourseFinder({
                   }}
                 >
                   {c.exclude ? (
-                    <b>{t("Not")}</b>
+                    <b>{t("courses.not")}</b>
                   ) : TAG[c.type] ? (
                     <b>{t(TAG[c.type]!)}</b>
                   ) : null}
                   {pillLabel(c)}
                   {LOCAL_TYPES.has(c.type) && !c.exclude && (
-                    <i className="finderLocal">{t("local")}</i>
+                    <i className="finderLocal">{t("courses.finder.local")}</i>
                   )}
                   <X size={12} strokeWidth={1.75} aria-hidden />
                 </button>
@@ -507,13 +520,13 @@ export function CourseFinder({
                 ? `course-finder-s${active}`
                 : undefined
             }
-            aria-label={t("Find courses")}
+            aria-label={t("courses.findCourses")}
             autoComplete="off"
             spellCheck={false}
             placeholder={
               finder.keys.length || pendingPills.length
                 ? ""
-                : t("Title, code, 火3-4, teacher:小林, room:W9…")
+                : t("courses.titleCode34Teacher")
             }
             onChange={(event) =>
               onChange(
@@ -546,10 +559,12 @@ export function CourseFinder({
           >
             {suggestions.map((s, i) => {
               const head = {
-                category: t("Filter categories"),
-                condition: input.trim() ? t("Conditions") : t("Common"),
-                course: t("Courses"),
-                text: t("Search"),
+                category: t("courses.filterCategories"),
+                condition: input.trim()
+                  ? t("courses.conditions")
+                  : t("courses.common"),
+                course: t("common.courses"),
+                text: t("courses.search"),
               }[s.kind];
               const prev = suggestions[i - 1];
               const showHead = !prev || prev.kind !== s.kind;
@@ -569,15 +584,19 @@ export function CourseFinder({
                   >
                     {s.kind === "category" && (
                       <>
-                        <span>{t(s.label)}</span>
-                        <ChevronRight size={12} strokeWidth={1.75} aria-hidden />
+                        <span>{groupName(s.label)}</span>
+                        <ChevronRight
+                          size={12}
+                          strokeWidth={1.75}
+                          aria-hidden
+                        />
                       </>
                     )}
                     {s.kind === "condition" && (
                       <>
                         <span>
                           {s.condition.exclude ? (
-                            <b>{t("Not")}</b>
+                            <b>{t("courses.not")}</b>
                           ) : TAG[s.condition.type] ? (
                             <b>{t(TAG[s.condition.type]!)}</b>
                           ) : null}
@@ -597,7 +616,12 @@ export function CourseFinder({
                       <>
                         <span>
                           {selected.has(s.row.course.id) && (
-                            <Check className="finderCheck" size={12} strokeWidth={1.75} aria-hidden />
+                            <Check
+                              className="finderCheck"
+                              size={12}
+                              strokeWidth={1.75}
+                              aria-hidden
+                            />
                           )}
                           <Highlight
                             text={pickLocalized(s.row.course.title, language)}
@@ -611,10 +635,10 @@ export function CourseFinder({
                         </span>
                         <small>
                           {placed(s.row)
-                            ? t("On timetable")
+                            ? t("courses.onTimetable")
                             : selected.has(s.row.course.id)
-                              ? t("Selected")
-                              : t("Enter to select")}
+                              ? t("courses.selected")
+                              : t("courses.enterToSelect")}
                         </small>
                       </>
                     )}
@@ -622,8 +646,8 @@ export function CourseFinder({
                       <>
                         <span>
                           {s.key.startsWith("!")
-                            ? `${t("Not")} “${query}”`
-                            : `${t("Search for")} “${query}”`}
+                            ? `${t("courses.not")} “${query}”`
+                            : `${t("courses.searchFor")} “${query}”`}
                         </span>
                         {s.count >= 0 && (
                           <small className={s.count ? "" : "zero"}>
@@ -638,16 +662,16 @@ export function CourseFinder({
             })}
             <div className="finderKeys">
               <span>
-                <kbd>↑↓</kbd> {t("choose")}
+                <kbd>↑↓</kbd> {t("courses.finder.hintChoose")}
               </span>
               <span>
-                <kbd>↵</kbd> {t("apply")}
+                <kbd>↵</kbd> {t("courses.finder.hintApply")}
               </span>
               <span>
-                <kbd>Tab</kbd> {t("complete")}
+                <kbd>Tab</kbd> {t("courses.finder.hintComplete")}
               </span>
               <span>
-                <kbd>!</kbd> {t("exclude")}
+                <kbd>!</kbd> {t("courses.finder.hintExclude")}
               </span>
             </div>
           </div>
@@ -656,8 +680,8 @@ export function CourseFinder({
 
       <div className="finderStatus">
         <span>
-          {total} {t("courses")} {filteredByText}
-          {duplicates > 0 && ` · ${t("duplicates merged")}`}
+          {total} {t("courses.finder.countCourses")} {filteredByText}
+          {duplicates > 0 && ` · ${t("courses.finder.duplicatesMerged")}`}
         </span>
         {(error || finder.error) && (
           <span className="finderError">{error || finder.error}</span>
@@ -670,23 +694,16 @@ export function CourseFinder({
         aria-busy={firstDownload}
         onClick={() => setOpen(false)}
       >
-        {enabled && !view && !error && (
-          <Skeleton count={6} />
-        )}
+        {enabled && !view && !error && <Skeleton count={6} />}
         {view && total === 0 && (
           <EmptyState icon={SearchX}>
-              {firstDownload
-                ? t(
-                    "Downloading the {{year}} course catalog. Results appear when it is saved.",
-                    { year },
-                  )
-                : stored === 0 && signInNeeded
-                  ? t("Sign in to 教務 to search courses")
-                  : stored === 0
-                    ? t("No {{year}} course catalog is saved yet.", { year })
-                    : t(
-                        "No matching courses. Remove a condition to widen the search.",
-                      )}
+            {firstDownload
+              ? t("courses.downloadingTheYearCourseCatalogResults", { year })
+              : stored === 0 && signInNeeded
+                ? t("courses.signInToSearchCourses")
+                : stored === 0
+                  ? t("courses.noYearCourseCatalogIs", { year })
+                  : t("courses.noMatchingCoursesRemoveA")}
           </EmptyState>
         )}
         <div
@@ -721,7 +738,7 @@ export function CourseFinder({
                 <input
                   type="checkbox"
                   id={`finder-${course.id}`}
-                  aria-label={t("Select")}
+                  aria-label={t("courses.select")}
                   checked={selected.has(course.id)}
                   disabled={isPlaced || blocked || readOnly}
                   title={blocked ? unavailableLabel(row) : undefined}
@@ -755,7 +772,7 @@ export function CourseFinder({
                             : " 教務"}
                       </i>
                     )}
-                    {clash && <i className="clash">{t("Conflict")}</i>}
+                    {clash && <i className="clash">{t("courses.conflict")}</i>}
                     {blocked && (
                       <i className="clash">{unavailableLabel(row)}</i>
                     )}
@@ -769,7 +786,7 @@ export function CourseFinder({
                     className={`finderPlaced${isSaving ? " saving" : ""}`}
                     aria-busy={isSaving}
                   >
-                    {isSaving ? t("Added · saving") : t("Added")}
+                    {isSaving ? t("courses.addedSaving") : t("courses.added")}
                   </i>
                 ) : (
                   <UiButton
@@ -780,12 +797,12 @@ export function CourseFinder({
                       blocked
                         ? unavailableLabel(row)
                         : replacing
-                          ? t("Replaces the course in the same periods")
+                          ? t("courses.replacesTheCourseInThe")
                           : undefined
                     }
                     onClick={() => void addCourses([course])}
                   >
-                    {replacing ? t("Replace") : t("Add")}
+                    {replacing ? t("courses.replace") : t("common.add")}
                   </UiButton>
                 )}
               </div>
@@ -795,7 +812,7 @@ export function CourseFinder({
         <div ref={sentinel} className="finderLoadMore">
           {rows.length < total && (
             <UiButton className="textButton" onClick={() => finder.loadMore()}>
-              {t("Load more courses")}
+              {t("courses.loadMoreCourses")}
             </UiButton>
           )}
         </div>
@@ -804,21 +821,21 @@ export function CourseFinder({
       <footer className="finderFoot">
         {lastAdded ? (
           <span>
-            {t("Added {{count}}", { count: lastAdded.length })} ·{" "}
+            {t("courses.addedCount", { count: lastAdded.length })} ·{" "}
             <button
               type="button"
               className="textButton"
               disabled={mutating}
               onClick={() => void undoLast()}
             >
-              {t("Undo")}
+              {t("common.undo")}
             </button>
           </span>
         ) : (
           <span>
             {chosen.length
-              ? `${chosen.length} ${t("selected")} · ${chosenCredits} ${t("credits")}${chosenClashes ? ` · ${chosenClashes} ${t("conflicts")}` : ""}`
-              : t("Nothing selected")}
+              ? `${chosen.length} ${t("courses.finder.countSelected")} · ${chosenCredits} ${t("common.creditsUnit")}${chosenClashes ? ` · ${chosenClashes} ${t("courses.finder.conflicts")}` : ""}`
+              : t("courses.nothingSelected")}
           </span>
         )}
         <UiButton
@@ -827,7 +844,7 @@ export function CourseFinder({
           disabled={!chosen.length || mutating}
           onClick={() => setSelected(new Map())}
         >
-          {t("Clear")}
+          {t("common.clear")}
         </UiButton>
         <UiButton
           type="button"
@@ -836,8 +853,8 @@ export function CourseFinder({
           onClick={addSelected}
         >
           {chosen.length
-            ? t("Add {{count}}", { count: chosen.length })
-            : t("Add")}
+            ? t("courses.addCount", { count: chosen.length })
+            : t("common.add")}
         </UiButton>
       </footer>
     </Paper>

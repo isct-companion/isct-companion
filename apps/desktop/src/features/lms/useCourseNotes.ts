@@ -64,7 +64,7 @@ export function useCourseNotes(
       refreshNotes();
       open({
         id: id!,
-        title: existing?.name.trim() || `${section.title} · ${t("Note")}`,
+        title: existing?.name.trim() || `${section.title} · ${t("lms.note")}`,
         kind: "note",
         section: context.section,
       });

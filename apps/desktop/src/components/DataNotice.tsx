@@ -10,34 +10,20 @@ export function DataNotice({ acknowledge }: { acknowledge: () => void }) {
       opened
       onClose={acknowledge}
       closeOnClickOutside={false}
-      title={t("Before you rely on this data")}
+      title={t("dataNotice.beforeYouRelyOnThis")}
       centered
     >
       <div className="dataNotice">
+        <p>{t("dataNotice.isctcompanionCollectsCalendarsExamTimetables")}</p>
+        <p>{t("dataNotice.muchOfThisDataIs")}</p>
         <p>
-          {t(
-            "IsctCompanion collects calendars, exam timetables and course details from Science Tokyo's official pages and documents, and we work to keep them accurate.",
-          )}
-        </p>
-        <p>
-          {t(
-            "Much of this data is organised automatically, partly with AI, so it can contain mistakes. Please check anything important, especially exam dates, times and rooms, against the official source.",
-          )}
-        </p>
-        <p>
-          {t(
-            "If something is wrong, right-click the session in Calendar to correct it, or edit it in Lectures. You can also report it on the data repository.",
-          )}{" "}
+          {t("dataNotice.ifSomethingIsWrongRight")}{" "}
           <a href={ISSUES_URL} target="_blank" rel="noreferrer">
-            {t("Report a data problem")}
+            {t("dataNotice.reportADataProblem")}
           </a>
         </p>
-        <p>
-          {t(
-            "IsctCompanion is not responsible for any loss caused by errors in this data.",
-          )}
-        </p>
-        <Button onClick={acknowledge}>{t("I understand")}</Button>
+        <p>{t("dataNotice.isctcompanionIsNotResponsibleFor")}</p>
+        <Button onClick={acknowledge}>{t("dataNotice.iUnderstand")}</Button>
       </div>
     </Modal>
   );

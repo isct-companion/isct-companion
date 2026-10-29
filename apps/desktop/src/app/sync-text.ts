@@ -1,7 +1,7 @@
 /** Words for Core's sync snapshot. Core sends i18n keys and facts; this file
  * names them and decides nothing about what is due. */
 import { formatJst } from "../lib/civil-date";
-import { relativeTimeAgo, t } from "../i18n";
+import { lookup, relativeTimeAgo, t, type MessageKey } from "../i18n";
 import type {
   RunView,
   SyncFailure,
@@ -10,43 +10,40 @@ import type {
 } from "../platform/sync";
 
 /** One name per `sync_state::Dataset`. */
-const DATASET_NAMES: Record<string, string> = {
-  "lms.enrolment": "Enrolled courses",
-  "lms.deadlines": "Deadlines",
-  "lms.course": "Course content",
-  "lms.assign": "Assignment status",
-  "lms.history": "Past courses",
-  "kyomu.page": "教務Web pages",
-  "catalog.official": "Course catalog",
-  reference: "Reference data",
+const DATASET_NAMES: Record<string, MessageKey> = {
+  "lms.enrolment": "syncStatus.dataset.enrolledCourses",
+  "lms.deadlines": "syncStatus.dataset.deadlines",
+  "lms.course": "syncStatus.dataset.courseContent",
+  "lms.assign": "syncStatus.dataset.assignmentStatus",
+  "lms.history": "syncStatus.dataset.pastCourses",
+  "kyomu.page": "syncStatus.dataset.kyomuPages",
+  "catalog.official": "syncStatus.dataset.courseCatalog",
+  reference: "syncStatus.dataset.referenceData",
 };
 
-const SOURCE_NAMES: Record<string, string> = {
-  lms: "LMS",
-  kyomu: "教務Web",
-  references: "Reference data",
-  catalog: "Course catalog",
+const SOURCE_NAMES: Record<string, MessageKey> = {
+  lms: "syncStatus.source.lms",
+  kyomu: "syncStatus.source.kyomu",
+  references: "syncStatus.dataset.referenceData",
+  catalog: "syncStatus.dataset.courseCatalog",
 };
 
 export const datasetName = (dataset: string) =>
-  t(DATASET_NAMES[dataset] ?? dataset);
+  DATASET_NAMES[dataset] ? t(DATASET_NAMES[dataset]) : dataset;
 export const sourceName = (source: string) =>
-  t(SOURCE_NAMES[source] ?? source);
+  SOURCE_NAMES[source] ? t(SOURCE_NAMES[source]) : source;
 
-/** An identifier-style key (`sync.lms.course`) no locale knows yet. */
-const untranslated = (label: SyncLabel, text: string) =>
-  text === label.key && /^[\w.-]+$/.test(label.key);
-
-/** A Core label in the UI language; an unknown key falls back to the
- * dataset's own name so a new Core key never shows as an identifier. */
+/** A Core label in the UI language. Core owns these identifier-style keys
+ * (`sync.run.reference`), so a key no catalog knows yet falls back to the
+ * dataset's own name and a new Core key never shows as an identifier. */
 export function labelText(label: SyncLabel, dataset?: string) {
-  const text = t(label.key, label.args ?? undefined);
-  if (!untranslated(label, text)) return text;
+  const text = lookup(label.key, label.args ?? undefined);
+  if (text !== undefined) return text;
   if (dataset) return datasetName(dataset);
   const named = Object.values(label.args ?? {}).find(
     (value) => typeof value === "string" && value.trim(),
   );
-  return typeof named === "string" ? named : text;
+  return typeof named === "string" ? named : label.key;
 }
 
 export const runText = (run: RunView) => {
@@ -67,34 +64,36 @@ const clock = (at: string, locale: string) =>
 export function heldText(held: SyncHeld, locale: string) {
   switch (held.kind) {
     case "offline":
-      return t("Waiting for a connection");
+      return t("syncStatus.waitingForAConnection");
     case "cellular":
-      return t("Waiting for Wi-Fi · on cellular only what you open is read");
+      return t("app.waitingForWiFiOn");
     case "power-saver":
-      return t("Paused while power saver is on");
+      return t("app.pausedWhilePowerSaverIs");
     case "background":
-      return t("Resumes when the app is in front");
+      return t("syncStatus.resumesWhenTheAppIs");
     case "backoff":
-      return t("Retries at {{time}}", { time: clock(held.until, locale) });
+      return t("syncStatus.held.retriesAt", {
+        time: clock(held.until, locale),
+      });
     case "host-paused":
-      return t("{{host}} is not answering · retries at {{time}}", {
+      return t("app.hostIsNotAnsweringRetries", {
         host: held.host,
         time: clock(held.until, locale),
       });
     case "sign-in-required":
-      return t("Sign-in required");
+      return t("app.signInRequired");
     case "resetting":
-      return t("Resetting…");
+      return t("app.resetting");
     case "prerequisite":
-      return t("Waiting for the data it depends on");
+      return t("syncStatus.waitingForTheDataIt");
   }
 }
 
-const FAILURE_KINDS: Record<string, string> = {
-  timeout: "timed out",
-  offline: "no connection",
-  "sign-in": "sign-in required",
-  "site-changed": "the school page changed",
+const FAILURE_KINDS: Record<string, MessageKey> = {
+  timeout: "syncStatus.failure.timedOut",
+  offline: "syncStatus.failure.noConnection",
+  "sign-in": "syncStatus.failure.signInRequired",
+  "site-changed": "syncStatus.failure.siteChanged",
 };
 
 function failureReason(kind: string) {
@@ -102,8 +101,8 @@ function failureReason(kind: string) {
   const status = /^http-(\d{3})$/.exec(kind)?.[1];
   if (status)
     return status.startsWith("5")
-      ? t("the school server failed ({{status}})", { status })
-      : t("the school server refused ({{status}})", { status });
+      ? t("syncStatus.failure.serverFailed", { status })
+      : t("syncStatus.failure.serverRefused", { status });
   return kind;
 }
 
@@ -115,14 +114,16 @@ export function failureText(
 ) {
   return [
     failure.keysFailed > 1
-      ? t("{{dataset}}: {{count}} parts failed", {
+      ? t("app.datasetCountPartsFailed", {
           dataset: datasetName(dataset),
           count: failure.keysFailed,
         })
-      : t("{{dataset}} failed", { dataset: datasetName(dataset) }),
+      : t("app.datasetFailed", { dataset: datasetName(dataset) }),
     failureReason(failure.kind),
     failure.retryAt
-      ? t("retries at {{time}}", { time: clock(failure.retryAt, locale) })
+      ? t("syncStatus.failure.retriesAt", {
+          time: clock(failure.retryAt, locale),
+        })
       : "",
   ]
     .filter(Boolean)
@@ -131,6 +132,6 @@ export function failureText(
 
 /** "3 hours ago", "just now", or "never". */
 export function ageText(at: string | null, now: string, locale: string) {
-  if (!at) return t("Never updated");
-  return relativeTimeAgo(at, now, locale) ?? t("just now");
+  if (!at) return t("common.neverUpdated");
+  return relativeTimeAgo(at, now, locale) ?? t("syncStatus.justNow");
 }

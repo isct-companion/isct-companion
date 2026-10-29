@@ -1,7 +1,7 @@
 import { Checkbox, Radio } from "../../components/ui";
 import { invoke } from "../../platform/native-error";
 import { useEffect, useState } from "react";
-import { intlLocale, t } from "../../i18n";
+import { intlLocale, t, type MessageKey } from "../../i18n";
 import { errorText } from "../../app/shared";
 import { desktopBridge } from "../../app/native";
 import type { CloudSyncProvider } from "../../platform/desktop-bridge";
@@ -19,7 +19,25 @@ type Kind = ResetScope["kind"];
 type AfterReset = "restore" | "new-device";
 
 /** What every reset removes; the item keys live under `settings.reset.item`. */
-const SCHOOL_CACHES = [
+const ITEM_KEYS = {
+  schoolData: "settings.reset.item.schoolData",
+  catalog: "settings.reset.item.catalog",
+  references: "settings.reset.item.references",
+  syncRecords: "settings.reset.item.syncRecords",
+  lmsToken: "settings.reset.item.lmsToken",
+  webSession: "settings.reset.item.webSession",
+  downloads: "settings.reset.item.downloads",
+  userData: "settings.reset.item.userData",
+  settings: "settings.reset.item.settings",
+  logins: "settings.reset.item.logins",
+  notes: "settings.reset.item.notes",
+  courseFolder: "settings.reset.item.courseFolder",
+  cloud: "settings.reset.item.cloud",
+  logs: "settings.reset.item.logs",
+} satisfies Record<string, MessageKey>;
+type ResetItem = keyof typeof ITEM_KEYS;
+const only = (on: boolean, item: ResetItem): ResetItem[] => (on ? [item] : []);
+const SCHOOL_CACHES: ResetItem[] = [
   "schoolData",
   "catalog",
   "references",
@@ -41,13 +59,13 @@ function formatSize(bytes: number, locale: string) {
   }).format(value);
 }
 
-function Items({ title, items }: { title: string; items: string[] }) {
+function Items({ title, items }: { title: MessageKey; items: ResetItem[] }) {
   return (
     <div>
       <b>{t(title)}</b>
       <ul>
         {items.map((item) => (
-          <li key={item}>{t(`settings.reset.item.${item}`)}</li>
+          <li key={item}>{t(ITEM_KEYS[item])}</li>
         ))}
       </ul>
     </div>
@@ -155,15 +173,15 @@ export function ResetSettings({
     }
   };
 
-  const deletes =
+  const deletes: ResetItem[] =
     open === "everything"
       ? [...SCHOOL_CACHES, "webSession", "userData", "settings", "logins"]
       : [
           ...SCHOOL_CACHES,
-          ...(signOutWeb ? ["webSession"] : []),
-          ...(deleteDownloads ? ["downloads"] : []),
+          ...only(signOutWeb, "webSession"),
+          ...only(deleteDownloads, "downloads"),
         ];
-  const keeps =
+  const keeps: ResetItem[] =
     open === "everything"
       ? ["courseFolder", "cloud", "logs"]
       : [
@@ -171,11 +189,11 @@ export function ResetSettings({
           "settings",
           "logins",
           "notes",
-          ...(signOutWeb ? [] : ["webSession"]),
-          ...(deleteDownloads ? [] : ["downloads"]),
+          ...only(!signOutWeb, "webSession"),
+          ...only(!deleteDownloads, "downloads"),
         ];
 
-  const opener = (kind: Kind, label: string) => (
+  const opener = (kind: Kind, label: MessageKey) => (
     <div className="actions">
       <UiButton
         className={`button small${kind === "everything" ? " danger" : ""}`}
@@ -286,7 +304,7 @@ export function ResetSettings({
         id="clear-caches"
         group
         title="settings.reset.caches.title"
-        hint="settings.reset.caches.hint"
+        hint={t("settings.reset.caches.hint")}
       >
         {opener("school-caches", "settings.reset.caches.open")}
       </Row>
@@ -295,7 +313,7 @@ export function ResetSettings({
         id="full-reset"
         group
         title="settings.reset.full.title"
-        hint="settings.reset.full.hint"
+        hint={t("settings.reset.full.hint")}
       >
         {opener("everything", "settings.reset.full.open")}
       </Row>

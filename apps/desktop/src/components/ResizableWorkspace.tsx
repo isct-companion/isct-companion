@@ -79,8 +79,8 @@ export function ResizableWorkspace({
       </Panel>
       <Separator
         className="workspaceSeparator"
-        aria-label={t("Resize workspace")}
-        title={t("Drag to resize · Double-click to reset")}
+        aria-label={t("resizableWorkspace.resizeWorkspace")}
+        title={t("resizableWorkspace.dragToResizeDoubleClick")}
       />
       <Panel
         id={`${id}-second`}

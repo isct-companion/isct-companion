@@ -17,10 +17,13 @@ export function FilesSettings({
 }) {
   return (
     <>
-      <SettingsHeader title="Course files" />
+      <SettingsHeader title="settings.files.courseFiles" />
       <SettingsGroup>
         <CourseStorage />
-        <Row id="auto-download" title="Download new files automatically">
+        <Row
+          id="auto-download"
+          title="settings.files.downloadNewFilesAutomatically"
+        >
           <NumberSetting
             value={
               data.settings.autoDownloadLimitMb ??
@@ -40,8 +43,8 @@ export function FilesSettings({
         <Row
           id="workspaces"
           group
-          title="Assignment workspaces"
-          hint="Kept until you delete them. Old ones can be removed here."
+          title="settings.files.assignmentWorkspaces"
+          hint={t("settings.files.keptUntilYouDeleteThem")}
         >
           <CleanWorkspaces />
         </Row>
@@ -63,15 +66,15 @@ function CleanWorkspaces() {
         onClick={async () => {
           if (
             !(await confirmAction(
-              t("Delete every workspace unchanged for over a month?"),
-              t("Remove"),
+              t("settings.files.deleteEveryWorkspaceUnchangedFor"),
+              t("common.remove"),
             ))
           )
             return;
           setBusy(true);
           try {
             setResult(
-              t("Removed {{count}} workspaces", {
+              t("settings.files.removedCountWorkspaces", {
                 count: await cleanWorkspaces(),
               }),
             );
@@ -82,7 +85,7 @@ function CleanWorkspaces() {
           }
         }}
       >
-        {t("Remove month-old workspaces")}
+        {t("settings.files.removeMonthOldWorkspaces")}
       </UiButton>
     </span>
   );

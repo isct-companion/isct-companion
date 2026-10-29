@@ -60,7 +60,9 @@ function OtpPath({
         <i aria-hidden="true" />
         <b>{title}</b>
         {recommended && (
-          <span className="otpRecommended">{t("Recommended")}</span>
+          <span className="otpRecommended">
+            {t("settings.otp.recommended")}
+          </span>
         )}
       </button>
       {selected && (
@@ -99,10 +101,10 @@ export function OtpSetupInput({
         !desktopBridge ||
         !(await desktopBridge.copySchoolOtp(value.trim() || undefined))
       )
-        throw new Error(t("Copy failed"));
+        throw new Error(t("settings.otp.copyFailed"));
       setCopied(true);
     } catch (reason) {
-      setError(t(reason instanceof Error ? reason.message : String(reason)));
+      setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
   // The SVG holds the secret, so it lives only while the dialog is open.
@@ -110,10 +112,10 @@ export function OtpSetupInput({
   const showQr = async () => {
     setError("");
     try {
-      if (!desktopBridge) throw new Error(t("Copy failed"));
+      if (!desktopBridge) throw new Error(t("settings.otp.copyFailed"));
       setQr(await desktopBridge.schoolOtpQr(value.trim() || undefined));
     } catch (reason) {
-      setError(t(reason instanceof Error ? reason.message : String(reason)));
+      setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
   const [camera, setCamera] = useState(false);
@@ -159,9 +161,7 @@ export function OtpSetupInput({
           setError(
             reason instanceof Error
               ? reason.message
-              : t(
-                  "No QR code found. Choose a clear image containing the whole QR code.",
-                ),
+              : t("settings.otp.noQRCodeFoundChoose"),
           );
         return;
       }
@@ -183,11 +183,15 @@ export function OtpSetupInput({
     <Button
       variant="default"
       size="xs"
-      aria-label={t("Copy OTP setup")}
+      aria-label={t("settings.otp.copyOTPSetup")}
       disabled={busy || (!value.trim() && !saved) || !desktopBridge}
       onClick={() => void copy()}
     >
-      {t(copied ? "Copied" : "Copy setup")}
+      {t(
+        copied
+          ? "settings.credentialImport.copied"
+          : "settings.credentialImport.copySetup",
+      )}
     </Button>
   );
   const exportButtons = (
@@ -199,20 +203,22 @@ export function OtpSetupInput({
         disabled={busy || (!value.trim() && !saved) || !desktopBridge}
         onClick={() => void showQr()}
       >
-        {t("Show QR code")}
+        {t("settings.otp.showQRCode")}
       </Button>
     </Group>
   );
   return (
     <Input.Wrapper
       className="otpSetupField"
-      label={t("Automatic school verification codes")}
+      label={t("settings.otp.automaticSchoolVerificationCodes")}
       id="school-otp-setup"
     >
       {!choosing ? (
         <div className="otpSaved" role="status">
           <Check size={16} strokeWidth={1.75} aria-hidden />
-          <Text size="sm">{t("Codes are filled in for you at sign-in.")}</Text>
+          <Text size="sm">
+            {t("settings.credentialImport.codesAreFilledInFor")}
+          </Text>
           {exportButtons}
           <Button
             variant="subtle"
@@ -220,7 +226,7 @@ export function OtpSetupInput({
             disabled={busy}
             onClick={() => setChanging(true)}
           >
-            {t("Change")}
+            {t("settings.credentialImport.change")}
           </Button>
         </div>
       ) : (
@@ -229,11 +235,9 @@ export function OtpSetupInput({
             value="school"
             current={path}
             onSelect={setPath}
-            title={t("Let the app set it up")}
+            title={t("settings.otp.letTheAppSetIt")}
             recommended
-            hint={t(
-              "Opens the school site. Sign in if asked; the app registers itself and saves the setup.",
-            )}
+            hint={t("settings.otp.opensTheSchoolSiteSign")}
           >
             <Button
               size="xs"
@@ -245,21 +249,19 @@ export function OtpSetupInput({
                 )
               }
             >
-              {t("Open the school site")}
+              {t("settings.otp.openTheSchoolSite")}
             </Button>
             <Text size="xs" c="dimmed">
-              {t(
-                "Already registered elsewhere? The school asks to reset it; then update your other authenticators.",
-              )}
+              {t("settings.otp.alreadyRegisteredElsewhereTheSchool")}
             </Text>
           </OtpPath>
           <OtpPath
             value="export"
             current={path}
             onSelect={setPath}
-            title={t("From an authenticator app")}
+            title={t("settings.credentialImport.fromAnAuthenticatorApp")}
             hint={t(
-              "Google Authenticator: Transfer accounts → Export accounts, select only the school account.",
+              "settings.credentialImport.googleAuthenticatorTransferAccountsExport",
             )}
           >
             <Group gap="xs">
@@ -269,7 +271,7 @@ export function OtpSetupInput({
                 disabled={busy}
                 onClick={() => setCamera(true)}
               >
-                {t("Scan QR")}
+                {t("settings.credentialImport.scanQR")}
               </Button>
               <FileButton
                 accept="image/png,image/jpeg,image/webp"
@@ -285,7 +287,7 @@ export function OtpSetupInput({
                     disabled={busy}
                     loading={reading}
                   >
-                    {t("Select image")}
+                    {t("settings.otp.selectImage")}
                   </Button>
                 )}
               </FileButton>
@@ -295,21 +297,21 @@ export function OtpSetupInput({
             value="paste"
             current={path}
             onSelect={setPath}
-            title={t("Paste a setup link or secret")}
-            hint={t("Not the six-digit code that changes every 30 seconds.")}
+            title={t("settings.otp.pasteASetupLinkOr")}
+            hint={t("settings.credentialImport.notTheSixDigitCode")}
           >
             <div className="otpSetupRow">
               <TextInput
                 id="school-otp-setup"
                 type="password"
                 size="xs"
-                aria-label={t("Automatic school verification codes")}
+                aria-label={t("settings.otp.automaticSchoolVerificationCodes")}
                 value={value}
                 autoCapitalize="none"
                 autoComplete="off"
                 spellCheck={false}
                 disabled={disabled || reading}
-                placeholder={t("otpauth://… or secret key")}
+                placeholder={t("settings.credentialImport.otpauthOrSecretKey")}
                 onChange={(event) => {
                   onChange(event.target.value);
                   setLabel("");
@@ -327,14 +329,14 @@ export function OtpSetupInput({
               className="otpKeep"
               onClick={() => setChanging(false)}
             >
-              {t("Keep the saved setup")}
+              {t("settings.credentialImport.keepTheSavedSetup")}
             </Button>
           )}
         </div>
       )}
       {label && (
         <Text size="xs" c="dimmed">
-          {t("Read {{account}}. Connect to save this setup.", {
+          {t("settings.otp.readAccountConnectToSave", {
             account: label,
           })}
         </Text>
@@ -358,23 +360,19 @@ export function OtpSetupInput({
           opened
           centered
           onClose={() => setQr("")}
-          title={t("Add to another authenticator")}
+          title={t("settings.otp.addToAnotherAuthenticator")}
         >
           <Stack gap="sm" align="center">
             <img
               className="otpQr"
-              alt={t("OTP setup QR code")}
+              alt={t("settings.otp.otpSetupQRCode")}
               src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(qr)}`}
             />
             <Text size="sm">
-              {t(
-                "Scan this with any authenticator app. If you reset OTP at school, the old school entry in your other authenticators no longer works: delete it and use this one.",
-              )}
+              {t("settings.otp.scanThisWithAnyAuthenticator")}
             </Text>
             <Text size="xs" c="dimmed">
-              {t(
-                "Anyone who sees this QR code can generate your verification codes. Close it when you are done.",
-              )}
+              {t("settings.otp.anyoneWhoSeesThisQR")}
             </Text>
           </Stack>
         </Modal>
@@ -383,7 +381,7 @@ export function OtpSetupInput({
         <Modal
           opened
           onClose={() => setAccounts([])}
-          title={t("Choose your school account")}
+          title={t("settings.otp.chooseYourSchoolAccount")}
         >
           <Stack gap="xs" mah={360} style={{ overflowY: "auto" }}>
             {accounts.map((account, index) => (
@@ -393,7 +391,7 @@ export function OtpSetupInput({
                 onClick={() => choose(account)}
               >
                 {[account.issuer, account.label].filter(Boolean).join(" · ") ||
-                  t("Account {{number}}", { number: index + 1 })}
+                  t("settings.otp.accountNumber", { number: index + 1 })}
               </Button>
             ))}
           </Stack>

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { Platform } from "./capabilities";
 export type AppAction =
   | "view"
@@ -20,8 +21,7 @@ export function can(action: AppAction, platform: Platform): ActionDecision {
   )
     return {
       allowed: false,
-      reason:
-        "The browser preview is read-only for native data operations. Use the desktop app.",
+      reason: t("platformAction.theBrowserPreviewIsRead"),
     };
   if (
     platform !== "native-desktop" &&
@@ -32,9 +32,9 @@ export function can(action: AppAction, platform: Platform): ActionDecision {
   )
     return {
       allowed: false,
-      reason: "This advanced workflow is available in the desktop app.",
+      reason: t("platformAction.thisAdvancedWorkflowIsAvailable"),
     };
-  return { allowed: true, reason: "Available on this platform." };
+  return { allowed: true, reason: t("platformAction.availableOnThisPlatform") };
 }
 export function requireAction(action: AppAction, platform: Platform): void {
   const decision = can(action, platform);

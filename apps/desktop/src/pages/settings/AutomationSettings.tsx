@@ -2,38 +2,44 @@ import { Clock } from "lucide-react";
 import { notify as appNotify } from "../../app/notify";
 import { errorText } from "../../app/shared";
 import { useState } from "react";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import type { ScheduledTask, Workspace } from "../../lib/model";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import { UiButton, EmptyState } from "../../components/ui";
 import { Row, SettingsGroup, Toggle } from "../../components/forms";
 import { formatDay } from "./subscription-status";
 
+/** What Core stores as a task's `lastResult`; any other text shows as stored. */
+const RESULT_KEYS: Record<string, MessageKey> = {
+  Running: "settings.automation.result.running",
+  "Export completed": "settings.automation.result.exportCompleted",
+};
+
 const TASKS: Partial<
-  Record<ScheduledTask["action"], { title: string; hint: string }>
+  Record<ScheduledTask["action"], { title: MessageKey; hint: MessageKey }>
 > = {
   "reference-refresh": {
-    title: "Check for official data updates",
-    hint: "Calendar, exams and study guide · once a day",
+    title: "settings.automation.checkForOfficialDataUpdates",
+    hint: "settings.automation.calendarExamsAndStudyGuide",
   },
   "lms-refresh": {
-    title: "Refresh LMS in the background",
-    hint: "Every 4 hours on Wi-Fi while you use the app",
+    title: "settings.automation.refreshLMSInTheBackground",
+    hint: "settings.automation.every4HoursOnWi",
   },
   "school-refresh": {
-    title: "Refresh school records",
-    hint: "LMS and 教務Web",
+    title: "settings.automation.refreshSchoolRecords",
+    hint: "settings.automation.lmsAndWeb",
   },
   export: {
-    title: "Save a backup file",
-    hint: "Writes a backup in the app folder",
+    title: "settings.automation.saveABackupFile",
+    hint: "settings.automation.writesABackupInThe",
   },
 };
 
 /** Jobs the app runs on its own while it is open; shown inside Data updates. */
 /** Plain-language summary of the simple RRULEs the app creates. */
 function describeSchedule(schedule: string) {
-  if (schedule === "launch") return t("When the app starts");
+  if (schedule === "launch") return t("settings.automation.whenTheAppStarts");
   const rule = Object.fromEntries(
     schedule
       .replace(/^RRULE:/, "")
@@ -47,11 +53,13 @@ function describeSchedule(schedule: string) {
       : undefined;
   if (rule.FREQ === "HOURLY")
     return interval === 1
-      ? t("Every hour")
-      : t("Every {{count}} hours", { count: interval });
+      ? t("settings.automation.everyHour")
+      : t("settings.automation.everyCountHours", { count: interval });
   if (rule.FREQ === "DAILY")
-    return time ? t("Every day at {{time}}", { time }) : t("Every day");
-  if (rule.FREQ === "WEEKLY") return t("Every week");
+    return time
+      ? t("settings.automation.everyDayAtTime", { time })
+      : t("settings.automation.everyDay");
+  if (rule.FREQ === "WEEKLY") return t("settings.automation.everyWeek");
   return schedule;
 }
 
@@ -74,33 +82,37 @@ export function AutomationSettings({
     try {
       result = await runScheduledTask(task);
     } catch (error) {
-      result = errorText(error) ?? t("Run failed");
+      result = errorText(error) ?? t("settings.automation.runFailed");
     } finally {
       setRunning(undefined);
     }
   };
   return (
     <>
-      <SettingsGroup title="Scheduled tasks">
+      <SettingsGroup title="settings.automation.scheduledTasks">
         {tasks.length === 0 && (
           <EmptyState compact icon={Clock}>
-            {t("No scheduled tasks")}
+            {t("settings.automation.noScheduledTasks")}
           </EmptyState>
         )}
         {tasks.map((task, index) => {
           const known = TASKS[task.action];
           const last = task.lastRunAt
-            ? `${t("Last run")} ${formatDay(task.lastRunAt, locale, {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}${task.lastResult ? ` · ${t(task.lastResult)}` : ""}`
-            : t("Not run yet");
+            ? `${t("settings.automation.lastRun")} ${formatDay(
+                task.lastRunAt,
+                locale,
+                {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                },
+              )}${task.lastResult ? ` · ${RESULT_KEYS[task.lastResult] ? t(RESULT_KEYS[task.lastResult]) : task.lastResult}` : ""}`
+            : t("settings.automation.notRunYet");
           return (
             <Row
               key={task.id}
               id={index === 0 ? "tasks" : undefined}
               group
-              title={known?.title ?? task.name}
+              {...(known ? { title: known.title } : { titleText: task.name })}
               hint={`${known ? t(known.hint) : describeSchedule(task.schedule)} · ${last}`}
             >
               <div className="actions">
@@ -109,7 +121,9 @@ export function AutomationSettings({
                   disabled={!runScheduledTask || running === task.id}
                   onClick={() => void runNow(task)}
                 >
-                  {running === task.id ? t("Running…") : t("Run now")}
+                  {running === task.id
+                    ? t("settings.automation.running")
+                    : t("settings.automation.runNow")}
                 </UiButton>
                 <Toggle
                   checked={task.enabled}

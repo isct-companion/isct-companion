@@ -21,8 +21,8 @@ export function ExtensionsSettings({
   return (
     <>
       <SettingsHeader
-        title="Site styles & scripts"
-        description="Your own CSS and JavaScript for school sites. They apply the next time a site opens."
+        title="settings.extensions.siteStylesScripts"
+        description="settings.extensions.yourOwnCSSAndJavaScript"
       />
       <div className="extensionList" data-setting="sites">
         {(Object.keys(custom.sites) as CustomizationSite[]).map((site) => {
@@ -32,7 +32,7 @@ export function ExtensionsSettings({
               <summary>
                 <b>{t(customizationNames[site])}</b>
                 <Badge variant="light" color={enabled ? "green" : "gray"}>
-                  {t(enabled ? "On" : "Off")}
+                  {t(enabled ? "settings.extensions.on" : "settings.main.off")}
                 </Badge>
                 <UiButton
                   className="button small"
@@ -50,7 +50,11 @@ export function ExtensionsSettings({
                     });
                   }}
                 >
-                  {t(enabled ? "Disable" : "Enable")}
+                  {t(
+                    enabled
+                      ? "settings.extensions.disable"
+                      : "settings.extensions.enable",
+                  )}
                 </UiButton>
               </summary>
               <div className="siteEditorBody">

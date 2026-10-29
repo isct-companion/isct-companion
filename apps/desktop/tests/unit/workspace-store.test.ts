@@ -824,13 +824,13 @@ describe("runtime capabilities", () => {
           native: {
             ...runtime().native!,
             notifications: false,
-            notificationUnavailableReason: "Open the installed app.",
+            notificationUnavailableReason: "settings.notification.developmentProcess",
           },
         }),
       )["local-notifications"],
     ).toMatchObject({
       support: "unsupported",
-      reason: "Open the installed app.",
+      reason: "settings.notification.developmentProcess",
     });
   });
 

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { DesktopBridge } from "./desktop-bridge";
 
 /** One authoritative native hide per route departure. */
@@ -20,9 +21,7 @@ export function createSchoolWebExit(
             bridge?.hideSchoolWeb &&
             (await bridge.hideSchoolWeb()) !== true
           ) {
-            throw new Error(
-              "The school page could not be closed. Please retry.",
-            );
+            throw new Error(t("schoolWebExit.theSchoolPageCouldNot"));
           }
         })
         .finally(() => {

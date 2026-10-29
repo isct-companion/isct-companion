@@ -16,8 +16,8 @@ function nextHint(choice: ClassGroupChoice): string | undefined {
   if (!next || next.turn === "all") return undefined;
   return t(
     next.session === "lab"
-      ? "{{date}} is the {{group}}'s lab ({{course}})."
-      : "{{date}} is the {{group}}'s exercise ({{course}}).",
+      ? "courses.dateIsTheGroupSLab"
+      : "courses.dateIsTheGroupS",
     {
       date: next.date.slice(5).replace("-", "/"),
       group: classGroupLabel(next.turn),
@@ -51,9 +51,7 @@ export function ClassGroupSwitch({
       />
       <Text size="xs" c="dimmed">
         {semesterLabel(choice.terms)}
-        {unlisted(choice)
-          ? ` · ${t("This class's dates are not listed yet, so it shows every week.")}`
-          : ""}
+        {unlisted(choice) ? ` · ${t("courses.thisClasssDatesAreNot")}` : ""}
       </Text>
     </Stack>
   );
@@ -74,31 +72,25 @@ export function ClassGroupPrompt({
     <Modal
       opened
       onClose={later}
-      title={`${t("Physics group")} · ${semesterLabel(choice.terms)}`}
+      title={`${t("courses.physicsGroup")} · ${semesterLabel(choice.terms)}`}
     >
       <Stack gap="sm">
-        <Text size="sm">
-          {t(
-            "物理学演習 and 物理学実験 meet every other week, in turns of a red and a white group. The timetable shows only your group's days.",
-          )}
-        </Text>
+        <Text size="sm">{t("courses.andMeetEveryOtherWeek")}</Text>
         <Text size="sm" fw={600}>
           {choice.courses.map((course) => course.title).join(" · ")}
         </Text>
         {hint && <Text size="sm">{hint}</Text>}
         {unlisted(choice) && (
           <Text size="xs" c="dimmed">
-            {t(
-              "This class's dates are not listed yet, so it shows every week.",
-            )}
+            {t("courses.thisClasssDatesAreNot")}
           </Text>
         )}
         <Text size="xs" c="dimmed">
-          {t("You can change this later in the course details.")}
+          {t("courses.youCanChangeThisLater")}
         </Text>
         <Group justify="flex-end" gap="xs">
           <Button variant="subtle" onClick={later}>
-            {t("Later")}
+            {t("common.later")}
           </Button>
           {(["red", "white"] as const).map((group) => (
             <Button key={group} variant="light" onClick={() => choose(group)}>

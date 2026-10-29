@@ -1,4 +1,4 @@
-import { t } from "../i18n";
+import { t, type MessageKey } from "../i18n";
 import { SegmentedControl, Switch } from "./ui";
 import { useId } from "react";
 
@@ -8,8 +8,8 @@ export function SettingsHeader({
   description,
   actions,
 }: {
-  title: string;
-  description?: string;
+  title: MessageKey;
+  description?: MessageKey;
   actions?: React.ReactNode;
 }) {
   return (
@@ -30,7 +30,7 @@ export function SettingsGroup({
   children,
   tone,
 }: {
-  title?: string;
+  title?: MessageKey;
   footer?: React.ReactNode;
   children: React.ReactNode;
   tone?: "danger";
@@ -46,10 +46,10 @@ export function SettingsGroup({
 
 /** Rarely needed options stay folded until asked for. */
 export function MoreOptions({
-  label = "More options",
+  label = "forms.moreOptions",
   children,
 }: {
-  label?: string;
+  label?: MessageKey;
   children: React.ReactNode;
 }) {
   return (
@@ -68,12 +68,16 @@ export function MoreOptions({
 export function Row({
   id,
   title,
+  titleText,
   hint,
   children,
   group,
 }: {
   id?: string;
-  title: string;
+  /** A catalog key; `titleText` instead holds text that is already final
+   * (a date, a brand name). */
+  title?: MessageKey;
+  titleText?: string;
   hint?: React.ReactNode;
   children: React.ReactNode;
   group?: boolean;
@@ -81,8 +85,8 @@ export function Row({
   const labelId = useId();
   const text = (
     <span>
-      <b id={labelId}>{t(title)}</b>
-      {hint && <small>{typeof hint === "string" ? t(hint) : hint}</small>}
+      <b id={labelId}>{title ? t(title) : titleText}</b>
+      {hint && <small>{hint}</small>}
     </span>
   );
   return group ? (
@@ -167,4 +171,3 @@ export function Status({
     </div>
   );
 }
-

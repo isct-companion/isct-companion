@@ -89,9 +89,9 @@ export function DiagnosticsSettings({
     );
   const copyLogs = () =>
     void desktopBridge!.copyApplicationLogs!()
-      .then(() => notify(t("Copied")))
+      .then(() => notify(t("settings.credentialImport.copied")))
       .catch((reason: unknown) =>
-        notify(t(errorText(reason) ?? "Copy failed")),
+        notify(errorText(reason) ?? t("settings.otp.copyFailed")),
       );
   const canExport = Boolean(
     desktopBridge?.exportApplicationLogs && desktopBridge.copyApplicationLogs,
@@ -99,26 +99,26 @@ export function DiagnosticsSettings({
   return (
     <>
       <SettingsHeader
-        title="Application logs"
-        description="Read-only logs from this app session. The latest 2,000 entries are kept."
+        title="settings.main.applicationLogs"
+        description="settings.diagnostics.readOnlyLogsFromThis"
       />
       <div className="diagnosticToolbar">
         <span className="muted">
-          {t("{{count}} log entries", { count: logs.length })}
+          {t("settings.diagnostics.countLogEntries", { count: logs.length })}
         </span>
         <div className="diagnosticActions">
           <Switch
-            label={t("Follow latest")}
+            label={t("settings.diagnostics.followLatest")}
             checked={follow}
             onCheckedChange={setFollow}
           />
           {canExport && (
             <>
               <UiButton className="textButton" onClick={saveLogs}>
-                {t("Save to file")}
+                {t("settings.main.saveToFile")}
               </UiButton>
               <UiButton className="textButton" onClick={copyLogs}>
-                {t("Copy")}
+                {t("settings.schoolAccounts.copy")}
               </UiButton>
             </>
           )}
@@ -126,13 +126,13 @@ export function DiagnosticsSettings({
       </div>
       {error && (
         <p role="status" className="danger">
-          {t("Application logs are unavailable.")}
+          {t("settings.diagnostics.applicationLogsAreUnavailable")}
         </p>
       )}
       <div
         className="diagnosticLogs"
         ref={viewport}
-        aria-label={t("Application logs")}
+        aria-label={t("settings.main.applicationLogs")}
         tabIndex={0}
         onScroll={(event) => {
           const node = event.currentTarget;
@@ -154,8 +154,8 @@ export function DiagnosticsSettings({
           <p className="muted">
             {t(
               desktopBridge
-                ? "No log entries yet"
-                : "App logs are available in the installed app.",
+                ? "settings.diagnostics.noLogEntriesYet"
+                : "settings.diagnostics.appLogsAreAvailableIn",
             )}
           </p>
         )}

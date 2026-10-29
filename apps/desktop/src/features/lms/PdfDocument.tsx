@@ -414,14 +414,14 @@ export function PdfDocument({
             ?.scrollIntoView({ block: "start" });
           setPage(number);
           setPageInput(String(number));
-          setSearchStatus(`${t("Page")} ${number}`);
+          setSearchStatus(`${t("lms.page")} ${number}`);
           return;
         }
       }
-      setSearchStatus(t("No matches"));
+      setSearchStatus(t("lms.noMatches"));
     } catch (error) {
       if (task === searchTask.current)
-        setSearchStatus(`${t("Search unavailable")} · ${String(error)}`);
+        setSearchStatus(`${t("lms.searchUnavailable")} · ${String(error)}`);
     } finally {
       if (task === searchTask.current) setFinding(false);
     }
@@ -433,11 +433,11 @@ export function PdfDocument({
           <div
             className="lmsPdfControls"
             role="toolbar"
-            aria-label={t("PDF tools")}
+            aria-label={t("lms.pdfTools")}
           >
             <div className="lmsPdfPagination">
               <input
-                aria-label={t("Page")}
+                aria-label={t("lms.page")}
                 type="number"
                 min="1"
                 max={pdf?.numPages || 1}
@@ -452,15 +452,15 @@ export function PdfDocument({
             </div>
             <div className="lmsPdfZoom">
               <button
-                aria-label={t("Zoom out")}
-                title={t("Zoom out")}
+                aria-label={t("common.zoomOut")}
+                title={t("common.zoomOut")}
                 disabled={zoom <= 0.5}
                 onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}
               >
                 <LmsIcon name="minus" size={14} />
               </button>
               <UiSelect
-                aria-label={t("Zoom")}
+                aria-label={t("lms.zoom")}
                 value={zoom}
                 onChange={(value) => setZoom(Number(value))}
                 data={[...new Set([0.5, 0.75, 1, 1.25, 1.5, 2, 3, zoom])]
@@ -469,13 +469,13 @@ export function PdfDocument({
                     value: String(value),
                     label:
                       value === 1
-                        ? t("Fit width")
+                        ? t("lms.fitWidth")
                         : `${Math.round(value * 100)}%`,
                   }))}
               />
               <button
-                aria-label={t("Zoom in")}
-                title={t("Zoom in")}
+                aria-label={t("common.zoomIn")}
+                title={t("common.zoomIn")}
                 disabled={zoom >= 3}
                 onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
               >
@@ -484,8 +484,8 @@ export function PdfDocument({
             </div>
             <button
               className="lmsPdfFindToggle"
-              aria-label={t("Find in document")}
-              title={t("Find in document")}
+              aria-label={t("lms.findInDocument")}
+              title={t("lms.findInDocument")}
               aria-expanded={searchOpen}
               onClick={() => setSearchOpen((value) => !value)}
             >
@@ -505,8 +505,8 @@ export function PdfDocument({
           }}
         >
           <input
-            aria-label={t("Find in document")}
-            placeholder={t("Find in document")}
+            aria-label={t("lms.findInDocument")}
+            placeholder={t("lms.findInDocument")}
             value={search}
             onChange={(e) => {
               searchTask.current++;
@@ -517,11 +517,11 @@ export function PdfDocument({
           />
           <span role="status">{searchStatus}</span>
           <button disabled={finding || !pdf || !search.trim()}>
-            {t(finding ? "Searching…" : "Find next")}
+            {t(finding ? "lms.searching" : "lms.findNext")}
           </button>
           <button
             type="button"
-            aria-label={t("Close search")}
+            aria-label={t("lms.closeSearch")}
             onClick={() => setSearchOpen(false)}
           >
             ×
@@ -543,7 +543,7 @@ export function PdfDocument({
               />
             ))
           ) : (
-            <p role="status">{t("Loading PDF…")}</p>
+            <p role="status">{t("lms.loadingPDF")}</p>
           )}
         </div>
       </div>

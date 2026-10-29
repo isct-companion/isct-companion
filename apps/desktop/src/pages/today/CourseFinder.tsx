@@ -109,8 +109,8 @@ export function CourseFinder({
       <UiInput
         ref={input}
         type="search"
-        placeholder={t("Find course")}
-        aria-label={t("Find course")}
+        placeholder={t("today.findCourse")}
+        aria-label={t("today.findCourse")}
         value={query}
         onFocus={() => setExpanded(true)}
         onBlur={() => setExpanded(false)}
@@ -164,7 +164,7 @@ export function CourseFinder({
                 })}
               </section>
             ))}
-            {!flat.length && <p>{t("No matching courses")}</p>}
+            {!flat.length && <p>{t("today.noMatchingCourses")}</p>}
           </div>,
           layer,
         )}

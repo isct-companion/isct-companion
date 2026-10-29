@@ -1,6 +1,6 @@
 import { Button, Group, Modal, Popover, Stack, Text } from "./ui";
 import { useLocalStorage } from "usehooks-ts";
-import { t } from "../i18n";
+import { t, type MessageKey } from "../i18n";
 import type { Workspace } from "../lib/model";
 import { Choice } from "./forms";
 import "./guide.css";
@@ -42,7 +42,7 @@ export function GuideTip({
   children,
 }: {
   id: TipId;
-  text: string;
+  text: MessageKey;
   when?: boolean;
   position?: "top" | "bottom" | "left" | "right";
   children: React.ReactNode;
@@ -72,7 +72,7 @@ export function GuideTip({
         <Text size="sm">{t(text)}</Text>
         <Group justify="flex-end" mt={8}>
           <Button size="compact-xs" variant="light" onClick={dismiss}>
-            {t("Got it")}
+            {t("guide.gotIt")}
           </Button>
         </Group>
       </Popover.Dropdown>
@@ -114,7 +114,7 @@ export function WelcomeSheet({
     <Modal
       opened={guide.welcome !== true && !held}
       onClose={close}
-      title={t("Welcome to IsctCompanion")}
+      title={t("common.welcomeToIsctCompanion")}
       centered
       size="md"
       classNames={{ body: "welcomeSheet" }}
@@ -122,7 +122,7 @@ export function WelcomeSheet({
       <Stack gap="md">
         <div className="welcomeRow">
           <Text fw={600} size="sm">
-            {t("App language")}
+            {t("common.appLanguage")}
           </Text>
           <Choice
             value={settings.locale}
@@ -137,16 +137,16 @@ export function WelcomeSheet({
         <div className="welcomeRow">
           <div>
             <Text fw={600} size="sm">
-              {t("Course and syllabus language")}
+              {t("guide.courseAndSyllabusLanguage")}
             </Text>
             <Text size="xs" c="dimmed">
-              {t("Can differ from the app language.")}
+              {t("guide.canDifferFromTheApp")}
             </Text>
           </div>
           <Choice
             value={settings.contentLanguage ?? "auto"}
             options={[
-              { value: "auto", label: t("Automatic") },
+              { value: "auto", label: t("common.automatic") },
               { value: "en", label: "English" },
               { value: "ja", label: "日本語" },
             ]}
@@ -161,12 +161,12 @@ export function WelcomeSheet({
             openAgents();
           }}
         >
-          <b>{t("Use with Claude, Codex or Cursor")}</b>
-          <span>{t("Connect an AI assistant over MCP")} →</span>
+          <b>{t("guide.useWithClaudeCodexOr")}</b>
+          <span>{t("guide.connectAnAIAssistantOver")} →</span>
         </button>
         <Group justify="flex-end" gap="xs">
           <Button variant="subtle" color="gray" onClick={close}>
-            {t(connected ? "Done" : "Later")}
+            {t(connected ? "common.done" : "common.later")}
           </Button>
           {!connected && (
             <Button
@@ -175,7 +175,7 @@ export function WelcomeSheet({
                 openAccounts();
               }}
             >
-              {t("Connect school accounts")}
+              {t("common.connectSchoolAccounts")}
             </Button>
           )}
         </Group>

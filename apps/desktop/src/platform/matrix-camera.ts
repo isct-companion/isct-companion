@@ -10,25 +10,15 @@ import { t } from "../i18n";
 function cameraError(error: unknown): Error {
   if (error instanceof DOMException) {
     if (error.name === "NotAllowedError")
-      return new Error(
-        t(
-          "Camera access was denied. Allow camera access in system settings, then try again.",
-        ),
-      );
+      return new Error(t("settings.matrixCamera.cameraAccessWasDeniedAllow"));
     if (error.name === "NotFoundError")
-      return new Error(
-        t("No camera found. Connect a camera or scan an image instead."),
-      );
+      return new Error(t("matrixCamera.noCameraFoundConnectA"));
     if (error.name === "NotReadableError")
-      return new Error(
-        t(
-          "The camera is unavailable. Close other apps using it and try again.",
-        ),
-      );
+      return new Error(t("settings.matrixCamera.theCameraIsUnavailableClose"));
   }
   return nativeError(
     error,
-    t("The camera is unavailable. Close other apps using it and try again."),
+    t("settings.matrixCamera.theCameraIsUnavailableClose"),
   );
 }
 
@@ -124,21 +114,13 @@ export function openMatrixCamera(
   };
   const visibility = () => {
     if (document.hidden && !processing)
-      fail(
-        new Error(
-          t(
-            "Camera scan stopped while the app was in the background. Open it again to continue.",
-          ),
-        ),
-      );
+      fail(new Error(t("settings.matrixCamera.cameraScanStoppedWhileThe")));
   };
   document.addEventListener("visibilitychange", visibility);
 
   void (async () => {
     if (!navigator.mediaDevices?.getUserMedia)
-      throw new Error(
-        t("Camera access is unavailable here. Scan an image instead."),
-      );
+      throw new Error(t("matrixCamera.cameraAccessIsUnavailableHere"));
     const id = await invoke<string>("begin_matrix_camera");
     if (disposed) {
       stopSession(id);
@@ -161,10 +143,7 @@ export function openMatrixCamera(
     for (const track of stream.getVideoTracks())
       track.addEventListener(
         "ended",
-        () =>
-          fail(
-            new Error(t("The camera disconnected. Open it again to continue.")),
-          ),
+        () => fail(new Error(t("matrixCamera.theCameraDisconnectedOpenIt"))),
         { once: true },
       );
     video.srcObject = stream;
@@ -178,7 +157,7 @@ export function openMatrixCamera(
     const smallContext = small.getContext("2d", { willReadFrequently: true });
     const displayContext = display.getContext("2d");
     if (!fullContext || !smallContext || !displayContext)
-      throw new Error(t("Cannot read camera frames. Scan an image instead."));
+      throw new Error(t("matrixCamera.cannotReadCameraFramesScan"));
     captureStarted = performance.now();
     let lastTime = -1;
     const hasNewFrame = () =>

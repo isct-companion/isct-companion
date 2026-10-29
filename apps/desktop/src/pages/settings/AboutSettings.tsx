@@ -10,7 +10,7 @@ import { desktopBridge } from "../../app/native";
 import { lastInstallText, useAppUpdate } from "../../app/useDesktopUpdates";
 import { workspaceStore } from "../../store/workspace";
 import type { Workspace } from "../../lib/model";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 
 export function AboutSettings({
   data,
@@ -22,15 +22,15 @@ export function AboutSettings({
   const { status, pending, check } = useAppUpdate();
   const resetGuide = useResetGuide();
   const labels = {
-    idle: "Check for updates",
-    unpublished: "No stable release has been published yet",
-    checking: "Checking for updates…",
-    current: "You're up to date",
-    available: "Update available",
-    downloading: "Downloading update…",
-    ready: "Update ready to install",
-    error: "Update check failed",
-  };
+    idle: "settings.about.checkForUpdates",
+    unpublished: "settings.about.noStableReleaseHasBeen",
+    checking: "settings.about.checkingForUpdates",
+    current: "settings.about.youreUpToDate",
+    available: "settings.about.updateAvailable",
+    downloading: "settings.about.downloadingUpdate",
+    ready: "settings.about.updateReadyToInstall",
+    error: "settings.about.updateCheckFailed",
+  } satisfies Record<string, MessageKey>;
   const megabytes = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
   const progress =
     status?.phase === "downloading" && status.progress
@@ -40,9 +40,9 @@ export function AboutSettings({
       : "";
   return (
     <>
-      <SettingsHeader title="About" />
+      <SettingsHeader title="settings.main.about" />
       <SettingsGroup>
-        <Row id="version" group title="Version">
+        <Row id="version" group title="settings.about.version">
           <span className="aboutValue">{__APP_VERSION__}</span>
         </Row>
         {desktopBridge?.checkAppUpdate && (
@@ -50,7 +50,7 @@ export function AboutSettings({
             <Row
               id="updates"
               group
-              title="App updates"
+              title="settings.about.appUpdates"
               hint={
                 <span role="status">
                   {t(labels[status?.phase ?? (pending ? "checking" : "idle")])}
@@ -74,7 +74,7 @@ export function AboutSettings({
                   disabled={pending}
                   onClick={() => void check(true)}
                 >
-                  {t("Check for updates")}
+                  {t("settings.about.checkForUpdates")}
                 </UiButton>
                 {status?.phase === "available" && (
                   <UiButton
@@ -86,8 +86,8 @@ export function AboutSettings({
                   >
                     {t(
                       status.signedUpdates
-                        ? "Download update"
-                        : "Download from releases",
+                        ? "settings.about.downloadUpdate"
+                        : "settings.about.downloadFromReleases",
                     )}
                   </UiButton>
                 )}
@@ -99,15 +99,15 @@ export function AboutSettings({
                       await desktopBridge?.installAppUpdate?.();
                     }}
                   >
-                    {t("Install and quit")}
+                    {t("settings.about.installAndQuit")}
                   </UiButton>
                 )}
               </div>
             </Row>
             <Row
               id="automatic-updates"
-              title="Automatic updates"
-              hint="Download in the background and install when the app quits."
+              title="settings.about.automaticUpdates"
+              hint={t("settings.about.downloadInTheBackgroundAnd")}
             >
               <Toggle
                 checked={data.settings.automaticAppUpdates ?? false}
@@ -122,14 +122,14 @@ export function AboutSettings({
             </Row>
             {status && !status.signedUpdates && (
               <p className="settingsHint">
-                {t("Automatic installation requires an update-enabled build.")}
+                {t("settings.about.automaticInstallationRequiresAnUpdate")}
               </p>
             )}
           </>
         )}
-        <Row id="guide" title="Show welcome and tips again">
+        <Row id="guide" title="settings.main.showWelcomeAndTipsAgain">
           <UiButton className="button small" onClick={resetGuide}>
-            {t("Show again")}
+            {t("settings.about.showAgain")}
           </UiButton>
         </Row>
       </SettingsGroup>

@@ -56,27 +56,23 @@ export function DeveloperSettings({
 }) {
   return (
     <>
-      <SettingsHeader title="Developer options" />
+      <SettingsHeader title="settings.developer.developerOptions" />
       <SettingsGroup
         footer={
           developer
-            ? t("New pages are listed under Developer in the sidebar.")
-            : t(
-                "Adds site styles and scripts, diagnostics, and raw data settings.",
-              )
+            ? t("settings.developer.newPagesAreListedUnder")
+            : t("settings.developer.addsSiteStylesAndScripts")
         }
       >
-        <Row id="developer-mode" title="Developer options">
+        <Row id="developer-mode" title="settings.developer.developerOptions">
           <Toggle checked={developer} onChange={setDeveloper} />
         </Row>
       </SettingsGroup>
       {developer && desktop && (
         <>
           <SettingsGroup
-            title="Academic profile"
-            footer={t(
-              "Custom class times and quarter dates apply to the timetable and calendar exports.",
-            )}
+            title="settings.developer.academicProfile"
+            footer={t("settings.developer.customClassTimesAndQuarter")}
           >
             <div data-setting="profile">
               <ProfileEditor
@@ -89,22 +85,20 @@ export function DeveloperSettings({
                     ) {
                       throw new Error(
                         t(
-                          "The academic profile changed elsewhere. Reload it before saving your edits.",
+                          "settings.developer.theAcademicProfileChangedElsewhere",
                         ),
                       );
                     }
                     return { ...draft, academicProfile: profile };
                   });
-                  notify(t("Academic profile saved"));
+                  notify(t("settings.developer.academicProfileSaved"));
                 }}
               />
             </div>
           </SettingsGroup>
           <SettingsGroup
-            title="Data source URLs"
-            footer={t(
-              "Each URL points to an index.json in the Isct-Data format.",
-            )}
+            title="settings.developer.dataSourceURLs"
+            footer={t("settings.developer.eachURLPointsToAn")}
           >
             <div data-setting="sources">
               <DataSourceUrls data={data} />
@@ -153,11 +147,7 @@ function ProfileEditor({
   const commit = async () => {
     if (saving) return;
     if (baseline !== JSON.stringify(profile)) {
-      setError(
-        t(
-          "The academic profile changed elsewhere. Reload it before saving your edits.",
-        ),
-      );
+      setError(t("settings.developer.theAcademicProfileChangedElsewhere"));
       return;
     }
     setSaving(true);
@@ -181,14 +171,12 @@ function ProfileEditor({
   return (
     <div className="profileForm">
       <p className="settingsNote">
-        {t(
-          "Official class times and quarter dates are used by default. Change them here to match your program.",
-        )}
+        {t("settings.developer.officialClassTimesAndQuarter")}
       </p>
       <fieldset disabled={saving} className="profileFields">
         {raw !== null ? (
           <UiTextarea
-            aria-label={t("Academic profile JSON")}
+            aria-label={t("settings.developer.academicProfileJSON")}
             className="codeArea"
             spellCheck={false}
             value={raw}
@@ -201,7 +189,7 @@ function ProfileEditor({
           <>
             <section data-setting="teaching-periods">
               <header>
-                <b>{t("Class times")}</b>
+                <b>{t("settings.developer.classTimes")}</b>
                 <UiButton
                   className="textButton"
                   onClick={() =>
@@ -210,23 +198,21 @@ function ProfileEditor({
                     })
                   }
                 >
-                  {t("Use official times")}
+                  {t("settings.developer.useOfficialTimes")}
                 </UiButton>
               </header>
               <p className="settingsNote">
-                {t(
-                  "Sets the clock times for periods 1–12. Courses scheduled by period follow this table; courses with explicit times keep their own times.",
-                )}
+                {t("settings.developer.setsTheClockTimesFor")}
               </p>
               <small>
                 {draft.teachingPeriods
-                  ? t("Custom times")
-                  : t("Official times")}
+                  ? t("settings.developer.customTimes")
+                  : t("settings.developer.officialTimes")}
               </small>
               <div className="profileTimes columnHeads" aria-hidden>
-                <span>{t("Periods")}</span>
-                <span>{t("Start time")}</span>
-                <span>{t("End time")}</span>
+                <span>{t("settings.developer.periods")}</span>
+                <span>{t("common.startTime")}</span>
+                <span>{t("common.endTime")}</span>
               </div>
               {(draft.teachingPeriods ?? DEFAULT_TEACHING_PERIODS).map(
                 (slot, index) => (
@@ -239,8 +225,8 @@ function ProfileEditor({
                         value={slot[field]}
                         aria-label={t(
                           field === "startTime"
-                            ? "Periods {{periods}} start time"
-                            : "Periods {{periods}} end time",
+                            ? "settings.developer.periodsStartTime"
+                            : "settings.developer.periodsEndTime",
                           { periods: slot.periods.join("–") },
                         )}
                         onChange={(event) =>
@@ -260,7 +246,7 @@ function ProfileEditor({
             </section>
             <section>
               <header>
-                <b>{t("Quarter starts")}</b>
+                <b>{t("settings.developer.quarterStarts")}</b>
                 <UiButton
                   className="button small"
                   onClick={() =>
@@ -278,19 +264,21 @@ function ProfileEditor({
                     })
                   }
                 >
-                  ＋ {t("Add")}
+                  ＋ {t("common.add")}
                 </UiButton>
               </header>
               <p className="settingsNote">
-                {t("Quarter starts here override the official calendar.")}{" "}
-                {t("Remove a year to use its official dates again.")}
+                {t("settings.developer.quarterStartsHereOverrideThe")}{" "}
+                {t("settings.developer.removeAYearToUse")}
               </p>
               {!draft.years.length && (
-                <small>{t("Using official quarter dates")}</small>
+                <small>
+                  {t("settings.developer.usingOfficialQuarterDates")}
+                </small>
               )}
               {draft.years.length > 0 && (
                 <div className="profileLine quarters columnHeads" aria-hidden>
-                  <span>{t("Year")}</span>
+                  <span>{t("settings.developer.year")}</span>
                   {quarters.map((quarter) => (
                     <span key={quarter}>{quarter}</span>
                   ))}
@@ -300,7 +288,7 @@ function ProfileEditor({
               {draft.years.map((year, index) => (
                 <div className="profileLine quarters" key={index}>
                   <UiInput
-                    aria-label={t("Academic year")}
+                    aria-label={t("common.academicYear")}
                     type="number"
                     value={year.academicYear}
                     onChange={(event) =>
@@ -329,7 +317,7 @@ function ProfileEditor({
                   ))}
                   <UiButton
                     className="iconButton"
-                    aria-label={t("Remove")}
+                    aria-label={t("common.remove")}
                     onClick={() => edit((p) => p.years.splice(index, 1))}
                   >
                     ×
@@ -357,7 +345,7 @@ function ProfileEditor({
             setError("");
           }}
         >
-          {t("Reload saved profile")}
+          {t("settings.developer.reloadSavedProfile")}
         </UiButton>
         <UiButton
           className="textButton"
@@ -373,14 +361,16 @@ function ProfileEditor({
             }
           }}
         >
-          {raw === null ? t("Edit JSON") : t("Back to form")}
+          {raw === null
+            ? t("settings.developer.editJSON")
+            : t("settings.developer.backToForm")}
         </UiButton>
         <UiButton
           className="button primary"
           disabled={saving || !dirty}
           onClick={() => void commit()}
         >
-          {t("Save")}
+          {t("common.save")}
         </UiButton>
       </div>
     </div>

@@ -1,62 +1,62 @@
 import { getDesktopBridge, type SchoolSite } from "../platform/desktop-bridge";
 import { createSchoolWebExit } from "../platform/school-web-exit";
-import { t } from "../i18n";
+import { t, type MessageKey } from "../i18n";
 import { errorText } from "./shared";
 export type CustomizationSite = "portal" | "lms" | "syllabus";
 export const official: Record<
   SchoolSite,
-  { url: string; name: string; customization: CustomizationSite }
+  { url: string; name: MessageKey; customization: CustomizationSite }
 > = {
   "science-portal": {
     url: "https://isct.ex-tic.com/idm/user/portal/",
-    name: "Science Tokyo Portal",
+    name: "web.site.sciencePortal",
     customization: "portal",
   },
   "science-lms": {
     url: "https://lms.s.isct.ac.jp/2025/",
-    name: "Science Tokyo LMS",
+    name: "web.site.scienceLms",
     customization: "lms",
   },
   "tokyo-portal": {
     url: "https://portal.nap.gsic.titech.ac.jp/GetAccess/ResourceList?lang=ja",
-    name: "Tokyo Tech Portal",
+    name: "webRouter.tokyoTechPortal",
     customization: "portal",
   },
   "tokyo-mail": {
     url: "https://mailv4.m.titech.ac.jp/cgi-bin/loginweb",
-    name: "Tokyo Tech Mail",
+    name: "web.site.tokyoMail",
     customization: "portal",
   },
   kyomu: {
     url: "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx",
-    name: "教務 Web システム",
+    name: "web.site.kyomu",
     customization: "portal",
   },
   tsubame: {
     url: "https://portal.t4.gsic.titech.ac.jp/ptl/ga/sso/",
-    name: "TSUBAME",
+    name: "web.site.tsubame",
     customization: "portal",
   },
   library: {
     url: "https://request.libra.titech.ac.jp/portal/user.php?plang=jpn",
-    name: "図書館サービス",
+    name: "web.site.library",
     customization: "portal",
   },
   syllabus: {
     url: "https://syllabus.s.isct.ac.jp/",
-    name: "Syllabus",
+    name: "common.syllabus",
     customization: "syllabus",
   },
   "study-guide": {
     url: "https://www.titech.ac.jp/student/students/life/resources",
-    name: "学修案内",
+    name: "web.site.studyGuide",
     customization: "portal",
   },
 };
-export const customizationNames: Record<CustomizationSite, string> = {
-  portal: "School portals",
-  lms: "Science Tokyo LMS",
-  syllabus: "Syllabus",
+export const customizationNames: Record<CustomizationSite, MessageKey> = {
+  portal: "app.schoolPortals",
+  lms: "web.site.scienceLms",
+  syllabus: "common.syllabus",
 };
 export const desktopBridge = getDesktopBridge();
 /**
@@ -69,14 +69,13 @@ export async function saveExportFile(
   notify: (message: string) => void,
 ) {
   try {
-    if (!desktopBridge)
-      throw new Error(t("Saving files needs the desktop app."));
+    if (!desktopBridge) throw new Error(t("app.savingFilesNeedsTheDesktop"));
     if (await desktopBridge.saveFile(name, await contents()))
-      notify(t("Saved {{name}}", { name }));
+      notify(t("app.savedName", { name }));
   } catch (error) {
     notify(
-      t("Export failed: {{reason}}", {
-        reason: errorText(error) ?? t("unknown error"),
+      t("settings.main.exportFailedReason", {
+        reason: errorText(error) ?? t("common.unknownError"),
       }),
     );
   }

@@ -1,6 +1,6 @@
 import { History, Server, ServerOff } from "lucide-react";
 import { useEffect, useState } from "react";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../app/native";
 import type { AgentConnection } from "../../platform/desktop-bridge";
@@ -47,20 +47,20 @@ export function AgentSettings({
   const copy = (value: string) =>
     void navigator.clipboard
       .writeText(value)
-      .then(() => notify(t("Copied")))
-      .catch(() => notify(t("Copy failed")));
+      .then(() => notify(t("settings.credentialImport.copied")))
+      .catch(() => notify(t("settings.otp.copyFailed")));
   const access = data.settings.agentAccess;
   const writes = [...(access?.lastWrites ?? [])]
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 8);
   return (
     <>
-      <SettingsHeader title="AI agent access" />
+      <SettingsHeader title="settings.agent.aiAgentAccess" />
       <SettingsGroup>
         <Row
           id="mcp"
-          title="Allow local agents"
-          hint="Agents can read school data and change only course plans, weekly events and hidden assignments. They never see passwords or sessions."
+          title="settings.agent.allowLocalAgents"
+          hint={t("settings.agent.agentsCanReadSchoolData")}
         >
           <Toggle
             checked={access?.enabled === true}
@@ -80,12 +80,10 @@ export function AgentSettings({
       {/* While access is off there is nothing to connect to; the switch says it all. */}
       {access?.enabled && (
         <SettingsGroup
-          title="Connect an agent"
+          title="settings.agent.connectAnAgent"
           footer={
             connection?.state === "listening"
-              ? t(
-                  "Pick your assistant below and paste its setup, or add the URL as a Streamable HTTP server with the token as Bearer authentication. Keep IsctCompanion open.",
-                )
+              ? t("settings.agent.pickYourAssistantBelowAnd")
               : undefined
           }
         >
@@ -97,15 +95,15 @@ export function AgentSettings({
                   className="button small"
                   onClick={() => copy(connection.url)}
                 >
-                  {t("Copy URL")}
+                  {t("settings.agent.copyURL")}
                 </UiButton>
               </div>
-              <Row title="Access token">
+              <Row title="settings.agent.accessToken">
                 <UiButton
                   className="button small"
                   onClick={() => copy(connection.token)}
                 >
-                  {t("Copy token")}
+                  {t("settings.agent.copyToken")}
                 </UiButton>
               </Row>
               <AgentSetup
@@ -121,14 +119,14 @@ export function AgentSettings({
               role={connection?.state === "failed" ? "alert" : "status"}
             >
               {connection?.state === "failed"
-                ? `${t("MCP server is unavailable.")} ${connection.error}`
-                : t("Loading…")}
+                ? `${t("settings.agent.mcpServerIsUnavailable")} ${connection.error}`
+                : t("common.loading")}
             </EmptyState>
           )}
         </SettingsGroup>
       )}
       {(access?.enabled || writes.length > 0) && (
-        <SettingsGroup title="Recent agent changes">
+        <SettingsGroup title="settings.agent.recentAgentChanges">
           {writes.length ? (
             <div className="logList">
               {writes.map((write, index) => (
@@ -145,7 +143,7 @@ export function AgentSettings({
             </div>
           ) : (
             <EmptyState compact icon={History}>
-              {t("No changes by agents yet.")}
+              {t("settings.agent.noChangesByAgentsYet")}
             </EmptyState>
           )}
         </SettingsGroup>
@@ -163,23 +161,26 @@ const SERVER = "isct-companion";
  * HTTP server with a Bearer token differently; Claude Desktop has no HTTP
  * transport for local servers, so it goes through `mcp-remote`.
  */
-export function agentSetup(client: AgentClient, url: string, token: string) {
+export function agentSetup(
+  client: AgentClient,
+  url: string,
+  token: string,
+): { where: MessageKey; text: string } {
   const bearer = `Bearer ${token}`;
   switch (client) {
     case "claude-code":
       return {
-        where: "Run in a terminal.",
+        where: "settings.agent.runInATerminal",
         text: `claude mcp add --transport http ${SERVER} ${url} --header "Authorization: ${bearer}"`,
       };
     case "codex":
       return {
-        where: "Add to ~/.codex/config.toml.",
+        where: "settings.agent.addToCodexConfigToml",
         text: `[mcp_servers.${SERVER}]\nurl = "${url}"\nhttp_headers = { Authorization = "${bearer}" }`,
       };
     case "claude-desktop":
       return {
-        where:
-          "Add to claude_desktop_config.json (Settings → Developer → Edit Config), then restart Claude. Needs Node.js.",
+        where: "settings.agent.addToClaudeDesktopConfig",
         text: JSON.stringify(
           {
             mcpServers: {
@@ -202,7 +203,7 @@ export function agentSetup(client: AgentClient, url: string, token: string) {
       };
     case "cursor":
       return {
-        where: "Add to ~/.cursor/mcp.json.",
+        where: "settings.agent.addToCursorMcpJson",
         text: JSON.stringify(
           {
             mcpServers: {
@@ -246,7 +247,7 @@ function AgentSetup({
       <div className="agentSnippet">
         <pre>{shown.text}</pre>
         <UiButton className="button small" onClick={() => copy(setup.text)}>
-          {t("Copy")}
+          {t("settings.schoolAccounts.copy")}
         </UiButton>
       </div>
     </div>

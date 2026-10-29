@@ -16,7 +16,7 @@ import { OtpSetupInput } from "../../components/OtpSetupInput";
 import { MatrixCamera } from "../../components/MatrixCamera";
 import { UiInput } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
-import { t } from "../../i18n";
+import { lookup, t, type MessageKey } from "../../i18n";
 
 import { desktopBridge } from "../../app/native";
 import {
@@ -24,6 +24,7 @@ import {
   MATRIX_ROWS,
   MATRIX_SIZE,
   matrixConfidence,
+  type MatrixConfidence,
   normalizeMatrixText,
   parseMatrixText,
   recognizeMatrixImage,
@@ -60,13 +61,19 @@ type Draft = {
   matrix: string[];
 };
 
+const CONFIDENCE_NOTE = {
+  high: "settings.schoolAccounts.confidenceHigh",
+  medium: "settings.schoolAccounts.confidenceMedium",
+  low: "settings.schoolAccounts.confidenceLow",
+} satisfies Record<MatrixConfidence, MessageKey>;
+
 // Steps the login script reports, in the order each portal shows them.
 const STEPS = [
-  { key: "identifier", label: "ID" },
-  { key: "password", label: "Password" },
-  { key: "code", label: "Code" },
-  { key: "connected", label: "Signed in" },
-] as const;
+  { key: "identifier", label: "settings.schoolAccounts.id" },
+  { key: "password", label: "settings.main.password" },
+  { key: "code", label: "courses.code" },
+  { key: "connected", label: "common.signedIn" },
+] as const satisfies readonly { key: string; label: MessageKey }[];
 // Portal-side steps that sit between the ones shown above.
 const STEP_ALIASES: Record<string, string> = {
   agree: "password",
@@ -87,7 +94,7 @@ function SignInSteps({ connection }: { connection: Connection }) {
   if (connection.state === "maintenance")
     return (
       <Text c="yellow" size="sm">
-        {t("Under maintenance")}
+        {t("common.underMaintenance")}
       </Text>
     );
   const connected = connection.state === "connected";
@@ -203,7 +210,7 @@ function MatrixEditor({
       onBeginEdit();
       onChange(cells);
       setConfidence([]);
-      notify("Matrix pasted. Verify it against your card, then Connect.");
+      notify(t("settings.schoolAccounts.matrixPastedVerifyItAgainst"));
     } catch (error) {
       appNotify.error(error);
     }
@@ -216,17 +223,13 @@ function MatrixEditor({
     try {
       const result = await recognizeMatrixImage(file, setScanProgress);
       if (result.every((cell) => !cell.text)) {
-        notify(
-          "No readable letters found. Check for blur or covered cells and try again.",
-        );
+        notify(t("matrixCamera.noReadableLettersFoundCheck"));
         return;
       }
       onBeginEdit();
       onChange(result.map((cell) => cell.text));
       setConfidence(result.map((cell) => cell.confidence));
-      notify(
-        "Scan complete. Verify all letters against your card; highlighted cells need review.",
-      );
+      notify(t("settings.schoolAccounts.scanCompleteVerifyAllLetters"));
     } catch (error) {
       appNotify.error(error);
     } finally {
@@ -238,7 +241,7 @@ function MatrixEditor({
   return (
     <div className="matrixEditor">
       <div className="matrixTools">
-        <b>{t("Matrix")}</b>
+        <b>{t("settings.schoolAccounts.matrix")}</b>
         <span>{masked ? 70 : value.filter(Boolean).length}/70</span>
         {matrixOcrAvailable && (
           <Button
@@ -250,7 +253,7 @@ function MatrixEditor({
               onScanState(true);
             }}
           >
-            {t("Scan with camera")}
+            {t("settings.schoolAccounts.scanWithCamera")}
           </Button>
         )}
         {cameraOpen && (
@@ -265,11 +268,7 @@ function MatrixEditor({
               setConfidence(cells.map((cell) => cell.confidence));
               setCameraOpen(false);
               onScanState(false);
-              notify(
-                t(
-                  "Scan complete. Verify all letters against your card; highlighted cells need review.",
-                ),
-              );
+              notify(t("settings.schoolAccounts.scanCompleteVerifyAllLetters"));
             }}
           />
         )}
@@ -289,8 +288,10 @@ function MatrixEditor({
                 disabled={disabled}
               >
                 {recognizing
-                  ? t("Reading {{count}}/70…", { count: scanProgress })
-                  : t("Scan image")}
+                  ? t("settings.schoolAccounts.readingCount70", {
+                      count: scanProgress,
+                    })
+                  : t("settings.schoolAccounts.scanImage")}
               </Button>
             )}
           </FileButton>
@@ -302,23 +303,32 @@ function MatrixEditor({
             disabled={recognizing || disabled || cameraOpen}
             onClick={onCopy}
           >
-            {t("Copy")}
+            {t("settings.schoolAccounts.copy")}
           </Button>
         )}
       </div>
       {!masked && (
         <div
           className="matrixConfidenceLegend"
-          aria-label={t("Recognition confidence")}
+          aria-label={t("settings.schoolAccounts.recognitionConfidence")}
         >
-          <span data-confidence="high">{t("Green · High")}</span>
-          <span data-confidence="medium">{t("Yellow · Review")}</span>
-          <span data-confidence="low">{t("Red · Low / unreadable")}</span>
-          <span>{t("Uncolored · Manual entry")}</span>
+          <span data-confidence="high">
+            {t("settings.schoolAccounts.greenHigh")}
+          </span>
+          <span data-confidence="medium">
+            {t("settings.schoolAccounts.yellowReview")}
+          </span>
+          <span data-confidence="low">
+            {t("settings.schoolAccounts.redLowUnreadable")}
+          </span>
+          <span>{t("settings.schoolAccounts.uncoloredManualEntry")}</span>
         </div>
       )}
       {/* The saved Matrix keeps its 7×10 shape; typing over a cell replaces it. */}
-      <div className="matrixGrid" aria-label={t("Tokyo Tech matrix")}>
+      <div
+        className="matrixGrid"
+        aria-label={t("settings.schoolAccounts.tokyoTechMatrix")}
+      >
         <span />
         {Array.from({ length: MATRIX_COLUMNS }, (_, column) => (
           <b key={column}>{String.fromCharCode(65 + column)}</b>
@@ -343,11 +353,13 @@ function MatrixEditor({
                   }
                   title={
                     masked
-                      ? t("Saved · hidden")
+                      ? t("settings.schoolAccounts.savedHidden")
                       : confidence[index] === undefined
-                        ? t("Manual entry")
+                        ? t("settings.schoolAccounts.manualEntry")
                         : t(
-                            `Confidence ${matrixConfidence(value[index], confidence[index]!)} · verify against card`,
+                            CONFIDENCE_NOTE[
+                              matrixConfidence(value[index], confidence[index]!)
+                            ],
                           )
                   }
                   value={masked ? "" : value[index]}
@@ -464,7 +476,7 @@ function Account({
       setConnection((current) => ({
         ...current,
         state: "timeout",
-        message: t("No response from the portal."),
+        message: t("settings.schoolAccounts.noResponseFromThePortal"),
       }));
       setBusy(false);
       started.current = false;
@@ -520,9 +532,7 @@ function Account({
       profile === "tokyo-tech" &&
       ((count > 0 && count < MATRIX_SIZE) || (matrixReplacing && count === 0))
     ) {
-      notify(
-        "Fill all 70 matrix cells before saving. Red or blank cells need review.",
-      );
+      notify(t("settings.schoolAccounts.fillAll70MatrixCells"));
       return false;
     }
     return true;
@@ -552,7 +562,7 @@ function Account({
             ? {
                 state: result.state === "maintenance" ? "maintenance" : "error",
                 step: current.step,
-                message: result.problem?.message ?? t("Sign-in failed"),
+                message: result.problem?.message ?? t("common.signInFailed"),
               }
             : current,
         );
@@ -567,7 +577,9 @@ function Account({
           : {
               state: "error",
               step: "",
-              message: t(errorText(error) ?? "Sign-in could not start."),
+              message:
+                errorText(error) ??
+                t("settings.schoolAccounts.signInCouldNotStart"),
             },
       );
       setBusy(false);
@@ -578,16 +590,14 @@ function Account({
     if (
       !desktopBridge ||
       !(await confirmAction(
-        t(
-          "Copy the saved Matrix as plain text? Other apps may be able to read the clipboard until you replace it.",
-        ),
-        t("Copy"),
+        t("settings.schoolAccounts.copyTheSavedMatrixAs"),
+        t("settings.schoolAccounts.copy"),
       ))
     )
       return;
     try {
       if (await desktopBridge.copySchoolMatrix())
-        notify("Matrix copied. Paste it soon, then replace your clipboard.");
+        notify(t("settings.schoolAccounts.matrixCopiedPasteItSoon"));
     } catch (error) {
       // Native commands reject with their error string.
       appNotify.error(error);
@@ -597,8 +607,8 @@ function Account({
     if (
       !desktopBridge ||
       !(await confirmAction(
-        t("Forget saved {{title}} credentials on this device?", { title }),
-        t("Forget"),
+        t("settings.schoolAccounts.forgetSavedTitleCredentialsOn", { title }),
+        t("settings.schoolAccounts.forget"),
       ))
     )
       return;
@@ -609,7 +619,7 @@ function Account({
       setMatrixReplacing(false);
       setConnection({ state: "idle", step: "", message: "" });
       await refresh();
-      notify(t("{{account}} account forgotten.", { account: title }));
+      notify(t("settings.schoolAccounts.accountForgotten", { account: title }));
     } finally {
       setBusy(false);
     }
@@ -640,12 +650,12 @@ function Account({
           >
             {t(
               session === "active"
-                ? "Signed in"
+                ? "common.signedIn"
                 : session === "maintenance"
-                  ? "Under maintenance"
+                  ? "common.underMaintenance"
                   : session === "failed"
-                    ? "Sign-in failed"
-                    : "Not set up",
+                    ? "common.signInFailed"
+                    : "settings.schoolAccounts.notSetUp",
             )}
           </Badge>
         )}
@@ -653,35 +663,33 @@ function Account({
       {connection.state !== "idle" && (
         <div className="schoolConnection" data-state={connection.state}>
           <SignInSteps connection={connection} />
-          {connection.message && <span>{t(connection.message)}</span>}
+          {connection.message && (
+            <span>{lookup(connection.message) ?? connection.message}</span>
+          )}
           {connection.state !== "connected" && (
             <Button
               variant="subtle"
               size="compact-xs"
               onClick={() => showLoginPage(profile)}
             >
-              {t("Show page")}
+              {t("settings.schoolAccounts.showPage")}
             </Button>
           )}
         </div>
       )}
       {summary.availability === "missing" && (
         <Text c="red" size="sm">
-          {t(
-            "Saved credentials are missing from the system credential vault. Enter them again.",
-          )}
+          {t("settings.schoolAccounts.savedCredentialsAreMissingFrom")}
         </Text>
       )}
       {summary.availability === "access-denied" && (
         <Text c="orange" size="sm">
-          {t(
-            "The system credential vault is unavailable. Existing credentials were not changed.",
-          )}
+          {t("settings.schoolAccounts.theSystemCredentialVaultIs")}
         </Text>
       )}
       <div className="credentialFields">
         <TextInput
-          label="ID"
+          label={t("settings.schoolAccounts.id")}
           value={draft.username}
           autoCapitalize="none"
           autoComplete="username"
@@ -692,7 +700,7 @@ function Account({
         {/* A saved secret shows as fixed dots; typing replaces it, blank keeps it. */}
         <TextInput
           type="password"
-          label={t("Password")}
+          label={t("settings.main.password")}
           value={draft.password}
           placeholder={summary.saved ? SAVED_SECRET : ""}
           autoComplete="current-password"
@@ -732,7 +740,7 @@ function Account({
           loading={busy}
           onClick={() => void connect()}
         >
-          {t("Connect")}
+          {t("settings.campusWifi.connect")}
         </Button>
         {(summary.saved || summary.hasOtp) && (
           <Button
@@ -741,7 +749,7 @@ function Account({
             disabled={busy || scanning}
             onClick={() => void forget()}
           >
-            {t("Forget")}
+            {t("settings.schoolAccounts.forget")}
           </Button>
         )}
       </div>
@@ -797,9 +805,7 @@ export function SchoolAccounts({
   if (!desktopBridge)
     return (
       <p className="settingsNote">
-        {t(
-          "School sign-in needs the installed app, which keeps passwords in the system keychain.",
-        )}
+        {t("settings.schoolAccounts.schoolSignInNeedsThe")}
       </p>
     );
   return (

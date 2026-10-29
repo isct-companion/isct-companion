@@ -171,8 +171,8 @@ function CoursesBody({
     <div className="page unifiedSchedule">
       <div className="scheduleTitleRow">
         <div>
-          <h1>{t("Timetable")}</h1>
-          <span>{t("Plan courses for this quarter")}</span>
+          <h1>{t("common.timetable")}</h1>
+          <span>{t("courses.planCoursesForThisQuarter")}</span>
         </div>
       </div>
       <header className="pageBar">
@@ -196,31 +196,29 @@ function CoursesBody({
                 ) : undefined
               }
               onClick={refreshSchedule}
-              title={t("Refresh timetable")}
+              title={t("courses.refreshTimetable")}
             >
               {pullProgress !== null
                 ? progressLabel(pullProgress)
-                : t("Refresh timetable")}
+                : t("courses.refreshTimetable")}
             </Button>
           )}
           {register && canEdit && (
             <UiButton
               className="button"
               onClick={() => register(term)}
-              title={t(
-                "Open 教務Web registration with this quarter's courses queued",
-              )}
+              title={t("courses.openWebRegistrationWithThis")}
             >
-              {t("Register ↗")}
+              {t("courses.register")}
             </UiButton>
           )}
           {readOnly && (
             <Badge
               variant="light"
               color="gray"
-              title={t("Editing is available in the desktop app")}
+              title={t("courses.editingIsAvailableInThe")}
             >
-              {t("Read only")}
+              {t("courses.readOnly")}
             </Badge>
           )}
           {conflictCount > 0 && (
@@ -228,13 +226,13 @@ function CoursesBody({
               component="button"
               tone="danger"
               className="conflictBadge"
-              title={t("Show the first conflict")}
+              title={t("courses.showTheFirstConflict")}
               onClick={() => {
                 const first = planning?.conflicts?.[0];
                 if (first) open(first.courseId);
               }}
             >
-              {t("Conflicts: {{count}}", { count: conflictCount })}
+              {t("courses.conflictsCount", { count: conflictCount })}
             </Tag>
           )}
 
@@ -247,7 +245,7 @@ function CoursesBody({
                 )
               }
             >
-              {t("Remove empty quarter")}
+              {t("courses.removeEmptyQuarter")}
             </UiButton>
           )}
           <Button.Group className="calendarExportActions">
@@ -256,7 +254,7 @@ function CoursesBody({
               variant="default"
               onClick={() => exportIcs(term, "courses")}
             >
-              {t("Export ICS")}
+              {t("common.exportICS")}
             </Button>
             <Menu position="bottom-end" withinPortal>
               <Menu.Target>
@@ -264,19 +262,19 @@ function CoursesBody({
                   size="xs"
                   variant="default"
                   px={6}
-                  aria-label={t("Calendar export options")}
+                  aria-label={t("courses.calendarExportOptions")}
                 >
                   <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
                 </Button>
               </Menu.Target>
               <Menu.Dropdown>
                 <Menu.Item onClick={() => exportIcs(term, "courses")}>
-                  {t("Courses only")}
+                  {t("common.coursesOnly")}
                 </Menu.Item>
                 <Menu.Item
                   onClick={() => exportIcs(term, "courses-and-events")}
                 >
-                  {t("Courses + weekly events")}
+                  {t("common.coursesWeeklyEvents")}
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>
@@ -289,7 +287,7 @@ function CoursesBody({
                 void copyEvents(planning.carryOver!.termId as TermId, term)
               }
             >
-              {t("Copy {{count}} weekly events from {{term}}", {
+              {t("courses.copyCountWeeklyEventsFrom", {
                 count: planning.carryOver.count,
                 term: planning.carryOver.termId.replace("-", " "),
               })}
@@ -300,7 +298,7 @@ function CoursesBody({
               className="button"
               onClick={() => openEvent(undefined, term)}
             >
-              {t("＋ Weekly event")}
+              {t("courses.weeklyEvent")}
             </UiButton>
           )}
         </div>
@@ -323,7 +321,7 @@ function CoursesBody({
               radius="md"
             >
               <div className="timetableViewBar">
-                <b>{t("Quarter template")}</b>
+                <b>{t("courses.quarterTemplate")}</b>
               </div>
               {
                 <div className="intensiveLane">
@@ -332,15 +330,15 @@ function CoursesBody({
                       type="button"
                       className={`intensiveToggle${intensiveActive ? " active" : ""}`}
                       aria-pressed={Boolean(intensiveActive)}
-                      title={t("Find intensive courses")}
+                      title={t("courses.findIntensiveCourses")}
                       onClick={(event) =>
                         onIntensive(event.metaKey || event.ctrlKey)
                       }
                     >
-                      {t("集中・時間未定")}
+                      {t("timetable.intensiveUnscheduled")}
                     </UiButton>
                   ) : (
-                    <b>{t("集中・時間未定")}</b>
+                    <b>{t("timetable.intensiveUnscheduled")}</b>
                   )}
                   <div>
                     {unscheduled.map((course) => (
@@ -355,18 +353,20 @@ function CoursesBody({
                         {course.title}
                       </UiButton>
                     ))}
-                    {!unscheduled.length && <small>{t("None")}</small>}
+                    {!unscheduled.length && <small>{t("courses.none")}</small>}
                   </div>
                   <UiButton
                     type="button"
                     className="weekLength"
                     aria-pressed={weekLength === "7"}
-                    title={t("Show the weekend")}
+                    title={t("courses.showTheWeekend")}
                     onClick={() =>
                       setWeekLength(weekLength === "7" ? "5" : "7")
                     }
                   >
-                    {weekLength === "7" ? t("7 days") : t("5 days")}
+                    {weekLength === "7"
+                      ? t("courses.sevenDays")
+                      : t("courses.fiveDays")}
                   </UiButton>
                 </div>
               }

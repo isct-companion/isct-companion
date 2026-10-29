@@ -56,8 +56,8 @@ function searchPanel(view: EditorView): Panel {
   dom.setAttribute("role", "search");
   const input = document.createElement("input");
   input.setAttribute("main-field", "true");
-  input.setAttribute("aria-label", t("Find in document"));
-  input.placeholder = t("Find in document");
+  input.setAttribute("aria-label", t("lms.findInDocument"));
+  input.placeholder = t("lms.findInDocument");
   input.value = getSearchQuery(view.state).search;
   const count = document.createElement("span");
   count.setAttribute("role", "status");
@@ -77,7 +77,7 @@ function searchPanel(view: EditorView): Panel {
     count.textContent = !input.value
       ? ""
       : total === 0
-        ? t("No matches")
+        ? t("lms.noMatches")
         : total > COUNT_LIMIT
           ? `${COUNT_LIMIT}+`
           : String(total);
@@ -100,9 +100,9 @@ function searchPanel(view: EditorView): Panel {
   dom.append(
     input,
     count,
-    button(t("Find previous"), arrow(false), () => findPrevious(view)),
-    button(t("Find next"), arrow(true), () => findNext(view)),
-    button(t("Close search"), "×", () => closeSearchPanel(view)),
+    button(t("lms.findPrevious"), arrow(false), () => findPrevious(view)),
+    button(t("lms.findNext"), arrow(true), () => findNext(view)),
+    button(t("lms.closeSearch"), "×", () => closeSearchPanel(view)),
   );
   return {
     dom,
@@ -122,7 +122,7 @@ export function textLanguage(url: string) {
   if (/\.py$/.test(path)) return { name: "Python", extension: python() };
   if (/\.r$/.test(path))
     return { name: "R", extension: StreamLanguage.define(r) };
-  return { name: "Plain text", extension: [] };
+  return { name: t("lms.plainText"), extension: [] };
 }
 export function TextDocument({ value, url }: { value: string; url: string }) {
   const host = useRef<HTMLDivElement>(null);
@@ -200,9 +200,9 @@ export function TextDocument({ value, url }: { value: string; url: string }) {
   return (
     <div className="lmsTextDocument">
       <div className="lmsTextMeta">
-        <span>{t(language.name)}</span>
+        <span>{language.name}</span>
         <span>
-          {t("{{count}} lines", { count: value.split("\n").length })} · UTF-8
+          {t("lms.countLines", { count: value.split("\n").length })} · UTF-8
         </span>
       </div>
       <div className="lmsTextCode">
@@ -210,8 +210,8 @@ export function TextDocument({ value, url }: { value: string; url: string }) {
           <button
             type="button"
             className="lmsCodeSearchOpen"
-            title={t("Find in document")}
-            aria-label={t("Find in document")}
+            title={t("lms.findInDocument")}
+            aria-label={t("lms.findInDocument")}
             onClick={() => editor.current && openSearchPanel(editor.current)}
           >
             <LmsIcon name="search" size={14} />

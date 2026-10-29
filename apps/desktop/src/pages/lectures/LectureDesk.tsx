@@ -1,3 +1,4 @@
+import { dayShort } from "../../components/timetable/timetable";
 import { BookOpen, PanelLeft } from "lucide-react";
 import {
   examConflictLabel,
@@ -34,7 +35,6 @@ import {
 } from "../../platform/core-query";
 import { withRecords } from "../../platform/records";
 
-const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 type Lecture = {
   id: string;
   title: string;
@@ -220,8 +220,8 @@ function LectureDeskBody({
         next.set(block.id, {
           rank: inClass ? 0 : offset * 1440 + h * 60 + m - minutes,
           when: inClass
-            ? t("Now")
-            : `${offset === 0 ? t("Today") : offset === 1 ? t("Tomorrow") : t(DAY_NAMES[civilWeekday(date) - 1])} ${block.startTime.replace(/^0/, "")}`,
+            ? t("common.now")
+            : `${offset === 0 ? t("common.today") : offset === 1 ? t("common.tomorrow") : t(dayShort[civilWeekday(date) - 1])} ${block.startTime.replace(/^0/, "")}`,
           room: block.room || undefined,
         });
       }
@@ -310,7 +310,7 @@ function LectureDeskBody({
           className="textButton"
           onClick={() => restoreAssignment?.(assignment.id)}
         >
-          {t("Restore")}
+          {t("common.restore")}
         </button>
       </div>
     );
@@ -341,10 +341,10 @@ function LectureDeskBody({
     <button
       type="button"
       className="lectureSidebarToggle"
-      aria-label={t("Toggle sidebar")}
+      aria-label={t("lectures.toggleSidebar")}
       aria-expanded={!collapsed}
       aria-controls="lecture-sidebar"
-      title={t("Toggle sidebar")}
+      title={t("lectures.toggleSidebar")}
       onClick={() => {
         setFloating(false);
         if (sidebar.current?.isCollapsed()) sidebar.current.expand();
@@ -381,7 +381,7 @@ function LectureDeskBody({
         <nav
           id="lecture-sidebar"
           className="lectureList"
-          aria-label={t("Lectures")}
+          aria-label={t("common.lectures")}
           inert={collapsed && !floating}
           onPointerEnter={() => setListHovered(true)}
           onPointerLeave={() => setListHovered(false)}
@@ -394,11 +394,11 @@ function LectureDeskBody({
           <header>
             <div className="lectureListTitle">
               {collapsed && floating && sidebarToggle}
-              <h1>{t("Lecture Desk")}</h1>
+              <h1>{t("lectures.lectureDesk")}</h1>
             </div>
             <UiSelect
               className="lectureTerm"
-              aria-label={t("Quarter")}
+              aria-label={t("common.quarter")}
               value={shownTerm}
               onChange={(value) => {
                 setQuery("");
@@ -420,7 +420,7 @@ function LectureDeskBody({
           <div
             className="dueScope lectureMode"
             role="group"
-            aria-label={t("Show")}
+            aria-label={t("lectures.show")}
           >
             {(["lectures", "assignments", "exams"] as const).map((item) => (
               <button
@@ -434,10 +434,10 @@ function LectureDeskBody({
               >
                 {t(
                   item === "lectures"
-                    ? "Lectures"
+                    ? "common.lectures"
                     : item === "exams"
-                      ? "Exams"
-                      : "Assignments",
+                      ? "common.exams"
+                      : "common.assignments",
                 )}
               </button>
             ))}
@@ -445,14 +445,14 @@ function LectureDeskBody({
           <Input
             className="lectureFilter"
             type="search"
-            aria-label={t("Filter")}
-            placeholder={t("Filter…")}
+            aria-label={t("common.filter")}
+            placeholder={t("lectures.filter")}
             value={query}
             rightSectionPointerEvents="all"
             rightSection={
               query ? (
                 <CloseButton
-                  aria-label={t("Clear")}
+                  aria-label={t("common.clear")}
                   onClick={() => setQuery("")}
                   size="sm"
                 />
@@ -494,13 +494,15 @@ function LectureDeskBody({
                       : ""}
                   </small>
                   <small>
-                    {exam.kind === "quiz" ? `${t("Quiz")} · ` : ""}
+                    {exam.kind === "quiz" ? `${t("common.quiz")} · ` : ""}
                     {exam.origin === "session"
-                      ? t("Marked on the calendar")
+                      ? t("exam.markedOnTheCalendar")
                       : exam.courseId
-                        ? t("Linked")
-                        : t("Not linked")}
-                    {exam.status === "cancelled" ? ` · ${t("Cancelled")}` : ""}
+                        ? t("lectures.linked")
+                        : t("common.notLinked")}
+                    {exam.status === "cancelled"
+                      ? ` · ${t("exam.status.cancelled")}`
+                      : ""}
                   </small>
                   {exam.conflict && (
                     <small className="examConflictTag">
@@ -513,14 +515,16 @@ function LectureDeskBody({
                 <>
                   <div className="lectureExamScope">
                     <small>
-                      {needle ? t("Search published exams") : t("My exams")}
+                      {needle
+                        ? t("lectures.searchPublishedExams")
+                        : t("lectures.myExams")}
                     </small>
                     {!shown.length && (
                       <p>
                         {t(
                           needle
-                            ? "No matching exams."
-                            : "No linked exams this quarter. Search to find a published exam.",
+                            ? "lectures.noMatchingExams"
+                            : "lectures.noLinkedExamsThisQuarter",
                         )}
                       </p>
                     )}
@@ -528,7 +532,7 @@ function LectureDeskBody({
                   {shown.filter((exam) => exam.kind !== "class").map(row)}
                   {classes.length > 0 && (
                     <div className="lectureExamScope">
-                      <small>{t("Classes in exam week")}</small>
+                      <small>{t("lectures.classesInExamWeek")}</small>
                     </div>
                   )}
                   {classes.map(row)}
@@ -543,11 +547,11 @@ function LectureDeskBody({
               row={workRow}
               hiddenRow={restoreAssignment ? hiddenRow : undefined}
               matches={needle ? matchesWork : undefined}
-              pastLabel={t("Past deadline")}
+              pastLabel={t("lectures.pastDeadline")}
               empty={t(
                 needle
-                  ? "No matching assignments."
-                  : "No assignments this quarter.",
+                  ? "lectures.noMatchingAssignments"
+                  : "lectures.noAssignmentsThisQuarter",
               )}
             />
           )}
@@ -582,8 +586,8 @@ function LectureDeskBody({
             <EmptyState compact icon={BookOpen}>
               {t(
                 lectures.length
-                  ? "No matching lectures."
-                  : "No lectures on this quarter's timetable.",
+                  ? "lectures.noMatchingLectures"
+                  : "lectures.noLecturesOnThisQuarters",
               )}
             </EmptyState>
           )}
@@ -613,9 +617,7 @@ function LectureDeskBody({
                   />
                 </>
               ) : (
-                <p className="emptyHint">
-                  {t("Select an exam to edit its schedule or link a course.")}
-                </p>
+                <p className="emptyHint">{t("lectures.selectAnExamToEdit")}</p>
               )}
             </div>
           )}

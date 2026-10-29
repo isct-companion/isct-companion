@@ -19,7 +19,7 @@ export function ReaderPane({
   return (
     <section
       className="workspacePane lmsViewer"
-      aria-label={t("Opened content")}
+      aria-label={t("lms.openedContent")}
     >
       <header className="workspaceToolPanel lmsReaderTools">
         <span className="lmsReaderTitle" title={title}>
@@ -29,8 +29,8 @@ export function ReaderPane({
         <button
           type="button"
           className="lmsViewerClose"
-          aria-label={`${t("Close")} ${title}`}
-          title={t("Close")}
+          aria-label={`${t("common.close")} ${title}`}
+          title={t("common.close")}
           onClick={close}
         >
           <LmsIcon name="close" size={14} />

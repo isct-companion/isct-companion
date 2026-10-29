@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { invoke } from "../platform/native-error";
 
 /** Backups. Pages read their records through Core's queries, not here. */
@@ -10,11 +11,11 @@ export interface WorkspaceRepository {
 /** Browser preview has no persistence or domain engine. */
 export class LocalRepository implements WorkspaceRepository {
   async export(): Promise<string> {
-    throw new Error("Workspace export needs the native app.");
+    throw new Error(t("repository.workspaceExportNeedsTheNative"));
   }
 
   async import(_document: string): Promise<void> {
-    throw new Error("Workspace import needs the native app.");
+    throw new Error(t("repository.workspaceImportNeedsTheNative"));
   }
 }
 

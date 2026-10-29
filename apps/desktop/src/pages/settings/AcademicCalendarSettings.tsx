@@ -5,7 +5,7 @@ import { refresh, useSync } from "../../app/useSync";
 import { runsFor } from "../../platform/sync";
 import { notify as appNotify } from "../../app/notify";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import {
   contentLanguage,
   pickLocalized,
@@ -59,19 +59,19 @@ function describe(
   locale: Workspace["settings"]["locale"],
 ) {
   if (day.type === "replacement")
-    return t("{{weekday}} timetable", {
+    return t("settings.academicCalendar.weekdayTimetable", {
       weekday: weekdayName(day.replacementDay || 1, locale),
     });
-  if (day.type === "holiday") return t("Holiday");
-  if (day.type === "break") return t("Break");
-  return t("No classes");
+  if (day.type === "holiday") return t("common.holiday");
+  if (day.type === "break") return t("settings.academicCalendar.break");
+  return t("settings.academicCalendar.noClasses");
 }
 
 /** Official rows need no mark; only personal and estimated ones say so. */
-const ORIGIN_NOTE: Partial<Record<CalendarOrigin, string>> = {
-  changed: "Changed by you",
-  own: "Added by you",
-  estimated: "Estimated",
+const ORIGIN_NOTE: Partial<Record<CalendarOrigin, MessageKey>> = {
+  changed: "settings.academicCalendar.changedByYou",
+  own: "settings.academicCalendar.addedByYou",
+  estimated: "settings.academicCalendar.estimated",
 };
 
 export function AcademicCalendarSettings({
@@ -129,7 +129,9 @@ export function AcademicCalendarSettings({
   const checkNow = () => refresh({ kind: "references" });
   const checkButton = refreshReferences && year === followedYear && (
     <UiButton className="textButton" disabled={busy} onClick={checkNow}>
-      {busy ? t("Checking…") : t("Check now")}
+      {busy
+        ? t("settings.academicCalendar.checking")
+        : t("settings.academicCalendar.checkNow")}
     </UiButton>
   );
   const subscriptionState = subscription?.state ?? {
@@ -140,12 +142,12 @@ export function AcademicCalendarSettings({
     year !== followedYear ? (
       !view.published && (
         <Status tone="idle">
-          {t("No official calendar saved for {{year}}.", { year })}
+          {t("settings.academicCalendar.noOfficialCalendarSavedFor", { year })}
         </Status>
       )
     ) : subscriptionState.state === "error" ? (
       <Status tone="error" action={checkButton}>
-        {t("Could not update the official calendar.")}{" "}
+        {t("settings.academicCalendar.couldNotUpdateTheOfficial")}{" "}
         <small>{subscriptionState.message}</small>
       </Status>
     ) : (
@@ -153,10 +155,10 @@ export function AcademicCalendarSettings({
       subscriptionState.state !== "off" && (
         <Status tone="warn" action={checkButton}>
           {subscriptionState.state === "current"
-            ? t("The official calendar for {{year}} is not published yet.", {
+            ? t("settings.academicCalendar.theOfficialCalendarForYear", {
                 year,
               })
-            : t("The official calendar has not been downloaded yet.")}
+            : t("settings.academicCalendar.theOfficialCalendarHasNot")}
         </Status>
       )
     );
@@ -171,7 +173,7 @@ export function AcademicCalendarSettings({
       !draft.label.trim() ||
       (draft.type === "replacement" && !draft.replacementDay)
     )
-      return notify(t("Fill in the date, type and name."));
+      return notify(t("settings.academicCalendar.fillInTheDateType"));
     const values = {
       ...draft,
       label: draft.label.trim(),
@@ -185,7 +187,7 @@ export function AcademicCalendarSettings({
         existingId: editing.id === "new" ? undefined : editing.id,
       });
       setEditing(null);
-      notify(t("Calendar saved"));
+      notify(t("settings.academicCalendar.calendarSaved"));
     } catch (error) {
       appNotify.error(error);
     }
@@ -232,7 +234,7 @@ export function AcademicCalendarSettings({
   const editor = editing && !readOnly && (
     <form className="calendarEditor" onSubmit={save}>
       <label>
-        {t("Date")}
+        {t("common.date")}
         <UiInput
           required
           type="date"
@@ -247,7 +249,7 @@ export function AcademicCalendarSettings({
         />
       </label>
       <label>
-        {t("What happens")}
+        {t("settings.academicCalendar.whatHappens")}
         <UiSelect
           value={editing.draft.type}
           onChange={(value) => {
@@ -265,15 +267,21 @@ export function AcademicCalendarSettings({
             });
           }}
           data={[
-            { value: "no-class", label: t("No classes") },
-            { value: "replacement", label: t("Another day's timetable") },
-            { value: "break", label: t("Break") },
+            {
+              value: "no-class",
+              label: t("settings.academicCalendar.noClasses"),
+            },
+            {
+              value: "replacement",
+              label: t("settings.academicCalendar.anotherDaysTimetable"),
+            },
+            { value: "break", label: t("settings.academicCalendar.break") },
           ]}
         />
       </label>
       {editing.draft.type === "replacement" && (
         <label>
-          {t("Use the timetable of")}
+          {t("settings.academicCalendar.useTheTimetableOf")}
           <UiSelect
             value={editing.draft.replacementDay}
             onChange={(value) =>
@@ -293,11 +301,11 @@ export function AcademicCalendarSettings({
         </label>
       )}
       <label className="wide">
-        {t("Name")}
+        {t("settings.academicCalendar.name")}
         <UiInput
           required
           value={editing.draft.label}
-          placeholder={t("e.g. Foundation Day")}
+          placeholder={t("settings.academicCalendar.exampleName")}
           onChange={(event) =>
             setEditing({
               ...editing,
@@ -314,8 +322,8 @@ export function AcademicCalendarSettings({
             onClick={() => remove(editingExceptionRow!.id)}
           >
             {editingException!.origin === "changed"
-              ? t("Use official")
-              : t("Delete")}
+              ? t("settings.academicCalendar.useOfficial")
+              : t("common.delete")}
           </UiButton>
         )}
         <UiButton
@@ -323,10 +331,10 @@ export function AcademicCalendarSettings({
           type="button"
           onClick={() => setEditing(null)}
         >
-          {t("Cancel")}
+          {t("common.cancel")}
         </UiButton>
         <UiButton className="button primary" type="submit">
-          {t("Save")}
+          {t("common.save")}
         </UiButton>
       </div>
     </form>
@@ -346,14 +354,14 @@ export function AcademicCalendarSettings({
   return (
     <>
       <UiButton className="textButton settingsBack" onClick={back}>
-        ‹ {t("Study")}
+        ‹ {t("settings.academicCalendar.study")}
       </UiButton>
       <SettingsHeader
-        title="Academic calendar"
+        title="settings.academicCalendar.academicCalendar"
         actions={
           years.length > 1 && (
             <UiSelect
-              aria-label={t("Academic year")}
+              aria-label={t("common.academicYear")}
               value={year}
               onChange={(value) => {
                 setYear(Number(value));
@@ -362,14 +370,14 @@ export function AcademicCalendarSettings({
               }}
               data={years.map((item) => ({
                 value: String(item),
-                label: t("AY {{year}}", { year: item }),
+                label: t("timetable.academicYear", { year: item }),
               }))}
             />
           )
         }
       />
       {status}
-      <SettingsGroup title="Quarters">
+      <SettingsGroup title="settings.academicCalendar.quarters">
         <div className="quarterGrid" data-setting="quarters">
           {view.quarters.map((quarter) => (
             <div key={quarter.quarter}>
@@ -386,9 +394,11 @@ export function AcademicCalendarSettings({
         </div>
       </SettingsGroup>
       <SettingsGroup
-        title="Class days"
+        title="settings.academicCalendar.classDays"
         footer={
-          readOnly ? t("Change class days in the desktop app.") : undefined
+          readOnly
+            ? t("settings.academicCalendar.changeClassDaysInThe")
+            : undefined
         }
       >
         {!readOnly && (
@@ -398,7 +408,7 @@ export function AcademicCalendarSettings({
               disabled={editing?.id === "new" && !editing.fixedDate}
               onClick={() => setEditing({ id: "new", draft: { ...blank } })}
             >
-              ＋ {t("Add a day")}
+              ＋ {t("settings.academicCalendar.addADay")}
             </UiButton>
           </div>
         )}
@@ -406,7 +416,7 @@ export function AcademicCalendarSettings({
         <div data-setting="days" className="calendarDays">
           {view.days.length === 0 && (
             <EmptyState compact icon={CalendarDays}>
-              {t("No holidays or make-up days yet.")}
+              {t("settings.academicCalendar.noHolidaysOrMakeUp")}
             </EmptyState>
           )}
           {past.length > 0 && (
@@ -414,7 +424,9 @@ export function AcademicCalendarSettings({
               className="textButton calendarPast"
               onClick={() => setShowPast((value) => !value)}
             >
-              {showPast ? t("Hide past days") : t("Show past days")}
+              {showPast
+                ? t("settings.academicCalendar.hidePastDays")
+                : t("settings.academicCalendar.showPastDays")}
             </UiButton>
           )}
           {days.map((day) => {
@@ -432,7 +444,9 @@ export function AcademicCalendarSettings({
                       describe(day, locale),
                       note && t(note),
                       day.official &&
-                        t("Official: {{label}}", { label: day.official.label }),
+                        t("settings.academicCalendar.officialLabel", {
+                          label: day.official.label,
+                        }),
                     ]
                       .filter(Boolean)
                       .join(" · ")}
@@ -460,11 +474,11 @@ export function AcademicCalendarSettings({
           })}
         </div>
       </SettingsGroup>
-      <SettingsGroup title="Important dates">
+      <SettingsGroup title="today.importantDates">
         <div data-setting="important-dates" className="calendarDays">
           {view.importantDates.length === 0 ? (
             <EmptyState compact icon={CalendarDays}>
-              {t("No important dates for this year.")}
+              {t("settings.academicCalendar.noImportantDatesForThis")}
             </EmptyState>
           ) : (
             view.importantDates.map((row) => (

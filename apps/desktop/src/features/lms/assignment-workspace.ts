@@ -128,11 +128,9 @@ export const prepareSubmission = (
       assignment,
       url,
       messages: {
-        waiting: t("Preparing your LMS upload…"),
-        queued: t(
-          "Files sent to the upload area. Wait for LMS to finish, review the files, then submit yourself.",
-        ),
-        failed: t("The upload area is not available. Choose the files in LMS."),
+        waiting: t("failure.preparingYourLMSUpload"),
+        queued: t("failure.filesSentToTheUpload"),
+        failed: t("failure.theUploadAreaIsNot"),
       },
     },
   );

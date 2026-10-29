@@ -1,3 +1,4 @@
+import type { MessageKey } from "../i18n";
 import type {
   CoreWorkspaceCommit,
   WorkspaceMutation,
@@ -278,7 +279,7 @@ export type NativeCapabilitySnapshot = {
   schoolImport: boolean;
   schoolWeb: boolean;
   notifications: boolean;
-  notificationUnavailableReason?: string | null;
+  notificationUnavailableReason?: MessageKey | null;
   backgroundSchedule: boolean;
   cloudSync: boolean;
   matrixOcr: boolean;

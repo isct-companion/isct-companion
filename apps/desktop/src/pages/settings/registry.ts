@@ -1,5 +1,6 @@
 import type { Platform, Section } from "../../app/shared";
 import { nativeOs } from "../../platform/desktop-bridge";
+import type { MessageKey } from "../../i18n";
 
 /**
  * Settings follow the layered model of mature system settings: everyday
@@ -11,32 +12,48 @@ export type SectionTier = "basic" | "advanced" | "developer" | "about";
 
 export type SectionDefinition = {
   id: Section;
-  label: string;
+  label: MessageKey;
   tier: SectionTier;
 };
 
 const SECTIONS: SectionDefinition[] = [
-  { id: "accounts", label: "School accounts", tier: "basic" },
-  { id: "wifi", label: "Campus Wi-Fi", tier: "basic" },
-  { id: "study", label: "Study", tier: "basic" },
-  { id: "notifications", label: "Notifications", tier: "basic" },
-  { id: "appearance", label: "Appearance", tier: "basic" },
-  { id: "files", label: "Course files", tier: "basic" },
-  { id: "backup", label: "Backup", tier: "basic" },
-  { id: "sources", label: "Data updates", tier: "advanced" },
-  { id: "agent", label: "AI agent access", tier: "advanced" },
-  { id: "developer", label: "Developer options", tier: "advanced" },
-  { id: "extensions", label: "Site styles & scripts", tier: "developer" },
-  { id: "diagnostics", label: "Application logs", tier: "developer" },
-  { id: "about", label: "About", tier: "about" },
+  { id: "accounts", label: "settings.main.schoolAccounts", tier: "basic" },
+  { id: "wifi", label: "settings.campusWifi.campusWiFi", tier: "basic" },
+  { id: "study", label: "settings.academicCalendar.study", tier: "basic" },
+  { id: "notifications", label: "common.notifications", tier: "basic" },
+  { id: "appearance", label: "settings.appearance.appearance", tier: "basic" },
+  { id: "files", label: "settings.files.courseFiles", tier: "basic" },
+  { id: "backup", label: "settings.main.backup", tier: "basic" },
+  { id: "sources", label: "settings.main.dataUpdates", tier: "advanced" },
+  { id: "agent", label: "settings.agent.aiAgentAccess", tier: "advanced" },
+  {
+    id: "developer",
+    label: "settings.developer.developerOptions",
+    tier: "advanced",
+  },
+  {
+    id: "extensions",
+    label: "settings.extensions.siteStylesScripts",
+    tier: "developer",
+  },
+  {
+    id: "diagnostics",
+    label: "settings.main.applicationLogs",
+    tier: "developer",
+  },
+  { id: "about", label: "settings.main.about", tier: "about" },
 ];
 
 /** Pages reached from another page rather than listed in the sidebar. */
-const NESTED: Partial<Record<Section, { label: string; parent: Section }>> = {
-  calendar: { label: "Academic calendar", parent: "study" },
-  // Scheduled tasks share the Data updates page: both keep data fresh.
-  automation: { label: "Data updates", parent: "sources" },
-};
+const NESTED: Partial<Record<Section, { label: MessageKey; parent: Section }>> =
+  {
+    calendar: {
+      label: "settings.academicCalendar.academicCalendar",
+      parent: "study",
+    },
+    // Scheduled tasks share the Data updates page: both keep data fresh.
+    automation: { label: "settings.main.dataUpdates", parent: "sources" },
+  };
 
 export type SectionContext = {
   platform: Platform;
@@ -65,7 +82,7 @@ export function sectionLabel(id: Section) {
   return (
     SECTIONS.find((section) => section.id === id)?.label ??
     NESTED[id]?.label ??
-    id
+    "common.settings"
   );
 }
 
@@ -85,7 +102,7 @@ export function sectionParent(id: Section) {
 export type SettingEntry = {
   section: Section;
   id: string;
-  title: string;
+  title: MessageKey;
   terms?: string;
   /** False on a platform whose page leaves this row out. */
   available?: () => boolean;
@@ -95,134 +112,134 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "about",
     id: "updates",
-    title: "App updates",
+    title: "settings.about.appUpdates",
     terms: "version update download 更新 版本",
   },
   {
     section: "about",
     id: "automatic-updates",
-    title: "Automatic updates",
+    title: "settings.about.automaticUpdates",
     terms: "background install 自动更新 自動更新",
   },
   {
     section: "accounts",
     id: "science",
-    title: "Science Tokyo account",
+    title: "settings.registry.scienceTokyoAccount",
     terms: "login sign in password otp portal ログイン パスワード",
   },
   {
     section: "accounts",
     id: "tokyo-tech",
-    title: "Tokyo Tech account",
+    title: "settings.registry.tokyoTechAccount",
     terms: "login sign in matrix portal ログイン マトリクス",
   },
   {
     section: "wifi",
     id: "campus-wifi",
-    title: "ScienceTokyo Wi-Fi",
+    title: "settings.campusWifi.sciencetokyoWiFi",
     terms: "wifi wi-fi wireless network internet campus 無線LAN ネットワーク",
   },
   {
     section: "study",
     id: "department",
-    title: "Department",
+    title: "settings.main.department",
     terms: "major 系 学科 course recommendations 推奨",
   },
   {
     section: "study",
     id: "admission-year",
-    title: "Admission year",
+    title: "settings.main.admissionYear",
     terms: "admission entry cohort guide 入学 年度 学修案内",
   },
   {
     section: "study",
     id: "study-stages",
-    title: "Degree programme",
+    title: "settings.studyProfile.degreeProgramme",
     terms:
       "undergraduate master professional doctoral transfer grade 学士 修士 専門職 博士 編入 年次",
   },
   {
     section: "notifications",
     id: "permission",
-    title: "Allow notifications",
+    title: "settings.notification.allowNotifications",
     terms: "permission 許可",
   },
   {
     section: "notifications",
     id: "classes",
-    title: "Class reminders",
+    title: "settings.notification.classReminders",
     terms: "lecture 授業 リマインダー",
   },
   {
     section: "notifications",
     id: "class-lead",
-    title: "Remind me",
+    title: "settings.main.remindMe",
     terms: "minutes before lead time 分前",
   },
   {
     section: "notifications",
     id: "assignments",
-    title: "Assignment reminders",
+    title: "settings.notification.assignmentReminders",
     terms: "deadline due 課題 締切",
   },
   {
     section: "notifications",
     id: "assignment-lead",
-    title: "Assignment reminder times",
+    title: "settings.notification.assignmentReminderTimes",
     terms: "deadline minutes hours days before 提前 作业 提醒 締切",
   },
   {
     section: "calendar",
     id: "days",
-    title: "Holidays and make-up days",
+    title: "settings.registry.holidaysAndMakeUpDays",
     terms: "holiday replacement no class 休講 振替 祝日",
   },
   {
     section: "calendar",
     id: "quarters",
-    title: "Quarter dates",
+    title: "settings.registry.quarterDates",
     terms: "term semester クォーター 学期",
   },
   {
     section: "calendar",
     id: "important-dates",
-    title: "Important dates",
+    title: "today.importantDates",
     terms: "events festival 行事 重要",
   },
   {
     section: "appearance",
     id: "language",
-    title: "Language",
+    title: "common.language",
     terms: "english japanese 日本語 英語 locale",
   },
   {
     section: "appearance",
     id: "content-language",
-    title: "School content language",
+    title: "settings.main.schoolContentLanguage",
     terms: "course name syllabus lms 授業名 シラバス 言語",
   },
   {
     section: "appearance",
     id: "appearance-mode",
-    title: "Light and dark",
+    title: "settings.appearance.lightAndDark",
     terms: "dark light mode ダーク ライト",
   },
   {
     section: "appearance",
     id: "theme",
-    title: "Theme",
+    title: "settings.main.theme",
     terms: "colour color background warm cool paper mist moss 背景 色 テーマ",
   },
   {
     section: "appearance",
     id: "text-size",
-    title: "Text size",
+    title: "common.textSize",
     terms: "font zoom 文字",
   },
   {
     section: "appearance",
     id: "close-window",
-    title: "When closing the window",
+    title: "settings.appearance.closeWindow.title",
     terms: "close quit tray dock background 关闭 退出 托盘 閉じる 終了 トレイ",
     // Only the macOS and Windows shells keep running after the window closes.
     available: () => nativeOs() === "macos" || nativeOs() === "windows",
@@ -230,49 +247,49 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "appearance",
     id: "background",
-    title: "Background image",
+    title: "settings.appearance.backgroundImage",
     terms: "wallpaper 背景",
   },
   {
     section: "appearance",
     id: "density",
-    title: "Density",
+    title: "settings.appearance.density",
     terms: "compact spacing 密度",
   },
   {
     section: "files",
     id: "folder",
-    title: "Course folder",
+    title: "settings.courseStorage.courseFolder",
     terms: "download location path フォルダ 保存先",
   },
   {
     section: "files",
     id: "auto-download",
-    title: "Download new files automatically",
+    title: "settings.files.downloadNewFilesAutomatically",
     terms: "cache size 自動 ダウンロード",
   },
   {
     section: "files",
     id: "workspaces",
-    title: "Assignment workspaces",
+    title: "settings.files.assignmentWorkspaces",
     terms: "workspace clean delete vscode submit 課題 作業 フォルダ 削除",
   },
   {
     section: "appearance",
     id: "bilingual",
-    title: "Show one language in bilingual LMS",
+    title: "settings.appearance.showOneLanguageInBilingual",
     terms: "translation 二言語",
   },
   {
     section: "backup",
     id: "cloud",
-    title: "Sync",
+    title: "settings.backup.sync",
     terms: "cloud backup sync icloud google drive クラウド 同期 iCloud",
   },
   {
     section: "backup",
     id: "file",
-    title: "Export or import a backup file",
+    title: "settings.registry.exportOrImportABackup",
     terms: "json export import 書き出し 読み込み",
   },
   {
@@ -292,70 +309,70 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   {
     section: "sources",
     id: "calendar",
-    title: "Official data updates",
+    title: "settings.registry.officialDataUpdates",
     terms:
       "subscription github calendar guide exams alternating physics 購読 試験 隔週 物理",
   },
   {
     section: "sources",
     id: "cellular",
-    title: "Update on cellular data",
+    title: "settings.main.updateOnCellularData",
     terms: "mobile data metered wifi モバイル通信",
   },
   {
     section: "automation",
     id: "tasks",
-    title: "Scheduled tasks",
+    title: "settings.automation.scheduledTasks",
     terms: "background refresh export cron 自動 定期",
   },
   {
     section: "developer",
     id: "developer-mode",
-    title: "Developer options",
+    title: "settings.developer.developerOptions",
     terms: "advanced debug 開発者",
   },
   {
     section: "developer",
     id: "profile",
-    title: "Academic profile",
+    title: "settings.developer.academicProfile",
     terms:
       "quarter starts class times teaching periods timetable json 校历 時限 节次 上课时间",
   },
   {
     section: "developer",
     id: "sources",
-    title: "Data source URLs",
+    title: "settings.developer.dataSourceURLs",
     terms: "index url github subscription",
   },
   {
     section: "agent",
     id: "mcp",
-    title: "AI agent access",
+    title: "settings.agent.aiAgentAccess",
     terms: "mcp claude agent server エージェント",
   },
   {
     section: "extensions",
     id: "sites",
-    title: "Site styles & scripts",
+    title: "settings.extensions.siteStylesScripts",
     terms: "css javascript js userscript customize カスタマイズ",
   },
   {
     section: "diagnostics",
     id: "capabilities",
-    title: "Diagnostics",
+    title: "settings.registry.diagnostics",
     terms: "logs activity debug capability ログ",
   },
   {
     section: "about",
     id: "guide",
-    title: "Show welcome and tips again",
+    title: "settings.main.showWelcomeAndTipsAgain",
     terms:
       "tutorial onboarding help hints guide チュートリアル ヒント 教程 提示",
   },
   {
     section: "about",
     id: "version",
-    title: "Version",
+    title: "settings.about.version",
     terms: "about info バージョン 情報",
   },
 ];

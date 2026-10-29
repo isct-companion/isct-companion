@@ -2,7 +2,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
-import { t } from "../../i18n";
+import { lookup, t, type MessageKey } from "../../i18n";
 import {
   nativeOs,
   type SchoolLoadFailure,
@@ -25,26 +25,23 @@ const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 
 /** What the notice under the address says when a page did not load. */
-const failureText: Record<SchoolLoadFailure, string> = {
-  offline: "This page could not be opened: there is no network connection.",
-  "host-not-found":
-    "This page could not be opened: its server was not found. Campus-only services need the campus network or VPN.",
-  unreachable:
-    "This page could not be opened: its server did not answer. Campus-only services need the campus network or VPN.",
-  insecure: "This page could not be opened: the secure connection failed.",
-  cleartext:
-    "This page uses an unencrypted connection, so it opens only in your browser.",
-  other: "This page could not be opened.",
+const failureText: Record<SchoolLoadFailure, MessageKey> = {
+  offline: "web.thisPageCouldNotBe",
+  "host-not-found": "web.thisPageCouldNotBeOpened",
+  unreachable: "web.thisPageCouldNotBeOpenedIts",
+  insecure: "web.thisPageCouldNotBeOpenedThe",
+  cleartext: "web.thisPageUsesAnUnencrypted",
+  other: "web.thisPageCouldNotBeOpened2",
 };
 
 const normalizeAddress = (raw: string) => {
   const trimmed = raw.trim();
-  if (!trimmed) throw new Error("Enter a school URL.");
+  if (!trimmed) throw new Error(t("web.enterASchoolURL"));
   const url = new URL(
     /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`,
   );
   if (url.protocol !== "https:" && url.protocol !== "http:")
-    throw new Error("Enter an HTTP or HTTPS URL without embedded credentials.");
+    throw new Error(t("web.enterAnHTTPOrHTTPS"));
   return url.toString();
 };
 
@@ -170,11 +167,11 @@ function WebBody({
     let clear: number | undefined;
     const dispose = desktopBridge?.onSchoolLoginStatus?.((event) => {
       window.clearTimeout(clear);
-      if (event.state === "progress") setStatus("Signing in…");
+      if (event.state === "progress") setStatus(t("common.signingIn"));
       else if (event.state === "connected") {
-        setStatus("Signed in");
+        setStatus(t("common.signedIn"));
         clear = window.setTimeout(() => setStatus(""), 2500);
-      } else setStatus(event.message);
+      } else setStatus(lookup(event.message) ?? event.message);
     });
     return () => {
       dispose?.();
@@ -188,7 +185,7 @@ function WebBody({
       window.clearTimeout(hide);
       setSavedFile(undefined);
       if (event.state === "started")
-        setStatus(t("Downloading {{name}}…", { name: event.name }));
+        setStatus(t("web.downloadingName", { name: event.name }));
       else if (event.state === "done") {
         setStatus("");
         notifyRef.current(`Saved ${event.name}`);
@@ -196,7 +193,7 @@ function WebBody({
           setSavedFile({ name: event.name, path: event.path });
           hide = window.setTimeout(() => setSavedFile(undefined), 30_000);
         }
-      } else setStatus(t("Download failed: {{name}}", { name: event.name }));
+      } else setStatus(t("web.downloadFailedName", { name: event.name }));
     });
     return () => {
       dispose?.();
@@ -207,9 +204,9 @@ function WebBody({
   const revealSaved = async (path: string) => {
     try {
       const shown = await desktopBridge?.revealSchoolDownload?.(path);
-      if (!shown) setStatus("That file can no longer be shown.");
+      if (!shown) setStatus(t("web.thatFileCanNoLonger"));
     } catch (error) {
-      setStatus(errorText(error) ?? "Unavailable");
+      setStatus(errorText(error) ?? t("web.unavailable"));
     }
   };
 
@@ -233,7 +230,7 @@ function WebBody({
     const permitted =
       platform === "native-desktop" &&
       (data.settings.siteConsents?.[customizationSite] ?? false);
-    setStatus("Opening…");
+    setStatus(t("web.opening"));
     void schoolWebExit
       .settled()
       .then(() => {
@@ -266,7 +263,7 @@ function WebBody({
         await desktopBridge?.setSchoolWebZoom?.(site, resolvedZoom);
       })
       .catch((error) => {
-        if (!cancelled) setStatus(errorText(error) ?? "Unavailable");
+        if (!cancelled) setStatus(errorText(error) ?? t("web.unavailable"));
       });
     const observer = new ResizeObserver(() => {
       const next = bounds();
@@ -301,7 +298,9 @@ function WebBody({
         for (let open = 0; open < 8; open++)
           if (!(await desktopBridge?.closeSchoolWebPopup?.(site))) break;
         await openTarget(official[next].url, next);
-      })().catch((error) => setStatus(errorText(error) ?? "Unavailable"));
+      })().catch((error) =>
+        setStatus(errorText(error) ?? t("web.unavailable")),
+      );
       return;
     }
     sessionStorage.setItem("isct-companion-active-school-site", next);
@@ -320,18 +319,18 @@ function WebBody({
     try {
       const target = normalizeAddress(address);
       if (!desktopBridge)
-        throw new Error("School navigation needs the installed app.");
+        throw new Error(t("web.schoolNavigationNeedsTheInstalled"));
       const resolved = await desktopBridge.resolveSchoolUrl(target, site);
       await openTarget(resolved.url, resolved.site);
     } catch (error) {
-      setStatus(errorText(error) ?? "Invalid address");
+      setStatus(errorText(error) ?? t("web.invalidAddress"));
     }
   };
 
   /** Shows `target` in its service's view and switches the picker to it. */
   const openTarget = async (target: string, destination: SchoolSite) => {
     setAddress(target);
-    setStatus("Opening…");
+    setStatus(t("web.opening"));
     if (embedded && desktopBridge?.navigateSchoolWeb) {
       const navigated = await desktopBridge.navigateSchoolWeb(
         destination,
@@ -367,30 +366,30 @@ function WebBody({
     try {
       await desktopBridge?.schoolWebBack?.(site);
     } catch (error) {
-      setStatus(errorText(error) ?? "Unavailable");
+      setStatus(errorText(error) ?? t("web.unavailable"));
     }
   };
   const goForward = async () => {
     try {
       await desktopBridge?.schoolWebForward?.(site);
     } catch (error) {
-      setStatus(errorText(error) ?? "Unavailable");
+      setStatus(errorText(error) ?? t("web.unavailable"));
     }
   };
   const closePopup = () =>
     void desktopBridge
       ?.closeSchoolWebPopup?.(site)
-      .catch((error) => setStatus(errorText(error) ?? "Unavailable"));
+      .catch((error) => setStatus(errorText(error) ?? t("web.unavailable")));
   const retry = (url: string) => {
     setNotice(undefined);
     void desktopBridge
       ?.navigateSchoolWeb?.(site, url)
-      .catch((error) => setStatus(errorText(error) ?? "Unavailable"));
+      .catch((error) => setStatus(errorText(error) ?? t("web.unavailable")));
   };
   const openInBrowser = (url: string) =>
     void desktopBridge
       ?.openExternal(url)
-      .catch(() => notify("Could not open the system browser."));
+      .catch(() => notify(t("web.couldNotOpenTheSystem")));
   const popupCount = popups[site] ?? 0;
 
   const setPageZoom = (next: number) => {
@@ -399,7 +398,7 @@ function WebBody({
     if (embedded)
       void desktopBridge
         ?.setSchoolWebZoom?.(site, value)
-        .catch(() => setStatus("Zoom could not be changed."));
+        .catch(() => setStatus(t("web.zoomCouldNotBeChanged")));
   };
 
   const targetUrl = currentUrl || official[site].url;
@@ -417,11 +416,11 @@ function WebBody({
           undefined,
           targetUrl,
         )
-        .catch(() => notify("The school window could not be opened."));
+        .catch(() => notify(t("web.theSchoolWindowCouldNot")));
     } else if (desktopBridge && platform !== "browser-preview")
       void desktopBridge
         .openExternal(targetUrl)
-        .catch(() => notify("Could not open the system browser."));
+        .catch(() => notify(t("web.couldNotOpenTheSystem")));
     else window.open(targetUrl, "_blank", "noopener,noreferrer");
   };
 
@@ -438,7 +437,7 @@ function WebBody({
           secondMin="40%"
           secondMax="100%"
         >
-          <nav className="servicePicker" aria-label={t("School services")}>
+          <nav className="servicePicker" aria-label={t("web.schoolServices")}>
             {serviceTiers.map((tier, tierIndex) => (
               <div className="serviceTier" key={tier.frequency}>
                 {tierIndex > 0 && <div className="serviceDivider" />}
@@ -471,8 +470,8 @@ function WebBody({
                   <UiButton
                     type="button"
                     className="iconButton"
-                    title={t("Back to {{page}}", { page: returnLabel })}
-                    aria-label={t("Back to {{page}}", { page: returnLabel })}
+                    title={t("web.backToPage", { page: returnLabel })}
+                    aria-label={t("web.backToPage", { page: returnLabel })}
                     onClick={onReturn}
                   >
                     <ArrowLeft />
@@ -484,7 +483,7 @@ function WebBody({
                 <UiInput
                   ref={addressInput}
                   className="webAddressInput"
-                  aria-label={t("Current URL")}
+                  aria-label={t("web.currentURL")}
                   spellCheck={false}
                   value={address}
                   onChange={(event) => setAddress(event.currentTarget.value)}
@@ -499,7 +498,7 @@ function WebBody({
                   }}
                 />
                 <span className="webStatus" role="status">
-                  {t(status)}
+                  {status}
                 </span>
                 {savedFile && desktopBridge?.revealSchoolDownload && (
                   <UiButton
@@ -509,8 +508,8 @@ function WebBody({
                   >
                     {t(
                       nativeOs() === "macos"
-                        ? "Show in Finder"
-                        : "Show in folder",
+                        ? "web.showInFinder"
+                        : "web.showInFolder",
                     )}
                   </UiButton>
                 )}
@@ -518,8 +517,8 @@ function WebBody({
                   <UiButton
                     type="button"
                     className="iconButton"
-                    title={t("Previous page")}
-                    aria-label={t("Previous page")}
+                    title={t("common.previousPage")}
+                    aria-label={t("common.previousPage")}
                     onClick={() => void goBack()}
                   >
                     <ChevronLeft />
@@ -529,8 +528,8 @@ function WebBody({
                   <UiButton
                     type="button"
                     className="iconButton"
-                    title={t("Next page")}
-                    aria-label={t("Next page")}
+                    title={t("common.nextPage")}
+                    aria-label={t("common.nextPage")}
                     onClick={() => void goForward()}
                   >
                     <ChevronRight />
@@ -540,20 +539,20 @@ function WebBody({
                   <UiButton
                     type="button"
                     className="iconButton"
-                    title={t("Reload")}
-                    aria-label={t("Reload")}
+                    title={t("common.reload")}
+                    aria-label={t("common.reload")}
                     onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
                   >
                     <RotateCw />
                   </UiButton>
                 )}
               </div>
-              <div className="webZoom" aria-label={t("Page zoom")}>
+              <div className="webZoom" aria-label={t("web.pageZoom")}>
                 <UiButton
                   type="button"
                   className="iconButton"
-                  aria-label={t("Zoom out")}
-                  title={t("Zoom out")}
+                  aria-label={t("common.zoomOut")}
+                  title={t("common.zoomOut")}
                   disabled={resolvedZoom <= 0.5}
                   onClick={() => setPageZoom(resolvedZoom - 0.1)}
                 >
@@ -562,7 +561,7 @@ function WebBody({
                 <UiButton
                   type="button"
                   className="zoomValue"
-                  title={t("Reset zoom")}
+                  title={t("web.resetZoom")}
                   onClick={() => setPageZoom(1)}
                 >
                   {Math.round(resolvedZoom * 100)}%
@@ -570,8 +569,8 @@ function WebBody({
                 <UiButton
                   type="button"
                   className="iconButton"
-                  aria-label={t("Zoom in")}
-                  title={t("Zoom in")}
+                  aria-label={t("common.zoomIn")}
+                  title={t("common.zoomIn")}
                   disabled={resolvedZoom >= 2}
                   onClick={() => setPageZoom(resolvedZoom + 0.1)}
                 >
@@ -581,8 +580,8 @@ function WebBody({
               <UiButton
                 type="button"
                 className="iconButton webOpenOutside"
-                title={t("Open in browser")}
-                aria-label={t("Open in browser")}
+                title={t("common.openInBrowser")}
+                aria-label={t("common.openInBrowser")}
                 onClick={openOutside}
               >
                 ↗
@@ -590,9 +589,9 @@ function WebBody({
             </form>
             {embedded && popupCount > 0 && (
               <div className="webNotice" role="status">
-                <span>{t("Popup window")}</span>
+                <span>{t("web.popupWindow")}</span>
                 <UiButton type="button" onClick={closePopup}>
-                  {t("Close window")}
+                  {t("web.closeWindow")}
                 </UiButton>
               </div>
             )}
@@ -601,7 +600,7 @@ function WebBody({
                 <span>{t(failureText[notice.reason])}</span>
                 {notice.url && notice.reason !== "cleartext" && (
                   <UiButton type="button" onClick={() => retry(notice.url!)}>
-                    {t("Retry")}
+                    {t("common.retry")}
                   </UiButton>
                 )}
                 {notice.url && (
@@ -609,16 +608,14 @@ function WebBody({
                     type="button"
                     onClick={() => openInBrowser(notice.url!)}
                   >
-                    {t("Open in browser")}
+                    {t("common.openInBrowser")}
                   </UiButton>
                 )}
               </div>
             )}
             {embedded && notice?.kind === "reopened" && (
               <div className="webNotice" role="status">
-                <span>
-                  {t("Reopened this page without sending the form again.")}
-                </span>
+                <span>{t("web.reopenedThisPageWithoutSending")}</span>
               </div>
             )}
             <div className="webHost" ref={host}>
@@ -640,14 +637,14 @@ function WebBody({
                   <p>
                     {t(
                       platform === "browser-preview"
-                        ? "T2SCHOLA does not allow embedding in a browser."
+                        ? "web.t2scholaDoesNotAllowEmbedding"
                         : desktopBridge
-                          ? "This build opens school pages in a separate window."
-                          : "School pages need the desktop app.",
+                          ? "web.thisBuildOpensSchoolPages"
+                          : "web.schoolPagesNeedTheDesktop",
                     )}
                   </p>
                   <UiButton className="button primary" onClick={openOutside}>
-                    {t("Open {{site}}", { site: t(official[site].name) })} ↗
+                    {t("web.openSite", { site: t(official[site].name) })} ↗
                   </UiButton>
                 </div>
               )}

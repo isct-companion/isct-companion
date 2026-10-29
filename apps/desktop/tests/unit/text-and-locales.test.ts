@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import i18n, { intlLocale, relativeTimeAgo, t } from "@app/i18n";
+import i18n, { intlLocale, lookup, relativeTimeAgo, t } from "@app/i18n";
 import { EMPTY_WORKSPACE } from "@app/generated/persistence";
 import {
   LMS_BACKGROUND_REFRESH_TASK_ID,
@@ -261,12 +261,20 @@ describe("live translation lookups", () => {
 
   it("translates through the live instance and interpolates stored values", async () => {
     await i18n.changeLanguage("zh");
-    expect(t("Home")).toBe("首页");
-    expect(t("{{count}} files", { count: 3 })).toBe("3 个文件");
+    expect(t("settings.diagnostics.home")).toBe("首页");
+    expect(t("lms.countFiles", { count: 3 })).toBe("3 个文件");
   });
 
-  it("returns the key itself when the English catalogue has no entry", async () => {
-    await i18n.changeLanguage("en");
-    expect(t("Home")).toBe("Home");
+  it("reads the English catalogue for a key the selected language lacks", async () => {
+    await i18n.changeLanguage("zh");
+    const zhCatalog = i18n.getResourceBundle("zh", "translation");
+    const saved = zhCatalog["settings.diagnostics.home"];
+    delete zhCatalog["settings.diagnostics.home"];
+    try {
+      expect(t("settings.diagnostics.home")).toBe("Home");
+    } finally {
+      zhCatalog["settings.diagnostics.home"] = saved;
+    }
+    expect(lookup("not.a.key")).toBeUndefined();
   });
 });

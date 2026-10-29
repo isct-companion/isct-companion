@@ -114,11 +114,11 @@ const KYOMU_GPA =
   "https://kyomu0.gakumu.titech.ac.jp/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_7.aspx";
 
 function sessionStatusLabel(state: SchoolSessionState | undefined) {
-  if (state === "active") return t("Signed in");
-  if (state === "maintenance") return t("Under maintenance");
-  if (state === "failed") return t("Sign-in failed");
-  if (state === "not-configured") return t("Not configured");
-  return t("Checking session");
+  if (state === "active") return t("common.signedIn");
+  if (state === "maintenance") return t("common.underMaintenance");
+  if (state === "failed") return t("common.signInFailed");
+  if (state === "not-configured") return t("app.notConfigured");
+  return t("app.checkingSession");
 }
 
 const pages: Page[] = ["home", "timetable", "lectures", "web"];
@@ -301,11 +301,9 @@ export function WorkspaceApp() {
         await navigate(pagePath("settings"));
         if (
           !(await confirmAction(
-            t(
-              "App Authentication is already registered at school. Reset it? The old OTP setup will stop working. After automatic setup finishes, show the new setup as a QR code in this app, or copy it, and replace the school entry in every other authenticator.",
-            ),
-            t("Continue to reset"),
-            { title: t("Reset school OTP?") },
+            t("app.appAuthenticationIsAlreadyRegistered"),
+            t("app.continueToReset"),
+            { title: t("app.resetSchoolOTP") },
           ))
         )
           return;
@@ -322,14 +320,12 @@ export function WorkspaceApp() {
       setWebContext(null);
       await navigate(pagePath("settings"));
       setOtpSetupRevision((revision) => revision + 1);
-      notify.info("School OTP is configured and saved.");
+      notify.info(t("app.schoolOTPIsConfiguredAnd"));
     } catch (error) {
       if (otpSetupRequest.current !== request) return;
       otpSetupRequest.current = null;
       if (errorCode(error) !== "cancelled")
-        notify.error(
-          t("Could not finish OTP setup. Check the school page and try again."),
-        );
+        notify.error(t("app.couldNotFinishOTPSetup"));
     }
   };
   // Hidden Activities keep their last route props so another page's params
@@ -560,14 +556,14 @@ export function WorkspaceApp() {
   if (!data || !overview.value)
     return (
       <div className="loading">
-        {t(storeError ?? overview.error ?? "Opening your workspace…")}
+        {storeError ?? overview.error ?? t("app.openingYourWorkspace")}
         {(storeError || overview.error) && (
           <UiButton
             onClick={() =>
               storeError ? void workspaceStore.initialize() : overview.retry?.()
             }
           >
-            {t("Retry")}
+            {t("common.retry")}
           </UiButton>
         )}
       </div>
@@ -609,11 +605,11 @@ export function WorkspaceApp() {
     },
   );
   const navigation = {
-    home: t("Today"),
-    timetable: t("Timetable"),
-    lectures: t("Lectures"),
-    web: t("Web"),
-    settings: t("Settings"),
+    home: t("common.today"),
+    timetable: t("common.timetable"),
+    lectures: t("common.lectures"),
+    web: t("common.web"),
+    settings: t("common.settings"),
   };
   const currentTerm = workspaceView.currentTerm;
   const todayTerm = workspaceView.todayTerm;
@@ -663,10 +659,8 @@ export function WorkspaceApp() {
     if (
       school &&
       !(await confirmAction(
-        t(
-          "Remove this course from the local timetable? This does not withdraw your school registration.",
-        ),
-        t("Remove"),
+        t("app.removeThisCourseFromThe"),
+        t("common.remove"),
       ))
     )
       return;
@@ -784,7 +778,7 @@ export function WorkspaceApp() {
           slot:
             meeting && day
               ? `${quarter} ${FINDER_DAYS[day - 1]}${Math.min(...meeting.periods)}-${Math.max(...meeting.periods)}`
-              : `${quarter} ${t("集中・時間未定")}`,
+              : `${quarter} ${t("timetable.intensiveUnscheduled")}`,
         };
       })
       .slice(0, 40);
@@ -842,7 +836,7 @@ export function WorkspaceApp() {
         if (!course) return null;
         const record = lmsRecordFor(course);
         return (
-          <Suspense fallback={<p role="status">{t("Loading…")}</p>}>
+          <Suspense fallback={<p role="status">{t("common.loading")}</p>}>
             <LmsWorkspace
               course={course}
               entry={entry}
@@ -898,21 +892,18 @@ export function WorkspaceApp() {
                           });
                         notify.info(
                           occurrence.startsWith(tokyoDate(new Date()))
-                            ? t(
-                                "Today's {{time}} class is recorded as {{lesson}}.",
-                                { time: format({}), lesson: label },
-                              )
-                            : t(
-                                "Your next class, {{date}}, is set to {{lesson}}.",
-                                {
-                                  date: format({
-                                    month: "numeric",
-                                    day: "numeric",
-                                    weekday: "short",
-                                  }),
-                                  lesson: label,
-                                },
-                              ),
+                            ? t("app.todaysTimeClassIsRecorded", {
+                                time: format({}),
+                                lesson: label,
+                              })
+                            : t("app.yourNextClassDateIs", {
+                                date: format({
+                                  month: "numeric",
+                                  day: "numeric",
+                                  weekday: "short",
+                                }),
+                                lesson: label,
+                              }),
                         );
                       } catch (error) {
                         notify.error(error);
@@ -935,20 +926,16 @@ export function WorkspaceApp() {
       className={`homePage ${renderedRoutes.current.homeView}${showSchoolSetup ? " needsSetup" : ""}`}
     >
       {showSchoolSetup && (
-        <aside className="homeSetup" aria-label={t("School account setup")}>
+        <aside className="homeSetup" aria-label={t("app.schoolAccountSetup")}>
           <div>
-            <b>{t("Connect your school accounts")}</b>
-            <p>
-              {t(
-                "Connect Tokyo Tech for your timetable and course search, and Science Tokyo for course materials and assignments.",
-              )}
-            </p>
+            <b>{t("app.connectYourSchoolAccounts")}</b>
+            <p>{t("app.connectTokyoTechForYour")}</p>
           </div>
           <UiButton
             className="button primary"
             onClick={() => void navigate(paths.settings("accounts"))}
           >
-            {t("Connect school accounts")}
+            {t("common.connectSchoolAccounts")}
           </UiButton>
         </aside>
       )}
@@ -995,7 +982,7 @@ export function WorkspaceApp() {
             className="textButton homeBack"
             onClick={() => navigate(paths.home())}
           >
-            ‹ {t("Today")}
+            ‹ {t("common.today")}
           </UiButton>
           <CalendarView
             mark={
@@ -1038,7 +1025,7 @@ export function WorkspaceApp() {
             activate={activateFinder}
             year={Number(courseTerm.slice(0, 4))}
             term={courseTerm}
-            summary={`${finderTermCourses.length} ${t("on timetable")} · ${termCredits} ${t("credits")}`}
+            summary={`${finderTermCourses.length} ${t("course.status.onTimetable")} · ${termCredits} ${t("common.creditsUnit")}`}
             language={contentLanguage(data.settings)}
             finder={finder}
             openCourse={(row) => {
@@ -1151,7 +1138,7 @@ export function WorkspaceApp() {
             ? undefined
             : (from, term) =>
                 copyEvents(from, term).then(
-                  () => notify.info("Weekly events copied"),
+                  () => notify.info(t("app.weeklyEventsCopied")),
                   notify.error,
                 )
         }
@@ -1323,7 +1310,7 @@ export function WorkspaceApp() {
                   draft: value,
                 });
                 setIntensiveCourseId(null);
-                notify.info("Intensive dates saved");
+                notify.info(t("app.intensiveDatesSaved"));
               }}
             />
           );
@@ -1347,14 +1334,16 @@ export function WorkspaceApp() {
           onSave={async (draft) => {
             await saveCourse(draft, courseEditor.term, courseEditor.course);
             setCourseEditor(null);
-            notify.info(courseEditor.course ? "Course saved" : "Course added");
+            notify.info(
+              courseEditor.course ? t("app.courseSaved") : t("app.courseAdded"),
+            );
           }}
           onDelete={
             courseEditor.course
               ? async () => {
                   await deleteCourse(courseEditor.course!);
                   setCourseEditor(null);
-                  notify.info("Course deleted");
+                  notify.info(t("app.courseDeleted"));
                 }
               : undefined
           }
@@ -1369,14 +1358,14 @@ export function WorkspaceApp() {
           onSave={async (draft) => {
             await saveEvent(draft, eventEditor.term, eventEditor.event);
             setEventEditor(null);
-            notify.info("Event saved");
+            notify.info(t("app.eventSaved"));
           }}
           onDelete={
             eventEditor.event
               ? async () => {
                   await deleteEvent(eventEditor.event!);
                   setEventEditor(null);
-                  notify.info("Event deleted");
+                  notify.info(t("app.eventDeleted"));
                 }
               : undefined
           }
@@ -1402,7 +1391,7 @@ export function WorkspaceApp() {
   return (
     <div className="app" data-density={data.settings.density}>
       <aside className="rail">
-        <nav aria-label={t("Pages")}>
+        <nav aria-label={t("app.pages")}>
           {pages.map((p, i) => (
             <UiButton
               className={page === p ? "active" : ""}
@@ -1452,7 +1441,7 @@ export function WorkspaceApp() {
       {overlays}
       <aside
         className="schoolStatusBar"
-        aria-label={t("School connection status")}
+        aria-label={t("app.schoolConnectionStatus")}
       >
         <div className="schoolStatusAccounts">
           <span

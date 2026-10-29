@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pagination } from "../../components/ui";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { errorText } from "../../app/shared";
 import { desktopBridge, saveExportFile } from "../../app/native";
@@ -62,7 +62,9 @@ export function BackupSettings({
       })
       .catch((error) => {
         if (!disposed)
-          setSyncError(errorText(error) ?? t("Sync is unavailable."));
+          setSyncError(
+            errorText(error) ?? t("settings.backup.syncIsUnavailable"),
+          );
       });
     const stop = bridge.onCloudSyncState?.((state) => {
       if (!disposed) setSync(state);
@@ -75,7 +77,7 @@ export function BackupSettings({
 
   const when = (iso: string) =>
     formatDay(iso, locale, { hour: "2-digit", minute: "2-digit" });
-  const run = async (failure: string, action: () => Promise<void>) => {
+  const run = async (failure: MessageKey, action: () => Promise<void>) => {
     try {
       setBusy(true);
       await action();
@@ -86,38 +88,35 @@ export function BackupSettings({
     }
   };
   const setProvider = (provider: CloudSyncProvider, enabled: boolean) =>
-    run("Could not change sync.", async () => {
+    run("settings.backup.couldNotChangeSync", async () => {
       const next = await bridge?.setCloudSyncProvider?.(provider, enabled);
       if (next) setSync(next);
     });
   const setAutomatic = (automatic: boolean) =>
-    run("Could not change sync.", async () => {
+    run("settings.backup.couldNotChangeSync", async () => {
       const next = await bridge?.setCloudSyncAutomatic?.(automatic);
       if (next) setSync(next);
     });
   const syncNow = (direction: "upload" | "pull") =>
-    run("Could not sync.", async () => {
+    run("settings.backup.couldNotSync", async () => {
       const next = await bridge?.syncCloudNow?.(direction);
       if (next) setSync(next);
     });
   const restoreVersion = (version: Pick<CloudSyncVersion, "id" | "savedAt">) =>
-    run("Could not restore.", async () => {
+    run("settings.backup.couldNotRestore", async () => {
       if (
         !(await confirmAction(
-          t(
-            "Restore the version from {{date}} on all connected devices? Unsynced work on older devices will be kept in recovery files.",
-            {
-              date: when(version.savedAt),
-            },
-          ),
-          t("Restore"),
+          t("settings.backup.restoreTheVersionFromDate", {
+            date: when(version.savedAt),
+          }),
+          t("common.restore"),
         ))
       )
         return;
       const next = await bridge?.restoreCloudVersion?.(version.id);
       if (next) setSync(next);
       await workspaceActions.refreshSchool();
-      notify(t("Restored the earlier version."));
+      notify(t("settings.backup.restoredTheEarlierVersion"));
     });
 
   const exportWorkspace = () =>
@@ -125,20 +124,18 @@ export function BackupSettings({
   const importFile = async (file: File) => {
     if (
       !(await confirmAction(
-        t(
-          "Restore this file on all connected devices? A recovery copy of current data will be kept.",
-        ),
-        t("Restore"),
+        t("settings.backup.restoreThisFileOnAll"),
+        t("common.restore"),
       ))
     )
       return;
     try {
       await workspaceActions.importData(await file.text());
-      notify(t("Backup restored."));
+      notify(t("settings.backup.backupRestored"));
     } catch (error) {
       notify(
-        t("Import failed: {{reason}}", {
-          reason: errorText(error) ?? t("unknown error"),
+        t("settings.backup.importFailedReason", {
+          reason: errorText(error) ?? t("common.unknownError"),
         }),
       );
     }
@@ -184,14 +181,14 @@ export function BackupSettings({
 
   return (
     <>
-      <SettingsHeader title="Backup" />
-      <SettingsGroup title="Sync">
+      <SettingsHeader title="settings.main.backup" />
+      <SettingsGroup title="settings.backup.sync">
         {(!syncAvailable || syncError) && (
           <Row
             id="cloud"
             group
-            title="Cloud sync"
-            hint={syncError ?? caps["cloud-sync"].reason}
+            title="settings.backup.cloudSync"
+            hint={syncError ?? t(caps["cloud-sync"].reason)}
           >
             <span />
           </Row>
@@ -199,11 +196,11 @@ export function BackupSettings({
         {syncAvailable && (
           <Row
             id="sync-automatic"
-            title="Sync automatically"
+            title="settings.backup.syncAutomatically"
             hint={
               sync?.automatic
-                ? "Pulls other devices' changes when opened and every hour. Changed content is uploaded at most once per hour."
-                : "Upload and pull by hand"
+                ? t("settings.backup.pullsOtherDevicesChangesWhen")
+                : t("settings.backup.uploadAndPullByHand")
             }
           >
             <Toggle
@@ -217,14 +214,12 @@ export function BackupSettings({
           <Row
             key={item.provider}
             id={item.provider === "google-drive" ? "cloud" : "icloud"}
-            title={providerName[item.provider]}
+            titleText={providerName[item.provider]}
             hint={
               !item.enabled ? undefined : item.error ? (
                 <span>
                   <span className="danger">
-                    {t(
-                      "Could not update this cloud copy. Your data is saved on this device.",
-                    )}
+                    {t("settings.backup.couldNotUpdateThisCloud")}
                   </span>
                   <br />
                   {/* The provider's own reason (signed out, another workspace,
@@ -233,16 +228,18 @@ export function BackupSettings({
                   {item.lastSyncedAt && (
                     <>
                       <br />
-                      {t("Last synced {{date}}", {
+                      {t("settings.backup.lastSyncedDate", {
                         date: when(item.lastSyncedAt),
                       })}
                     </>
                   )}
                 </span>
               ) : item.lastSyncedAt ? (
-                t("Synced {{date}}", { date: when(item.lastSyncedAt) })
+                t("settings.backup.syncedDate", {
+                  date: when(item.lastSyncedAt),
+                })
               ) : (
-                t("Waiting for the first sync")
+                t("settings.backup.waitingForTheFirstSync")
               )
             }
           >
@@ -259,16 +256,18 @@ export function BackupSettings({
             group
             title={
               sync?.syncing
-                ? "Syncing…"
+                ? "settings.backup.syncing"
                 : needsAttention
-                  ? "Sync needs attention"
+                  ? "settings.backup.syncNeedsAttention"
                   : upToDate
-                    ? "Up to date"
-                    : "Saved on this device"
+                    ? "syncStatus.upToDate"
+                    : "settings.backup.savedOnThisDevice"
             }
             hint={
               lastSynced
-                ? t("Last synced {{date}}", { date: when(lastSynced) })
+                ? t("settings.backup.lastSyncedDate", {
+                    date: when(lastSynced),
+                  })
                 : undefined
             }
           >
@@ -278,14 +277,14 @@ export function BackupSettings({
                 disabled={busy || sync?.syncing}
                 onClick={() => void syncNow("upload")}
               >
-                {t("Upload")}
+                {t("settings.backup.upload")}
               </UiButton>
               <UiButton
                 className="textButton"
                 disabled={busy || sync?.syncing}
                 onClick={() => void syncNow("pull")}
               >
-                {t("Pull")}
+                {t("settings.backup.pull")}
               </UiButton>
             </div>
           </Row>
@@ -293,10 +292,8 @@ export function BackupSettings({
       </SettingsGroup>
       {versions.length > 0 && (
         <SettingsGroup
-          title="Earlier versions"
-          footer={t(
-            "Backups older than 30 days are removed only when at least four newer backups exist.",
-          )}
+          title="settings.backup.earlierVersions"
+          footer={t("settings.backup.backupsOlderThan30Days")}
         >
           {versions
             .slice((shownVersionPage - 1) * 4, shownVersionPage * 4)
@@ -304,7 +301,7 @@ export function BackupSettings({
               <Row
                 key={version.id}
                 group
-                title={when(version.savedAt)}
+                titleText={when(version.savedAt)}
                 hint={`${version.device} · ${(sync?.versions ?? [])
                   .filter(
                     (v) =>
@@ -319,7 +316,7 @@ export function BackupSettings({
                     disabled={busy || sync?.syncing || pending.length > 0}
                     onClick={() => void restoreVersion(version)}
                   >
-                    {t("Restore")}
+                    {t("common.restore")}
                   </UiButton>
                 </div>
               </Row>
@@ -330,22 +327,20 @@ export function BackupSettings({
               value={shownVersionPage}
               onChange={setVersionPage}
               total={versionPages}
-              aria-label={t("Earlier version pages")}
+              aria-label={t("settings.backup.earlierVersionPages")}
             />
           )}
         </SettingsGroup>
       )}
       {(sync?.recoveryPoints?.length ?? 0) > 0 && (
         <SettingsGroup
-          title="Local recovery files"
-          footer={t(
-            "Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist.",
-          )}
+          title="settings.backup.localRecoveryFiles"
+          footer={t("settings.backup.savedBeforeCloudChangesOr")}
         >
           {recoveryPoints
             .slice((shownRecoveryPage - 1) * 4, shownRecoveryPage * 4)
             .map((point) => (
-              <Row key={point.id} group title={when(point.savedAt)}>
+              <Row key={point.id} group titleText={when(point.savedAt)}>
                 <div className="actions">
                   <UiButton
                     className="textButton"
@@ -357,14 +352,14 @@ export function BackupSettings({
                       )
                     }
                   >
-                    {t("Export…")}
+                    {t("settings.backup.export")}
                   </UiButton>
                   <UiButton
                     className="textButton"
                     disabled={busy || sync?.syncing || pending.length > 0}
                     onClick={() => void restoreVersion(point)}
                   >
-                    {t("Restore")}
+                    {t("common.restore")}
                   </UiButton>
                 </div>
               </Row>
@@ -375,17 +370,21 @@ export function BackupSettings({
               value={shownRecoveryPage}
               onChange={setRecoveryPage}
               total={recoveryPages}
-              aria-label={t("Local recovery pages")}
+              aria-label={t("settings.backup.localRecoveryPages")}
             />
           )}
         </SettingsGroup>
       )}
       {(icloud || drive) && (
-        <SettingsGroup title="Login credentials">
+        <SettingsGroup title="settings.backup.loginCredentials">
           {icloud && (
-            <Row id="credential-keychain" group title="iCloud Keychain">
+            <Row
+              id="credential-keychain"
+              group
+              title="settings.backup.icloudKeychain"
+            >
               <small className="muted">
-                {t("School logins sync with iCloud Keychain.")}
+                {t("settings.backup.schoolLoginsSyncWithICloud")}
               </small>
             </Row>
           )}
@@ -393,16 +392,16 @@ export function BackupSettings({
         </SettingsGroup>
       )}
       <SettingsGroup>
-        <Row id="file" group title="Backup file">
+        <Row id="file" group title="settings.backup.backupFile">
           <div className="actions">
             <UiButton
               className="button small"
               onClick={() => void exportWorkspace()}
             >
-              {t("Export…")}
+              {t("settings.backup.export")}
             </UiButton>
             <label className="button small">
-              {t("Import…")}
+              {t("settings.backup.import")}
               <input
                 hidden
                 type="file"
@@ -473,7 +472,7 @@ function DriveCredentialSync({
     setConfirmPassword("");
     setEditing(false);
   };
-  const run = async (failure: string, action: () => Promise<void>) => {
+  const run = async (failure: MessageKey, action: () => Promise<void>) => {
     try {
       setBusy(true);
       await action();
@@ -484,7 +483,7 @@ function DriveCredentialSync({
     }
   };
   const save = () =>
-    run("Could not enable credential sync.", async () => {
+    run("settings.backup.couldNotEnableCredentialSync", async () => {
       const bridge = desktopBridge!;
       const wasConfigured = configured;
       await bridge.setCloudCredentialSyncPassword(password);
@@ -497,41 +496,41 @@ function DriveCredentialSync({
       reset();
       setConfigured(true);
       setBackupExists(true);
-      notify(t("Login credentials have been synced."));
+      notify(t("settings.backup.loginCredentialsHaveBeenSynced"));
     });
   const turnOff = () =>
-    run("Could not disable credential sync.", async () => {
+    run("settings.backup.couldNotDisableCredentialSync", async () => {
       await desktopBridge!.clearCloudCredentialSyncPassword();
       reset();
       setConfigured(false);
       // Only this device's key is removed; the Drive file stays unlockable.
       setBackupExists(true);
-      notify(t("Login credential sync is disabled on this device."));
+      notify(t("settings.backup.loginCredentialSyncIsDisabled"));
     });
 
-  const title = configured
-    ? "Login credential sync"
+  const title: MessageKey = configured
+    ? "settings.backup.loginCredentialSync"
     : restoring
-      ? "Restore login credentials"
-      : "Login credential sync";
-  const hint =
+      ? "settings.backup.restoreLoginCredentials"
+      : "settings.backup.loginCredentialSync";
+  const hint: MessageKey =
     backupExists === null && !configured
-      ? "Checking Google Drive…"
+      ? "settings.backup.checkingGoogleDrive"
       : configured
         ? editing
-          ? "Choose a new 8–12 character password"
-          : "On"
+          ? "settings.backup.chooseANew812"
+          : "settings.extensions.on"
         : restoring
-          ? "Enter the password set on your other device"
+          ? "settings.backup.enterThePasswordSetOn"
           : editing
-            ? "Choose an 8–12 character password"
-            : "Off";
+            ? "settings.backup.chooseAn812Character"
+            : "settings.main.off";
   const valid =
     length >= 8 && length <= 12 && (restoring || (confirmPassword && matches));
 
   return (
     <>
-      <Row id="credential-sync" group title={title} hint={hint}>
+      <Row id="credential-sync" group title={title} hint={t(hint)}>
         <div className="actions">
           {showFields && (
             <>
@@ -541,9 +540,11 @@ function DriveCredentialSync({
                 minLength={8}
                 autoComplete={restoring ? "current-password" : "new-password"}
                 placeholder={t(
-                  restoring ? "Encryption password" : "New password",
+                  restoring
+                    ? "settings.backup.encryptionPassword"
+                    : "settings.backup.newPassword",
                 )}
-                aria-label={t("Credential encryption password")}
+                aria-label={t("settings.backup.credentialEncryptionPassword")}
                 disabled={busy}
                 onChange={(event) => setPassword(event.currentTarget.value)}
               />
@@ -553,8 +554,10 @@ function DriveCredentialSync({
                   value={confirmPassword}
                   minLength={8}
                   autoComplete="new-password"
-                  placeholder={t("Confirm password")}
-                  aria-label={t("Confirm credential encryption password")}
+                  placeholder={t("settings.backup.confirmPassword")}
+                  aria-label={t(
+                    "settings.backup.confirmCredentialEncryptionPassword",
+                  )}
                   disabled={busy}
                   onChange={(event) =>
                     setConfirmPassword(event.currentTarget.value)
@@ -566,7 +569,13 @@ function DriveCredentialSync({
                 disabled={busy || !valid}
                 onClick={() => void save()}
               >
-                {t(restoring ? "Restore" : configured ? "Save" : "Turn on")}
+                {t(
+                  restoring
+                    ? "common.restore"
+                    : configured
+                      ? "common.save"
+                      : "settings.backup.turnOn",
+                )}
               </UiButton>
               {editing && (
                 <UiButton
@@ -574,7 +583,7 @@ function DriveCredentialSync({
                   disabled={busy}
                   onClick={reset}
                 >
-                  {t("Cancel")}
+                  {t("common.cancel")}
                 </UiButton>
               )}
             </>
@@ -585,7 +594,7 @@ function DriveCredentialSync({
               disabled={busy}
               onClick={() => setEditing(true)}
             >
-              {t("Set up")}
+              {t("settings.backup.setUp")}
             </UiButton>
           )}
           {!showFields && configured && (
@@ -595,14 +604,14 @@ function DriveCredentialSync({
                 disabled={busy}
                 onClick={() => setEditing(true)}
               >
-                {t("Change password")}
+                {t("settings.backup.changePassword")}
               </UiButton>
               <UiButton
                 className="textButton"
                 disabled={busy}
                 onClick={() => void turnOff()}
               >
-                {t("Turn off")}
+                {t("settings.backup.turnOff")}
               </UiButton>
             </>
           )}
@@ -610,14 +619,12 @@ function DriveCredentialSync({
       </Row>
       {showFields && !restoring && confirmPassword && !matches && (
         <div className="alert" role="alert">
-          {t("The two passwords do not match.")}
+          {t("settings.backup.theTwoPasswordsDoNot")}
         </div>
       )}
       {showFields && (
         <div className="alert" role="note">
-          {t(
-            "Encrypted with this password before upload. The password stays on this device.",
-          )}
+          {t("settings.backup.encryptedWithThisPasswordBefore")}
         </div>
       )}
     </>

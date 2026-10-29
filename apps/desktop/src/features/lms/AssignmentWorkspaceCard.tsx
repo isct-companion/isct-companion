@@ -100,32 +100,32 @@ export function AssignmentWorkspaceFooter({
   return (
     <>
       {workspace && (
-        <section className="lmsWorkspaceCard" aria-label={t("Workspace")}>
+        <section className="lmsWorkspaceCard" aria-label={t("lms.workspace")}>
           <header>
             <FileTile family="folder" />
             <div>
               <b>{workspace.name}</b>
               <small>
                 {workspace.submitFiles.length
-                  ? t("submit/ · {{count}} files", {
+                  ? t("lms.submitCountFiles", {
                       count: workspace.submitFiles.length,
                     })
-                  : t("submit/ is empty")}
+                  : t("lms.submitIsEmpty")}
               </small>
             </div>
             <button
               type="button"
               className="lmsIconButton"
-              aria-label={t("Delete workspace")}
-              title={t("Delete workspace")}
+              aria-label={t("lms.deleteWorkspace")}
+              title={t("lms.deleteWorkspace")}
               disabled={busy}
               onClick={async () => {
                 if (
                   !(await confirmAction(
-                    t("Delete the workspace “{{name}}” and everything in it?", {
+                    t("lms.deleteTheWorkspaceNameAnd", {
                       name: workspace.name,
                     }),
-                    t("Delete"),
+                    t("common.delete"),
                   ))
                 )
                   return;
@@ -147,7 +147,7 @@ export function AssignmentWorkspaceFooter({
               }
             >
               <LmsIcon name="code" size={14} />
-              {t("Open in VS Code")}
+              {t("lms.openInVSCode")}
             </button>
             <button
               type="button"
@@ -156,14 +156,14 @@ export function AssignmentWorkspaceFooter({
               }
             >
               <LmsIcon name="folder" size={14} />
-              {t("Open folder")}
+              {t("lms.openFolder")}
             </button>
           </div>
           <div className="lmsWorkspaceSubmit">
             <span
               className="lmsSegmented"
               role="radiogroup"
-              aria-label={t("Hand in as")}
+              aria-label={t("lms.handInAs")}
             >
               <button
                 type="button"
@@ -171,7 +171,7 @@ export function AssignmentWorkspaceFooter({
                 aria-checked={!workspace.zip}
                 onClick={() => workspace.zip && saveSubmission(false)}
               >
-                {t("Files")}
+                {t("lms.files")}
               </button>
               <button
                 type="button"
@@ -179,12 +179,12 @@ export function AssignmentWorkspaceFooter({
                 aria-checked={workspace.zip}
                 onClick={() => !workspace.zip && saveSubmission(true)}
               >
-                {t("ZIP")}
+                {t("lms.zip")}
               </button>
             </span>
             {workspace.zip && (
               <UiInput
-                aria-label={t("ZIP file name")}
+                aria-label={t("lms.zipFileName")}
                 value={zipName}
                 spellCheck={false}
                 onChange={(event) => setZipName(event.target.value)}
@@ -200,16 +200,11 @@ export function AssignmentWorkspaceFooter({
         </section>
       )}
       {draft && (
-        <p className="lmsWorkspaceHint">
-          {t("Files upload to the LMS draft. Review and submit in LMS.")}
-        </p>
+        <p className="lmsWorkspaceHint">{t("lms.filesUploadToTheLMS")}</p>
       )}
       {lost && !closed && !workspace && (
         <p className="lmsWorkspaceHint" role="status">
-          {t(
-            "The workspace folder “{{name}}” is gone. Create it again, or view the assignment in LMS and choose the files there.",
-            { name: lost },
-          )}
+          {t("lms.theWorkspaceFolderNameIs", { name: lost })}
         </p>
       )}
       <footer>
@@ -221,7 +216,7 @@ export function AssignmentWorkspaceFooter({
             disabled={busy && draft}
             onClick={() => (draft ? void prepare() : submit())}
           >
-            {t(draft ? "Prepare in LMS" : "View in LMS")}{" "}
+            {t(draft ? "lms.prepareInLMS" : "lms.viewInLMS")}{" "}
             <LmsIcon name="external" size={13} />
           </button>
         )}
@@ -232,7 +227,7 @@ export function AssignmentWorkspaceFooter({
             className="lmsTextLink"
             onClick={() => submit()}
           >
-            {t("View in LMS")} <LmsIcon name="external" size={13} />
+            {t("lms.viewInLMS")} <LmsIcon name="external" size={13} />
           </button>
         )}
         {view && !workspace && (
@@ -247,7 +242,7 @@ export function AssignmentWorkspaceFooter({
               })
             }
           >
-            {t(busy ? "Creating workspace…" : "Create workspace")}
+            {t(busy ? "lms.creatingWorkspace" : "lms.createWorkspace")}
           </button>
         )}
       </footer>

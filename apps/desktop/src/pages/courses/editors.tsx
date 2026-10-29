@@ -17,7 +17,7 @@ import {
   type ClassSlot,
 } from "../../lib/timetable-layout";
 import type { TeachingPeriod } from "../../generated/persistence";
-import { dayNames } from "../../components/timetable/timetable";
+import { dayNames, dayShort } from "../../components/timetable/timetable";
 import {
   Checkbox,
   Chip,
@@ -100,10 +100,10 @@ function DayChips({
       value={value.map(String)}
       onChange={(days) => onChange(days.map(Number).sort((a, b) => a - b))}
     >
-      <Group gap={4} role="group" aria-label={t("Weekdays")}>
+      <Group gap={4} role="group" aria-label={t("courses.weekdays")}>
         {dayNames.map((name, index) => (
           <Chip key={name} value={String(index + 1)} size="xs">
-            {t(name.slice(0, 3))}
+            {t(dayShort[index])}
           </Chip>
         ))}
       </Group>
@@ -156,7 +156,7 @@ export function CourseEditor({
     for (const row of rows) {
       if (!row.days.length) continue;
       if (row.startTime >= row.endTime)
-        return setError(t("A meeting must end after it starts."));
+        return setError(t("courses.aMeetingMustEndAfter"));
       meetings.push({
         days: row.days,
         periods: [...row.periods],
@@ -177,7 +177,9 @@ export function CourseEditor({
       size="min(560px, 100%)"
       title={
         <div>
-          <Text fw={700}>{t(course ? "Edit course" : "New course")}</Text>
+          <Text fw={700}>
+            {t(course ? "courses.editCourse" : "courses.newCourse")}
+          </Text>
           <Text c="dimmed" size="xs">
             {term.replace("-", " ")}
           </Text>
@@ -198,20 +200,20 @@ export function CourseEditor({
             disabled={submission.busy}
             onClick={onClose}
           >
-            {t("Cancel")}
+            {t("common.cancel")}
           </UiButton>
           <UiButton
             type="submit"
             className="button primary"
             disabled={submission.busy}
           >
-            {t("Save")}
+            {t("common.save")}
           </UiButton>
         </Group>
         <div className="sheetBody courseEditBody">
           <section className="sheetCol">
             <label className="field wide">
-              <span>{t("Title")}</span>
+              <span>{t("courses.title")}</span>
               <UiInput
                 autoFocus
                 required
@@ -223,7 +225,7 @@ export function CourseEditor({
               />
             </label>
             <label className="field">
-              <span>{t("Code")}</span>
+              <span>{t("courses.code")}</span>
               <UiInput
                 required
                 value={values.code}
@@ -232,7 +234,7 @@ export function CourseEditor({
               />
             </label>
             <label className="field">
-              <span>{t("Credits")}</span>
+              <span>{t("courses.credits")}</span>
               <UiInput
                 type="number"
                 min="0"
@@ -244,7 +246,7 @@ export function CourseEditor({
               />
             </label>
             <label className="field wide">
-              <span>{t("Instructor")}</span>
+              <span>{t("courses.instructor")}</span>
               <UiInput
                 value={values.instructor}
                 onChange={(e) =>
@@ -253,7 +255,7 @@ export function CourseEditor({
               />
             </label>
             <label className="field">
-              <span>{t("Language")}</span>
+              <span>{t("common.language")}</span>
               <UiSelect
                 value={values.language}
                 onChange={(value) =>
@@ -263,15 +265,15 @@ export function CourseEditor({
                   })
                 }
                 data={[
-                  { value: "ja", label: t("Japanese") },
-                  { value: "en", label: t("English") },
-                  { value: "ja-en", label: t("Japanese / English") },
-                  { value: "other", label: t("Other") },
+                  { value: "ja", label: t("courses.japanese") },
+                  { value: "en", label: t("courses.english") },
+                  { value: "ja-en", label: t("courses.japaneseEnglish") },
+                  { value: "other", label: t("courses.other") },
                 ]}
               />
             </label>
             <div className="field">
-              <span>{t("Color")}</span>
+              <span>{t("courses.color")}</span>
               <div className="swatches">
                 {palette.map((color) => (
                   <UiButton
@@ -286,7 +288,7 @@ export function CourseEditor({
                 <UiInput
                   type="color"
                   value={values.color}
-                  aria-label={t("Custom color")}
+                  aria-label={t("courses.customColor")}
                   onChange={(e) =>
                     setValues({ ...values, color: e.target.value })
                   }
@@ -296,7 +298,7 @@ export function CourseEditor({
             <Checkbox
               className="wide"
               checked={values.onTimetable}
-              label={t("Show on the timetable")}
+              label={t("courses.showOnTheTimetable")}
               onCheckedChange={(checked) =>
                 setValues({
                   ...values,
@@ -307,13 +309,13 @@ export function CourseEditor({
           </section>
           <section className="sheetCol">
             <div className="sheetColHead">
-              <b>{t("Meetings")}</b>
+              <b>{t("courses.meetings")}</b>
               <UiButton
                 type="button"
                 className="button small"
                 onClick={() => setRows([...rows, blankRow(classSlots)])}
               >
-                {t("＋ Add")}
+                {t("courses.add")}
               </UiButton>
             </div>
             <div className="meetingRows">
@@ -324,7 +326,7 @@ export function CourseEditor({
                     onChange={(days) => setRow(index, { days })}
                   />
                   <UiSelect
-                    aria-label={t("Period")}
+                    aria-label={t("courses.period")}
                     value={row.slot}
                     onChange={(value) => {
                       const slot = classSlots.find((s) => s.label === value);
@@ -353,14 +355,14 @@ export function CourseEditor({
                             },
                           ]
                         : []),
-                      { value: "custom", label: t("Custom time") },
+                      { value: "custom", label: t("courses.customTime") },
                     ]}
                   />
                   {row.slot === "custom" && (
                     <div className="timeRange">
                       <UiInput
                         type="time"
-                        aria-label={t("Starts")}
+                        aria-label={t("courses.starts")}
                         value={row.startTime}
                         onChange={(e) =>
                           setRow(index, { startTime: e.target.value })
@@ -368,7 +370,7 @@ export function CourseEditor({
                       />
                       <UiInput
                         type="time"
-                        aria-label={t("Ends")}
+                        aria-label={t("courses.ends")}
                         value={row.endTime}
                         onChange={(e) =>
                           setRow(index, { endTime: e.target.value })
@@ -377,15 +379,15 @@ export function CourseEditor({
                     </div>
                   )}
                   <UiInput
-                    aria-label={t("Room")}
-                    placeholder={t("Room")}
+                    aria-label={t("common.room")}
+                    placeholder={t("common.room")}
                     value={row.room}
                     onChange={(e) => setRow(index, { room: e.target.value })}
                   />
                   <UiButton
                     type="button"
                     className="iconButton"
-                    aria-label={t("Remove meeting")}
+                    aria-label={t("courses.removeMeeting")}
                     onClick={() => setRows(rows.filter((_, i) => i !== index))}
                   >
                     ×
@@ -394,7 +396,7 @@ export function CourseEditor({
               ))}
               {!rows.length && (
                 <EmptyState compact icon={CalendarPlus}>
-                  {t("No meetings. Add one above.")}
+                  {t("courses.noMeetingsAddOneAbove")}
                 </EmptyState>
               )}
             </div>
@@ -413,10 +415,8 @@ export function CourseEditor({
         {course && onDelete && (
           <footer className="sheetDangerZone">
             <div>
-              <b>{t("Delete course")}</b>
-              <span>
-                {t("Remove this local course and its timetable entry.")}
-              </span>
+              <b>{t("courses.deleteCourse")}</b>
+              <span>{t("courses.removeThisLocalCourseAnd")}</span>
             </div>
             <UiButton
               type="button"
@@ -425,16 +425,16 @@ export function CourseEditor({
               onClick={async () => {
                 if (
                   await confirmAction(
-                    t("Delete {{title}}? This cannot be undone.", {
+                    t("courses.deleteTitleThisCannotBe", {
                       title: course.title,
                     }),
-                    t("Delete"),
+                    t("common.delete"),
                   )
                 )
                   void submission.run(onDelete);
               }}
             >
-              {t("Delete")}
+              {t("common.delete")}
             </UiButton>
           </footer>
         )}
@@ -474,8 +474,8 @@ export function EventEditor({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (draft.startTime >= draft.endTime)
-      return setError(t("The event must end after it starts."));
-    if (!draft.days.length) return setError(t("Pick at least one weekday."));
+      return setError(t("courses.theEventMustEndAfter"));
+    if (!draft.days.length) return setError(t("courses.pickAtLeastOneWeekday"));
     void submission.run(() =>
       onSave({ ...draft, title: draft.title.trim(), room: draft.room.trim() }),
     );
@@ -491,7 +491,7 @@ export function EventEditor({
       title={
         <div>
           <Text fw={700}>
-            {t(event ? "Edit weekly event" : "New weekly event")}
+            {t(event ? "courses.editWeeklyEvent" : "courses.newWeeklyEvent")}
           </Text>
           <Text c="dimmed" size="xs">
             {term.replace("-", " ")}
@@ -513,19 +513,19 @@ export function EventEditor({
             disabled={submission.busy}
             onClick={onClose}
           >
-            {t("Cancel")}
+            {t("common.cancel")}
           </UiButton>
           <UiButton
             type="submit"
             className="button primary"
             disabled={submission.busy}
           >
-            {t("Save")}
+            {t("common.save")}
           </UiButton>
         </Group>
         <div className="sheetBody single">
           <label className="field wide">
-            <span>{t("Title")}</span>
+            <span>{t("courses.title")}</span>
             <UiInput
               autoFocus
               required
@@ -535,21 +535,21 @@ export function EventEditor({
             />
           </label>
           <label className="field wide">
-            <span>{t("Room")}</span>
+            <span>{t("common.room")}</span>
             <UiInput
               value={draft.room}
               onChange={(e) => setDraft({ ...draft, room: e.target.value })}
             />
           </label>
           <div className="field wide">
-            <span>{t("Every week on")}</span>
+            <span>{t("courses.everyWeekOn")}</span>
             <DayChips
               value={draft.days}
               onChange={(days) => setDraft({ ...draft, days })}
             />
           </div>
           <div className="field wide">
-            <span>{t("Color")}</span>
+            <span>{t("courses.color")}</span>
             {/* A new event without a choice gets its colour from Core. */}
             <div className="swatches">
               {palette.map((color) => (
@@ -566,13 +566,13 @@ export function EventEditor({
               <UiInput
                 type="color"
                 value={draft.color ?? palette[0]}
-                aria-label={t("Custom color")}
+                aria-label={t("courses.customColor")}
                 onChange={(e) => setDraft({ ...draft, color: e.target.value })}
               />
             </div>
           </div>
           <label className="field">
-            <span>{t("Starts")}</span>
+            <span>{t("courses.starts")}</span>
             <UiInput
               type="time"
               required
@@ -583,7 +583,7 @@ export function EventEditor({
             />
           </label>
           <label className="field">
-            <span>{t("Ends")}</span>
+            <span>{t("courses.ends")}</span>
             <UiInput
               type="time"
               required
@@ -605,8 +605,8 @@ export function EventEditor({
         {event && onDelete && (
           <footer className="sheetDangerZone">
             <div>
-              <b>{t("Delete event")}</b>
-              <span>{t("Remove this event from your timetable.")}</span>
+              <b>{t("courses.deleteEvent")}</b>
+              <span>{t("courses.removeThisEventFromYour")}</span>
             </div>
             <UiButton
               type="button"
@@ -615,14 +615,14 @@ export function EventEditor({
               onClick={async () => {
                 if (
                   await confirmAction(
-                    t("Delete {{title}}?", { title: event.title }),
-                    t("Delete"),
+                    t("courses.deleteTitle", { title: event.title }),
+                    t("common.delete"),
                   )
                 )
                   void submission.run(onDelete);
               }}
             >
-              {t("Delete")}
+              {t("common.delete")}
             </UiButton>
           </footer>
         )}
@@ -650,7 +650,7 @@ export function TermDialog({
     <Modal
       opened
       onClose={onClose}
-      title={t("Add quarter")}
+      title={t("courses.addQuarter")}
       size="sm"
       centered
       overlayProps={{ backgroundOpacity: 0.28, blur: 1 }}
@@ -664,7 +664,7 @@ export function TermDialog({
       >
         <div className="modalFields">
           <UiSelect
-            aria-label={t("Academic year")}
+            aria-label={t("common.academicYear")}
             value={year}
             onChange={(value) => setYear(Number(value))}
             data={Array.from({ length: 7 }, (_, i) =>
@@ -677,13 +677,13 @@ export function TermDialog({
             onChange={(value) => setQuarter(value as typeof quarter)}
           />
         </div>
-        <small>{taken ? t("This quarter already exists.") : " "}</small>
+        <small>{taken ? t("courses.thisQuarterAlreadyExists") : " "}</small>
         <div className="sheetActions">
           <UiButton type="button" className="button" onClick={onClose}>
-            {t("Cancel")}
+            {t("common.cancel")}
           </UiButton>
           <UiButton type="submit" className="button primary" disabled={taken}>
-            {t("Add {{term}}", { term: term.replace("-", " ") })}
+            {t("courses.addTerm", { term: term.replace("-", " ") })}
           </UiButton>
         </div>
       </form>

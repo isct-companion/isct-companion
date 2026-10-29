@@ -55,14 +55,11 @@ export const useAppUpdate = create<{
 export function lastInstallText(last: AppLastInstall) {
   switch (last.outcome) {
     case "installed":
-      return t("Updated to {{version}}.", { version: last.version });
+      return t("app.updatedToVersion", { version: last.version });
     case "incomplete":
-      return t(
-        "The update to {{version}} did not install. Download it from the releases page.",
-        { version: last.version },
-      );
+      return t("app.theUpdateToVersionDid", { version: last.version });
     case "failed":
-      return t("Installing {{version}} failed: {{message}}", {
+      return t("app.installingVersionFailedMessage", {
         version: last.version,
         message: last.message,
       });

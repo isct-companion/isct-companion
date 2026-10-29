@@ -1,4 +1,10 @@
-import { Check as CheckGlyph, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
+import {
+  Check as CheckGlyph,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+} from "lucide-react";
 import {
   Checkbox as Check,
   RadioGroup,
@@ -122,7 +128,7 @@ export const CloseButton = ({ size, ...props }: ButtonProps) => (
     size={size}
     variant="subtle"
     className={cx("uiClose", props.className)}
-    aria-label={props["aria-label"] ?? t("Close")}
+    aria-label={props["aria-label"] ?? t("common.close")}
   >
     ×
   </Button>
@@ -529,7 +535,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                   <Command.Input
                     aria-label={
                       props["aria-label"] ??
-                      (typeof label === "string" ? label : t("Filter"))
+                      (typeof label === "string" ? label : t("common.filter"))
                     }
                     className="uiInput"
                   />
@@ -693,7 +699,9 @@ export function MultiSelect({
                     value.length >= maxValues)
                 }
               >
-                {value.includes(item.value) && <CheckGlyph size={14} strokeWidth={1.75} aria-hidden />}
+                {value.includes(item.value) && (
+                  <CheckGlyph size={14} strokeWidth={1.75} aria-hidden />
+                )}
                 {item.label}
               </ToggleGroup.Item>
             ))}
@@ -806,7 +814,7 @@ export function Pagination({
         variant="default"
         disabled={value <= 1}
         onClick={() => onChange(value - 1)}
-        aria-label={t("Previous page")}
+        aria-label={t("common.previousPage")}
       >
         <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
       </Button>
@@ -828,7 +836,7 @@ export function Pagination({
         variant="default"
         disabled={value >= total}
         onClick={() => onChange(value + 1)}
-        aria-label={t("Next page")}
+        aria-label={t("common.nextPage")}
       >
         <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
       </Button>

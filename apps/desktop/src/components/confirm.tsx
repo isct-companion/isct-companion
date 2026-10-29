@@ -61,7 +61,7 @@ export function ConfirmDialogs() {
         <Text size="sm">{request.message}</Text>
         <Group justify="flex-end">
           <Button variant="default" onClick={() => finish(false)}>
-            {t("Cancel")}
+            {t("common.cancel")}
           </Button>
           <Button
             color={request.danger ? "red" : undefined}

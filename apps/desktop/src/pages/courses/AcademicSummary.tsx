@@ -2,15 +2,15 @@ import { Button, Paper, Popover, Text } from "../../components/ui";
 import { useState } from "react";
 import { SyncRing, progressLabel } from "../../components/PullRing";
 import type { PageProgress } from "../../platform/sync";
-import i18n, { t, intlLocale } from "../../i18n";
+import i18n, { t, intlLocale, type MessageKey } from "../../i18n";
 import { formatTimestamp } from "../../lib/civil-date";
 import type { GpaSummary } from "../../lib/model";
 import type { SchoolPageAvailability } from "../../generated/persistence";
 
-const SCOPES: { scope: GpaSummary["scope"]; label: string }[] = [
-  { scope: "all", label: "All" },
-  { scope: "liberal-arts", label: "Liberal arts" },
-  { scope: "major", label: "Major" },
+const SCOPES: { scope: GpaSummary["scope"]; label: MessageKey }[] = [
+  { scope: "all", label: "courses.all" },
+  { scope: "liberal-arts", label: "courses.liberalArts" },
+  { scope: "major", label: "courses.major" },
 ];
 const fixed = (value: number | undefined, digits: number) =>
   value === undefined ? "—" : value.toFixed(digits);
@@ -40,7 +40,7 @@ export function AcademicSummary({
   return (
     <div className="academicSummaryTrigger">
       <span className="academicQuarterLabel">
-        {t("This term")} <b>{termCredits}</b> {t("credits")}
+        {t("courses.thisTerm")} <b>{termCredits}</b> {t("common.creditsUnit")}
       </span>
       <Popover
         position="bottom-end"
@@ -57,7 +57,7 @@ export function AcademicSummary({
             className="academicDetailsTrigger"
             onClick={() => setOpened((value) => !value)}
           >
-            {t("Details")}
+            {t("courses.details")}
           </Button>
         </Popover.Target>
         <Popover.Dropdown p={0}>
@@ -66,33 +66,27 @@ export function AcademicSummary({
               component="section"
               className="academicPanel"
               radius="md"
-              aria-label={t("Academic summary")}
+              aria-label={t("courses.academicSummary")}
             >
               <header>
-                <h2>{t("Academic summary")}</h2>
+                <h2>{t("courses.academicSummary")}</h2>
               </header>
               <div className="academicTermCredits">
-                <span>{t("This quarter")}</span>
+                <span>{t("courses.thisQuarter")}</span>
                 <b>
-                  {termCredits} <small>{t("credits")}</small>
+                  {termCredits} <small>{t("common.creditsUnit")}</small>
                 </b>
               </div>
               <Text size="xs" c="dimmed">
-                {t(
-                  "Credits for multi-quarter courses are split equally across quarters.",
-                )}
+                {t("courses.creditsForMultiQuarterCourses")}
               </Text>
               <div className="academicGradeDetails">
                 {unavailable && (
                   <div className="academicAvailability" role="status">
-                    <b>
-                      {t("This GPA page is not provided for this account.")}
-                    </b>
+                    <b>{t("courses.thisGPAPageIsNot")}</b>
                     <small>
                       {all
-                        ? t(
-                            "The values below were retained from an earlier successful fetch.",
-                          )
+                        ? t("courses.theValuesBelowWereRetained")
                         : availability.message}
                     </small>
                   </div>
@@ -100,14 +94,14 @@ export function AcademicSummary({
                 {(!unavailable || all) && (
                   <table>
                     <caption className="srOnly">
-                      {t("Grades from 教務Web")}
+                      {t("courses.gradesFromWeb")}
                     </caption>
                     <thead>
                       <tr>
-                        <th scope="col">{t("Scope")}</th>
+                        <th scope="col">{t("courses.scope")}</th>
                         <th scope="col">GPA</th>
                         <th scope="col">GPT</th>
-                        <th scope="col">{t("Earned")}</th>
+                        <th scope="col">{t("courses.earned")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -129,15 +123,15 @@ export function AcademicSummary({
                 )}
                 <small>
                   {all
-                    ? `${unavailable ? `${t("Previous fetch")}: ` : ""}${
+                    ? `${unavailable ? `${t("courses.previousFetch")}: ` : ""}${
                         formatTimestamp(
                           all.fetchedAt,
                           intlLocale(i18n.language),
-                        ) ?? t("Not fetched yet")
+                        ) ?? t("courses.notFetchedYet")
                       }`
                     : unavailable
-                      ? `${t("Checked")}: ${availabilityChecked ?? availability.checkedAt}`
-                      : t("Not fetched yet")}
+                      ? `${t("courses.checked")}: ${availabilityChecked ?? availability.checkedAt}`
+                      : t("courses.notFetchedYet")}
                 </small>
               </div>
               <footer>
@@ -160,7 +154,9 @@ export function AcademicSummary({
                     }
                     onClick={refresh}
                   >
-                    {progress !== null ? progressLabel(progress) : t("Refresh")}
+                    {progress !== null
+                      ? progressLabel(progress)
+                      : t("courses.refresh")}
                   </Button>
                 )}
               </footer>
