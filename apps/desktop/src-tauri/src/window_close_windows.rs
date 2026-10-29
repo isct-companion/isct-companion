@@ -103,11 +103,11 @@ pub(crate) fn show_tray(app: &AppHandle) {
         let show = MenuItem::with_id(
             app,
             "tray-show",
-            text(app, "Show IsctCompanion"),
+            text(app, "tray.show"),
             true,
             None::<&str>,
         )?;
-        let quit = MenuItem::with_id(app, "tray-quit", text(app, "Quit"), true, None::<&str>)?;
+        let quit = MenuItem::with_id(app, "tray-quit", text(app, "common.quit"), true, None::<&str>)?;
         let menu = Menu::with_items(app, &[&show, &quit])?;
         let mut tray = TrayIconBuilder::with_id(TRAY)
             .tooltip("IsctCompanion")

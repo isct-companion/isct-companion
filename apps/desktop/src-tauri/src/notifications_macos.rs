@@ -58,8 +58,8 @@ define_class!(
     }
 );
 
-pub(crate) const UNBUNDLED: &str =
-    "Open the installed IsctCompanion.app to enable notifications. This development process cannot request macOS notification permission.";
+/// A catalog key (`resources/locales`): the page words it in the UI language.
+pub(crate) const UNBUNDLED: &str = "settings.notification.developmentProcess";
 
 pub(crate) fn available() -> bool {
     NSBundle::mainBundle()

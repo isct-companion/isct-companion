@@ -129,7 +129,7 @@ pub(crate) async fn copy_school_otp(
     .await?;
     app.clipboard()
         .write_text(text)
-        .map_err(|_| "OTP setup could not be copied to the clipboard.".to_string())?;
+        .map_err(|_| "settings.otp.clipboardFailed".to_string())?;
     Ok(true)
 }
 

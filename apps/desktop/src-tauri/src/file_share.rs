@@ -40,7 +40,7 @@ pub async fn copy_course_file(
     let done: Result<(), String> = Err(format!("no file clipboard for {path:?}"));
     done.map_err(|detail| {
         log::warn!("[file-share] copy failed: {detail}");
-        "Could not copy the file".into()
+        "share.copyFailed".into()
     })
 }
 
@@ -59,7 +59,7 @@ pub async fn share_course_file(
     let done: Result<(), String> = Err(format!("no share UI for {path:?} at {anchor:?}"));
     done.map_err(|detail| {
         log::warn!("[file-share] share failed: {detail}");
-        "Could not open the share menu".into()
+        "share.openFailed".into()
     })
 }
 
