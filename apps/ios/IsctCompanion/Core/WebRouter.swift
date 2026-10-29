@@ -6,7 +6,9 @@ import UIKit
 /// Which school page is on screen. Two entries share the resident views: the
 /// ウェブ tab (site picker) and pushes from a course or assignment. Opening a
 /// page asks Core (`openSchool`), which ensures and navigates the view; the
-/// visibility fact goes back to Core so hidden pulls yield to it.
+/// visibility fact goes back to Core so hidden pulls yield to it. What the
+/// screen says about the page (address, popups, Back and Forward, a failed
+/// load) is Core's `SchoolWebPage`, never read from the views.
 @MainActor
 @Observable
 final class WebRouter {
@@ -23,16 +25,21 @@ final class WebRouter {
     }
 
     private(set) var tabSite: SchoolSite = WebRouter.firstSite
-    private(set) var titles: [SchoolSite: String] = [:]
     private(set) var loading: SchoolSite?
     private(set) var error: String?
     /// Bumped when a view appears for a site so containers re-attach it.
     private(set) var attachRevision = 0
     private(set) var downloads: [URL] = []
-    /// How many popups are open over each site's view (Core's `school-web-popups`).
-    private(set) var popups: [SchoolSite: Int] = [:]
-    /// What the web screen says about each site's page (Core's `school-web-notice`).
-    private(set) var notices: [SchoolSite: Notice] = [:]
+    /// The page the person sees of each site: the higher `revision` of Core's
+    /// `school-web-page` and its `schoolWebPage` snapshot.
+    private(set) var pages: [SchoolSite: SchoolWebPage] = [:]
+    /// A reload Core opened again without resending a form (`school-web-notice`),
+    /// shown for a while. Tells two notes apart, so one's timer never clears
+    /// the next.
+    private(set) var reopened: [SchoolSite: UUID] = [:]
+    /// The failed load the person closed for each site, hidden until Core's
+    /// notice changes.
+    private var dismissed: [SchoolSite: SchoolWebFailure] = [:]
     @ObservationIgnored private var visibleOwner: UUID?
     @ObservationIgnored weak var session: Session?
     @ObservationIgnored let browser: SchoolBrowserHost
@@ -40,27 +47,9 @@ final class WebRouter {
 
     init(browser: SchoolBrowserHost) {
         self.browser = browser
-        browser.onTitleChange = { [weak self] site, title in self?.titles[site] = title }
         browser.onOpenExternal = { url in UIApplication.shared.open(url) }
         browser.onDownload = { [weak self] file in self?.downloads.append(file) }
         browser.onDownloadError = { [weak self] error in self?.error = AppModel.describe(error) }
-    }
-
-    /// Something about the page the person sees, shown next to it, outside
-    /// the school page.
-    struct Notice: Equatable {
-        enum Kind: Equatable {
-            /// The page did not load; `reason` is Core's `LoadFailure` wire name.
-            case loadFailed(reason: String)
-            /// A reload would have resent a form; the page was opened with GET.
-            case reopened
-        }
-        let kind: Kind
-        /// The address the page was going to, for Retry and Open in browser.
-        let url: URL?
-        /// Tells two notices about the same page apart, so one's timer
-        /// never clears the next.
-        let id = UUID()
     }
 
     /// A page pushed from context (course → LMS, assignment → submission).
@@ -89,6 +78,7 @@ final class WebRouter {
                 _ = try await session.openSchool(site: site, target: target).value()
                 opened.insert(site)
                 attachRevision += 1
+                await readPage(site)
             } catch {
                 self.error = AppModel.describe(error)
             }
@@ -113,9 +103,15 @@ final class WebRouter {
         setVisible(site)
     }
 
-    /// A web page appeared or disappeared on screen.
+    /// A web page appeared or disappeared on screen. Core publishes
+    /// `school-web-page` only for the site on screen, so once it is, the
+    /// snapshot fills in what changed while it was not.
     private func setVisible(_ site: SchoolSite?) {
-        _ = try? session?.schoolBrowsing(site: site)
+        guard let browsing = try? session?.schoolBrowsing(site: site), let site else { return }
+        Task {
+            _ = try? await browsing.value()
+            await readPage(site)
+        }
     }
 
     func appear(_ site: SchoolSite, owner: UUID) {
@@ -130,6 +126,38 @@ final class WebRouter {
         setVisible(nil)
     }
 
+    /// Core's `schoolWebPage` snapshot of `site`. Events are already
+    /// streaming, so whichever of the two is newer wins.
+    private func readPage(_ site: SchoolSite) async {
+        guard let session, case let .schoolWebPage(page)? = try? await session.schoolWebPage(site: site).value()
+        else { return }
+        adopt(page)
+    }
+
+    /// Keeps `page` unless a newer one of its site is already here.
+    private func adopt(_ page: SchoolWebPage) {
+        if let held = pages[page.site], held.revision >= page.revision { return }
+        pages[page.site] = page
+        if let closed = dismissed[page.site], closed != page.notice { dismissed[page.site] = nil }
+    }
+
+    /// The pages read before the event stream lost events, read again.
+    func refreshPages() {
+        for site in pages.keys { Task { await readPage(site) } }
+    }
+
+    /// The failed load the web screen shows for `site`, unless the person
+    /// closed it.
+    func failure(_ site: SchoolSite) -> SchoolWebFailure? {
+        guard let notice = pages[site]?.notice, notice != dismissed[site] else { return nil }
+        return notice
+    }
+
+    /// The address of the page the person sees, for Share and Open in browser.
+    func url(_ site: SchoolSite) -> URL? {
+        pages[site]?.url.flatMap(URL.init(string:))
+    }
+
     func dismissDownload() {
         guard !downloads.isEmpty else { return }
         let file = downloads.removeFirst()
@@ -139,42 +167,63 @@ final class WebRouter {
     /// Closes the popup in front of `site`'s page.
     func closePopup(_ site: SchoolSite) { browser.closeFrontPopup(site) }
 
-    /// Loads a failed page again, in the page the person sees.
+    /// Loads a failed page again, in the page the person sees. The notice
+    /// stays until Core hears how it went.
     func retry(_ site: SchoolSite) {
-        guard let url = notices.removeValue(forKey: site)?.url else { return }
+        guard let url = failure(site)?.url.flatMap(URL.init(string:)) else { return }
         browser.retry(site, url: url)
     }
 
-    func dismissNotice(_ site: SchoolSite) { notices[site] = nil }
+    func dismissFailure(_ site: SchoolSite) { dismissed[site] = pages[site]?.notice }
 
-    /// Core's `school-web-url`, `school-web-popups` and `school-web-notice`.
+    /// Core's `school-web-page` and `school-web-notice`.
     func receive(_ name: String, payload: String) {
         guard let row = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any],
             let site = Self.site(row["site"] as? String)
         else { return }
         switch name {
-        case "school-web-url":
-            // A page loaded: an earlier failure no longer describes it.
-            if case .loadFailed = notices[site]?.kind { notices[site] = nil }
-        case "school-web-popups":
-            popups[site] = (row["open"] as? NSNumber)?.intValue ?? 0
+        case "school-web-page":
+            guard let revision = (row["revision"] as? NSNumber)?.uint64Value else { return }
+            let notice = (row["notice"] as? [String: Any]).map {
+                SchoolWebFailure(url: $0["url"] as? String, reason: Self.loadFailure($0["reason"] as? String))
+            }
+            adopt(SchoolWebPage(
+                site: site, revision: revision, url: row["url"] as? String,
+                popups: (row["popups"] as? NSNumber)?.uint64Value ?? 0,
+                back: Self.step(row["back"] as? String), forward: Self.step(row["forward"] as? String),
+                notice: notice))
         case "school-web-notice":
-            let url = (row["url"] as? String).flatMap(URL.init(string:))
-            switch row["kind"] as? String {
-            case "load-failed":
-                notices[site] = Notice(kind: .loadFailed(reason: row["reason"] as? String ?? "other"), url: url)
-            case "reopened":
-                let notice = Notice(kind: .reopened, url: url)
-                notices[site] = notice
-                Task {
-                    try? await Task.sleep(for: .seconds(6))
-                    if notices[site] == notice { notices[site] = nil }
-                }
-            default:
-                break
+            guard row["kind"] as? String == "reopened" else { return }
+            let note = UUID()
+            reopened[site] = note
+            Task {
+                try? await Task.sleep(for: .seconds(6))
+                if reopened[site] == note { reopened[site] = nil }
             }
         default:
             break
+        }
+    }
+
+    /// Core's `SchoolWebStep` from its wire name.
+    private static func step(_ wire: String?) -> SchoolWebStep {
+        switch wire {
+        case "yes": .yes
+        case "no": .no
+        default: .unknown
+        }
+    }
+
+    /// Core's `LoadFailure` from its wire name.
+    private static func loadFailure(_ wire: String?) -> LoadFailure {
+        switch wire {
+        case "cancelled": .cancelled
+        case "offline": .offline
+        case "host-not-found": .hostNotFound
+        case "unreachable": .unreachable
+        case "insecure": .insecure
+        case "cleartext": .cleartext
+        default: .other
         }
     }
 

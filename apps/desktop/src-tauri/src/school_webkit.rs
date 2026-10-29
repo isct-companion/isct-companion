@@ -10,12 +10,26 @@
 //!   are reported too: WebKit shows nothing and stays on the old page.
 //! - Popups: `createWebViewWithConfiguration:` returns a web view built from
 //!   WebKit's own configuration, so the POST body and `window.opener`
-//!   survive. It covers its opener inside the web pane, is registered in Core
-//!   as the opener's child, and `webViewDidClose` reports `window.close()`.
+//!   survive. It is registered in Core as the opener's child, and
+//!   `webViewDidClose` reports `window.close()`. A popup covers its site's
+//!   view as a sibling in the view's superview, never as a subview of a web
+//!   view: WKWebView answers AppKit's drag hit test (`_hitTest:dragTypes:`)
+//!   with itself for any point in its frame without looking at its
+//!   subviews, so a popup inside it would never receive a file dragged onto
+//!   it. The host therefore keeps each popup's frame and visibility with its
+//!   view (`arrange_popups`). Popups take the opener's page zoom, and refuse
+//!   to become first responder while hidden, as main views do.
+//! - History: whether a view or popup can go back or forward is reported to
+//!   Core when a page commits or finishes and when a popup is created.
 //! - Page dialogs: `alert()`, `confirm()`, `prompt()` as a sheet for the
 //!   view the person is looking at, Cancel for a hidden one. `window.print()`
 //!   reaches the private `_webView:printFrame:pdfFirstPageSize:completionHandler:`
 //!   and opens the system print panel, foreground only.
+//! - File inputs: `<input type=file>` opens the system file panel as a sheet,
+//!   for main views and popups alike (without a delegate method, macOS WebKit
+//!   treats the request as Cancel). Only the page in front of the visible
+//!   view may ask; the panel ends with Cancel when its view is hidden or
+//!   closed, and WebKit gets exactly one answer.
 //! - Files: the download (↓) button of WebKit's PDF viewer reaches the
 //!   private `_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:`.
 //!   A displayable `Content-Disposition: attachment` response (Moodle
@@ -28,6 +42,7 @@
 //! WebKit caches which delegate methods exist when a delegate is set, so each
 //! shim also answers `respondsToSelector:` for wry's methods and forwards them.
 
+use crate::lifecycle::SchoolSite;
 use app_core::school_browser::{
     BrowserId, LoadFailure, NavigationDecision, NavigationKind, NewWindowDecision, WindowFeatures,
 };
@@ -40,18 +55,19 @@ use objc2::{
     define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message,
 };
 use objc2_app_kit::{
-    NSAlert, NSAlertFirstButtonReturn, NSAutoresizingMaskOptions, NSModalResponse, NSPrintInfo,
-    NSResponder, NSTextField, NSView,
+    NSAlert, NSAlertFirstButtonReturn, NSDragOperation, NSDraggingInfo, NSModalResponse,
+    NSModalResponseOK, NSOpenPanel, NSPrintInfo, NSResponder, NSTextField, NSView,
+    NSWindowOrderingMode,
 };
 use objc2_foundation::{
-    ns_string, NSData, NSError, NSHTTPURLResponse, NSPoint, NSRect, NSSize, NSString, NSURLRequest,
-    NSURLResponse, NSURL,
+    ns_string, NSArray, NSData, NSError, NSHTTPURLResponse, NSPoint, NSRect, NSSize, NSString,
+    NSURLRequest, NSURLResponse, NSURL,
 };
 use objc2_web_kit::{
     WKBackForwardListItem, WKDownload, WKDownloadDelegate, WKFrameInfo, WKNavigation,
     WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
-    WKNavigationResponsePolicy, WKNavigationType, WKUIDelegate, WKWebView, WKWebViewConfiguration,
-    WKWindowFeatures,
+    WKNavigationResponsePolicy, WKNavigationType, WKOpenPanelParameters, WKUIDelegate, WKWebView,
+    WKWebViewConfiguration, WKWindowFeatures,
 };
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -91,6 +107,8 @@ pub trait Host {
         features: WindowFeatures,
     ) -> NewWindowDecision;
     fn popup_loaded(&self, popup: BrowserId, url: Url);
+    /// Where the view's or popup's own history can go from its page.
+    fn history(&self, view: BrowserId, back: bool, forward: bool);
     fn failed(&self, view: BrowserId, url: Option<Url>, reason: LoadFailure, message: String);
     /// The popup's page closed it (`window.close()`).
     fn popup_closed(&self, popup: BrowserId);
@@ -231,33 +249,43 @@ fn failure(error: &NSError) -> LoadFailure {
     }
 }
 
+/// A URL's host for the log: paths and queries carry SSO tokens and personal
+/// data, so nothing else of it is written.
+fn host_of(url: Option<&NSURL>) -> String {
+    url.and_then(|url| url.absoluteString())
+        .and_then(|url| Url::parse(&url.to_string()).ok())
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .unwrap_or_else(|| "-".into())
+}
+
 fn failing_url(error: &NSError) -> Option<Url> {
     let info = error.userInfo();
     let value = info.objectForKey(ns_string!("NSErrorFailingURLStringKey"))?;
     Url::parse(&value.downcast_ref::<NSString>()?.to_string()).ok()
 }
 
-/// A page dialog's answer, given to WebKit exactly once: `Some` is OK (with
-/// the entered text for `prompt()`), `None` is Cancel. A dialog that ends
-/// without an answer, never shown or torn down with its window, answers
-/// Cancel when its last reference goes.
-struct Reply(Cell<Option<SendAnswer>>);
+/// The answer to a page's request, given to WebKit exactly once, as WebKit
+/// requires: `Some` is OK (the entered text for `prompt()`, the chosen files
+/// for a file input), `None` is Cancel. A request that ends without an
+/// answer, never shown or torn down with its window or view, answers Cancel
+/// when its last reference goes.
+struct Reply<T: ?Sized + 'static>(Cell<Option<SendAnswer<T>>>);
 
-type SendAnswer = Box<dyn FnOnce(Option<&NSString>)>;
+type SendAnswer<T> = Box<dyn FnOnce(Option<&T>)>;
 
-impl Reply {
-    fn new(send: impl FnOnce(Option<&NSString>) + 'static) -> Rc<Self> {
+impl<T: ?Sized + 'static> Reply<T> {
+    fn new(send: impl FnOnce(Option<&T>) + 'static) -> Rc<Self> {
         Rc::new(Self(Cell::new(Some(Box::new(send)))))
     }
 
-    fn send(&self, answer: Option<&NSString>) {
+    fn send(&self, answer: Option<&T>) {
         if let Some(send) = self.0.take() {
             send(answer);
         }
     }
 }
 
-impl Drop for Reply {
+impl<T: ?Sized + 'static> Drop for Reply<T> {
     fn drop(&mut self) {
         self.send(None);
     }
@@ -298,6 +326,115 @@ struct Popup {
 thread_local! {
     /// Popups exist on the main thread only, as their web views do.
     static POPUPS: RefCell<Vec<Popup>> = const { RefCell::new(Vec::new()) };
+
+    /// File panels on screen and the view or popup each one answers.
+    static FILE_PANELS: RefCell<Vec<(BrowserId, Retained<NSOpenPanel>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Whether `view` is the page in front of its site: the last popup opened
+/// over the view, or the view itself when none is open.
+fn in_front(view: BrowserId) -> bool {
+    POPUPS.with_borrow(|popups| {
+        popups
+            .iter()
+            .rev()
+            .find(|popup| popup.id.site == view.site)
+            .is_none_or(|front| front.id == view)
+    })
+}
+
+/// Ends the file panels of the views and popups `owner` names, each
+/// answering Cancel. Main thread only.
+pub fn end_file_panels(owner: impl Fn(BrowserId) -> bool) {
+    let ended: Vec<_> = FILE_PANELS.with_borrow_mut(|panels| {
+        let (ended, kept) = std::mem::take(panels)
+            .into_iter()
+            .partition(|(id, _)| owner(*id));
+        *panels = kept;
+        ended
+    });
+    for (_, panel) in ended {
+        // The panel's own Cancel ends the sheet and runs its completion
+        // handler; the reply answers Cancel if it never runs.
+        unsafe { panel.cancel(None) };
+    }
+}
+
+struct PopupIvars {
+    site: SchoolSite,
+}
+
+define_class!(
+    /// A popup's web view. Like wry's main views
+    /// (`refuse_first_responder_while_hidden`), it does not take the keyboard
+    /// while hidden; as a sibling of its view, it is hidden itself
+    /// (`arrange_popups`).
+    #[unsafe(super(WKWebView, NSView, NSResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = PopupIvars]
+    struct PopupWebView;
+
+    unsafe impl NSObjectProtocol for PopupWebView {}
+
+    impl PopupWebView {
+        #[unsafe(method(acceptsFirstResponder))]
+        fn accepts_first_responder(&self) -> bool {
+            !self.isHiddenOrHasHiddenAncestor()
+                && unsafe { msg_send![super(self), acceptsFirstResponder] }
+        }
+
+        /// A file dragged onto the popup reaches it (reproductions look for
+        /// this line).
+        #[unsafe(method(draggingEntered:))]
+        fn dragging_entered(&self, sender: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            log::info!("[school-web] drag entered site={:?} popup", self.ivars().site);
+            unsafe { msg_send![super(self), draggingEntered: sender] }
+        }
+    }
+);
+
+/// A site's main view, the one its popups cover.
+fn main_view(site: SchoolSite) -> Option<Retained<WKWebView>> {
+    MAIN_VIEWS.with_borrow(|views| {
+        views
+            .iter()
+            .find(|(id, _)| id.site == site)
+            .and_then(|(_, web_view)| web_view.load())
+    })
+}
+
+/// Puts every popup over its site's view again: in the view's superview,
+/// above it in opening order, with its frame, resizing and visibility. The
+/// host calls this whenever it moves, resizes, shows or hides views.
+pub fn arrange_popups() {
+    POPUPS.with_borrow(|popups| {
+        let mut above: Vec<(SchoolSite, Retained<NSView>)> = Vec::new();
+        for popup in popups {
+            let site = popup.id.site;
+            let Some(view) = main_view(site) else {
+                continue;
+            };
+            let Some(superview) = (unsafe { view.superview() }) else {
+                continue;
+            };
+            let below = match above.iter().position(|(open, _)| *open == site) {
+                Some(index) => above.remove(index).1,
+                None => Retained::into_super(view.clone()),
+            };
+            let popup_view: &NSView = &popup.web_view;
+            if unsafe { popup_view.superview() }.as_deref() != Some(&*superview) {
+                superview.addSubview_positioned_relativeTo(
+                    popup_view,
+                    NSWindowOrderingMode::Above,
+                    Some(&below),
+                );
+            }
+            popup.web_view.setFrame(view.frame());
+            popup.web_view.setAutoresizingMask(view.autoresizingMask());
+            popup.web_view.setHidden(view.isHidden());
+            above.push((site, Retained::into_super(popup.web_view.clone())));
+        }
+    });
 }
 
 define_class!(
@@ -370,6 +507,21 @@ define_class!(
                 handler.call((answer.map_or(null_mut(), |text| text as *const _ as *mut _),))
             });
             self.present(web_view, prompt, frame, Dialog::Prompt(default_text), reply);
+        }
+
+        #[unsafe(method(webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:))]
+        fn run_open_panel(
+            &self,
+            web_view: &WKWebView,
+            parameters: &WKOpenPanelParameters,
+            _frame: &WKFrameInfo,
+            handler: &DynBlock<dyn Fn(*mut NSArray<NSURL>)>,
+        ) {
+            let handler = handler.copy();
+            let reply = Reply::new(move |files: Option<&NSArray<NSURL>>| {
+                handler.call((files.map_or(null_mut(), |files| files as *const _ as *mut _),))
+            });
+            self.choose_files(web_view, parameters, reply);
         }
     }
 
@@ -474,18 +626,22 @@ impl SchoolUiDelegate {
     ) -> Option<Retained<WKWebView>> {
         let ivars = self.ivars();
         let request = request(web_view, action, None)?;
+        let host = request.url.host_str().unwrap_or("-").to_owned();
         let features = WindowFeatures {
             width: unsafe { features.width() }.map(|value| value.doubleValue()),
             height: unsafe { features.height() }.map(|value| value.doubleValue()),
         };
         match ivars.host.new_window(ivars.view, request, features) {
-            NewWindowDecision::Popup(id) => Some(open_popup(
-                self.mtm(),
-                web_view,
-                configuration,
-                id,
-                ivars.host.clone(),
-            )),
+            NewWindowDecision::Popup(id) => {
+                log::info!("[school-web] popup opened site={:?} host={host}", id.site);
+                Some(open_popup(
+                    self.mtm(),
+                    web_view,
+                    configuration,
+                    id,
+                    ivars.host.clone(),
+                ))
+            }
             NewWindowDecision::External(url) => {
                 ivars.host.open_external(url);
                 None
@@ -508,7 +664,7 @@ impl SchoolUiDelegate {
         message: &NSString,
         frame: &WKFrameInfo,
         dialog: Dialog<'_>,
-        reply: Rc<Reply>,
+        reply: Rc<Reply<NSString>>,
     ) {
         if !self.ivars().host.foreground() {
             return;
@@ -559,6 +715,53 @@ impl SchoolUiDelegate {
             let responder: &NSResponder = &field;
             alert.window().makeFirstResponder(Some(responder));
         }
+    }
+
+    /// Shows the system file panel as a sheet on the window hosting the
+    /// view, for the page in front of the school view the person is looking
+    /// at; any other request answers Cancel at once.
+    fn choose_files(
+        &self,
+        web_view: &WKWebView,
+        parameters: &WKOpenPanelParameters,
+        reply: Rc<Reply<NSArray<NSURL>>>,
+    ) {
+        let view = self.ivars().view;
+        if !self.ivars().host.foreground()
+            || !in_front(view)
+            || web_view.isHiddenOrHasHiddenAncestor()
+        {
+            return;
+        }
+        let Some(window) = web_view.window().filter(|window| window.isVisible()) else {
+            return;
+        };
+        // A sheet already on the window (another panel, a page dialog) keeps it.
+        if window.attachedSheet().is_some() {
+            return;
+        }
+        let panel = NSOpenPanel::openPanel(self.mtm());
+        panel.setCanChooseFiles(true);
+        panel.setAllowsMultipleSelection(unsafe { parameters.allowsMultipleSelection() });
+        panel.setCanChooseDirectories(unsafe { parameters.allowsDirectories() });
+        FILE_PANELS.with_borrow_mut(|panels| panels.push((view, panel.clone())));
+        let shown = Weak::new(&*panel);
+        let web_view = Weak::new(web_view);
+        let done = RcBlock::new(move |response: NSModalResponse| {
+            let panel = shown.load();
+            if let Some(panel) = &panel {
+                FILE_PANELS.with_borrow_mut(|panels| {
+                    panels.retain(|(_, open)| !std::ptr::eq(&**open, &**panel))
+                });
+            }
+            // A view closed or detached meanwhile has no page left to answer.
+            let attached = web_view.load().is_some_and(|view| view.window().is_some());
+            match panel.filter(|_| response == NSModalResponseOK && attached) {
+                Some(panel) => reply.send(Some(&panel.URLs())),
+                None => reply.send(None),
+            }
+        });
+        panel.beginSheetModalForWindow_completionHandler(&window, &done);
     }
 }
 
@@ -785,6 +988,7 @@ define_class!(
             download: &WKDownload,
         ) {
             let shown = displayable_attachment(navigation);
+            let url = unsafe { navigation.response() }.URL();
             match &self.ivars().original {
                 Some(original) if !shown => {
                     if original.respondsToSelector(sel!(webView:navigationResponse:didBecomeDownload:)) {
@@ -797,7 +1001,7 @@ define_class!(
                 }
                 _ => self.adopt(download, shown, web_view),
             }
-            self.report_download(shown);
+            self.report_download(shown, url.as_deref());
         }
 
         #[unsafe(method(webView:navigationAction:didBecomeDownload:))]
@@ -807,6 +1011,7 @@ define_class!(
             action: &WKNavigationAction,
             download: &WKDownload,
         ) {
+            let url = unsafe { action.request() }.URL();
             match &self.ivars().original {
                 Some(original) => {
                     if original.respondsToSelector(sel!(webView:navigationAction:didBecomeDownload:)) {
@@ -819,12 +1024,13 @@ define_class!(
                 }
                 None => self.adopt(download, false, web_view),
             }
-            self.report_download(false);
+            self.report_download(false, url.as_deref());
         }
 
         #[unsafe(method(webView:didCommitNavigation:))]
         fn did_commit(&self, web_view: &WKWebView, navigation: Option<&WKNavigation>) {
             *self.ivars().committed.borrow_mut() = unsafe { web_view.backForwardList().currentItem() };
+            self.report_history(web_view);
             if let Some(original) = self.forwards(sel!(webView:didCommitNavigation:)) {
                 let _: () = unsafe { msg_send![original, webView: web_view, didCommitNavigation: navigation] };
             }
@@ -833,6 +1039,7 @@ define_class!(
         #[unsafe(method(webView:didFinishNavigation:))]
         fn did_finish(&self, web_view: &WKWebView, navigation: Option<&WKNavigation>) {
             let ivars = self.ivars();
+            self.report_history(web_view);
             match self.forwards(sel!(webView:didFinishNavigation:)) {
                 Some(original) => {
                     let _: () = unsafe { msg_send![original, webView: web_view, didFinishNavigation: navigation] };
@@ -971,10 +1178,22 @@ impl SchoolNavigationDelegate {
 
     /// Tells Core this view's navigation became a download; Core closes a
     /// popup it leaves with nothing to show.
-    fn report_download(&self, shown: bool) {
+    fn report_download(&self, shown: bool, url: Option<&NSURL>) {
         let ivars = self.ivars();
         let had_page = ivars.committed.borrow().is_some();
+        log::info!(
+            "[school-web] became a download site={:?} popup={} host={} shown={shown} had_page={had_page}",
+            ivars.view.site,
+            ivars.original.is_none(),
+            host_of(url),
+        );
         ivars.host.became_download(ivars.view, had_page, shown);
+    }
+
+    fn report_history(&self, web_view: &WKWebView) {
+        let ivars = self.ivars();
+        let (back, forward) = unsafe { (web_view.canGoBack(), web_view.canGoForward()) };
+        ivars.host.history(ivars.view, back, forward);
     }
 
     /// Forgets a finished or failed download, returning its file, the
@@ -1014,7 +1233,7 @@ thread_local! {
 }
 
 /// Builds the popup WebKit asked for from its own configuration, covering
-/// the opener inside the web pane and following its size.
+/// the opener inside the web pane, following its size and its zoom.
 fn open_popup(
     mtm: MainThreadMarker,
     opener: &WKWebView,
@@ -1022,22 +1241,19 @@ fn open_popup(
     id: BrowserId,
     host: Rc<dyn Host>,
 ) -> Retained<WKWebView> {
-    let web_view = unsafe {
-        WKWebView::initWithFrame_configuration(mtm.alloc(), opener.bounds(), configuration)
-    };
-    web_view.setAutoresizingMask(
-        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
-    );
+    let frame = main_view(id.site).map_or_else(|| opener.frame(), |view| view.frame());
+    let web_view = mtm
+        .alloc::<PopupWebView>()
+        .set_ivars(PopupIvars { site: id.site });
+    let web_view: Retained<PopupWebView> =
+        unsafe { msg_send![super(web_view), initWithFrame: frame, configuration: configuration] };
+    let web_view = Retained::into_super(web_view);
+    unsafe { web_view.setPageZoom(opener.pageZoom()) };
     let ui = SchoolUiDelegate::new(mtm, None, host.clone(), id);
-    let navigation = SchoolNavigationDelegate::new(mtm, None, host, id, &web_view);
+    let navigation = SchoolNavigationDelegate::new(mtm, None, host.clone(), id, &web_view);
     unsafe {
         web_view.setUIDelegate(Some(ProtocolObject::from_ref(&*ui)));
         web_view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*navigation)));
-    }
-    opener.addSubview(&web_view);
-    if let Some(window) = opener.window() {
-        let responder: &NSResponder = &web_view;
-        window.makeFirstResponder(Some(responder));
     }
     POPUPS.with_borrow_mut(|popups| {
         popups.push(Popup {
@@ -1047,6 +1263,20 @@ fn open_popup(
             navigation,
         })
     });
+    // Into the view's superview, above the view and the site's earlier popups.
+    arrange_popups();
+    if unsafe { web_view.superview() }.is_none() {
+        log::warn!(
+            "[school-web] popup has no place over its view site={:?}",
+            id.site
+        );
+    }
+    if let Some(window) = opener.window() {
+        let responder: &NSResponder = &web_view;
+        window.makeFirstResponder(Some(responder));
+    }
+    let (back, forward) = unsafe { (web_view.canGoBack(), web_view.canGoForward()) };
+    host.history(id, back, forward);
     web_view
 }
 
@@ -1060,6 +1290,12 @@ pub fn close_popup(id: BrowserId) -> bool {
     let Some(popup) = popup else {
         return false;
     };
+    log::info!(
+        "[school-web] popup closed site={:?} host={}",
+        id.site,
+        host_of(unsafe { popup.web_view.URL() }.as_deref())
+    );
+    end_file_panels(|owner| owner == id);
     unsafe {
         popup.web_view.stopLoading();
     }
@@ -1068,6 +1304,15 @@ pub fn close_popup(id: BrowserId) -> bool {
         DRAINING.with_borrow_mut(|draining| draining.push(popup.navigation.clone()));
     }
     true
+}
+
+/// Sets the page zoom of `site`'s popups, as the app's zoom sets the view's.
+pub fn zoom_popups(site: SchoolSite, scale: f64) {
+    POPUPS.with_borrow(|popups| {
+        for popup in popups.iter().filter(|popup| popup.id.site == site) {
+            unsafe { popup.web_view.setPageZoom(scale) };
+        }
+    });
 }
 
 /// A command for a popup; false when it is not open.

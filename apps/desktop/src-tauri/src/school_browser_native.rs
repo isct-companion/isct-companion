@@ -277,7 +277,27 @@ impl NativeBrowser {
             self.close_popup(popup);
         }
         if let Some(view) = view {
+            #[cfg(target_os = "macos")]
+            self.end_file_panels(move |owner| owner == id);
             let _ = view.native.close();
+        }
+    }
+    /// Ends the file panels of the views and popups `owner` names, each
+    /// answering Cancel.
+    #[cfg(target_os = "macos")]
+    fn end_file_panels(&self, owner: impl Fn(BrowserId) -> bool + Send + 'static) {
+        if let Ok(app) = self.app() {
+            let _ = app.run_on_main_thread(move || crate::school_webkit::end_file_panels(owner));
+        }
+    }
+    /// Puts the popups back over their views. They are siblings of the
+    /// views, so they follow a view's frame and visibility only through
+    /// this. Queued behind the bounds and visibility just sent to the views,
+    /// so it reads their new state.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn arrange_popups(&self) {
+        if let Ok(app) = self.app() {
+            let _ = app.run_on_main_thread(crate::school_webkit::arrange_popups);
         }
     }
     fn is_popup(&self, id: BrowserId) -> bool {
@@ -604,6 +624,9 @@ impl NativeBrowser {
                 p.bounds,
             )
         };
+        // A file panel answers a page the person can see.
+        #[cfg(target_os = "macos")]
+        self.end_file_panels(move |owner| Some(owner.site) != visible);
         for (site, view) in views {
             if visible == Some(site) {
                 apply_bounds(&view, bounds)?;
@@ -613,6 +636,8 @@ impl NativeBrowser {
                 view.hide().map_err(|e| e.to_string())?;
             }
         }
+        #[cfg(target_os = "macos")]
+        self.arrange_popups();
         Ok(())
     }
     fn visible(&self, site: Option<SchoolSite>, bounds: Option<WebBounds>) -> Result<(), String> {
@@ -685,6 +710,8 @@ impl SchoolBrowser for NativeBrowser {
             for popup in popups {
                 self.close_popup(popup);
             }
+            #[cfg(target_os = "macos")]
+            self.end_file_panels(|_| true);
             tokio::task::spawn_blocking(move || {
                 for view in views {
                     let _ = view.close();
@@ -741,6 +768,8 @@ impl SchoolWebController {
         };
         if let Some(view) = view {
             apply_bounds(&view, bounds)?;
+            #[cfg(target_os = "macos")]
+            self.native.arrange_popups();
         }
         Ok(true)
     }
@@ -755,7 +784,8 @@ impl SchoolWebController {
         css: String,
         js: String,
         bounds: Option<WebBounds>,
-        target: Option<String>,
+        surface: &str,
+        entry: SchoolWebEntry,
     ) -> Result<SchoolWebResult, String> {
         self.native.visible(Some(site), bounds)?;
         self.engine
@@ -767,7 +797,7 @@ impl SchoolWebController {
                 },
             )
             .map_err(|e| e.to_string())?;
-        let result = self.engine.open(site, target).await;
+        let result = self.engine.open(site, surface, entry).await;
         if result.is_err() {
             let _ = self.native.visible(None, None);
             let _ = self.engine.user_browsing(None);
@@ -792,13 +822,20 @@ impl SchoolWebController {
             .views
             .get(&site)
             .map(|v| v.native.clone());
-        if let Some(view) = view {
-            view.set_zoom(scale.clamp(0.5, 2.))
-                .map_err(|e| e.to_string())?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        let Some(view) = view else {
+            return Ok(false);
+        };
+        let scale = scale.clamp(0.5, 2.);
+        view.set_zoom(scale).map_err(|e| e.to_string())?;
+        #[cfg(target_os = "macos")]
+        self.native
+            .app()
+            .and_then(|app| {
+                app.run_on_main_thread(move || crate::school_webkit::zoom_popups(site, scale))
+                    .map_err(|e| BrowserError::Dispatch(e.to_string()))
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(true)
     }
 }
 
@@ -873,6 +910,12 @@ impl crate::school_webkit::Host for WebKitHost {
     fn popup_loaded(&self, popup: BrowserId, url: Url) {
         if let Some(native) = self.native.upgrade() {
             native.popup_loaded(popup, url);
+        }
+    }
+
+    fn history(&self, view: BrowserId, back: bool, forward: bool) {
+        if let Some(listener) = self.native.upgrade().and_then(|native| native.listener()) {
+            listener.history_changed(view, History { back, forward });
         }
     }
 

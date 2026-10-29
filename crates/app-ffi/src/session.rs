@@ -27,6 +27,9 @@ use std::{
 use tokio::runtime::{Handle, Runtime};
 use tokio_util::sync::CancellationToken;
 
+/// The mobile shells' one web screen, the presenter of every site it opens.
+const WEB_SURFACE: &str = "web";
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct SessionConfig {
     pub data_directory: String,
@@ -409,19 +412,34 @@ impl Session {
             })
         })
     }
+    /// Shows the site's view on the app's one web screen: at `target` as an
+    /// app link, or as the person left it.
     pub fn open_school(
         &self,
         site: SchoolSite,
         target: Option<String>,
     ) -> Result<Arc<Operation>, SdkError> {
+        let entry = match target {
+            Some(url) => app_core::school_browser::SchoolWebEntry::Go { url },
+            None => app_core::school_browser::SchoolWebEntry::Resume,
+        };
         self.start(false, move |i, _| async move {
             Ok(OperationResult::SchoolWeb {
                 result: project(
                     i.core
                         .school_browser()?
-                        .open(project_input(site)?, target)
+                        .open(project_input(site)?, WEB_SURFACE, entry)
                         .await?,
                 )?,
+            })
+        })
+    }
+    /// The page the person sees of `site`. Read it after subscribing to
+    /// events and keep the higher `revision` of it and `school-web-page`.
+    pub fn school_web_page(&self, site: SchoolSite) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(move |i| {
+            Ok(OperationResult::SchoolWebPage {
+                page: project(i.core.school_browser()?.page(project_input(site)?))?,
             })
         })
     }

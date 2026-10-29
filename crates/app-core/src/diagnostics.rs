@@ -126,10 +126,21 @@ pub fn info(scope: &str, message: &str) {
     write("INFO", scope, message);
 }
 
+/// Crates whose records the log keeps; dependencies stay out. Core names
+/// itself, so only the other crates need updating when one is renamed.
+const OWN_CRATES: [&str; 5] = [
+    env!("CARGO_CRATE_NAME"),
+    "app_ffi",
+    "app_ocr",
+    "adpt_isct",
+    "isct_companion_lib",
+];
+
 struct AppLogger;
 impl log::Log for AppLogger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= log::Level::Info && metadata.target().starts_with("isct")
+        let root = metadata.target().split("::").next().unwrap_or_default();
+        metadata.level() <= log::Level::Info && OWN_CRATES.contains(&root)
     }
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {
@@ -149,6 +160,18 @@ pub fn initialize() -> Result<(), DiagnosticsError> {
     static LOGGER: AppLogger = AppLogger;
     log::set_logger(&LOGGER).map_err(|_| DiagnosticsError::AlreadyConfigured)?;
     log::set_max_level(log::LevelFilter::Info);
+    // Release shells have no visible stderr, so a panic reaches the exported
+    // log only through this hook; the previous hook still prints it.
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic| {
+        // `try_lock`: a panic inside `Buffer::push` already holds the buffer.
+        if let Ok(mut buffer) = buffer().try_lock() {
+            let thread = std::thread::current();
+            let name = thread.name().unwrap_or("unnamed");
+            buffer.push("ERROR", "panic", &format!("thread '{name}' {panic}"));
+        }
+        previous(panic);
+    }));
     info("app", "Application started");
     Ok(())
 }

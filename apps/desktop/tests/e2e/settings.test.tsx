@@ -249,7 +249,7 @@ describe("School accounts", () => {
             return {
               site: "science-portal",
               url:
-                args.targetUrl ??
+                (args.entry as { url?: string }).url ??
                 "https://isct.ex-tic.com/idm/user/mfa_setting/",
               phase: "pageLoaded",
             };

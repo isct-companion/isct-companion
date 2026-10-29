@@ -34,10 +34,11 @@ import androidx.compose.runtime.setValue
 
 /** `NativeBrowser` over one resident WebView per school site and the popups
  * its pages open (docs/core-school-browser.md). Core decides every
- * navigation and window; this adapter reports what WebView tells it,
- * creates, shows and hides the views, executes dispatched commands on the
- * main thread, and shows page dialogs for the view on screen. Port methods
- * arrive on Core workers and only enqueue main-thread work. */
+ * navigation and window, and what Back and Forward do; this adapter reports
+ * what WebView tells it (each view's and popup's history included), creates,
+ * shows and hides the views, executes dispatched commands on the main
+ * thread, and shows page dialogs for the view on screen. Port methods arrive
+ * on Core workers and only enqueue main-thread work. */
 class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     private val lock = Any()
     private var events: BrowserEvents? = null
@@ -64,11 +65,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     var revision by mutableIntStateOf(0)
         private set
 
-    /** Bumped after every page load, so screens re-read history state such as
-     * whether back can go anywhere. */
-    var loads by mutableIntStateOf(0)
-        private set
-
     /** The page dialog waiting for the person, if the page on screen asked. */
     var dialog by mutableStateOf<PageDialog?>(null)
         private set
@@ -77,12 +73,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
      * due or open. */
     var files by mutableStateOf<FileRequest?>(null)
         private set
-
-    /** Whether `site`'s frontmost page has a page to go back to. */
-    fun canGoBack(site: SchoolSite): Boolean = front(site)?.canGoBack() == true
-
-    /** Whether `site`'s frontmost page has a page to go forward to. */
-    fun canGoForward(site: SchoolSite): Boolean = front(site)?.canGoForward() == true
 
     /** Where the chosen text scale is kept on this device (設定 › ウェブ). */
     private val preferences = context.getSharedPreferences("web", Context.MODE_PRIVATE)
@@ -242,6 +232,8 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         val popup = Tab(id, newWebView(), opener)
         popup.root.popups.add(popup)
         register(popup)
+        // No history yet: Core's Back closes it until it has some.
+        popup.reportHistory()
         return popup
     }
 
@@ -363,6 +355,12 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
         fun descendsFrom(ancestor: Tab): Boolean = generateSequence(this) { it.opener }.any { it === ancestor }
 
+        /** Where this view's or popup's own history can go, for Core's Back
+         * and Forward. */
+        fun reportHistory() {
+            runCatching { listener()?.historyChanged(id, webView.canGoBack(), webView.canGoForward()) }
+        }
+
         /** A popup whose first page went to the system browser or was refused
          * stays blank; close it as a browser closes such a tab. */
         private fun closeIfEmpty(request: WebResourceRequest) {
@@ -412,7 +410,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
             override fun onPageFinished(view: WebView, url: String?) {
                 url ?: return
-                loads++
                 if (url == failedUrl) {
                     failedUrl = null
                     return
@@ -421,6 +418,11 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
                 if (url != BLANK) loaded = true
                 // WebView exposes no request id here; never label a late load with an action.
                 runCatching { listener()?.pageLoaded(nextPage(), null, url) }
+            }
+
+            // Every committed entry, same-document ones (`pushState`) included.
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                reportHistory()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {

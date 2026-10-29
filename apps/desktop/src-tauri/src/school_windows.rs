@@ -4,6 +4,11 @@
 //! with a GET (`HostCapabilities`). Popups are small separate windows Tauri
 //! creates in the opener's WebView2 environment (`NewWindowResponse::Create`),
 //! so `window.opener` and a posted form survive.
+//!
+//! A temporary exception to the history every other host reports: this one
+//! reports none, so the page's Back and Forward stay `unknown` and Core asks
+//! the engine anyway. It ends when `school_webview2.rs` reports history
+//! (`approach/school-web-windows-host-later`).
 use crate::school_browser_native::{NativeBrowser, PopupRecord};
 use app_core::school_browser::{
     BrowserAction, BrowserId, NavigationDecision, NavigationKind, NavigationRequest,

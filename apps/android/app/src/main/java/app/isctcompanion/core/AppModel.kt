@@ -142,9 +142,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 config, KeystoreVault(context), browser, null, null, WebCookieSession(), null, drive,
             )
             this.session = session
-            web.session = session
             val stream = session.subscribe()
             scope.launch { listen(stream) }
+            // The web screen reads page snapshots only once events stream.
+            web.session = session
             refresh()
             refreshAccounts()
             readSync()
@@ -299,8 +300,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                     "cloud-sync-state" -> refreshCloud()
                     "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
                         .onSuccess { ocrProgress = it }
-                    "school-web-url", "school-web-popups", "school-web-notice" ->
-                        web.handle(update.event.name, update.event.payload)
+                    "school-web-page", "school-web-notice" -> web.handle(update.event.name, update.event.payload)
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
                     "school-download", "catalog-changed" -> Unit
@@ -314,6 +314,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 }
                 is StreamUpdate.SnapshotRequired -> {
                     scheduleRefresh()
+                    web.refreshPages()
                     refreshAccounts()
                     readSync()
                 }

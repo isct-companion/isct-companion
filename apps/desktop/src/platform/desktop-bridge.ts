@@ -260,14 +260,42 @@ export type SchoolLoadFailure =
   | "cleartext"
   | "other";
 
-export type SchoolWebNotice =
-  | {
-      site: SchoolSite;
-      kind: "load-failed";
-      url: string | null;
-      reason: SchoolLoadFailure;
-    }
-  | { site: SchoolSite; kind: "reopened"; url: string };
+/** A one-time note about the page on screen: a reload was sent as GET. */
+export type SchoolWebNotice = {
+  site: SchoolSite;
+  kind: "reopened";
+  url: string;
+};
+
+/** Whether the app's Back or Forward does something for the page in front;
+ * "unknown" when the host does not report history. */
+export type SchoolWebStep = "yes" | "no" | "unknown";
+
+/** A load of the page in front that failed; Core clears it. */
+export type SchoolWebFailure = {
+  url: string | null;
+  reason: SchoolLoadFailure;
+};
+
+/** The page the person sees of a site, as every surface renders it. */
+export type SchoolWebPage = {
+  site: SchoolSite;
+  /** Grows with every change; keep the highest seen. */
+  revision: number;
+  url: string | null;
+  /** Popups open over the view. */
+  popups: number;
+  back: SchoolWebStep;
+  forward: SchoolWebStep;
+  notice: SchoolWebFailure | null;
+};
+
+/** How a surface brings a site's view on screen. Core resumes, goes to the
+ * URL, or (for "return") resumes only when this surface showed it last. */
+export type SchoolWebEntry =
+  | { kind: "resume" }
+  | { kind: "go"; url: string }
+  | { kind: "return"; url: string };
 
 export type SchoolWebBounds = {
   x: number;
@@ -454,12 +482,14 @@ export interface DesktopBridge {
   copySchoolOtp(setup?: string): Promise<boolean>;
   /** SVG QR code of the OTP setup, for another authenticator to scan. */
   schoolOtpQr(setup?: string): Promise<string>;
+  /** Shows `site`'s view for `surface` (an id of the app page showing it). */
   openSchoolSite(
     site: SchoolSite,
     css: string,
     js: string,
-    bounds?: SchoolWebBounds,
-    targetUrl?: string,
+    bounds: SchoolWebBounds | undefined,
+    surface: string,
+    entry: SchoolWebEntry,
   ): Promise<{
     site: SchoolSite;
     url: string;
@@ -482,14 +512,14 @@ export interface DesktopBridge {
   /** Closes the popup in front of the site's view; false when none is open. */
   closeSchoolWebPopup?(site: SchoolSite): Promise<boolean>;
   setSchoolWebZoom?(site: SchoolSite, scale: number): Promise<boolean>;
-  onSchoolWebUrl?(
-    callback: (request: { site: SchoolSite; url: string }) => void,
-  ): () => void;
-  /** How many popups are open over the site's view in the web pane. */
-  onSchoolWebPopups?(
-    callback: (event: { site: SchoolSite; open: number }) => void,
-  ): () => void;
-  /** A notice about the page the person is looking at (Core decides when). */
+  /** The page the person sees of `site` now. */
+  schoolWebPage?(site: SchoolSite): Promise<SchoolWebPage>;
+  /** Every change of the page on screen. Resolves once the listener is
+   * registered, so a snapshot read afterwards misses nothing. */
+  onSchoolWebPage?(
+    callback: (page: SchoolWebPage) => void,
+  ): Promise<() => void>;
+  /** A one-time note about the page the person is looking at. */
   onSchoolWebNotice?(callback: (notice: SchoolWebNotice) => void): () => void;
   onSchoolLoginStatus?(callback: (event: SchoolLoginEvent) => void): () => void;
   /** What the Wi-Fi interface is on now (macOS builds only). */
@@ -553,6 +583,25 @@ export interface DesktopBridge {
   ): Promise<boolean>;
   clearCloudCredentialSyncPassword(): Promise<boolean>;
 }
+
+const schoolWebSteps: readonly unknown[] = ["yes", "no", "unknown"];
+const isSchoolWebPage = (value: unknown): value is SchoolWebPage => {
+  if (!value || typeof value !== "object") return false;
+  const page = value as Record<string, unknown>;
+  const notice = page.notice as Record<string, unknown> | null | undefined;
+  return (
+    typeof page.site === "string" &&
+    Number.isSafeInteger(page.revision) &&
+    (page.url === null || typeof page.url === "string") &&
+    Number.isSafeInteger(page.popups) &&
+    schoolWebSteps.includes(page.back) &&
+    schoolWebSteps.includes(page.forward) &&
+    (notice === null ||
+      (typeof notice === "object" &&
+        (notice.url === null || typeof notice.url === "string") &&
+        typeof notice.reason === "string"))
+  );
+};
 
 /** Tauri's unlisten throws, or rejects, once the runtime is gone (window closing, tests). */
 const quietly = (unlisten: () => unknown) => {
@@ -770,14 +819,31 @@ export function createTauriDesktopBridge(
         quietly(unlisten);
       };
     },
-    openSchoolSite: (site, css, js, bounds, targetUrl) =>
+    openSchoolSite: (site, css, js, bounds, surface, entry) =>
       result("open_school_site", {
         site,
         css,
         js,
         bounds: bounds ?? null,
-        targetUrl: targetUrl ?? null,
+        surface,
+        entry,
       }),
+    schoolWebPage: async (site) => {
+      const page = await result<SchoolWebPage>("school_web_page", { site });
+      if (!isSchoolWebPage(page))
+        throw new Error("school_web_page returned an invalid result.");
+      return page;
+    },
+    onSchoolWebPage: async (callback) => {
+      let disposed = false;
+      const unlisten = await listen<unknown>("school-web-page", (payload) => {
+        if (!disposed && isSchoolWebPage(payload)) callback(payload);
+      });
+      return () => {
+        disposed = true;
+        quietly(unlisten);
+      };
+    },
     setSchoolWebBounds: (bounds) =>
       booleanCommand("set_school_web_bounds", { bounds }),
     hideSchoolWeb: () => booleanCommand("hide_school_web"),
@@ -790,52 +856,6 @@ export function createTauriDesktopBridge(
       booleanCommand("close_school_web_popup", { site }),
     setSchoolWebZoom: (site, scale) =>
       booleanCommand("set_school_web_zoom", { site, scale }),
-    onSchoolWebUrl: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<{ site: SchoolSite; url: string }>(
-        "school-web-url",
-        (payload) => {
-          if (
-            !disposed &&
-            payload &&
-            typeof payload.site === "string" &&
-            typeof payload.url === "string"
-          )
-            callback(payload);
-        },
-      ).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
-    onSchoolWebPopups: (callback) => {
-      let disposed = false;
-      let unlisten: (() => void) | undefined;
-      void listen<{ site: SchoolSite; open: number }>(
-        "school-web-popups",
-        (payload) => {
-          if (
-            !disposed &&
-            payload &&
-            typeof payload.site === "string" &&
-            typeof payload.open === "number"
-          )
-            callback(payload);
-        },
-      ).then((fn) => {
-        if (disposed) quietly(fn);
-        else unlisten = fn;
-      });
-      return () => {
-        disposed = true;
-        if (unlisten) quietly(unlisten);
-      };
-    },
     onSchoolWebNotice: (callback) => {
       let disposed = false;
       let unlisten: (() => void) | undefined;
@@ -844,7 +864,8 @@ export function createTauriDesktopBridge(
           !disposed &&
           payload &&
           typeof payload.site === "string" &&
-          (payload.kind === "load-failed" || payload.kind === "reopened")
+          payload.kind === "reopened" &&
+          typeof payload.url === "string"
         )
           callback(payload);
       }).then((fn) => {

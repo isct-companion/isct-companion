@@ -959,6 +959,15 @@ describe("Tauri bridge contract", () => {
   });
 
   it("maps credential, session and webview calls to narrow commands", async () => {
+    const page = {
+      site: "science-lms",
+      revision: 7,
+      url: "https://lms.s.isct.ac.jp/2025/my/",
+      popups: 1,
+      back: "yes",
+      forward: "unknown",
+      notice: { url: null, reason: "offline" },
+    };
     const { invoke, calls } = invokeSeam((command) => {
       switch (command) {
         case "connect_school":
@@ -982,11 +991,14 @@ describe("Tauri bridge contract", () => {
             url: "https://example.test",
             phase: "pageLoaded",
           };
+        case "school_web_page":
+          return page;
         default:
           throw new Error(`unexpected command ${command}`);
       }
     });
-    const bridge = createTauriDesktopBridge(invoke, listenerSeam().listen);
+    const seam = listenerSeam();
+    const bridge = createTauriDesktopBridge(invoke, seam.listen);
     const credentials = {
       username: "student",
       password: "secret",
@@ -1002,12 +1014,26 @@ describe("Tauri bridge contract", () => {
       profiles: schoolProfiles("active", "pending"),
     });
     await bridge.schoolSessionLifecycle({ kind: "focus", visible: true });
-    await bridge.openSchoolSite("science-portal", "body{}", "window.x=1", {
-      x: 1,
-      y: 2,
-      width: 3,
-      height: 4,
-    });
+    await bridge.openSchoolSite(
+      "science-portal",
+      "body{}",
+      "window.x=1",
+      { x: 1, y: 2, width: 3, height: 4 },
+      "reader-2",
+      { kind: "return", url: "https://lms.s.isct.ac.jp/2025/my/" },
+    );
+    // The page subscription is registered by the time it resolves, so the
+    // snapshot read next cannot miss a change; malformed pages are dropped.
+    const pages: unknown[] = [];
+    const dispose = await bridge.onSchoolWebPage!((next) => pages.push(next));
+    expect(seam.names).toEqual(["school-web-page"]);
+    await expect(bridge.schoolWebPage!("science-lms")).resolves.toEqual(page);
+    seam.deliver({ ...page, revision: 8, back: "maybe" });
+    seam.deliver({ ...page, revision: 9, notice: null });
+    expect(pages).toEqual([{ ...page, revision: 9, notice: null }]);
+    dispose();
+    seam.deliver({ ...page, revision: 10 });
+    expect(pages).toHaveLength(1);
     await bridge.navigateSchoolWeb?.(
       "science-portal",
       "https://isct.ex-tic.com/idm/user/portal/",
@@ -1033,9 +1059,11 @@ describe("Tauri bridge contract", () => {
           css: "body{}",
           js: "window.x=1",
           bounds: { x: 1, y: 2, width: 3, height: 4 },
-          targetUrl: null,
+          surface: "reader-2",
+          entry: { kind: "return", url: "https://lms.s.isct.ac.jp/2025/my/" },
         },
       },
+      { command: "school_web_page", payload: { site: "science-lms" } },
       {
         command: "navigate_school_web",
         payload: {

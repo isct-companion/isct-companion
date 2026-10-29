@@ -5,6 +5,7 @@ use crate::{
     require_local_main,
     school_web::{SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds},
 };
+use app_core::school_browser::{SchoolWebEntry, SchoolWebPage};
 use tauri_plugin_opener::OpenerExt;
 
 /// Explicit user browsing preserves the full web address, including search
@@ -48,8 +49,10 @@ pub(crate) fn configure_school_web_policy(
     Ok(controller.configure(&app, policy)?)
 }
 
+/// Shows `site`'s view for `surface`, the app page presenting it, entering
+/// as `entry` says (Core decides what that means for the view).
 #[tauri::command]
-// Tauri supplies the first three parameters and the remaining fields preserve
+// Tauri supplies the first two parameters and the remaining fields preserve
 // the established IPC command shape.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn open_school_site(
@@ -59,13 +62,28 @@ pub(crate) async fn open_school_site(
     css: String,
     js: String,
     bounds: Option<WebBounds>,
-    target_url: Option<String>,
+    surface: String,
+    entry: SchoolWebEntry,
 ) -> Result<SchoolWebResult, CommandError> {
     require_local_main(&webview)?;
     if css.len() > 256 * 1024 || js.len() > 256 * 1024 {
         return Err("school customization exceeds the safe size".into());
     }
-    Ok(controller.open(site, css, js, bounds, target_url).await?)
+    Ok(controller
+        .open(site, css, js, bounds, &surface, entry)
+        .await?)
+}
+
+/// The page the person sees of `site`. A surface reads it once its
+/// `school-web-page` listener is registered and keeps the higher revision.
+#[tauri::command]
+pub(crate) fn school_web_page(
+    webview: tauri::Webview,
+    controller: tauri::State<'_, SchoolWebController>,
+    site: SchoolSite,
+) -> Result<SchoolWebPage, CommandError> {
+    require_local_main(&webview)?;
+    Ok(controller.engine.page(site))
 }
 
 #[tauri::command]

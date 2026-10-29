@@ -4,13 +4,14 @@ use super::policy::{
 };
 use super::{
     ActionId, BecameDownload, BrowserAction, BrowserCommand, BrowserError, BrowserId,
-    DownloadDisposition, HostCapabilities, LoadFailed, LoadFailure, NavigationDecision,
+    DownloadDisposition, History, HostCapabilities, LoadFailed, LoadFailure, NavigationDecision,
     NavigationRequest, NewWindowDecision, NewWindowRequest, PageId, PageLoaded, SchoolAutoSignIn,
     SchoolBrowser, SchoolBrowserError, SchoolBrowserListener, SchoolConnectResult,
     SchoolLoginEvent, SchoolPageCustomization, SchoolProfileSession, SchoolSessionEvent,
     SchoolSessionLifecycle, SchoolSessionLifecycleKind, SchoolSessionProfiles,
     SchoolSessionSnapshot, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind,
-    SchoolWebNotice, SchoolWebResult,
+    SchoolWebEntry, SchoolWebFailure, SchoolWebNotice, SchoolWebPage, SchoolWebResult,
+    SchoolWebStep,
 };
 use crate::{
     data::WorkspaceChangeSource,
@@ -122,6 +123,9 @@ struct State {
     submission: Option<super::submission::PendingSubmission>,
     restore: Option<(std::path::PathBuf, u64)>,
     restore_epoch: u64,
+    /// The page last published for each site (`school-web-page`).
+    pages: HashMap<SchoolSite, SchoolWebPage>,
+    page_revision: u64,
 }
 
 struct ViewState {
@@ -139,6 +143,11 @@ struct ViewState {
     /// Windows its pages opened, in opening order: a popup's parent is the
     /// view or a popup before it. They live and close with the view.
     popups: Vec<Popup>,
+    /// `None` until the host reports it; some hosts never do.
+    history: Option<History>,
+    failure: Option<SchoolWebFailure>,
+    /// The surface that last brought the view on screen (`open`).
+    presenter: Option<String>,
 }
 
 struct Popup {
@@ -146,6 +155,8 @@ struct Popup {
     parent: BrowserId,
     last_page: u64,
     url: Option<String>,
+    history: Option<History>,
+    failure: Option<SchoolWebFailure>,
 }
 
 impl State {
@@ -170,6 +181,63 @@ impl State {
                 .filter(|_| inline_popups)
                 .map_or(view.id, |popup| popup.id),
         )
+    }
+
+    /// The page the person sees of `site`, with the revision left for the
+    /// caller to stamp.
+    fn page(&self, site: SchoolSite, inline_popups: bool) -> SchoolWebPage {
+        let mut page = SchoolWebPage {
+            site,
+            revision: 0,
+            url: None,
+            popups: 0,
+            back: SchoolWebStep::No,
+            forward: SchoolWebStep::No,
+            notice: None,
+        };
+        let Some(view) = self.views.get(&site) else {
+            return page;
+        };
+        let step = |known: Option<bool>| match known {
+            Some(true) => SchoolWebStep::Yes,
+            Some(false) => SchoolWebStep::No,
+            None => SchoolWebStep::Unknown,
+        };
+        match view.popups.last().filter(|_| inline_popups) {
+            Some(popup) => {
+                page.url = popup.url.clone();
+                page.popups = view.popups.len();
+                // Back closes a popup at the start of its history.
+                page.back = step(popup.history.map(|_| true));
+                page.forward = step(popup.history.map(|history| history.forward));
+                page.notice = popup.failure.clone();
+            }
+            None => {
+                page.url = view.user_url.clone().or_else(|| {
+                    (view.last_page > 0 && !view.background_navigation).then(|| view.url.clone())
+                });
+                page.back = step(view.history.map(|history| history.back));
+                page.forward = step(view.history.map(|history| history.forward));
+                page.notice = view.failure.clone();
+            }
+        }
+        page
+    }
+
+    /// The page of `site` under the revision it was last stamped with, or a
+    /// new revision when it changed since; true when it changed.
+    fn stamp_page(&mut self, site: SchoolSite, inline_popups: bool) -> (SchoolWebPage, bool) {
+        let mut page = self.page(site, inline_popups);
+        if let Some(last) = self.pages.get(&site) {
+            page.revision = last.revision;
+            if *last == page {
+                return (page, false);
+            }
+        }
+        self.page_revision += 1;
+        page.revision = self.page_revision;
+        self.pages.insert(site, page.clone());
+        (page, true)
     }
 
     /// Removes `popup` and every popup opened from it, returning their ids.
@@ -288,6 +356,10 @@ impl SchoolBrowserEngine {
         drop(state);
         let _ = self.0.traces.send(Trace::Browsing(site));
         self.0.browsing_changed.notify_waiters();
+        // Changes made while the site was off screen were not published.
+        if let Some(site) = site {
+            self.0.publish_page(site);
+        }
         // Revealing a resident login page does not produce another load.
         if let Some((page, url, relay)) = login_page {
             self.0.arm_saved_login(page, url, relay);
@@ -295,12 +367,15 @@ impl SchoolBrowserEngine {
         Ok(())
     }
 
+    /// Brings `site`'s view on screen for `surface`, an opaque id of the app
+    /// page showing it, which becomes the site's presenter.
     pub async fn open(
         &self,
         site: SchoolSite,
-        target: Option<String>,
+        surface: &str,
+        entry: SchoolWebEntry,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        let (already_open, current, background_changed) = {
+        let (already_open, current, background_changed, presenter) = {
             let state = self.0.state.guard();
             let view = state.views.get(&site);
             (
@@ -311,7 +386,15 @@ impl SchoolBrowserEngine {
                         .or_else(|| (!v.background_navigation).then(|| v.url.clone()))
                 }),
                 view.is_some_and(|v| v.background_navigation),
+                view.and_then(|v| v.presenter.clone()),
             )
+        };
+        // A surface coming back finds the view as it left it, unless another
+        // surface showed it meanwhile.
+        let target = match entry {
+            SchoolWebEntry::Resume => None,
+            SchoolWebEntry::Return { .. } if presenter.as_deref() == Some(surface) => None,
+            SchoolWebEntry::Go { url } | SchoolWebEntry::Return { url } => Some(url),
         };
         let explicit_target = target.is_some();
         let target = target
@@ -322,6 +405,15 @@ impl SchoolBrowserEngine {
         self.user_browsing(Some(site))?;
         let opened = (|| {
             let browser = self.ensure_browser(site, url.clone())?;
+            self.0.state.with(|state| {
+                if let Some(view) = state.views.get_mut(&site) {
+                    view.presenter = Some(surface.to_owned());
+                }
+            });
+            // An app link lands in the view itself, never under a popup.
+            if already_open && explicit_target {
+                self.0.close_popups(site);
+            }
             // Revealing an existing resident view must preserve its exact native URL.
             // Re-navigating to our sanitized identity would strip SSO query state.
             if already_open
@@ -336,11 +428,21 @@ impl SchoolBrowserEngine {
             let _ = self.user_browsing(None);
             return Err(error);
         }
+        self.0.publish_page(site);
         Ok(SchoolWebResult {
             site,
-            url: target,
+            url: self.page(site).url.unwrap_or(target),
             phase: "navigationDispatched",
         })
+    }
+
+    /// The page the person sees of `site` now. A surface subscribes to
+    /// `school-web-page` first and then reads this, keeping the higher
+    /// revision.
+    pub fn page(&self, site: SchoolSite) -> SchoolWebPage {
+        self.0
+            .state
+            .with(|state| state.stamp_page(site, self.0.capabilities.inline_popups).0)
     }
 
     pub fn set_customization(
@@ -390,26 +492,54 @@ impl SchoolBrowserEngine {
         Ok(true)
     }
 
-    /// The app's Back, through the engine's own history.
+    /// The app's Back, through the engine's own history. A popup at the
+    /// start of its history closes instead, as a browser closes a tab a page
+    /// opened, and the page under it is in front again.
     pub fn back(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
-        self.step_history(site, BrowserAction::GoBack)
+        let Some((browser, popup, history)) = self.front_history(site) else {
+            return Ok(false);
+        };
+        match history {
+            Some(history) if !history.back && popup => {
+                self.0.popup_closed(browser, true);
+                Ok(true)
+            }
+            Some(history) if !history.back => Ok(false),
+            _ => {
+                self.dispatch(browser, BrowserAction::GoBack)?;
+                Ok(true)
+            }
+        }
     }
 
     /// The app's Forward, the counterpart of Back.
     pub fn forward(&self, site: SchoolSite) -> Result<bool, SchoolBrowserError> {
-        self.step_history(site, BrowserAction::GoForward)
-    }
-
-    fn step_history(
-        &self,
-        site: SchoolSite,
-        step: BrowserAction,
-    ) -> Result<bool, SchoolBrowserError> {
-        let Ok(browser) = self.front(site) else {
+        let Some((browser, _, history)) = self.front_history(site) else {
             return Ok(false);
         };
-        self.dispatch(browser, step)?;
+        if history.is_some_and(|history| !history.forward) {
+            return Ok(false);
+        }
+        self.dispatch(browser, BrowserAction::GoForward)?;
         Ok(true)
+    }
+
+    /// The view or popup in front of `site`, whether it is a popup, and its
+    /// history when the host reports it.
+    fn front_history(&self, site: SchoolSite) -> Option<(BrowserId, bool, Option<History>)> {
+        self.0.state.with(|state| {
+            let view = state.views.get(&site)?;
+            Some(
+                match view
+                    .popups
+                    .last()
+                    .filter(|_| self.0.capabilities.inline_popups)
+                {
+                    Some(popup) => (popup.id, true, popup.history),
+                    None => (view.id, false, view.history),
+                },
+            )
+        })
     }
 
     /// Closes the frontmost popup over `site`'s view, and any it opened.
@@ -505,6 +635,9 @@ impl SchoolBrowserEngine {
                     actions: HashMap::new(),
                     stopping: None,
                     popups: Vec::new(),
+                    history: None,
+                    failure: None,
+                    presenter: None,
                 },
             );
             id
@@ -558,6 +691,11 @@ impl SchoolBrowserListener for Listener {
     fn title_changed(&self, page: PageId, title: String) {
         if let Some(inner) = self.0.upgrade() {
             inner.title_changed(page, &title);
+        }
+    }
+    fn history_changed(&self, browser: BrowserId, history: History) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.history_changed(browser, history);
         }
     }
     fn decide_navigation(&self, request: NavigationRequest) -> NavigationDecision {
@@ -624,7 +762,7 @@ impl Inner {
         let Some(url) = browsing_url(event.url.as_str()) else {
             return;
         };
-        let front = self.state.with(|state| {
+        let moved = self.state.with(|state| {
             let popup = state
                 .views
                 .get_mut(&browser.site)?
@@ -635,17 +773,12 @@ impl Inner {
                 return None;
             }
             popup.last_page = event.page.sequence;
-            popup.url = Some(url.clone());
-            Some(
-                state.role_of(browser) == Some(ViewRole::User)
-                    && state.front(browser.site, self.capabilities.inline_popups) == Some(browser),
-            )
+            popup.url = Some(url);
+            popup.failure = None;
+            Some(())
         });
-        if front == Some(true) {
-            let _ = self.events.emit(CoreEvent::SchoolWebUrl {
-                site: browser.site,
-                url,
-            });
+        if moved.is_some() {
+            self.publish_page(browser.site);
         }
     }
 
@@ -687,6 +820,7 @@ impl Inner {
             }
             view.navigation = None;
             view.url = safe_loaded.clone();
+            view.failure = None;
             if foreground {
                 view.user_url = Some(safe_loaded.clone());
                 view.background_navigation = false;
@@ -708,16 +842,9 @@ impl Inner {
                 foreground,
             )
         };
-        // The opener behind an inline popup does not move the address.
-        let front = self.state.with(|state| {
-            state.front(event.page.browser.site, self.capabilities.inline_popups)
-                == Some(event.page.browser)
-        });
-        if foreground && front {
-            let _ = self.events.emit(CoreEvent::SchoolWebUrl {
-                site: event.page.browser.site,
-                url: safe_loaded.clone(),
-            });
+        // The opener behind an inline popup does not move the page on screen.
+        if foreground {
+            self.publish_page(event.page.browser.site);
         }
         if let (Some((path, epoch)), Some(official)) = (restore, official_loaded.as_ref()) {
             self.write_restore(path, epoch, event.page.browser.site, official.clone());
@@ -803,38 +930,41 @@ impl Inner {
             event.url.as_ref().and_then(Url::host_str).unwrap_or("-"),
             event.message
         );
-        let (relevant, shown) = self.state.with(|state| {
-            let shown = state.role_of(browser) == Some(ViewRole::User)
-                && state.front(browser.site, self.capabilities.inline_popups) == Some(browser);
+        let failure = SchoolWebFailure {
+            url: event
+                .url
+                .as_ref()
+                .and_then(|url| browsing_url(url.as_str())),
+            reason: event.reason,
+        };
+        let relevant = self.state.with(|state| {
+            // Hidden work fails on its own terms; nothing is shown for it.
+            let shown = state.role_of(browser) == Some(ViewRole::User);
             let Some(view) = state.views.get_mut(&browser.site) else {
-                return (false, false);
+                return false;
             };
             if view.id != browser {
-                return (false, shown);
+                if let Some(popup) = view.popups.iter_mut().find(|popup| popup.id == browser) {
+                    if event.page.sequence > popup.last_page {
+                        popup.last_page = event.page.sequence;
+                        popup.failure = shown.then_some(failure);
+                    }
+                }
+                return false;
             }
             if let Some(cause) = event.cause {
                 if view.actions.remove(&cause) != Some(true) {
-                    return (false, shown);
+                    return false;
                 }
             } else if event.page.sequence <= view.last_page {
-                return (false, shown);
+                return false;
             }
             view.last_page = view.last_page.max(event.page.sequence);
             view.navigation = None;
-            (true, shown)
+            view.failure = shown.then_some(failure);
+            true
         });
-        if shown {
-            self.notice(
-                browser.site,
-                SchoolWebNotice::LoadFailed {
-                    url: event
-                        .url
-                        .as_ref()
-                        .and_then(|url| browsing_url(url.as_str())),
-                    reason: event.reason,
-                },
-            );
-        }
+        self.publish_page(browser.site);
         if relevant {
             let heartbeat = self.state.with(|state| {
                 state
@@ -855,6 +985,30 @@ impl Inner {
         let _ = self
             .events
             .emit(CoreEvent::SchoolWebNotice { site, notice });
+    }
+
+    /// Records a load of `page` the rule table refused as its view's or
+    /// popup's failure, while the person is looking at it.
+    fn refused(&self, page: PageId, failure: SchoolWebFailure) {
+        let browser = page.browser;
+        let recorded = self.state.with(|state| {
+            if state.role_of(browser) != Some(ViewRole::User) {
+                return None;
+            }
+            let view = state.views.get_mut(&browser.site)?;
+            if view.id == browser {
+                view.failure = Some(failure);
+            } else {
+                view.popups
+                    .iter_mut()
+                    .find(|popup| popup.id == browser)?
+                    .failure = Some(failure);
+            }
+            Some(())
+        });
+        if recorded.is_some() {
+            self.publish_page(browser.site);
+        }
     }
 
     /// Whether `browser` is what the person is looking at for its site.
@@ -905,10 +1059,10 @@ impl Inner {
             }
             Verdict::Deny(reason) => {
                 denied(browser.site, Some(role), reason, &request.url);
-                if reason == DenyReason::Cleartext && request.main_frame && self.shown(browser) {
-                    self.notice(
-                        browser.site,
-                        SchoolWebNotice::LoadFailed {
+                if reason == DenyReason::Cleartext && request.main_frame {
+                    self.refused(
+                        request.page,
+                        SchoolWebFailure {
                             url: browsing_url(request.url.as_str()),
                             reason: LoadFailure::Cleartext,
                         },
@@ -971,10 +1125,12 @@ impl Inner {
                         parent: opener,
                         last_page: 0,
                         url: None,
+                        history: None,
+                        failure: None,
                     });
-                    Some(view.popups.len())
+                    Some(())
                 });
-                let Some(open) = open else {
+                let Some(()) = open else {
                     denied(
                         opener.site,
                         Some(role),
@@ -983,12 +1139,7 @@ impl Inner {
                     );
                     return NewWindowDecision::Deny(DenyReason::TooManyPopups);
                 };
-                if self.capabilities.inline_popups {
-                    let _ = self.events.emit(CoreEvent::SchoolWebPopups {
-                        site: opener.site,
-                        open,
-                    });
-                }
+                self.publish_page(opener.site);
                 NewWindowDecision::Popup(id)
             }
             Verdict::External => {
@@ -1026,25 +1177,7 @@ impl Inner {
     /// Forgets a popup and the ones it opened. `dispose` also asks the host to
     /// close it; a host that reported the close itself has done so.
     fn popup_closed(&self, popup: BrowserId, dispose: bool) {
-        let (removed, open, front_url) = self.state.with(|state| {
-            let removed = state.remove_popup(popup);
-            let view = state.views.get(&popup.site);
-            let open = view.map_or(0, |view| view.popups.len());
-            let front_url = (!removed.is_empty() && state.browsing == Some(popup.site))
-                .then(|| {
-                    let view = view?;
-                    match view
-                        .popups
-                        .last()
-                        .filter(|_| self.capabilities.inline_popups)
-                    {
-                        Some(front) => front.url.clone(),
-                        None => view.user_url.clone().or_else(|| Some(view.url.clone())),
-                    }
-                })
-                .flatten();
-            (removed, open, front_url)
-        });
+        let removed = self.state.with(|state| state.remove_popup(popup));
         if removed.is_empty() {
             return;
         }
@@ -1053,17 +1186,59 @@ impl Inner {
                 let _ = self.browser.dispose(*id);
             }
         }
-        if self.capabilities.inline_popups {
-            let _ = self.events.emit(CoreEvent::SchoolWebPopups {
-                site: popup.site,
-                open,
-            });
+        self.publish_page(popup.site);
+    }
+
+    /// Closes every popup over `site`'s view.
+    fn close_popups(&self, site: SchoolSite) {
+        let opened = self.state.with(|state| {
+            state
+                .views
+                .get(&site)
+                .map(|view| {
+                    view.popups
+                        .iter()
+                        .filter(|popup| popup.parent == view.id)
+                        .map(|popup| popup.id)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        });
+        for popup in opened {
+            self.popup_closed(popup, true);
         }
-        if let Some(url) = front_url {
-            let _ = self.events.emit(CoreEvent::SchoolWebUrl {
-                site: popup.site,
-                url,
-            });
+    }
+
+    fn history_changed(&self, browser: BrowserId, history: History) {
+        let known = self.state.with(|state| {
+            let view = state.views.get_mut(&browser.site)?;
+            if view.id == browser {
+                view.history = Some(history);
+                return Some(());
+            }
+            view.popups
+                .iter_mut()
+                .find(|popup| popup.id == browser)?
+                .history = Some(history);
+            Some(())
+        });
+        if known.is_some() {
+            self.publish_page(browser.site);
+        }
+    }
+
+    /// Tells the app the page the person sees of `site` changed. Only the
+    /// site on screen is told; `open` and `page` stamp the others.
+    fn publish_page(&self, site: SchoolSite) {
+        let page = self.state.with(|state| {
+            if state.browsing != Some(site) {
+                return None;
+            }
+            let (page, changed) = state.stamp_page(site, self.capabilities.inline_popups);
+            changed.then_some(page)
+        });
+        if let Some(page) = page {
+            let _ = self.events.emit(CoreEvent::SchoolWebPage(page));
         }
     }
 
@@ -1077,17 +1252,12 @@ impl Inner {
                 _ => None,
             }
         };
-        let Some(view) = view else {
+        let Some(_view) = view else {
             self.popup_closed(browser, false);
             return;
         };
         // The host closes a view's popups with it.
-        if !view.popups.is_empty() && self.capabilities.inline_popups {
-            let _ = self.events.emit(CoreEvent::SchoolWebPopups {
-                site: browser.site,
-                open: 0,
-            });
-        }
+        self.publish_page(browser.site);
         let _ = self.traces.send(Trace::Closed(browser));
     }
 
@@ -1184,28 +1354,36 @@ impl Inner {
         command: BrowserAction,
     ) -> Result<ActionId, SchoolBrowserError> {
         let action = ActionId(self.next_action.fetch_add(1, Ordering::Relaxed));
-        if matches!(command, BrowserAction::Navigate(_)) {
-            let mut state = self.state.guard();
-            if let Some(view) = state.views.get_mut(&browser.site) {
-                if view.id == browser {
+        let navigation = matches!(
+            command,
+            BrowserAction::Navigate(_)
+                | BrowserAction::Reload
+                | BrowserAction::GoBack
+                | BrowserAction::GoForward
+        );
+        // A navigation Core sends leaves the failure it may fix behind.
+        let cleared = navigation
+            && self.state.with(|state| {
+                let Some(view) = state.views.get_mut(&browser.site) else {
+                    return false;
+                };
+                let failure = if view.id == browser {
                     view.navigation = Some(action);
                     if view.actions.len() >= 64 {
                         view.actions.clear();
                     }
                     view.actions.insert(action, true);
-                }
-            }
-        } else if matches!(
-            command,
-            BrowserAction::Reload | BrowserAction::GoBack | BrowserAction::GoForward
-        ) {
-            let mut state = self.state.guard();
-            if let Some(view) = state.views.get_mut(&browser.site) {
-                if view.id == browser {
-                    view.navigation = Some(action);
-                    view.actions.insert(action, true);
-                }
-            }
+                    &mut view.failure
+                } else if let Some(popup) = view.popups.iter_mut().find(|popup| popup.id == browser)
+                {
+                    &mut popup.failure
+                } else {
+                    return false;
+                };
+                failure.take().is_some()
+            });
+        if cleared {
+            self.publish_page(browser.site);
         }
         self.sent(
             browser,

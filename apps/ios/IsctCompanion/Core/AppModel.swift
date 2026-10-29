@@ -123,9 +123,10 @@ final class AppModel {
                 notifications: nil, downloads: WebCookieSession(),
                 webAuthentication: GoogleSignIn(), driveTokens: nil)
             self.session = session
-            web.session = session
             let stream = try session.subscribe()
             Task { await self.listen(stream) }
+            // The web screen reads page snapshots only once events stream.
+            web.session = session
             await refresh()
             await refreshAccounts()
             await refreshSyncSnapshot()
@@ -268,10 +269,10 @@ final class AppModel {
                         }
                     case "cloud-sync-state":
                         await refreshCloud()
+                    case "school-web-page", "school-web-notice":
+                        web.receive(event.name, payload: event.payload)
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
-                    case "school-web-url", "school-web-popups", "school-web-notice":
-                        web.receive(event.name, payload: event.payload)
                     case "school-download", "catalog-changed":
                         break
                     case "workspace-changed":
@@ -286,6 +287,7 @@ final class AppModel {
                     }
                 case .snapshotRequired:
                     scheduleRefresh()
+                    web.refreshPages()
                     await refreshAccounts()
                     await refreshSyncSnapshot()
                 }

@@ -55,6 +55,15 @@ pub struct PageLoaded {
     pub url: Url,
 }
 
+/// Whether a view's or popup's own history can step back or forward from
+/// the page it shows. A host that never reports it leaves both unknown, and
+/// Core treats unknown as possible.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct History {
+    pub back: bool,
+    pub forward: bool,
+}
+
 /// Why a main-frame load failed, coarse enough for every engine to map its
 /// own error codes onto.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -226,6 +235,9 @@ pub trait SchoolBrowserListener: Send + Sync {
     fn page_loaded(&self, event: PageLoaded);
     fn load_failed(&self, event: LoadFailed);
     fn title_changed(&self, page: PageId, title: String);
+    /// The engine's history of a view or popup may have changed: a page
+    /// committed or finished, or a popup was created (none yet).
+    fn history_changed(&self, browser: BrowserId, history: History);
     fn decide_navigation(&self, request: NavigationRequest) -> NavigationDecision;
     fn new_window(&self, request: NewWindowRequest) -> NewWindowDecision;
     /// A navigation became a download. Core closes a popup that is left
