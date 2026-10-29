@@ -14,7 +14,7 @@ struct DataUpdatesScreen: View {
     var body: some View {
         Form {
             Section {
-                Toggle(t("Update on cellular data"), isOn: Binding(
+                Toggle(t("settings.main.updateOnCellularData"), isOn: Binding(
                     get: { refresh["allowCellular"] as? Bool ?? false },
                     set: { on in
                         Task {
@@ -26,7 +26,7 @@ struct DataUpdatesScreen: View {
                         }
                     }))
             } footer: {
-                Text(t("When off, automatic updates wait until you are on Wi-Fi."))
+                Text(t("settings.main.whenOffAutomaticUpdatesWait"))
             }
             SyncSections()
             Section {
@@ -34,7 +34,7 @@ struct DataUpdatesScreen: View {
                     model.refreshFromSchool()
                 } label: {
                     HStack {
-                        Text(t("Refresh now"))
+                        Text(t("common.refreshNow"))
                         Spacer()
                         if let indicator = model.syncSnapshot?.indicator {
                             SyncIndicatorView(indicator: indicator)
@@ -43,7 +43,7 @@ struct DataUpdatesScreen: View {
                 }
             }
         }
-        .navigationTitle(t("Data updates"))
+        .navigationTitle(t("settings.main.dataUpdates"))
         .navigationBarTitleDisplayMode(.inline)
     }
 }

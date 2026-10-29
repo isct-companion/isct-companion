@@ -19,9 +19,9 @@ struct LecturesScreen: View {
         List(selection: selection) {
             Section {
                 TermPicker(term: term, terms: overview?.allTerms ?? []) { navigator.lectureTerm = $0 }
-                Picker(t("Show"), selection: $navigator.lectureMode) {
-                    Text(t("Courses")).tag(LectureMode.courses)
-                    Text(t("Assignments")).tag(LectureMode.assignments)
+                Picker(t("lectures.show"), selection: $navigator.lectureMode) {
+                    Text(t("common.courses")).tag(LectureMode.courses)
+                    Text(t("common.assignments")).tag(LectureMode.assignments)
                 }
                 .pickerStyle(.segmented)
             }
@@ -46,11 +46,11 @@ struct LecturesScreen: View {
                 }
             }
         }
-        .navigationTitle(t("Courses"))
+        .navigationTitle(t("common.courses"))
         .overlay {
             if isEmpty {
                 ContentUnavailableView(
-                    navigator.lectureMode == .courses ? t("No courses this term yet") : t("No assignments"),
+                    navigator.lectureMode == .courses ? t("lectures.noCoursesThisTermYet") : t("lectures.noAssignments"),
                     systemImage: navigator.lectureMode == .courses ? "books.vertical" : "checklist")
             }
         }
@@ -118,19 +118,19 @@ private struct TermPicker: View {
         HStack(spacing: 10) {
             Menu {
                 ForEach(years, id: \.self) { year in
-                    Button(t("AY {{year}}", ["year": String(year)])) {
+                    Button(t("timetable.academicYear", ["year": String(year)])) {
                         pick("\(year)-\(shown?.quarter ?? 1)Q")
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Text(shown.map { t("AY {{year}}", ["year": String($0.year)]) } ?? "")
+                    Text(shown.map { t("timetable.academicYear", ["year": String($0.year)]) } ?? "")
                     Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold))
                 }
                 .font(.subheadline.weight(.semibold))
                 .fixedSize()
             }
-            Picker(t("Quarter"), selection: Binding(
+            Picker(t("common.quarter"), selection: Binding(
                 get: { shown?.quarter ?? 1 },
                 set: { quarter in shown.map { pick("\($0.year)-\(quarter)Q") } }
             )) {
@@ -177,13 +177,13 @@ struct LecturesSplit: View {
                         if let id = navigator.lecture {
                             CourseDetailScreen(courseId: id).id(id)
                         } else {
-                            ContentUnavailableView(t("Choose a course"), systemImage: "books.vertical")
+                            ContentUnavailableView(t("common.chooseACourse"), systemImage: "books.vertical")
                         }
                     case .assignments:
                         if let id = navigator.lectureAssignment {
                             AssignmentScreen(assignmentId: id).id(id)
                         } else {
-                            ContentUnavailableView(t("Choose an assignment"), systemImage: "checklist")
+                            ContentUnavailableView(t("lectures.chooseAnAssignment"), systemImage: "checklist")
                         }
                     }
                 }

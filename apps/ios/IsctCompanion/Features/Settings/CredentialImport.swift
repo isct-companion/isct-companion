@@ -80,19 +80,19 @@ struct OtpImportField: View {
     var body: some View {
         if saved && !changing && setup.isEmpty {
             HStack {
-                Label(t("Codes are filled in for you at sign-in."), systemImage: "checkmark.circle.fill")
+                Label(t("settings.credentialImport.codesAreFilledInFor"), systemImage: "checkmark.circle.fill")
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(Theme.ok, Theme.ink)
                 Spacer()
-                Button(t("Change")) { changing = true }
+                Button(t("settings.credentialImport.change")) { changing = true }
             }
             // A QR on this screen cannot be scanned by this phone, so the
             // `otpauth://` link goes straight to the installed authenticator.
             SourceTiles {
-                Button(t("Add to authenticator"), systemImage: "key.viewfinder") { Task { await addToAuthenticator() } }
-                Button(t(copied ? "Copied" : "Copy setup"), systemImage: "doc.on.doc") { Task { await copySetup() } }
+                Button(t("settings.credentialImport.addToAuthenticator"), systemImage: "key.viewfinder") { Task { await addToAuthenticator() } }
+                Button(t(copied ? "settings.credentialImport.copied" : "settings.credentialImport.copySetup"), systemImage: "doc.on.doc") { Task { await copySetup() } }
             }
-            Text(t("If you reset OTP at school, the old school entry in your authenticator no longer works: delete it and add this one."))
+            Text(t("settings.credentialImport.ifYouResetOTPAt"))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
             if let error {
@@ -119,20 +119,20 @@ struct OtpImportField: View {
                 photo = nil
                 Task { await readPhoto(item) }
             }
-            .confirmationDialog(t("Which account should be used?"), isPresented: .constant(!choices.isEmpty), titleVisibility: .visible) {
+            .confirmationDialog(t("settings.credentialImport.whichAccountShouldBeUsed"), isPresented: .constant(!choices.isEmpty), titleVisibility: .visible) {
                 ForEach(Array(choices.enumerated()), id: \.offset) { _, account in
                     Button(Self.name(account)) { choose(account) }
                 }
-                Button(t("Cancel"), role: .cancel) { choices = [] }
+                Button(t("common.cancel"), role: .cancel) { choices = [] }
             }
     }
 
     @ViewBuilder
     private var chooser: some View {
         presenters(
-            Picker(t("Source"), selection: $path) {
-                Text(t("From an authenticator app")).tag(Path.export)
-                Text(t("Setup link or secret")).tag(Path.paste)
+            Picker(t("settings.credentialImport.source"), selection: $path) {
+                Text(t("settings.credentialImport.fromAnAuthenticatorApp")).tag(Path.export)
+                Text(t("settings.credentialImport.setupLinkOrSecret")).tag(Path.paste)
             }
             .pickerStyle(.segmented)
         )
@@ -140,17 +140,17 @@ struct OtpImportField: View {
         case .export:
             SourceTiles {
                 if DataScannerViewController.isSupported {
-                    Button(t("Scan QR"), systemImage: "qrcode.viewfinder") { scanning = true }
+                    Button(t("settings.credentialImport.scanQR"), systemImage: "qrcode.viewfinder") { scanning = true }
                 }
                 PhotosPicker(selection: $photo, matching: .images) {
-                    Label(t("From photo"), systemImage: "photo")
+                    Label(t("settings.credentialImport.fromPhoto"), systemImage: "photo")
                 }
             }
-            Text(t("Google Authenticator: Transfer accounts → Export accounts, select only the school account."))
+            Text(t("settings.credentialImport.googleAuthenticatorTransferAccountsExport"))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
         case .paste:
-            TextField(t("otpauth://… or secret key"), text: $setup)
+            TextField(t("settings.credentialImport.otpauthOrSecretKey"), text: $setup)
                 .textContentType(nil)
                 .keyboardType(.asciiCapable)
                 .textInputAutocapitalization(.never)
@@ -158,16 +158,16 @@ struct OtpImportField: View {
                 .privacySensitive()
                 .onChange(of: setup) { _, _ in label = nil }
             SourceTiles {
-                Button(t("Paste"), systemImage: "doc.on.clipboard") {
-                    if let text = UIPasteboard.general.string { read(text) } else { error = t("The clipboard is empty.") }
+                Button(t("settings.credentialImport.paste"), systemImage: "doc.on.clipboard") {
+                    if let text = UIPasteboard.general.string { read(text) } else { error = t("settings.credentialImport.theClipboardIsEmpty") }
                 }
             }
-            Text(t("Not the six-digit code that changes every 30 seconds."))
+            Text(t("settings.credentialImport.notTheSixDigitCode"))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
         }
         if let label {
-            Text(t("Read “{{label}}”. Save to use it.", ["label": label]))
+            Text(t("settings.credentialImport.readLabelSaveToUse", ["label": label]))
                 .font(.footnote)
                 .foregroundStyle(Theme.ok)
         }
@@ -175,11 +175,11 @@ struct OtpImportField: View {
             Text(error).font(.footnote).foregroundStyle(Theme.danger)
         }
         if !saved {
-            Text(t("Not registered yet? The desktop app registers with the school for you."))
+            Text(t("settings.credentialImport.notRegisteredYetTheDesktop"))
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
         } else if setup.isEmpty {
-            Button(t("Keep the saved setup")) { changing = false }
+            Button(t("settings.credentialImport.keepTheSavedSetup")) { changing = false }
         }
     }
 
@@ -195,11 +195,11 @@ struct OtpImportField: View {
             let accounts = try importOtp(payload: text)
             if accounts.count == 1 { choose(accounts[0]) } else { choices = accounts }
         } catch OtpImportError.MultiplePages {
-            error = t("Export only your school account, then load it again.")
+            error = t("settings.credentialImport.exportOnlyYourSchoolAccount")
         } catch OtpImportError.Unsupported {
-            error = t("This account uses a code format that is not supported.")
+            error = t("settings.credentialImport.thisAccountUsesACode")
         } catch {
-            self.error = t("This is not a QR code from a supported authenticator app.")
+            self.error = t("settings.credentialImport.thisIsNotAQR")
         }
     }
 
@@ -207,11 +207,11 @@ struct OtpImportField: View {
         guard let data = try? await item.loadTransferable(type: Data.self),
             let image = UIImage(data: data)?.cgImage
         else {
-            error = t("Could not load the image.")
+            error = t("settings.credentialImport.couldNotLoadTheImage")
             return
         }
         guard let payload = await Self.qrPayload(in: image) else {
-            error = t("No QR code found. Choose an image that shows the whole code.")
+            error = t("settings.credentialImport.noQRCodeFoundChoose")
             return
         }
         read(payload)
@@ -223,7 +223,7 @@ struct OtpImportField: View {
             let link = try await model.otpSetupLink()
             guard let url = URL(string: link) else { return }
             openURL(url) { accepted in
-                if !accepted { error = t("No authenticator app on this device can add this setup. Copy it instead.") }
+                if !accepted { error = t("settings.credentialImport.noAuthenticatorAppOnThis") }
             }
         } catch {
             self.error = AppModel.describe(error)
@@ -332,30 +332,30 @@ struct MatrixImportSection: View {
     var body: some View {
         Section {
             if !editing {
-                Text(saved ? t("Saved") : t("Not set"))
+                Text(saved ? t("settings.credentialImport.saved") : t("settings.studyProfile.notSet"))
                     .foregroundStyle(saved ? Theme.ok : Theme.muted)
             }
             SourceTiles {
                 if model.canScanMatrix {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                        Button(t("Auto scan"), systemImage: "camera.viewfinder") { startCamera() }
+                        Button(t("settings.credentialImport.autoScan"), systemImage: "camera.viewfinder") { startCamera() }
                     }
-                    Button(t("Upload image"), systemImage: "photo.on.rectangle") { choosingImage = true }
+                    Button(t("settings.credentialImport.uploadImage"), systemImage: "photo.on.rectangle") { choosingImage = true }
                 }
-                Button(t("Paste"), systemImage: "doc.on.clipboard") { pasteClipboard() }
+                Button(t("settings.credentialImport.paste"), systemImage: "doc.on.clipboard") { pasteClipboard() }
                 if !editing {
-                    Button(t("Enter manually"), systemImage: "keyboard") { editing = true }
+                    Button(t("settings.credentialImport.enterManually"), systemImage: "keyboard") { editing = true }
                 }
             }
             .disabled(reading)
             // Presentation lives on one row: modifiers on a Section repeat on
             // every row, and several covers presenting at once tear down the
             // settings sheet.
-            .confirmationDialog(t("Upload image"), isPresented: $choosingImage) {
+            .confirmationDialog(t("settings.credentialImport.uploadImage"), isPresented: $choosingImage) {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button(t("Take photo")) { takingPhoto = true }
+                    Button(t("settings.credentialImport.takePhoto")) { takingPhoto = true }
                 }
-                Button(t("Choose from library")) { pickingPhoto = true }
+                Button(t("settings.credentialImport.chooseFromLibrary")) { pickingPhoto = true }
             }
             .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
             .fullScreenCover(isPresented: $takingPhoto) {
@@ -370,7 +370,7 @@ struct MatrixImportSection: View {
                 photo = nil
                 Task {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
-                        error = t("Could not load the image.")
+                        error = t("settings.credentialImport.couldNotLoadTheImage")
                         return
                     }
                     await scan(data)
@@ -388,7 +388,7 @@ struct MatrixImportSection: View {
             }
             if reading {
                 ProgressView(value: Double(model.ocrProgress), total: 70) {
-                    Text(t("Reading {{done}}/70", ["done": model.ocrProgress])).font(.footnote)
+                    Text(t("settings.credentialImport.readingDone70", ["done": model.ocrProgress])).font(.footnote)
                 }
             }
             if editing {
@@ -398,19 +398,19 @@ struct MatrixImportSection: View {
             if let note { Text(note).font(.footnote).foregroundStyle(Theme.muted) }
             if let error { Text(error).font(.footnote).foregroundStyle(Theme.danger) }
         } header: {
-            Text(t("Matrix card"))
+            Text(t("settings.main.matrixCard"))
         } footer: {
             Text(model.canScanMatrix
-                ? t("Lay the card flat and photograph the whole grid.")
-                : t("Reading is not available on this device. Paste the 70 letters copied from the desktop app, or type them."))
+                ? t("settings.credentialImport.layTheCardFlatAnd")
+                : t("settings.credentialImport.readingIsNotAvailableOn"))
         }
     }
 
     private var legend: some View {
         HStack(spacing: 12) {
-            swatch(Theme.okSoft, t("Certain"))
-            swatch(Theme.warnSoft, t("Check"))
-            swatch(Theme.dangerSoft, t("Unreadable"))
+            swatch(Theme.okSoft, t("settings.credentialImport.certain"))
+            swatch(Theme.warnSoft, t("settings.credentialImport.check"))
+            swatch(Theme.dangerSoft, t("settings.credentialImport.unreadable"))
         }
         .font(.caption)
         .foregroundStyle(Theme.muted)
@@ -425,7 +425,7 @@ struct MatrixImportSection: View {
 
     private func scan(_ data: Data) async {
         guard let image = UIImage(data: data) else {
-            error = t("Could not load the image.")
+            error = t("settings.credentialImport.couldNotLoadTheImage")
             return
         }
         await scan(image)
@@ -440,7 +440,7 @@ struct MatrixImportSection: View {
             image.draw(in: CGRect(origin: .zero, size: image.size))
         }
         guard let jpeg = upright.jpegData(compressionQuality: 0.95) else {
-            error = t("Could not load the image.")
+            error = t("settings.credentialImport.couldNotLoadTheImage")
             return
         }
         await scan(jpeg: jpeg)
@@ -455,7 +455,7 @@ struct MatrixImportSection: View {
         } else if let text = board.string {
             paste(text)
         } else {
-            error = t("The clipboard has no image or 70 letters.")
+            error = t("settings.credentialImport.theClipboardHasNoImage")
         }
     }
 
@@ -473,7 +473,7 @@ struct MatrixImportSection: View {
         cells = result.map(\.text)
         confidence = result.map(\.confidence)
         editing = true
-        note = t("Check the coloured cells against your card.")
+        note = t("settings.credentialImport.checkTheColouredCellsAgainst")
     }
 
     private func scan(jpeg: Data) async {
@@ -484,13 +484,13 @@ struct MatrixImportSection: View {
         do {
             let result = try await model.scanMatrix(jpeg)
             guard result.count == 70 else {
-                error = t("Could not find the grid. Retake the photo with the whole grid in view.")
+                error = t("settings.credentialImport.couldNotFindTheGrid")
                 return
             }
             cells = result.map(\.text)
             confidence = result.map(\.confidence)
             editing = true
-            note = t("Check the coloured cells against your card.")
+            note = t("settings.credentialImport.checkTheColouredCellsAgainst")
         } catch {
             self.error = AppModel.describe(error)
         }
@@ -499,7 +499,7 @@ struct MatrixImportSection: View {
     private func paste(_ text: String) {
         let letters = text.uppercased().filter { !$0.isWhitespace }
         guard letters.count == 70, letters.allSatisfy({ $0.isASCII && $0.isLetter }) else {
-            error = t("Paste exactly 70 letters in row order (A1…J1, A2…J2, …). Spaces and line breaks are ignored.")
+            error = t("settings.credentialImport.pasteExactly70LettersIn")
             return
         }
         error = nil

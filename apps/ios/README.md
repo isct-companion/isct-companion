@@ -47,6 +47,8 @@ iCloud backup. OCR is unavailable on the Intel simulator.
 
 Open items are the slotledger task `ios-open-items` (widgets among them).
 
-UI strings are keyed by their English text and translated at runtime from the
-desktop's `resources/locales` catalogs (`Design/Localization.swift`), so the
-language follows `settings.locale` rather than the phone's.
+UI strings are keyed by namespaced message keys (`settings.reset.caches.title`)
+and read at runtime from the desktop's `resources/locales` catalogs
+(`Design/Localization.swift`), so the language follows `settings.locale` rather
+than the phone's. `en.json` holds every key with its English copy; a test in
+`apps/desktop/tests` checks that each key used here exists.

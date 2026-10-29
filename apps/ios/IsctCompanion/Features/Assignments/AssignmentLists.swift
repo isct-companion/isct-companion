@@ -15,7 +15,7 @@ struct TodayAssignmentSections: View {
         if let board = model.board {
             Section {
                 if board.today.isOpenEmpty {
-                    Text(t("No unsubmitted assignments"))
+                    Text(t("assignments.noUnsubmittedAssignments"))
                         .foregroundStyle(Theme.muted)
                         .listRowBackground(Color.clear)
                 } else {
@@ -27,10 +27,10 @@ struct TodayAssignmentSections: View {
                 // One line on the narrowest phone: the title never wraps, the
                 // quarter note gives way first.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(t("Assignments")).font(.title3.bold()).foregroundStyle(Theme.ink)
+                    Text(t("common.assignments")).font(.title3.bold()).foregroundStyle(Theme.ink)
                         .lineLimit(1)
                         .fixedSize()
-                    Text(t("{{quarter}} · Unsubmitted only", ["quarter": Format.quarter(board.term)]))
+                    Text(t("assignments.quarterUnsubmittedOnly", ["quarter": Format.quarter(board.term)]))
                         .font(.footnote)
                         .foregroundStyle(Theme.muted)
                         .lineLimit(1)
@@ -38,17 +38,17 @@ struct TodayAssignmentSections: View {
                     Button {
                         push(AssignmentRecordRoute())
                     } label: {
-                        Text(t("See all")).font(.subheadline.weight(.semibold))
+                        Text(t("assignments.seeAll")).font(.subheadline.weight(.semibold))
                     }
                     .fixedSize()
                 }
                 .textCase(nil)
                 .padding(.top, 8)
             }
-            group(t("Pinned"), board.today.pinned)
-            group(t("This week"), board.today.dueThisWeek)
-            group(t("Next week and later"), board.today.later)
-            group(t("Overdue"), board.today.pastRecent)
+            group(t("common.pinned"), board.today.pinned)
+            group(t("common.thisWeek"), board.today.dueThisWeek)
+            group(t("assignments.nextWeekAndLater"), board.today.later)
+            group(t("common.overdue"), board.today.pastRecent)
         }
     }
 
@@ -92,7 +92,7 @@ struct RecordScreen: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
-        .navigationTitle(t("All assignments"))
+        .navigationTitle(t("common.allAssignments"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .onAppear { model.syncHint(.open(view: .assignments)) }
@@ -108,21 +108,21 @@ struct RecordSections: View {
     @State private var unfolded = false
 
     var body: some View {
-        group(t("Pinned"), record.pinned)
-        group(t("This week"), record.dueThisWeek)
-        group(t("Next week and later"), record.later)
-        group(t("No deadline"), record.undated)
-        group(t("Past"), record.pastRecent)
+        group(t("common.pinned"), record.pinned)
+        group(t("common.thisWeek"), record.dueThisWeek)
+        group(t("assignments.nextWeekAndLater"), record.later)
+        group(t("common.noDeadline"), record.undated)
+        group(t("common.past"), record.pastRecent)
         if !record.pastEarlier.isEmpty {
             if unfolded {
-                group(t("Earlier"), record.pastEarlier)
+                group(t("common.earlier"), record.pastEarlier)
             } else {
                 Section {
-                    Button(t("Show {{count}} earlier", ["count": record.pastEarlier.count])) { unfolded = true }
+                    Button(t("assignments.showCountEarlier", ["count": record.pastEarlier.count])) { unfolded = true }
                 }
             }
         }
-        group(t("Hidden"), record.hidden, hidden: true)
+        group(t("assignments.hidden"), record.hidden, hidden: true)
     }
 
     @ViewBuilder
@@ -166,18 +166,18 @@ struct AssignmentListRow<Content: View>: View {
         .listRowInsets(EdgeInsets())
         .contextMenu {
             if let course = item.courseId {
-                Button(t("Open course"), systemImage: "book") { push(CourseRoute(id: course)) }
+                Button(t("common.openCourse"), systemImage: "book") { push(CourseRoute(id: course)) }
             }
             if let url = item.sourceUrl {
-                Button(t("Submit in LMS"), systemImage: "arrow.up.forward.square") {
+                Button(t("common.submitInLMS"), systemImage: "arrow.up.forward.square") {
                     push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
                 }
             }
             if hidden {
-                Button(t("Restore"), systemImage: "eye") { setHidden(false) }
+                Button(t("common.restore"), systemImage: "eye") { setHidden(false) }
             } else {
-                Button(item.pinned ? t("Unpin") : t("Pin"), systemImage: "pin") { togglePin() }
-                Button(t("Hide"), systemImage: "eye.slash", role: .destructive) { setHidden(true) }
+                Button(item.pinned ? t("common.unpin") : t("common.pin"), systemImage: "pin") { togglePin() }
+                Button(t("common.hide"), systemImage: "eye.slash", role: .destructive) { setHidden(true) }
             }
         }
         .swipeActions(edge: .leading) {
@@ -185,17 +185,17 @@ struct AssignmentListRow<Content: View>: View {
                 Button {
                     togglePin()
                 } label: {
-                    Label(item.pinned ? t("Unpin") : t("Pin"), systemImage: item.pinned ? "pin.slash" : "pin")
+                    Label(item.pinned ? t("common.unpin") : t("common.pin"), systemImage: item.pinned ? "pin.slash" : "pin")
                 }
                 .tint(Theme.accent)
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: hidden) {
             if hidden {
-                Button { setHidden(false) } label: { Label(t("Restore"), systemImage: "eye") }
+                Button { setHidden(false) } label: { Label(t("common.restore"), systemImage: "eye") }
                     .tint(Theme.accent)
             } else {
-                Button { setHidden(true) } label: { Label(t("Hide"), systemImage: "eye.slash") }
+                Button { setHidden(true) } label: { Label(t("common.hide"), systemImage: "eye.slash") }
                     .tint(Theme.muted)
             }
         }

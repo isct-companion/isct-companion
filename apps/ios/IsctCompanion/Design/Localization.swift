@@ -3,12 +3,13 @@ import Observation
 
 /// The UI language, read from `settings.locale` like the desktop's.
 ///
-/// Strings are keyed by their English text and translated from the catalogs
-/// the desktop uses (`resources/locales/{en,ja,zh}.json`, i18next format with
-/// `{{name}}` placeholders); English is the key itself, except for the few
-/// dotted keys (`settings.reset.…`) that `en.json` spells out. These catalogs are
-/// read directly rather than through a String Catalog because the language is
-/// an in-app setting, not the system's, and the placeholders must stay the
+/// Strings are keyed by namespaced message keys (`settings.reset.caches.title`)
+/// and read from the catalogs the desktop uses
+/// (`resources/locales/{en,ja,zh}.json`, i18next format with `{{name}}`
+/// placeholders). `en.json` holds every key with its English copy, and a
+/// language that lacks a key reads the English one. These catalogs are read
+/// directly rather than through a String Catalog because the language is an
+/// in-app setting, not the system's, and the placeholders must stay the
 /// desktop's named ones so both shells share one translation.
 ///
 /// A view that calls `t` reads `language` while its body runs, so Observation
@@ -20,6 +21,7 @@ final class Localizer: @unchecked Sendable {
     /// `en`, `ja` or `zh`.
     private(set) var language = "en"
     @ObservationIgnored private var catalog: [String: String] = [:]
+    @ObservationIgnored private var english: [String: String] = [:]
     @ObservationIgnored private var loaded: String?
 
     /// Switches to a stored `settings.locale`; anything unknown reads English.
@@ -27,17 +29,24 @@ final class Localizer: @unchecked Sendable {
         let next = stored.flatMap { ["ja", "zh"].contains($0) ? $0 : nil } ?? "en"
         guard next != loaded else { return }
         catalog = Self.load(next)
+        if english.isEmpty { english = Self.load("en") }
         loaded = next
         if next != language { language = next }
     }
 
-    func string(_ key: String, _ values: [String: Any]) -> String {
+    /// The text for a key, `{{name}}` placeholders filled; `nil` when no
+    /// catalog has the key (a key another component owns, such as Core's).
+    func lookup(_ key: String, _ values: [String: Any]) -> String? {
         _ = language
-        var text = catalog[key] ?? key
+        guard var text = catalog[key] ?? english[key] else { return nil }
         for (name, value) in values {
             text = text.replacingOccurrences(of: "{{\(name)}}", with: "\(value)")
         }
         return text
+    }
+
+    func string(_ key: String, _ values: [String: Any]) -> String {
+        lookup(key, values) ?? key
     }
 
     /// The locale dates and numbers are written in, as the desktop's `intlLocale`.
@@ -64,7 +73,12 @@ final class Localizer: @unchecked Sendable {
     }
 }
 
-/// The UI string for an English key, with `{{name}}` placeholders filled.
+/// The UI string for a catalog key, with `{{name}}` placeholders filled.
 func t(_ key: String, _ values: [String: Any] = [:]) -> String {
     Localizer.shared.string(key, values)
+}
+
+/// The string for a key another component owns; `nil` when no catalog has it.
+func lookup(_ key: String, _ values: [String: Any] = [:]) -> String? {
+    Localizer.shared.lookup(key, values)
 }

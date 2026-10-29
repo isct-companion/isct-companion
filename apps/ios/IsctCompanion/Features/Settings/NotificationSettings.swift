@@ -15,11 +15,11 @@ enum ReminderLeads {
     static let maxAssignment = 8
 
     static func label(_ minutes: Int) -> String {
-        if minutes == 1440 { return t("1 day before") }
-        if minutes % 1440 == 0 { return t("{{days}} days before", ["days": minutes / 1440]) }
-        if minutes == 60 { return t("1 hour before") }
-        if minutes % 60 == 0 { return t("{{hours}} hours before", ["hours": minutes / 60]) }
-        return t("{{minutes}} minutes before", ["minutes": minutes])
+        if minutes == 1440 { return t("settings.notification.oneDayBefore") }
+        if minutes % 1440 == 0 { return t("settings.notification.daysBefore", ["days": minutes / 1440]) }
+        if minutes == 60 { return t("settings.notification.oneHourBefore") }
+        if minutes % 60 == 0 { return t("settings.notification.hoursBefore", ["hours": minutes / 60]) }
+        return t("settings.notification.minutesBefore", ["minutes": minutes])
     }
 
     static func classLead(_ settings: [String: Any]) -> Int {
@@ -65,18 +65,18 @@ struct NotificationsScreen: View {
     var body: some View {
         Form {
             Section {
-                Toggle(t("Remind me before classes"), isOn: binding("classes", current: settings["classes"] as? Bool ?? false))
+                Toggle(t("settings.main.remindMeBeforeClasses"), isOn: binding("classes", current: settings["classes"] as? Bool ?? false))
                 if settings["classes"] as? Bool == true {
-                    Picker(t("Remind me"), selection: leadBinding("classLeadMinutes", ReminderLeads.classLead(settings))) {
+                    Picker(t("settings.main.remindMe"), selection: leadBinding("classLeadMinutes", ReminderLeads.classLead(settings))) {
                         ForEach(ReminderLeads.classChoices, id: \.self) { Text(ReminderLeads.label($0)).tag($0) }
                     }
                 }
             }
             Section {
-                Toggle(t("Remind me before exams"), isOn: binding("exams", current: ReminderLeads.exams(settings)))
+                Toggle(t("settings.main.remindMeBeforeExams"), isOn: binding("exams", current: ReminderLeads.exams(settings)))
                 if ReminderLeads.exams(settings) {
                     let lead = ReminderLeads.examLead(settings)
-                    Picker(t("Remind me"), selection: leadBinding("examLeadMinutes", lead)) {
+                    Picker(t("settings.main.remindMe"), selection: leadBinding("examLeadMinutes", lead)) {
                         ForEach(Array(Set(ReminderLeads.examChoices + [lead])).sorted(), id: \.self) {
                             Text(ReminderLeads.label($0)).tag($0)
                         }
@@ -88,15 +88,15 @@ struct NotificationsScreen: View {
                     get: { ReminderLeads.quizzes(settings) },
                     set: { on in Task { await model.setNotifications { $0["quizzes"] = on } } })
                 ) {
-                    Text(t("Count quizzes as exams"))
-                    Text(t("Quizzes appear in upcoming exams and get exam reminders."))
+                    Text(t("settings.main.countQuizzesAsExams"))
+                    Text(t("settings.main.quizzesAppearInUpcomingExams"))
                 }
             }
             Section {
-                Toggle(t("Remind me before assignment deadlines"), isOn: binding("assignments", current: settings["assignments"] as? Bool ?? false))
+                Toggle(t("settings.main.remindMeBeforeAssignmentDeadlines"), isOn: binding("assignments", current: settings["assignments"] as? Bool ?? false))
                 if settings["assignments"] as? Bool == true {
                     NavigationLink(value: SettingsRoute.assignmentLeads) {
-                        LabeledContent(t("Remind me")) {
+                        LabeledContent(t("settings.main.remindMe")) {
                             Text(ReminderLeads.assignmentLeads(settings).sorted(by: >).map(ReminderLeads.label).joined(separator: "、"))
                                 .lineLimit(2)
                         }
@@ -104,8 +104,8 @@ struct NotificationsScreen: View {
                 }
             }
             Section {
-                LabeledContent(t("Test notification")) {
-                    Button(t("Send")) {
+                LabeledContent(t("settings.main.testNotification")) {
+                    Button(t("settings.notification.send")) {
                         Task {
                             let sent = await NotificationScheduler.sendTest()
                             denied = !sent
@@ -114,18 +114,18 @@ struct NotificationsScreen: View {
                     }
                 }
                 if denied, let url = URL(string: UIApplication.openNotificationSettingsURLString) {
-                    Button(t("Open Settings")) { openURL(url) }
+                    Button(t("settings.main.openSettings")) { openURL(url) }
                 }
             } footer: {
                 if denied {
-                    Text(t("Notifications are not allowed. Allow them in the Settings app under Notifications."))
+                    Text(t("settings.main.notificationsAreNotAllowedAllow"))
                         .foregroundStyle(Theme.danger)
                 } else if tested {
-                    Text(t("The system accepted the test notification. If no banner appears, check notification settings, Focus, and screen sharing."))
+                    Text(t("settings.notification.theSystemAcceptedTheTest"))
                 }
             }
         }
-        .navigationTitle(t("Notifications"))
+        .navigationTitle(t("common.notifications"))
         .navigationBarTitleDisplayMode(.inline)
         // The answer can change in the Settings app while this screen is away.
         .task(id: scenePhase) {
@@ -190,11 +190,11 @@ struct AssignmentLeadsScreen: View {
                     .disabled(on ? chosen.count == 1 : chosen.count >= ReminderLeads.maxAssignment)
                 }
             } footer: {
-                Text(t("Reminds you at every time you choose before the deadline (1–{{max}}).", ["max": ReminderLeads.maxAssignment]))
+                Text(t("settings.main.remindsYouAtEveryTime", ["max": ReminderLeads.maxAssignment]))
             }
         }
         .sensoryFeedback(.selection, trigger: chosen)
-        .navigationTitle(t("Assignment reminder times"))
+        .navigationTitle(t("settings.notification.assignmentReminderTimes"))
         .navigationBarTitleDisplayMode(.inline)
     }
 

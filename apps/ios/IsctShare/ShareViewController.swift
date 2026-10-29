@@ -76,19 +76,19 @@ private struct ShareView: View {
                 // Nothing is submitted from here or by itself: the person
                 // opens the app, checks the files and uploads them.
                 Section {
-                    Label(t("IsctCompanion never submits for you. Open the app to check the files and upload them yourself."), systemImage: "hand.raised")
+                    Label(t("shareViewController.isctcompanionNeverSubmitsForYou"), systemImage: "hand.raised")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button {
                         done(true, true)
                     } label: {
-                        Label(t("Add and open IsctCompanion"), systemImage: "arrow.up.forward.app")
+                        Label(t("shareViewController.addAndOpenIsctCompanion"), systemImage: "arrow.up.forward.app")
                             .font(.body.weight(.semibold))
                     }
                     .disabled(state.loading || state.files.isEmpty)
                 }
-                Section(t("Hand in to")) {
-                    choiceRow(nil, title: t("Choose in the app"), detail: nil)
+                Section(t("common.handInTo")) {
+                    choiceRow(nil, title: t("shareViewController.chooseInTheApp"), detail: nil)
                     ForEach(state.choices) { choice in
                         choiceRow(choice.id, title: choice.title,
                             detail: [choice.course, choice.due].compactMap { $0 }.joined(separator: " · "))
@@ -99,10 +99,10 @@ private struct ShareView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(t("Cancel")) { done(false, false) }
+                    Button(t("common.cancel")) { done(false, false) }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(t("Add")) { done(true, false) }
+                    Button(t("common.add")) { done(true, false) }
                         .disabled(state.loading || state.files.isEmpty)
                 }
             }

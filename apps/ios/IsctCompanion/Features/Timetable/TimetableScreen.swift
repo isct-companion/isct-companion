@@ -109,7 +109,7 @@ struct TimetableScreen: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityHint(t("Choose a week"))
+            .accessibilityHint(t("timetable.chooseAWeek"))
             HStack(alignment: .center) {
                 Button {
                     showsPicker = true
@@ -136,9 +136,9 @@ struct TimetableScreen: View {
 
     /// "2026年度 · 3Q 第 2 週", from Core's week list; between quarters, 休み.
     private var subtitle: String {
-        guard let year else { return t("Timetable") }
+        guard let year else { return t("common.timetable") }
         let label = year.weeks.first { $0.monday == AppModel.civil(monday) }.flatMap { WeekPicker.label($0, in: year) }
-        return [t("AY {{year}}", ["year": String(year.year)]), label].compactMap { $0 }.joined(separator: " · ")
+        return [t("timetable.academicYear", ["year": String(year.year)]), label].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func short(_ date: Date) -> String {
@@ -158,7 +158,7 @@ struct TimetableScreen: View {
         return Button {
             withAnimation(Motion.base(reduceMotion)) { monday = thisWeek }
         } label: {
-            Text(t("Today"))
+            Text(t("common.today"))
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 16)
                 .frame(height: 40)
@@ -166,7 +166,7 @@ struct TimetableScreen: View {
         .buttonStyle(CapsuleButtonStyle(level: .secondary))
         .disabled(atThisWeek)
         .opacity(atThisWeek ? 0.35 : 1)
-        .accessibilityLabel(t("Back to this week"))
+        .accessibilityLabel(t("timetable.backToThisWeek"))
     }
 
     private func shift(_ weeks: Int) {
@@ -357,7 +357,7 @@ struct TimetableScreen: View {
                     if block.sourceChanged == true {
                         Image(systemName: "exclamationmark.circle.fill")
                             .foregroundStyle(Theme.warn)
-                            .accessibilityLabel(t("Timetable changed"))
+                            .accessibilityLabel(t("common.timetableChanged"))
                     }
                 }
                 .font(BlockText.titleFont)
@@ -415,9 +415,9 @@ struct TimetableScreen: View {
     @ViewBuilder
     private func bottomLine(_ block: Occurrence, planned: Bool, cancelled: Bool) -> some View {
         if planned {
-            Text(t("Planned"))
+            Text(t("timetable.planned"))
         } else if cancelled {
-            Text(t("No class"))
+            Text(t("common.noClass"))
         } else if let grid = block.grid,
             grid.startTime != block.startTime || grid.endTime != block.endTime
         {
@@ -462,16 +462,16 @@ struct CalendarExportRows: View {
     let pick: (CalendarExportPick) -> Void
 
     var body: some View {
-        Text(t("Export ICS") + " · " + Format.quarter(term))
+        Text(t("common.exportICS") + " · " + Format.quarter(term))
             .font(.footnote.weight(.semibold))
             .foregroundStyle(Theme.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.top, 6)
             .padding(.bottom, 2)
-        TabPressRow(choice: CalendarExportPick.courses, title: t("Courses only"), icon: "calendar",
+        TabPressRow(choice: CalendarExportPick.courses, title: t("common.coursesOnly"), icon: "calendar",
                     highlighted: highlighted, report: report, pick: pick)
-        TabPressRow(choice: CalendarExportPick.coursesAndEvents, title: t("Courses + weekly events"),
+        TabPressRow(choice: CalendarExportPick.coursesAndEvents, title: t("common.coursesWeeklyEvents"),
                     icon: "calendar.badge.plus", highlighted: highlighted, report: report, pick: pick)
     }
 }

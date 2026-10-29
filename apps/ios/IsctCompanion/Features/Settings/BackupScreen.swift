@@ -32,9 +32,9 @@ struct BackupScreen: View {
                         restoreRow(Format.due(version.savedAt), detail: version.device, id: version.id, savedAt: version.savedAt)
                     }
                 } header: {
-                    Text(t("Earlier versions"))
+                    Text(t("settings.backup.earlierVersions"))
                 } footer: {
-                    Text(t("Backups older than 30 days are removed only when at least four newer backups exist."))
+                    Text(t("settings.backup.backupsOlderThan30Days"))
                 }
             }
             if let points = state?.recoveryPoints, !points.isEmpty {
@@ -43,21 +43,21 @@ struct BackupScreen: View {
                         restoreRow(Format.due(point.savedAt), detail: nil, id: point.id, savedAt: point.savedAt)
                     }
                 } header: {
-                    Text(t("Local recovery files"))
+                    Text(t("settings.backup.localRecoveryFiles"))
                 } footer: {
-                    Text(t("Saved before cloud changes or a restore replace local content. Backups older than 30 days are removed only when at least four newer backups exist."))
+                    Text(t("settings.backup.savedBeforeCloudChangesOr"))
                 }
             }
             Section {
-                Button(t("Export…")) { Task { await export() } }
-                Button(t("Import…")) { importing = true }
+                Button(t("settings.backup.export")) { Task { await export() } }
+                Button(t("settings.backup.import")) { importing = true }
             } header: {
-                Text(t("Backup file"))
+                Text(t("settings.backup.backupFile"))
             } footer: {
-                Text(t("School logins sync with iCloud Keychain."))
+                Text(t("settings.backup.schoolLoginsSyncWithICloud"))
             }
         }
-        .navigationTitle(t("Backup"))
+        .navigationTitle(t("settings.main.backup"))
         .navigationBarTitleDisplayMode(.inline)
         .disabled(busy)
         .task { await model.refreshCloud() }
@@ -65,7 +65,7 @@ struct BackupScreen: View {
             confirm?.message ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
             titleVisibility: .visible, presenting: confirm
         ) { confirmation in
-            Button(t("Restore"), role: .destructive) { Task { await confirmation.action() } }
+            Button(t("common.restore"), role: .destructive) { Task { await confirmation.action() } }
         }
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
@@ -74,7 +74,7 @@ struct BackupScreen: View {
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             guard case let .success(url) = result else { return }
             confirm = Confirmation(
-                message: t("Restore this file on all connected devices? A recovery copy of current data will be kept.")
+                message: t("settings.backup.restoreThisFileOnAll")
             ) { await importFile(url) }
         }
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
@@ -105,30 +105,30 @@ struct BackupScreen: View {
                     set: { on in run { await model.setCloudAutomatic(on) } })
                 ) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(t("Sync automatically"))
+                        Text(t("settings.backup.syncAutomatically"))
                         Text(state?.automatic == true
-                            ? t("Pulls other devices' changes when opened and every hour. Changed content is uploaded at most once per hour.")
-                            : t("Upload and pull by hand"))
+                            ? t("settings.backup.pullsOtherDevicesChangesWhen")
+                            : t("settings.backup.uploadAndPullByHand"))
                             .font(.subheadline).foregroundStyle(Theme.muted)
                     }
                 }
                 .disabled(locked)
                 HStack {
-                    Button(t("Upload")) { run { await model.syncCloud(.upload) } }
+                    Button(t("settings.backup.upload")) { run { await model.syncCloud(.upload) } }
                         .buttonStyle(.borderless)
                     Spacer()
                     if state?.syncing == true {
                         ProgressView()
-                        Text(t("Syncing…")).foregroundStyle(Theme.muted)
+                        Text(t("settings.backup.syncing")).foregroundStyle(Theme.muted)
                         Spacer()
                     }
-                    Button(t("Pull")) { run { await model.syncCloud(.pull) } }
+                    Button(t("settings.backup.pull")) { run { await model.syncCloud(.pull) } }
                         .buttonStyle(.borderless)
                 }
                 .disabled(locked)
             }
         } header: {
-            Text(t("Sync"))
+            Text(t("settings.backup.sync"))
         }
     }
 
@@ -144,11 +144,11 @@ struct BackupScreen: View {
         // without it every failure looks the same. A declined sign-in leaves
         // the switch off with its reason.
         if let error = provider.error {
-            return t("Could not update this cloud copy. Your data is saved on this device.") + "\n" + error
+            return t("settings.backup.couldNotUpdateThisCloud") + "\n" + error
         }
         guard provider.enabled else { return nil }
-        return provider.lastSyncedAt.map { t("Synced {{date}}", ["date": Format.due($0)]) }
-            ?? t("Waiting for the first sync")
+        return provider.lastSyncedAt.map { t("settings.backup.syncedDate", ["date": Format.due($0)]) }
+            ?? t("settings.backup.waitingForTheFirstSync")
     }
 
     private func restoreRow(_ title: String, detail: String?, id: String, savedAt: String) -> some View {
@@ -158,13 +158,13 @@ struct BackupScreen: View {
                 if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted) }
             }
             Spacer()
-            Button(t("Restore")) {
+            Button(t("common.restore")) {
                 confirm = Confirmation(message: t(
-                    "Restore the version from {{date}} on all connected devices? Unsynced work on older devices will be kept in recovery files.",
+                    "settings.backup.restoreTheVersionFromDate",
                     ["date": Format.due(savedAt)])
                 ) {
                     await model.restoreCloud(id)
-                    notice = t("Restored the earlier version.")
+                    notice = t("settings.backup.restoredTheEarlierVersion")
                 }
             }
             .buttonStyle(.borderless)
@@ -193,9 +193,9 @@ struct BackupScreen: View {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             try await model.importBackup(try Data(contentsOf: url))
-            notice = t("Backup restored.")
+            notice = t("settings.backup.backupRestored")
         } catch {
-            notice = t("Import failed: {{reason}}", ["reason": AppModel.describe(error)])
+            notice = t("settings.backup.importFailedReason", ["reason": AppModel.describe(error)])
         }
     }
 }

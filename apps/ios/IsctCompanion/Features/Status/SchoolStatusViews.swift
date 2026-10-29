@@ -11,8 +11,8 @@ enum SyncText {
         switch source {
         case "lms": return "LMS"
         case "kyomu": return "教務Web"
-        case "references": return t("Reference data")
-        case "catalog": return t("Course catalog")
+        case "references": return t("syncStatus.dataset.referenceData")
+        case "catalog": return t("syncStatus.dataset.courseCatalog")
         default: return source
         }
     }
@@ -21,14 +21,14 @@ enum SyncText {
     /// and in its labels' keys.
     private static func datasetName(_ key: String) -> String? {
         switch key {
-        case "lms.enrolment": return t("Courses")
-        case "lms.deadlines": return t("Deadlines")
-        case "lms.course": return t("Course content")
-        case "lms.assign": return t("Assignments")
-        case "lms.history": return t("Past courses")
-        case "kyomu.page": return t("教務Web pages")
-        case "catalog.official": return t("Course catalog")
-        case "reference": return t("Reference data")
+        case "lms.enrolment": return t("common.courses")
+        case "lms.deadlines": return t("syncStatus.dataset.deadlines")
+        case "lms.course": return t("syncStatus.dataset.courseContent")
+        case "lms.assign": return t("common.assignments")
+        case "lms.history": return t("syncStatus.dataset.pastCourses")
+        case "kyomu.page": return t("syncStatus.dataset.kyomuPages")
+        case "catalog.official": return t("syncStatus.dataset.courseCatalog")
+        case "reference": return t("syncStatus.dataset.referenceData")
         default: return nil
         }
     }
@@ -43,30 +43,30 @@ enum SyncText {
         let key = label.key.hasPrefix("sync.") ? String(label.key.dropFirst("sync.".count)) : label.key
         if let name = datasetName(key) ?? datasetName(label.key) { return name }
         let values = (try? JSONSerialization.jsonObject(with: Data(label.args.utf8))) as? [String: Any] ?? [:]
-        return t(label.key, values)
+        return lookup(label.key, values) ?? label.key
     }
 
     static func held(_ held: Held) -> String {
         switch held {
-        case .offline: return t("Waiting for a connection")
-        case .cellular: return t("Waiting for Wi-Fi")
-        case .powerSaver: return t("Paused for Low Power Mode")
-        case .background: return t("Resumes when the app is in front")
+        case .offline: return t("syncStatus.waitingForAConnection")
+        case .cellular: return t("syncStatus.waitingForWifi")
+        case .powerSaver: return t("syncStatus.pausedLowPowerMode")
+        case .background: return t("syncStatus.resumesWhenTheAppIs")
         case let .backoff(until): return retry(at: until)
-        case let .hostPaused(host, until): return t("{{host}} is paused until {{time}}", ["host": host, "time": Format.due(until)])
-        case .signInRequired: return t("Sign in required")
-        case .resetting: return t("Resetting")
-        case .prerequisite: return t("Waiting for the data it depends on")
+        case let .hostPaused(host, until): return t("syncStatus.hostIsPausedUntilTime", ["host": host, "time": Format.due(until)])
+        case .signInRequired: return t("syncStatus.signInRequired")
+        case .resetting: return t("syncStatus.resetting")
+        case .prerequisite: return t("syncStatus.waitingForTheDataIt")
         }
     }
 
     static func retry(at raw: String) -> String {
-        t("Retry at {{time}}", ["time": Format.due(raw)])
+        t("syncStatus.retryAtTime", ["time": Format.due(raw)])
     }
 
     /// "Could not update Deadlines · Retry at Today 14:05".
     static func failure(_ failure: SyncFailure, name: String) -> String {
-        [t("Could not update {{source}}", ["source": name]), failure.retryAt.map(retry(at:))]
+        [t("syncStatus.couldNotUpdateSource", ["source": name]), failure.retryAt.map(retry(at:))]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -131,7 +131,7 @@ extension SyncSnapshot {
     var problem: SyncProblem? {
         let held = runs.compactMap(\.held) + sources.compactMap(\.held)
         for case let .signInRequired(profile) in held {
-            return SyncProblem(text: t("Sign in required"), retry: nil, signIn: profile)
+            return SyncProblem(text: t("syncStatus.signInRequired"), retry: nil, signIn: profile)
         }
         if let run = runs.first(where: { $0.failure != nil }), let failure = run.failure {
             return SyncProblem(
@@ -147,7 +147,7 @@ extension SyncSnapshot {
 
     /// One line for the first-load card and the indicator's accessibility label.
     var line: String {
-        if resetting { return t("Resetting") }
+        if resetting { return t("syncStatus.resetting") }
         if let run = activeRuns.first {
             return ([SyncText.label(run.label)] + [run.current.map(SyncText.label)].compactMap { $0 }).joined(separator: " · ")
         }
@@ -155,7 +155,7 @@ extension SyncSnapshot {
         if let run = runs.first(where: { $0.held != nil }), let held = run.held {
             return "\(SyncText.label(run.label)) · \(SyncText.held(held))"
         }
-        return t("Up to date")
+        return t("syncStatus.upToDate")
     }
 }
 
@@ -219,7 +219,7 @@ struct SyncRingButton: View {
                     .foregroundStyle(Theme.ok)
                     .frame(width: 40, height: 40)
                     .transition(.movingParts.pop(Theme.ok))
-                    .accessibilityLabel(t("Updated"))
+                    .accessibilityLabel(t("syncStatus.updated"))
             }
         }
         .animation(.smooth(duration: Theme.motionBase), value: showsDone)
@@ -245,11 +245,11 @@ struct SyncStatusSheet: View {
             List {
                 SyncSections()
             }
-            .navigationTitle(t("School connection"))
+            .navigationTitle(t("common.schoolConnection"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(t("Close")) { dismiss() }
+                    Button(t("common.close")) { dismiss() }
                 }
             }
         }
@@ -265,7 +265,7 @@ struct SyncSections: View {
     var body: some View {
         if let snapshot = model.syncSnapshot {
             if !snapshot.sources.isEmpty {
-                Section(t("Last updated")) {
+                Section(t("syncStatus.lastUpdated")) {
                     ForEach(snapshot.sources, id: \.source) { SyncSourceRow(source: $0) }
                 }
             }
@@ -273,7 +273,7 @@ struct SyncSections: View {
                 Section {
                     if snapshot.resetting {
                         HStack {
-                            Text(t("Resetting"))
+                            Text(t("syncStatus.resetting"))
                             Spacer()
                             ProgressView().controlSize(.small)
                         }
@@ -296,11 +296,11 @@ private struct SyncSourceRow: View {
                 Spacer()
                 if source.running { ProgressView().controlSize(.small) }
             }
-            Text(source.lastUpdated.map { t("Updated {{date}}", ["date": Format.due($0)]) } ?? t("Never updated"))
+            Text(source.lastUpdated.map { t("syncStatus.updatedDate", ["date": Format.due($0)]) } ?? t("common.neverUpdated"))
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
             if let maintenance = source.maintenance {
-                Text([t("{{source}} is under maintenance", ["source": SyncText.source(source.source)]), maintenance]
+                Text([t("syncStatus.sourceIsUnderMaintenance", ["source": SyncText.source(source.source)]), maintenance]
                     .filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.footnote)
                     .foregroundStyle(Theme.warn)
@@ -311,7 +311,7 @@ private struct SyncSourceRow: View {
             } else if let held = source.held {
                 Text(SyncText.held(held)).font(.footnote).foregroundStyle(Theme.muted)
             } else if source.session == "signed-out" {
-                Text(t("Not connected")).font(.footnote).foregroundStyle(Theme.muted)
+                Text(t("common.notConnected")).font(.footnote).foregroundStyle(Theme.muted)
             }
         }
         .padding(.vertical, 2)
@@ -363,7 +363,7 @@ private struct FailureLine: View {
         HStack(alignment: .firstTextBaseline) {
             Text(text).font(.footnote).foregroundStyle(Theme.danger)
             Spacer()
-            Button(t("Retry"), action: retry)
+            Button(t("common.retry"), action: retry)
                 .font(.footnote.weight(.semibold))
                 .buttonStyle(.borderless)
         }
@@ -386,10 +386,10 @@ struct SyncProblemBanner: View {
                 Button {
                     push(SettingsRoute.account(profile))
                 } label: {
-                    Text(t("Sign in")).font(.subheadline.weight(.semibold))
+                    Text(t("syncStatus.signIn")).font(.subheadline.weight(.semibold))
                 }
             } else if let scope = problem.retry {
-                Button(t("Retry")) { model.syncHint(.refresh(scope: scope)) }
+                Button(t("common.retry")) { model.syncHint(.refresh(scope: scope)) }
                     .font(.subheadline.weight(.semibold))
             }
         }
@@ -407,7 +407,7 @@ struct FirstLoadCard: View {
         HStack(spacing: 14) {
             SyncIndicatorView(indicator: snapshot.indicator ?? .spinner(emphasized: true))
             VStack(alignment: .leading, spacing: 4) {
-                Text(t("Loading school data")).font(.body.weight(.semibold)).foregroundStyle(Theme.ink)
+                Text(t("syncStatus.loadingSchoolData")).font(.body.weight(.semibold)).foregroundStyle(Theme.ink)
                 Text(snapshot.line).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
             }
         }

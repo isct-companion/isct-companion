@@ -95,11 +95,11 @@ struct AssignmentBody: View {
                 HStack(spacing: 8) {
                     AssignmentState(assignment: assignment)
                     if let due = assignment.dueAt {
-                        Text(t("Due {{date}}", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
+                        Text(t("course.dueDate", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
                     }
                 }
             } else if let due = assignment.dueAt {
-                Text(t("Due {{date}}", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
+                Text(t("course.dueDate", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
             }
             if !assignment.bodyHtml.isEmpty {
                 HTMLText(html: assignment.bodyHtml)
@@ -118,7 +118,7 @@ struct AssignmentBody: View {
                 Button {
                     push(WebRouter.PushedPage(site: .scienceLms, target: url, title: assignment.title))
                 } label: {
-                    Label(t("Submit in LMS"), systemImage: "arrow.up.forward.square")
+                    Label(t("common.submitInLMS"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -137,7 +137,7 @@ private struct AssignmentState: View {
         let done = ["submitted", "graded"].contains(assignment.submission ?? "")
         let past = Format.date(assignment.dueAt).map { $0 < Date() } ?? false
         let (ink, fill) = DeadlineChip.colors(done ? "done" : past ? "past" : "soon")
-        Text(done ? (assignment.grade ?? t("Submitted")) : Format.countdown(assignment.dueAt, now: Date()))
+        Text(done ? (assignment.grade ?? t("common.submitted")) : Format.countdown(assignment.dueAt, now: Date()))
             .font(.caption.weight(.semibold).monospacedDigit())
             .foregroundStyle(ink)
             .padding(.horizontal, 7)
@@ -211,10 +211,10 @@ struct MaterialOpener<Label: View>: View {
         .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK", role: .cancel) {}
         }
-        .alert(t("The file could not be downloaded. Try again, or open it in the LMS."), isPresented: $retry) {
-            Button(t("Try again")) { Task { await open() } }
-            Button(t("Open in LMS")) { if let source { push(source) } }
-            Button(t("Cancel"), role: .cancel) {}
+        .alert(t("lmsFile.theFileCouldNotBe"), isPresented: $retry) {
+            Button(t("common.tryAgain")) { Task { await open() } }
+            Button(t("common.openInLMS")) { if let source { push(source) } }
+            Button(t("common.cancel"), role: .cancel) {}
         }
     }
 
@@ -233,9 +233,9 @@ struct MaterialOpener<Label: View>: View {
         case let .ready(file)?:
             preview = URL(fileURLWithPath: file.path)
         case let .tooLarge(bytes)?:
-            notice = t("This file is too large ({{size}}). Open it in the LMS.", ["size": ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)])
+            notice = t("lmsFile.thisFileIsTooLarge", ["size": ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)])
         case .failed(.login)?:
-            notice = t("Sign in to the LMS again. Check your school account in Settings.")
+            notice = t("lmsFile.signInToTheLMS")
         case nil, .failed(.network)?, .failed(.timeout)?, .failed(.cancelled)?:
             retry = true
         case let .external(url)?:

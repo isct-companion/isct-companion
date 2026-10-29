@@ -32,29 +32,29 @@ enum Guide {
 }
 
 struct TimetableMarkTip: Tip {
-    var title: Text { Text(t("Swipe to change weeks")) }
-    var message: Text? { Text(t("Long-press a class to mark it as an exam or cancelled, or the Timetable tab to export the quarter.")) }
+    var title: Text { Text(t("guide.swipeToChangeWeeks")) }
+    var message: Text? { Text(t("guide.longPressAClassTo")) }
     var image: Image? { Image(systemName: "hand.draw") }
     var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
 }
 
 struct LessonMarkTip: Tip {
-    var title: Text { Text(t("Today's lesson")) }
-    var message: Text? { Text(t("Long-press a lesson to make it the lesson of today's class.")) }
+    var title: Text { Text(t("guide.todaysLesson")) }
+    var message: Text? { Text(t("guide.longPressALessonTo")) }
     var image: Image? { Image(systemName: "hand.tap") }
     var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
 }
 
 struct AssignmentSwipeTip: Tip {
-    var title: Text { Text(t("Pin or hide")) }
-    var message: Text? { Text(t("Swipe right to pin an assignment, left to hide it.")) }
+    var title: Text { Text(t("guide.pinOrHide")) }
+    var message: Text? { Text(t("guide.swipeRightToPinAn")) }
     var image: Image? { Image(systemName: "hand.draw") }
     var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
 }
 
 struct WebSitesTip: Tip {
-    var title: Text { Text(t("Switch sites")) }
-    var message: Text? { Text(t("Tap the title, or long-press the Web tab, to switch school sites.")) }
+    var title: Text { Text(t("common.switchSites")) }
+    var message: Text? { Text(t("guide.tapTheTitleOrLong")) }
     var image: Image? { Image(systemName: "globe") }
     var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
 }
@@ -70,7 +70,7 @@ struct WelcomeSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker(t("App language"), selection: binding("locale", default: "en")) {
+                    Picker(t("common.appLanguage"), selection: binding("locale", default: "en")) {
                         Text(verbatim: "English").tag("en")
                         Text(verbatim: "日本語").tag("ja")
                         Text(verbatim: "中文").tag("zh")
@@ -78,20 +78,20 @@ struct WelcomeSheet: View {
                     .pickerStyle(.segmented)
                     .listRowBackground(Theme.surface)
                 } header: {
-                    Text(t("App language"))
+                    Text(t("common.appLanguage"))
                 }
                 Section {
-                    Picker(t("Course and syllabus language"), selection: binding("contentLanguage", default: "auto")) {
-                        Text(t("Automatic")).tag("auto")
+                    Picker(t("guide.courseAndSyllabusLanguage"), selection: binding("contentLanguage", default: "auto")) {
+                        Text(t("common.automatic")).tag("auto")
                         Text(verbatim: "English").tag("en")
                         Text(verbatim: "日本語").tag("ja")
                     }
                     .pickerStyle(.segmented)
                     .listRowBackground(Theme.surface)
                 } header: {
-                    Text(t("Course and syllabus language"))
+                    Text(t("guide.courseAndSyllabusLanguage"))
                 } footer: {
-                    Text(t("Can differ from the app language."))
+                    Text(t("guide.canDifferFromTheApp"))
                 }
                 Section {
                     if model.needsAccount {
@@ -99,7 +99,7 @@ struct WelcomeSheet: View {
                             dismiss()
                             connect()
                         } label: {
-                            Text(t("Connect school accounts"))
+                            Text(t("common.connectSchoolAccounts"))
                                 .font(.body.weight(.semibold))
                                 .frame(maxWidth: .infinity)
                         }
@@ -113,11 +113,11 @@ struct WelcomeSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
-            .navigationTitle(t("Welcome to IsctCompanion"))
+            .navigationTitle(t("common.welcomeToIsctCompanion"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(t(model.needsAccount ? "Later" : "Done")) { dismiss() }
+                    Button(t(model.needsAccount ? "common.later" : "common.done")) { dismiss() }
                 }
             }
         }
