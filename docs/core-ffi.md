@@ -90,7 +90,7 @@ the changes it made, the next `revision` (user writes) and the commit `seq`;
 | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Workspace/read models | `workspaceRevision`, `mutateCommit`, `scheduleQuery` (view queries, including `records(fields)`), `finderQuery`  |
 | Accounts              | `credentialStatus`, `connectSchool`, `schoolOtpLink`, `deleteCredentials`                                        |
-| School                | `openSchool`, `schoolSession`, `schoolLifecycle`, `schoolBrowsing`, back/forward/reload                          |
+| School                | `openSchool`, `schoolWebPage`, `schoolSession`, `schoolLifecycle`, `schoolBrowsing`, back/forward/reload         |
 | Reads                 | `syncHint` (the planner decides what is read), `syncSnapshot`                                                    |
 | Files/notes           | `openMaterial`, `cleanMaterials`, `saveNote`, `readNote`, `listNotes`, `parseLmsResource`                        |
 | Hand-in               | `waitingHandIns`, `assignmentSubmitFiles`, `addAssignmentFiles`, `removeAssignmentFile`, `handInAssignment`      |
@@ -113,8 +113,10 @@ typed. Arrays become foreign lists and Core's deserializer rechecks fixed length
 Business validation, timestamps, revision checking and commits remain in Core.
 Foreign callers supply complete records, including default field values; Core's
 custom serde defaults are not automatically foreign constructor defaults.
-`openSchool` returns `SchoolWeb { result: SchoolWebResult }`. Dynamic document
-fields do not erase result discriminants.
+`openSchool` returns `SchoolWeb { result: SchoolWebResult }` and
+`schoolWebPage` returns `SchoolWebPage { page }`, the page Core's
+`school-web-page` event carries; read it after subscribing and keep the
+higher `revision`. Dynamic document fields do not erase result discriminants.
 
 `SdkError` distinguishes InvalidInput, Conflict, Storage, Compatibility,
 Authentication, Network, Timeout, Busy, Unavailable, Callback, Cancelled, Closed and
@@ -156,7 +158,9 @@ Native ports are mechanisms:
 - `NativeBrowser`: promptly enqueue UI work. Report every request fact and
   carry out Core's decisions as [core-school-browser.md](core-school-browser.md)
   describes; inject nothing into school pages. `BrowserEvents` reports
-  completion using browser generation, page sequence and action ID. Never
+  completion using browser generation, page sequence and action ID, and
+  `historyChanged` reports whether each view and popup can go back or
+  forward; Core decides what the app's Back and Forward do. Never
   synchronously wait for the main thread from a callback. Shutdown disables
   native admission.
 - `NativeDownloadSession`: the school WebView cookie store for Core HTTP:

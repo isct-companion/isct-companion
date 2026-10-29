@@ -61,7 +61,10 @@ private struct ResidentWebView: UIViewRepresentable {
             if window == nil { release() } else { claim() }
         }
 
-        /// Shows this container's site, parking any other site it held.
+        /// Shows this container's site, parking any other site it held. The
+        /// host keeps a site's popups next to its view (`arrangePopups`), so
+        /// parking a view takes its popups along and parking a popup alone
+        /// does nothing.
         func claim() {
             guard window != nil, let site else { return }
             for case let held as WKWebView in subviews where held !== host.webView(for: site) {
@@ -72,6 +75,7 @@ private struct ResidentWebView: UIViewRepresentable {
             webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             if refresh != nil { webView.scrollView.refreshControl = refreshControl }
             addSubview(webView)
+            host.arrangePopups(site)
         }
 
         /// Returns whatever view it holds to the parking window.
@@ -93,9 +97,7 @@ struct WebTabScreen: View {
     @State private var visibilityOwner = UUID()
 
     var body: some View {
-        // Read so a navigation (which retitles the page) refreshes the actions.
-        _ = web.titles[web.tabSite]
-        return ZStack {
+        ZStack {
             ResidentWebView(site: web.tabSite, host: web.browser, revision: web.attachRevision) {
                 web.reload(web.tabSite)
             }
@@ -132,8 +134,10 @@ struct WebTabScreen: View {
             ToolbarItemGroup(placement: .topBarLeading) {
                 Button { web.back(web.tabSite) } label: { Image(systemName: "chevron.backward") }
                     .accessibilityLabel(t("common.previousPage"))
+                    .disabled(off(web.pages[web.tabSite]?.back))
                 Button { web.forward(web.tabSite) } label: { Image(systemName: "chevron.forward") }
                     .accessibilityLabel(t("common.nextPage"))
+                    .disabled(off(web.pages[web.tabSite]?.forward))
             }
             ToolbarItem(placement: .topBarTrailing) {
                 PageActions(site: web.tabSite)
@@ -147,6 +151,10 @@ struct WebTabScreen: View {
     }
 }
 
+/// Whether a Back or Forward button is off: only when Core says it would do
+/// nothing (`unknown` stays on), or before Core's page is read.
+private func off(_ step: SchoolWebStep?) -> Bool { (step ?? .no) == .no }
+
 /// The page menu both web screens share: reload, share, Safari and text size.
 private struct PageActions: View {
     let site: SchoolSite
@@ -156,7 +164,7 @@ private struct PageActions: View {
     var body: some View {
         Menu {
             Button(t("common.reload"), systemImage: "arrow.clockwise") { web.reload(site) }
-            if let url = web.browser.frontWebView(for: site)?.url {
+            if let url = web.url(site) {
                 ShareLink(item: url) { Label(t("common.share"), systemImage: "square.and.arrow.up") }
                 Link(destination: url) { Label(t("common.openInBrowser"), systemImage: "safari") }
             }
@@ -187,7 +195,7 @@ extension WebRouter {
         case let .site(site): choose(site)
         case .reload: reload(tabSite)
         case .openInBrowser:
-            if let url = browser.frontWebView(for: tabSite)?.url { UIApplication.shared.open(url) }
+            if let url = self.url(tabSite) { UIApplication.shared.open(url) }
         }
     }
 }
@@ -210,7 +218,7 @@ struct SitePickerRows: View {
         }
         Divider()
         row(.reload, t("common.reload"), icon: "arrow.clockwise")
-        if web.browser.frontWebView(for: web.tabSite)?.url != nil {
+        if web.url(web.tabSite) != nil {
             row(.openInBrowser, t("common.openInBrowser"), icon: "safari")
         }
     }
@@ -232,8 +240,7 @@ struct WebPageScreen: View {
     @State private var visibilityOwner = UUID()
 
     var body: some View {
-        _ = web.titles[page.site]
-        return ZStack {
+        ZStack {
             ResidentWebView(site: page.site, host: web.browser, revision: web.attachRevision) {
                 web.reload(page.site)
             }
@@ -253,11 +260,13 @@ struct WebPageScreen: View {
             ToolbarItemGroup(placement: .bottomBar) {
                 Button { web.back(page.site) } label: { Image(systemName: "chevron.backward") }
                     .accessibilityLabel(t("common.previousPage"))
+                    .disabled(off(web.pages[page.site]?.back))
                 Spacer()
                 Button { web.forward(page.site) } label: { Image(systemName: "chevron.forward") }
                     .accessibilityLabel(t("common.nextPage"))
+                    .disabled(off(web.pages[page.site]?.forward))
                 Spacer()
-                if let url = web.browser.frontWebView(for: page.site)?.url {
+                if let url = web.url(page.site) {
                     ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
                     Spacer()
                     Link(destination: url) { Image(systemName: "safari") }
@@ -274,27 +283,29 @@ struct WebPageScreen: View {
 }
 
 /// What sits between the navigation bar and the page, outside the school
-/// page: the close bar of a popup the page opened over itself, and Core's
-/// notice about the page the person sees (it did not load, or a reload was
-/// opened again without resending a form).
+/// page, all from Core's page of the site: the close bar of a popup the page
+/// opened over itself, a load that failed, and a reload opened again without
+/// resending a form.
 private struct PageBars: View {
     let site: SchoolSite
     @Environment(WebRouter.self) private var web
 
-    /// What the notice says when a page did not load, by Core's `LoadFailure`.
-    private static let failureText: [String: String] = [
-        "offline": "web.thisPageCouldNotBe",
-        "host-not-found":
-            "web.thisPageCouldNotBeOpened",
-        "unreachable":
-            "web.thisPageCouldNotBeOpenedIts",
-        "insecure": "web.thisPageCouldNotBeOpenedThe",
-        "cleartext": "web.thisPageUsesAnUnencrypted",
-    ]
+    /// What the notice says when a page did not load.
+    private static func failureText(_ reason: LoadFailure) -> String {
+        switch reason {
+        case .offline: "web.thisPageCouldNotBe"
+        case .hostNotFound: "web.thisPageCouldNotBeOpened"
+        case .unreachable: "web.thisPageCouldNotBeOpenedIts"
+        case .insecure: "web.thisPageCouldNotBeOpenedThe"
+        case .cleartext: "web.thisPageUsesAnUnencrypted"
+        default: "web.thisPageCouldNotBeOpened2"
+        }
+    }
 
     var body: some View {
+        let popups = web.pages[site]?.popups ?? 0
         VStack(spacing: 0) {
-            if (web.popups[site] ?? 0) > 0 {
+            if popups > 0 {
                 HStack {
                     Label(t("web.popupWindow"), systemImage: "macwindow.on.rectangle")
                         .font(.subheadline)
@@ -308,49 +319,48 @@ private struct PageBars: View {
                 .padding(.vertical, 8)
                 Divider()
             }
-            if let notice = web.notices[site] {
-                note(notice)
+            if let failure = web.failure(site) {
+                failed(failure)
+                Divider()
+            }
+            if web.reopened[site] != nil {
+                Label(t("web.reopenedThisPageWithoutSending"), systemImage: "arrow.clockwise")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
                 Divider()
             }
         }
         .background(.bar)
-        .animation(.default, value: web.popups[site] ?? 0)
-        .animation(.default, value: web.notices[site])
+        .animation(.default, value: popups)
+        .animation(.default, value: web.failure(site))
+        .animation(.default, value: web.reopened[site])
     }
 
-    @ViewBuilder
-    private func note(_ notice: WebRouter.Notice) -> some View {
-        switch notice.kind {
-        case let .loadFailed(reason):
-            VStack(alignment: .leading, spacing: 8) {
-                Label(t(Self.failureText[reason] ?? "web.thisPageCouldNotBeOpened2"), systemImage: "exclamationmark.triangle")
-                    .font(.subheadline)
-                    .symbolRenderingMode(.multicolor)
-                HStack {
-                    if let url = notice.url {
-                        if reason != "cleartext" {
-                            Button(t("common.retry")) { web.retry(site) }
-                        }
-                        Button(t("common.openInBrowser")) { UIApplication.shared.open(url) }
-                    }
-                    Spacer()
-                    Button { web.dismissNotice(site) } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel(t("common.close"))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-        case .reopened:
-            Label(t("web.reopenedThisPageWithoutSending"), systemImage: "arrow.clockwise")
+    private func failed(_ failure: SchoolWebFailure) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(t(Self.failureText(failure.reason)), systemImage: "exclamationmark.triangle")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+                .symbolRenderingMode(.multicolor)
+            HStack {
+                if let url = failure.url.flatMap(URL.init(string:)) {
+                    if failure.reason != .cleartext {
+                        Button(t("common.retry")) { web.retry(site) }
+                    }
+                    Button(t("common.openInBrowser")) { UIApplication.shared.open(url) }
+                }
+                Spacer()
+                Button { web.dismissFailure(site) } label: { Image(systemName: "xmark") }
+                    .accessibilityLabel(t("common.close"))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 }
 

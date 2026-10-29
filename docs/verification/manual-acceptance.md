@@ -196,7 +196,7 @@ an unverified area becomes an assumed-good one.
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
 | `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/**<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
-| `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/school-web/** |
 | `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
 | `DESKTOP-SCHOOL-HTTP-EXTERNAL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
@@ -1494,17 +1494,48 @@ A Signed in account; at least one course with downloadable material.
      reveal proves the hand-off, not the download counter.
 5. On macOS, open an LMS assignment's file draft area and drag a small
    local file from Finder into it, without submitting the assignment.
-   Switch between the app's native pages and school WebView, let a
-   background school read finish, then repeat the drag and remove the
-   draft file. Do not restart between attempts.
+   Do the same on the edit page opened in a popup (⌘-click its Add
+   submission or Edit submission button). Switch between the Web page
+   and the Lectures reader, let a background school read finish,
+   resize the window, then repeat both drags and remove the draft
+   files. Do not restart between attempts.
    - *Why:* The main Tauri view and hidden school views must leave native file
-     drag events to the visible WKWebView. Repeating after view changes
-     exercises the intermittent loss of drag delivery reported on macOS.
+     drag events to the visible WKWebView. A popup used to be a subview
+     of the LMS view, and WKWebView answers AppKit's drag hit test with
+     itself without looking at its subviews, so a file dropped on the
+     popup went to the page underneath. Popups are siblings of their
+     view now, kept at its frame and visibility by the host; switching
+     surfaces and resizing move and hide them, and the application log
+     shows "drag entered site=ScienceLms popup" when the popup gets the
+     drag. Repeating after view changes also exercises the intermittent
+     loss of drag delivery reported on macOS.
+6. On macOS, in the same draft area, press the file picker's upload
+   button (Moodle: Add → Upload a file → Choose File) and choose one
+   small file; open it again and press Cancel. If a page's file input
+   takes several files, select two there.
+   - *Why:* The app's own WebKit delegate now answers every file input; wry's
+     is no longer reached. One file, several, and Cancel are the three
+     answers WebKit can get, and each must reach the page exactly once:
+     a lost answer leaves the input dead until the page reloads.
+7. Open the assignment's edit page in a popup (⌘-click its Add
+   submission or Edit submission button; or open a page with a file
+   input from a link that opens a new window) and Choose File there.
+   - *Why:* A popup is a WKWebView of the app's own with no wry delegate under
+     it, so before this change macOS WebKit treated its file input as
+     Cancel and nothing happened. The popup must open the same panel as
+     the main view.
+8. Open the file panel again and, with it open, quit the app with ⌘Q.
+   Start the app again and open the same page.
+   - *Why:* When the view goes away the host must end the panel and answer
+     Cancel itself; WebKit requires the answer, and a panel left
+     waiting would block quitting or crash on a page that no longer
+     exists.
 
 **Where to look**
 
 The WebView address and page body, the 成績 list after Back and
-Forward, the download list, and the OS file manager.
+Forward, the download list, the OS file manager, the file panel as a
+sheet on the app window, and the draft area's file list.
 
 **Expected**
 
@@ -1512,13 +1543,22 @@ Every link opens in the site's own view, choosing the shown site again
 loads its start page, Back and Forward move through
 the pages without the 教務Web error page or a resent form, and the OS
 reveals the saved file. On macOS the LMS draft area accepts Finder
-files before and after view changes without restarting the app.
+files, in the main view and in a popup, before and after switching
+surfaces and resizing the window, without restarting the app; the
+popup stays exactly over the page and hides with it. The
+file panel opens as a sheet in the main view and in a popup; a chosen
+file (or two, where allowed) appears in the input, Cancel leaves it
+empty and the input works again, and quitting with the panel open
+quits cleanly, after which the page opens normally.
 
 **Why this is manual**
 
-Depends on the platform WebView, its history and the OS file manager.
-The rule table is Core's and tested there; jsdom cannot produce native
-navigation, history or a reveal.
+Depends on the platform WebView, its history, the OS file manager and
+the system file panel. The rule table is Core's and tested there;
+jsdom cannot produce native navigation, history, a reveal or an
+NSOpenPanel. The panel's teardown when a page closes its own popup
+while the panel is open cannot be triggered by hand; it rests on the
+answer-once guard, which answers Cancel when dropped.
 
 **Covers**
 
@@ -1566,12 +1606,40 @@ with a course whose material includes a PDF.
      The popup's download used to be shown in the course page behind
      it, leaving the popup blank until it was closed. A file that is
      only saved leaves its popup empty, so Core closes that popup.
+4. Set the Web page's zoom to 120%, open the 教務Web picker or an LMS
+   PDF popup, then change the zoom to 90% while it is open.
+   - *Why:* A popup is a web view of its own; it used to stay at 100% whatever
+     the app's zoom said.
+5. In Lectures, open an assignment you have submitted a PDF to with
+   View in LMS, and click the submitted PDF in the reader pane.
+   - *Why:* Moodle opens a submitted file in a new window. The reader pane had
+     no popup line, so the PDF covered the assignment with no way out.
+     Every surface that shows the view now shows the popup line.
+6. Press the reader's Back (‹).
+   - *Why:* The PDF window starts with no history; Back used to go to that
+     empty history and do nothing. Back on a window at the start of its
+     history closes it, as a browser closes a tab a page opened.
+7. Open the PDF again. Switch to Today and back to Lectures: the PDF
+   is still in front. Then close the assignment, open the course
+   again and choose View in LMS.
+   - *Why:* Coming back to the same reader keeps the page as it was, window
+     included. Entering the course again is an app link, which closes
+     the windows over the view; it used to navigate the covered view
+     and leave the person on the PDF.
+8. With the reader on the assignment, turn Wi-Fi off and press the
+   reader's Reload. Then open the Web page on LMS, and come back to
+   the reader. Turn Wi-Fi on and press Retry.
+   - *Why:* A failed load is part of the page Core keeps, not a one-time
+     event, so the failure line and its Retry must still be there on
+     the other surface and after switching back, and must clear once
+     the page loads.
 
 **Where to look**
 
 The web pane while the window is open, the address and the Close
-window line above the page, the opener page after closing, and the
-Downloads folder for a saved file.
+window line above the page (in the Web page and in the reader pane),
+the opener page after closing, the Downloads folder for a saved file,
+the popup's text size, and the failure line with Retry.
 
 **Expected**
 
@@ -1579,19 +1647,29 @@ Each window covers the page inside the web pane with its own address,
 a Close window line appears, and closing returns to the opener exactly
 as it was, with no reload. The LMS PDF shows in the popup and the
 course page underneath is unchanged; a saved file lands in Downloads
-and no empty window stays open.
+and no empty window stays open. A popup opens at the app's zoom and
+follows a change. In the reader pane the PDF shows with a Close window
+line and the PDF's address; Back closes it and the assignment is in
+front; switching away and back keeps the PDF, while entering the
+course again shows the assignment with no window over it. The failure
+line shows on both surfaces until Retry loads the page.
 
 **Why this is manual**
 
-Needs a 教務Web account and WebKit's own windows; whether the popup
-sits in the pane and the opener survives is seen at a glance. The
-child-window lifecycle is Core's and tested there.
+Needs a 教務Web account, a submitted LMS assignment and WebKit's own
+windows; whether the popup sits in the pane, which page is in front
+and which line shows is seen at a glance. The entry rules (resume,
+return, go), the back rule and the failure's lifetime are Core's and
+tested there; the reader reading them from the snapshot is tested in
+the desktop suite.
 
 **Covers**
 
 - `apps/desktop/src-tauri/src/school_webkit.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src/pages/web/WebPage.tsx`
+- `apps/desktop/src/features/lms/OfficialLmsView.tsx`
+- `apps/desktop/src/features/school-web/**`
 
 **Last recorded** never run
 
@@ -8239,11 +8317,22 @@ the LMS, with a course whose material includes a PDF.
      now reports the download for the popup it happened in, Core closes
      that empty popup, and the transfer must still finish after the
      popup is gone.
+4. On the iPad, open a page with a file input in a popup (an LMS
+   assignment's edit page reached from a link that opens a new
+   window), and drag a file from Files in Split View onto its file
+   area without submitting. Switch to another tab and back, rotate
+   the iPad, and drag again.
+   - *Why:* A popup used to be a subview of its opener's web view, and WebKit
+     answers a drag at the outermost web view under it, so the file
+     went to the page underneath. Popups are siblings of their view
+     now, and must stay over it, at its size, after the view is parked
+     and taken back or resized.
 
 **Where to look**
 
 The web screen while the popup is open, the Popup window bar under the
-navigation bar, the opener page after closing, and the file preview.
+navigation bar, the opener page after closing, the file preview, and
+the popup's file area after each drag.
 
 **Expected**
 
@@ -8251,7 +8340,10 @@ Each popup fills the web screen under a Popup window bar with Close
 window; Back, Forward and Share act on the popup; closing either way
 returns to the opener exactly as it was, with no reload. An LMS file
 opens in the preview with its content, and after the preview closes
-the course page shows with no empty popup and no Popup window bar.
+the course page shows with no empty popup and no Popup window bar. On
+the iPad a file dragged onto the popup's file area lands there, also
+after switching tabs and rotating, and the popup still covers the
+whole web screen.
 
 **Why this is manual**
 

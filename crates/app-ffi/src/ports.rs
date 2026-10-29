@@ -246,6 +246,23 @@ impl BrowserEvents {
         self.listener()?.title_changed(project_input(page)?, title);
         Ok(())
     }
+    /// Where the view's or popup's own history can go from its page. Report
+    /// it when a page commits or finishes and when a popup is created.
+    pub fn history_changed(
+        &self,
+        browser: BrowserId,
+        can_go_back: bool,
+        can_go_forward: bool,
+    ) -> Result<(), SdkError> {
+        self.listener()?.history_changed(
+            project_input(browser)?,
+            browser::History {
+                back: can_go_back,
+                forward: can_go_forward,
+            },
+        );
+        Ok(())
+    }
     pub fn navigation(&self, request: NavigationRequest) -> Result<NavigationDecision, SdkError> {
         let decision = self
             .listener()?

@@ -142,10 +142,10 @@ const baseHandle: Handle = (command, args) => {
     case "school_web_forward":
       return true;
     case "open_school_site": {
-      const target = args.targetUrl as string | null | undefined;
+      const entry = args.entry as { kind: string; url?: string };
       return {
         site: args.site,
-        url: target ?? "https://portal.isct.ac.jp/resident",
+        url: entry.url ?? "https://portal.isct.ac.jp/resident",
         phase: "pageLoaded",
       };
     }
@@ -825,7 +825,10 @@ describe("web-page residency", () => {
     );
     expect(host.querySelector('[aria-label="Current URL"]')).toBe(address);
     // An ordinary resume re-shows the resident session, without a new URL.
-    expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBeNull();
+    expect(core.commands("open_school_site").at(-1)?.args).toMatchObject({
+      surface: "web",
+      entry: { kind: "resume" },
+    });
     const search =
       "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
     await typeInto(address, search);
@@ -882,9 +885,10 @@ describe("web-page residency", () => {
     );
     await click(link);
     await until(() =>
-      expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBe(
+      expect(core.commands("open_school_site").at(-1)?.args.entry).toEqual({
+        kind: "go",
         url,
-      ),
+      }),
     );
     expect(window.location.hash).toBe(`#${paths.web()}`);
 
@@ -894,7 +898,9 @@ describe("web-page residency", () => {
     await until(() =>
       expect(core.commands("open_school_site").length).toBeGreaterThan(opened),
     );
-    expect(core.commands("open_school_site").at(-1)?.args.targetUrl).toBeNull();
+    expect(core.commands("open_school_site").at(-1)?.args.entry).toEqual({
+      kind: "resume",
+    });
   }, 20_000);
 });
 

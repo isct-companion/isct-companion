@@ -210,6 +210,8 @@
 .lmsFileDocument > .lmsDocumentHeading { display: none; }
 .lmsFileDocument > .lmsRichContent { margin: 20px; }
 .lmsOfficialHost { position: relative; flex: 1; min-height: 300px; }
+/* Core's notes about the page (popup, failed load) above the native view. */
+.lmsViewerBody > .webNotice { margin: 8px 8px 0; }
 
 /* Status / toolbar bar: banner above the outline, or flush bar inside the pane. */
 .lmsSourceBar {

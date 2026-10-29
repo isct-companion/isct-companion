@@ -325,6 +325,8 @@ type WorkspaceOptions = {
   /** Core's `courseDetail` answer, which carries the course's syllabus link. */
   detail?: unknown;
   handle?: FakeCoreOptions["handle"];
+  /** The resident school view is available (the native desktop app). */
+  schoolWebAvailable?: boolean;
 };
 
 /** Mounts the real reading workspace over the scripted host. */
@@ -365,7 +367,7 @@ async function openWorkspace(
     data: fixture.workspace,
     entry: { courseId: fixture.course.id, request: 1, ...options.entry },
     active: options.active ?? true,
-    schoolWebAvailable: false,
+    schoolWebAvailable: options.schoolWebAvailable ?? false,
     close: () => {},
     markLesson: options.markLesson,
   };
@@ -762,13 +764,43 @@ describe("the LMS reading workspace", () => {
   it("shows an announcement forum without posts as empty, with its official page", async () => {
     const f = lectureFixture();
     f.workspace.settings.locale = "en";
+    const forumUrl = "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7";
     Object.assign(f.workspace.materials[0], {
       title: "アナウンスメント",
       module: "forum",
       bodyHtml: "",
-      url: "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7",
+      url: forumUrl,
     });
-    const { host, core } = await openWorkspace(f, { entry: { request: 610 } });
+    const page = {
+      site: "science-lms",
+      revision: 3,
+      url: forumUrl,
+      popups: 0,
+      back: "no",
+      forward: "unknown",
+      notice: null,
+    };
+    let snapshot: unknown = page;
+    const { host, core, render } = await openWorkspace(f, {
+      entry: { request: 610 },
+      schoolWebAvailable: true,
+      handle: (command, args) => {
+        switch (command) {
+          case "school_web_page":
+            return snapshot;
+          case "open_school_site":
+            return {
+              site: "science-lms",
+              url: (args.entry as { url?: string }).url ?? forumUrl,
+              phase: "pageLoaded",
+            };
+          case "hide_school_web":
+          case "set_school_web_bounds":
+            return true;
+        }
+        return undefined;
+      },
+    });
 
     const forum = [...host.querySelectorAll(".lmsInlineActivity")].find(
       (item) => item.textContent?.includes("アナウンスメント"),
@@ -777,28 +809,83 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
 
     await click(buttonByText(host, "Open in LMS"));
-    // The reader's tool row carries the page's address, as a browser's does.
+    // The reader's tool row carries the page's address, as a browser's does,
+    // and Back is off only while Core says it would do nothing.
     await waitFor(() =>
-      expect(host.querySelector(".lmsWebAddress")?.textContent).toContain(
-        "lms.s.isct.ac.jp",
+      expect(host.querySelector(".lmsWebAddress small")?.textContent).toBe(
+        "/2025/mod/forum/view.php",
       ),
     );
-    await act(async () =>
-      core.emit("school-web-url", {
-        site: "science-lms",
-        url: "https://docs.google.com/forms/d/test/viewform",
-      }),
-    );
+    const back = () =>
+      host.querySelector<HTMLButtonElement>(
+        '.lmsWebToolbar button[aria-label="Previous page"]',
+      );
+    await waitFor(() => expect(back()?.disabled).toBe(true));
+    const opened = core.commands("open_school_site");
+    expect(opened.at(-1)?.args.entry).toEqual({ kind: "go", url: forumUrl });
+    const reader = opened.at(-1)?.args.surface;
+    expect(reader).toMatch(/^reader-/);
+
+    // Every later change arrives as `school-web-page`; an older revision
+    // never replaces a newer one.
+    const form = "https://docs.google.com/forms/d/test/viewform";
+    await act(async () => {
+      core.emit("school-web-page", {
+        ...page,
+        revision: 5,
+        url: form,
+        back: "yes",
+      });
+      core.emit("school-web-page", { ...page, revision: 4 });
+    });
     await waitFor(() =>
       expect(host.querySelector(".lmsWebAddress span")?.textContent).toBe(
         "docs.google.com",
       ),
     );
+    expect(back()?.disabled).toBe(false);
     expect(
       host
         .querySelector('.lmsWebToolbar a[aria-label="Open in browser"]')
         ?.getAttribute("href"),
-    ).toBe("https://docs.google.com/forms/d/test/viewform");
+    ).toBe(form);
+
+    // Covered and shown again, the reader returns to its activity; Core
+    // decides whether that leaves the view as it is.
+    await render({ active: false });
+    await render({ active: true });
+    await waitFor(() =>
+      expect(core.commands("open_school_site").at(-1)?.args).toMatchObject({
+        surface: reader,
+        entry: { kind: "return", url: forumUrl },
+      }),
+    );
+
+    // A reader that mounts after the popup opened and the load failed reads
+    // both from the snapshot; no event reaches it.
+    await click(host.querySelector<HTMLButtonElement>(".lmsViewerClose")!);
+    await waitFor(() => expect(host.querySelector(".lmsViewer")).toBeNull());
+    snapshot = {
+      ...page,
+      revision: 9,
+      url: "https://lms.s.isct.ac.jp/2025/pluginfile.php/9/report.pdf",
+      popups: 1,
+      back: "yes",
+      notice: { url: forumUrl, reason: "unreachable" },
+    };
+    await click(buttonByText(host, "Open in LMS"));
+    await waitFor(() =>
+      expect(host.querySelector(".lmsViewer")?.textContent).toContain(
+        "Popup window",
+      ),
+    );
+    const viewer = host.querySelector(".lmsViewer")!;
+    expect(buttonByText(viewer, "Close window")).toBeTruthy();
+    expect(viewer.querySelector('[role="alert"]')).not.toBeNull();
+    expect(buttonByText(viewer, "Retry")).toBeTruthy();
+    expect(core.commands("open_school_site").at(-1)?.args.surface).not.toBe(
+      reader,
+    );
   }, 30_000);
 
   it("opens the syllabus in its own panel", async () => {

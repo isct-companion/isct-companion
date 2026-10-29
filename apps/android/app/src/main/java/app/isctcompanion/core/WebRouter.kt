@@ -18,7 +18,9 @@ import org.json.JSONObject
  * ウェブ tab (site switcher) and pushes from a course or assignment. Opening a
  * page asks Core (`openSchool`), which ensures and navigates the view; the
  * visibility fact goes back to Core (`schoolBrowsing`) so background sync
- * yields to it. */
+ * yields to it. What the screen says about the page (address, popups, Back
+ * and Forward, a failed load) is Core's `SchoolWebPage`, never read from the
+ * views. */
 class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScope, context: Context) {
     /** The site the ウェブ tab opens on at launch, kept on this device (設定 › ウェブ). */
     private val preferences = context.getSharedPreferences("web", Context.MODE_PRIVATE)
@@ -28,11 +30,12 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         private set
     var tabSite by mutableStateOf(firstSite)
         private set
-    /** Popups open over each site's view (Core's `school-web-popups`). */
-    val popups = mutableStateMapOf<SchoolSite, Int>()
-    /** What Core says about the page on screen (`school-web-notice`). */
-    val notices = mutableStateMapOf<SchoolSite, Notice>()
-    private var reopenedClear: Job? = null
+    /** The page the person sees of each site: the higher `revision` of
+     * Core's `school-web-page` and its `schoolWebPage` snapshot. */
+    val pages = mutableStateMapOf<SchoolSite, SchoolWebPage>()
+    /** Sites whose reload Core opened again without resending a form
+     * (`school-web-notice`), each with the job that hides the note again. */
+    val reopened = mutableStateMapOf<SchoolSite, Job>()
     var loading by mutableStateOf<SchoolSite?>(null)
         private set
     var error by mutableStateOf<String?>(null)
@@ -63,39 +66,49 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         }
     }
 
-    /** A Core notice about the page on screen. */
-    sealed interface Notice {
-        /** The page did not load; `url` is where it was going. */
-        data class LoadFailed(val url: String?, val reason: String) : Notice
-
-        /** A reload would have resent a form; the page was opened with GET. */
-        data class Reopened(val url: String) : Notice
-    }
-
     /** Core's school web events, from the app's event stream. */
     fun handle(name: String, payload: String) {
         val row = runCatching { JSONObject(payload) }.getOrNull() ?: return
         val site = site(row.optString("site")) ?: return
         when (name) {
-            "school-web-popups" -> {
-                popups[site] = row.optInt("open")
-                notices.remove(site)
+            "school-web-page" -> {
+                val notice = row.optJSONObject("notice")?.let {
+                    SchoolWebFailure(it.text("url"), loadFailure(it.optString("reason")))
+                }
+                adopt(
+                    SchoolWebPage(
+                        site, row.optLong("revision").toULong(), row.text("url"), row.optLong("popups").toULong(),
+                        step(row.optString("back")), step(row.optString("forward")), notice,
+                    ),
+                )
             }
-            // A page loaded in front: the failure it answered is over.
-            "school-web-url" -> if (notices[site] is Notice.LoadFailed) notices.remove(site)
-            "school-web-notice" -> when (row.optString("kind")) {
-                "load-failed" -> notices[site] = Notice.LoadFailed(row.text("url"), row.optString("reason"))
-                "reopened" -> {
-                    val notice = Notice.Reopened(row.optString("url"))
-                    notices[site] = notice
-                    reopenedClear?.cancel()
-                    reopenedClear = scope.launch {
-                        delay(6_000)
-                        if (notices[site] == notice) notices.remove(site)
-                    }
+            "school-web-notice" -> if (row.optString("kind") == "reopened") {
+                reopened.remove(site)?.cancel()
+                reopened[site] = scope.launch {
+                    delay(6_000)
+                    reopened.remove(site)
                 }
             }
         }
+    }
+
+    /** Core's `schoolWebPage` snapshot of `site`. Events are already
+     * streaming, so whichever of the two is newer wins. */
+    private suspend fun readPage(site: SchoolSite) {
+        val session = session ?: return
+        val page = runCatching { session.schoolWebPage(site).value() as? OperationResult.SchoolWebPage }.getOrNull()
+        page?.let { adopt(it.page) }
+    }
+
+    /** Keeps `page` unless a newer one of its site is already here. */
+    private fun adopt(page: SchoolWebPage) {
+        val held = pages[page.site]
+        if (held == null || page.revision > held.revision) pages[page.site] = page
+    }
+
+    /** The pages read before the event stream lost events, read again. */
+    fun refreshPages() {
+        for (site in pages.keys.toList()) scope.launch { readPage(site) }
     }
 
     /** A page pushed from context (course → LMS, assignment → submission). */
@@ -138,6 +151,7 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
                 session.openSchool(site, target).value()
                 opened.add(site)
                 attachRevision++
+                readPage(site)
             } catch (failure: Exception) {
                 error = AppModel.describe(failure)
             }
@@ -145,9 +159,16 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         }
     }
 
-    /** A web page appeared or disappeared on screen. */
+    /** A web page appeared or disappeared on screen. Core publishes
+     * `school-web-page` only for the site on screen, so once it is, the
+     * snapshot fills in what changed while it was not. */
     fun setVisible(site: SchoolSite?) {
-        runCatching { session?.schoolBrowsing(site) }
+        val browsing = runCatching { session?.schoolBrowsing(site) }.getOrNull() ?: return
+        site ?: return
+        scope.launch {
+            runCatching { browsing.value() }
+            readPage(site)
+        }
     }
 
     fun back(site: SchoolSite) {
@@ -162,11 +183,10 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         runCatching { session?.reloadSchool(site) }
     }
 
-    /** The notice's Reopen: the engine's reload of the failed entry. A
-     * form result WebView would not show again asks onFormResubmission, and
-     * Core opens it with GET. */
+    /** The notice's Reopen: the engine's reload of the failed entry, which
+     * clears the failure in Core. A form result WebView would not show again
+     * asks onFormResubmission, and Core opens it with GET. */
     fun retry(site: SchoolSite) {
-        notices.remove(site)
         reload(site)
     }
 
@@ -197,6 +217,24 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         }
 
         fun site(raw: String?): SchoolSite? = SchoolSite.entries.firstOrNull { wireName(it) == raw }
+
+        /** Core's `SchoolWebStep` from its wire name. */
+        private fun step(raw: String): SchoolWebStep = when (raw) {
+            "yes" -> SchoolWebStep.YES
+            "no" -> SchoolWebStep.NO
+            else -> SchoolWebStep.UNKNOWN
+        }
+
+        /** Core's `LoadFailure` from its wire name. */
+        private fun loadFailure(raw: String): LoadFailure = when (raw) {
+            "cancelled" -> LoadFailure.CANCELLED
+            "offline" -> LoadFailure.OFFLINE
+            "host-not-found" -> LoadFailure.HOST_NOT_FOUND
+            "unreachable" -> LoadFailure.UNREACHABLE
+            "insecure" -> LoadFailure.INSECURE
+            "cleartext" -> LoadFailure.CLEARTEXT
+            else -> LoadFailure.OTHER
+        }
 
         /** Core's wire name for a site (`SchoolSite` serde names). */
         fun wireName(site: SchoolSite): String = when (site) {

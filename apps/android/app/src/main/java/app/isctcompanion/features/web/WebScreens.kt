@@ -73,8 +73,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
+import app.isctcompanion.core.LoadFailure
 import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.SchoolWebFailure
+import app.isctcompanion.core.SchoolWebStep
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.design.Theme
 
@@ -139,7 +142,7 @@ private fun PageMenu(site: SchoolSite) {
                 })
             }
             item(t("common.reload"), Icons.Rounded.Refresh) { web.reload(site) }
-            web.browser.front(site)?.url?.let { url ->
+            web.pages[site]?.url?.let { url ->
                 item(t("common.share"), Icons.Rounded.Share) { share(context, url) }
                 item(t("common.openInBrowser"), Icons.AutoMirrored.Rounded.OpenInNew) { openInBrowser(context, url) }
                 item(t("web.print"), Icons.Rounded.Print) { web.browser.print(site, context) }
@@ -169,33 +172,32 @@ private fun openInBrowser(context: Context, url: String) {
     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 }
 
-/** Back and forward through the page's history, enabled as it allows. */
+/** Whether Core's Back or Forward does something for the page in front:
+ * all but `no` (`unknown` stays on), and nothing before Core's page is read. */
+private fun goes(step: SchoolWebStep?): Boolean = step != null && step != SchoolWebStep.NO
+
+/** Core's Back and Forward, enabled as its page says. */
 @Composable
 private fun HistoryButtons(site: SchoolSite) {
     val web = LocalModel.current.web
-    web.browser.loads
-    IconButton(onClick = { web.back(site) }, enabled = web.browser.canGoBack(site)) {
+    val page = web.pages[site]
+    IconButton(onClick = { web.back(site) }, enabled = goes(page?.back)) {
         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("common.previousPage"))
     }
-    IconButton(onClick = { web.forward(site) }, enabled = web.browser.canGoForward(site)) {
+    IconButton(onClick = { web.forward(site) }, enabled = goes(page?.forward)) {
         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("common.nextPage"))
     }
 }
 
-/** System back walks the page's history first, as in a browser, then
- * closes a popup in front. */
+/** System back is Core's Back while it does something, as in a browser: a
+ * step back through the page's history, or closing a popup at the start of
+ * its own. Then the screen's own back. */
 @Composable
 private fun HistoryBack(site: SchoolSite, onExhausted: (() -> Unit)?) {
     val web = LocalModel.current.web
-    web.browser.loads
-    val canGoBack = web.browser.canGoBack(site)
-    val popup = (web.popups[site] ?: 0) > 0
-    BackHandler(enabled = canGoBack || popup || onExhausted != null) {
-        when {
-            canGoBack -> web.back(site)
-            popup -> web.closePopup(site)
-            else -> onExhausted?.invoke()
-        }
+    val back = goes(web.pages[site]?.back)
+    BackHandler(enabled = back || onExhausted != null) {
+        if (back) web.back(site) else onExhausted?.invoke()
     }
 }
 
@@ -207,8 +209,9 @@ private fun HistoryBack(site: SchoolSite, onExhausted: (() -> Unit)?) {
 private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
     val web = LocalModel.current.web
     val context = LocalContext.current
+    val page = web.pages[site]
     Column(modifier) {
-        if ((web.popups[site] ?: 0) > 0) {
+        if ((page?.popups ?: 0uL) > 0uL) {
             Row(
                 Modifier.fillMaxWidth().background(Theme.colors.surface).padding(start = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -218,19 +221,18 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
             }
             HorizontalDivider()
         }
-        val notice = web.notices[site]
-        if (notice is WebRouter.Notice.Reopened) {
+        if (site in web.reopened) {
             NoticeBanner(t("web.reopenedThisPageWithoutSending"), Theme.colors.accentSoft)
         }
-        val failure = notice as? WebRouter.Notice.LoadFailed
-        if (failure?.reason == "cleartext") {
+        val failure = page?.notice
+        if (failure?.reason == LoadFailure.CLEARTEXT) {
             NoticeBanner(t(failureText(failure.reason)), Theme.colors.warnSoft) {
                 failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("common.openInBrowser")) } }
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             ResidentWebView(site, web.browser, web.attachRevision, Modifier.fillMaxSize())
-            if (failure != null && failure.reason != "cleartext") FailedPage(site, failure)
+            if (failure != null && failure.reason != LoadFailure.CLEARTEXT) FailedPage(site, failure)
         }
     }
     PageDialog(web.browser)
@@ -270,10 +272,9 @@ private fun NoticeBanner(text: String, color: Color, actions: @Composable () -> 
 /** Core's notice in place of a page that did not load: reopen it (a form
  * result is opened again with GET), go back, or try the browser. */
 @Composable
-private fun FailedPage(site: SchoolSite, failure: WebRouter.Notice.LoadFailed) {
+private fun FailedPage(site: SchoolSite, failure: SchoolWebFailure) {
     val web = LocalModel.current.web
     val context = LocalContext.current
-    web.browser.loads
     Column(
         Modifier.fillMaxSize().background(Theme.colors.bg).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
@@ -282,21 +283,19 @@ private fun FailedPage(site: SchoolSite, failure: WebRouter.Notice.LoadFailed) {
         Text(t(failureText(failure.reason)), style = MaterialTheme.typography.bodyLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { web.retry(site) }) { Text(t("web.reopenThisPage")) }
-            if (web.browser.canGoBack(site)) TextButton(onClick = { web.back(site) }) { Text(t("common.back")) }
+            if (goes(web.pages[site]?.back)) TextButton(onClick = { web.back(site) }) { Text(t("common.back")) }
             failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("common.openInBrowser")) } }
         }
     }
 }
 
 /** What the notice says when a page did not load, as the desktop's. */
-private fun failureText(reason: String): String = when (reason) {
-    "offline" -> "web.thisPageCouldNotBe"
-    "host-not-found" ->
-        "web.thisPageCouldNotBeOpened"
-    "unreachable" ->
-        "web.thisPageCouldNotBeOpenedIts"
-    "insecure" -> "web.thisPageCouldNotBeOpenedThe"
-    "cleartext" -> "web.thisPageUsesAnUnencrypted"
+private fun failureText(reason: LoadFailure): String = when (reason) {
+    LoadFailure.OFFLINE -> "web.thisPageCouldNotBe"
+    LoadFailure.HOST_NOT_FOUND -> "web.thisPageCouldNotBeOpened"
+    LoadFailure.UNREACHABLE -> "web.thisPageCouldNotBeOpenedIts"
+    LoadFailure.INSECURE -> "web.thisPageCouldNotBeOpenedThe"
+    LoadFailure.CLEARTEXT -> "web.thisPageUsesAnUnencrypted"
     else -> "web.thisPageCouldNotBeOpened2"
 }
 
@@ -425,8 +424,7 @@ fun WebPageScreen(page: WebRouter.PushedPage) {
             web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
         }
         BottomAppBar(containerColor = Theme.colors.surface) {
-            web.browser.loads
-            val url = web.browser.front(page.site)?.url
+            val url = web.pages[page.site]?.url
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 HistoryButtons(page.site)
                 IconButton(onClick = { url?.let { share(context, it) } }, enabled = url != null) {

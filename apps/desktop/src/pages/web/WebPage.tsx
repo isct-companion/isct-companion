@@ -2,15 +2,16 @@ import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
-import { lookup, t, type MessageKey } from "../../i18n";
-import {
-  nativeOs,
-  type SchoolLoadFailure,
-  type SchoolSite,
-  type SchoolWebNotice,
-} from "../../platform/desktop-bridge";
+import { lookup, t } from "../../i18n";
+import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
-import { schoolWebBounds } from "../../platform/school-web-bounds";
+import {
+  boundsOf,
+  followBounds,
+  SchoolWebNavigation,
+  SchoolWebNotices,
+  useSchoolWebPage,
+} from "../../features/school-web";
 import type { Workspace } from "../../lib/model";
 import {
   claimSchoolView,
@@ -24,15 +25,8 @@ import { withRecords } from "../../platform/records";
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 
-/** What the notice under the address says when a page did not load. */
-const failureText: Record<SchoolLoadFailure, MessageKey> = {
-  offline: "web.thisPageCouldNotBe",
-  "host-not-found": "web.thisPageCouldNotBeOpened",
-  unreachable: "web.thisPageCouldNotBeOpenedIts",
-  insecure: "web.thisPageCouldNotBeOpenedThe",
-  cleartext: "web.thisPageUsesAnUnencrypted",
-  other: "web.thisPageCouldNotBeOpened2",
-};
+/** This page's id as a presenter of the school views (`SchoolWebEntry`). */
+const surface = "web";
 
 const normalizeAddress = (raw: string) => {
   const trimmed = raw.trim();
@@ -84,9 +78,7 @@ function WebBody({
   const [savedFile, setSavedFile] = useState<{ name: string; path: string }>();
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
-  /** Popups open over each site's view; the toolbar acts on the front one. */
-  const [popups, setPopups] = useState<Partial<Record<SchoolSite, number>>>({});
-  const [notice, setNotice] = useState<SchoolWebNotice>();
+  /** The address outside the embedded view (preview, separate window). */
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [address, setAddress] = useState(initialUrl);
   const zoom = data.settings.schoolWebZoom ?? 1;
@@ -106,9 +98,21 @@ function WebBody({
     : undefined;
   const embedded =
     Boolean(desktopBridge?.setSchoolWebBounds) && schoolWebAvailable;
-  const bounds = () => {
-    const rect = host.current?.getBoundingClientRect();
-    return rect ? schoolWebBounds(rect, window) : undefined;
+  const page = useSchoolWebPage(embedded ? site : undefined);
+  const shownUrl = page?.url;
+  const failed = (error: unknown) =>
+    setStatus(errorText(error) ?? t("web.unavailable"));
+  /** The page customization the person allowed for `destination`. */
+  const customization = (destination: SchoolSite) => {
+    const customizationSite = official[destination].customization;
+    const custom = data.settings.customization?.sites[customizationSite];
+    const permitted =
+      platform === "native-desktop" &&
+      (data.settings.siteConsents?.[customizationSite] ?? false);
+    return {
+      css: permitted ? (custom?.css ?? "") : "",
+      js: permitted ? (custom?.js ?? "") : "",
+    };
   };
 
   useEffect(() => {
@@ -119,44 +123,9 @@ function WebBody({
     });
   }, [schoolWebAvailable]);
 
-  useEffect(
-    () =>
-      desktopBridge?.onSchoolWebUrl?.((request) => {
-        if (request.site !== site) return;
-        const { url } = request;
-        setCurrentUrl(url);
-        if (!editingAddress.current) setAddress(url);
-        // A page loaded: an earlier failure no longer describes it.
-        setNotice((shown) =>
-          shown?.kind === "load-failed" ? undefined : shown,
-        );
-      }),
-    [site],
-  );
-
-  useEffect(
-    () =>
-      desktopBridge?.onSchoolWebPopups?.(({ site: popupSite, open }) =>
-        setPopups((current) => ({ ...current, [popupSite]: open })),
-      ),
-    [],
-  );
-
   useEffect(() => {
-    setNotice(undefined);
-    let clear: number | undefined;
-    const dispose = desktopBridge?.onSchoolWebNotice?.((next) => {
-      if (next.site !== site) return;
-      window.clearTimeout(clear);
-      setNotice(next);
-      if (next.kind === "reopened")
-        clear = window.setTimeout(() => setNotice(undefined), 6000);
-    });
-    return () => {
-      dispose?.();
-      window.clearTimeout(clear);
-    };
-  }, [site]);
+    if (shownUrl && !editingAddress.current) setAddress(shownUrl);
+  }, [shownUrl]);
 
   useEffect(() => {
     if (!editingAddress.current && addressInput.current)
@@ -225,11 +194,8 @@ function WebBody({
       return;
     }
     let cancelled = false;
-    const customizationSite = official[site].customization;
-    const custom = data.settings.customization?.sites[customizationSite];
-    const permitted =
-      platform === "native-desktop" &&
-      (data.settings.siteConsents?.[customizationSite] ?? false);
+    let ready = false;
+    const { css, js } = customization(site);
     setStatus(t("web.opening"));
     void schoolWebExit
       .settled()
@@ -247,17 +213,20 @@ function WebBody({
           }
           return desktopBridge!.openSchoolSite(
             resolved.site,
-            permitted ? (custom?.css ?? "") : "",
-            permitted ? (custom?.js ?? "") : "",
-            bounds(),
-            resolved.url,
+            css,
+            js,
+            boundsOf(host.current),
+            surface,
+            resolved.url
+              ? { kind: "go", url: resolved.url }
+              : { kind: "resume" },
           );
         });
       })
       .then(async (state) => {
         if (cancelled || !state) return;
+        ready = true;
         openedRequest.current = requestKey;
-        setCurrentUrl(state.url);
         if (!editingAddress.current) setAddress(state.url);
         setStatus("");
         await desktopBridge?.setSchoolWebZoom?.(site, resolvedZoom);
@@ -265,24 +234,13 @@ function WebBody({
       .catch((error) => {
         if (!cancelled) setStatus(errorText(error) ?? t("web.unavailable"));
       });
-    const observer = new ResizeObserver(() => {
-      const next = bounds();
-      if (next && !schoolWebExit.pending)
-        void desktopBridge?.setSchoolWebBounds?.(next).catch(() => undefined);
-    });
-    if (host.current) observer.observe(host.current);
-    const onResize = () => {
-      const next = bounds();
-      if (next && !schoolWebExit.pending)
-        void desktopBridge?.setSchoolWebBounds?.(next).catch(() => undefined);
-    };
-    addEventListener("resize", onResize);
-    window.visualViewport?.addEventListener("resize", onResize);
+    const stop = followBounds(
+      () => host.current,
+      () => ready,
+    );
     return () => {
       cancelled = true;
-      observer.disconnect();
-      removeEventListener("resize", onResize);
-      window.visualViewport?.removeEventListener("resize", onResize);
+      stop();
     };
     // Site changes intentionally reuse the resident view and its shared session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,17 +248,19 @@ function WebBody({
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;
-    // Choosing the site already shown returns its view to the start page. The
-    // open effect only runs when `site` changes, so this has to navigate itself.
-    // Popups over the view close first: the address bar acts on the front one.
-    if (next === site && embedded) {
-      void (async () => {
-        for (let open = 0; open < 8; open++)
-          if (!(await desktopBridge?.closeSchoolWebPopup?.(site))) break;
-        await openTarget(official[next].url, next);
-      })().catch((error) =>
-        setStatus(errorText(error) ?? t("web.unavailable")),
-      );
+    // Choosing the site already shown returns its view to the start page, as
+    // an app link: Core closes the popups over it first. The open effect only
+    // runs when `site` changes, so this opens it itself.
+    if (next === site && embedded && desktopBridge) {
+      const { css, js } = customization(next);
+      const start = official[next].url;
+      setAddress(start);
+      void desktopBridge
+        .openSchoolSite(next, css, js, boundsOf(host.current), surface, {
+          kind: "go",
+          url: start,
+        })
+        .catch(failed);
       return;
     }
     sessionStorage.setItem("isct-companion-active-school-site", next);
@@ -337,17 +297,14 @@ function WebBody({
         target,
       );
       if (!navigated) {
-        const customizationSite = official[destination].customization;
-        const custom = data.settings.customization?.sites[customizationSite];
-        const permitted =
-          platform === "native-desktop" &&
-          (data.settings.siteConsents?.[customizationSite] ?? false);
+        const { css, js } = customization(destination);
         await desktopBridge.openSchoolSite(
           destination,
-          permitted ? (custom?.css ?? "") : "",
-          permitted ? (custom?.js ?? "") : "",
-          bounds(),
-          target,
+          css,
+          js,
+          boundsOf(host.current),
+          surface,
+          { kind: "go", url: target },
         );
       }
     }
@@ -362,36 +319,6 @@ function WebBody({
     setCurrentUrl(target);
     setStatus("");
   };
-  const goBack = async () => {
-    try {
-      await desktopBridge?.schoolWebBack?.(site);
-    } catch (error) {
-      setStatus(errorText(error) ?? t("web.unavailable"));
-    }
-  };
-  const goForward = async () => {
-    try {
-      await desktopBridge?.schoolWebForward?.(site);
-    } catch (error) {
-      setStatus(errorText(error) ?? t("web.unavailable"));
-    }
-  };
-  const closePopup = () =>
-    void desktopBridge
-      ?.closeSchoolWebPopup?.(site)
-      .catch((error) => setStatus(errorText(error) ?? t("web.unavailable")));
-  const retry = (url: string) => {
-    setNotice(undefined);
-    void desktopBridge
-      ?.navigateSchoolWeb?.(site, url)
-      .catch((error) => setStatus(errorText(error) ?? t("web.unavailable")));
-  };
-  const openInBrowser = (url: string) =>
-    void desktopBridge
-      ?.openExternal(url)
-      .catch(() => notify(t("web.couldNotOpenTheSystem")));
-  const popupCount = popups[site] ?? 0;
-
   const setPageZoom = (next: number) => {
     const value = Math.round(clamp(next, 0.5, 2) * 10) / 10;
     setZoom(value);
@@ -401,21 +328,15 @@ function WebBody({
         .catch(() => setStatus(t("web.zoomCouldNotBeChanged")));
   };
 
-  const targetUrl = currentUrl || official[site].url;
+  const targetUrl = shownUrl || currentUrl || official[site].url;
   const openOutside = () => {
     if (desktopBridge && schoolWebAvailable && !embedded) {
-      const customizationSite = official[site].customization;
-      const custom = data.settings.customization?.sites[customizationSite];
-      const permitted =
-        data.settings.siteConsents?.[customizationSite] ?? false;
+      const { css, js } = customization(site);
       void desktopBridge
-        .openSchoolSite(
-          site,
-          permitted ? (custom?.css ?? "") : "",
-          permitted ? (custom?.js ?? "") : "",
-          undefined,
-          targetUrl,
-        )
+        .openSchoolSite(site, css, js, undefined, surface, {
+          kind: "go",
+          url: targetUrl,
+        })
         .catch(() => notify(t("web.theSchoolWindowCouldNot")));
     } else if (desktopBridge && platform !== "browser-preview")
       void desktopBridge
@@ -513,38 +434,22 @@ function WebBody({
                     )}
                   </UiButton>
                 )}
-                {embedded && desktopBridge?.schoolWebBack && (
-                  <UiButton
-                    type="button"
-                    className="iconButton"
-                    title={t("common.previousPage")}
-                    aria-label={t("common.previousPage")}
-                    onClick={() => void goBack()}
-                  >
-                    <ChevronLeft />
-                  </UiButton>
-                )}
-                {embedded && desktopBridge?.schoolWebForward && (
-                  <UiButton
-                    type="button"
-                    className="iconButton"
-                    title={t("common.nextPage")}
-                    aria-label={t("common.nextPage")}
-                    onClick={() => void goForward()}
-                  >
-                    <ChevronRight />
-                  </UiButton>
-                )}
-                {embedded && desktopBridge?.reloadSchoolWeb && (
-                  <UiButton
-                    type="button"
-                    className="iconButton"
-                    title={t("common.reload")}
-                    aria-label={t("common.reload")}
-                    onClick={() => void desktopBridge?.reloadSchoolWeb?.(site)}
-                  >
-                    <RotateCw />
-                  </UiButton>
+                {embedded && (
+                  <SchoolWebNavigation
+                    site={site}
+                    page={page}
+                    icons={{
+                      back: <ChevronLeft />,
+                      forward: <ChevronRight />,
+                      reload: <RotateCw />,
+                    }}
+                    className={{
+                      back: "iconButton",
+                      forward: "iconButton",
+                      reload: "iconButton",
+                    }}
+                    onError={failed}
+                  />
                 )}
               </div>
               <div className="webZoom" aria-label={t("web.pageZoom")}>
@@ -587,36 +492,8 @@ function WebBody({
                 ↗
               </UiButton>
             </form>
-            {embedded && popupCount > 0 && (
-              <div className="webNotice" role="status">
-                <span>{t("web.popupWindow")}</span>
-                <UiButton type="button" onClick={closePopup}>
-                  {t("web.closeWindow")}
-                </UiButton>
-              </div>
-            )}
-            {embedded && notice?.kind === "load-failed" && (
-              <div className="webNotice warning" role="alert">
-                <span>{t(failureText[notice.reason])}</span>
-                {notice.url && notice.reason !== "cleartext" && (
-                  <UiButton type="button" onClick={() => retry(notice.url!)}>
-                    {t("common.retry")}
-                  </UiButton>
-                )}
-                {notice.url && (
-                  <UiButton
-                    type="button"
-                    onClick={() => openInBrowser(notice.url!)}
-                  >
-                    {t("common.openInBrowser")}
-                  </UiButton>
-                )}
-              </div>
-            )}
-            {embedded && notice?.kind === "reopened" && (
-              <div className="webNotice" role="status">
-                <span>{t("web.reopenedThisPageWithoutSending")}</span>
-              </div>
+            {embedded && (
+              <SchoolWebNotices site={site} page={page} onError={failed} />
             )}
             <div className="webHost" ref={host}>
               {embedded ? null : platform === "browser-preview" && frameable ? (

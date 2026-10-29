@@ -16,12 +16,19 @@ import WebKit
 ///   applies Allow / External / Deny / SkipEntry.
 /// - Popups: `createWebViewWith` returns a web view built from WebKit's own
 ///   configuration, so a posted form and `window.opener` survive. It covers
-///   its opener inside the web screen until the page closes it
-///   (`webViewDidClose`) or the person does.
+///   its site's view inside the web screen until the page closes it
+///   (`webViewDidClose`) or the person does, as a sibling of the view in
+///   whatever holds it, never a subview of a web view: WebKit answers a drag
+///   (iPad drag and drop) at the outermost web view under it. The host moves
+///   and sizes the popups with their view (`arrangePopups`).
+/// - History: whether each view's and popup's own history can go back or
+///   forward goes to Core when a page commits or finishes, when the list
+///   changes in place, and when a popup is created. Core decides what Back
+///   and Forward do, closing a popup at the start of its history included.
 /// - Page dialogs and `window.print()` appear only for a page on screen; a
 ///   hidden view gets Cancel and prints nothing.
 /// - Load failures, cancellations included, go to Core, which decides what
-///   the web screen shows (`school-web-notice`).
+///   the web screen shows (`school-web-page`).
 final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
     fileprivate static let log = Logger(subsystem: "app.isctcompanion", category: "school-web")
     private let lock = NSLock()
@@ -43,7 +50,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         view.alpha = 0.01
         return view
     }()
-    @MainActor var onTitleChange: ((SchoolSite, String) -> Void)?
     @MainActor var onOpenExternal: ((URL) -> Void)?
     @MainActor var onDownload: ((URL) -> Void)?
     @MainActor var onDownloadError: ((Error) -> Void)?
@@ -105,14 +111,28 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     // MARK: Presentation (main thread)
 
-    /// The resident view for `site`, if Core created one. Its popups ride on
-    /// it as subviews, so wherever it is held they go too.
+    /// The resident view for `site`, if Core created one. Its popups are
+    /// siblings the host keeps over it wherever it is held (`arrangePopups`).
     @MainActor func webView(for site: SchoolSite) -> WKWebView? {
         views[site]?.webView
     }
 
+    /// Puts `site`'s popups over its view again: in the view's superview,
+    /// above the view in opening order, with its frame and resizing. A
+    /// container that takes or parks the view calls this right after.
+    @MainActor func arrangePopups(_ site: SchoolSite) {
+        guard let view = views[site]?.webView, let container = view.superview else { return }
+        var below: UIView = view
+        for popup in popups where popup.id.site == site {
+            popup.webView.frame = view.frame
+            popup.webView.autoresizingMask = view.autoresizingMask
+            container.insertSubview(popup.webView, aboveSubview: below)
+            below = popup.webView
+        }
+    }
+
     /// The page the person sees for `site`: its newest popup, else its view.
-    @MainActor func frontWebView(for site: SchoolSite) -> WKWebView? {
+    @MainActor private func frontWebView(for site: SchoolSite) -> WKWebView? {
         (popups.last { $0.id.site == site } ?? views[site])?.webView
     }
 
@@ -129,12 +149,14 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         frontWebView(for: site)?.load(URLRequest(url: url))
     }
 
-    /// Returns a view to the off-screen parking host so WebKit keeps running it.
+    /// Returns a view to the off-screen parking host so WebKit keeps running
+    /// it, its popups with it. A popup itself only moves with its view.
     @MainActor func park(_ webView: WKWebView) {
-        guard let window = Self.keyWindow() else { return }
+        guard !popups.contains(where: { $0.webView === webView }), let window = Self.keyWindow() else { return }
         if parking.superview !== window { window.insertSubview(parking, at: 0) }
         webView.frame = parking.bounds
         parking.addSubview(webView)
+        if let site = views.first(where: { $0.value.webView === webView })?.key { arrangePopups(site) }
     }
 
     @MainActor private static func keyWindow() -> UIWindow? {
@@ -340,7 +362,13 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
 
     @MainActor fileprivate func titled(_ page: SchoolPage, _ title: String) {
         try? listener()?.titleChanged(page: page.page, title: title)
-        onTitleChange?(page.id.site, title)
+    }
+
+    /// Where `page`'s own history can go from the page it shows, for Core's
+    /// Back and Forward.
+    @MainActor fileprivate func historyChanged(_ page: SchoolPage) {
+        try? listener()?.historyChanged(
+            browser: page.id, canGoBack: page.webView.canGoBack, canGoForward: page.webView.canGoForward)
     }
 
     /// The facts of a navigation action. A new window's action has no target
@@ -412,11 +440,13 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         case let .popup(browser):
             let popup = SchoolPage(
                 id: browser, parent: opener.id,
-                webView: WKWebView(frame: opener.webView.bounds, configuration: configuration), host: self)
-            popup.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            opener.webView.addSubview(popup.webView)
+                webView: WKWebView(frame: opener.webView.frame, configuration: configuration), host: self)
             popups.append(popup)
+            // Over the view and the site's earlier popups, as their sibling.
+            arrangePopups(browser.site)
             lock.withLock { urls[browser] = facts.url }
+            // No history yet: Core's Back closes it until it has some.
+            historyChanged(popup)
             return popup.webView
         case let .external(target):
             if let target = URL(string: target) { onOpenExternal?(target) }
@@ -482,6 +512,9 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
     private(set) var committed: WKBackForwardListItem?
     private weak var host: SchoolBrowserHost?
     private var titleObservation: NSKeyValueObservation?
+    /// A same-document navigation (`pushState`) changes the history with no
+    /// commit or finish.
+    private var historyObservations: [NSKeyValueObservation] = []
     /// WebKit holds its delegate weakly. The page owns each native transfer
     /// until completion or disposal, including its temporary file.
     private var downloads: [ObjectIdentifier: (download: WKDownload, file: URL?)] = [:]
@@ -500,6 +533,14 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
             Task { @MainActor in
                 guard let self, !title.isEmpty else { return }
                 self.host?.titled(self, title)
+            }
+        }
+        historyObservations = [\WKWebView.canGoBack, \WKWebView.canGoForward].map { path in
+            webView.observe(path, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.host?.historyChanged(self)
+                }
             }
         }
     }
@@ -562,9 +603,11 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committed = webView.backForwardList.currentItem
+        host?.historyChanged(self)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        host?.historyChanged(self)
         host?.loaded(self, url: webView.url)
     }
 

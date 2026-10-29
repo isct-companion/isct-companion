@@ -6,7 +6,8 @@ use app_core::{
     lifecycle::SchoolSite,
     school_auth::SchoolAuthProfile,
     school_browser::{
-        LoadFailure, SchoolLoginEvent, SchoolSessionEvent, SchoolSessionState, SchoolWebNotice,
+        LoadFailure, SchoolLoginEvent, SchoolSessionEvent, SchoolSessionState, SchoolWebFailure,
+        SchoolWebNotice, SchoolWebPage, SchoolWebStep,
     },
     school_service::{IngestOutcome, IngestState},
     sync_engine::{Held, Label, Priority, RunView, SourceView, SyncSnapshot},
@@ -22,8 +23,7 @@ fn sample(event: &CoreEvent) -> &'static str {
         CoreEvent::OcrProgress { .. } => "ocr",
         CoreEvent::SchoolLogin(_) => "login",
         CoreEvent::SchoolSession(_) => "session",
-        CoreEvent::SchoolWebUrl { .. } => "url",
-        CoreEvent::SchoolWebPopups { .. } => "popups",
+        CoreEvent::SchoolWebPage(_) => "page",
         CoreEvent::SchoolWebNotice { .. } => "notice",
         CoreEvent::SchoolIngest(_) => "ingest",
         CoreEvent::SchoolDownload(_) => "download",
@@ -85,31 +85,20 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
             json!({"profile":"science","state":"not-configured","revision":7}),
         ),
         (
-            CoreEvent::SchoolWebUrl {
+            CoreEvent::SchoolWebPage(SchoolWebPage {
                 site: SchoolSite::ScienceLms,
-                url: url.clone(),
-            },
-            "school-web-url",
-            json!({"site":"science-lms","url":url}),
-        ),
-        (
-            CoreEvent::SchoolWebPopups {
-                site: SchoolSite::Kyomu,
-                open: 2,
-            },
-            "school-web-popups",
-            json!({"site":"kyomu","open":2}),
-        ),
-        (
-            CoreEvent::SchoolWebNotice {
-                site: SchoolSite::TokyoPortal,
-                notice: SchoolWebNotice::LoadFailed {
+                revision: 9,
+                url: Some(url.clone()),
+                popups: 2,
+                back: SchoolWebStep::Yes,
+                forward: SchoolWebStep::Unknown,
+                notice: Some(SchoolWebFailure {
                     url: Some(url.clone()),
                     reason: LoadFailure::HostNotFound,
-                },
-            },
-            "school-web-notice",
-            json!({"site":"tokyo-portal","kind":"load-failed","url":url,"reason":"host-not-found"}),
+                }),
+            }),
+            "school-web-page",
+            json!({"site":"science-lms","revision":9,"url":url,"popups":2,"back":"yes","forward":"unknown","notice":{"url":url,"reason":"host-not-found"}}),
         ),
         (
             CoreEvent::SchoolWebNotice {
@@ -184,5 +173,5 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
         covered.insert(sample(&event));
         assert_eq!(wire(&event), (name, payload));
     }
-    assert_eq!(covered.len(), 12);
+    assert_eq!(covered.len(), 11);
 }

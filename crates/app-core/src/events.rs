@@ -6,7 +6,7 @@ use crate::{
     cloud_sync::SyncState,
     data::WorkspaceChangeSource,
     lifecycle::SchoolSite,
-    school_browser::{SchoolLoginEvent, SchoolSessionEvent, SchoolWebNotice},
+    school_browser::{SchoolLoginEvent, SchoolSessionEvent, SchoolWebNotice, SchoolWebPage},
     school_service::IngestOutcome,
     sync_engine::SyncSnapshot,
     workspace_changes::WorkspaceChange,
@@ -68,16 +68,9 @@ pub enum CoreEvent {
     },
     SchoolLogin(SchoolLoginEvent),
     SchoolSession(SchoolSessionEvent),
-    SchoolWebUrl {
-        site: SchoolSite,
-        url: String,
-    },
-    /// How many popups are open over the site's view in the web pane (hosts
-    /// with inline popups only). The toolbar acts on the frontmost.
-    SchoolWebPopups {
-        site: SchoolSite,
-        open: usize,
-    },
+    /// The page the person sees of the site on screen changed; read
+    /// `SchoolBrowserEngine::page` for the current value.
+    SchoolWebPage(SchoolWebPage),
     SchoolWebNotice {
         site: SchoolSite,
         notice: SchoolWebNotice,
@@ -99,8 +92,7 @@ impl CoreEvent {
             Self::OcrProgress { .. } => "ocr-progress",
             Self::SchoolLogin(_) => "school-login-status",
             Self::SchoolSession(_) => "school-session",
-            Self::SchoolWebUrl { .. } => "school-web-url",
-            Self::SchoolWebPopups { .. } => "school-web-popups",
+            Self::SchoolWebPage(_) => "school-web-page",
             Self::SchoolWebNotice { .. } => "school-web-notice",
             Self::SchoolIngest(_) => "school-ingest",
             Self::SchoolDownload(_) => "school-download",
@@ -138,8 +130,7 @@ impl CoreEvent {
             }),
             Self::SchoolLogin(event) => json!(event),
             Self::SchoolSession(event) => json!(event),
-            Self::SchoolWebUrl { site, url } => json!({ "site": site, "url": url }),
-            Self::SchoolWebPopups { site, open } => json!({ "site": site, "open": open }),
+            Self::SchoolWebPage(page) => json!(page),
             Self::SchoolWebNotice { site, notice } => {
                 let mut payload = json!(notice);
                 payload["site"] = json!(site);

@@ -590,7 +590,13 @@ async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinat
         "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission"
     );
     engine
-        .open(SchoolSite::ScienceLms, Some(target.clone()))
+        .open(
+            SchoolSite::ScienceLms,
+            "web",
+            SchoolWebEntry::Go {
+                url: target.clone(),
+            },
+        )
         .await
         .unwrap();
     let id = *browser.current.lock().unwrap().keys().next().unwrap();
@@ -740,12 +746,27 @@ fn notices(events: &Events) -> Vec<SchoolWebNotice> {
         .collect()
 }
 
+/// Every `school-web-page` the app was told, in order.
+fn pages(events: &Events) -> Vec<SchoolWebPage> {
+    events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::SchoolWebPage(page) => Some(page.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 async fn url_shown(events: &Events, expected: &str) {
     tokio::time::timeout(std::time::Duration::from_secs(1), async {
         loop {
-            if events.0.lock().unwrap().iter().any(
-                |event| matches!(event, CoreEvent::SchoolWebUrl { url, .. } if url == expected),
-            ) {
+            if pages(events)
+                .iter()
+                .any(|page| page.url.as_deref() == Some(expected))
+            {
                 break;
             }
             tokio::task::yield_now().await;
@@ -776,7 +797,16 @@ async fn the_rule_table_lets_the_person_browse_and_keeps_hidden_views_on_adapter
     let site = SchoolSite::ScienceLms;
     let official =
         "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission#editor";
-    engine.open(site, Some(official.into())).await.unwrap();
+    engine
+        .open(
+            site,
+            "web",
+            SchoolWebEntry::Go {
+                url: official.into(),
+            },
+        )
+        .await
+        .unwrap();
     let id = *browser.current.lock().unwrap().keys().next().unwrap();
     let listener = browser.listener();
     let page = PageId {
@@ -845,19 +875,17 @@ async fn the_rule_table_lets_the_person_browse_and_keeps_hidden_views_on_adapter
         listener.new_window(window(page, cleartext)),
         NewWindowDecision::External(Url::parse(cleartext).unwrap())
     );
-    // A script redirect nobody asked for is refused and shown as a notice
+    // A script redirect nobody asked for is refused and shown on the page
     // with the address, for Open in browser.
     assert_eq!(
         decide(cleartext, true, NavigationKind::Other, false),
         NavigationDecision::Deny(DenyReason::Cleartext)
     );
-    assert_eq!(
-        notices(&events),
-        [SchoolWebNotice::LoadFailed {
-            url: Some(cleartext.into()),
-            reason: LoadFailure::Cleartext,
-        }]
-    );
+    let refused = Some(SchoolWebFailure {
+        url: Some(cleartext.into()),
+        reason: LoadFailure::Cleartext,
+    });
+    assert_eq!(engine.page(site).notice, refused);
 
     let external = "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
     let resolved = browsing_target(external, site).unwrap();
@@ -880,7 +908,18 @@ async fn the_rule_table_lets_the_person_browse_and_keeps_hidden_views_on_adapter
         scripts_before,
         "external page received a school script"
     );
-    // Back and Forward are the engine's own history.
+    assert_eq!(
+        engine.page(site).notice,
+        None,
+        "Core's navigation clears it"
+    );
+    // Back and Forward are the engine's own history. This host never says
+    // where it can go, so the app asks the engine anyway.
+    let shown = engine.page(site);
+    assert_eq!(
+        (shown.back, shown.forward),
+        (SchoolWebStep::Unknown, SchoolWebStep::Unknown)
+    );
     assert!(engine.back(site).unwrap());
     assert!(engine.forward(site).unwrap());
     let steps: Vec<_> = browser
@@ -898,7 +937,14 @@ async fn the_rule_table_lets_the_person_browse_and_keeps_hidden_views_on_adapter
         .map(|command| command.command.clone())
         .collect();
     assert_eq!(steps, [BrowserAction::GoBack, BrowserAction::GoForward]);
-    assert_eq!(engine.open(site, None).await.unwrap().url, external);
+    assert_eq!(
+        engine
+            .open(site, "web", SchoolWebEntry::Resume)
+            .await
+            .unwrap()
+            .url,
+        external
+    );
 
     engine.user_browsing(None).unwrap();
     assert_eq!(
@@ -928,8 +974,8 @@ async fn the_rule_table_lets_the_person_browse_and_keeps_hidden_views_on_adapter
         listener.new_window(window(page, "https://lms.s.isct.ac.jp/2025/my/")),
         NewWindowDecision::Deny(DenyReason::Hidden)
     );
-    // Only the hidden view's refusals produced no notice.
-    assert_eq!(notices(&events).len(), 1);
+    // The hidden view's refusals are not the person's to see.
+    assert_eq!(engine.page(site).notice, None);
     engine.shutdown().await;
 }
 
@@ -965,7 +1011,13 @@ async fn kyomu_open() -> (
 ) {
     let (engine, browser, events, _) = engine();
     engine
-        .open(SchoolSite::Kyomu, Some(KYOMU_HOME.into()))
+        .open(
+            SchoolSite::Kyomu,
+            "web",
+            SchoolWebEntry::Go {
+                url: KYOMU_HOME.into(),
+            },
+        )
         .await
         .unwrap();
     let id = *browser.current.lock().unwrap().keys().next().unwrap();
@@ -983,29 +1035,21 @@ async fn kyomu_open() -> (
 
 const KYOMU_HOME: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
 
+/// How many popups the page on screen had, each time that changed.
 fn popups_open(events: &Events) -> Vec<usize> {
-    events
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .filter_map(|event| match event {
-            CoreEvent::SchoolWebPopups { open, .. } => Some(*open),
-            _ => None,
-        })
-        .collect()
+    let mut open: Vec<usize> = Vec::new();
+    for page in pages(events) {
+        if open.last() != Some(&page.popups) {
+            open.push(page.popups);
+        }
+    }
+    open
 }
 
 fn urls(events: &Events) -> Vec<String> {
-    events
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .filter_map(|event| match event {
-            CoreEvent::SchoolWebUrl { url, .. } => Some(url.clone()),
-            _ => None,
-        })
+    pages(events)
+        .into_iter()
+        .filter_map(|page| page.url)
         .collect()
 }
 
@@ -1063,7 +1107,7 @@ async fn a_popup_is_a_child_of_its_opener_and_closes_with_what_it_opened() {
     let NewWindowDecision::Popup(nested) = listener.new_window(window(page, "about:blank")) else {
         panic!("window.open('') did not get a window");
     };
-    assert_eq!(popups_open(&events), [1, 2]);
+    assert_eq!(popups_open(&events), [0, 1, 2]);
     assert!(engine.reload(site).unwrap());
     assert!(browser
         .commands
@@ -1074,7 +1118,7 @@ async fn a_popup_is_a_child_of_its_opener_and_closes_with_what_it_opened() {
     // window.close() in the picker closes it and the window it opened.
     listener.closed(popup);
     assert_eq!(*browser.disposed.lock().unwrap(), [nested]);
-    assert_eq!(popups_open(&events), [1, 2, 0]);
+    assert_eq!(popups_open(&events), [0, 1, 2, 0]);
     assert!(urls(&events).last().unwrap().ends_with("postback.aspx"));
     assert_eq!(
         listener.decide_navigation(request(page, picker, true, NavigationKind::Link, true)),
@@ -1132,7 +1176,7 @@ async fn a_popup_left_empty_by_a_saved_download_closes() {
     let empty_saved = popup();
     became(empty_saved, false, DownloadDisposition::Saved);
     assert_eq!(*browser.disposed.lock().unwrap(), [empty_saved]);
-    assert_eq!(popups_open(&events), [1, 0]);
+    assert_eq!(popups_open(&events), [0, 1, 0]);
     assert_eq!(
         listener.decide_navigation(request(
             PageId {
@@ -1154,9 +1198,208 @@ async fn a_popup_left_empty_by_a_saved_download_closes() {
     // The opener's own downloads never close it.
     became(id, false, DownloadDisposition::Saved);
     assert_eq!(*browser.disposed.lock().unwrap(), [empty_saved]);
-    assert_eq!(popups_open(&events), [1, 0, 1, 2]);
+    assert_eq!(popups_open(&events), [0, 1, 0, 1, 2]);
     assert!(engine.close_popup(SchoolSite::Kyomu).unwrap());
     assert!(engine.close_popup(SchoolSite::Kyomu).unwrap());
+    engine.shutdown().await;
+}
+
+// Moodle opens a submitted file in a new window (`target=_blank`), and the
+// file is shown there with no history behind it. The window covers the LMS
+// view on every surface that shows it, so Back has to close it and an app
+// link has to land in the view itself. A surface coming back finds the view
+// as it left it, window included, unless another surface showed it meanwhile.
+#[tokio::test]
+async fn a_file_window_gives_way_to_back_and_to_app_links() {
+    let (engine, browser, events, _) = engine();
+    let site = SchoolSite::ScienceLms;
+    let reader = "reader-1";
+    let activity = "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=131802";
+    engine
+        .open(
+            site,
+            reader,
+            SchoolWebEntry::Go {
+                url: activity.into(),
+            },
+        )
+        .await
+        .unwrap();
+    let id = *browser.current.lock().unwrap().keys().next().unwrap();
+    let listener = browser.listener();
+    let opener = PageId {
+        browser: id,
+        sequence: 1,
+    };
+    listener.page_loaded(PageLoaded {
+        page: opener,
+        cause: None,
+        url: Url::parse(activity).unwrap(),
+    });
+    url_shown(&events, activity).await;
+    let steps = || {
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| {
+                matches!(
+                    command.command,
+                    BrowserAction::GoBack | BrowserAction::GoForward
+                )
+            })
+            .count()
+    };
+    let navigations = || {
+        browser
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
+            .count()
+    };
+    // A host that reports history: the view's first page has nowhere to go,
+    // and the app sends nothing.
+    listener.history_changed(id, History::default());
+    let page = engine.page(site);
+    assert_eq!(
+        (page.back, page.forward),
+        (SchoolWebStep::No, SchoolWebStep::No)
+    );
+    assert!(!engine.back(site).unwrap());
+    assert!(!engine.forward(site).unwrap());
+    assert_eq!(steps(), 0);
+
+    let file = "https://lms.s.isct.ac.jp/2025/pluginfile.php/9/assignsubmission_file/submission_files/4/report.pdf?forcedownload=1";
+    let open_file = || {
+        let NewWindowDecision::Popup(popup) = listener.new_window(window(opener, file)) else {
+            panic!("the file link did not get a window");
+        };
+        listener.history_changed(popup, History::default());
+        listener.became_download(BecameDownload {
+            page: PageId {
+                browser: popup,
+                sequence: 0,
+            },
+            had_page: false,
+            disposition: DownloadDisposition::Shown,
+        });
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: popup,
+                sequence: 1,
+            },
+            cause: None,
+            url: Url::parse(file).unwrap(),
+        });
+        popup
+    };
+    let popup = open_file();
+    url_shown(&events, file).await;
+    let page = engine.page(site);
+    assert_eq!(
+        (page.popups, page.back, page.forward),
+        (1, SchoolWebStep::Yes, SchoolWebStep::No),
+        "Back closes the file window"
+    );
+    assert!(engine.back(site).unwrap());
+    assert_eq!(steps(), 0);
+    assert_eq!(*browser.disposed.lock().unwrap(), [popup]);
+    let page = pages(&events).pop().unwrap();
+    assert_eq!(
+        (page.url.as_deref(), page.popups),
+        (Some(activity), 0),
+        "the activity is in front again"
+    );
+
+    // Back on a popup with history steps through it instead.
+    let popup = open_file();
+    listener.history_changed(
+        popup,
+        History {
+            back: true,
+            forward: false,
+        },
+    );
+    assert!(engine.back(site).unwrap());
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().browser,
+        popup
+    );
+    assert_eq!(browser.disposed.lock().unwrap().len(), 1);
+
+    // The reader coming back keeps the window, even though the view under
+    // it has moved on (a confirmation covered the reader, or the person
+    // looked at Today).
+    let elsewhere = "https://lms.s.isct.ac.jp/2025/my/";
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 2,
+        },
+        cause: None,
+        url: Url::parse(elsewhere).unwrap(),
+    });
+    browser.set_current_url(id, Url::parse(elsewhere).unwrap());
+    engine.user_browsing(None).unwrap();
+    let before = navigations();
+    engine
+        .open(
+            site,
+            reader,
+            SchoolWebEntry::Return {
+                url: activity.into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(engine.page(site).popups, 1);
+    assert_eq!(navigations(), before);
+
+    // Web showed the view in between, as it was; the reader then goes back
+    // to its own activity.
+    engine.user_browsing(None).unwrap();
+    engine
+        .open(site, "web", SchoolWebEntry::Resume)
+        .await
+        .unwrap();
+    assert_eq!(engine.page(site).popups, 1);
+    engine.user_browsing(None).unwrap();
+    engine
+        .open(
+            site,
+            reader,
+            SchoolWebEntry::Return {
+                url: activity.into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(engine.page(site).popups, 0);
+    assert_eq!(browser.disposed.lock().unwrap().last(), Some(&popup));
+    assert_eq!(
+        browser.commands.lock().unwrap().last().unwrap().command,
+        BrowserAction::Navigate(Url::parse(activity).unwrap())
+    );
+
+    // An app link, even to the page already under the window, closes it.
+    let popup = open_file();
+    let before = navigations();
+    engine
+        .open(
+            site,
+            "web",
+            SchoolWebEntry::Go {
+                url: activity.into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(engine.page(site).popups, 0);
+    assert_eq!(browser.disposed.lock().unwrap().last(), Some(&popup));
+    assert_eq!(navigations(), before, "the view was already there");
     engine.shutdown().await;
 }
 
@@ -1222,7 +1465,13 @@ async fn a_form_the_engine_would_send_again_is_never_resubmitted() {
     plain.plain_host.store(true, Ordering::Release);
     let (engine, browser, _, _) = engine_on(Arc::new(SchoolAuthService::new(EmptyVault)), plain);
     engine
-        .open(SchoolSite::Kyomu, Some(KYOMU_HOME.into()))
+        .open(
+            SchoolSite::Kyomu,
+            "web",
+            SchoolWebEntry::Go {
+                url: KYOMU_HOME.into(),
+            },
+        )
         .await
         .unwrap();
     let id = *browser.current.lock().unwrap().keys().next().unwrap();
@@ -1250,34 +1499,102 @@ async fn a_form_the_engine_would_send_again_is_never_resubmitted() {
 #[tokio::test]
 async fn a_failed_load_the_person_sees_becomes_a_notice() {
     let (engine, browser, events, id) = kyomu_open().await;
+    let site = SchoolSite::Kyomu;
     let listener = browser.listener();
     let campus = "https://vlmgr-42.edu2024.gsic.titech.ac.jp/idm/upc/";
-    let failed = |sequence: u64, reason: LoadFailure| {
+    let failed = |browser: BrowserId, sequence: u64, reason: LoadFailure| {
         listener.load_failed(LoadFailed {
-            page: PageId {
-                browser: id,
-                sequence,
-            },
+            page: PageId { browser, sequence },
             cause: None,
             url: Some(Url::parse(campus).unwrap()),
             reason,
             message: "The request timed out.".into(),
         })
     };
-    failed(3, LoadFailure::Cancelled);
-    assert!(notices(&events).is_empty());
-    failed(4, LoadFailure::Unreachable);
-    assert_eq!(
-        notices(&events),
-        [SchoolWebNotice::LoadFailed {
+    let notice = || engine.page(site).notice;
+    let shown = |reason: LoadFailure| {
+        Some(SchoolWebFailure {
             url: Some(campus.into()),
-            reason: LoadFailure::Unreachable,
-        }]
+            reason,
+        })
+    };
+    failed(id, 3, LoadFailure::Cancelled);
+    assert_eq!(notice(), None);
+    failed(id, 4, LoadFailure::Unreachable);
+    assert_eq!(notice(), shown(LoadFailure::Unreachable));
+    assert_eq!(
+        pages(&events).last().unwrap().notice,
+        shown(LoadFailure::Unreachable),
+        "the surface on screen is told"
     );
-    // Hidden work fails on its own terms; nothing is shown for it.
+    // Failing again replaces it; a late report of an older failure does not.
+    failed(id, 5, LoadFailure::HostNotFound);
+    failed(id, 4, LoadFailure::Offline);
+    assert_eq!(notice(), shown(LoadFailure::HostNotFound));
+
+    // It belongs to the page that failed: a popup over the view shows its
+    // own, and the view's is in front again once the popup closes.
+    let opener = PageId {
+        browser: id,
+        sequence: 2,
+    };
+    let NewWindowDecision::Popup(popup) = listener.new_window(window(opener, campus)) else {
+        panic!("no popup");
+    };
+    assert_eq!(notice(), None);
+    failed(popup, 1, LoadFailure::Offline);
+    assert_eq!(notice(), shown(LoadFailure::Offline));
+    listener.closed(popup);
+    assert_eq!(notice(), shown(LoadFailure::HostNotFound));
+
+    // Another surface showing the view finds it too.
     engine.user_browsing(None).unwrap();
-    failed(5, LoadFailure::HostNotFound);
-    assert_eq!(notices(&events).len(), 1);
+    engine
+        .open(site, "reader-1", SchoolWebEntry::Resume)
+        .await
+        .unwrap();
+    assert_eq!(notice(), shown(LoadFailure::HostNotFound));
+
+    // A later page of the view clears it.
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 6,
+        },
+        cause: None,
+        url: Url::parse(KYOMU_HOME).unwrap(),
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while notice().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the later page did not clear the failure");
+    // So does Core sending the view somewhere (Retry), and the view closing.
+    failed(id, 7, LoadFailure::Unreachable);
+    assert!(engine.navigate(site, campus).unwrap());
+    assert_eq!(notice(), None);
+    failed(id, 8, LoadFailure::Offline);
+    assert_eq!(notice(), shown(LoadFailure::Offline));
+    listener.closed(id);
+    assert_eq!(notice(), None);
+
+    // Hidden work fails on its own terms; nothing is shown for it.
+    engine
+        .open(site, "web", SchoolWebEntry::Resume)
+        .await
+        .unwrap();
+    let view = *browser
+        .current
+        .lock()
+        .unwrap()
+        .keys()
+        .find(|view| **view != id)
+        .unwrap();
+    engine.user_browsing(None).unwrap();
+    failed(view, 1, LoadFailure::HostNotFound);
+    assert_eq!(notice(), None);
     engine.shutdown().await;
 }
 
@@ -1583,7 +1900,10 @@ async fn heartbeat_timeout_rejects_the_old_login_relay_and_revealing_the_page_ca
 
     // The native view already shows the login page: revealing it generates
     // no new load callback, so ownership transfer must arm saved login.
-    engine.open(SchoolSite::SciencePortal, None).await.unwrap();
+    engine
+        .open(SchoolSite::SciencePortal, "web", SchoolWebEntry::Resume)
+        .await
+        .unwrap();
     let next_config = login_config(&browser.eval(1).await);
     assert_ne!(next_config["run"], first_config["run"]);
     listener.page_loaded(PageLoaded {
@@ -1748,7 +2068,10 @@ async fn tokyo_saved_credentials_reach(visible: bool, login_url: &str) {
     });
     // A visible view is created at its start URL; the session check navigates.
     let id = if visible {
-        engine.open(SchoolSite::Kyomu, None).await.unwrap();
+        engine
+            .open(SchoolSite::Kyomu, "web", SchoolWebEntry::Resume)
+            .await
+            .unwrap();
         *browser.current.lock().unwrap().keys().next().unwrap()
     } else {
         browser.navigation(0).await.browser
@@ -1793,7 +2116,10 @@ async fn tokyo_saved_credentials_reach(visible: bool, login_url: &str) {
             .iter()
             .filter(|command| matches!(command.command, BrowserAction::Navigate(_)))
             .count();
-        engine.open(SchoolSite::TokyoPortal, None).await.unwrap();
+        engine
+            .open(SchoolSite::TokyoPortal, "web", SchoolWebEntry::Resume)
+            .await
+            .unwrap();
         let navigations_after = browser
             .commands
             .lock()

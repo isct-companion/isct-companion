@@ -33,6 +33,9 @@ pub enum OperationResult {
     SchoolWeb {
         result: SchoolWebResult,
     },
+    SchoolWebPage {
+        page: SchoolWebPage,
+    },
     SchoolConnect {
         result: SchoolConnectResult,
     },

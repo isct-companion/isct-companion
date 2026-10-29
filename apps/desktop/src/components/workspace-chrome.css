@@ -81,6 +81,13 @@
 .lmsReaderToolSlot .lmsFileActions a:hover {
   color: var(--accent) !important;
 }
+/* Back or Forward that Core says would do nothing. */
+.lmsReaderToolSlot .lmsFileActions button:disabled {
+  background: none;
+  color: var(--muted) !important;
+  opacity: 0.4;
+  cursor: default;
+}
 /* A web page keeps its address in view, as a browser's address bar. */
 .lmsReaderToolSlot .lmsWebToolbar {
   flex: 1 1 auto;

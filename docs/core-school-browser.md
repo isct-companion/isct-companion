@@ -65,6 +65,12 @@ it, a policy decision cancelled it, it became a download), `Offline`,
 Report every failure, cancellations included; Core decides what is shown.
 `detail` is the engine's text, for logs.
 
+`historyChanged(browser, canGoBack, canGoForward)`, whether the engine's own
+history of a view or popup can step back or forward from its page. Report it
+when a page commits and when it finishes (WebKit `didCommit`/`didFinish`,
+Android `doUpdateVisitedHistory`), and right after a popup is created. Until a
+host reports it, Core treats a view's or popup's history as unknown.
+
 `pageLoaded`, `titleChanged`, `stopped` as before. `closed(browser)` when a
 view or popup is gone: its page called `window.close()` (WebKit
 `webViewDidClose`, WebView2 `WindowCloseRequested`, Android `onCloseWindow`),
@@ -87,8 +93,21 @@ A host keeps a closed popup's download running until the file is written.
   GET of the current URL for the app's Reload instead of the engine's reload.
 - `inlinePopups`: popups appear inside the web pane over their opener, so the
   app's toolbar (address, Back, Forward, Reload, Close window) acts on the
-  frontmost popup. Without it popups are separate windows with their own
-  controls and the toolbar stays on the view.
+  frontmost popup, on every surface that shows the view. Without it popups are
+  separate windows with their own controls and the toolbar stays on the view.
+
+An inline popup is a sibling of its site's view, never a subview of a web
+view: the host adds it to the view's superview (container, layout) above the
+view and the site's earlier popups, in opening order, with the view's frame,
+and moves, resizes, shows and hides it with the view. WebKit answers a drag
+at the outermost web view under the pointer: on macOS WKWebView overrides
+AppKit's drag hit test (`_hitTest:dragTypes:`) to return itself for any
+point in its frame without descending into subviews, so a popup inside it
+would never receive a file dragged onto it, and the page underneath would.
+Clicks would still work, since the ordinary `hitTest:` descends, which is why
+this is easy to miss. macOS keeps popups in the main view's superview
+(`school_webkit.rs` `arrange_popups`), iOS in the container holding the view
+(`arrangePopups`), Android in the host's `FrameLayout`.
 
 ## What Core decides
 
@@ -155,25 +174,101 @@ had a page, stays.
 
 `dispatch(BrowserCommand)` with `Navigate { url }`, `Reload`, `GoBack`,
 `GoForward`, `Evaluate { script }` and `Stop { script }`, for a view or a
-popup. Back and Forward are the engine's own history; Core keeps no history.
-`Reload` is sent only to a host with `formResubmission`. `Stop` goes only to
-views Core's hidden work used. `dispose(browser)` closes a view or popup; Core
+popup. Back and Forward are the engine's own history; Core keeps only what the
+host reported about it (`historyChanged`), never entries of its own. `Reload`
+is sent only to a host with `formResubmission`. `Stop` goes only to views
+Core's hidden work used. `dispose(browser)` closes a view or popup; Core
 disposes a view's popups before the view.
+
+The app's commands act on the page in front: the last popup open over the
+view (hosts with `inlinePopups`), the view itself otherwise.
+
+| App command        | What Core does                                                                                             |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Address bar, Retry | `Navigate` the page in front, as a browser loads a typed address in the window it was typed in             |
+| Back               | A popup at the start of a known history closes; history known to have no step: nothing; otherwise `GoBack` |
+| Forward            | History known to have no step: nothing; otherwise `GoForward`                                              |
+| Reload             | The engine's reload (with `formResubmission`), or a GET of the current URL                                 |
+| Close window       | Closes the popup in front and every popup it opened                                                        |
+| `open(site, …)`    | See below                                                                                                  |
+
+Closing a popup at the start of its history is what Safari and Chrome do for
+a tab a page opened. "Unknown" is never taken as "no": the command goes to the
+engine, which does nothing if it cannot step.
+
+## Surfaces and entries
+
+A surface is an app page that shows a site's view: on the desktop the Web page
+(`web`) and every mounted LMS reader in Lectures (`reader-1`, `reader-2`, …);
+on iOS and Android their one web screen (`web`, fixed by `app-ffi`). A surface
+brings the view on screen with `open(site, surface, entry)`, and Core records
+it as the site's **presenter**:
+
+- `Resume`: the view as it is, popups and a form in progress included; the
+  restored or start page when the view has none.
+- `Go(url)`: an app link. Core closes every popup over the view, then
+  navigates the view itself only if it is not at `url` already.
+- `Return(url)`: a surface showing the view again (a confirmation covered the
+  LMS reader; the person looked at Today and came back). If it is still the
+  presenter, this is `Resume`, even if the person has since moved the view
+  elsewhere; if another surface showed the view in between, it is `Go(url)`.
+  Core does not compare URLs.
+
+The desktop Web page resumes when switched to and goes for links from Today,
+a course panel or Settings, and for choosing the site already shown (back to
+its start page). A reader goes to its activity when it mounts and returns to
+it when shown again. On iOS and Android `openSchool(site, target)` is `Go`
+with a target and `Resume` without. A closed view forgets its presenter.
+
+Popups stay when a surface leaves: they are part of the view, so a 教務Web
+dialog filled halfway is still there when the person comes back.
 
 ## What the app shows
 
-Core emits, for the shell's UI:
+Every surface renders one read model, the page the person sees of a site:
 
-- `school-web-url` `{ site, url }`: the address of the frontmost page of the
-  site the person is looking at (a popup's when one is in front).
-- `school-web-popups` `{ site, open }`: how many popups are open over the
-  view (hosts with `inlinePopups`). The app shows "Close window"
-  (`closePopup` on desktop) while one is open.
-- `school-web-notice` `{ site, kind: "load-failed", url, reason }`: the page
-  the person is looking at did not load (not for cancellations or hidden
-  views). The app shows it next to the address with Retry and Open in browser.
-- `school-web-notice` `{ site, kind: "reopened", url }`: a reload would have
-  resent a form; the page was opened again with GET.
+```text
+SchoolWebPage {
+  site, revision,          // revision grows with every change, across sites
+  url: string | null,      // the page in front; null until the view has one
+  popups: number,          // popups open over the view (inlinePopups hosts)
+  back:    "yes" | "no" | "unknown",
+  forward: "yes" | "no" | "unknown",
+  notice:  { url: string | null, reason: LoadFailure } | null,
+}
+```
+
+`back` is `yes` when the host reported a step back, or when the page in front
+is a popup with known history (Back closes it); `no` when the host reported
+none (the app disables the button and Core sends nothing); `unknown` when the
+host never reported history. `forward` is the same without the popup rule.
+
+`notice` is a failed load of the page in front, bound to that view or popup
+and to the page sequence of the failure. It is set for a main-frame load the
+person sees fail (not cancellations, not hidden views) and for plain HTTP the
+rule table refused, and replaced by a later failure. It is cleared when that
+view or popup reports a later page, when Core sends it a navigation
+(`Navigate`, `Reload`, `GoBack`, `GoForward`: Retry, the address bar, an app
+link), and when it closes. A popup's notice shows while the popup is in front;
+the view's own shows again once the popup closes. The app shows it next to the
+address with Retry (not for plain HTTP) and Open in browser. Because it lives
+in the page, a failure is still shown after the person switches surfaces.
+
+Core publishes the page as `school-web-page` (the page itself as payload)
+whenever it changes, for the site the person is looking at; when a site comes
+on screen, its page is published if it changed while off screen. The snapshot
+is `page(site)` (desktop command `school_web_page`, FFI `schoolWebPage`). A
+surface subscribes first, waits until the subscription is in place, then reads
+the snapshot, and keeps whichever of the snapshot and the events has the
+highest revision. A revision tells newer from older but cannot recover an
+event nobody heard, so the order matters: on the desktop
+`onSchoolWebPage` resolves only once Tauri's `listen` is registered
+(`features/school-web`'s `useSchoolWebPage`), and the mobile shells read the
+snapshot after their event stream is running.
+
+`school-web-notice` `{ site, kind: "reopened", url }` stays a one-time event:
+a reload would have resent a form, so the page was opened again with GET. The
+app shows it for a few seconds; a surface that misses it loses nothing.
 
 Nothing is injected into a school page to show these.
 
@@ -187,25 +282,60 @@ print panel for the foreground view only (WebKit: the private
 has no hook for a page's `window.print()`, so the page's button does
 nothing there and the app's page menu prints the page on screen through
 `PrintManager`. A `beforeunload` question is shown the same way, and a
-hidden view always leaves. A file input opens the system picker for the
-view on screen the same way, and a hidden view chooses nothing; WebKit shows
-its own picker, Android's `onShowFileChooser` launches `ACTION_GET_CONTENT`.
-Android WebView adds its own windows for a `<select>` list or a date picker
-with the context the view was built on, so the host builds views over the
-activity in front (through a `MutableContextWrapper`, since views outlive it):
-over the application context those windows have no token and never open.
-School pages get no app script: Tauri injects
-every plugin's page script into every webview, so a desktop plugin must not
-have one.
+hidden view always leaves.
+
+A file input (`<input type=file>`) chooses files only for the page in front of
+the view on screen, in a main view and a popup alike; anything else chooses
+nothing:
+
+- macOS: without the UI delegate's
+  `webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:`,
+  WebKit treats the request as Cancel, and a popup has no wry delegate under
+  it. So the host's `SchoolUiDelegate` implements it itself, for main views
+  and popups in one code path (wry's version is no longer reached). The
+  completion handler is held by an answer-once guard that answers Cancel when
+  dropped, because WebKit requires it to be called exactly once. It answers
+  Cancel at once unless the view is the foreground site's page in front and
+  its window is visible. Otherwise `NSOpenPanel` opens as a sheet on that
+  window, choosing files, with multiple selection and directories as
+  `WKOpenPanelParameters` asks. When the view is hidden, its popup closes,
+  the view is disposed or the app quits, the host ends the sheet and answers
+  Cancel. The sheet's handler holds the web view weakly and answers Cancel if
+  it is gone or detached. A page that closes its own popup while the panel is
+  open is covered by the same path.
+- iOS: WebKit shows its own document picker; no delegate is involved.
+- Android: `onShowFileChooser` launches `ACTION_GET_CONTENT` and answers the
+  callback once, with nothing when the activity is cancelled.
+  Android WebView adds its own windows for a `<select>` list or a date picker
+  with the context the view was built on, so the host builds views over the
+  activity in front (through a `MutableContextWrapper`, since views outlive it):
+  over the application context those windows have no token and never open.
+  School pages get no app script: Tauri injects
+  every plugin's page script into every webview, so a desktop plugin must not
+  have one.
 
 ## Platform status
 
-| Host                             | Facts                                                                                           | Popups                                         | Print, dialogs                                                                    |
-| -------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------- |
-| macOS (`school_webkit.rs`)       | Full, `formResubmission`                                                                        | Inline over the opener                         | Done                                                                              |
-| Windows (interim)                | URL only (`Unknown`, no method or gesture); no resubmission facts                               | Separate windows (`NewWindowResponse::Create`) | WebView2's own                                                                    |
-| iOS (`SchoolBrowserHost.swift`)  | Full but gesture, `formResubmission`                                                            | Inline over the opener                         | Done                                                                              |
-| Android (`SchoolBrowserHost.kt`) | URL, method, frame, gesture, redirect; `onFormResubmission`; `ERR_CACHE_MISS` as a load failure | `WebViewTransport`, inline over the opener     | Dialogs and file inputs done; print from the page menu (no `window.print()` hook) |
+| Host                             | Facts                                                                                           | History  | Popups                                                    | Drag and drop              | Print, dialogs                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------- |
+| macOS (`school_webkit.rs`)       | Full, `formResubmission`                                                                        | Reported | Inline, siblings of the view                              | Views and popups           | Done; file panel as above                                                         |
+| Windows (interim)                | URL only (`Unknown`, no method or gesture); no resubmission facts                               | Unknown  | Separate windows (`NewWindowResponse::Create`)            | WebView2's own, per window | WebView2's own                                                                    |
+| iOS (`SchoolBrowserHost.swift`)  | Full but gesture, `formResubmission`                                                            | Reported | Inline, siblings of the view                              | Views and popups (iPad)    | Done                                                                              |
+| Android (`SchoolBrowserHost.kt`) | URL, method, frame, gesture, redirect; `onFormResubmission`; `ERR_CACHE_MISS` as a load failure | Reported | `WebViewTransport`, inline, siblings in the `FrameLayout` | WebView's own              | Dialogs and file inputs done; print from the page menu (no `window.print()` hook) |
+
+macOS popups are views of their own (`WKWebView` subclass in
+`school_webkit.rs`) with the capabilities of a main view: the file panel
+above, file drops (they are siblings of the view), the opener's page zoom
+when created and the app's zoom afterwards, and no keyboard focus while
+hidden. The host logs when a popup opens, when a navigation becomes a
+download, when a drag enters a popup and when a popup closes, with the site
+and host only, never a path or query.
+
+The Windows interim is a temporary exception to the history every other host
+reports: it reports none, so `back` and `forward` stay `unknown` and Back and
+Forward always go to the engine; its popups are separate windows with their
+own controls, so the popup rule never applies. It ends when
+`school_webview2.rs` reports history (`approach/school-web-windows-host-later`).
 
 Android never resends a form from history: back or forward to an uncached
 POST result fails with `ERR_CACHE_MISS`, reported as `Other`, and the
