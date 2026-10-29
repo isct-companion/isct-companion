@@ -47,6 +47,11 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     private val views = mutableMapOf<SchoolSite, Tab>()
     private val tabs = mutableMapOf<BrowserId, Tab>()
     private var parking: FrameLayout? = null
+    /** The activity in front. Views outlive it, so each holds it through a
+     * MutableContextWrapper: WebView adds the windows for a page's own
+     * controls (a `<select>` list, a date picker) with that context, and an
+     * application context has no window token to add them under. */
+    private var activity: Activity? = null
     var onOpenExternal: ((Uri) -> Unit)? = null
     /** A file a page handed over: its URL, the linking page, and WebView's
      * Content-Disposition and MIME type. Core fetches and names it. */
@@ -161,7 +166,15 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         (host.parent as? ViewGroup)?.removeView(host)
         root.addView(host, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         parking = host
+        this.activity = activity
         for (tab in tabs.values) (tab.webView.context as? MutableContextWrapper)?.baseContext = activity
+    }
+
+    /** Lets go of a destroyed activity, so no view keeps it alive. */
+    fun detachActivity(activity: Activity) {
+        if (this.activity !== activity) return
+        this.activity = null
+        for (tab in tabs.values) (tab.webView.context as? MutableContextWrapper)?.baseContext = context
     }
 
     /** Returns a view to the parking host so it keeps running. */
@@ -182,7 +195,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun newWebView(): WebView {
-        val activity = (parking?.context as? Activity)
         val webView = WebView(MutableContextWrapper(activity ?: context))
         webView.settings.apply {
             javaScriptEnabled = true
