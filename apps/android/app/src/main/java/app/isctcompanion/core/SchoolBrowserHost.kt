@@ -3,6 +3,7 @@ package app.isctcompanion.core
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.MutableContextWrapper
 import android.graphics.Bitmap
 import android.net.Uri
@@ -17,7 +18,9 @@ import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
+import android.webkit.MimeTypeMap
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -68,6 +71,11 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
     /** The page dialog waiting for the person, if the page on screen asked. */
     var dialog by mutableStateOf<PageDialog?>(null)
+        private set
+
+    /** The files the page on screen asked to choose, while its picker is
+     * due or open. */
+    var files by mutableStateOf<FileRequest?>(null)
         private set
 
     /** Whether `site`'s frontmost page has a page to go back to. */
@@ -296,6 +304,7 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         val gone = root.popups.filter { it.descendsFrom(tab) } + listOfNotNull(root.takeIf { it === tab })
         for (each in gone) {
             if (dialog?.browser == each.id) dialog?.answer(false, null)
+            if (files?.browser == each.id) files?.answer(null)
             tabs.remove(each.id)
             synchronized(lock) { urls.remove(each.id) }
             (each.webView.parent as? ViewGroup)?.removeView(each.webView)
@@ -486,6 +495,24 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
 
             override fun onJsBeforeUnload(view: WebView, url: String, message: String, result: JsResult) =
                 ask(PageDialog.Kind.LEAVE, url, message, null, result)
+
+            /** A file input opens the system picker for the page on screen,
+             * as a dialog does; a hidden page chooses nothing. */
+            override fun onShowFileChooser(
+                view: WebView,
+                callback: ValueCallback<Array<Uri>>,
+                params: FileChooserParams,
+            ): Boolean {
+                if (!shown(this@Tab) || files != null) {
+                    callback.onReceiveValue(null)
+                    return true
+                }
+                files = FileRequest(id, chooser(params)) { uris ->
+                    files = null
+                    callback.onReceiveValue(uris)
+                }
+                return true
+            }
         }
 
         /** Shows a page dialog for the page on screen. A hidden page is
@@ -530,12 +557,53 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
         }
     }
 
+    /** Files a page's file input asked for: the picker [intent] to launch,
+     * once, and [answer], which runs once with the chosen files or null. */
+    class FileRequest(val browser: BrowserId, val intent: Intent, answer: (Array<Uri>?) -> Unit) {
+        /** Set once the picker is up, so a recreated screen does not open
+         * it again; its result reaches the new screen. */
+        var launched = false
+
+        private var reply: ((Array<Uri>?) -> Unit)? = answer
+
+        fun answer(uris: Array<Uri>?) {
+            val reply = reply ?: return
+            this.reply = null
+            reply(uris)
+        }
+    }
+
     companion object {
         private const val TEXT_SCALE = "textScale"
         private const val BLANK = "about:blank"
 
         /** The text scales offered for school pages, in percent. */
         val textScales = listOf(100, 115, 130)
+
+        /** The system picker for a file input. WebView's own
+         * `FileChooserParams.createIntent` keeps only the first accepted type,
+         * passes an extension such as `.pdf` as a MIME type and never asks
+         * for several files, so the intent is built here: extensions are
+         * looked up, and an unknown one accepts anything rather than nothing. */
+        private fun chooser(params: WebChromeClient.FileChooserParams): Intent {
+            val accepted = params.acceptTypes.flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            val types = accepted.map { if (it.startsWith('.')) MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.drop(1)) else it }
+            val mimes = if (types.isEmpty() || null in types) listOf("*/*") else types.filterNotNull().distinct()
+            return Intent(Intent.ACTION_GET_CONTENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(mimes.singleOrNull() ?: "*/*")
+                .putExtra(Intent.EXTRA_MIME_TYPES, mimes.toTypedArray())
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE)
+        }
+
+        /** The files a picker returned, one or several; null when it was
+         * closed without a choice. */
+        fun chosen(resultCode: Int, data: Intent?): Array<Uri>? {
+            if (resultCode != Activity.RESULT_OK || data == null) return null
+            val clip = data.clipData
+            val uris = if (clip != null) (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri } else listOfNotNull(data.data)
+            return uris.toTypedArray().takeIf { it.isNotEmpty() }
+        }
 
         private fun origin(url: String): String {
             val uri = Uri.parse(url)

@@ -1,8 +1,12 @@
 package app.isctcompanion.features.web
 
 import app.isctcompanion.design.t
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.HorizontalDivider
@@ -230,6 +234,26 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
         }
     }
     PageDialog(web.browser)
+    PageFiles(web.browser)
+}
+
+/** The system picker a page's file input asked for. Closing it chooses
+ * nothing; a phone with no picker answers the same. */
+@Composable
+private fun PageFiles(host: SchoolBrowserHost) {
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        host.files?.answer(SchoolBrowserHost.chosen(result.resultCode, result.data))
+    }
+    val request = host.files ?: return
+    LaunchedEffect(request) {
+        if (request.launched) return@LaunchedEffect
+        request.launched = true
+        try {
+            picker.launch(request.intent)
+        } catch (_: ActivityNotFoundException) {
+            request.answer(null)
+        }
+    }
 }
 
 @Composable
