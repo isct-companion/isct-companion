@@ -40,3 +40,19 @@ fn bounded_log_reads_report_gaps_and_do_not_export_secrets() {
     assert_eq!(last.entries[0].message.len(), MESSAGE_LIMIT);
     assert_eq!(last.entries[0].id, all.cursor + 1);
 }
+
+/// 1.2.x renamed `isct_core` to `app_core` while the logger still kept only
+/// `isct*` targets, and every Core `log::warn!` silently left the export.
+#[test]
+fn logger_keeps_this_projects_crates_and_drops_dependencies() {
+    use log::Log;
+    let kept = |target: &str, level: log::Level| {
+        AppLogger.enabled(&log::Metadata::builder().target(target).level(level).build())
+    };
+    assert!(kept(module_path!(), log::Level::Warn));
+    assert!(kept("app_core::net::moodle", log::Level::Info));
+    assert!(kept("isct_companion_lib::school_windows", log::Level::Error));
+    assert!(!kept("app_core::net::moodle", log::Level::Debug));
+    assert!(!kept("reqwest::connect", log::Level::Warn));
+    assert!(!kept("app_core_extra::x", log::Level::Warn));
+}
