@@ -44,7 +44,7 @@ jobs:
     steps:
       # Always run the trusted default-branch release tooling. Only the version
       # comes from the completed tag build; no artifact can supply executable code.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: main
       - uses: ruby/setup-ruby@v1
