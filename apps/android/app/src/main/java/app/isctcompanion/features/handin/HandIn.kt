@@ -12,7 +12,6 @@ import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -193,7 +192,6 @@ private fun AssignmentPicker(header: @Composable () -> Unit, pick: (String) -> U
  * receives joins the assignment's `submit/`, listed in the card; Upload fills
  * the LMS draft area and shows that page, where the person reviews and saves.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HandInCard(assignment: AssignmentDetail) {
     val model = LocalModel.current

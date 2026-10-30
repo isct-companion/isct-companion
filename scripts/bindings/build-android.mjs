@@ -17,6 +17,7 @@ import {
   androidMinSdk,
   capture,
   kotlinc,
+  kotlincVersion,
   sdkFeatureArgs,
   root,
   target,
@@ -132,14 +133,22 @@ const { jna, coroutines } = await javaDependencies();
 const annotations = await androidAnnotations();
 const android = join(sdk, `platforms/android-${androidCompileSdk}/android.jar`);
 // The app compiles against these classes with its own Kotlin plugin, which
-// rejects metadata more than one minor version newer. Whatever kotlinc the
-// host has (CI runners ship a newer one), emit the app's language version.
+// rejects metadata more than one minor version newer. A host kotlinc newer
+// than the app's (CI runners ship one) emits the app's language version; an
+// older one cannot name it and emits its own, which the app reads anyway.
 const appKotlin = readFileSync(
   join(root, "apps/android/build.gradle.kts"),
   "utf8",
 ).match(/id\("org\.jetbrains\.kotlin\.android"\) version "(\d+\.\d+)/)?.[1];
 if (!appKotlin)
   throw new Error("Missing the Kotlin plugin version in apps/android");
+const hostKotlin = kotlincVersion();
+const [appMajor, appMinor] = appKotlin.split(".").map(Number);
+const [hostMajor, hostMinor] = hostKotlin.split(".").map(Number);
+const emitKotlin =
+  hostMajor < appMajor || (hostMajor === appMajor && hostMinor < appMinor)
+    ? hostKotlin
+    : appKotlin;
 kotlinc([
   join(generated, "app/isctcompanion/core/app_ffi.kt"),
   "bindings/kotlin/src/main/kotlin/app/isctcompanion/core/OperationValue.kt",
@@ -147,9 +156,9 @@ kotlinc([
   "-classpath",
   [jna, coroutines, android, annotations].join(delimiter),
   "-language-version",
-  appKotlin,
+  emitKotlin,
   "-api-version",
-  appKotlin,
+  emitKotlin,
   "-jvm-target",
   "1.8",
   "-d",

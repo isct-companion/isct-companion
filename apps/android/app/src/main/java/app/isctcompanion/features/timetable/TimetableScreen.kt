@@ -13,7 +13,6 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -455,7 +454,6 @@ private fun DaySkeleton(axis: TimetableAxis, rowHeight: Dp) {
 /** Gap between blocks that share a time side by side. */
 private val laneGap = 2.dp
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Block(
     block: Occurrence,

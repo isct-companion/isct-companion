@@ -5133,6 +5133,67 @@ checks:
       - apps/android/app/src/main/AndroidManifest.xml
     verified: null
 
+  - id: ANDROID-DEPENDENCY-UPGRADE
+    area: native
+    title: The Android app behaves as before on the latest Compose, AGP and Kotlin
+    persona: undergraduate-first-term
+    preconditions: |
+      A release APK built from the dependency upgrade (Compose BOM 2026.09,
+      AGP 9, Kotlin 2.4, compileSdk 37) on a phone with the current quarter
+      pulled and at least one open and one hidden assignment.
+    steps:
+      - action: |
+          Visit every tab (今日, 時間割, ウェブ, 設定) and scroll each to the end.
+        reason: |
+          Every screen now runs on new Compose, material3 and navigation
+          libraries; a blank tab, a lost large title or a crash on first
+          composition shows a broken API or a class R8 stripped.
+      - action: |
+          Open a course from a 時間割 block and from a 今日 card, collapse its
+          title, then go back with the arrow and with a predictive back swipe.
+        reason: |
+          The course zoom uses the shared-transition API, which left
+          experimental in this upgrade; the page must still grow out of and
+          shrink into its source (ANDROID-COURSE-ZOOM-BACK has the detail).
+      - action: |
+          Swipe an assignment row right, then left; under すべての課題 swipe
+          a hidden row left.
+        reason: |
+          The rows moved off the deprecated veto callback: the row now slides
+          all the way, comes back, and then pins, hides or restores once. A
+          row left off screen or acting twice means the reset is wrong.
+      - action: |
+          Open the bottom sheets: the sync status sheet from the title bar,
+          the week picker on 時間割, the welcome sheet and the hand-in sheet;
+          drag each down to close.
+        reason: |
+          The sheets come from material3's ModalBottomSheet, still
+          experimental and the likeliest to change between versions.
+      - action: |
+          Open a school page under ウェブ, pull to refresh, and go back.
+        reason: |
+          The WebView sits in a newer SwipeRefreshLayout and activity
+          version; the page must load, refresh and hand back to the tab.
+      - action: |
+          Turn the phone on its side on 今日 and on a course page.
+        reason: |
+          The app stays portrait; the lock is set from the activity, whose
+          library this upgrade moved (ANDROID-ORIENTATION has tablets).
+    observe: Each screen, sheet and gesture on the phone; the app must stay open.
+    expected: |
+      Every tab, sheet, swipe, the course zoom, the school page and the
+      portrait lock work as before the upgrade, and the app never closes.
+    why_manual: |
+      The whole Compose shell has to be exercised by touch in a release build
+      with R8 on a real phone; whether each screen still looks and moves as
+      before is judged by eye.
+    covers:
+      - apps/android/app/build.gradle.kts
+      - apps/android/build.gradle.kts
+      - apps/android/gradle/wrapper/gradle-wrapper.properties
+      - apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt
+    verified: null
+
   - id: ANDROID-TODAY-EXAMS-AND-STATUS
     area: native
     title: Android Today lists upcoming exams and shows the school connection

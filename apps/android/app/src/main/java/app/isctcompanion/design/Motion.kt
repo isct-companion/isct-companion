@@ -2,7 +2,6 @@ package app.isctcompanion.design
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.ResizeMode.Companion.RemeasureToBounds
 import android.content.Context
@@ -152,7 +151,6 @@ fun CountingText(
 
 /** The navigation host's shared-transition scope and the scope of the
  * destination on screen, provided by the root (`App.kt`). */
-@OptIn(ExperimentalSharedTransitionApi::class)
 val LocalSharedTransition = compositionLocalOf<SharedTransitionScope?> { null }
 val LocalDestinationScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
 
@@ -165,7 +163,6 @@ fun Modifier.courseZoomSource(zoom: String?): Modifier = courseZoom(zoom, destin
 @Composable
 fun Modifier.courseZoomDestination(zoom: String?): Modifier = courseZoom(zoom, destination = true)
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun Modifier.courseZoom(zoom: String?, destination: Boolean): Modifier {
     // With less motion the course page only fades in (NavHost's default).

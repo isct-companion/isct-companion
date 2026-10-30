@@ -384,7 +384,7 @@ private fun StackCard(item: TodayClass, now: Instant, leads: Boolean, enabled: B
             onClick = id?.takeIf { enabled }?.let { { navigator.openCourse(it, zoom) } },
         ) {
             HeroLine(listOfNotNull(if (quiz) t("common.quiz") else if (exam) t("common.exam") else null, Format.periods(item.periods)).joinToString(" · "), if (exam) Theme.colors.warn else tint) {
-                if (leads && today && starts != null) {
+                if (leads && today) {
                     val minutes = maxOf(Format.minutes(starts, now), 0)
                     Tag(
                         if (minutes < 60) t("today.countMinLeft", "count" to minutes) else Format.time(starts),

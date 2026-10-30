@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # The Android shell follows the latest stable releases. JNA and
+  # rustls-platform-verifier are left alone: the Core SDK pins both (the latter
+  # through Cargo.lock), so they move with the Rust side.
+  - package-ecosystem: gradle
+    directory: /apps/android
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: net.java.dev.jna:jna
+      - dependency-name: org.rustls:rustls-platform-verifier
+    groups:
+      # Compose and the rest of androidx release in step; one PR a week.
+      androidx:
+        patterns:
+          - androidx.*
+      # The Compose compiler plugin must match the Kotlin plugin exactly.
+      kotlin:
+        patterns:
+          - org.jetbrains.kotlin*

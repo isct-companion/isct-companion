@@ -49,15 +49,15 @@ jobs:
         run: |
           # Google's mirror sometimes serves a truncated NDK archive; retry.
           for attempt in 1 2 3; do
-            sdkmanager "platforms;android-35" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" &&
+            sdkmanager "platforms;android-37.0" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$NDK_VERSION" &&
               test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" && break
             test "$attempt" = 3 && exit 1
             echo "SDK install failed (attempt $attempt); retrying"
             sleep $((attempt * 15))
           done
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-          # Always the pinned compiler: the runner image ships a newer kotlinc
-          # whose class metadata the app's Kotlin plugin (2.1) cannot read.
+          # Always the pinned compiler, so the Core AAR's class metadata does
+          # not follow whatever kotlinc the runner image ships.
           curl -fL --retry 3 --retry-all-errors https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip -o "$RUNNER_TEMP/kotlin.zip"
           unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/kotlin"
           echo "$RUNNER_TEMP/kotlin/kotlinc/bin" >> "$GITHUB_PATH"

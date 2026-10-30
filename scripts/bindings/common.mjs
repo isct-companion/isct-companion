@@ -56,13 +56,29 @@ export function kotlinc(args) {
   );
   run(`kotlinc.bat "@${file}"`, [], { shell: true });
 }
-export function kotlinLibrary(name) {
+function kotlinRoot() {
   const kotlinc = capture(windows ? "where" : "which", ["kotlinc"]).split(
     /\r?\n/,
   )[0];
-  const kotlinRoot = dirname(dirname(realpathSync(kotlinc)));
+  return dirname(dirname(realpathSync(kotlinc)));
+}
+// The host compiler's "major.minor", from the distribution's build.txt
+// ("2.2.21-release-469").
+export function kotlincVersion() {
+  const home = kotlinRoot();
+  const build = ["build.txt", "libexec/build.txt"]
+    .map((file) => join(home, file))
+    .find(existsSync);
+  const version =
+    build && readFileSync(build, "utf8").match(/^(\d+\.\d+)/)?.[1];
+  if (!version)
+    throw new Error("Missing build.txt in the Kotlin compiler distribution");
+  return version;
+}
+export function kotlinLibrary(name) {
+  const home = kotlinRoot();
   const library = ["lib", "libexec/lib"]
-    .map((directory) => join(kotlinRoot, directory, name))
+    .map((directory) => join(home, directory, name))
     .find(existsSync);
   if (!library)
     throw new Error(`Missing ${name} in the Kotlin compiler distribution`);

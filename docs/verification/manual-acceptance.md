@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 155 checks must be re-run before the next release.**
+**9 of 156 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**146 checks have never been run or could not be run:**
+**147 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -118,6 +118,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-COURSE-LESSONS` — never verified
 - `ANDROID-COURSE-ZOOM-BACK` — never verified
 - `ANDROID-ORIENTATION` — never verified
+- `ANDROID-DEPENDENCY-UPGRADE` — never verified
 - `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
 - `ANDROID-SETTINGS-PAGES` — never verified
 - `ANDROID-WEB-PREFERENCES` — never verified
@@ -278,6 +279,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-COURSE-ZOOM-BACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/build.gradle.kts |
 | `ANDROID-ORIENTATION` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/AndroidManifest.xml |
+| `ANDROID-DEPENDENCY-UPGRADE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/build.gradle.kts<br>apps/android/build.gradle.kts<br>apps/android/gradle/wrapper/gradle-wrapper.properties<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt |
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
 | `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
@@ -6016,6 +6018,70 @@ is seen at a glance.
 
 - `apps/android/app/src/main/java/app/isctcompanion/App.kt`
 - `apps/android/app/src/main/AndroidManifest.xml`
+
+**Last recorded** never run
+
+### The Android app behaves as before on the latest Compose, AGP and Kotlin (`ANDROID-DEPENDENCY-UPGRADE`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A release APK built from the dependency upgrade (Compose BOM 2026.09,
+AGP 9, Kotlin 2.4, compileSdk 37) on a phone with the current quarter
+pulled and at least one open and one hidden assignment.
+
+**Steps**
+
+1. Visit every tab (今日, 時間割, ウェブ, 設定) and scroll each to the end.
+   - *Why:* Every screen now runs on new Compose, material3 and navigation
+     libraries; a blank tab, a lost large title or a crash on first
+     composition shows a broken API or a class R8 stripped.
+2. Open a course from a 時間割 block and from a 今日 card, collapse its
+   title, then go back with the arrow and with a predictive back swipe.
+   - *Why:* The course zoom uses the shared-transition API, which left
+     experimental in this upgrade; the page must still grow out of and
+     shrink into its source (ANDROID-COURSE-ZOOM-BACK has the detail).
+3. Swipe an assignment row right, then left; under すべての課題 swipe
+   a hidden row left.
+   - *Why:* The rows moved off the deprecated veto callback: the row now slides
+     all the way, comes back, and then pins, hides or restores once. A
+     row left off screen or acting twice means the reset is wrong.
+4. Open the bottom sheets: the sync status sheet from the title bar,
+   the week picker on 時間割, the welcome sheet and the hand-in sheet;
+   drag each down to close.
+   - *Why:* The sheets come from material3's ModalBottomSheet, still
+     experimental and the likeliest to change between versions.
+5. Open a school page under ウェブ, pull to refresh, and go back.
+   - *Why:* The WebView sits in a newer SwipeRefreshLayout and activity
+     version; the page must load, refresh and hand back to the tab.
+6. Turn the phone on its side on 今日 and on a course page.
+   - *Why:* The app stays portrait; the lock is set from the activity, whose
+     library this upgrade moved (ANDROID-ORIENTATION has tablets).
+
+**Where to look**
+
+Each screen, sheet and gesture on the phone; the app must stay open.
+
+**Expected**
+
+Every tab, sheet, swipe, the course zoom, the school page and the
+portrait lock work as before the upgrade, and the app never closes.
+
+**Why this is manual**
+
+The whole Compose shell has to be exercised by touch in a release build
+with R8 on a real phone; whether each screen still looks and moves as
+before is judged by eye.
+
+**Covers**
+
+- `apps/android/app/build.gradle.kts`
+- `apps/android/build.gradle.kts`
+- `apps/android/gradle/wrapper/gradle-wrapper.properties`
+- `apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt`
 
 **Last recorded** never run
 

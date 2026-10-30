@@ -18,7 +18,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -358,7 +357,6 @@ private fun Tabs() {
             },
         ) { padding ->
             // Shared bounds let a course grow out of what was tapped (`design/Motion.kt`).
-            @OptIn(ExperimentalSharedTransitionApi::class)
             SharedTransitionLayout {
             CompositionLocalProvider(LocalSharedTransition provides this) {
             Box(Modifier.fillMaxSize()) {
