@@ -198,16 +198,17 @@ pub(crate) fn commit_then<T, U, E: From<DataError>>(
 ) -> Result<(U, BTreeSet<String>), E> {
     let touched: Arc<Mutex<Vec<super::course_merge::Touched>>> = Arc::default();
     let sink = touched.clone();
-    connection.update_hook(Some(
-        move |action: Action, _: &str, table: &str, rowid: i64| {
-            sink.lock().unwrap_or_else(PoisonError::into_inner).push((
-                action,
-                reported_table(table).to_string(),
-                rowid,
-            ));
-        },
-    ))
-    .map_err(DataError::from)?;
+    connection
+        .update_hook(Some(
+            move |action: Action, _: &str, table: &str, rowid: i64| {
+                sink.lock().unwrap_or_else(PoisonError::into_inner).push((
+                    action,
+                    reported_table(table).to_string(),
+                    rowid,
+                ));
+            },
+        ))
+        .map_err(DataError::from)?;
     let result: Result<U, E> = (|| {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)

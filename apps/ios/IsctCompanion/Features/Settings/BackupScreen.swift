@@ -18,9 +18,6 @@ struct BackupScreen: View {
 
     private var state: SyncState? { model.cloud }
     private var providers: [ProviderState] { state?.providers ?? [] }
-    private var pending: Bool {
-        state?.tasks.contains { $0.deliveries.contains { $0.status != .completed } } ?? false
-    }
     private var locked: Bool { busy || state?.syncing == true }
 
     var body: some View {
@@ -35,18 +32,7 @@ struct BackupScreen: View {
                     } header: {
                         Text(t("settings.backup.earlierVersions"))
                     } footer: {
-                        Text(t("settings.backup.backupsOlderThan30Days"))
-                    }
-                }
-                if let points = state?.recoveryPoints, !points.isEmpty {
-                    Section {
-                        ForEach(points.sorted { $0.savedAt > $1.savedAt }, id: \.id) { point in
-                            restoreRow(Format.due(point.savedAt), detail: nil, id: point.id, savedAt: point.savedAt)
-                        }
-                    } header: {
-                        Text(t("settings.backup.localRecoveryFiles"))
-                    } footer: {
-                        Text(t("settings.backup.savedBeforeCloudChangesOr"))
+                        Text(t("settings.backup.historyKeepsHourlyThenDaily"))
                     }
                 }
                 Section {
@@ -173,7 +159,7 @@ struct BackupScreen: View {
             }
             .buttonStyle(.borderless)
             // Core refuses a restore while a transfer is unfinished.
-            .disabled(locked || pending)
+            .disabled(locked)
         }
     }
 

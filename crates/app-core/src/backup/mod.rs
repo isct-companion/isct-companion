@@ -1,9 +1,6 @@
-//! One backup contract for export, recovery and cloud application.
+//! One backup contract for export, restore and cloud application.
 pub(crate) mod retention;
-use crate::{
-    data::{self, cloud_merge, DataError, DataStore, WorkspaceChangeSource},
-    notes::{LocalNoteBackup, NoteError, Notes},
-};
+use crate::data::{self, DataError, DataStore, WorkspaceChangeSource};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -11,8 +8,6 @@ use std::path::{Path, PathBuf};
 pub enum BackupError {
     #[error(transparent)]
     Data(#[from] DataError),
-    #[error(transparent)]
-    Notes(#[from] NoteError),
     #[error("{0}")]
     Invalid(String),
     #[error(transparent)]
@@ -24,20 +19,15 @@ pub enum BackupError {
 #[derive(Clone)]
 pub struct BackupService {
     store: DataStore,
-    notes: Notes,
 }
 
 impl BackupService {
-    pub fn new(store: DataStore, notes: Notes) -> Self {
-        Self { store, notes }
+    pub fn new(store: DataStore) -> Self {
+        Self { store }
     }
 
     pub fn snapshot(&self) -> Result<Value, BackupError> {
-        self.notes.transaction(|notes| {
-            Ok(self
-                .store
-                .export_document(serde_json::to_value(notes.export()?)?)?)
-        })
+        Ok(self.store.export_document()?)
     }
 
     pub fn export(&self) -> Result<String, BackupError> {
@@ -45,36 +35,28 @@ impl BackupService {
     }
 
     pub fn validate(document: &Value) -> Result<(), BackupError> {
-        data::validate_sync_document(document)?;
-        let notes: Vec<LocalNoteBackup> = serde_json::from_value(document["localNotes"].clone())?;
-        crate::notes::validate_notes(&notes)?;
-        Ok(())
+        Ok(data::validate_sync_document(document)?)
     }
 
-    /// The sync journal records pending_apply before entering this operation.
-    /// Replay is idempotent across the filesystem and SQLite commit boundary.
+    /// Merges another copy record by record. The sync journal records
+    /// pending_apply before entering this operation, so it can be replayed.
     pub fn apply(
         &self,
         document: &Value,
         source: WorkspaceChangeSource,
     ) -> Result<(), BackupError> {
         Self::validate(document)?;
-        self.notes.transaction(|notes| {
-            let local = self
-                .store
-                .export_document(serde_json::to_value(notes.export()?)?)?;
-            let merged = cloud_merge::merge(&local, document);
-            let incoming: Vec<LocalNoteBackup> =
-                serde_json::from_value(merged["localNotes"].clone())?;
-            if cloud_merge::generation(&merged) > cloud_merge::generation(&local) {
-                notes.restore(&incoming)?;
-            } else {
-                notes.merge(&incoming)?;
-            }
-            // DataStore rechecks current rows under an IMMEDIATE transaction.
-            self.store.merge_cloud_data(&merged, source)?;
-            Ok(())
-        })
+        Ok(self.store.merge_cloud_data(document, source)?)
+    }
+
+    /// Makes `document` this device's newest edits (`DataStore::restore_records`).
+    pub fn restore(
+        &self,
+        document: &Value,
+        source: WorkspaceChangeSource,
+    ) -> Result<(), BackupError> {
+        Self::validate(document)?;
+        Ok(self.store.restore_records(document, source)?)
     }
 
     pub fn device_id(&self) -> Result<String, BackupError> {
@@ -93,7 +75,8 @@ impl BackupService {
         }
         std::fs::create_dir_all(directory)?;
         let destination = directory.join("workspace-latest.json");
-        crate::notes::atomic_write(&destination, document.as_bytes())?;
+        crate::storage::atomic_write(&destination, document.as_bytes())
+            .map_err(|error| BackupError::Invalid(error.to_string()))?;
         Ok(destination)
     }
 }

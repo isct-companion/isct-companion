@@ -1484,10 +1484,12 @@ describe("Backup", () => {
         handle: (command) => {
           if (command === "cloud_sync_state")
             return cloudState({
-              recoveryPoints: Array.from({ length: 9 }, (_, index) => ({
-                id: `local:${index}`,
+              versions: Array.from({ length: 9 }, (_, index) => ({
+                id: `v${index + 1}`,
                 version: `v1-${index}`,
+                provider: "icloud" as const,
                 savedAt: `2026-10-${String(12 - index).padStart(2, "0")}T03:00:00Z`,
+                device: "MacBook",
               })),
             });
           if (command === "sync_cloud_now") return cloudState();
@@ -1497,31 +1499,25 @@ describe("Backup", () => {
       });
       const pane = settingsPane(mounted);
 
-      const visibleExportRows = () =>
+      const restoreRows = () =>
         [...pane.querySelectorAll("button")]
-          .filter((button) => button.textContent === "Export…")
+          .filter((button) => button.textContent === "Restore")
           .map((button) => button.closest(".row")?.textContent);
-      const firstPageRows = visibleExportRows();
-      expect(
-        [...pane.querySelectorAll("button")].filter(
-          (button) => button.textContent === "Export…",
-        ),
-      ).toHaveLength(5); // four recovery files plus manual export
-      const localPages = pane.querySelector(
-        '[aria-label="Local recovery pages"]',
+      const firstPageRows = restoreRows();
+      expect(firstPageRows).toHaveLength(4);
+      const versionPages = pane.querySelector(
+        '[aria-label="Earlier version pages"]',
       )!;
-      await click(
-        localPages.querySelector<HTMLButtonElement>('[aria-label="2"]') ??
-          [...localPages.querySelectorAll<HTMLButtonElement>("button")].find(
-            (button) => button.textContent === "2",
-          )!,
-      );
-      expect(
-        [...pane.querySelectorAll("button")].filter(
-          (button) => button.textContent === "Export…",
-        ),
-      ).toHaveLength(5);
-      expect(visibleExportRows()).not.toEqual(firstPageRows);
+      const page = (label: string) =>
+        versionPages.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`) ??
+        [...versionPages.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === label,
+        )!;
+      await click(page("2"));
+      expect(restoreRows()).toHaveLength(4);
+      expect(restoreRows()).not.toEqual(firstPageRows);
+      await click(page("1"));
+      expect(restoreRows()).toEqual(firstPageRows);
       await clickButton(pane, "Upload");
       await wait(() =>
         expect(mounted.core.commands("sync_cloud_now")).toHaveLength(1),
@@ -1543,6 +1539,8 @@ describe("Backup", () => {
       await clickButton(pane, "Restore");
       const confirm = await wait(() => openDialog());
       expect(confirm.textContent).toContain("Restore the version from");
+      // Nothing confirms this device's data is in a cloud version yet.
+      expect(confirm.textContent).toContain("Export a backup first");
       expect(mounted.core.commands("restore_cloud_version")).toHaveLength(0);
 
       await clickButton(confirm, "Restore");
@@ -1627,7 +1625,9 @@ describe("Backup", () => {
       expect(pane.textContent).not.toContain("Attempts");
       expect(pane.textContent).not.toContain("task-1");
       expect(pane.textContent).not.toContain("Up to date");
-      expect(buttonIn(pane, "Restore").disabled).toBe(true);
+      // A restore is an ordinary newest edit: a provider still retrying an
+      // upload does not block it.
+      expect(buttonIn(pane, "Restore").disabled).toBe(false);
 
       // A transfer Core reports as running replaces the waiting label.
       await act(async () =>
@@ -1638,6 +1638,7 @@ describe("Backup", () => {
         ),
       );
       await wait(() => expect(pane.textContent).toContain("Syncing…"));
+      expect(buttonIn(pane, "Restore").disabled).toBe(true);
     },
     TIMEOUT,
   );

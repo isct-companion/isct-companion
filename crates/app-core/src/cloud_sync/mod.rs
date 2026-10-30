@@ -12,7 +12,7 @@ use crate::{
 };
 use journal::{version, Job, Journal, JournalStore};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::{
     future::Future,
     path::PathBuf,
@@ -57,14 +57,6 @@ pub struct CloudVersion {
     pub device: String,
     #[serde(default)]
     pub version: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecoveryPoint {
-    pub id: String,
-    pub version: String,
-    pub saved_at: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -114,8 +106,6 @@ pub struct SyncState {
     pub versions: Vec<CloudVersion>,
     #[serde(default)]
     pub tasks: Vec<Task>,
-    #[serde(default)]
-    pub recovery_points: Vec<RecoveryPoint>,
 }
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
@@ -211,18 +201,14 @@ impl CloudSync {
         supported: &[CloudProvider],
         authorized: &[CloudProvider],
     ) -> Result<Self, CloudSyncError> {
-        let service = Self(Arc::new(Inner {
+        Ok(Self(Arc::new(Inner {
             journal: JournalStore::open(legacy, supported, authorized)?,
             run: tokio::sync::Mutex::new(()),
             tasks: RuntimeTasks::default(),
             tick_pass: Arc::new(tokio::sync::Semaphore::new(1)),
             next_tick: Mutex::new(Instant::now()),
             remote_check: Mutex::new(RemoteCheck::default()),
-        }));
-        if let Err(error) = service.prune_recovery() {
-            crate::diagnostics::report("backup-retention", &error);
-        }
-        Ok(service)
+        })))
     }
 
     pub fn state(&self) -> Result<SyncState, CloudSyncError> {
@@ -434,33 +420,6 @@ impl CloudSync {
             .run(async move { service.restore_document_inner(&services, document).await })
             .await
             .map_err(CloudSyncError::from)?
-    }
-
-    pub fn recovery_document(&self, id: &str) -> Result<String, CloudSyncError> {
-        let point = self
-            .state()?
-            .recovery_points
-            .into_iter()
-            .find(|point| point.id == id)
-            .ok_or_else(|| CloudSyncError::Compatibility("Recovery point not found".into()))?;
-        if !point.version.starts_with("v1-")
-            || point.version.len() != 67
-            || !point.version[3..]
-                .bytes()
-                .all(|character| character.is_ascii_hexdigit())
-        {
-            return Err(CloudSyncError::Compatibility(
-                "Invalid recovery version".into(),
-            ));
-        }
-        std::fs::read_to_string(
-            self.0
-                .journal
-                .path
-                .with_file_name("recovery")
-                .join(format!("{}.json", point.version)),
-        )
-        .map_err(storage_error)
     }
 
     pub async fn shutdown(&self) {
@@ -710,7 +669,6 @@ impl CloudSync {
             })?;
             self.publish(services)?;
             if job.task.direction == Direction::Upload {
-                self.lineage(&mut job.document)?;
                 let providers = self
                     .state()?
                     .providers
@@ -951,15 +909,13 @@ impl CloudSync {
                 Ok(None)
             };
         }
-        let mut requested = job.document.clone();
-        self.lineage(&mut requested)?;
         let document = if job.task.direction == Direction::Upload {
             let backup = services.backup.clone();
             let device = blocking(move || backup.device_id().map_err(backup_storage)).await?;
             self.remote(
                 services
                     .transport
-                    .merge_and_push(provider, &requested, &device),
+                    .merge_and_push(provider, &job.document, &device),
                 CloudSyncError::Interrupted,
             )
             .await?
@@ -968,23 +924,10 @@ impl CloudSync {
         };
         // Re-read after every remote await. Applying a stale snapshot must not
         // overwrite local edits made while the provider was in flight.
-        let mut latest = snapshot(&services.backup).await?;
-        // A device that never met a cloud has its own workspace, so its
-        // records join the cloud's instead of yielding to its generation.
-        self.lineage(&mut latest)?;
+        let latest = snapshot(&services.backup).await?;
         let merged = cloud_merge::merge(&latest, &document);
-        if cloud_merge::contents(&latest) != cloud_merge::contents(&merged) {
-            self.checkpoint(&latest).await?;
-        }
         self.apply_document(services, &merged, WorkspaceChangeSource::CloudSync)
             .await?;
-        // A join moves this device to the surviving workspace.
-        if let Some(id) = cloud_merge::workspace(&merged) {
-            self.0.journal.change(|journal| {
-                journal.workspace_id = Some(id.to_owned());
-                Ok(())
-            })?;
-        }
         self.capture_inner(services, false).await?;
         // History is auxiliary metadata. A failed history listing must not
         // turn an already committed cloud write into another upload attempt.
@@ -1019,31 +962,6 @@ impl CloudSync {
                 result.unwrap_or(Err(timeout_error))
             }
         }
-    }
-
-    /// Names the workspace of a document from this device before it meets a
-    /// cloud copy: its own id, else the journal's, else a fresh UUIDv7. The
-    /// journal follows the document, whose id a join may have changed.
-    fn lineage(&self, document: &mut Value) -> Result<(), CloudSyncError> {
-        let own = cloud_merge::workspace(document).map(str::to_owned);
-        let id = self.0.journal.change(|journal| {
-            if own.is_some() {
-                journal.workspace_id.clone_from(&own);
-            }
-            Ok(journal
-                .workspace_id
-                .get_or_insert_with(|| uuid::Uuid::now_v7().to_string())
-                .clone())
-        })?;
-        if own.is_none() {
-            match document["sync"].as_object_mut() {
-                Some(sync) => {
-                    sync.insert("workspaceId".into(), json!(id));
-                }
-                None => document["sync"] = json!({ "workspaceId": id }),
-            }
-        }
-        Ok(())
     }
 
     async fn apply_document(
@@ -1087,118 +1005,15 @@ impl CloudSync {
         Ok(())
     }
 
-    async fn checkpoint(&self, document: &Value) -> Result<(), CloudSyncError> {
-        let service = self.clone();
-        let document = document.clone();
-        blocking(move || service.checkpoint_blocking(&document)).await
-    }
-
-    fn checkpoint_blocking(&self, document: &Value) -> Result<(), CloudSyncError> {
-        let directory = self.0.journal.path.with_file_name("recovery");
-        std::fs::create_dir_all(&directory).map_err(storage_error)?;
-        let document_version = version(document)?;
-        let path = directory.join(format!("{document_version}.json"));
-        if !path.exists() {
-            crate::notes::atomic_write(&path, document.to_string().as_bytes())
-                .map_err(storage_error)?;
-        }
-        self.0.journal.change(|journal| {
-            if !journal
-                .state
-                .recovery_points
-                .iter()
-                .any(|point| point.version == document_version)
-            {
-                journal.state.recovery_points.insert(
-                    0,
-                    RecoveryPoint {
-                        id: format!("local:{document_version}"),
-                        version: document_version,
-                        saved_at: chrono::Utc::now().to_rfc3339(),
-                    },
-                );
-            }
-            Ok(())
-        })?;
-        if let Err(error) = self.prune_recovery() {
-            crate::diagnostics::report("backup-retention", &error);
-        }
-        Ok(())
-    }
-
-    /// Unlink only after the recovery index has been durably updated. A failed
-    /// unlink leaves an extra file, never a reference to a deleted backup.
-    fn prune_recovery(&self) -> Result<(), CloudSyncError> {
-        let directory = self.0.journal.path.with_file_name("recovery");
-        let file = |version: &str| {
-            (version.len() > 3
-                && version.starts_with("v1-")
-                && version[3..].bytes().all(|byte| byte.is_ascii_hexdigit()))
-            .then(|| directory.join(format!("{version}.json")))
-        };
-        let points = self.state()?.recovery_points;
-        // Missing files cannot count as newer backups. Check off the journal
-        // lock, and revalidate the plan before committing the new index.
-        let dates = points
-            .iter()
-            .map(|point| {
-                if file(&point.version).is_some_and(|path| path.is_file()) {
-                    point.saved_at.as_str()
-                } else {
-                    ""
-                }
-            })
-            .collect::<Vec<_>>();
-        let expired = crate::backup::retention::expired(dates, chrono::Utc::now())
-            .into_iter()
-            .collect::<std::collections::HashSet<_>>();
-        if expired.is_empty() {
-            return Ok(());
-        }
-        let removed = self.0.journal.change(|journal| {
-            if journal.state.recovery_points != points {
-                return Ok(Vec::new());
-            }
-            let mut removed = Vec::new();
-            let mut index = 0;
-            journal.state.recovery_points.retain(|point| {
-                let keep = !expired.contains(&index);
-                index += 1;
-                if !keep {
-                    removed.push(point.version.clone());
-                }
-                keep
-            });
-            Ok(removed)
-        })?;
-        for version in removed {
-            let Some(path) = file(&version) else {
-                continue;
-            };
-            match std::fs::remove_file(path) {
-                Ok(()) => crate::diagnostics::info(
-                    "backup-retention",
-                    "Removed an expired local recovery file",
-                ),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => crate::diagnostics::report("backup-retention", &error),
-            }
-        }
-        Ok(())
-    }
-
     async fn prepare_reset_inner(&self, services: &CloudServices) -> Result<(), CloudSyncError> {
         let _run = self.0.run.lock().await;
         self.finish_apply(services).await?;
-        let current = snapshot(&services.backup).await?;
-        self.checkpoint(&current).await?;
         self.0.journal.change(|journal| {
             journal.state.automatic = false;
             journal.state.syncing = false;
             journal.jobs.clear();
             journal.state.versions.clear();
             journal.observed.clear();
-            journal.workspace_id = None;
             for provider in &mut journal.state.providers {
                 provider.enabled = false;
                 provider.synced_version = None;
@@ -1215,40 +1030,33 @@ impl CloudSync {
         services: &CloudServices,
         id: &str,
     ) -> Result<SyncState, CloudSyncError> {
-        let old = if id.starts_with("local:") {
-            let service = self.clone();
-            let id = id.to_owned();
-            blocking(move || {
-                serde_json::from_str(&service.recovery_document(&id)?).map_err(|error| {
-                    CloudSyncError::Compatibility(format!("Invalid recovery file: {error}"))
-                })
-            })
-            .await?
-        } else {
-            let cloud_version = self
-                .state()?
-                .versions
-                .into_iter()
-                .find(|version| version.id == id)
-                .ok_or_else(|| {
-                    CloudSyncError::Compatibility("Cloud version no longer exists".into())
-                })?;
-            let revision = id
-                .rsplit(':')
-                .next()
-                .and_then(|value| value.parse().ok())
-                .ok_or_else(|| CloudSyncError::Compatibility("Invalid cloud version".into()))?;
-            self.remote(
+        let cloud_version = self
+            .state()?
+            .versions
+            .into_iter()
+            .find(|version| version.id == id)
+            .ok_or_else(|| {
+                CloudSyncError::Compatibility("Cloud version no longer exists".into())
+            })?;
+        let revision = id
+            .rsplit(':')
+            .next()
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(|| CloudSyncError::Compatibility("Invalid cloud version".into()))?;
+        let old = self
+            .remote(
                 services
                     .transport
                     .version_document(cloud_version.provider, revision),
                 CloudSyncError::Interrupted,
             )
-            .await?
-        };
+            .await?;
         self.restore_document_inner(services, old).await
     }
 
+    /// A restore is this device's newest edit (`BackupService::restore`). It
+    /// goes up at once, as an explicit upload, and every other device merges
+    /// it record by record, keeping what they changed meanwhile elsewhere.
     async fn restore_document_inner(
         &self,
         services: &CloudServices,
@@ -1258,45 +1066,17 @@ impl CloudSync {
         blocking(move || BackupService::validate(&validated).map_err(backup_compatibility)).await?;
         let _run = self.0.run.lock().await;
         self.finish_apply(services).await?;
-        if self.state()?.tasks.iter().any(|task| {
-            task.deliveries
-                .iter()
-                .any(|delivery| delivery.status != DeliveryStatus::Completed)
-        }) {
-            return Err(CloudSyncError::Conflict("Finish pending sync tasks or disconnect the unavailable provider before restoring.".into()));
-        }
-        let current = snapshot(&services.backup).await?;
-        self.checkpoint(&current).await?;
-        let mut restored = cloud_merge::merge(&old, &old);
-        restored["sync"] = current["sync"].clone();
-        self.lineage(&mut restored)?;
-        let mut generation = cloud_merge::generation(&current).0;
-        for provider in self
-            .state()?
-            .providers
-            .into_iter()
-            .filter(|provider| provider.enabled)
-        {
-            if let Some(remote) = self
-                .remote(
-                    services.transport.read_workspace(provider.provider),
-                    CloudSyncError::Interrupted,
-                )
-                .await?
-            {
-                generation = generation.max(cloud_merge::generation(&remote).0);
-            }
-        }
-        let next_generation = generation.checked_add(1).ok_or_else(|| {
-            CloudSyncError::Compatibility("Cloud generation is too large.".into())
-        })?;
-        restored["sync"]["generation"] =
-            json!({"counter":next_generation,"id":uuid::Uuid::now_v7().to_string()});
+        let backup = services.backup.clone();
+        blocking(move || {
+            backup
+                .restore(&old, WorkspaceChangeSource::CloudRestore)
+                .map_err(backup_storage)
+        })
+        .await?;
+        let restored = snapshot(&services.backup).await?;
         self.0
             .journal
-            .change(|journal| journal.enqueue(restored.clone(), Direction::Upload))?;
-        self.apply_document(services, &restored, WorkspaceChangeSource::CloudRestore)
-            .await?;
+            .change(|journal| journal.request(restored, Direction::Upload))?;
         self.capture_inner(services, false).await?;
         self.publish(services)?;
         drop(_run);
@@ -1320,10 +1100,6 @@ fn delivery_mut<'a>(
                 .find(|delivery| delivery.provider == provider)
         })
         .ok_or_else(|| CloudSyncError::Storage("Sync task missing".into()))
-}
-
-fn storage_error(error: impl ToString) -> CloudSyncError {
-    CloudSyncError::Storage(error.to_string())
 }
 
 fn backup_storage(error: BackupError) -> CloudSyncError {

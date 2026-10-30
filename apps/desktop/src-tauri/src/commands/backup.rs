@@ -1,5 +1,5 @@
 //! Backup command adapters and saving exported files.
-use crate::{cloud_sync, data, lms_files, require_local_main};
+use crate::{cloud_sync, data, require_local_main};
 use crate::{coded, shell, CommandError};
 use app_core::backup::BackupService;
 use tauri::Manager;
@@ -7,7 +7,6 @@ use tauri::Manager;
 pub(crate) fn service(app: &tauri::AppHandle) -> Result<BackupService, CommandError> {
     Ok(BackupService::new(
         app.state::<data::DataStore>().inner().clone(),
-        lms_files::notes(app)?,
     ))
 }
 

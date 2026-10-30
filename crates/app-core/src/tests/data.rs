@@ -99,31 +99,6 @@ fn reference_poll_clock_preserves_other_device_preferences() {
 }
 
 #[test]
-fn restore_generation_is_committed_with_replacement_and_rejects_old_uploads() {
-    let store = store("restore-generation");
-    store
-        .put_user_record(
-            "personal_events",
-            json!({"title":"Later","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
-        )
-        .unwrap();
-    let old: Value = store.export_document(json!([])).unwrap();
-    let mut restored = old.clone();
-    restored["tables"]["personal_events"] = json!([]);
-    restored["sync"] =
-        json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"restore-a"}});
-    store
-        .merge_cloud_data(&restored, crate::data::WorkspaceChangeSource::CloudSync)
-        .unwrap();
-    store
-        .merge_cloud_data(&old, crate::data::WorkspaceChangeSource::CloudSync)
-        .unwrap();
-    assert!(store.user_rows("personal_events").unwrap().is_empty());
-    let current: Value = store.export_document(json!([])).unwrap();
-    assert_eq!(current["sync"], restored["sync"]);
-    assert!(store.load_workspace().unwrap()["deviceId"].is_string());
-}
-#[test]
 fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes() {
     let a = store("cloud-a");
     let b = store("cloud-b");
@@ -142,8 +117,8 @@ fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes(
         json!({"title":"B","kind":"event","termId":"2026-3Q","room":"","days":[1],"startTime":"10:00","endTime":"11:00"}),
     )
     .unwrap();
-    let exported_a: Value = a.export_document(json!([])).unwrap();
-    let exported_b: Value = b.export_document(json!([])).unwrap();
+    let exported_a: Value = a.export_document().unwrap();
+    let exported_b: Value = b.export_document().unwrap();
     a.delete_user_record("personal_events", row_a["id"].as_str().unwrap())
         .unwrap();
     a.merge_cloud_data(
@@ -151,7 +126,7 @@ fn cloud_merge_preserves_offline_edits_device_state_and_concurrent_local_writes(
         crate::data::WorkspaceChangeSource::CloudSync,
     )
     .unwrap();
-    let latest: Value = a.export_document(json!([])).unwrap();
+    let latest: Value = a.export_document().unwrap();
     b.merge_cloud_data(&latest, crate::data::WorkspaceChangeSource::CloudSync)
         .unwrap();
     assert_eq!(
@@ -581,7 +556,7 @@ fn synced_copies_name_courses_by_external_key() {
         json!({"id":"legacy","kind":"plan-item","courseId":"2026-202600041","termId":"2026-1Q","state":"planned"}),
     )
     .unwrap();
-    let sent = a.export_document(json!([])).unwrap();
+    let sent = a.export_document().unwrap();
     let plans = sent["tables"]["plan_items"].as_array().unwrap();
     assert!(plans
         .iter()
@@ -623,7 +598,7 @@ fn synced_copies_name_courses_by_external_key() {
         .iter()
         .any(|row| row["id"] == "legacy" && row["courseId"] == legacy));
 
-    let returned = b.export_document(json!([])).unwrap();
+    let returned = b.export_document().unwrap();
     for table in ["plan_items", "schedule_overrides"] {
         let rows = |document: &Value| {
             let mut rows = document["tables"][table].as_array().unwrap().clone();
@@ -730,7 +705,7 @@ fn assignment_pin_round_trips_as_a_syncable_overlay() {
         store.load_workspace().unwrap()["assignments"][0]["pinned"],
         true
     );
-    let exported: Value = store.export_document(json!([])).unwrap();
+    let exported: Value = store.export_document().unwrap();
     assert_eq!(exported["tables"]["assignment_marks"][0]["pinned"], true);
     store
         .put_user_record(
@@ -807,14 +782,9 @@ fn local_backup_contains_user_data_overlays_and_notes_but_no_school_cache() {
             }),
         )
         .unwrap();
-    let document = store
-        .export_document(json!([{
-            "id":"018f0000-0000-7000-8000-000000000001", "term":"2026-3Q",
-            "course":"TEST", "section":"section-1", "text":"# local", "deleted":false
-        }]))
-        .unwrap();
-    assert_eq!(document["schemaVersion"], 6);
-    assert_eq!(document["localNotes"][0]["text"], "# local");
+    let document = store.export_document().unwrap();
+    assert_eq!(document["schemaVersion"], 7);
+    assert!(document.get("localNotes").is_none());
     assert!(document.pointer("/tables/assignments").is_none());
     assert!(document.pointer("/tables/lms_items").is_none());
     assert_eq!(
@@ -847,10 +817,9 @@ fn invalid_study_history_rolls_back_restore_and_cloud_replacement() {
         )
         .unwrap();
     let before = store.load_workspace().unwrap();
-    let mut backup = store.export_document(json!([])).unwrap();
-    backup["sync"] = json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"remote"}});
-    // Restoring a local backup and replacing from the cloud both apply through
-    // `merge_cloud_data`, so each invalid history must leave the store as it was.
+    let backup = store.export_document().unwrap();
+    // Restoring a backup and merging a cloud copy must each leave the store
+    // as it was when the history is invalid.
     for invalid in [
         Value::Null,
         json!({"admittedTerm":"2026-1Q"}),
@@ -877,6 +846,10 @@ fn invalid_study_history_rolls_back_restore_and_cloud_replacement() {
             store.merge_cloud_data(&remote, crate::data::WorkspaceChangeSource::CloudSync),
             Err(DataError::InvalidInput(_))
         ));
+        assert!(matches!(
+            store.restore_records(&remote, crate::data::WorkspaceChangeSource::CloudRestore),
+            Err(DataError::InvalidInput(_))
+        ));
         let after = store.load_workspace().unwrap();
         assert_eq!(after["academicProfile"], before["academicProfile"]);
         assert_eq!(after["events"], before["events"]);
@@ -893,10 +866,7 @@ fn legacy_backup_without_study_history_still_restores() {
             json!({"name":"Legacy","admissionYear":2024,"gradePath":[],"years":[]}),
         )
         .unwrap();
-    let mut document =
-        parse_import(&source.export_document(json!([])).unwrap().to_string()).unwrap();
-    document["sync"] =
-        json!({"workspaceId":"workspace-a","generation":{"counter":1,"id":"restore"}});
+    let document = parse_import(&source.export_document().unwrap().to_string()).unwrap();
     let target = store("legacy-study-target");
     target
         .merge_cloud_data(&document, crate::data::WorkspaceChangeSource::CloudSync)
@@ -913,14 +883,18 @@ fn legacy_backup_without_study_history_still_restores() {
 #[test]
 fn backup_from_another_schema_is_rejected_by_its_version() {
     let store = store("backup-schema");
-    let mut document: Value = store.export_document(json!([])).unwrap();
+    let mut document: Value = store.export_document().unwrap();
     document["schemaVersion"] = json!(5);
     // Older backups also carried localNotes in a different shape.
     document["localNotes"] = json!({ "notes": [] });
     assert_eq!(
         parse_import(&document.to_string()).unwrap_err().to_string(),
-        "the backup uses schema version 5; this app reads version 6"
+        "the backup uses schema version 5; this app reads version 7"
     );
+    // Version 6 still opens: its notes and restore generations are ignored.
+    document["schemaVersion"] = json!(6);
+    document["sync"] = json!({"workspaceId":"a","generation":{"counter":3,"id":"g"}});
+    assert!(parse_import(&document.to_string()).is_ok());
     let _ = fs::remove_dir_all(store.directory());
 }
 

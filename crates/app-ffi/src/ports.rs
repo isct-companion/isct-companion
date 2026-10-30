@@ -795,7 +795,7 @@ pub(crate) fn cloud_stores(
     Ok(DocumentCloud::new(stores, name))
 }
 /// Stands in when the shell has no cloud store: the journal still owns
-/// imports and recovery points, and no provider can be enabled.
+/// imports, and no provider can be enabled.
 pub(crate) struct NoCloud;
 impl app_core::cloud_sync::CloudTransport for NoCloud {
     fn disconnect(

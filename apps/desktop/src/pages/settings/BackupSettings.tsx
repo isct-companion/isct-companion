@@ -30,7 +30,7 @@ const providerName: Record<CloudSyncProvider, string> = {
 
 /**
  * Sync runs on its own (slotledger approach/cloud-upload-queue): this page only chooses the
- * services and offers confirmed cloud versions and local recovery points.
+ * services and offers confirmed cloud versions to restore.
  */
 export function BackupSettings({
   data,
@@ -47,7 +47,6 @@ export function BackupSettings({
   const [syncError, setSyncError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [versionPage, setVersionPage] = useState(1);
-  const [recoveryPage, setRecoveryPage] = useState(1);
   const bridge = desktopBridge;
   const syncAvailable =
     caps["cloud-sync"].support === "supported" &&
@@ -107,9 +106,11 @@ export function BackupSettings({
     run("settings.backup.couldNotRestore", async () => {
       if (
         !(await confirmAction(
-          t("settings.backup.restoreTheVersionFromDate", {
-            date: when(version.savedAt),
-          }),
+          restoreWarning(
+            t("settings.backup.restoreTheVersionFromDate", {
+              date: when(version.savedAt),
+            }),
+          ),
           t("common.restore"),
         ))
       )
@@ -125,7 +126,7 @@ export function BackupSettings({
   const importFile = async (file: File) => {
     if (
       !(await confirmAction(
-        t("settings.backup.restoreThisFileOnAll"),
+        restoreWarning(t("settings.backup.restoreThisFileOnAll")),
         t("common.restore"),
       ))
     )
@@ -157,6 +158,10 @@ export function BackupSettings({
     pending.length === 0 &&
     Boolean(sync?.localVersion) &&
     enabled.every((p) => p.syncedVersion === sync?.localVersion);
+  // A restore is the newest edit. What this device has not uploaded is in no
+  // cloud version, so restoring over it cannot be undone from the list.
+  const restoreWarning = (message: string) =>
+    upToDate ? message : `${message} ${t("settings.backup.restoreIsFinal")}`;
   const versions = [
     ...new Map(
       (sync?.versions ?? []).map((version) => [
@@ -166,13 +171,8 @@ export function BackupSettings({
     ).values(),
   ];
   versions.sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt));
-  const recoveryPoints = [...(sync?.recoveryPoints ?? [])].sort(
-    (a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt),
-  );
   const versionPages = Math.max(1, Math.ceil(versions.length / 4));
-  const recoveryPages = Math.max(1, Math.ceil(recoveryPoints.length / 4));
   const shownVersionPage = Math.min(versionPage, versionPages);
-  const shownRecoveryPage = Math.min(recoveryPage, recoveryPages);
   const needsAttention = enabled.some((item) => item.error);
   const lastSynced = enabled
     .map((item) => item.lastSyncedAt)
@@ -294,7 +294,7 @@ export function BackupSettings({
       {versions.length > 0 && (
         <SettingsGroup
           title="settings.backup.earlierVersions"
-          footer={t("settings.backup.backupsOlderThan30Days")}
+          footer={t("settings.backup.historyKeepsHourlyThenDaily")}
         >
           {versions
             .slice((shownVersionPage - 1) * 4, shownVersionPage * 4)
@@ -314,7 +314,7 @@ export function BackupSettings({
                 <div className="actions">
                   <UiButton
                     className="button small"
-                    disabled={busy || sync?.syncing || pending.length > 0}
+                    disabled={busy || sync?.syncing}
                     onClick={() => void restoreVersion(version)}
                   >
                     {t("common.restore")}
@@ -329,49 +329,6 @@ export function BackupSettings({
               onChange={setVersionPage}
               total={versionPages}
               aria-label={t("settings.backup.earlierVersionPages")}
-            />
-          )}
-        </SettingsGroup>
-      )}
-      {(sync?.recoveryPoints?.length ?? 0) > 0 && (
-        <SettingsGroup
-          title="settings.backup.localRecoveryFiles"
-          footer={t("settings.backup.savedBeforeCloudChangesOr")}
-        >
-          {recoveryPoints
-            .slice((shownRecoveryPage - 1) * 4, shownRecoveryPage * 4)
-            .map((point) => (
-              <Row key={point.id} group titleText={when(point.savedAt)}>
-                <div className="actions">
-                  <UiButton
-                    className="textButton"
-                    onClick={() =>
-                      void saveExportFile(
-                        `IsctCompanion-${point.version.slice(0, 15)}.json`,
-                        () => bridge!.cloudRecoveryDocument!(point.id),
-                        notify,
-                      )
-                    }
-                  >
-                    {t("settings.backup.export")}
-                  </UiButton>
-                  <UiButton
-                    className="textButton"
-                    disabled={busy || sync?.syncing || pending.length > 0}
-                    onClick={() => void restoreVersion(point)}
-                  >
-                    {t("common.restore")}
-                  </UiButton>
-                </div>
-              </Row>
-            ))}
-          {recoveryPages > 1 && (
-            <Pagination
-              size="sm"
-              value={shownRecoveryPage}
-              onChange={setRecoveryPage}
-              total={recoveryPages}
-              aria-label={t("settings.backup.localRecoveryPages")}
             />
           )}
         </SettingsGroup>

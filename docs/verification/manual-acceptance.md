@@ -7204,22 +7204,25 @@ CloudKit database; `codesign -d --entitlements - <app>` on each shows it.
    - *Why:* The provider line must name the reason under the generic failure
      text. Only the generic text means the error is being hidden again,
      which is what made sync failures impossible to tell apart.
-6. On the iPhone, open 以前のバージョン and restore one; then export a
-   backup file on the Mac and import it on the phone with 読み込む….
-   - *Why:* Restore and import both start a new generation on every device and
-     leave a local recovery file; the Mac must follow on its next Pull.
+6. On the iPhone, open 以前のバージョン and restore one. Before the Mac
+   pulls, add a weekly event on the Mac. Then export a backup file on the
+   Mac and import it on the phone with 読み込む….
+   - *Why:* Restore and import are written as the newest edit and uploaded at
+     once. The Mac must show the restored records after its next Pull and
+     keep the weekly event it added meanwhile; losing that event means the
+     restore replaced the Mac's data wholesale.
 
 **Where to look**
 
-The Backup pages on both devices (provider line, versions, recovery
-files) and the records themselves on each.
+The Backup pages on both devices (provider line, versions) and the
+records themselves on each.
 
 **Expected**
 
 Each device shows the other's changes after a Pull, and the phone after a
 relaunch in automatic mode; both concurrent edits survive, a failure names
 its reason, the version list names both devices, and a restore or import
-on the phone reaches the Mac with a recovery file kept on each.
+on the phone reaches the Mac without removing the Mac's own new event.
 
 **Why this is manual**
 
@@ -7308,18 +7311,19 @@ Drive), an iPhone app with only iCloud on, and an Android phone with only
 Drive on. Each device starts with its own data: before any device has
 both providers, add a different weekly event on the iPhone (Upload to iCloud)
 and on the Android phone (Upload to Drive). Import a backup file on the
-Android phone first, so its copy is a restore generation ahead.
+Android phone first: a restore uploads at once and must then merge with
+the other copies like any edit.
 
 **Steps**
 
 1. On the Mac, add a third weekly event, turn on iCloud and Google Drive in
    Settings → Backup (Drive through the browser consent), then Upload.
-   - *Why:* The two clouds hold copies with different workspace ids. The old
-     build refused the second provider with "a different workspace"; any
-     error here, or a missing weekly event, means the copies were not joined.
+   - *Why:* The two clouds hold copies started apart. An old build refused the
+     second provider with "a different workspace"; any error here, or a
+     missing weekly event, means the copies were not merged.
 2. Pull on the iPhone and on the Android phone.
    - *Why:* Each must show all three weekly events. A phone that loses its own weekly event means
-     the joined copy replaced its data by generation instead of merging.
+     the merged copy replaced its data instead of merging record by record.
 3. Turn on Sync automatically on the Mac and leave it open. Add a weekly event
    on the iPhone and Upload; do nothing on the Mac for an hour, then
    Pull on the Android phone.
@@ -7346,9 +7350,9 @@ without touching the Mac; re-enabling Drive brings it up to date at once.
 **Why this is manual**
 
 It needs real iCloud and Google accounts on three devices and an hour of
-wall-clock time. The join, the generation handling and the relay logic
+wall-clock time. The merge, the restore upload and the relay logic
 are covered by
-`separately_started_workspaces_join_across_providers_and_every_device_converges`
+`copies_started_separately_merge_across_providers_and_every_device_converges`
 and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_edit`.
 
 **Covers**
@@ -7449,7 +7453,8 @@ on and at least one weekly event uploaded.
      the silent authorization failed.
 4. Export a backup file to Files and import it again.
    - *Why:* Android had no backup page before; export and import must go through
-     the system document picker and the import must leave a recovery file.
+     the system document picker, and the import must reach Drive at once
+     as a new version.
 5. Turn Google Drive off, then Upload and Pull on the desktop. Swipe the
    app away, reopen it and turn Drive on again.
    - *Why:* Turning off forgets only this phone: Google revokes a grant for
@@ -7467,14 +7472,14 @@ on and at least one weekly event uploaded.
 
 **Where to look**
 
-Google's prompt, the Drive row and recovery files on the Backup page,
+Google's prompt, the Drive row and the version list on the Backup page,
 and the records on both devices.
 
 **Expected**
 
 Decline leaves Drive off with its reason; allow connects it and the
 desktop's data arrives; a relaunch stays connected silently; export and
-import work and the import keeps a recovery file; off leaves the
+import work and the import shows up as a new version; off leaves the
 desktop connected and on again reconnects silently; a full reset
 restores from Drive only when asked to.
 

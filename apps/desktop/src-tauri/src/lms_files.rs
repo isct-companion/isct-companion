@@ -85,13 +85,6 @@ pub(crate) fn notes(app: &AppHandle) -> Result<Notes, CommandError> {
     Ok(crate::core_ports::runtime(app).notes.at(root(app)?.0))
 }
 
-fn device_id(app: &AppHandle) -> Result<String, CommandError> {
-    app.state::<DataStore>().load_fields(&[]).map_err(coded)?["deviceId"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| "Device ID is unavailable".into())
-}
-
 #[tauri::command]
 pub async fn course_storage_info(
     webview: tauri::Webview,
@@ -165,12 +158,11 @@ pub async fn save_course_note(
 ) -> Result<LocalFile, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
-    let device_id = device_id(&app)?;
     let runtime = crate::core_ports::runtime(&app);
     runtime
         .run(async move {
             let file = tauri::async_runtime::spawn_blocking(move || {
-                service.save(context, id, text, &device_id).map_err(coded)
+                service.save(context, id, text).map_err(coded)
             })
             .await
             .map_err(shell)??;
@@ -202,14 +194,11 @@ pub async fn move_course_note(
 ) -> Result<bool, CommandError> {
     crate::require_local_main(&webview)?;
     let service = notes(&app)?;
-    let device_id = device_id(&app)?;
     let runtime = crate::core_ports::runtime(&app);
     runtime
         .run(async move {
             let moved = tauri::async_runtime::spawn_blocking(move || {
-                service
-                    .move_note(context, id, restore, &device_id)
-                    .map_err(coded)
+                service.move_note(context, id, restore).map_err(coded)
             })
             .await
             .map_err(shell)??;

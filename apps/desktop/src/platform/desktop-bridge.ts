@@ -355,7 +355,6 @@ export type CloudSyncState = {
   automatic?: boolean;
   localVersion?: string;
   tasks?: CloudSyncTask[];
-  recoveryPoints?: { id: string; version: string; savedAt: string }[];
   providers: {
     provider: CloudSyncProvider;
     enabled: boolean;
@@ -564,7 +563,6 @@ export interface DesktopBridge {
   syncCloudNow?(direction: "upload" | "pull"): Promise<CloudSyncState>;
   setCloudSyncAutomatic?(automatic: boolean): Promise<CloudSyncState>;
   restoreCloudVersion?(id: string): Promise<CloudSyncState>;
-  cloudRecoveryDocument?(id: string): Promise<string>;
   onCloudSyncState?(callback: (state: CloudSyncState) => void): () => void;
   cloudCredentialSyncStatus(): Promise<boolean>;
   cloudCredentialBackupStatus(): Promise<boolean>;
@@ -998,8 +996,6 @@ export function createTauriDesktopBridge(
       result<CloudSyncState>("sync_cloud_now", { direction }),
     setCloudSyncAutomatic: (automatic) =>
       result<CloudSyncState>("set_cloud_sync_automatic", { automatic }),
-    cloudRecoveryDocument: (id) =>
-      result<string>("cloud_recovery_document", { id }),
     restoreCloudVersion: (id) =>
       result<CloudSyncState>("restore_cloud_version", { id }),
     onCloudSyncState: (callback) => {

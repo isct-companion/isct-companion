@@ -417,11 +417,7 @@ pub async fn merge_and_push<T: WorkspaceTransport + ?Sized>(
 }
 
 fn validate_workspace_document(document: &Value) -> Result<(), DocumentError> {
-    if document.get("schemaVersion").and_then(Value::as_u64) != Some(6)
-        || document.get("kind").and_then(Value::as_str) != Some("IsctCompanion.local-backup")
-        || !document.get("tables").is_some_and(Value::is_object)
-        || !document.get("localNotes").is_some_and(Value::is_array)
-    {
+    if crate::data::parse_import(&document.to_string()).is_err() {
         return Err(DocumentError::InvalidFormat);
     }
     Ok(())
@@ -442,7 +438,7 @@ fn make_workspace_file(
         })
         .transpose()?
         .unwrap_or(1);
-    Ok(CloudWorkspaceFile {
+    let mut file = CloudWorkspaceFile {
         format: CLOUD_FORMAT.into(),
         format_version: CLOUD_FORMAT_VERSION,
         revision,
@@ -454,7 +450,15 @@ fn make_workspace_file(
         document,
         previous: rotate_versions(remote),
         checkpoints: Vec::new(),
-    })
+    };
+    // Oldest history goes first when the envelope would not fit; the copy
+    // just replaced stays, since conditional writers compare against it.
+    while file.previous.len() > 1
+        && serde_json::to_vec(&file).map_or(0, |bytes| bytes.len()) > MAX_DOCUMENT_BYTES
+    {
+        file.previous.pop();
+    }
+    Ok(file)
 }
 
 // History lives in the same object as current, so an upload cannot rotate
@@ -464,7 +468,7 @@ fn rotate_versions(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFi
         return Vec::new();
     };
     let mut seen = std::collections::HashSet::new();
-    let mut history = std::iter::once(current)
+    let history = std::iter::once(current)
         .chain(current.previous.iter())
         .chain(current.checkpoints.iter())
         .filter(|old| seen.insert(old.revision))
@@ -482,13 +486,19 @@ fn rotate_versions(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFi
     .collect::<std::collections::HashSet<_>>();
     // Keep the previous current document first, even under clock skew: native
     // conditional writers also compare it with the remote document they read.
-    history = history
+    let mut kept = history
         .into_iter()
         .enumerate()
         .filter(|(index, _)| *index == 0 || !expired.contains(&(index + 1)))
         .map(|(_, old)| old)
-        .collect();
-    history
+        .collect::<Vec<_>>();
+    // Newest first after the replaced copy, so trimming drops the oldest.
+    if let Some(older) = kept.get_mut(1..) {
+        older.sort_by_key(|old| {
+            std::cmp::Reverse(chrono::DateTime::parse_from_rfc3339(&old.updated_at).ok())
+        });
+    }
+    kept
 }
 
 fn flatten_history(old: &CloudWorkspaceFile) -> CloudWorkspaceFile {
@@ -499,8 +509,10 @@ fn flatten_history(old: &CloudWorkspaceFile) -> CloudWorkspaceFile {
 }
 
 pub fn workspace_contents_equal(left: &Value, right: &Value) -> bool {
-    cloud_merge::contents(left) == cloud_merge::contents(right)
-        && left.get("sync") == right.get("sync")
+    matches!(
+        (cloud_merge::version(left), cloud_merge::version(right)),
+        (Ok(left), Ok(right)) if left == right
+    )
 }
 
 fn provider_key(provider: CloudProvider) -> &'static str {

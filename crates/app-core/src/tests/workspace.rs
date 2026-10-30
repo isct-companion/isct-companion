@@ -847,7 +847,7 @@ fn a_lesson_mark_shows_after_sync_brings_another_devices_override_row() {
     mark(&mac, &course_id, "2026-10-12T08:50:00+09:00", 102);
     mac.store
         .merge_cloud_data(
-            &phone.store.export_document(json!([])).unwrap(),
+            &phone.store.export_document().unwrap(),
             crate::data::WorkspaceChangeSource::CloudSync,
         )
         .unwrap();

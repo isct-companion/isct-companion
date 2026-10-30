@@ -143,8 +143,8 @@ shell; background changes are coalesced to at most one event per source per
 `reads` meet the event's `changes`. The mobile shells skip an event whose
 `changes` are only `freshness`. Delivery failure does not turn that committed mutation into an operation
 failure. `applyBackup` imports through the cloud journal like the desktop
-(recovery point, new restore generation, replayable apply), so it and cloud
-recovery both emit `cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
+(written as this device's newest edits, then uploaded), so it and a cloud
+version restore both emit `cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
 Query results are authoritative; events are hints.
 
 The bounded queue holds 128 events. A slow consumer receives `SnapshotRequired`

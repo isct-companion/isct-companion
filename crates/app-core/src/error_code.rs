@@ -429,7 +429,6 @@ coded!(NoteError, |e| match e {
 });
 coded!(BackupError, |e| match e {
     BackupError::Data(e) => e.code(),
-    BackupError::Notes(e) => e.code(),
     BackupError::Invalid(_) | BackupError::Json(_) => C::Compatibility,
     BackupError::Storage(_) => C::Storage,
 });

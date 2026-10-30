@@ -6,7 +6,6 @@ use crate::{
         CloudFuture, CloudProvider, CloudSync, CloudSyncError, CloudTransport, CloudVersion,
     },
     events::CoreEvent,
-    notes::CourseFolder,
     ports::{EventError, SecretError, SecretVault},
     schedule::{NotificationItem, NotificationSink, NotificationSinkError},
     scheduler::{ExportError, ScheduledExporter},
@@ -151,14 +150,13 @@ async fn credential_mutations_work_without_a_school_browser() {
 #[tokio::test]
 async fn wake_reports_every_service_after_runtime_failure() {
     let store = store("wake-report");
-    let files = std::env::temp_dir().join(format!("app-core-files-{}", Uuid::new_v4()));
     let core = Core::new(
         store.clone(),
         Arc::new(SchoolAuthService::new(MemoryVault::default())),
     );
     let scheduler = core.services(Arc::new(NoopExporter));
     let cloud = crate::cloud_sync::CloudServices {
-        backup: crate::backup::BackupService::new(store, core.runtime.notes.at(files)),
+        backup: crate::backup::BackupService::new(store),
         transport: Arc::new(NoopCloud),
         events: Arc::new(NoopEvents),
     };
@@ -679,8 +677,8 @@ fn background_commits_reach_shells_merged_with_the_records_they_changed() {
 }
 
 /// Cloud capture follows local changes without a shell asking for it: a
-/// committed write or a saved note makes the next wake capture at once
-/// instead of after the periodic interval.
+/// committed write makes the next wake capture at once instead of after the
+/// periodic interval.
 #[tokio::test]
 async fn local_changes_bring_the_next_cloud_capture_forward() {
     let root = std::env::temp_dir().join(format!("app-core-capture-{}", Uuid::new_v4()));
@@ -695,9 +693,8 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
             CloudSync::new(root.join("cloud.json"), &[CloudProvider::GoogleDrive], &[]).unwrap(),
         )
         .unwrap();
-    let notes = core.runtime.notes.at(root.join("notes"));
     let services = crate::cloud_sync::CloudServices {
-        backup: crate::backup::BackupService::new(store, notes.clone()),
+        backup: crate::backup::BackupService::new(store),
         transport: Arc::new(NoopCloud),
         events: Arc::new(NoopEvents),
     };
@@ -722,21 +719,6 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
     assert!(wake());
     settle(&wake).await;
     admission_year(&core, core.workspace.read_back().unwrap().revision, 2026).unwrap();
-    assert!(captures(&wake).await);
-
-    settle(&wake).await;
-    notes
-        .save(
-            CourseFolder {
-                term: "2026-3Q".into(),
-                course: "CSC.T251".into(),
-                section: "section-1".into(),
-            },
-            String::new(),
-            "Note".into(),
-            "device",
-        )
-        .unwrap();
     assert!(captures(&wake).await);
 
     core.shutdown().await;

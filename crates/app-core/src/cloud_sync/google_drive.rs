@@ -52,6 +52,9 @@ struct DriveFiles {
 pub struct GoogleDrive<A> {
     client: reqwest::Client,
     auth: A,
+    /// Duplicate workspace files the last read merged in. Once a write that
+    /// carries their union lands, they are deleted, so the folder keeps one.
+    merged_duplicates: std::sync::Mutex<Vec<String>>,
 }
 
 impl<A: DriveAuthorization> GoogleDrive<A> {
@@ -61,7 +64,11 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
             .timeout(Duration::from_secs(45))
             .build()
             .map_err(|_| transport("Cloud HTTP client initialization failed."))?;
-        Ok(Self { client, auth })
+        Ok(Self {
+            client,
+            auth,
+            merged_duplicates: std::sync::Mutex::default(),
+        })
     }
 
     pub fn authorization(&self) -> &A {
@@ -217,12 +224,19 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
         // create siblings; choose a stable canonical id and retain both
         // documents until their union has been committed there.
         let mut current: Option<CloudWorkspaceFile> = None;
+        let mut duplicates = Vec::new();
         for id in self.file_ids(CLOUD_FILE_NAME).await? {
             let file = document::parse_cloud_workspace(&self.download(&id).await?)?;
             match current.as_mut() {
-                Some(current) => current.siblings.push(file.document),
+                Some(current) => {
+                    current.siblings.push(file.document);
+                    duplicates.push(id);
+                }
                 None => current = Some(file),
             }
+        }
+        if let Ok(mut merged) = self.merged_duplicates.lock() {
+            *merged = duplicates;
         }
         Ok(current)
     }
@@ -300,7 +314,35 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
                 response.status()
             )));
         }
+        self.delete_merged_duplicates(&id).await;
         Ok(())
+    }
+
+    /// A duplicate is only ever created, never written again: every writer
+    /// targets the first file id. So one this write merged holds nothing the
+    /// written file lacks. A failed delete leaves it for the next merge.
+    async fn delete_merged_duplicates(&self, written: &str) {
+        let duplicates = self
+            .merged_duplicates
+            .lock()
+            .map(|mut merged| std::mem::take(&mut *merged))
+            .unwrap_or_default();
+        for id in duplicates.iter().filter(|id| id.as_str() != written) {
+            let deleted = match endpoint(&format!("https://www.googleapis.com/drive/v3/files/{id}"))
+            {
+                Ok(url) => self
+                    .send(reqwest::Method::DELETE, url, None, None, None)
+                    .await
+                    .is_ok_and(|response| response.status().is_success()),
+                Err(_) => false,
+            };
+            if !deleted {
+                crate::diagnostics::info(
+                    "cloud-sync",
+                    "A duplicate Drive file stays until the next merge",
+                );
+            }
+        }
     }
 }
 

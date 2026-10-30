@@ -95,16 +95,6 @@ pub(crate) async fn set_cloud_sync_automatic(
 }
 
 #[tauri::command]
-pub(crate) fn cloud_recovery_document(
-    webview: tauri::Webview,
-    sync: tauri::State<'_, cloud_sync::CloudSync>,
-    id: String,
-) -> Result<String, CommandError> {
-    require_local_main(&webview)?;
-    sync.recovery_document(&id)
-}
-
-#[tauri::command]
 pub(crate) async fn restore_cloud_version(
     webview: tauri::Webview,
     app: tauri::AppHandle,

@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 fn record(at: &str, rev: u64, device: &str) -> Value {
     json!({"id":"a", "updatedAt":at,"rev":rev,"updatedBy":device})
 }
@@ -11,45 +12,30 @@ fn later_revision_survives_a_clock_moving_backwards() {
     .is_gt());
 }
 #[test]
-fn restore_generation_prevents_stale_device_resurrection() {
-    let old = json!({"tables":{"personal_events":[{"id":"p","rev":999,"updatedAt":"2099-01-01T00:00:00Z"}]},"localNotes":[{"id":"n"}]});
-    let restored =
-        json!({"sync":{"generation":{"counter":1,"id":"restore-a"}},"tables":{},"localNotes":[]});
-    assert!(merge(&old, &restored)["tables"]["personal_events"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+fn a_copy_never_removes_records_it_lacks_and_drops_legacy_fields() {
+    // Schema 6 copies carried notes and restore generations; a newer
+    // generation used to replace the other copy wholesale.
+    let legacy = json!({"exportedAt":"2026-01-01T00:00:00Z","sync":{"workspaceId":"a","generation":{"counter":9,"id":"g"}},"tables":{},"localNotes":[{"id":"n"}]});
+    let local = json!({"tables":{"personal_events":[record("2026-01-02T00:00:00Z", 1, "phone")]}});
+    let merged = merge(&legacy, &local);
+    assert_eq!(merged["tables"], merge(&local, &legacy)["tables"]);
     assert_eq!(
-        contents(&merge(&old, &restored)),
-        contents(&merge(&restored, &old))
-    );
-    assert!(merge(&old, &restored)["localNotes"]
-        .as_array()
-        .unwrap()
-        .is_empty());
-    let mut simultaneous = restored.clone();
-    simultaneous["sync"]["generation"]["id"] = json!("restore-b");
-    assert_eq!(
-        contents(&merge(&restored, &simultaneous)),
-        contents(&merge(&simultaneous, &restored))
-    );
-    // A restore in one workspace says nothing about another workspace's
-    // records: they are joined, under the first-sorting id and its generation.
-    let mut separate = old.clone();
-    separate["sync"] = json!({"workspaceId":"b"});
-    let mut restored = restored.clone();
-    restored["sync"]["workspaceId"] = json!("a");
-    let joined = merge(&separate, &restored);
-    assert_eq!(joined, merge(&restored, &separate));
-    assert_eq!(joined["sync"], restored["sync"]);
-    assert_eq!(
-        joined["tables"]["personal_events"]
+        merged["tables"]["personal_events"]
             .as_array()
             .unwrap()
             .len(),
         1
     );
-    assert_eq!(joined["localNotes"].as_array().unwrap().len(), 1);
+    assert_eq!(merged["schemaVersion"], 7);
+    assert_eq!(merged["exportedAt"], "2026-01-01T00:00:00Z");
+    for field in ["sync", "localNotes"] {
+        assert!(merged.get(field).is_none(), "{field}");
+    }
+    // The fingerprint counts records only, not when or by whom a copy was made.
+    let mut later = merged.clone();
+    later["exportedAt"] = json!("2026-02-01T00:00:00Z");
+    assert_eq!(version(&merged).unwrap(), version(&later).unwrap());
+    assert_eq!(version(&merged).unwrap(), version(&local).unwrap());
 }
 #[test]
 fn edits_deletes_and_ties_converge() {
@@ -64,9 +50,9 @@ fn edits_deletes_and_ties_converge() {
     assert!(compare(&revived, &deleted).is_gt());
     assert!(compare(&record("2026-01-02T09:00:00+09:00", 3, "a"), &edit).is_gt());
     assert!(compare(&record("2026-01-02T00:00:00Z", 2, "b"), &edit).is_gt());
-    let a = json!({"tables":{"personal_events":[deleted],"settings":[{"key":"devicePreferences","value":{"density":"compact"}}]},"localNotes":[]});
-    let b = json!({"tables":{"personal_events":[revived,{"id":"b","updatedAt":"2026-01-01T00:00:00Z"}]},"localNotes":[]});
-    assert_eq!(contents(&merge(&a, &b)), contents(&merge(&b, &a)));
+    let a = json!({"tables":{"personal_events":[deleted],"settings":[{"key":"devicePreferences","value":{"density":"compact"}}]}});
+    let b = json!({"tables":{"personal_events":[revived,{"id":"b","updatedAt":"2026-01-01T00:00:00Z"}]}});
+    assert_eq!(merge(&a, &b), merge(&b, &a));
     assert_eq!(
         merge(&a, &b)["tables"]["personal_events"]
             .as_array()
@@ -78,8 +64,5 @@ fn edits_deletes_and_ties_converge() {
         .as_array()
         .unwrap()
         .is_empty());
-    assert_eq!(
-        contents(&merge(&a, &b)),
-        contents(&merge(&merge(&a, &b), &b))
-    );
+    assert_eq!(merge(&a, &b), merge(&merge(&a, &b), &b));
 }

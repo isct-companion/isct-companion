@@ -327,7 +327,6 @@ pub fn run() {
             commands::cloud::sync_cloud_now,
             commands::cloud::set_cloud_sync_automatic,
             commands::cloud::restore_cloud_version,
-            commands::cloud::cloud_recovery_document,
             commands::cloud::cloud_credential_sync_status,
             commands::cloud::cloud_credential_backup_status,
             commands::cloud::enable_cloud_credential_sync,

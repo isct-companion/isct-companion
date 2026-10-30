@@ -1,4 +1,4 @@
-//! Native cloud ports; queue, recovery and retry policy live in Core.
+//! Native cloud ports; queue, restore and retry policy live in Core.
 use crate::{cloud::DesktopCloudService, secrets::OsSecretVault};
 use crate::{coded, CommandError};
 use app_core::cloud_sync::document::{
@@ -60,9 +60,6 @@ impl CloudSync {
     }
     pub fn state(&self) -> Result<SyncState, CommandError> {
         self.0.state().map_err(coded)
-    }
-    pub fn recovery_document(&self, id: &str) -> Result<String, CommandError> {
-        self.0.recovery_document(id).map_err(coded)
     }
     pub async fn changed(app: &AppHandle) {
         if let Some(sync) = app.try_state::<Self>() {

@@ -36,7 +36,8 @@ Settings offers two resets, both decided in Core (`crates/app-core/src/reset.rs`
   plans point at) stay.
 - **Full reset** deletes every table and settings row, the saved school
   credentials and the WebView cookies, then writes first-launch defaults with a
-  new device id. Cloud sync is disconnected first with a local recovery point.
+  new device id. Cloud sync is disconnected first; no local copy is kept, so
+  the data comes back only from a cloud copy or an exported backup file.
   The course folder (notes and downloads), cloud copies, cloud authorization
   and logs stay.
 

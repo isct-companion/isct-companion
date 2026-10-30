@@ -51,7 +51,10 @@ fn logger_keeps_this_projects_crates_and_drops_dependencies() {
     };
     assert!(kept(module_path!(), log::Level::Warn));
     assert!(kept("app_core::net::moodle", log::Level::Info));
-    assert!(kept("isct_companion_lib::school_windows", log::Level::Error));
+    assert!(kept(
+        "isct_companion_lib::school_windows",
+        log::Level::Error
+    ));
     assert!(!kept("app_core::net::moodle", log::Level::Debug));
     assert!(!kept("reqwest::connect", log::Level::Warn));
     assert!(!kept("app_core_extra::x", log::Level::Warn));

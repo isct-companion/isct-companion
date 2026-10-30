@@ -1,6 +1,6 @@
 //! Pure, platform-independent last-writer-wins merge for user-owned records.
 use super::DataError;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::{cmp::Ordering, collections::BTreeMap};
 
 fn time(row: &Value) -> Option<chrono::DateTime<chrono::FixedOffset>> {
@@ -47,62 +47,17 @@ fn rows(a: &Value, b: &Value, key: &str) -> Value {
     Value::Array(records.into_values().collect())
 }
 
-pub fn generation(document: &Value) -> (u64, String) {
-    (
-        document["sync"]["generation"]["counter"]
-            .as_u64()
-            .unwrap_or(0),
-        document["sync"]["generation"]["id"]
-            .as_str()
-            .unwrap_or("")
-            .to_owned(),
-    )
-}
-
+/// The content fingerprint of a document. Only records count: the export time
+/// of two otherwise equal snapshots must not make them different versions.
 pub fn version(document: &Value) -> Result<String, DataError> {
     let normalized = merge(document, document);
-    crate::data::versioned::content_hash(&contents(&normalized)).map(|hash| format!("v1-{hash}"))
+    crate::data::versioned::content_hash(&normalized["tables"]).map(|hash| format!("v1-{hash}"))
 }
 
-/// The workspace lineage a document belongs to, if it has met a cloud.
-pub fn workspace(document: &Value) -> Option<&str> {
-    document["sync"]["workspaceId"].as_str()
-}
-
-/// Copies from different workspaces were started separately; they are joined
-/// record by record instead of comparing restore generations.
-pub fn joins(a: &Value, b: &Value) -> bool {
-    matches!((workspace(a), workspace(b)), (Some(a), Some(b)) if a != b)
-}
-
+/// Every copy, from any device and after any restore, merges record by
+/// record. A restore writes newer revisions, so nothing needs to be replaced
+/// wholesale (slotledger approach/cloud-recovery-retention).
 pub fn merge(a: &Value, b: &Value) -> Value {
-    let (a, b) = if joins(a, b) {
-        // Generations only order restores within one workspace. The joined
-        // copy keeps the first-sorting (oldest UUIDv7) workspace and its
-        // generation, so that workspace's devices see an ordinary merge.
-        if workspace(a) <= workspace(b) {
-            (a, b)
-        } else {
-            (b, a)
-        }
-    } else {
-        // A restore starts a new generation; rows from the old branch cannot reappear.
-        match generation(a).cmp(&generation(b)) {
-            Ordering::Less => (b, b),
-            Ordering::Greater => (a, a),
-            Ordering::Equal => (a, b),
-        }
-    };
-    let mut merged = a.clone();
-    if merged["sync"].is_null() && !b["sync"].is_null() {
-        merged["sync"] = b["sync"].clone();
-    }
-    if let (None, Some(id)) = (workspace(&merged), workspace(b)) {
-        let id = Value::String(id.to_owned());
-        if let Some(sync) = merged["sync"].as_object_mut() {
-            sync.insert("workspaceId".into(), id);
-        }
-    }
     let mut tables = serde_json::Map::new();
     // This whitelist is also used by backup/import: device state and school
     // caches cannot enter sync even through an older or foreign cloud copy.
@@ -124,9 +79,12 @@ pub fn merge(a: &Value, b: &Value) -> Value {
         }
     }
     tables.insert("settings".into(), settings);
-    merged["tables"] = Value::Object(tables);
-    merged["localNotes"] = rows(&a["localNotes"], &b["localNotes"], "id");
-    merged
+    let exported_at = [&a["exportedAt"], &b["exportedAt"]]
+        .into_iter()
+        .find(|value| value.is_string())
+        .cloned()
+        .unwrap_or(Value::Null);
+    crate::data::backup_document(exported_at, Value::Object(tables))
 }
 
 pub fn sanitize_setting(row: &mut Value) {
@@ -161,10 +119,6 @@ pub fn sanitize_setting(row: &mut Value) {
             row["hash"] = Value::String(hash);
         }
     }
-}
-
-pub fn contents(document: &Value) -> Value {
-    json!({"tables":document["tables"], "localNotes":document["localNotes"], "generation": generation(document)})
 }
 
 #[cfg(test)]
