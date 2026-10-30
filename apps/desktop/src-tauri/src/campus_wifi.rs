@@ -14,9 +14,8 @@ use crate::{coded, shell, CommandError};
 
 use app_core::school_auth::{SchoolAuthProfile, SchoolAuthService, SchoolCredentials};
 use hickory_resolver::{
-    config::{NameServerConfig, ResolverConfig},
-    name_server::TokioConnectionProvider,
-    proto::xfer::Protocol,
+    config::{ConnectionConfig, LookupIpStrategy, NameServerConfig, ResolverConfig},
+    net::runtime::TokioRuntimeProvider,
     TokioResolver,
 };
 use objc2_core_wlan::CWWiFiClient;
@@ -356,15 +355,22 @@ fn client(interface: &str, address: Ipv4Addr) -> Result<Client, CommandError> {
         .output()
         .ok()
         .and_then(|output| String::from_utf8_lossy(&output.stdout).trim().parse().ok());
-    let mut config = ResolverConfig::new();
-    for server in lease.into_iter().chain([Ipv4Addr::new(1, 1, 1, 1)]) {
-        let mut name_server =
-            NameServerConfig::new(SocketAddr::new(server.into(), 53), Protocol::Udp);
-        name_server.bind_addr = Some(SocketAddr::new(address.into(), 0));
-        config.add_name_server(name_server);
-    }
-    let resolver =
-        TokioResolver::builder_with_config(config, TokioConnectionProvider::default()).build();
+    let name_servers = lease
+        .into_iter()
+        .chain([Ipv4Addr::new(1, 1, 1, 1)])
+        .map(|server| {
+            let mut udp = ConnectionConfig::udp();
+            udp.bind_addr = Some(SocketAddr::new(address.into(), 0));
+            NameServerConfig::new(server.into(), true, vec![udp])
+        })
+        .collect();
+    let mut builder = TokioResolver::builder_with_config(
+        ResolverConfig::from_name_servers(name_servers),
+        TokioRuntimeProvider::default(),
+    );
+    // The Wi-Fi address is IPv4, so only A records are usable.
+    builder.options_mut().ip_strategy = LookupIpStrategy::Ipv4Only;
+    let resolver = builder.build().map_err(shell)?;
     // Bound to the Wi-Fi interface: a system proxy would carry the splash
     // requests off it.
     app_core::net::client_builder()
@@ -384,11 +390,11 @@ impl reqwest::dns::Resolve for WifiResolver {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
         let resolver = self.0.clone();
         Box::pin(async move {
-            let found = resolver.ipv4_lookup(name.as_str()).await?;
+            let found = resolver.lookup_ip(name.as_str()).await?;
             let addrs: reqwest::dns::Addrs = Box::new(
                 found
                     .into_iter()
-                    .map(|record| SocketAddr::new(IpAddr::V4(record.0), 0))
+                    .map(|ip| SocketAddr::new(ip, 0))
                     .collect::<Vec<_>>()
                     .into_iter(),
             );

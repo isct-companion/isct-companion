@@ -123,7 +123,7 @@ impl DataStore {
     pub(crate) fn rebuild_cache(&self) -> Result<u64, DataError> {
         let mut writer = self.connections.writer();
         let before = cache_bytes(&writer)?;
-        connection::allow_drops(&writer);
+        connection::allow_drops(&mut writer)?;
         let rebuilt = writer
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DataError::from)
@@ -133,8 +133,9 @@ impl DataStore {
                 super::course_merge::rebuild(&transaction)?;
                 transaction.commit().map_err(DataError::from)
             });
-        connection::forbid_truncate(&writer);
+        let guarded = connection::forbid_truncate(&mut writer);
         rebuilt?;
+        guarded?;
         self.committed_tables(&BTreeSet::from(["offerings".to_string()]));
         // Best effort: a busy reader keeps the free pages for reuse.
         if let Err(error) = writer.execute_batch(

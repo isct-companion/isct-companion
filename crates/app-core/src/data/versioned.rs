@@ -55,7 +55,7 @@ fn canonical_json(value: &Value) -> Result<String, DataError> {
 
 pub fn content_hash(value: &Value) -> Result<String, DataError> {
     let bytes = canonical_json(value)?;
-    Ok(format!("{:x}", Sha256::digest(bytes.as_bytes())))
+    Ok(data_encoding::HEXLOWER.encode(&Sha256::digest(bytes.as_bytes())))
 }
 
 /// A school row a complete read found with its stored hash. A row that had

@@ -19,3 +19,92 @@ updates:
       kotlin:
         patterns:
           - org.jetbrains.kotlin*
+
+  # The Rust workspace follows the latest stable releases too. Crates that
+  # release together share a PR; every other minor and patch bump of the week
+  # lands in one more.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # The `windows` and `objc2` families stay on the versions tauri and wry
+      # use, or the app links two copies; they move by hand with tauri.
+      - dependency-name: windows
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: windows-*
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: objc2*
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: block2
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # Matrix OCR results are verified against these exact builds; moving
+      # them needs the private-photo replay, not a weekly PR.
+      - dependency-name: ort
+      - dependency-name: optical-flow-lk
+    groups:
+      tauri:
+        patterns:
+          - tauri
+          - tauri-*
+      tokio:
+        patterns:
+          - tokio
+          - tokio-*
+      rustcrypto:
+        patterns:
+          - sha2
+          - md-5
+      # scraper exposes ego-tree's node types.
+      html:
+        patterns:
+          - scraper
+          - ego-tree
+      cargo-minor:
+        patterns:
+          - "*"
+        update-types: [minor, patch]
+
+  # The desktop frontend: one Yarn workspace at the root.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      tauri-js:
+        patterns:
+          - "@tauri-apps/*"
+      vite:
+        patterns:
+          - vite
+          - vitest
+          - "@vitejs/*"
+          - vite-plugin-*
+      codemirror:
+        patterns:
+          - "@codemirror/*"
+      milkdown:
+        patterns:
+          - "@milkdown/*"
+      npm-minor:
+        patterns:
+          - "*"
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # Pinned to the channel in rust-toolchain.toml; they move together.
+      - dependency-name: dtolnay/rust-toolchain
+    groups:
+      actions:
+        patterns:
+          - "*"

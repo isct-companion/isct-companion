@@ -320,13 +320,13 @@ impl From<DataError> for WorkspaceError {
 }
 
 #[cfg(feature = "ts")]
-pub fn declarations() -> Vec<String> {
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
     vec![
-        WorkspaceCommit::decl(),
-        WorkspaceMutation::decl(),
-        WorkspaceIntent::decl(),
-        CourseBatchChanges::decl(),
-        WorkspaceChange::decl(),
+        WorkspaceCommit::decl(cfg),
+        WorkspaceMutation::decl(cfg),
+        WorkspaceIntent::decl(cfg),
+        CourseBatchChanges::decl(cfg),
+        WorkspaceChange::decl(cfg),
     ]
 }
 

@@ -535,16 +535,16 @@ pub fn ineligibility_message(offering: &Value, eligibility: CourseEligibility) -
 }
 
 #[cfg(feature = "ts")]
-pub fn declarations() -> Vec<String> {
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
     vec![
-        StudyStage::decl(),
-        StudyEntryKind::decl(),
-        StudyEnrollment::decl(),
-        CourseEligibilityStatus::decl(),
-        CourseEligibilityReason::decl(),
-        CourseEligibilityRuleId::decl(),
-        CourseEligibilityRuleEvidence::decl(),
-        CourseEligibility::decl(),
+        StudyStage::decl(cfg),
+        StudyEntryKind::decl(cfg),
+        StudyEnrollment::decl(cfg),
+        CourseEligibilityStatus::decl(cfg),
+        CourseEligibilityReason::decl(cfg),
+        CourseEligibilityRuleId::decl(cfg),
+        CourseEligibilityRuleEvidence::decl(cfg),
+        CourseEligibility::decl(cfg),
     ]
 }
 

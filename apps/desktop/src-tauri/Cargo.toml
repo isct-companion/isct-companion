@@ -26,23 +26,23 @@ tauri-plugin-opener = "2.5"
 # Native file dialogs (native_dialog.rs); the same rfd and backends
 # tauri-plugin-dialog used (GTK 3 on Linux), without that plugin's init script
 # in the school webviews.
-rfd = { version = "0.16", default-features = false, features = ["gtk3", "common-controls-v6"] }
-rusqlite = { version = "0.37", features = ["bundled"] }
+rfd = { version = "0.17", default-features = false, features = ["gtk3", "common-controls-v6"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1", features = ["v4", "v7"] }
 base64 = "0.22"
-keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native"] }
+keyring = "4.2"
 rand = "0.9"
 # TLS comes from Core: build clients with `app_core::net::client_builder()`.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy", "json", "form", "stream", "cookies"] }
 url = "2.5"
-scraper = "0.24"
+scraper = "0.29"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"
 
 # The embedded MCP HTTP transport.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
-rmcp = { version = "=3.4.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "3.8", default-features = false, features = ["server", "transport-streamable-http-server"] }
 subtle = "2"
 tokio-util = { version = "0.7", features = ["rt"] }
 # Native v2 EXE and macOS tar.gz updates; legacy v1 ZIP installers are unused.
@@ -54,9 +54,9 @@ block2 = "0.6"
 objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
 # Campus Wi-Fi (campus_wifi.rs): Wi-Fi interface, its address, and DNS bound to it.
 objc2-core-wlan = { version = "0.3.2", default-features = false, features = ["std", "CWWiFiClient", "CWInterface"] }
-if-addrs = "0.14"
+if-addrs = "0.15"
 ipnet = "2"
-hickory-resolver = { version = "0.25", default-features = false, features = ["tokio"] }
+hickory-resolver = { version = "0.26", default-features = false, features = ["tokio"] }
 # NSPasteboard and NSSharingService: copy and share a course file (file_share_macos.rs).
 # NSAlert sheets, the print panel and the file picker: school pages'
 # confirm/alert/prompt, window.print() and <input type=file> (school_webkit.rs),

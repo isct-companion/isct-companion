@@ -172,7 +172,7 @@ fn intent_revision(connection: &Connection) -> Result<String, DataError> {
         hasher.update(key.as_bytes());
         hasher.update(serde_json::to_vec(&value)?);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(data_encoding::HEXLOWER.encode(&hasher.finalize()))
 }
 
 pub(crate) const USER_BACKUP_SETTINGS: &[&str] =

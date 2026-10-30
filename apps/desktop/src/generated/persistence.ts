@@ -1344,7 +1344,7 @@ export type TermTaskView = {
 };
 
 export type TaskView = {
-  deadlines: { [key in string]?: TaskDeadlineView };
+  deadlines: { [key in string]: TaskDeadlineView };
   /**
    * Visible assignments Core treats as submitted (`submission` submitted
    * or graded, or LMS `submissionStatus` submitted). Shells render this
@@ -1357,8 +1357,8 @@ export type TaskView = {
    * work. Shells open the LMS page for these instead of preparing a draft.
    */
   closedIds: Array<string>;
-  nearestByCourse: { [key in string]?: string };
-  byTerm: { [key in string]?: TermTaskView };
+  nearestByCourse: { [key in string]: string };
+  byTerm: { [key in string]: TermTaskView };
 };
 
 export type TodayPhase =
@@ -1489,7 +1489,7 @@ export type WorkspaceOverview = {
   termCourseIds: Array<string>;
   declaredCredits: number | null;
   termCredits: number;
-  colors: { [key in string]?: string };
+  colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
   onTimetableCourseIds: Array<string>;
   allTerms: Array<string>;
@@ -1504,7 +1504,7 @@ export type ScheduleView = {
   exams: Array<ExamView>;
   upcomingExams: Array<ExamView>;
   declaredCredits: number | null;
-  colors: { [key in string]?: string };
+  colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
   onTimetableCourseIds: Array<string>;
   allTerms: Array<string>;
@@ -1800,7 +1800,7 @@ export type OfficialFilterOption = {
 
 export type FinderContext = {
   currentQuarter: number;
-  recommended: { [key in string]?: Recommendation };
+  recommended: { [key in string]: Recommendation };
   departments: Array<FinderDepartment>;
   busy: Array<BusySlot>;
   officialOptions: Array<OfficialFilterOption>;
@@ -1810,7 +1810,7 @@ export type Recommendation = { group: string; mark?: string | null };
 
 export type FinderDepartment = {
   id: string;
-  name: { [key in string]?: string };
+  name: { [key in string]: string };
   unitCode: string;
   codePrefix: string;
   scope: string | null;

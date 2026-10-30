@@ -889,7 +889,7 @@ impl SubscriptionClient {
     ) -> Result<(Url, SubscriptionIndex, String), SubscriptionError> {
         let base = https_url(index_url)?;
         let raw = self.get(base.clone(), MAX_INDEX_BYTES).await?;
-        let actual = format!("{:x}", Sha256::digest(raw.as_bytes()));
+        let actual = data_encoding::HEXLOWER.encode(&Sha256::digest(raw.as_bytes()));
         if let Some(expected) = expected_hash {
             if actual != expected.to_ascii_lowercase() {
                 return Err("index.json changed while the refresh was running".into());

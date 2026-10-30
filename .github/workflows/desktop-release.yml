@@ -54,7 +54,7 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.99.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
@@ -127,7 +127,7 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
