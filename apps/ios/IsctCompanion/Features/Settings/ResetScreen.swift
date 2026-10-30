@@ -62,45 +62,49 @@ struct ResetScreen: View {
 
     var body: some View {
         Form {
-            if !everything {
-                Section {
-                    option(t("settings.reset.caches.signOut"), t("settings.reset.caches.signOutHint"), $signOutWeb)
-                    option(t("settings.reset.caches.downloads"), t("settings.reset.caches.downloadsHint"), $deleteDownloads)
-                } footer: {
-                    Text(t("settings.reset.caches.hint"))
-                }
-            }
-            items("settings.reset.deletes", deletes, icon: "trash")
-            items("settings.reset.keeps", keeps, icon: "checkmark")
-            Section {
-                LabeledContent(t("settings.reset.freed"), value: freed)
-            } footer: {
-                if everything { Text(t("settings.reset.full.hint")) }
-            }
-            if everything, cloudOn {
-                Section(t("settings.reset.full.cloudQuestion")) {
-                    Picker(t("settings.reset.full.cloudQuestion"), selection: $restore) {
-                        choice(t("settings.reset.full.restore"), t("settings.reset.full.restoreHint")).tag(true)
-                        choice(t("settings.reset.full.newDevice"), t("settings.reset.full.newDeviceHint")).tag(false)
+            Group {
+                if !everything {
+                    Section {
+                        option(t("settings.reset.caches.signOut"), t("settings.reset.caches.signOutHint"), $signOutWeb)
+                        option(t("settings.reset.caches.downloads"), t("settings.reset.caches.downloadsHint"), $deleteDownloads)
+                    } footer: {
+                        Text(t("settings.reset.caches.hint"))
                     }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
                 }
-            }
-            if everything {
+                items("settings.reset.deletes", deletes, icon: "trash")
+                items("settings.reset.keeps", keeps, icon: "checkmark")
                 Section {
-                    Toggle(t("settings.reset.full.acknowledge"), isOn: $acknowledged)
+                    LabeledContent(t("settings.reset.freed"), value: freed)
+                } footer: {
+                    if everything { Text(t("settings.reset.full.hint")) }
+                }
+                if everything, cloudOn {
+                    Section(t("settings.reset.full.cloudQuestion")) {
+                        Picker(t("settings.reset.full.cloudQuestion"), selection: $restore) {
+                            choice(t("settings.reset.full.restore"), t("settings.reset.full.restoreHint")).tag(true)
+                            choice(t("settings.reset.full.newDevice"), t("settings.reset.full.newDeviceHint")).tag(false)
+                        }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                    }
+                }
+                if everything {
+                    Section {
+                        Toggle(t("settings.reset.full.acknowledge"), isOn: $acknowledged)
+                    }
+                }
+                Section {
+                    Button(role: .destructive) {
+                        if everything { confirming = true } else { Task { await reset() } }
+                    } label: {
+                        if resetting { Text(t("settings.reset.resetting")) } else { Text(confirmLabel) }
+                    }
+                    .disabled(resetting || (everything && !acknowledged))
                 }
             }
-            Section {
-                Button(role: .destructive) {
-                    if everything { confirming = true } else { Task { await reset() } }
-                } label: {
-                    if resetting { Text(t("settings.reset.resetting")) } else { Text(confirmLabel) }
-                }
-                .disabled(resetting || (everything && !acknowledged))
-            }
+            .themedRows()
         }
+        .themedList()
         .navigationTitle(t(everything ? "settings.reset.full.title" : "settings.reset.caches.title"))
         .navigationBarTitleDisplayMode(.inline)
         .disabled(resetting)

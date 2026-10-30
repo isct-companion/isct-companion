@@ -787,6 +787,96 @@ fn course<'a>(snapshot: &'a ReadBack, id: &str) -> &'a Value {
         .unwrap()
 }
 
+/// A phone and a Mac each made an override row for one course, and sync
+/// brought the phone's into the Mac without its key columns. Marks made on
+/// the Mac then went to the Mac's own row while the course read the phone's
+/// (the first by id): the toast said the lesson was recorded and the rail
+/// never moved.
+#[test]
+fn a_lesson_mark_shows_after_sync_brings_another_devices_override_row() {
+    let offering = json!({
+        "id":"202600002", "year":2026, "quarters":["3Q"],
+        "code":"CSC.T364", "title":{"en":"Systems"},
+        "instructors":[{"en":"Teacher One"}],
+        "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202600002",
+        "credits":{"lecture":2,"exercise":0,"lab":0},
+        "instructionLanguage":"ja", "format":{"kinds":["lecture"]}, "media":{},
+        "academicUnit":{}, "intensive":false, "fetchedAt":{},
+        "schedule":[{"kind":"weekly","day":1,"periods":[1,2]}]
+    });
+    let add = |service: &WorkspaceService| {
+        let added = mutate(
+            service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![offering.clone()],
+            },
+        );
+        added.workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["offeringId"] == "202600002")
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let mark = |service: &WorkspaceService, course_id: &str, occurrence: &str, section_id| {
+        mutate(
+            service,
+            WorkspaceIntent::RecordLesson {
+                course_id: course_id.into(),
+                occurrence: occurrence.into(),
+                section_id,
+            },
+        )
+    };
+    let last_mark = |snapshot: &ReadBack, course_id: &str| {
+        course(snapshot, course_id)["overrides"]["lessonLog"]
+            .as_array()
+            .and_then(|log| log.last())
+            .cloned()
+            .unwrap()
+    };
+    let phone = service("lesson-mark-phone");
+    let mac = service("lesson-mark-mac");
+    // Each device has its own id for the course; sync maps rows by its key.
+    mark(&phone, &add(&phone), "2026-10-05T08:50:00+09:00", 101);
+    let course_id = add(&mac);
+    mark(&mac, &course_id, "2026-10-12T08:50:00+09:00", 102);
+    mac.store
+        .merge_cloud_data(
+            &phone.store.export_document(json!([])).unwrap(),
+            crate::data::WorkspaceChangeSource::CloudSync,
+        )
+        .unwrap();
+    // Two live rows now name the course; the Mac's later mark wins.
+    assert_eq!(
+        mac.store
+            .user_rows("course_overrides")
+            .unwrap()
+            .iter()
+            .filter(|row| row.get("deletedAt").is_none())
+            .count(),
+        2
+    );
+    assert_eq!(
+        last_mark(&mac.read_back().unwrap(), &course_id)["sectionId"],
+        102
+    );
+
+    let marked = mark(&mac, &course_id, "2026-10-19T08:50:00+09:00", 103);
+    let latest = last_mark(&marked, &course_id);
+    assert_eq!(latest["occurrence"], "2026-10-19T08:50:00+09:00");
+    assert_eq!(latest["sectionId"], 103);
+    for service in [phone, mac] {
+        let directory = service.store.directory().to_path_buf();
+        drop(service);
+        let _ = std::fs::remove_dir_all(directory);
+    }
+}
+
 #[test]
 fn course_edits_merge_into_one_overlay_and_batch_credits_reach_every_course() {
     let service = service("course-overlay");
@@ -1494,6 +1584,74 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     assert!(rows(&deleted, "courses")
         .unwrap()
         .any(|row| row["id"] == id("202630010") && !is_live(row)));
+}
+
+#[test]
+fn undo_waits_for_the_catalog_add_receipt_after_its_database_commit() {
+    use crate::data::{CommitObserver, WorkspaceChangeSource};
+    use std::{collections::BTreeSet, sync::mpsc, time::Duration};
+
+    // Pause the first commit at the real event boundary, before mutate_commit
+    // publishes its in-memory undo receipt. A second client may already read
+    // that commit from SQLite and request its undo.
+    struct PauseCommit(Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>);
+    impl CommitObserver for PauseCommit {
+        fn committed(&self, _: WorkspaceChangeSource, _: Option<String>, _: &BTreeSet<String>) {
+            let gate = self.0.lock().unwrap().take();
+            if let Some((entered, release)) = gate {
+                entered.send(()).unwrap();
+                release.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+        }
+    }
+
+    let service = service("concurrent-catalog-undo");
+    let directory = service.store.directory().to_path_buf();
+    let course = offering("202630010", "AAA.A100", &["3Q"]);
+    service
+        .store
+        .catalog_upsert_offerings(std::slice::from_ref(&course))
+        .unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    service.store.observe(Arc::new(PauseCommit(Mutex::new(Some((
+        entered_tx, release_rx,
+    ))))));
+    std::thread::scope(|scope| {
+        let add = scope.spawn(|| {
+            run(
+                &service,
+                WorkspaceIntent::AddCatalogCourses {
+                    term_id: "2026-3Q".into(),
+                    offerings: vec![course],
+                },
+            )
+        });
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let revision = service.revision().unwrap();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let current = &service;
+        let undo = scope.spawn(move || {
+            let result = current.mutate_commit(WorkspaceMutation {
+                expected_revision: revision,
+                intent: WorkspaceIntent::UndoCatalogCourses {
+                    term_id: "2026-3Q".into(),
+                    offering_ids: vec!["202630010".into()],
+                },
+            });
+            finished_tx.send(()).unwrap();
+            result
+        });
+        // Give the competing request a chance to reach the paused commit.
+        // Correct code waits for its receipt; the result, not timing, is asserted.
+        let _ = finished_rx.recv_timeout(Duration::from_millis(100));
+        release_tx.send(()).unwrap();
+        add.join().unwrap().unwrap();
+        undo.join().unwrap().unwrap();
+    });
+    assert!(live_plans(&service.read_back().unwrap().workspace).is_empty());
+    drop(service);
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]

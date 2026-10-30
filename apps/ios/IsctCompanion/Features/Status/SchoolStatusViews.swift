@@ -243,8 +243,12 @@ struct SyncStatusSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                SyncSections()
+                Group {
+                    SyncSections()
+                }
+                .themedRows()
             }
+            .themedList()
             .navigationTitle(t("common.schoolConnection"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

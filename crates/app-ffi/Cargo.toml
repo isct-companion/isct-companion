@@ -35,7 +35,7 @@ jni = { version = "0.22", default-features = false }
 rustls-platform-verifier = "0.7"
 
 [build-dependencies]
-syn = { version = "2", features = ["full", "visit-mut"] }
+syn = { version = "3", features = ["full", "visit-mut"] }
 quote = "1"
 
 [[bin]]

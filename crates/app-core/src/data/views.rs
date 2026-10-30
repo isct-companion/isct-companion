@@ -63,6 +63,27 @@ fn every_field() -> BTreeSet<&'static str> {
         .collect()
 }
 
+/// The overlay row (a course override, an assignment mark) a record reads:
+/// the latest written live row that `names` it. Several rows can name one
+/// record: each device creates its own, and cloud sync brings the others'
+/// in without their key columns, so a write here keys on the row it made
+/// and never finds them. Every write copies the overlay this returns, so
+/// the latest row holds the latest state; the first one by id was stale and
+/// hid every later mark.
+fn latest_overlay<'a>(rows: &'a [Value], names: impl Fn(&Value) -> bool) -> Option<&'a Value> {
+    let written = |row: &'a Value| {
+        (
+            row.get("updatedAt")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            row.get("id").and_then(Value::as_str).unwrap_or_default(),
+        )
+    };
+    rows.iter()
+        .filter(|row| row.get("deletedAt").is_none() && names(row))
+        .max_by_key(|row| written(row))
+}
+
 pub(super) struct ViewReader {
     /// A read connection of its own: data versions only compare between
     /// reads of one connection. Every commit lands on another connection
@@ -394,10 +415,9 @@ impl DataStore {
                     .get("sourceKey")
                     .and_then(Value::as_str)
                     .unwrap_or(id);
-                let Some(mark) = marks.iter().find(|mark| {
-                    mark.get("deletedAt").is_none()
-                        && (mark.get("sourceKey").and_then(Value::as_str) == Some(source_key)
-                            || mark.get("assignmentId").and_then(Value::as_str) == Some(id))
+                let Some(mark) = latest_overlay(&marks, |mark| {
+                    mark.get("sourceKey").and_then(Value::as_str) == Some(source_key)
+                        || mark.get("assignmentId").and_then(Value::as_str) == Some(id)
                 }) else {
                     continue;
                 };
@@ -448,10 +468,9 @@ impl DataStore {
                     .get("sourceKey")
                     .and_then(Value::as_str)
                     .unwrap_or(id);
-                if let Some(overlay) = overrides.iter().find(|row| {
-                    row.get("deletedAt").is_none()
-                        && (row.get("sourceKey").and_then(Value::as_str) == Some(source_key)
-                            || row.get("courseId").and_then(Value::as_str) == Some(id))
+                if let Some(overlay) = latest_overlay(&overrides, |row| {
+                    row.get("sourceKey").and_then(Value::as_str) == Some(source_key)
+                        || row.get("courseId").and_then(Value::as_str) == Some(id)
                 }) {
                     if let Some(object) = course.as_object_mut() {
                         object.insert(

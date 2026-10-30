@@ -98,6 +98,10 @@ export function useFinder({
   const state = useRef<State>(undefined as unknown as State);
   if (!state.current || state.current.identity !== session) {
     const previous = state.current;
+    // Old closures still own the previous object and its action queue.
+    // Invalidate that object before switching, so queued actions cannot run
+    // with the new term from live.current and the old session's keys.
+    if (previous) previous.generation += 1;
     state.current = {
       identity: session,
       term,

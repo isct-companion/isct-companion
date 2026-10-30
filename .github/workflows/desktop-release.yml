@@ -40,7 +40,7 @@ jobs:
     if: github.event_name == 'push' || inputs.source_run_id == ''
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # The manual-acceptance table test dates each check against git
           # history; a shallow clone marks verified checks as stale.
@@ -80,7 +80,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: node scripts/desktop/desktop-release.mjs validate
       - name: Create the draft unless the release exists
         shell: bash
@@ -116,7 +116,7 @@ jobs:
       SIGN_WINDOWS: ${{ inputs.sign_windows || vars.WINDOWS_SIGNING_ENABLED == 'true' }}
       ISCT_UPDATER_PUBLIC_KEY: ${{ vars.ISCT_UPDATER_PUBLIC_KEY }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -292,7 +292,7 @@ jobs:
           gh api "repos/$PRIVATE_REPO/actions/runs/$SOURCE_RUN_ID" > source-run.json
           jq -e '.name == "Desktop release" and .status == "completed" and .conclusion == "success"' source-run.json > /dev/null
           echo "SOURCE_SHA=$(jq -r .head_sha source-run.json)" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.SOURCE_SHA }}
       - uses: actions/download-artifact@v8

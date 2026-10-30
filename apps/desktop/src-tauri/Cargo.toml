@@ -30,9 +30,9 @@ rfd = { version = "0.17", default-features = false, features = ["gtk3", "common-
 rusqlite = { version = "0.41", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1", features = ["v4", "v7"] }
-base64 = "0.22"
+base64 = "0.23"
 keyring = "4.2"
-rand = "0.9"
+rand = "0.10"
 # TLS comes from Core: build clients with `app_core::net::client_builder()`.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy", "json", "form", "stream", "cookies"] }
 url = "2.5"
@@ -72,7 +72,7 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 [target.'cfg(target_os = "windows")'.dependencies]
 # Native Windows toast delivery returns the WinRT result synchronously so test
 # notifications and reminder claims reflect the native result.
-tauri-winrt-notification = "0.7.3"
+tauri-winrt-notification = "0.8.1"
 # Mica needs Windows 11; the build number decides whether the window gets it.
 windows-version = "0.1"
 # CF_HDROP and the share UI for a course file (file_share_windows.rs); the

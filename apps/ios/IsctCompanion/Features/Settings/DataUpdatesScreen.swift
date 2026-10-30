@@ -13,36 +13,40 @@ struct DataUpdatesScreen: View {
 
     var body: some View {
         Form {
-            Section {
-                Toggle(t("settings.main.updateOnCellularData"), isOn: Binding(
-                    get: { refresh["allowCellular"] as? Bool ?? false },
-                    set: { on in
-                        Task {
-                            await model.updateSettings { settings in
-                                var refresh = settings["subscriptionRefresh"] as? [String: Any] ?? [:]
-                                refresh["allowCellular"] = on
-                                settings["subscriptionRefresh"] = refresh
+            Group {
+                Section {
+                    Toggle(t("settings.main.updateOnCellularData"), isOn: Binding(
+                        get: { refresh["allowCellular"] as? Bool ?? false },
+                        set: { on in
+                            Task {
+                                await model.updateSettings { settings in
+                                    var refresh = settings["subscriptionRefresh"] as? [String: Any] ?? [:]
+                                    refresh["allowCellular"] = on
+                                    settings["subscriptionRefresh"] = refresh
+                                }
                             }
-                        }
-                    }))
-            } footer: {
-                Text(t("settings.main.whenOffAutomaticUpdatesWait"))
-            }
-            SyncSections()
-            Section {
-                Button {
-                    model.refreshFromSchool()
-                } label: {
-                    HStack {
-                        Text(t("common.refreshNow"))
-                        Spacer()
-                        if let indicator = model.syncSnapshot?.indicator {
-                            SyncIndicatorView(indicator: indicator)
+                        }))
+                } footer: {
+                    Text(t("settings.main.whenOffAutomaticUpdatesWait"))
+                }
+                SyncSections()
+                Section {
+                    Button {
+                        model.refreshFromSchool()
+                    } label: {
+                        HStack {
+                            Text(t("common.refreshNow"))
+                            Spacer()
+                            if let indicator = model.syncSnapshot?.indicator {
+                                SyncIndicatorView(indicator: indicator)
+                            }
                         }
                     }
                 }
             }
+            .themedRows()
         }
+        .themedList()
         .navigationTitle(t("settings.main.dataUpdates"))
         .navigationBarTitleDisplayMode(.inline)
     }

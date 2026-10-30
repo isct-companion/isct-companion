@@ -222,7 +222,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PLANNING-PANEL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/facade.rs |
 | `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
-| `DESKTOP-FINDER-SLOT-HIGHLIGHT` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
+| `DESKTOP-FINDER-SLOT-HIGHLIGHT` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/store/workspace.ts<br>crates/app-core/src/workspace.rs |
 | `DESKTOP-FINDER-IME-KANA` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-IME-PINYIN` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-ADD-SAVING` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
@@ -270,7 +270,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift |
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>crates/app-core/src/app_updates.rs |
-| `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift |
+| `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
@@ -2802,6 +2802,11 @@ A desktop build with the year's catalog stored, on the timetable.
    - *Why:* Each cell must light up (or go dark) the moment it is clicked; the
      results and pills may follow a moment later. A cell that waits for
      the results is the stall this change removed.
+2. Select two cells quickly, switch quarters before the results settle,
+   then return and add a course followed immediately by Undo.
+   - *Why:* The final highlight and results must belong to the shown quarter;
+     old queued selections must not flash back after navigation. The
+     added course must disappear after Undo, without a second click.
 
 **Where to look**
 
@@ -2810,7 +2815,8 @@ The timetable cells and the condition pills above the results.
 **Expected**
 
 The first click highlights one cell, ⌘-click adds a second, and
-clicking the first again clears it, each instantly.
+clicking the first again clears it, each instantly. Rapid quarter
+changes leave no old highlight or result flash, and Undo removes the add.
 
 **Why this is manual**
 
@@ -2822,6 +2828,9 @@ before Core answers is in tests/e2e/planner.test.tsx.
 
 - `apps/desktop/src/app/App.tsx`
 - `apps/desktop/src/pages/courses/useFinder.ts`
+- `apps/desktop/src/platform/query-client.ts`
+- `apps/desktop/src/store/workspace.ts`
+- `crates/app-core/src/workspace.rs`
 
 **Last recorded** never run
 
@@ -5494,6 +5503,13 @@ cloud sync on.
    ウェブ.
    - *Why:* The page text is larger and the tab opens on 教務Web after relaunch;
      both are device-local settings.
+5. On 設定 tap the 紙 theme swatch, then 苔, in light and dark mode;
+   open 通知 and データ更新, and read the row icons.
+   - *Why:* The page behind the swatches turns beige, then green-grey, at once,
+     and so do its pushed pages. These lists kept the system's grey, so a
+     theme picked here looked like it did nothing. Each row icon is its
+     role's colour on a soft square of that colour, with no solid grey
+     squares left.
 
 **Where to look**
 
@@ -5515,6 +5531,7 @@ object itself is covered by Core's workspace tests.
 - `apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift`
 - `apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift`
 - `apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift`
+- `apps/ios/IsctCompanion/Design/Polish.swift`
 
 **Last recorded** never run
 
@@ -5613,7 +5630,8 @@ week and open assignments in the current quarter.
      chip) and the two after it peek behind; each swipe turns one card,
      the label above follows the front card's day and the counter reads
      1 / 3 to 3 / 3. The stack never changes height, so nothing below
-     moves.
+     moves. The front card's shadow falls on its sides and below only:
+     no grey band shows above its top edge under the label.
 3. On the first card swipe down, and on the last card swipe up.
    - *Why:* Past either end the swipe scrolls the page instead; a stuck page
      means the stack claims gestures it cannot use.
@@ -6881,6 +6899,13 @@ least three lessons (第1回, 第2回, …), at least one with 授業計画 text
    file row.
    - *Why:* The pager runs alongside scrolling and taps; a drag that starts
      vertical stays a scroll for its whole length.
+7. Flick the page so it is still scrolling, and swipe left across the
+   lesson card before it stops; repeat a few times in quick
+   succession, then swipe back from the left edge mid-scroll.
+   - *Why:* The app quit here. A turn renders the next lesson's HTML, and
+     WebKit's import spins the run loop; done inside the pager's gesture
+     update it can corrupt SwiftUI's graph. The page must turn, or pop,
+     and the app keep running.
 
 **Where to look**
 

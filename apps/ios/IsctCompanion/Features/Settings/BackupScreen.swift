@@ -25,38 +25,42 @@ struct BackupScreen: View {
 
     var body: some View {
         Form {
-            syncSection
-            if let versions = state?.versions, !versions.isEmpty {
-                Section {
-                    ForEach(versions.sorted { $0.savedAt > $1.savedAt }, id: \.id) { version in
-                        restoreRow(Format.due(version.savedAt), detail: version.device, id: version.id, savedAt: version.savedAt)
+            Group {
+                syncSection
+                if let versions = state?.versions, !versions.isEmpty {
+                    Section {
+                        ForEach(versions.sorted { $0.savedAt > $1.savedAt }, id: \.id) { version in
+                            restoreRow(Format.due(version.savedAt), detail: version.device, id: version.id, savedAt: version.savedAt)
+                        }
+                    } header: {
+                        Text(t("settings.backup.earlierVersions"))
+                    } footer: {
+                        Text(t("settings.backup.backupsOlderThan30Days"))
                     }
+                }
+                if let points = state?.recoveryPoints, !points.isEmpty {
+                    Section {
+                        ForEach(points.sorted { $0.savedAt > $1.savedAt }, id: \.id) { point in
+                            restoreRow(Format.due(point.savedAt), detail: nil, id: point.id, savedAt: point.savedAt)
+                        }
+                    } header: {
+                        Text(t("settings.backup.localRecoveryFiles"))
+                    } footer: {
+                        Text(t("settings.backup.savedBeforeCloudChangesOr"))
+                    }
+                }
+                Section {
+                    Button(t("settings.backup.export")) { Task { await export() } }
+                    Button(t("settings.backup.import")) { importing = true }
                 } header: {
-                    Text(t("settings.backup.earlierVersions"))
+                    Text(t("settings.backup.backupFile"))
                 } footer: {
-                    Text(t("settings.backup.backupsOlderThan30Days"))
+                    Text(t("settings.backup.schoolLoginsSyncWithICloud"))
                 }
             }
-            if let points = state?.recoveryPoints, !points.isEmpty {
-                Section {
-                    ForEach(points.sorted { $0.savedAt > $1.savedAt }, id: \.id) { point in
-                        restoreRow(Format.due(point.savedAt), detail: nil, id: point.id, savedAt: point.savedAt)
-                    }
-                } header: {
-                    Text(t("settings.backup.localRecoveryFiles"))
-                } footer: {
-                    Text(t("settings.backup.savedBeforeCloudChangesOr"))
-                }
-            }
-            Section {
-                Button(t("settings.backup.export")) { Task { await export() } }
-                Button(t("settings.backup.import")) { importing = true }
-            } header: {
-                Text(t("settings.backup.backupFile"))
-            } footer: {
-                Text(t("settings.backup.schoolLoginsSyncWithICloud"))
-            }
+            .themedRows()
         }
+        .themedList()
         .navigationTitle(t("settings.main.backup"))
         .navigationBarTitleDisplayMode(.inline)
         .disabled(busy)

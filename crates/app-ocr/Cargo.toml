@@ -40,7 +40,7 @@ thiserror = "2"
 # Android x86_64 binary. Excluding the whole backend leaves unsupported targets
 # free of image/ORT.
 [target.'cfg(not(any(all(any(target_os = "macos", target_os = "ios"), target_arch = "x86_64"), all(target_os = "android", not(target_arch = "aarch64")))))'.dependencies]
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"], optional = true }
 imageproc = { version = "0.27", default-features = false, optional = true }
 # Same version and features imageproc already pulls in: no new crate.
