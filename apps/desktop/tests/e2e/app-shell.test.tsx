@@ -775,7 +775,7 @@ describe("native listener ordering", () => {
     await act(async () => {
       core.publish(after);
       core.emit("workspace-changed", {
-        seq: 3,
+        seq: core.commit().seq,
         source: "school-pull",
         changes: ["courses", "freshness"],
       });
@@ -1523,7 +1523,7 @@ describe("the finder owner", () => {
     });
   }, 20_000);
 
-  it("starts a new session on a term change and drops an in-flight answer", async () => {
+  it("starts a new session on a term change and drops in-flight and queued actions", async () => {
     let holdAnswer = true;
     let releaseAnswer!: () => void;
     const pending = new Promise<void>((resolve) => {
@@ -1546,7 +1546,7 @@ describe("the finder owner", () => {
       <FinderProbe term="queue-late" nextTerm="queue-next" />,
     );
 
-    await click(probe.host.querySelector(".queueA"));
+    await click(probe.host.querySelector(".queueRapid"));
     await click(probe.host.querySelector(".queueTerm"));
     holdAnswer = false;
     await act(async () => {
@@ -1555,6 +1555,7 @@ describe("the finder owner", () => {
     });
     // The old answer was dropped: the keys were never touched.
     expect(probe.host.querySelector(".queueKeys")?.textContent).toBe("");
+    expect(actions(core)).toHaveLength(1);
 
     await click(probe.host.querySelector(".queueB"));
     await until(() =>

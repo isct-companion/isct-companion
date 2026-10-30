@@ -242,6 +242,27 @@ describe("submitting coarse intents", () => {
     expect(store.getState().viewRevisions.settings).toBe(2);
   });
 
+  it("orders a reload with edits so a slow revision read cannot roll back a commit", async () => {
+    const host = coreHost();
+    const store = createWorkspaceStore(host.service);
+    await store.initialize();
+    const read = deferred<string>();
+    host.answerRevision(read.promise);
+
+    const reload = store.reload();
+    await settle();
+    const write = store.mutate(appearance("dark"));
+    await settle();
+    read.resolve("r0");
+    await Promise.all([reload, write]);
+
+    expect(store.getState().revision).toBe("r1");
+    await store.mutate(appearance("light"));
+    expect(host.mutations.map((mutation) => mutation.expectedRevision)).toEqual(
+      ["r0", "r1"],
+    );
+  });
+
   it("builds a form intent from the records Core holds once the preceding write committed", async () => {
     const stored = workspaceFixture();
     const core = installHost({
@@ -303,10 +324,11 @@ describe("recovering from a rejected or external write", () => {
     expect(host.mutations.at(-1)?.expectedRevision).toBe("external-r1");
   });
 
-  it("adopts the revision a user-intent event names for another client", async () => {
+  it("reads the current revision when another client's event arrives late", async () => {
     const host = coreHost();
     const store = createWorkspaceStore(host.service);
     await store.initialize();
+    host.publish("r2");
 
     await store.handleWorkspaceChanged({
       source: "user-intent",
@@ -315,8 +337,9 @@ describe("recovering from a rejected or external write", () => {
       seq: 4,
     });
 
-    expect(store.getState().revision).toBe("external-r1");
-    expect(host.revisionReads()).toBe(1);
+    expect(store.getState().revision).toBe("r2");
+    await store.mutate(appearance("dark"));
+    expect(host.mutations.at(-1)?.expectedRevision).toBe("r2");
   });
 
   it("recognizes its own committed revision after waiting for the write", async () => {
@@ -412,15 +435,37 @@ describe("the query cache", () => {
 
   it("asks again for an answer older than the newest change heard", async () => {
     changesCommitted(["assignments"], 7);
-    const seqs = [5, 7];
+    const seqs = [5, 6, 6, 7];
     const loads: number[] = [];
-    const fresh = await freshAnswer(async () => {
-      const seq = seqs.shift()!;
-      loads.push(seq);
-      return { value: seq, reads: ["assignments"], seq };
+    const fresh = await queryClient.fetchQuery({
+      queryKey: ["burst"],
+      queryFn: ({ signal }) =>
+        freshAnswer(async () => {
+          const seq = seqs.shift()!;
+          loads.push(seq);
+          return { value: seq, reads: ["assignments"], seq };
+        }, signal),
     });
     expect(fresh.seq).toBe(7);
-    expect(loads).toEqual([5, 7]);
+    expect(loads).toEqual([5, 6, 6, 7]);
+  });
+
+  it("stops an obsolete read before retrying or caching its answer", async () => {
+    changesCommitted(["assignments"], 7);
+    const controller = new AbortController();
+    const read = deferred<CoreAnswer<number>>();
+    let loads = 0;
+    const result = freshAnswer(() => {
+      loads += 1;
+      return read.promise;
+    }, controller.signal);
+    const rejected = expect(result).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    controller.abort();
+    read.resolve({ value: 5, reads: ["assignments"], seq: 5 });
+    await rejected;
+    expect(loads).toBe(1);
   });
 });
 
@@ -824,7 +869,8 @@ describe("runtime capabilities", () => {
           native: {
             ...runtime().native!,
             notifications: false,
-            notificationUnavailableReason: "settings.notification.developmentProcess",
+            notificationUnavailableReason:
+              "settings.notification.developmentProcess",
           },
         }),
       )["local-notifications"],

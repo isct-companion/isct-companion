@@ -369,21 +369,21 @@ impl WorkspaceService {
         &self,
         mutation: WorkspaceMutation,
     ) -> Result<WorkspaceCommit, WorkspaceError> {
-        let mut undo = self
+        // The receipt and database change are one operation. A second caller
+        // can read the new database revision before this call returns; keep
+        // it from copying the preceding receipt or overwriting the new one.
+        let mut receipt = self
             .catalog_undo
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut undo = receipt.clone();
         let ((), revision, tables) =
             self.store
                 .workspace_write(&mutation.expected_revision, |write, current, school| {
                     apply_intent(write, current, school, mutation.intent, &mut undo)
                 })?;
         // Only a committed add or undo changes what Undo reverses.
-        *self
-            .catalog_undo
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = undo;
+        *receipt = undo;
         Ok(WorkspaceCommit {
             changes: workspace_changes::changes_for(&tables)
                 .into_iter()

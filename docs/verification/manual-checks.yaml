@@ -2301,11 +2301,19 @@ checks:
           Each cell must light up (or go dark) the moment it is clicked; the
           results and pills may follow a moment later. A cell that waits for
           the results is the stall this change removed.
+      - action: |
+          Select two cells quickly, switch quarters before the results settle,
+          then return and add a course followed immediately by Undo.
+        reason: |
+          The final highlight and results must belong to the shown quarter;
+          old queued selections must not flash back after navigation. The
+          added course must disappear after Undo, without a second click.
     observe: |
       The timetable cells and the condition pills above the results.
     expected: |
       The first click highlights one cell, ⌘-click adds a second, and
-      clicking the first again clears it, each instantly.
+      clicking the first again clears it, each instantly. Rapid quarter
+      changes leave no old highlight or result flash, and Undo removes the add.
     why_manual: |
       Perceived latency is a glance check; the toggle rules are Core's
       (crates/app-core/src/tests/course_query.rs) and the local highlight
@@ -2313,6 +2321,9 @@ checks:
     covers:
       - apps/desktop/src/app/App.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
+      - apps/desktop/src/platform/query-client.ts
+      - apps/desktop/src/store/workspace.ts
+      - crates/app-core/src/workspace.rs
     verified: null
 
   - id: DESKTOP-FINDER-IME-KANA

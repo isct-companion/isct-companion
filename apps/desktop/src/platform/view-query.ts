@@ -32,7 +32,7 @@ export function useViewQuery<T>(
   const query = useQuery(
     {
       queryKey: key,
-      queryFn: () => freshAnswer(load),
+      queryFn: ({ signal }) => freshAnswer(load, signal),
       enabled,
       placeholderData: keepPreviousData,
     },

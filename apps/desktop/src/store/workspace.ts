@@ -76,17 +76,22 @@ export function createWorkspaceStore(service: WorkspaceService) {
   };
   /** Reads the revision again and refetches every answer: anything may have
    * changed (startup, an intent that lost a race, an import). */
-  const reload = async () => {
-    await writes;
-    const revision = await service.revision();
-    publish({
-      ...state.getState(),
-      status: "ready",
-      revision,
-      viewRevisions: counted(["all"]),
-      error: undefined,
+  const reload = () => {
+    // A revision read participates in the same queue as writes: waiting for
+    // preceding writes alone lets a following commit overtake the read.
+    const operation = writes.then(async () => {
+      const revision = await service.revision();
+      publish({
+        ...state.getState(),
+        status: "ready",
+        revision,
+        viewRevisions: counted(["all"]),
+        error: undefined,
+      });
+      everythingChanged();
     });
-    everythingChanged();
+    writes = operation.catch(() => undefined);
+    return operation;
   };
   const mutate = (intent: WorkspaceIntent | DraftIntent) => {
     const operation = writes.then(async () => {
@@ -144,7 +149,7 @@ export function createWorkspaceStore(service: WorkspaceService) {
       return;
     }
     // Core emits before the native command resolves. Wait for the command's
-    // own commit, then adopt the revision only if another client wrote.
+    // own commit, then re-read the revision if another client wrote.
     await writes;
     if (!event.revision) {
       await reload();
@@ -155,7 +160,9 @@ export function createWorkspaceStore(service: WorkspaceService) {
       localMutationRevisions.has(event.revision)
     )
       return;
-    publish({ ...state.getState(), revision: event.revision });
+    // Delivery order is not commit order. The event's revision may already
+    // have been superseded, so only a queued read can seed the next edit.
+    await reload();
   };
   return {
     getState: state.getState,

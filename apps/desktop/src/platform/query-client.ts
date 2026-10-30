@@ -1,6 +1,12 @@
 import { QueryClient, type Query } from "@tanstack/react-query";
 import type { WorkspaceChange } from "../generated/persistence";
 
+class SupersededAnswer extends Error {
+  constructor() {
+    super("Core snapshot was superseded by a newer commit.");
+  }
+}
+
 /**
  * The one cache of Core's answers (`approach/frontend-query-cache`). Core
  * decides when an answer is stale, so nothing here goes stale by time:
@@ -18,7 +24,10 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: Infinity,
       gcTime: 5 * 60_000,
-      retry: false,
+      // TanStack owns the wait and cancellation; a burst must neither spin
+      // the UI thread nor turn a known-stale answer into an infinite cache hit.
+      retry: (_count, error) => error instanceof SupersededAnswer,
+      retryDelay: (attempt) => Math.min(50 * 2 ** attempt, 250),
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
     },
@@ -60,14 +69,16 @@ export function everythingChanged() {
   void queryClient.invalidateQueries();
 }
 
-/** `load` until its answer is no older than the newest change heard; a
- * change that lands meanwhile is caught by its own invalidation. */
+/** Accept only an answer no older than the newest change heard. The query
+ * client's retry policy waits and reads again while the query is needed. */
 export async function freshAnswer<T>(
   load: () => Promise<CoreAnswer<T>>,
+  signal?: AbortSignal,
 ): Promise<CoreAnswer<T>> {
-  let answer = await load();
-  for (let attempt = 0; answer.seq < latestSeq && attempt < 2; attempt++)
-    answer = await load();
+  signal?.throwIfAborted();
+  const answer = await load();
+  signal?.throwIfAborted();
+  if (answer.seq < latestSeq) throw new SupersededAnswer();
   return answer;
 }
 

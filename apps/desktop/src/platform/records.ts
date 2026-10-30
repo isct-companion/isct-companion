@@ -41,8 +41,11 @@ export async function fetchRecords(
   const query = recordsQuery(fields);
   const answer = await queryClient.fetchQuery({
     queryKey: ["schedule", [query]],
-    queryFn: () =>
-      freshAnswer(() => scheduleAnswers<[Record<string, unknown>]>([query])),
+    queryFn: ({ signal }) =>
+      freshAnswer(
+        () => scheduleAnswers<[Record<string, unknown>]>([query]),
+        signal,
+      ),
   });
   return complete(answer.value[0]);
 }

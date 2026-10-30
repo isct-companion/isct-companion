@@ -222,7 +222,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-PLANNING-PANEL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/facade.rs |
 | `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
-| `DESKTOP-FINDER-SLOT-HIGHLIGHT` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
+| `DESKTOP-FINDER-SLOT-HIGHLIGHT` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/store/workspace.ts<br>crates/app-core/src/workspace.rs |
 | `DESKTOP-FINDER-IME-KANA` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-IME-PINYIN` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-ADD-SAVING` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx |
@@ -2802,6 +2802,11 @@ A desktop build with the year's catalog stored, on the timetable.
    - *Why:* Each cell must light up (or go dark) the moment it is clicked; the
      results and pills may follow a moment later. A cell that waits for
      the results is the stall this change removed.
+2. Select two cells quickly, switch quarters before the results settle,
+   then return and add a course followed immediately by Undo.
+   - *Why:* The final highlight and results must belong to the shown quarter;
+     old queued selections must not flash back after navigation. The
+     added course must disappear after Undo, without a second click.
 
 **Where to look**
 
@@ -2810,7 +2815,8 @@ The timetable cells and the condition pills above the results.
 **Expected**
 
 The first click highlights one cell, ⌘-click adds a second, and
-clicking the first again clears it, each instantly.
+clicking the first again clears it, each instantly. Rapid quarter
+changes leave no old highlight or result flash, and Undo removes the add.
 
 **Why this is manual**
 
@@ -2822,6 +2828,9 @@ before Core answers is in tests/e2e/planner.test.tsx.
 
 - `apps/desktop/src/app/App.tsx`
 - `apps/desktop/src/pages/courses/useFinder.ts`
+- `apps/desktop/src/platform/query-client.ts`
+- `apps/desktop/src/store/workspace.ts`
+- `crates/app-core/src/workspace.rs`
 
 **Last recorded** never run
 

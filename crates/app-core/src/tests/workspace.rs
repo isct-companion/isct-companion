@@ -1497,6 +1497,74 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
 }
 
 #[test]
+fn undo_waits_for_the_catalog_add_receipt_after_its_database_commit() {
+    use crate::data::{CommitObserver, WorkspaceChangeSource};
+    use std::{collections::BTreeSet, sync::mpsc, time::Duration};
+
+    // Pause the first commit at the real event boundary, before mutate_commit
+    // publishes its in-memory undo receipt. A second client may already read
+    // that commit from SQLite and request its undo.
+    struct PauseCommit(Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>);
+    impl CommitObserver for PauseCommit {
+        fn committed(&self, _: WorkspaceChangeSource, _: Option<String>, _: &BTreeSet<String>) {
+            let gate = self.0.lock().unwrap().take();
+            if let Some((entered, release)) = gate {
+                entered.send(()).unwrap();
+                release.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+        }
+    }
+
+    let service = service("concurrent-catalog-undo");
+    let directory = service.store.directory().to_path_buf();
+    let course = offering("202630010", "AAA.A100", &["3Q"]);
+    service
+        .store
+        .catalog_upsert_offerings(std::slice::from_ref(&course))
+        .unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    service.store.observe(Arc::new(PauseCommit(Mutex::new(Some((
+        entered_tx, release_rx,
+    ))))));
+    std::thread::scope(|scope| {
+        let add = scope.spawn(|| {
+            run(
+                &service,
+                WorkspaceIntent::AddCatalogCourses {
+                    term_id: "2026-3Q".into(),
+                    offerings: vec![course],
+                },
+            )
+        });
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let revision = service.revision().unwrap();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let current = &service;
+        let undo = scope.spawn(move || {
+            let result = current.mutate_commit(WorkspaceMutation {
+                expected_revision: revision,
+                intent: WorkspaceIntent::UndoCatalogCourses {
+                    term_id: "2026-3Q".into(),
+                    offering_ids: vec!["202630010".into()],
+                },
+            });
+            finished_tx.send(()).unwrap();
+            result
+        });
+        // Give the competing request a chance to reach the paused commit.
+        // Correct code waits for its receipt; the result, not timing, is asserted.
+        let _ = finished_rx.recv_timeout(Duration::from_millis(100));
+        release_tx.send(()).unwrap();
+        add.join().unwrap().unwrap();
+        undo.join().unwrap().unwrap();
+    });
+    assert!(live_plans(&service.read_back().unwrap().workspace).is_empty());
+    drop(service);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn reminder_times_persist_and_invalid_settings_cannot_replace_them() {
     let service = service("reminder-times");
     service
