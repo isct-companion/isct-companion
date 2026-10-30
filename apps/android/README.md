@@ -8,8 +8,8 @@ of its own. Design: the `approach/mobile-*` decisions in [STATUS.md](../../STATU
 
 ## Build and run
 
-Needs a JDK 17–21 (`JAVA_HOME`), `kotlinc` on `PATH`, the Android SDK
-(platforms 34 and 35, build tools), NDK 28 and the Rust Android targets
+Needs a JDK 17 or newer (`JAVA_HOME`), `kotlinc` on `PATH`, the Android SDK
+(platforms 34 and 37, build tools), NDK 28 and the Rust Android targets
 (`rustup target add aarch64-linux-android x86_64-linux-android`). The app links
 the Core SDK at `bindings/kotlin/artifacts/app-core.aar`; one command builds
 it and then the debug APK:
@@ -23,12 +23,11 @@ Without `ANDROID_HOME`/`NDK_HOME` the builder takes the SDK from
 `app/build.gradle.kts` pins. `sdk:android` builds only the AAR;
 `ISCT_SDK_PROFILE=dev` builds Core faster but opens the session slowly.
 
-On Windows: Gradle 8.14 does not run on the JDK 25 that Android Studio bundles,
-so use a JDK 21 (Android Studio's downloaded `~\.jdks\jbr-21` works). Android
-Studio's Kotlin plugin compiler is not a full distribution; put the standalone
-`kotlin-compiler-2.2.21` (the version CI pins) on `PATH`, unzipped to a folder
-whose name has no dot, since `kotlinc.bat` otherwise starts from the 8.3 short
-path and misses its own stdlib. yarn 4 needs `corepack enable` once.
+On Windows: Android Studio's bundled JDK works. Its Kotlin plugin compiler is
+not a full distribution; put the standalone `kotlin-compiler-2.2.21` (the
+version CI pins) on `PATH`, unzipped to a folder whose name has no dot, since
+`kotlinc.bat` otherwise starts from the 8.3 short path and misses its own
+stdlib. yarn 4 needs `corepack enable` once.
 
 ```bash
 cd apps/android && ./gradlew :app:installDebug

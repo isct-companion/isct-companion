@@ -30,9 +30,9 @@ pub enum IngestState {
 }
 
 #[cfg(feature = "ts")]
-pub fn declarations() -> Vec<String> {
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
     vec![
-        crate::contracts::SchoolPageAvailabilityState::decl(),
-        crate::contracts::SchoolPageAvailability::decl(),
+        crate::contracts::SchoolPageAvailabilityState::decl(cfg),
+        crate::contracts::SchoolPageAvailability::decl(cfg),
     ]
 }

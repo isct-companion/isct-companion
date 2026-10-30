@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 152 checks must be re-run before the next release.**
+**9 of 156 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**143 checks have never been run or could not be run:**
+**147 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -73,6 +73,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `IOS-TESTFLIGHT-RELEASE` — never verified
+- `RELEASE-DRAFT-ASSEMBLY` — never verified
 - `RELEASE-INSTALL` — never verified
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
@@ -115,6 +116,9 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-TODAY-CLASS-STACK` — never verified
 - `ANDROID-TIMETABLE-WEEK-AND-MARKS` — never verified
 - `ANDROID-COURSE-LESSONS` — never verified
+- `ANDROID-COURSE-ZOOM-BACK` — never verified
+- `ANDROID-ORIENTATION` — never verified
+- `ANDROID-DEPENDENCY-UPGRADE` — never verified
 - `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
 - `ANDROID-SETTINGS-PAGES` — never verified
 - `ANDROID-WEB-PREFERENCES` — never verified
@@ -229,6 +233,7 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/app-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `IOS-TESTFLIGHT-RELEASE` | release | Two devices, interrupted work | —<br>not run | .github/workflows/ios-release.yml<br>docs/mobile-release.md |
+| `RELEASE-DRAFT-ASSEMBLY` | release | Two devices, interrupted work | —<br>not run | .github/workflows/desktop-release.yml<br>.github/workflows/ios-release.yml<br>.github/workflows/android-release.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/workspaces.rs<br>crates/app-core/src/school_browser/policy.rs<br>crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
@@ -272,6 +277,9 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
+| `ANDROID-COURSE-ZOOM-BACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/build.gradle.kts |
+| `ANDROID-ORIENTATION` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/AndroidManifest.xml |
+| `ANDROID-DEPENDENCY-UPGRADE` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/build.gradle.kts<br>apps/android/build.gradle.kts<br>apps/android/gradle/wrapper/gradle-wrapper.properties<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt |
 | `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
 | `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
 | `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
@@ -3340,6 +3348,56 @@ processing service and an enrolled physical iPhone.
 
 **Last recorded** never run
 
+### Mobile builds attach to the tag's draft before the desktop publishes (`RELEASE-DRAFT-ASSEMBLY`)
+
+**Area** release · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A version tag has just been pushed; IOS_TESTFLIGHT_ENABLED is true.
+
+**Steps**
+
+1. Within a few minutes of the push, open the repository's Releases page
+   and the Desktop release run.
+   - *Why:* The "Open the version's draft release" job must create exactly one
+     draft before the slow builds; a missing or second draft for the tag
+     would leave the mobile uploads waiting or split across releases.
+2. When the iOS and Android release runs finish, look at the draft's
+   assets and at whether the App Store release workflow started.
+   - *Why:* The IPA and APK must land in the draft without waiting for the
+     desktop installers, so iOS release succeeds and App Store submission
+     is not skipped by a slow desktop runner.
+3. After Desktop release publishes, read the release notes and assets.
+   - *Why:* Publishing must replace the draft's placeholder notes with the full
+     notes and keep the mobile assets beside the installers.
+
+**Where to look**
+
+The Releases page, and the Desktop, iOS, Android and App Store release
+runs in Actions.
+
+**Expected**
+
+One draft appears right after the push, gains the IPA and APK when their
+builds finish, and is published with the full notes and all five
+installers; App Store release runs after iOS release succeeds.
+
+**Why this is manual**
+
+Only a real version tag runs these workflows together against GitHub
+Releases and App Store Connect; no tag may be pushed to rehearse it.
+
+**Covers**
+
+- `.github/workflows/desktop-release.yml`
+- `.github/workflows/ios-release.yml`
+- `.github/workflows/android-release.yml`
+
+**Last recorded** never run
+
 ### Installers on a clean machine of each platform (`RELEASE-INSTALL`)
 
 **Area** release · **Persona** Two devices, interrupted work · **Result** —
@@ -5658,12 +5716,14 @@ week and open assignments in the current quarter.
 
 **Steps**
 
-1. Read the navigation bar on a phone, then on a tablet or a window at
-   least 600 dp wide.
+1. Read the navigation bar on a phone, then on a tablet, then on the
+   tablet in split screen.
    - *Why:* Four destinations on a phone, 今日 · 時間割 · ウェブ · 設定, with 設定
      last; 設定 is a page in its own tab, no longer a sheet from 今日. A
-     wide window adds 授業 after 時間割, as on iPad, listing the quarter's
-     courses; 授業 on a phone means the width rule is wrong.
+     tablet adds 授業 after 時間割, as on iPad, listing the quarter's
+     courses, and keeps it in split screen as iPad does; 授業 on a phone,
+     or a tab bar that changes with the window, means the device rule is
+     wrong.
 2. Swipe up and down on the class card, and past either end of the
    stack.
    - *Why:* Each swipe turns one card with a haptic and the counter follows;
@@ -5723,31 +5783,36 @@ between the first period's start and the last period's end (Tokyo time).
 
 1. Open 時間割 and look at the grid without scrolling.
    - *Why:* Rows come from Core's timetable axis and share the height the screen
-     leaves, so the whole week fits; the lunch band is shaded and half a
-     row. A grid that scrolls or a full-height lunch row means the shell
-     still uses its own period table.
-2. Tap the week chip, step a year back and forward, tap a quarter chip,
+     leaves, so on a phone the whole week fits; the lunch band is shaded
+     and half a row. A grid that scrolls on a phone or a full-height lunch
+     row means the shell still uses its own period table.
+2. On a small tablet turned on its side (or in split screen), scroll
+   the grid to the bottom.
+   - *Why:* Past the row floor the grid scrolls and the last period is
+     reachable; before, the columns were cut off and the late classes
+     could not be seen or tapped.
+3. Tap the week chip, step a year back and forward, tap a quarter chip,
    then a week row.
    - *Why:* The sheet lists Core's TimetableYear weeks under their months with
      each week's quarter label; a quarter chip jumps to that quarter's
      first week. A week that lands elsewhere means the jump target is
      wrong.
-3. Long press a class and choose 試験にする, then 休講にする, then
+4. Long press a class and choose 試験にする, then 休講にする, then
    通常の授業に戻す, reopening the menu each time.
    - *Why:* Each choice is Core's MarkSession and must redraw at once: a warn
      border with 試験 before the room, then a faded struck-through title
      with 休講, then the plain block; the tick follows the state. Planned
      blocks offer no menu.
-4. Look at today's column during a teaching hour.
+5. Look at today's column during a teaching hour.
    - *Why:* The red now line sits at the current time and moves every half
      minute; outside the axis there is no line by design.
-5. Relaunch the app, open 時間割 and swipe quickly four weeks forward,
+6. Relaunch the app, open 時間割 and swipe quickly four weeks forward,
    then back past this week.
    - *Why:* The week is read with four weeks on either side in one query, as on
      iOS, so each swipe within that reach draws its blocks at once.
      Columns that flash empty before filling mean each week is still
      queried on its own.
-6. Tap the share button in the header, choose 授業のみ, send the file to
+7. Tap the share button in the header, choose 授業のみ, send the file to
    Google Calendar or Files and open it.
    - *Why:* The .ics is Core's quarterIcs for the shown week's quarter, as the
      desktop's ICSを書き出す; another quarter or an empty file is wrong.
@@ -5843,6 +5908,180 @@ lesson rule is covered by `course_content_follows_the_desktop_lecture_desk`.
 - `apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/design/Components.kt`
 - `apps/android/app/src/main/AndroidManifest.xml`
+
+**Last recorded** never run
+
+### Android course page shrinks back home without crashing after its large title collapsed (`ANDROID-COURSE-ZOOM-BACK`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app with the current quarter pulled, on a phone with
+gesture navigation and animations on (Remove animations off), with a
+course whose page is long enough to scroll.
+
+**Steps**
+
+1. From 時間割 tap a class block, scroll the course page until the large
+   title collapses into the bar, then tap the back arrow.
+   - *Why:* The page shrinks into the block it grew from. Before, laying the
+     page out at the shrinking size gave the collapsed title bar a
+     negative height and the app closed (Size(... x -242) is out of
+     range).
+2. Repeat with the system back gesture, then start a predictive back
+   swipe from the edge, hold it half way, and release.
+   - *Why:* The predictive back drives the same shrink frame by frame, and
+     holding it keeps the page at a small size for longest: the likeliest
+     moment for the crash.
+3. Repeat from a Today card (the class card and a stacked card), then
+   open a course, collapse the title and tap the 時間割 tab again.
+   - *Why:* Every source shrinks the page (block, hero card, stack card), and
+     re-tapping the current tab pops back to its root through the same
+     animation.
+4. Control: open a course and go back without scrolling; then turn on
+   Remove animations and repeat the collapsed-title back.
+   - *Why:* Both never crashed, so they tell a crash that remains apart from a
+     different fault: without scrolling the title is still expanded,
+     and with no animations the page only fades.
+5. On a course or settings page with the large title collapsed, open
+   the keyboard in a text field, or drag a split-screen divider so the
+   app gets very short.
+   - *Why:* A squeezed page hit the same negative-height bug in the title bar
+     without any zoom; material3 1.4 clamps it.
+
+**Where to look**
+
+The course page and its source on the phone; the app must stay open.
+
+**Expected**
+
+Every back shrinks the page into its source with the page laid out at
+full size and clipped, and the app never closes.
+
+**Why this is manual**
+
+The crash needs a running Compose app driven by touch, the predictive
+back gesture and the system animation scale; whether the zoom still
+looks right is judged by eye.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Components.kt`
+- `apps/android/app/build.gradle.kts`
+
+**Last recorded** never run
+
+### Android phones stay upright while tablets and unfolded foldables turn (`ANDROID-ORIENTATION`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The Android app on a phone with auto-rotate on, and on a tablet or a
+foldable (an emulator's resizable or foldable device will do).
+
+**Steps**
+
+1. On the phone turn the device on its side on 今日, 時間割 and a course
+   page, and open the app while holding it sideways.
+   - *Why:* The app stays portrait, as iPhone does; a sideways layout means the
+     size rule (smallest side under 600 dp) is not applied.
+2. On the tablet turn it to all four sides.
+   - *Why:* The app follows, as iPad does; a manifest-wide portrait lock would
+     freeze tablets too on targetSdk 35.
+3. On the foldable, unfold it and turn it, then fold it while the app
+   is open on 授業.
+   - *Why:* Unfolded it turns freely and shows 授業; folded it returns to
+     portrait and to 今日, since the phone's bar has no 授業 tab.
+
+**Where to look**
+
+The app's orientation and tab bar on each device.
+
+**Expected**
+
+Phones are always portrait; tablets and unfolded foldables rotate, and
+folding re-applies the phone rule.
+
+**Why this is manual**
+
+Orientation follows physical rotation and folding on real hardware; it
+is seen at a glance.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+- `apps/android/app/src/main/AndroidManifest.xml`
+
+**Last recorded** never run
+
+### The Android app behaves as before on the latest Compose, AGP and Kotlin (`ANDROID-DEPENDENCY-UPGRADE`)
+
+**Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A release APK built from the dependency upgrade (Compose BOM 2026.09,
+AGP 9, Kotlin 2.4, compileSdk 37) on a phone with the current quarter
+pulled and at least one open and one hidden assignment.
+
+**Steps**
+
+1. Visit every tab (今日, 時間割, ウェブ, 設定) and scroll each to the end.
+   - *Why:* Every screen now runs on new Compose, material3 and navigation
+     libraries; a blank tab, a lost large title or a crash on first
+     composition shows a broken API or a class R8 stripped.
+2. Open a course from a 時間割 block and from a 今日 card, collapse its
+   title, then go back with the arrow and with a predictive back swipe.
+   - *Why:* The course zoom uses the shared-transition API, which left
+     experimental in this upgrade; the page must still grow out of and
+     shrink into its source (ANDROID-COURSE-ZOOM-BACK has the detail).
+3. Swipe an assignment row right, then left; under すべての課題 swipe
+   a hidden row left.
+   - *Why:* The rows moved off the deprecated veto callback: the row now slides
+     all the way, comes back, and then pins, hides or restores once. A
+     row left off screen or acting twice means the reset is wrong.
+4. Open the bottom sheets: the sync status sheet from the title bar,
+   the week picker on 時間割, the welcome sheet and the hand-in sheet;
+   drag each down to close.
+   - *Why:* The sheets come from material3's ModalBottomSheet, still
+     experimental and the likeliest to change between versions.
+5. Open a school page under ウェブ, pull to refresh, and go back.
+   - *Why:* The WebView sits in a newer SwipeRefreshLayout and activity
+     version; the page must load, refresh and hand back to the tab.
+6. Turn the phone on its side on 今日 and on a course page.
+   - *Why:* The app stays portrait; the lock is set from the activity, whose
+     library this upgrade moved (ANDROID-ORIENTATION has tablets).
+
+**Where to look**
+
+Each screen, sheet and gesture on the phone; the app must stay open.
+
+**Expected**
+
+Every tab, sheet, swipe, the course zoom, the school page and the
+portrait lock work as before the upgrade, and the app never closes.
+
+**Why this is manual**
+
+The whole Compose shell has to be exercised by touch in a release build
+with R8 on a real phone; whether each screen still looks and moves as
+before is judged by eye.
+
+**Covers**
+
+- `apps/android/app/build.gradle.kts`
+- `apps/android/build.gradle.kts`
+- `apps/android/gradle/wrapper/gradle-wrapper.properties`
+- `apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt`
 
 **Last recorded** never run
 

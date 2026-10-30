@@ -69,7 +69,7 @@ impl Connections {
             "PRAGMA cache.journal_mode=WAL; PRAGMA cache.synchronous=NORMAL;
              PRAGMA sync.journal_mode=WAL; PRAGMA sync.synchronous=NORMAL;",
         )?;
-        forbid_truncate(&writer);
+        forbid_truncate(&mut writer)?;
         let mut connections = Self {
             files,
             writer: Mutex::new(writer),
@@ -145,19 +145,21 @@ impl DerefMut for Reader<'_> {
 /// delete turns that optimization off; every row is still deleted, one by
 /// one, and reported. `DROP TABLE` also asks for a delete of the dropped
 /// table, so a schema rebuild lifts the guard first ([`allow_drops`]).
-pub(super) fn forbid_truncate(connection: &Connection) {
+pub(super) fn forbid_truncate(connection: &mut Connection) -> Result<(), DataError> {
     connection.authorizer(Some(|context: AuthContext<'_>| match context.action {
         AuthAction::Delete { table_name } if !table_name.starts_with("sqlite_") => {
             Authorization::Ignore
         }
         _ => Authorization::Allow,
-    }));
+    }))?;
+    Ok(())
 }
 
 /// Lifts [`forbid_truncate`] so `DROP TABLE` works; the caller installs it
 /// again when the rebuild ends, whether it succeeded or not.
-pub(super) fn allow_drops(connection: &Connection) {
-    connection.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+pub(super) fn allow_drops(connection: &mut Connection) -> Result<(), DataError> {
+    connection.authorizer(None::<fn(AuthContext<'_>) -> Authorization>)?;
+    Ok(())
 }
 
 /// FTS5 keeps a virtual table's rows in shadow tables named after it; a
@@ -204,7 +206,8 @@ pub(crate) fn commit_then<T, U, E: From<DataError>>(
                 rowid,
             ));
         },
-    ));
+    ))
+    .map_err(DataError::from)?;
     let result: Result<U, E> = (|| {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -226,7 +229,9 @@ pub(crate) fn commit_then<T, U, E: From<DataError>>(
         transaction.commit().map_err(DataError::from)?;
         Ok(value)
     })();
-    connection.update_hook(None::<fn(Action, &str, &str, i64)>);
+    // The write has already committed or rolled back; a hook that fails to
+    // detach only keeps recording into a list nobody reads.
+    let _ = connection.update_hook(None::<fn(Action, &str, &str, i64)>);
     let tables = std::mem::take(&mut *touched.lock().unwrap_or_else(PoisonError::into_inner))
         .into_iter()
         .map(|(_, table, _)| table)

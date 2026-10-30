@@ -574,7 +574,7 @@ pub fn parse_resource_page(html: &str, response_url: &Url, module: &str) -> Reso
                 .attr("src")
                 .or_else(|| element.value().attr("data"))
                 .or_else(|| element.value().attr("href"))
-                .and_then(&plugin_file)
+                .and_then(plugin_file)
         }) {
             return ResolvedResource::File { url: url.into() };
         }
@@ -590,7 +590,7 @@ pub fn parse_resource_page(html: &str, response_url: &Url, module: &str) -> Reso
             .attr("href")
             .or_else(|| element.value().attr("src"))
             .or_else(|| element.value().attr("data"))
-            .and_then(&plugin_file)
+            .and_then(plugin_file)
     }) {
         return ResolvedResource::File { url: url.into() };
     }

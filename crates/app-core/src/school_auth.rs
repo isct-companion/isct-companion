@@ -302,7 +302,7 @@ fn digest(credentials: Option<&SchoolCredentials>) -> String {
     let text = credentials
         .and_then(|credentials| serde_json::to_string(credentials).ok())
         .unwrap_or_default();
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    data_encoding::HEXLOWER.encode(&Sha256::digest(text.as_bytes()))
 }
 
 pub struct SchoolAuthService {

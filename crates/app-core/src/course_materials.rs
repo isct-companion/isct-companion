@@ -388,7 +388,7 @@ pub fn material_name(url: &Url) -> String {
         })
         .take(80)
         .collect();
-    let digest = format!("{:x}", Sha256::digest(url.as_str()));
+    let digest = data_encoding::HEXLOWER.encode(&Sha256::digest(url.as_str()));
     match extension {
         Some(extension) => format!(
             "{}-{}.{}",

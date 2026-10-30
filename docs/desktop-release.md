@@ -42,8 +42,12 @@ Desktop release build without rebuilding, set `source_run_id` to its Actions run
 The workflow validates that run before using its artifacts.
 
 All three desktop builds must succeed before publication. Publication uses the source
-repository's `GITHUB_TOKEN`: it creates a draft, uploads installers and signed updater
-bundles, then publishes the complete release. Stable versions are marked Latest;
+repository's `GITHUB_TOKEN`. A tag push opens the version's draft release at once,
+before tests and builds, so the iOS and Android workflows can attach their builds
+whatever happens to the desktop runners; a desktop failure then needs only a desktop
+rerun. Publication writes the notes on that draft (or creates it for a manual
+dispatch), uploads installers and signed updater bundles, then publishes the
+complete release. Stable versions are marked Latest;
 versions with a prerelease suffix remain prereleases. Release notes record the source
 commit. Existing published releases require explicit `replace_existing=true`.
 

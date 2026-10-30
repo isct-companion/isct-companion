@@ -44,7 +44,7 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
           components: clippy,rustfmt
@@ -110,7 +110,7 @@ jobs:
             unzip -q "$RUNNER_TEMP/kotlin.zip" -d "$RUNNER_TEMP/kotlin"
             echo "$RUNNER_TEMP/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
           fi
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@v2

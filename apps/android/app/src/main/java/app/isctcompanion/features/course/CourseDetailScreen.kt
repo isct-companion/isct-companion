@@ -1,7 +1,6 @@
 package app.isctcompanion.features.course
 
 import app.isctcompanion.design.SkeletonRows
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -195,7 +194,6 @@ private fun Lessons(
  * the chosen one stays in view. A dot marks where the course is (Core's
  * `currentSection`); a long press marks a lesson as the one for the coming
  * (or today's) class. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LessonChips(lessons: List<LessonContent>, pager: PagerState, content: CourseContent, mark: (LessonContent) -> Unit) {
     val scope = rememberCoroutineScope()

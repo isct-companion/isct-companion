@@ -528,21 +528,21 @@ impl Consensus {
     }
 }
 #[cfg(feature = "ts")]
-pub fn declarations() -> Vec<String> {
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
     use ts_rs::TS;
     vec![
-        MatrixPoint::decl(),
-        MatrixReading::decl(),
-        MatrixVote::decl(),
-        MatrixConfidence::decl(),
-        MatrixScanPhase::decl(),
-        MatrixScanTiming::decl(),
-        MatrixScanSnapshot::decl(),
-        MatrixScanOutline::decl(),
-        MatrixCaptureMetrics::decl(),
-        MatrixFrameTimeline::decl(),
-        MatrixCameraPhase::decl(),
-        MatrixCameraSnapshot::decl(),
+        MatrixPoint::decl(cfg),
+        MatrixReading::decl(cfg),
+        MatrixVote::decl(cfg),
+        MatrixConfidence::decl(cfg),
+        MatrixScanPhase::decl(cfg),
+        MatrixScanTiming::decl(cfg),
+        MatrixScanSnapshot::decl(cfg),
+        MatrixScanOutline::decl(cfg),
+        MatrixCaptureMetrics::decl(cfg),
+        MatrixFrameTimeline::decl(cfg),
+        MatrixCameraPhase::decl(cfg),
+        MatrixCameraSnapshot::decl(cfg),
     ]
 }
 #[cfg(test)]

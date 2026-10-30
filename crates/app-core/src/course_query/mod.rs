@@ -1717,24 +1717,24 @@ pub fn normalize_offering(mut row: Value) -> Option<Value> {
 mod tests;
 
 #[cfg(feature = "ts")]
-pub fn declarations() -> Vec<String> {
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
     vec![
-        TimeValue::decl(),
-        FinderCourse::decl(),
-        FinderSchedule::decl(),
-        FinderRowView::decl(),
-        Suggestion::decl(),
-        OfficialSelection::decl(),
-        OfficialFilterOption::decl(),
-        FinderContext::decl(),
-        Recommendation::decl(),
-        FinderDepartment::decl(),
-        BusySlot::decl(),
-        Condition::decl(),
-        Factor::decl(),
-        Factors::decl(),
-        FinderRequest::decl(),
-        FinderAction::decl(),
-        FinderPage::decl(),
+        TimeValue::decl(cfg),
+        FinderCourse::decl(cfg),
+        FinderSchedule::decl(cfg),
+        FinderRowView::decl(cfg),
+        Suggestion::decl(cfg),
+        OfficialSelection::decl(cfg),
+        OfficialFilterOption::decl(cfg),
+        FinderContext::decl(cfg),
+        Recommendation::decl(cfg),
+        FinderDepartment::decl(cfg),
+        BusySlot::decl(cfg),
+        Condition::decl(cfg),
+        Factor::decl(cfg),
+        Factors::decl(cfg),
+        FinderRequest::decl(cfg),
+        FinderAction::decl(cfg),
+        FinderPage::decl(cfg),
     ]
 }

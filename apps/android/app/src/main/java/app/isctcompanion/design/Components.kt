@@ -1,6 +1,5 @@
 package app.isctcompanion.design
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -206,7 +205,6 @@ fun DeadlineRow(
 
 /** Opens the assignment's page, read from LMS by Core; long press offers
  * quick actions, among them the LMS submission page. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DeadlineLink(item: DeadlineItem, chevron: Boolean = false, hidden: Boolean = false, content: @Composable () -> Unit) {
     val model = LocalModel.current

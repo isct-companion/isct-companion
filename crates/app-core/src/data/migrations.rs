@@ -598,7 +598,7 @@ pub fn open_in_memory() -> Result<Connection, DataError> {
     create_cache_schema(&connection)?;
     create_sync_schema(&connection)?;
     upgrade_user(&mut connection)?;
-    super::connection::forbid_truncate(&connection);
+    super::connection::forbid_truncate(&mut connection)?;
     Ok(connection)
 }
 

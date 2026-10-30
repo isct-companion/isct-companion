@@ -152,7 +152,7 @@ private fun GroupCard(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(Theme.radiusSurface)).background(Theme.colors.surface)) { content() }
 }
 
-/** Swipe right: pin (or unpin); swipe left: hide. The row always springs back;
+/** Swipe right: pin (or unpin); swipe left: hide. The row always slides back;
  * Core's refreshed board moves it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -163,9 +163,13 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
     // Row swipes leave the left 20 dp to the system back gesture (slotledger `approach/mobile-gestures`).
     val edge = with(LocalDensity.current) { 20.dp.toPx() }
     var fromEdge by remember { mutableStateOf(false) }
-    val state = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
+    val state = rememberSwipeToDismissBoxState()
+    SwipeToDismissBox(
+        state = state,
+        gesturesEnabled = !fromEdge,
+        onDismiss = { direction ->
+            scope.launch { state.reset() }
+            when (direction) {
                 SwipeToDismissBoxValue.StartToEnd -> scope.launch {
                     model.setPinned(item, !item.pinned)
                     haptics.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -176,12 +180,7 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
                 }
                 SwipeToDismissBoxValue.Settled -> Unit
             }
-            false
         },
-    )
-    SwipeToDismissBox(
-        state = state,
-        gesturesEnabled = !fromEdge,
         modifier = Modifier.pointerInput(Unit) {
             awaitPointerEventScope {
                 while (true) {
@@ -214,15 +213,14 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
 private fun RestoreRow(item: DeadlineItem, now: Instant) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
-    val state = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) scope.launch { model.setHidden(item, false) }
-            false
-        },
-    )
+    val state = rememberSwipeToDismissBoxState()
     SwipeToDismissBox(
         state = state,
         enableDismissFromStartToEnd = false,
+        onDismiss = {
+            scope.launch { state.reset() }
+            scope.launch { model.setHidden(item, false) }
+        },
         backgroundContent = { SwipeAction(Theme.colors.accent, t("common.restore"), Icons.Rounded.Visibility, Alignment.CenterEnd) },
     ) {
         Box(Modifier.background(Theme.colors.surface)) {

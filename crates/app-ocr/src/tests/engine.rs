@@ -222,6 +222,9 @@ fn full_photo_native_pipeline() {
 #[test]
 fn filter_matches_frozen_typescript_reference_pixel_for_pixel() {
     use sha2::{Digest, Sha256};
+    let sha256_hex = |bytes: &[u8]| -> String {
+        Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    };
     let cases: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("../engine/fixtures/ts-filter.json")).unwrap();
     for case in cases {
@@ -255,12 +258,12 @@ fn filter_matches_frozen_typescript_reference_pixel_for_pixel() {
         }
         let result = preprocess::binarize(&image);
         assert_eq!(
-            format!("{:x}", Sha256::digest(result.original.as_raw())),
+            sha256_hex(result.original.as_raw()),
             case["original"].as_str().unwrap(),
             "binary {w}x{h} seed {seed}"
         );
         assert_eq!(
-            format!("{:x}", Sha256::digest(result.cleaned.as_raw())),
+            sha256_hex(result.cleaned.as_raw()),
             case["cleaned"].as_str().unwrap(),
             "denoised {w}x{h} seed {seed}"
         );

@@ -2,7 +2,6 @@ package app.isctcompanion.design
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.ResizeMode.Companion.RemeasureToBounds
 import android.content.Context
@@ -152,33 +151,36 @@ fun CountingText(
 
 /** The navigation host's shared-transition scope and the scope of the
  * destination on screen, provided by the root (`App.kt`). */
-@OptIn(ExperimentalSharedTransitionApi::class)
 val LocalSharedTransition = compositionLocalOf<SharedTransitionScope?> { null }
 val LocalDestinationScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
 
 /** Marks where a course opened with the same `zoom` id grows from: a
  * timetable block, a Today card or a course row. Back shrinks it home. */
 @Composable
-fun Modifier.courseZoomSource(zoom: String?): Modifier = courseZoom(zoom)
+fun Modifier.courseZoomSource(zoom: String?): Modifier = courseZoom(zoom, destination = false)
 
 /** The course page that grows out of its `courseZoomSource`. */
 @Composable
-fun Modifier.courseZoomDestination(zoom: String?): Modifier = courseZoom(zoom)
+fun Modifier.courseZoomDestination(zoom: String?): Modifier = courseZoom(zoom, destination = true)
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun Modifier.courseZoom(zoom: String?): Modifier {
+private fun Modifier.courseZoom(zoom: String?, destination: Boolean): Modifier {
     // With less motion the course page only fades in (NavHost's default).
     if (LocalReducedMotion.current) return this
     val shared = LocalSharedTransition.current ?: return this
     val scope = LocalDestinationScope.current ?: return this
     zoom ?: return this
     return with(shared) {
-        this@courseZoom.sharedBounds(
+        val bounds = this@courseZoom.sharedBounds(
             rememberSharedContentState("course-zoom-$zoom"),
             scope,
             resizeMode = RemeasureToBounds,
             clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(Theme.radiusPanel)),
         )
+        // The source is only ever stretched past its own size, but the page
+        // would be squeezed down to the block's: laid out at that size its
+        // collapsed large title measured a negative height and crashed. The
+        // page keeps its final layout and the animated bounds only clip it.
+        if (destination) bounds.skipToLookaheadSize() else bounds
     }
 }

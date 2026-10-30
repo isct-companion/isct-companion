@@ -22,7 +22,7 @@ fn source() -> Value {
 #[test]
 fn frozen_fixture_manifest_hashes_match_every_source() {
     assert_eq!(
-        format!("{:x}", Sha256::digest(FIXTURE_INDEX.as_bytes())),
+        data_encoding::HEXLOWER.encode(&Sha256::digest(FIXTURE_INDEX.as_bytes())),
         FIXTURE_INDEX_HASH.trim()
     );
     let index: SubscriptionIndex = serde_json::from_str(FIXTURE_INDEX).unwrap();
