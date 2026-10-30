@@ -153,6 +153,13 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
       };
     },
     emit(event, payload) {
+      // Core advances its commit sequence before it tells anyone about the
+      // commit, so every answer read after the event carries at least the
+      // event's `seq`. A scripted event naming a later seq moves it too;
+      // otherwise the shell would rightly wait forever for a fresher answer.
+      const seq = (payload as { seq?: unknown } | null)?.seq;
+      if (event === "workspace-changed" && typeof seq === "number")
+        core.seq = Math.max(core.seq, seq);
       // Tauri hands the listener its `Event` envelope, and the bridge adapter
       // destructures `{ payload }` from it. Delivering the bare payload would
       // silently drop every native event.

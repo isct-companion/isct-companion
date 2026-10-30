@@ -149,20 +149,17 @@ export function createWorkspaceStore(service: WorkspaceService) {
       return;
     }
     // Core emits before the native command resolves. Wait for the command's
-    // own commit, then re-read the revision if another client wrote.
+    // own commit, then treat another client's write as a background one.
+    // Delivery order is not commit order, so the event's revision may
+    // already be superseded: the next intent reads the current one inside
+    // the write queue, and `changesCommitted` above already refetched the
+    // answers that read these changes.
     await writes;
     if (!event.revision) {
       await reload();
       return;
     }
-    if (
-      state.getState().revision === event.revision ||
-      localMutationRevisions.has(event.revision)
-    )
-      return;
-    // Delivery order is not commit order. The event's revision may already
-    // have been superseded, so only a queued read can seed the next edit.
-    await reload();
+    if (!localMutationRevisions.has(event.revision)) revisionStale = true;
   };
   return {
     getState: state.getState,

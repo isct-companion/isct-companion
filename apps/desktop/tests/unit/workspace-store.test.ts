@@ -337,7 +337,10 @@ describe("recovering from a rejected or external write", () => {
       seq: 4,
     });
 
-    expect(store.getState().revision).toBe("r2");
+    // The late event's revision is never adopted, and nothing is read
+    // until an intent needs a baseline.
+    expect(store.getState().revision).not.toBe("external-r1");
+    expect(store.getState().viewRevisions.all).toBeUndefined();
     await store.mutate(appearance("dark"));
     expect(host.mutations.at(-1)?.expectedRevision).toBe("r2");
   });
