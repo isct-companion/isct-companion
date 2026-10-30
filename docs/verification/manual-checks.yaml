@@ -4672,6 +4672,15 @@ checks:
         reason: |
           The page text is larger and the tab opens on 教務Web after relaunch;
           both are device-local settings.
+      - action: |
+          On 設定 tap the 紙 theme swatch, then 苔, in light and dark mode;
+          open 通知 and データ更新, and read the row icons.
+        reason: |
+          The page behind the swatches turns beige, then green-grey, at once,
+          and so do its pushed pages. These lists kept the system's grey, so a
+          theme picked here looked like it did nothing. Each row icon is its
+          role's colour on a soft square of that colour, with no solid grey
+          squares left.
     observe: 設定 and its pushed pages on the device, and the desktop settings.
     expected: |
       Every page reloads what was saved, synced settings match the desktop,
@@ -4684,6 +4693,7 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
       - apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift
       - apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift
+      - apps/ios/IsctCompanion/Design/Polish.swift
     verified: null
 
   - id: MOBILE-NOTIFICATION-PERMISSION
@@ -4774,7 +4784,8 @@ checks:
           chip) and the two after it peek behind; each swipe turns one card,
           the label above follows the front card's day and the counter reads
           1 / 3 to 3 / 3. The stack never changes height, so nothing below
-          moves.
+          moves. The front card's shadow falls on its sides and below only:
+          no grey band shows above its top edge under the label.
       - action: |
           On the first card swipe down, and on the last card swipe up.
         reason: |
@@ -5889,6 +5900,15 @@ checks:
         reason: |
           The pager runs alongside scrolling and taps; a drag that starts
           vertical stays a scroll for its whole length.
+      - action: |
+          Flick the page so it is still scrolling, and swipe left across the
+          lesson card before it stops; repeat a few times in quick
+          succession, then swipe back from the left edge mid-scroll.
+        reason: |
+          The app quit here. A turn renders the next lesson's HTML, and
+          WebKit's import spins the run loop; done inside the pager's gesture
+          update it can corrupt SwiftUI's graph. The page must turn, or pop,
+          and the app keep running.
     observe: The course page pushed from 時間割.
     expected: |
       Lessons turn in the direction of the swipe, each page moves as one piece

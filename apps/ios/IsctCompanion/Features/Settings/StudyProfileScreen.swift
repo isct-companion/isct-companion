@@ -23,32 +23,36 @@ struct StudyProfileScreen: View {
 
     var body: some View {
         Form {
-            Section {
-                Picker(t("settings.main.department"), selection: departmentBinding) {
-                    Text(t("settings.studyProfile.notSet")).tag("")
-                    ForEach(departments, id: \.id) { department in
-                        Text(Localizer.shared.pick(department.name, content: model.records.settings) ?? department.id).tag(department.id)
+            Group {
+                Section {
+                    Picker(t("settings.main.department"), selection: departmentBinding) {
+                        Text(t("settings.studyProfile.notSet")).tag("")
+                        ForEach(departments, id: \.id) { department in
+                            Text(Localizer.shared.pick(department.name, content: model.records.settings) ?? department.id).tag(department.id)
+                        }
+                        // A stored id this list does not hold still shows.
+                        if !departmentId.isEmpty, !departments.contains(where: { $0.id == departmentId }) {
+                            Text(departmentId).tag(departmentId)
+                        }
                     }
-                    // A stored id this list does not hold still shows.
-                    if !departmentId.isEmpty, !departments.contains(where: { $0.id == departmentId }) {
-                        Text(departmentId).tag(departmentId)
+                    Picker(t("settings.main.admissionYear"), selection: Binding(get: { year }, set: { choose(year: $0, stage: stage) })) {
+                        Text(t("settings.studyProfile.notSet")).tag(Int32?.none)
+                        ForEach(years, id: \.self) { Text(t("settings.main.enteredYear", ["year": String($0)])).tag(Int32?.some($0)) }
                     }
-                }
-                Picker(t("settings.main.admissionYear"), selection: Binding(get: { year }, set: { choose(year: $0, stage: stage) })) {
-                    Text(t("settings.studyProfile.notSet")).tag(Int32?.none)
-                    ForEach(years, id: \.self) { Text(t("settings.main.enteredYear", ["year": String($0)])).tag(Int32?.some($0)) }
-                }
-                Picker(t("settings.main.degreeStage"), selection: Binding(get: { stage }, set: { choose(year: year, stage: $0) })) {
-                    ForEach(Self.stages, id: \.0) { Text($0.1).tag($0.0) }
-                }
-            } footer: {
-                if let error {
-                    Text(error).foregroundStyle(Theme.danger)
-                } else {
-                    Text(t("settings.main.usedForCourseSuggestionsAnd"))
+                    Picker(t("settings.main.degreeStage"), selection: Binding(get: { stage }, set: { choose(year: year, stage: $0) })) {
+                        ForEach(Self.stages, id: \.0) { Text($0.1).tag($0.0) }
+                    }
+                } footer: {
+                    if let error {
+                        Text(error).foregroundStyle(Theme.danger)
+                    } else {
+                        Text(t("settings.main.usedForCourseSuggestionsAnd"))
+                    }
                 }
             }
+            .themedRows()
         }
+        .themedList()
         .navigationTitle(t("settings.main.studyProfile"))
         .navigationBarTitleDisplayMode(.inline)
         .task { departments = await model.departments() }

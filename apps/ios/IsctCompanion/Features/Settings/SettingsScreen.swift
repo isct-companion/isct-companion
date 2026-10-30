@@ -52,95 +52,99 @@ struct SettingsScreen: View {
 
     var body: some View {
         List {
-            Section(t("settings.main.schoolAccounts")) {
-                NavigationLink(value: SettingsRoute.account(.science)) {
-                    accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.syncSource("lms")?.lastUpdated)
-                }
-                NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
-                    accountRow(t("settings.main.tokyoTechFormer"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.syncSource("kyomu")?.lastUpdated)
-                }
-            }
-            Section {
-                NavigationLink(value: SettingsRoute.notifications) {
-                    row(t("common.notifications"), notificationSummary, icon: "bell.fill", tint: Theme.danger)
-                }
-                NavigationLink(value: SettingsRoute.studyProfile) {
-                    row(t("settings.main.studyProfile"), nil, icon: "graduationcap.fill", tint: Theme.accent)
-                }
-                NavigationLink(value: SettingsRoute.dataUpdates) {
-                    row(t("settings.main.dataUpdates"), dataSummary, icon: "arrow.triangle.2.circlepath", tint: Theme.ok)
-                }
-                NavigationLink(value: SettingsRoute.backup) {
-                    row(t("settings.main.backup"), backupSummary, icon: "icloud.fill", tint: Theme.accent)
-                }
-            }
-            ThemeSection()
-            LanguageSection()
-            Section(t("common.web")) {
-                Picker(selection: $textScale) {
-                    ForEach(SchoolBrowserHost.textScales, id: \.self) { Text("\($0)%").tag($0) }
-                } label: {
-                    Label { Text(t("common.textSize")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
-                }
-                Picker(selection: $firstSite) {
-                    ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
-                } label: {
-                    Label { Text(t("settings.main.firstSite")) } icon: { SettingsIcon(symbol: "globe", tint: Theme.accent) }
-                }
-            }
-            Section {
-                LabeledContent {
-                    Text(Self.version)
-                } label: {
-                    Label { Text("IsctCompanion") } icon: { SettingsIcon(symbol: "info", tint: Theme.muted) }
-                }
-                Button {
-                    Guide.showAgain()
-                } label: {
-                    Label { Text(t("settings.main.showWelcomeAndTipsAgain")).foregroundStyle(Theme.ink) } icon: {
-                        SettingsIcon(symbol: "lightbulb", tint: Theme.muted)
+            Group {
+                Section(t("settings.main.schoolAccounts")) {
+                    NavigationLink(value: SettingsRoute.account(.science)) {
+                        accountRow("Science Tokyo", model.credentials?.science, model.sessions?.science, model.syncSource("lms")?.lastUpdated)
+                    }
+                    NavigationLink(value: SettingsRoute.account(.tokyoTech)) {
+                        accountRow(t("settings.main.tokyoTechFormer"), model.credentials?.tokyoTech, model.sessions?.tokyoTech, model.syncSource("kyomu")?.lastUpdated)
                     }
                 }
-                if let policy = URL(string: "https://github.com/isct-companion/isct-companion/blob/main/docs/legal/PRIVACY.md") {
-                    Link(destination: policy) {
-                        Label { Text(t("settings.main.privacyPolicy")) } icon: {
-                            SettingsIcon(symbol: "hand.raised", tint: Theme.muted)
+                Section {
+                    NavigationLink(value: SettingsRoute.notifications) {
+                        row(t("common.notifications"), notificationSummary, icon: "bell.fill", tint: Theme.danger)
+                    }
+                    NavigationLink(value: SettingsRoute.studyProfile) {
+                        row(t("settings.main.studyProfile"), nil, icon: "graduationcap.fill", tint: Theme.accent)
+                    }
+                    NavigationLink(value: SettingsRoute.dataUpdates) {
+                        row(t("settings.main.dataUpdates"), dataSummary, icon: "arrow.triangle.2.circlepath", tint: Theme.ok)
+                    }
+                    NavigationLink(value: SettingsRoute.backup) {
+                        row(t("settings.main.backup"), backupSummary, icon: "icloud.fill", tint: Theme.accent)
+                    }
+                }
+                ThemeSection()
+                LanguageSection()
+                Section(t("common.web")) {
+                    Picker(selection: $textScale) {
+                        ForEach(SchoolBrowserHost.textScales, id: \.self) { Text("\($0)%").tag($0) }
+                    } label: {
+                        Label { Text(t("common.textSize")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
+                    }
+                    Picker(selection: $firstSite) {
+                        ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
+                    } label: {
+                        Label { Text(t("settings.main.firstSite")) } icon: { SettingsIcon(symbol: "globe", tint: Theme.accent) }
+                    }
+                }
+                Section {
+                    LabeledContent {
+                        Text(Self.version)
+                    } label: {
+                        Label { Text("IsctCompanion") } icon: { SettingsIcon(symbol: "info", tint: Theme.muted) }
+                    }
+                    Button {
+                        Guide.showAgain()
+                    } label: {
+                        Label { Text(t("settings.main.showWelcomeAndTipsAgain")).foregroundStyle(Theme.ink) } icon: {
+                            SettingsIcon(symbol: "lightbulb", tint: Theme.muted)
                         }
                     }
-                }
-                // List gives a Menu no row treatment: its hit area and menu
-                // preview are the label's own frame. So the label fills the
-                // row, padded into the row insets (taken back outside, keeping
-                // the row's height) so the preview holds the whole icon.
-                Menu {
-                    Button(t("settings.main.saveToFile"), systemImage: "square.and.arrow.down") { saveLogs() }
-                    Button(t("settings.schoolAccounts.copy"), systemImage: "doc.on.doc") { copyLogs() }
-                } label: {
-                    Label { Text(t("settings.main.applicationLogs")).foregroundStyle(Theme.ink) } icon: {
-                        SettingsIcon(symbol: "doc.text", tint: Theme.muted)
+                    if let policy = URL(string: "https://github.com/isct-companion/isct-companion/blob/main/docs/legal/PRIVACY.md") {
+                        Link(destination: policy) {
+                            Label { Text(t("settings.main.privacyPolicy")) } icon: {
+                                SettingsIcon(symbol: "hand.raised", tint: Theme.muted)
+                            }
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
-                    .contentShape(.rect)
-                    .contentShape(.contextMenuPreview, .rect(cornerRadius: 10))
+                    // List gives a Menu no row treatment: its hit area and menu
+                    // preview are the label's own frame. So the label fills the
+                    // row, padded into the row insets (taken back outside, keeping
+                    // the row's height) so the preview holds the whole icon.
+                    Menu {
+                        Button(t("settings.main.saveToFile"), systemImage: "square.and.arrow.down") { saveLogs() }
+                        Button(t("settings.schoolAccounts.copy"), systemImage: "doc.on.doc") { copyLogs() }
+                    } label: {
+                        Label { Text(t("settings.main.applicationLogs")).foregroundStyle(Theme.ink) } icon: {
+                            SettingsIcon(symbol: "doc.text", tint: Theme.muted)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 6)
+                        .contentShape(.rect)
+                        .contentShape(.contextMenuPreview, .rect(cornerRadius: 10))
+                    }
+                    .padding(.vertical, -6)
+                } header: {
+                    Text(t("settings.main.about"))
+                } footer: {
+                    Text(t("settings.main.calendarEditingCourseFoldersAnd"))
                 }
-                .padding(.vertical, -6)
-            } header: {
-                Text(t("settings.main.about"))
-            } footer: {
-                Text(t("settings.main.calendarEditingCourseFoldersAnd"))
+                // Destructive rows last, as in the system Settings.
+                Section(t("settings.reset.group")) {
+                    NavigationLink(value: SettingsRoute.reset(.schoolCaches)) {
+                        row(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), icon: "arrow.counterclockwise", tint: Theme.warn)
+                    }
+                    NavigationLink(value: SettingsRoute.reset(.everything)) {
+                        row(t("settings.reset.full.title"), t("settings.reset.full.hint"), icon: "exclamationmark.arrow.triangle.2.circlepath", tint: Theme.danger)
+                            .foregroundStyle(Theme.danger)
+                    }
+                }
             }
-            // Destructive rows last, as in the system Settings.
-            Section(t("settings.reset.group")) {
-                NavigationLink(value: SettingsRoute.reset(.schoolCaches)) {
-                    row(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), icon: "arrow.counterclockwise", tint: Theme.warn)
-                }
-                NavigationLink(value: SettingsRoute.reset(.everything)) {
-                    row(t("settings.reset.full.title"), t("settings.reset.full.hint"), icon: "exclamationmark.arrow.triangle.2.circlepath", tint: Theme.danger)
-                        .foregroundStyle(Theme.danger)
-                }
-            }
+            .themedRows()
         }
+        .themedList()
         .navigationTitle(t("common.settings"))
         .onChange(of: textScale) { _, percent in web.browser.setTextScale(percent) }
         .onChange(of: firstSite) { _, site in WebRouter.firstSite = site }
@@ -252,19 +256,21 @@ struct SettingsScreen: View {
     }
 }
 
-/// The system Settings' row icon: a white symbol on a rounded square in a
-/// token role, never a system rainbow colour: accent for preferences, ok for
-/// data, warn and danger for caution, muted for utilities.
+/// The row icon: the symbol in a token role on a soft square of the same
+/// role, never a system rainbow colour: accent for preferences, ok for data,
+/// warn and danger for caution, muted for utilities. Solid squares in these
+/// deep roles, half of them grey, made the list look heavy.
 private struct SettingsIcon: View {
     let symbol: String
     let tint: Color
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(Theme.onSolid)
+            .font(.system(size: 15, weight: .medium))
+            .symbolVariant(.fill)
+            .foregroundStyle(tint)
             .frame(width: 29, height: 29)
-            .background(tint.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 
@@ -301,49 +307,53 @@ private struct AccountScreen: View {
 
     var body: some View {
         Form {
-            Section {
-                TextField(t("settings.main.studentID"), text: $username)
-                    .textContentType(.username)
-                    .keyboardType(.asciiCapable)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                SecureField(summary?.saved == true ? t("settings.main.passwordEnterOnlyToChange") : t("settings.main.password"), text: $password)
-                    .textContentType(.password)
-            } footer: {
-                Text(t("settings.main.thePasswordIsSavedIn"))
-            }
-            // Pasted keys, not passwords: a second secure field makes AutoFill
-            // read the form as a sign-up and offer new credentials instead of
-            // the saved login. They stay out of screenshots and the app switcher.
-            if profile == .science {
-                Section(t("settings.main.oneTimePassword")) {
-                    OtpImportField(saved: summary?.hasOtp == true, setup: $otpSecret)
-                }
-            } else {
-                MatrixImportSection(saved: summary?.hasMatrix == true, matrix: $matrix)
-            }
-            if let message = error ?? (saving ? nil : problem) {
-                Section { Text(message).foregroundStyle(Theme.danger) }
-            }
-            Section {
-                Button {
-                    Task { await save() }
-                } label: {
-                    if saving { ProgressView() } else { Text(t("settings.main.saveAndConnect")) }
-                }
-                .disabled(saving || username.isEmpty || (password.isEmpty && summary?.saved != true))
-            }
-            if summary?.saved == true {
+            Group {
                 Section {
-                    Button(t("settings.main.removeSignInDetailsFrom"), role: .destructive) {
-                        Task {
-                            await model.deleteCredentials(profile)
-                            dismiss()
+                    TextField(t("settings.main.studentID"), text: $username)
+                        .textContentType(.username)
+                        .keyboardType(.asciiCapable)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    SecureField(summary?.saved == true ? t("settings.main.passwordEnterOnlyToChange") : t("settings.main.password"), text: $password)
+                        .textContentType(.password)
+                } footer: {
+                    Text(t("settings.main.thePasswordIsSavedIn"))
+                }
+                // Pasted keys, not passwords: a second secure field makes AutoFill
+                // read the form as a sign-up and offer new credentials instead of
+                // the saved login. They stay out of screenshots and the app switcher.
+                if profile == .science {
+                    Section(t("settings.main.oneTimePassword")) {
+                        OtpImportField(saved: summary?.hasOtp == true, setup: $otpSecret)
+                    }
+                } else {
+                    MatrixImportSection(saved: summary?.hasMatrix == true, matrix: $matrix)
+                }
+                if let message = error ?? (saving ? nil : problem) {
+                    Section { Text(message).foregroundStyle(Theme.danger) }
+                }
+                Section {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if saving { ProgressView() } else { Text(t("settings.main.saveAndConnect")) }
+                    }
+                    .disabled(saving || username.isEmpty || (password.isEmpty && summary?.saved != true))
+                }
+                if summary?.saved == true {
+                    Section {
+                        Button(t("settings.main.removeSignInDetailsFrom"), role: .destructive) {
+                            Task {
+                                await model.deleteCredentials(profile)
+                                dismiss()
+                            }
                         }
                     }
                 }
             }
+            .themedRows()
         }
+        .themedList()
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { username = summary?.username ?? "" }

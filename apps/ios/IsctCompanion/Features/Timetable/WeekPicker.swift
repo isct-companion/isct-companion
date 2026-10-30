@@ -26,29 +26,33 @@ struct WeekPicker: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 List {
-                    Section {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(year?.quarters ?? [], id: \.term) { quarter in
-                                    Button(Format.quarter(quarter.term)) {
-                                        if let date = Format.civilDate(quarter.firstWeek) { pick(date) }
+                    Group {
+                        Section {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(year?.quarters ?? [], id: \.term) { quarter in
+                                        Button(Format.quarter(quarter.term)) {
+                                            if let date = Format.civilDate(quarter.firstWeek) { pick(date) }
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .tint(isShown(quarter) ? Theme.accent : Theme.muted)
                                     }
-                                    .buttonStyle(.bordered)
-                                    .tint(isShown(quarter) ? Theme.accent : Theme.muted)
+                                }
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        }
+                        ForEach(months(year), id: \.title) { month in
+                            Section(month.title) {
+                                ForEach(month.weeks, id: \.monday) { week in
+                                    if let year { row(week, in: year).id(week.monday) }
                                 }
                             }
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                     }
-                    ForEach(months(year), id: \.title) { month in
-                        Section(month.title) {
-                            ForEach(month.weeks, id: \.monday) { week in
-                                if let year { row(week, in: year).id(week.monday) }
-                            }
-                        }
-                    }
+                    .themedRows()
                 }
+                .themedList()
                 .onAppear { proxy.scrollTo(AppModel.civil(monday), anchor: .center) }
             }
             .navigationTitle(year.map { t("timetable.academicYear", ["year": String($0.year)]) } ?? t("timetable.chooseAWeek"))

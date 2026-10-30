@@ -138,11 +138,14 @@ struct CourseDetailScreen: View {
         guard target != lesson else { return }
         let from = index ?? 0
         let to = lessons.firstIndex { Int($0.section) == target } ?? 0
-        HTMLCache.warm(Self.html(of: lessons[to]))
+        let html = Self.html(of: lessons[to])
         step = to < from ? .previous : .next
         // The leaving page takes its removal from `step`: let it render with
-        // the new step once before it is removed.
+        // the new step once before it is removed. The page's text renders
+        // there too, not here: a swipe calls this from the pager's gesture
+        // update, and WebKit's HTML import spins the run loop (`HTMLText`).
         DispatchQueue.main.async {
+            HTMLCache.warm(html)
             withAnimation(.smooth(duration: Theme.motionBase)) { lesson = target }
         }
     }

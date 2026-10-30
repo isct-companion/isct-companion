@@ -64,67 +64,71 @@ struct NotificationsScreen: View {
 
     var body: some View {
         Form {
-            Section {
-                Toggle(t("settings.main.remindMeBeforeClasses"), isOn: binding("classes", current: settings["classes"] as? Bool ?? false))
-                if settings["classes"] as? Bool == true {
-                    Picker(t("settings.main.remindMe"), selection: leadBinding("classLeadMinutes", ReminderLeads.classLead(settings))) {
-                        ForEach(ReminderLeads.classChoices, id: \.self) { Text(ReminderLeads.label($0)).tag($0) }
-                    }
-                }
-            }
-            Section {
-                Toggle(t("settings.main.remindMeBeforeExams"), isOn: binding("exams", current: ReminderLeads.exams(settings)))
-                if ReminderLeads.exams(settings) {
-                    let lead = ReminderLeads.examLead(settings)
-                    Picker(t("settings.main.remindMe"), selection: leadBinding("examLeadMinutes", lead)) {
-                        ForEach(Array(Set(ReminderLeads.examChoices + [lead])).sorted(), id: \.self) {
-                            Text(ReminderLeads.label($0)).tag($0)
+            Group {
+                Section {
+                    Toggle(t("settings.main.remindMeBeforeClasses"), isOn: binding("classes", current: settings["classes"] as? Bool ?? false))
+                    if settings["classes"] as? Bool == true {
+                        Picker(t("settings.main.remindMe"), selection: leadBinding("classLeadMinutes", ReminderLeads.classLead(settings))) {
+                            ForEach(ReminderLeads.classChoices, id: \.self) { Text(ReminderLeads.label($0)).tag($0) }
                         }
                     }
                 }
-                // Also decides Today's upcoming exams, so it stays while
-                // reminders are off and asks for no permission.
-                Toggle(isOn: Binding(
-                    get: { ReminderLeads.quizzes(settings) },
-                    set: { on in Task { await model.setNotifications { $0["quizzes"] = on } } })
-                ) {
-                    Text(t("settings.main.countQuizzesAsExams"))
-                    Text(t("settings.main.quizzesAppearInUpcomingExams"))
+                Section {
+                    Toggle(t("settings.main.remindMeBeforeExams"), isOn: binding("exams", current: ReminderLeads.exams(settings)))
+                    if ReminderLeads.exams(settings) {
+                        let lead = ReminderLeads.examLead(settings)
+                        Picker(t("settings.main.remindMe"), selection: leadBinding("examLeadMinutes", lead)) {
+                            ForEach(Array(Set(ReminderLeads.examChoices + [lead])).sorted(), id: \.self) {
+                                Text(ReminderLeads.label($0)).tag($0)
+                            }
+                        }
+                    }
+                    // Also decides Today's upcoming exams, so it stays while
+                    // reminders are off and asks for no permission.
+                    Toggle(isOn: Binding(
+                        get: { ReminderLeads.quizzes(settings) },
+                        set: { on in Task { await model.setNotifications { $0["quizzes"] = on } } })
+                    ) {
+                        Text(t("settings.main.countQuizzesAsExams"))
+                        Text(t("settings.main.quizzesAppearInUpcomingExams"))
+                    }
                 }
-            }
-            Section {
-                Toggle(t("settings.main.remindMeBeforeAssignmentDeadlines"), isOn: binding("assignments", current: settings["assignments"] as? Bool ?? false))
-                if settings["assignments"] as? Bool == true {
-                    NavigationLink(value: SettingsRoute.assignmentLeads) {
-                        LabeledContent(t("settings.main.remindMe")) {
-                            Text(ReminderLeads.assignmentLeads(settings).sorted(by: >).map(ReminderLeads.label).joined(separator: "、"))
-                                .lineLimit(2)
+                Section {
+                    Toggle(t("settings.main.remindMeBeforeAssignmentDeadlines"), isOn: binding("assignments", current: settings["assignments"] as? Bool ?? false))
+                    if settings["assignments"] as? Bool == true {
+                        NavigationLink(value: SettingsRoute.assignmentLeads) {
+                            LabeledContent(t("settings.main.remindMe")) {
+                                Text(ReminderLeads.assignmentLeads(settings).sorted(by: >).map(ReminderLeads.label).joined(separator: "、"))
+                                    .lineLimit(2)
+                            }
                         }
                     }
                 }
-            }
-            Section {
-                LabeledContent(t("settings.main.testNotification")) {
-                    Button(t("settings.notification.send")) {
-                        Task {
-                            let sent = await NotificationScheduler.sendTest()
-                            denied = !sent
-                            tested = sent
+                Section {
+                    LabeledContent(t("settings.main.testNotification")) {
+                        Button(t("settings.notification.send")) {
+                            Task {
+                                let sent = await NotificationScheduler.sendTest()
+                                denied = !sent
+                                tested = sent
+                            }
                         }
                     }
-                }
-                if denied, let url = URL(string: UIApplication.openNotificationSettingsURLString) {
-                    Button(t("settings.main.openSettings")) { openURL(url) }
-                }
-            } footer: {
-                if denied {
-                    Text(t("settings.main.notificationsAreNotAllowedAllow"))
-                        .foregroundStyle(Theme.danger)
-                } else if tested {
-                    Text(t("settings.notification.theSystemAcceptedTheTest"))
+                    if denied, let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                        Button(t("settings.main.openSettings")) { openURL(url) }
+                    }
+                } footer: {
+                    if denied {
+                        Text(t("settings.main.notificationsAreNotAllowedAllow"))
+                            .foregroundStyle(Theme.danger)
+                    } else if tested {
+                        Text(t("settings.notification.theSystemAcceptedTheTest"))
+                    }
                 }
             }
+            .themedRows()
         }
+        .themedList()
         .navigationTitle(t("common.notifications"))
         .navigationBarTitleDisplayMode(.inline)
         // The answer can change in the Settings app while this screen is away.
@@ -175,24 +179,28 @@ struct AssignmentLeadsScreen: View {
     var body: some View {
         let chosen = selected
         Form {
-            Section {
-                ForEach(Array(Set(ReminderLeads.assignmentChoices + chosen)).sorted(by: >), id: \.self) { minutes in
-                    let on = chosen.contains(minutes)
-                    Button {
-                        toggle(minutes, in: chosen)
-                    } label: {
-                        HStack {
-                            Text(ReminderLeads.label(minutes)).foregroundStyle(Theme.ink)
-                            Spacer()
-                            if on { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+            Group {
+                Section {
+                    ForEach(Array(Set(ReminderLeads.assignmentChoices + chosen)).sorted(by: >), id: \.self) { minutes in
+                        let on = chosen.contains(minutes)
+                        Button {
+                            toggle(minutes, in: chosen)
+                        } label: {
+                            HStack {
+                                Text(ReminderLeads.label(minutes)).foregroundStyle(Theme.ink)
+                                Spacer()
+                                if on { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                            }
                         }
+                        .disabled(on ? chosen.count == 1 : chosen.count >= ReminderLeads.maxAssignment)
                     }
-                    .disabled(on ? chosen.count == 1 : chosen.count >= ReminderLeads.maxAssignment)
+                } footer: {
+                    Text(t("settings.main.remindsYouAtEveryTime", ["max": ReminderLeads.maxAssignment]))
                 }
-            } footer: {
-                Text(t("settings.main.remindsYouAtEveryTime", ["max": ReminderLeads.maxAssignment]))
             }
+            .themedRows()
         }
+        .themedList()
         .sensoryFeedback(.selection, trigger: chosen)
         .navigationTitle(t("settings.notification.assignmentReminderTimes"))
         .navigationBarTitleDisplayMode(.inline)

@@ -81,6 +81,19 @@ private struct OKLab {
 }
 
 extension View {
+    /// A List or Form on the background theme. The system's grouped greys
+    /// ignore Settings → theme, so a page of them looked unchanged when a
+    /// theme was picked on it.
+    func themedList() -> some View {
+        scrollContentBackground(.hidden).background(Theme.bg)
+    }
+
+    /// The rows inside a themed List or Form; a row's own
+    /// `listRowBackground` (a clear one) still wins.
+    func themedRows() -> some View {
+        listRowBackground(Theme.surface)
+    }
+
     /// The hero card: course tint, continuous corners and a hairline in the tint.
     func heroCard(tint: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous)

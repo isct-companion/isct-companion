@@ -177,30 +177,34 @@ struct InboxSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(inbox.items) { item in
-                                VStack(spacing: 6) {
-                                    if let url = item.url { Thumbnail(url: url).frame(width: 72, height: 92) }
-                                    Text(item.name).font(.caption2).lineLimit(1).frame(width: 80)
-                                }
-                                .contextMenu {
-                                    Button(t("common.delete"), systemImage: "trash", role: .destructive) { inbox.remove(item) }
+                Group {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(inbox.items) { item in
+                                    VStack(spacing: 6) {
+                                        if let url = item.url { Thumbnail(url: url).frame(width: 72, height: 92) }
+                                        Text(item.name).font(.caption2).lineLimit(1).frame(width: 80)
+                                    }
+                                    .contextMenu {
+                                        Button(t("common.delete"), systemImage: "trash", role: .destructive) { inbox.remove(item) }
+                                    }
                                 }
                             }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
+                    }
+                    if let groups = model.board?.today {
+                        section(t("common.pinned"), groups.pinned)
+                        section(t("common.thisWeek"), groups.dueThisWeek)
+                        section(t("assignments.nextWeekAndLater"), groups.later)
+                        section(t("common.noDeadline"), groups.undated)
+                        section(t("common.past"), groups.pastRecent)
                     }
                 }
-                if let groups = model.board?.today {
-                    section(t("common.pinned"), groups.pinned)
-                    section(t("common.thisWeek"), groups.dueThisWeek)
-                    section(t("assignments.nextWeekAndLater"), groups.later)
-                    section(t("common.noDeadline"), groups.undated)
-                    section(t("common.past"), groups.pastRecent)
-                }
+                .themedRows()
             }
+            .themedList()
             .disabled(giving)
             .navigationTitle(t("common.handInTo"))
             .navigationBarTitleDisplayMode(.inline)

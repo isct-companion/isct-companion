@@ -361,9 +361,26 @@ private struct StackCard: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .heroCard(tint: tint)
         // The mesh is translucent; an opaque base keeps the cards behind
-        // from showing through, so the stack reads as separate cards.
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-        .shadow(color: .black.opacity(0.10), radius: 6, y: 2)
+        // from showing through, so the stack reads as separate cards. Its
+        // shadow falls below only, onto the cards behind: none over the
+        // label above the stack, and none at the top corners, where the side
+        // shadow fades in only once the corners have turned.
+        .background {
+            let shape = RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous)
+            ZStack {
+                shape.fill(Theme.surface)
+                    .shadow(color: .black.opacity(0.10), radius: 6, y: 2)
+                    .mask {
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                                .frame(height: Theme.radiusPanel * 2)
+                            Rectangle()
+                        }
+                        .padding([.horizontal, .bottom], -16)
+                    }
+                shape.fill(Theme.surface)
+            }
+        }
     }
 }
 
