@@ -72,7 +72,7 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 [target.'cfg(target_os = "windows")'.dependencies]
 # Native Windows toast delivery returns the WinRT result synchronously so test
 # notifications and reminder claims reflect the native result.
-tauri-winrt-notification = "0.7.3"
+tauri-winrt-notification = "0.8.1"
 # Mica needs Windows 11; the build number decides whether the window gets it.
 windows-version = "0.1"
 # CF_HDROP and the share UI for a course file (file_share_windows.rs); the
