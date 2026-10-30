@@ -32,7 +32,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 uuid = { version = "1", features = ["v4", "v7"] }
 base64 = "0.23"
 keyring = "4.2"
-rand = "0.9"
+rand = "0.10"
 # TLS comes from Core: build clients with `app_core::net::client_builder()`.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy", "json", "form", "stream", "cookies"] }
 url = "2.5"
