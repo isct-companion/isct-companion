@@ -787,6 +787,96 @@ fn course<'a>(snapshot: &'a ReadBack, id: &str) -> &'a Value {
         .unwrap()
 }
 
+/// A phone and a Mac each made an override row for one course, and sync
+/// brought the phone's into the Mac without its key columns. Marks made on
+/// the Mac then went to the Mac's own row while the course read the phone's
+/// (the first by id): the toast said the lesson was recorded and the rail
+/// never moved.
+#[test]
+fn a_lesson_mark_shows_after_sync_brings_another_devices_override_row() {
+    let offering = json!({
+        "id":"202600002", "year":2026, "quarters":["3Q"],
+        "code":"CSC.T364", "title":{"en":"Systems"},
+        "instructors":[{"en":"Teacher One"}],
+        "syllabusUrl":"https://syllabus.s.isct.ac.jp/courses/202600002",
+        "credits":{"lecture":2,"exercise":0,"lab":0},
+        "instructionLanguage":"ja", "format":{"kinds":["lecture"]}, "media":{},
+        "academicUnit":{}, "intensive":false, "fetchedAt":{},
+        "schedule":[{"kind":"weekly","day":1,"periods":[1,2]}]
+    });
+    let add = |service: &WorkspaceService| {
+        let added = mutate(
+            service,
+            WorkspaceIntent::AddCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offerings: vec![offering.clone()],
+            },
+        );
+        added.workspace["courses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|course| course["offeringId"] == "202600002")
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let mark = |service: &WorkspaceService, course_id: &str, occurrence: &str, section_id| {
+        mutate(
+            service,
+            WorkspaceIntent::RecordLesson {
+                course_id: course_id.into(),
+                occurrence: occurrence.into(),
+                section_id,
+            },
+        )
+    };
+    let last_mark = |snapshot: &ReadBack, course_id: &str| {
+        course(snapshot, course_id)["overrides"]["lessonLog"]
+            .as_array()
+            .and_then(|log| log.last())
+            .cloned()
+            .unwrap()
+    };
+    let phone = service("lesson-mark-phone");
+    let mac = service("lesson-mark-mac");
+    // Each device has its own id for the course; sync maps rows by its key.
+    mark(&phone, &add(&phone), "2026-10-05T08:50:00+09:00", 101);
+    let course_id = add(&mac);
+    mark(&mac, &course_id, "2026-10-12T08:50:00+09:00", 102);
+    mac.store
+        .merge_cloud_data(
+            &phone.store.export_document(json!([])).unwrap(),
+            crate::data::WorkspaceChangeSource::CloudSync,
+        )
+        .unwrap();
+    // Two live rows now name the course; the Mac's later mark wins.
+    assert_eq!(
+        mac.store
+            .user_rows("course_overrides")
+            .unwrap()
+            .iter()
+            .filter(|row| row.get("deletedAt").is_none())
+            .count(),
+        2
+    );
+    assert_eq!(
+        last_mark(&mac.read_back().unwrap(), &course_id)["sectionId"],
+        102
+    );
+
+    let marked = mark(&mac, &course_id, "2026-10-19T08:50:00+09:00", 103);
+    let latest = last_mark(&marked, &course_id);
+    assert_eq!(latest["occurrence"], "2026-10-19T08:50:00+09:00");
+    assert_eq!(latest["sectionId"], 103);
+    for service in [phone, mac] {
+        let directory = service.store.directory().to_path_buf();
+        drop(service);
+        let _ = std::fs::remove_dir_all(directory);
+    }
+}
+
 #[test]
 fn course_edits_merge_into_one_overlay_and_batch_credits_reach_every_course() {
     let service = service("course-overlay");

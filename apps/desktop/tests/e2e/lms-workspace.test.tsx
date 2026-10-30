@@ -319,8 +319,9 @@ type WorkspaceOptions = {
   entry?: Partial<CourseEntry>;
   active?: boolean;
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
-  /** Core's `courseContent` answer; by default the fixture's (`contentFor`). */
-  content?: CourseContent;
+  /** Core's `courseContent` answer, or how it answers each read; by
+   * default the fixture's (`contentFor`). */
+  content?: CourseContent | (() => CourseContent);
   tasks?: unknown;
   /** Core's `courseDetail` answer, which carries the course's syllabus link. */
   detail?: unknown;
@@ -342,7 +343,10 @@ async function openWorkspace(
         lmsCourses: [fixture.record],
       },
       queries: {
-        courseContent: () => options.content ?? contentFor(fixture),
+        courseContent: () =>
+          typeof options.content === "function"
+            ? options.content()
+            : (options.content ?? contentFor(fixture)),
         taskView: () => options.tasks ?? null,
         courseDetail: () => options.detail ?? null,
       },
@@ -988,6 +992,61 @@ describe("the LMS reading workspace", () => {
       "2026-10-08T10:45:00+09:00",
       "Lesson 3",
     );
+  }, 30_000);
+
+  it("moves the course to a lesson once its double-click mark is committed", async () => {
+    const f = lectureFixture();
+    f.record.sections = [1, 2, 3].map((number) => ({
+      id: 10 + number,
+      number,
+      title: `第${number}回`,
+      visible: true,
+    }));
+    f.workspace.materials = [];
+    const classAt = "2026-10-08T10:45:00+09:00";
+    const labels = { 11: ["1", 1], 12: ["2", 2], 13: ["3", 3] } as Record<
+      number,
+      [string, number]
+    >;
+    // Core answers from what is stored: the lesson the last mark names
+    // (section ids 11–13 are lessons 1–3).
+    let marked = 2;
+    const { workspaceActions } = await import("@app/store/workspace");
+    const { host } = await openWorkspace(f, {
+      entry: { request: 96 },
+      content: () => lessonContent(f, labels, marked, classAt),
+      handle: (command, args) => {
+        if (command !== "mutate_workspace") return undefined;
+        const intent = (args.mutation as { intent: { sectionId?: number } })
+          .intent;
+        if (intent.sectionId != null) marked = intent.sectionId - 10;
+        return undefined;
+      },
+      // The shell's own wiring (App): the mark is a recordLesson intent.
+      markLesson: (sectionId, occurrence) =>
+        void workspaceActions.mutate({
+          kind: "recordLesson",
+          courseId: f.course.id,
+          occurrence,
+          sectionId,
+        }),
+    });
+    const rail = () => [
+      ...host.querySelectorAll<HTMLElement>(
+        ".lmsLessonRail button:not(.lmsRailTab)",
+      ),
+    ];
+    const held = () =>
+      rail().map((button) => button.classList.contains("held"));
+    await waitFor(() => expect(held()).toEqual([true, true, false]));
+
+    await act(async () => {
+      rail()[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+
+    // The commit names courses, so the content is read again and the rail
+    // holds every lesson up to the one just marked.
+    await waitFor(() => expect(held()).toEqual([true, true, true]));
   }, 30_000);
 
   it("shows an assignment as submitted when Core's task view says so, whatever the LMS field", async () => {
