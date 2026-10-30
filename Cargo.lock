@@ -85,7 +85,7 @@ name = "app-core"
 version = "1.0.0-rc.1"
 dependencies = [
  "adpt-isct",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "chrono",
  "data-encoding",
@@ -147,7 +147,7 @@ name = "app-ocr"
 version = "1.0.0-rc.1"
 dependencies = [
  "app-core",
- "base64 0.22.1",
+ "base64 0.23.1",
  "image",
  "imageproc",
  "nalgebra",
@@ -473,12 +473,6 @@ name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -2718,7 +2712,7 @@ dependencies = [
  "app-core",
  "app-ocr",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "block2",
  "chrono",
  "hickory-resolver",
