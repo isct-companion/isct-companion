@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -191,7 +193,8 @@ fun TimetableScreen() {
         Header(monday, chip(year, monday), term, openPicker = { picker = true }) { go(thisWeek(), slow = false) }
         GuideTip("timetable-marks", "guide.swipeToChangeWeeks", "timetable.longPressAClassTo")
         // Period rows share the height the screen leaves, so the week fits
-        // without scrolling (with a floor for very short windows).
+        // without scrolling; past the floor (a tablet on its side, split
+        // screen) the grid scrolls instead of cutting off the last periods.
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val length = axis?.length ?: 12.5
             val rowHeight = maxOf(minimumRow, floor(((maxHeight - dayHeaderHeight).value / length)).dp)
@@ -202,6 +205,7 @@ fun TimetableScreen() {
                 Modifier
                     .offset { IntOffset(shift.value.roundToInt(), 0) }
                     .graphicsLayer { alpha = fade.value }
+                    .verticalScroll(rememberScrollState())
                     .pointerInput(Unit) {
                         val tracker = VelocityTracker()
                         var total = 0f

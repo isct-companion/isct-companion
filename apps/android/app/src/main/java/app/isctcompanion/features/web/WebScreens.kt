@@ -349,7 +349,7 @@ fun WebTabScreen() {
             navigationIcon = { Row { HistoryButtons(web.tabSite) } },
             title = { SiteTitle() },
             actions = { PageMenu(web.tabSite) },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Theme.colors.bg),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )
         Box(Modifier.fillMaxSize()) {
             SchoolPage(web.tabSite, Modifier.fillMaxSize())

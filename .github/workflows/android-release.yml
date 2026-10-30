@@ -113,6 +113,15 @@ jobs:
           path: ${{ runner.temp }}/apk/
           if-no-files-found: error
           retention-days: 14
+      # R8's mapping for this signed build, to deobfuscate its crash stacks
+      # (`retrace mapping.txt stack.txt`). Kept as long as the repository allows.
+      - uses: actions/upload-artifact@v7
+        if: env.SIGNED == 'true'
+        with:
+          name: android-r8-mapping-${{ env.VERSION }}
+          path: apps/android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
+          retention-days: 90
       - name: Attach to the GitHub release
         if: env.RELEASE_TAG != ''
         env:

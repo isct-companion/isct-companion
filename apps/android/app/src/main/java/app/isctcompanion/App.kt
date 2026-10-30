@@ -6,11 +6,15 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Application
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -54,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import kotlin.math.min
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -124,6 +129,7 @@ class IsctApplication : Application() {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        holdPhonesUpright()
         enableEdgeToEdge()
         val model = (application as IsctApplication).model
         model.browser.attachParking(this)
@@ -141,6 +147,21 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         (application as IsctApplication).model.browser.detachActivity(this)
         super.onDestroy()
+    }
+
+    // Folding or unfolding recreates the activity, which asks again in
+    // onCreate; this covers a size change delivered without recreating.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        holdPhonesUpright()
+    }
+
+    /** A phone stays upright, as iPhone does; a tablet or an unfolded
+     * foldable turns freely, as iPad does. Only the manifest's `portrait`
+     * would also lock tablets on targetSdk 35. */
+    private fun holdPhonesUpright() {
+        requestedOrientation =
+            if (largeScreen()) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
 
     override fun onResume() {
@@ -189,18 +210,21 @@ class Navigator(private val controller: NavHostController) {
     /** Switches to the 設定 tab, as tapping it would, or onto an account page. */
     fun openSettings(account: SchoolAuthProfile? = null) {
         settingsAccount = account
-        controller.navigate("tab/settings") {
-            popUpTo(controller.graph.findStartDestination().id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
+        openTab("tab/settings")
+    }
+
+    /** Switches tabs, keeping each tab's stack. */
+    fun openTab(route: String) = controller.navigate(route) {
+        popUpTo(controller.graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
     }
 
     fun back() = controller.popBackStack()
 }
 
 /** Assignments live on 今日, and 設定 is the last tab. 授業 is a tab only on
- * wide windows (tablets), as on iPad; a phone reaches courses from 今日 and
+ * tablets, as on iPad; a phone reaches courses from 今日 and
  * 時間割. */
 private enum class AppTab(
     val route: String, val start: String, val label: String, val icon: ImageVector, val wideOnly: Boolean = false,
@@ -212,8 +236,17 @@ private enum class AppTab(
     Settings("tab/settings", "settings", "common.settings", Icons.Rounded.Settings),
 }
 
-/** Window width from which the layout is a tablet's, as iOS tells iPad. */
+/** Smallest width from which the device is a tablet, as iOS tells iPad. */
 private const val WIDE_DP = 600
+
+/** Whether this is a tablet or an unfolded foldable: the largest window the
+ * display allows is at least [WIDE_DP] on its shorter side. Told by size
+ * alone, never by model (AGENTS.md §3), and the same in split screen or a
+ * rotated window, as iPad's idiom is. Needs the activity as context. */
+private fun Context.largeScreen(): Boolean {
+    val metrics = getSystemService(WindowManager::class.java).maximumWindowMetrics
+    return min(metrics.bounds.width(), metrics.bounds.height()) / metrics.density >= WIDE_DP
+}
 
 @Composable
 private fun RootView() {
@@ -272,6 +305,15 @@ private fun Tabs() {
     val current = stack.asReversed().firstNotNullOfOrNull { e ->
         AppTab.entries.firstOrNull { it.route == e.destination.parent?.route }
     } ?: AppTab.Today
+    // The device's class, not this window's width: the tab set stays put in
+    // split screen and only changes when a foldable folds.
+    val configuration = LocalConfiguration.current
+    val context = LocalContext.current
+    val wide = remember(configuration) { context.largeScreen() }
+    LaunchedEffect(wide, current) {
+        // Folded while on 授業, which the phone's bar has no tab for.
+        if (!wide && current == AppTab.Lectures) navigator.openTab(AppTab.Today.route)
+    }
     // A pushed school page fills the screen, like a browser tab.
     val showsBar = destination?.route?.startsWith("page/") != true
     val snackbar = remember { SnackbarHostState() }
@@ -294,7 +336,6 @@ private fun Tabs() {
             bottomBar = {
                 if (showsBar) {
                     NavigationBar {
-                        val wide = LocalConfiguration.current.screenWidthDp >= WIDE_DP
                         for (tab in AppTab.entries.filter { wide || !it.wideOnly }) {
                             NavigationBarItem(
                                 selected = tab == current,
@@ -305,11 +346,7 @@ private fun Tabs() {
                                         controller.popBackStack(tab.start, inclusive = false)
                                         if (tab == AppTab.Web) model.web.goHome(model.web.tabSite)
                                     } else {
-                                        controller.navigate(tab.route) {
-                                            popUpTo(controller.graph.findStartDestination().id) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
+                                        navigator.openTab(tab.route)
                                     }
                                 },
                                 icon = { Icon(tab.icon, null) },

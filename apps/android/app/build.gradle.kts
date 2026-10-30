@@ -109,7 +109,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.annotation:annotation-jvm:1.9.1")
 
-    implementation(platform("androidx.compose:compose-bom:2025.06.01"))
+    // material3 1.4.0 at least: its top app bar no longer measures a negative
+    // height once a collapsed large title is squeezed (keyboard, split screen).
+    // The last BOM on Compose 1.9: a small step from 1.8.
+    implementation(platform("androidx.compose:compose-bom:2025.11.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")

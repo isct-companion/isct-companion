@@ -4849,13 +4849,15 @@ checks:
       week and open assignments in the current quarter.
     steps:
       - action: |
-          Read the navigation bar on a phone, then on a tablet or a window at
-          least 600 dp wide.
+          Read the navigation bar on a phone, then on a tablet, then on the
+          tablet in split screen.
         reason: |
           Four destinations on a phone, 今日 · 時間割 · ウェブ · 設定, with 設定
           last; 設定 is a page in its own tab, no longer a sheet from 今日. A
-          wide window adds 授業 after 時間割, as on iPad, listing the quarter's
-          courses; 授業 on a phone means the width rule is wrong.
+          tablet adds 授業 after 時間割, as on iPad, listing the quarter's
+          courses, and keeps it in split screen as iPad does; 授業 on a phone,
+          or a tab bar that changes with the window, means the device rule is
+          wrong.
       - action: |
           Swipe up and down on the class card, and past either end of the
           stack.
@@ -4910,9 +4912,16 @@ checks:
           Open 時間割 and look at the grid without scrolling.
         reason: |
           Rows come from Core's timetable axis and share the height the screen
-          leaves, so the whole week fits; the lunch band is shaded and half a
-          row. A grid that scrolls or a full-height lunch row means the shell
-          still uses its own period table.
+          leaves, so on a phone the whole week fits; the lunch band is shaded
+          and half a row. A grid that scrolls on a phone or a full-height lunch
+          row means the shell still uses its own period table.
+      - action: |
+          On a small tablet turned on its side (or in split screen), scroll
+          the grid to the bottom.
+        reason: |
+          Past the row floor the grid scrolls and the last period is
+          reachable; before, the columns were cut off and the late classes
+          could not be seen or tapped.
       - action: |
           Tap the week chip, step a year back and forward, tap a quarter chip,
           then a week row.
@@ -5026,6 +5035,101 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt
       - apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Components.kt
+      - apps/android/app/src/main/AndroidManifest.xml
+    verified: null
+  - id: ANDROID-COURSE-ZOOM-BACK
+    area: native
+    title: Android course page shrinks back home without crashing after its large title collapsed
+    persona: undergraduate-first-term
+    preconditions: |
+      The Android app with the current quarter pulled, on a phone with
+      gesture navigation and animations on (Remove animations off), with a
+      course whose page is long enough to scroll.
+    steps:
+      - action: |
+          From 時間割 tap a class block, scroll the course page until the large
+          title collapses into the bar, then tap the back arrow.
+        reason: |
+          The page shrinks into the block it grew from. Before, laying the
+          page out at the shrinking size gave the collapsed title bar a
+          negative height and the app closed (Size(... x -242) is out of
+          range).
+      - action: |
+          Repeat with the system back gesture, then start a predictive back
+          swipe from the edge, hold it half way, and release.
+        reason: |
+          The predictive back drives the same shrink frame by frame, and
+          holding it keeps the page at a small size for longest: the likeliest
+          moment for the crash.
+      - action: |
+          Repeat from a Today card (the class card and a stacked card), then
+          open a course, collapse the title and tap the 時間割 tab again.
+        reason: |
+          Every source shrinks the page (block, hero card, stack card), and
+          re-tapping the current tab pops back to its root through the same
+          animation.
+      - action: |
+          Control: open a course and go back without scrolling; then turn on
+          Remove animations and repeat the collapsed-title back.
+        reason: |
+          Both never crashed, so they tell a crash that remains apart from a
+          different fault: without scrolling the title is still expanded,
+          and with no animations the page only fades.
+      - action: |
+          On a course or settings page with the large title collapsed, open
+          the keyboard in a text field, or drag a split-screen divider so the
+          app gets very short.
+        reason: |
+          A squeezed page hit the same negative-height bug in the title bar
+          without any zoom; material3 1.4 clamps it.
+    observe: The course page and its source on the phone; the app must stay open.
+    expected: |
+      Every back shrinks the page into its source with the page laid out at
+      full size and clipped, and the app never closes.
+    why_manual: |
+      The crash needs a running Compose app driven by touch, the predictive
+      back gesture and the system animation scale; whether the zoom still
+      looks right is judged by eye.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt
+      - apps/android/app/src/main/java/app/isctcompanion/design/Components.kt
+      - apps/android/app/build.gradle.kts
+    verified: null
+
+  - id: ANDROID-ORIENTATION
+    area: native
+    title: Android phones stay upright while tablets and unfolded foldables turn
+    persona: undergraduate-first-term
+    preconditions: |
+      The Android app on a phone with auto-rotate on, and on a tablet or a
+      foldable (an emulator's resizable or foldable device will do).
+    steps:
+      - action: |
+          On the phone turn the device on its side on 今日, 時間割 and a course
+          page, and open the app while holding it sideways.
+        reason: |
+          The app stays portrait, as iPhone does; a sideways layout means the
+          size rule (smallest side under 600 dp) is not applied.
+      - action: |
+          On the tablet turn it to all four sides.
+        reason: |
+          The app follows, as iPad does; a manifest-wide portrait lock would
+          freeze tablets too on targetSdk 35.
+      - action: |
+          On the foldable, unfold it and turn it, then fold it while the app
+          is open on 授業.
+        reason: |
+          Unfolded it turns freely and shows 授業; folded it returns to
+          portrait and to 今日, since the phone's bar has no 授業 tab.
+    observe: The app's orientation and tab bar on each device.
+    expected: |
+      Phones are always portrait; tablets and unfolded foldables rotate, and
+      folding re-applies the phone rule.
+    why_manual: |
+      Orientation follows physical rotation and folding on real hardware; it
+      is seen at a glance.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/App.kt
       - apps/android/app/src/main/AndroidManifest.xml
     verified: null
 
