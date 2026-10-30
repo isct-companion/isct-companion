@@ -30,7 +30,7 @@ rfd = { version = "0.17", default-features = false, features = ["gtk3", "common-
 rusqlite = { version = "0.41", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1", features = ["v4", "v7"] }
-base64 = "0.22"
+base64 = "0.23"
 keyring = "4.2"
 rand = "0.9"
 # TLS comes from Core: build clients with `app_core::net::client_builder()`.
