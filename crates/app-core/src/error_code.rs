@@ -166,7 +166,10 @@ use crate::{
     app_updates::AppUpdateError,
     backup::BackupError,
     catalog::CatalogError,
-    cloud_credentials::{CredentialDecryptionError, CredentialEncryptionError},
+    cloud_credentials::{
+        CredentialBackupError, CredentialDecryptionError, CredentialEncryptionError,
+        PASSWORD_LENGTH,
+    },
     cloud_sync::{document::DocumentError, CloudSyncError},
     course_materials::MaterialError,
     course_query::FinderError,
@@ -279,6 +282,7 @@ coded!(CloudSyncError, |e| match e {
     CloudSyncError::Interrupted | CloudSyncError::Task(_) | CloudSyncError::StorageTask(_) =>
         C::CloudRetrying,
     CloudSyncError::Stopped => C::Stopped,
+    CloudSyncError::Cancelled => C::Cancelled,
 });
 coded!(DocumentError, |e| match e {
     DocumentError::InvalidJson
@@ -290,16 +294,50 @@ coded!(DocumentError, |e| match e {
     DocumentError::TooLarge => C::CloudTooLarge,
     DocumentError::Transport(_) => C::Network,
 });
-coded!(CredentialEncryptionError, |e| match e {
-    CredentialEncryptionError::InvalidPassword => C::CloudPasswordLength,
-    _ => C::Internal,
-});
+impl Coded for CredentialEncryptionError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::InvalidPassword => C::CloudPasswordLength,
+            _ => C::Internal,
+        }
+    }
+
+    fn params(&self) -> BTreeMap<&'static str, String> {
+        match self {
+            Self::InvalidPassword => BTreeMap::from([
+                ("min", PASSWORD_LENGTH.min.to_string()),
+                ("max", PASSWORD_LENGTH.max.to_string()),
+            ]),
+            _ => BTreeMap::new(),
+        }
+    }
+}
 coded!(CredentialDecryptionError, |e| match e {
-    CredentialDecryptionError::InvalidPassword => C::CloudPasswordLength,
-    CredentialDecryptionError::Authentication => C::CloudPasswordWrong,
+    CredentialDecryptionError::InvalidPassword | CredentialDecryptionError::Authentication =>
+        C::CloudPasswordWrong,
     CredentialDecryptionError::Setup => C::Internal,
     _ => C::CloudCredentialFile,
 });
+impl Coded for CredentialBackupError {
+    fn code(&self) -> ErrorCode {
+        self.inner().code()
+    }
+
+    fn params(&self) -> BTreeMap<&'static str, String> {
+        self.inner().params()
+    }
+}
+impl CredentialBackupError {
+    fn inner(&self) -> &dyn Coded {
+        match self {
+            Self::Encryption(e) => e,
+            Self::Decryption(e) => e,
+            Self::Cloud(e) => e,
+            Self::Vault(e) => e,
+            Self::School(e) => e,
+        }
+    }
+}
 coded!(SecretError, |e| match e {
     SecretError::Callback(_) => C::Callback,
     SecretError::InvalidAccount | SecretError::InvalidPayload => C::Internal,

@@ -130,6 +130,8 @@ pub enum CloudSyncError {
     Conflict(String),
     #[error("Sync interrupted or timed out; the saved task will retry.")]
     Interrupted,
+    #[error("Sign-in was cancelled.")]
+    Cancelled,
     #[error("The cloud sync service has stopped.")]
     Stopped,
     #[error("Cloud sync worker failed; the saved task will retry.")]
@@ -164,6 +166,16 @@ pub trait CloudTransport: Send + Sync {
         provider: CloudProvider,
         revision: u64,
     ) -> CloudFuture<'a, Value>;
+}
+
+/// Signs this device in to a provider that needs it before it can be turned
+/// on. Each shell shows its own: the desktop's browser with a loopback
+/// redirect, iOS's web session, Android's account prompt.
+pub trait CloudSignIn: Send + Sync {
+    /// Whether a sign-in is saved; never shows UI.
+    fn signed_in(&self, provider: CloudProvider) -> Result<bool, CloudSyncError>;
+    /// Fails with [`CloudSyncError::Cancelled`] when the person closes it.
+    fn sign_in(&self, provider: CloudProvider) -> CloudFuture<'_, ()>;
 }
 
 #[derive(Clone)]
@@ -277,7 +289,7 @@ impl CloudSync {
             .map_err(CloudSyncError::from)?
     }
 
-    pub async fn provider_result(
+    async fn provider_result(
         &self,
         services: CloudServices,
         provider: CloudProvider,
@@ -294,12 +306,26 @@ impl CloudSync {
             .map_err(CloudSyncError::from)?
     }
 
+    /// Turning Google Drive on signs in first. A failed sign-in leaves it off
+    /// with the reason; a cancelled one leaves it off without one.
     pub async fn set_enabled(
         &self,
         services: CloudServices,
         provider: CloudProvider,
         enabled: bool,
+        sign_in: &dyn CloudSignIn,
     ) -> Result<SyncState, CloudSyncError> {
+        // Outside the task scope: a person may take minutes to sign in, and
+        // shutdown has nothing to wait for in a half-finished sign-in.
+        if enabled && provider == CloudProvider::GoogleDrive && !sign_in.signed_in(provider)? {
+            if let Err(error) = sign_in.sign_in(provider).await {
+                let reason =
+                    (!matches!(error, CloudSyncError::Cancelled)).then(|| error.to_string());
+                return self
+                    .provider_result(services, provider, false, reason)
+                    .await;
+            }
+        }
         let service = self.clone();
         self.0
             .tasks

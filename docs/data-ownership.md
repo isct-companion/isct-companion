@@ -81,6 +81,8 @@ keys.
   provider's private app folder.
 - `IsctCompanion.credentials.json` is optional and contains only an authenticated
   encrypted school-credential bundle.
-- The credential encryption password is 8–12 characters and stays in a separate
-  device-local credential-vault entry. Another device must be given the same
-  password explicitly.
+- A new credential encryption password is 12–128 characters (Core's
+  `cloud_credentials::PASSWORD_LENGTH`; a passphrase fits) and stays in a
+  separate device-local credential-vault entry, saved only after the backup it
+  opened or wrote succeeded. Another device must be given the same password
+  explicitly.

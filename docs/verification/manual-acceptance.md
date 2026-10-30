@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 156 checks must be re-run before the next release.**
+**9 of 157 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**147 checks have never been run or could not be run:**
+**148 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -40,6 +40,7 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` — never verified
 - `IDENTITY-LANGUAGE-SWITCH` — never verified
 - `CLOUD-DRIVE-WRITE` — never verified
+- `CLOUD-CREDENTIAL-BACKUP` — never verified
 - `CLOUD-RESILIENCE` — never verified
 - `OCR-CAMERA-GEOMETRY` — never verified
 - `DESKTOP-SCHOOL-WEBVIEW` — never verified
@@ -196,6 +197,7 @@ an unverified area becomes an assumed-good one.
 | `IDENTITY-LANGUAGE-SWITCH` | identity | International student | —<br>not run | resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
 | `SCHOOL-LMS-YEAR-ROLLOVER` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `b598ae6` | crates/app-core/src/lms_session.rs<br>crates/adpt-isct/src/lms.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
+| `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
 | `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
@@ -1185,18 +1187,26 @@ A real Google account; a workspace with at least one editable record.
 5. Drop the network mid-upload and restore it.
    - *Why:* A delivery that silently gives up looks identical to one that
      succeeded until the next device pulls stale content.
+6. With a second device also on Drive, turn Drive off here, then
+   Upload and Pull on the second device.
+   - *Why:* Turning off forgets only this device's token. Google revokes a
+     grant for every client of the project, so a revoke here would sign
+     the second device out too; an authorization error there means it
+     happened.
 
 **Where to look**
 
 The consent screen, the provider's app folder listing, the local record
-after restore, and the delivery state after the network returns.
+after restore, the delivery state after the network returns, and the
+second device's Drive row after this one turns Drive off.
 
 **Expected**
 
 The consent screen returns to the app, IsctCompanion.json appears in the
 private app folder, an upload over an existing copy completes and
-updates it, pull and restore change only what they claim, and the
-interrupted upload retries without duplicating the document.
+updates it, pull and restore change only what they claim, the
+interrupted upload retries without duplicating the document, and the
+second device keeps syncing after this one turns Drive off.
 
 **Why this is manual**
 
@@ -1207,6 +1217,68 @@ that cannot be automated without live credentials.
 
 - `crates/app-core/src/cloud_sync/**`
 - `apps/desktop/src-tauri/src/cloud.rs`
+
+**Last recorded** never run
+
+### School logins back up to Drive and restore on a second desktop (`CLOUD-CREDENTIAL-BACKUP`)
+
+**Area** cloud · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Two desktops (Windows or Linux on one side makes the Drive file the only
+path, since Macs also share logins through iCloud Keychain), both with
+Google Drive on under the same account. Desktop A has a working school
+login; desktop B has none.
+
+**Steps**
+
+1. On A, Settings › Backup › Login credential sync › Set up: type an
+   11-character password, then a passphrase of four or more words
+   (over 20 characters) in both fields, and turn it on.
+   - *Why:* The hint must name 12–128 characters and the button must stay off
+     for 11; the long passphrase must be accepted. The old rule capped
+     passwords at 12, which ruled out passphrases and password-manager
+     output.
+2. On B, open the same row, enter a wrong password, then the right one.
+   - *Why:* B must offer to restore, not to set a new password. A wrong password
+     shows "The encryption password is wrong." and must leave A's file in
+     Drive untouched (A can still change its password afterwards); the
+     right one must make B sign in to the school without typing anything.
+3. On A, turn the network off, choose Change password and save a new
+   passphrase; turn the network on and save it again.
+   - *Why:* The offline save must fail and leave the old password working: Core
+     keeps a password only after the upload it encrypted succeeded. The
+     old shell wrote the new password first and kept it after a failed
+     upload, so A and Drive disagreed.
+
+**Where to look**
+
+The row's hint, button state and messages on both desktops, and whether
+B reaches the school portal signed in.
+
+**Expected**
+
+A accepts only a 12–128 character new password, including a long
+passphrase; B restores only with the right password and a wrong one
+changes nothing in Drive; an offline password change fails and the
+next successful one replaces the backup.
+
+**Why this is manual**
+
+Needs a real Google account, Drive's app-data folder and two signed
+desktop installs with a school login. Core's side, including the
+offline change and the wrong password on a second device, is covered
+by `the_password_is_kept_only_when_the_backup_agrees` over an
+in-memory store.
+
+**Covers**
+
+- `apps/desktop/src/pages/settings/BackupSettings.tsx`
+- `apps/desktop/src-tauri/src/commands/cloud.rs`
+- `crates/app-core/src/cloud_credentials.rs`
 
 **Last recorded** never run
 
@@ -7378,11 +7450,13 @@ on and at least one weekly event uploaded.
 4. Export a backup file to Files and import it again.
    - *Why:* Android had no backup page before; export and import must go through
      the system document picker and the import must leave a recovery file.
-5. Turn Google Drive off, swipe the app away, reopen it and turn Drive
-   on again.
-   - *Why:* Turning off is the port's sign-out, which revokes the grant, so
-     Google's prompt must show again. Reconnecting silently means only
-     the cached token was cleared.
+5. Turn Google Drive off, then Upload and Pull on the desktop. Swipe the
+   app away, reopen it and turn Drive on again.
+   - *Why:* Turning off forgets only this phone: Google revokes a grant for
+     every client of the project, so a revoke here would sign the desktop
+     out of Drive too. The desktop must keep syncing without an
+     authorization error, and turning Drive on again reconnects without
+     a prompt because the grant was kept.
 6. With Drive on, 設定 › リセット › 完全リセット: choose
    クラウドから復元する, acknowledge and reset; repeat once with
    新しい端末として始める.
@@ -7400,8 +7474,9 @@ and the records on both devices.
 
 Decline leaves Drive off with its reason; allow connects it and the
 desktop's data arrives; a relaunch stays connected silently; export and
-import work and the import keeps a recovery file; off then on asks
-again; a full reset restores from Drive only when asked to.
+import work and the import keeps a recovery file; off leaves the
+desktop connected and on again reconnects silently; a full reset
+restores from Drive only when asked to.
 
 **Why this is manual**
 

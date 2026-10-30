@@ -141,14 +141,10 @@ async fn read_tagged(name: &str) -> ReadResult {
         .map_err(|_| "iCloud backup read did not complete.".to_string())?
 }
 
-pub async fn read(name: &str) -> Result<Option<Vec<u8>>, String> {
-    Ok(read_tagged(name).await?.map(|(bytes, _)| bytes))
-}
-
 fn write_request(
     name: String,
     temp_path: PathBuf,
-    expected: Option<Option<String>>,
+    expected: Option<String>,
 ) -> oneshot::Receiver<Result<(), DocumentError>> {
     let database = cloud_database();
     let id = record_id(&name);
@@ -181,14 +177,12 @@ fn write_request(
         };
         // The save below keeps CloudKit's default if-unchanged policy, so a
         // writer that slips in after this fetch still fails with code 14.
-        if let Some(expected) = &expected {
-            if current.as_ref() != expected.as_ref() {
-                if let Some(sender) = sender.lock().ok().and_then(|mut s| s.take()) {
-                    let _ = sender.send(Err(DocumentError::Conflict));
-                }
-                let _ = std::fs::remove_file(&temp_for_fetch);
-                return;
+        if current != expected {
+            if let Some(sender) = sender.lock().ok().and_then(|mut s| s.take()) {
+                let _ = sender.send(Err(DocumentError::Conflict));
             }
+            let _ = std::fs::remove_file(&temp_for_fetch);
+            return;
         }
         let url = NSURL::fileURLWithPath(&NSString::from_str(&temp_for_fetch.to_string_lossy()));
         let asset = unsafe { CKAsset::initWithFileURL(CKAsset::alloc(), &url) };
@@ -226,17 +220,6 @@ fn write_request(
     rx
 }
 
-pub async fn write(name: &str, bytes: Vec<u8>) -> Result<(), String> {
-    account_available().await?;
-    let temp_path = temp_asset_path();
-    std::fs::write(&temp_path, bytes)
-        .map_err(|_| "iCloud backup asset could not be prepared.".to_string())?;
-    write_request(name.to_string(), temp_path, None)
-        .await
-        .map_err(|_| "iCloud backup write did not complete.".to_string())?
-        .map_err(|error| error.to_string())
-}
-
 fn temp_asset_path() -> PathBuf {
     std::env::temp_dir().join(format!("isct-companion-{}.json", uuid::Uuid::new_v4()))
 }
@@ -269,7 +252,7 @@ impl ObjectStore for Store {
             write_request(
                 app_core::cloud_sync::document::CLOUD_FILE_NAME.to_string(),
                 temp,
-                Some(expected),
+                expected,
             )
             .await
             .map_err(|_| DocumentError::Transport("iCloud write did not complete".into()))?

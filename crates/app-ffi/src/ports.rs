@@ -10,6 +10,7 @@ use app_core::cloud_sync::document::{
 use app_core::cloud_sync::google_drive::{
     DriveAuthorization, GoogleDrive, OAuthClient, Pkce, SCOPE, VAULT_ACCOUNT,
 };
+use app_core::cloud_sync::{CloudFuture, CloudSignIn, CloudSyncError};
 use app_core::{ports as core, school_browser as browser};
 use std::sync::{Arc, Mutex, Weak};
 use url::Url;
@@ -622,7 +623,9 @@ pub trait NativeDriveTokens: Send + Sync {
     /// A current token for `scope`. With `interactive` false, fail instead of
     /// showing any UI.
     async fn access_token(&self, scope: String, interactive: bool) -> Result<String, SdkError>;
-    /// Forgets this app's Drive grant on this device.
+    /// Forgets this device's Drive token. Never revoke the grant: Google
+    /// revokes it for every client of the project, which would sign the
+    /// person's other devices out of Drive too.
     fn sign_out(&self) -> Result<(), SdkError>;
 }
 /// How this shell authorizes Drive; Core owns the REST calls either way.
@@ -729,6 +732,34 @@ impl DriveAuthorization for DriveAuth {
             }
         }
     }
+}
+/// The sign-in Core asks for before it turns Drive on.
+pub(crate) struct DriveSignIn<'a>(pub Option<&'a DriveAuth>);
+fn sign_in_error(e: SdkError) -> CloudSyncError {
+    match e {
+        SdkError::Cancelled => CloudSyncError::Cancelled,
+        other => CloudSyncError::Transport(other.to_string()),
+    }
+}
+impl CloudSignIn for DriveSignIn<'_> {
+    fn signed_in(&self, _: app_core::cloud_sync::CloudProvider) -> Result<bool, CloudSyncError> {
+        self.0
+            .ok_or_else(no_drive)?
+            .authorized()
+            .map_err(sign_in_error)
+    }
+    fn sign_in(&self, _: app_core::cloud_sync::CloudProvider) -> CloudFuture<'_, ()> {
+        Box::pin(async move {
+            self.0
+                .ok_or_else(no_drive)?
+                .connect()
+                .await
+                .map_err(sign_in_error)
+        })
+    }
+}
+fn no_drive() -> CloudSyncError {
+    CloudSyncError::Transport("Google Drive is not available on this device.".into())
 }
 /// Lets the session keep the `DriveAuth` it signs in with while Drive's
 /// store, inside the transport, uses the same one.

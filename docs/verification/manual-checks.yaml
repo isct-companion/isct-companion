@@ -864,20 +864,84 @@ checks:
         reason: |
           A delivery that silently gives up looks identical to one that
           succeeded until the next device pulls stale content.
+      - action: |
+          With a second device also on Drive, turn Drive off here, then
+          Upload and Pull on the second device.
+        reason: |
+          Turning off forgets only this device's token. Google revokes a
+          grant for every client of the project, so a revoke here would sign
+          the second device out too; an authorization error there means it
+          happened.
     observe: |
       The consent screen, the provider's app folder listing, the local record
-      after restore, and the delivery state after the network returns.
+      after restore, the delivery state after the network returns, and the
+      second device's Drive row after this one turns Drive off.
     expected: |
       The consent screen returns to the app, IsctCompanion.json appears in the
       private app folder, an upload over an existing copy completes and
-      updates it, pull and restore change only what they claim, and the
-      interrupted upload retries without duplicating the document.
+      updates it, pull and restore change only what they claim, the
+      interrupted upload retries without duplicating the document, and the
+      second device keeps syncing after this one turns Drive off.
     why_manual: |
       Requires a real Google account and an interactive OAuth consent screen
       that cannot be automated without live credentials.
     covers:
       - crates/app-core/src/cloud_sync/**
       - apps/desktop/src-tauri/src/cloud.rs
+    verified: null
+
+  - id: CLOUD-CREDENTIAL-BACKUP
+    area: cloud
+    title: School logins back up to Drive and restore on a second desktop
+    persona: careless-multidevice
+    preconditions: |
+      Two desktops (Windows or Linux on one side makes the Drive file the only
+      path, since Macs also share logins through iCloud Keychain), both with
+      Google Drive on under the same account. Desktop A has a working school
+      login; desktop B has none.
+    steps:
+      - action: |
+          On A, Settings › Backup › Login credential sync › Set up: type an
+          11-character password, then a passphrase of four or more words
+          (over 20 characters) in both fields, and turn it on.
+        reason: |
+          The hint must name 12–128 characters and the button must stay off
+          for 11; the long passphrase must be accepted. The old rule capped
+          passwords at 12, which ruled out passphrases and password-manager
+          output.
+      - action: |
+          On B, open the same row, enter a wrong password, then the right one.
+        reason: |
+          B must offer to restore, not to set a new password. A wrong password
+          shows "The encryption password is wrong." and must leave A's file in
+          Drive untouched (A can still change its password afterwards); the
+          right one must make B sign in to the school without typing anything.
+      - action: |
+          On A, turn the network off, choose Change password and save a new
+          passphrase; turn the network on and save it again.
+        reason: |
+          The offline save must fail and leave the old password working: Core
+          keeps a password only after the upload it encrypted succeeded. The
+          old shell wrote the new password first and kept it after a failed
+          upload, so A and Drive disagreed.
+    observe: |
+      The row's hint, button state and messages on both desktops, and whether
+      B reaches the school portal signed in.
+    expected: |
+      A accepts only a 12–128 character new password, including a long
+      passphrase; B restores only with the right password and a wrong one
+      changes nothing in Drive; an offline password change fails and the
+      next successful one replaces the backup.
+    why_manual: |
+      Needs a real Google account, Drive's app-data folder and two signed
+      desktop installs with a school login. Core's side, including the
+      offline change and the wrong password on a second device, is covered
+      by `the_password_is_kept_only_when_the_backup_agrees` over an
+      in-memory store.
+    covers:
+      - apps/desktop/src/pages/settings/BackupSettings.tsx
+      - apps/desktop/src-tauri/src/commands/cloud.rs
+      - crates/app-core/src/cloud_credentials.rs
     verified: null
 
   - id: CLOUD-RESILIENCE
@@ -6325,12 +6389,14 @@ checks:
           Android had no backup page before; export and import must go through
           the system document picker and the import must leave a recovery file.
       - action: |
-          Turn Google Drive off, swipe the app away, reopen it and turn Drive
-          on again.
+          Turn Google Drive off, then Upload and Pull on the desktop. Swipe the
+          app away, reopen it and turn Drive on again.
         reason: |
-          Turning off is the port's sign-out, which revokes the grant, so
-          Google's prompt must show again. Reconnecting silently means only
-          the cached token was cleared.
+          Turning off forgets only this phone: Google revokes a grant for
+          every client of the project, so a revoke here would sign the desktop
+          out of Drive too. The desktop must keep syncing without an
+          authorization error, and turning Drive on again reconnects without
+          a prompt because the grant was kept.
       - action: |
           With Drive on, 設定 › リセット › 完全リセット: choose
           クラウドから復元する, acknowledge and reset; repeat once with
@@ -6346,8 +6412,9 @@ checks:
     expected: |
       Decline leaves Drive off with its reason; allow connects it and the
       desktop's data arrives; a relaunch stays connected silently; export and
-      import work and the import keeps a recovery file; off then on asks
-      again; a full reset restores from Drive only when asked to.
+      import work and the import keeps a recovery file; off leaves the
+      desktop connected and on again reconnects silently; a full reset
+      restores from Drive only when asked to.
     why_manual: |
       Google Identity's authorization needs Play services, a registered signing
       certificate and a real account on a device. The Core side of the token

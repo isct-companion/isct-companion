@@ -19,6 +19,7 @@ import {
   SettingsHeader,
   Toggle,
 } from "../../components/forms";
+import { CREDENTIAL_PASSWORD_LENGTH } from "../../generated/persistence";
 import { formatDay } from "./subscription-status";
 import { ResetSettings } from "./ResetSettings";
 
@@ -425,13 +426,13 @@ export function BackupSettings({
   );
 }
 
-/** School logins in an encrypted Drive file, unlocked by an 8–12 character password. */
+/** School logins in an encrypted Drive file. Core decides whether a password
+ * restores the backup or encrypts a new one, and keeps it only on success. */
 function DriveCredentialSync({
   notify,
 }: {
   notify: (message: string) => void;
 }) {
-  const provider = "google-drive";
   const [configured, setConfigured] = useState(false);
   const [backupExists, setBackupExists] = useState<boolean | null>(null);
   // Password fields show only while setting up, changing or restoring.
@@ -455,7 +456,7 @@ function DriveCredentialSync({
       })
       .catch(() => undefined);
     void bridge
-      .cloudCredentialBackupStatus(provider)
+      .cloudCredentialBackupStatus()
       .then((value) => {
         if (!disposed) setBackupExists(value);
       })
@@ -484,15 +485,7 @@ function DriveCredentialSync({
   };
   const save = () =>
     run("settings.backup.couldNotEnableCredentialSync", async () => {
-      const bridge = desktopBridge!;
-      const wasConfigured = configured;
-      await bridge.setCloudCredentialSyncPassword(password);
-      try {
-        await bridge.syncCloudCredentials(provider, restoring);
-      } catch (error) {
-        if (!wasConfigured) await bridge.clearCloudCredentialSyncPassword();
-        throw error;
-      }
+      await desktopBridge!.enableCloudCredentialSync(password);
       reset();
       setConfigured(true);
       setBackupExists(true);
@@ -518,26 +511,39 @@ function DriveCredentialSync({
       ? "settings.backup.checkingGoogleDrive"
       : configured
         ? editing
-          ? "settings.backup.chooseANew812"
+          ? "settings.backup.chooseANewPassword"
           : "settings.extensions.on"
         : restoring
           ? "settings.backup.enterThePasswordSetOn"
           : editing
-            ? "settings.backup.chooseAn812Character"
+            ? "settings.backup.chooseAPassword"
             : "settings.main.off";
-  const valid =
-    length >= 8 && length <= 12 && (restoring || (confirmPassword && matches));
+  // A backup opens with whatever password made it, which earlier versions
+  // allowed shorter; only a new password meets the length Core requires.
+  const valid = restoring
+    ? length > 0
+    : length >= CREDENTIAL_PASSWORD_LENGTH.min &&
+      length <= CREDENTIAL_PASSWORD_LENGTH.max &&
+      Boolean(confirmPassword) &&
+      matches;
 
   return (
     <>
-      <Row id="credential-sync" group title={title} hint={t(hint)}>
+      <Row
+        id="credential-sync"
+        group
+        title={title}
+        hint={t(hint, CREDENTIAL_PASSWORD_LENGTH)}
+      >
         <div className="actions">
           {showFields && (
             <>
               <UiInput
                 type="password"
                 value={password}
-                minLength={8}
+                minLength={
+                  restoring ? undefined : CREDENTIAL_PASSWORD_LENGTH.min
+                }
                 autoComplete={restoring ? "current-password" : "new-password"}
                 placeholder={t(
                   restoring
@@ -552,7 +558,7 @@ function DriveCredentialSync({
                 <UiInput
                   type="password"
                   value={confirmPassword}
-                  minLength={8}
+                  minLength={CREDENTIAL_PASSWORD_LENGTH.min}
                   autoComplete="new-password"
                   placeholder={t("settings.backup.confirmPassword")}
                   aria-label={t(

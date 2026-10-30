@@ -27,6 +27,9 @@ pub const SCOPE: &str = "https://www.googleapis.com/auth/drive.appdata";
 /// new one after Drive rejected the last (401).
 pub trait DriveAuthorization: Send + Sync {
     fn access_token<'a>(&'a self, refresh: bool) -> BoxFuture<'a, String>;
+    /// Forgets this device's authorization. Nothing is revoked at Google:
+    /// revocation ends the grant of every client in the project, so turning
+    /// Drive off here would sign the person's other devices out as well.
     fn disconnect(&self) -> Result<(), DocumentError>;
 }
 

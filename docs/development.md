@@ -121,8 +121,8 @@ The displayed version stays fixed after the build is committed.
 - Google Drive stores the readable workspace export as
   `IsctCompanion.json` in the provider's private app folder.
 - Optional school-credential sync uses a separate AES-256-GCM encrypted file.
-  Its 8–12 character encryption password stays on the local device and must be
-  entered separately on another device.
+  Its encryption password (12–128 characters for a new one) stays on the local
+  device and must be entered separately on another device.
 - Site customization runs only inside allowlisted school WebViews and has no
   bridge to workspace data or native secrets.
 

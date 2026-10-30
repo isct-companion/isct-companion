@@ -328,7 +328,6 @@ export const CAMPUS_WIFI_STEPS = [
   "verifying",
 ] as const;
 export type CampusWifiStep = (typeof CAMPUS_WIFI_STEPS)[number];
-export type CloudProvider = "google-drive" | "icloud";
 /** Automatic sync, per device; contract in slotledger approach/cloud-upload-queue. */
 export type CloudSyncProvider = "icloud" | "google-drive";
 export type CloudSyncVersion = {
@@ -554,12 +553,6 @@ export interface DesktopBridge {
   /** Saves a validated workspace export under app-owned local storage. */
   /** Asks where to save an exported file; false when the person cancels. */
   saveFile(name: string, contents: string): Promise<boolean>;
-  connectCloud(
-    provider: CloudProvider,
-    clientId: string,
-    redirectUri: string,
-  ): Promise<boolean>;
-  cloudAuthorizationStatus(): Promise<CloudProvider[]>;
   cloudLifecycle?(kind: "foreground" | "background"): Promise<void>;
   cloudSyncState?(): Promise<CloudSyncState>;
   /** Local MCP server state; reconciles the listener with the setting first. */
@@ -573,14 +566,11 @@ export interface DesktopBridge {
   restoreCloudVersion?(id: string): Promise<CloudSyncState>;
   cloudRecoveryDocument?(id: string): Promise<string>;
   onCloudSyncState?(callback: (state: CloudSyncState) => void): () => void;
-  disconnectCloud(provider: CloudProvider): Promise<boolean>;
   cloudCredentialSyncStatus(): Promise<boolean>;
-  cloudCredentialBackupStatus(provider: CloudProvider): Promise<boolean>;
-  setCloudCredentialSyncPassword(password: string): Promise<boolean>;
-  syncCloudCredentials(
-    provider: CloudProvider,
-    restoreExisting: boolean,
-  ): Promise<boolean>;
+  cloudCredentialBackupStatus(): Promise<boolean>;
+  /** Restores the Drive backup with `password` on a device without one;
+   * otherwise uploads this device's logins under `password`, a new one. */
+  enableCloudCredentialSync(password: string): Promise<boolean>;
   clearCloudCredentialSyncPassword(): Promise<boolean>;
 }
 
@@ -999,10 +989,6 @@ export function createTauriDesktopBridge(
 
     saveFile: (name, contents) =>
       booleanCommand("save_file", { name, contents }),
-    connectCloud: (provider, clientId, redirectUri) =>
-      booleanCommand("connect_cloud", { provider, clientId, redirectUri }),
-    cloudAuthorizationStatus: () =>
-      result<CloudProvider[]>("cloud_authorization_status"),
     cloudLifecycle: (kind) => result<void>("cloud_lifecycle", { kind }),
     cloudSyncState: () => result<CloudSyncState>("cloud_sync_state"),
     agentConnection: () => result<AgentConnection>("agent_connection"),
@@ -1031,16 +1017,12 @@ export function createTauriDesktopBridge(
         if (unlisten) quietly(unlisten);
       };
     },
-    disconnectCloud: (provider) =>
-      booleanCommand("disconnect_cloud", { provider }),
     cloudCredentialSyncStatus: () =>
       booleanCommand("cloud_credential_sync_status"),
-    cloudCredentialBackupStatus: (provider) =>
-      booleanCommand("cloud_credential_backup_status", { provider }),
-    setCloudCredentialSyncPassword: (password) =>
-      booleanCommand("set_cloud_credential_sync_password", { password }),
-    syncCloudCredentials: (provider, restoreExisting) =>
-      booleanCommand("sync_cloud_credentials", { provider, restoreExisting }),
+    cloudCredentialBackupStatus: () =>
+      booleanCommand("cloud_credential_backup_status"),
+    enableCloudCredentialSync: (password) =>
+      booleanCommand("enable_cloud_credential_sync", { password }),
     clearCloudCredentialSyncPassword: () =>
       booleanCommand("clear_cloud_credential_sync_password"),
   };

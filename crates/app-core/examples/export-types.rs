@@ -51,7 +51,9 @@ fn main() {
     output.push_str(&<app_core::school_auth::OtpImportAccount as ts_rs::TS>::decl(&cfg));
     output.push_str("\n\n");
     output.push_str("export ");
-    output.push_str(&<app_core::school_auth::SchoolOtpSetup as ts_rs::TS>::decl(&cfg));
+    output.push_str(&<app_core::school_auth::SchoolOtpSetup as ts_rs::TS>::decl(
+        &cfg,
+    ));
     output.push_str("\n\n");
     output.push_str("export const COURSE_FILE_POLICY: CourseFilePolicy = ");
     output.push_str(
@@ -63,6 +65,12 @@ fn main() {
     output.push_str(
         &serde_json::to_string(&app_core::schedule::COURSE_PALETTE)
             .expect("serialize course palette"),
+    );
+    output.push_str(" as const;\n");
+    output.push_str("\nexport const CREDENTIAL_PASSWORD_LENGTH = ");
+    output.push_str(
+        &serde_json::to_string(&app_core::cloud_credentials::PASSWORD_LENGTH)
+            .expect("serialize credential password length"),
     );
     output.push_str(" as const;\n");
     output.push_str("\nexport const DEFAULT_ASSIGNMENT_LEADS = ");
