@@ -240,17 +240,21 @@ describe("manual acceptance table", () => {
 });
 
 describe("desktop release publication", () => {
+  // A tag push opens the draft early so the mobile workflows can attach to
+  // it; a manual dispatch has none, and publication creates it.
   it.each([
-    ["v1.0.0", "--prerelease=false", "--latest=true"],
-    ["v1.0.0-rc.4", "--prerelease", "--latest=false"],
+    ["v1.0.0", "--prerelease=false", "--latest=true", false],
+    ["v1.0.0-rc.4", "--prerelease", "--latest=false", false],
+    ["v1.0.0", "--prerelease=false", "--latest=true", true],
   ])(
-    "publishes %s with the correct release status",
-    (tag, prerelease, latest) => {
+    "publishes %s as %s %s (early draft: %s)",
+    (tag, prerelease, latest, earlyDraft) => {
       const workflow = parseYaml(
         readRepoFile(".github/workflows/desktop-release.yml"),
       );
       const script = workflow.jobs.publish.steps.find(
-        (step) => step.name === "Upload complete release as a draft",
+        (step) =>
+          step.name === "Write the notes, upload and publish the release",
       ).run;
       const updaterScript = workflow.jobs.publish.steps.find(
         (step) => step.name === "Publish machine-only Mac update packages",
@@ -275,7 +279,10 @@ describe("desktop release publication", () => {
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + '\n');
-if (args[0] === 'release' && args[1] === 'view') process.exit(1);
+if (args[0] === 'release' && args[1] === 'view') {
+  if (args[2] !== process.env.EARLY_DRAFT) process.exit(1);
+  console.log('true');
+}
 `,
           { mode: 0o755 },
         );
@@ -290,6 +297,7 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
               ...process.env,
               PATH: `${dir}${path.delimiter}${process.env.PATH}`,
               GH_CALL_LOG: log,
+              EARLY_DRAFT: earlyDraft ? tag : "",
               RELEASE_TAG: tag,
               GH_REPO: "example/distribution",
               BUILD_REPO: "example/source",
@@ -311,10 +319,31 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
             args[0] === "release" && args[1] === "create" && args[2] === tag,
         );
         const edit = calls.find(
-          (args) => args[0] === "release" && args[1] === "edit",
+          (args) =>
+            args[0] === "release" &&
+            args[1] === "edit" &&
+            args.includes("--draft=false"),
         );
-        expect(create).toContain("--draft");
-        expect(create).toContain(prerelease);
+        const upload = calls.findIndex(
+          (args) =>
+            args[0] === "release" && args[1] === "upload" && args[2] === tag,
+        );
+        if (earlyDraft) {
+          // The early draft is reused, never duplicated, and its placeholder
+          // notes are replaced before anything is published.
+          expect(create).toBeUndefined();
+          const notesEdit = calls.findIndex(
+            (args) =>
+              args[0] === "release" &&
+              args[1] === "edit" &&
+              args.includes("--notes-file"),
+          );
+          expect(notesEdit).toBeGreaterThanOrEqual(0);
+          expect(notesEdit).toBeLessThan(upload);
+        } else {
+          expect(create).toContain("--draft");
+          expect(create).toContain(prerelease);
+        }
         expect(edit).toContain(prerelease);
         expect(edit).toContain(latest);
         expect(edit).toContain("--draft=false");
@@ -326,9 +355,6 @@ if (args[0] === 'release' && args[1] === 'view') process.exit(1);
         );
         expect(updaterCreate).toContain("--prerelease");
         expect(updaterCreate).toContain("--latest=false");
-        const upload = calls.findIndex(
-          (args) => args[0] === "release" && args[1] === "upload",
-        );
         expect(upload).toBeLessThan(calls.indexOf(edit));
         const notes = readFileSync(path.join(dir, "release-notes.md"), "utf8");
         expect(notes).toContain(

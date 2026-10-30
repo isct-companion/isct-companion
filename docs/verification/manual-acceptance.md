@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 152 checks must be re-run before the next release.**
+**9 of 153 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**143 checks have never been run or could not be run:**
+**144 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -73,6 +73,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-DEVICE-FLOWS` — unreached: The SwiftUI and Compose shells do not exist yet.
 - `RELEASE-SIGNING` — never verified
 - `IOS-TESTFLIGHT-RELEASE` — never verified
+- `RELEASE-DRAFT-ASSEMBLY` — never verified
 - `RELEASE-INSTALL` — never verified
 - `WORKSPACE-NATIVE-RESIZE` — never verified
 - `SCHOOL-ASSIGNMENT-UPLOAD` — never verified
@@ -229,6 +230,7 @@ an unverified area becomes an assumed-good one.
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/app-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `IOS-TESTFLIGHT-RELEASE` | release | Two devices, interrupted work | —<br>not run | .github/workflows/ios-release.yml<br>docs/mobile-release.md |
+| `RELEASE-DRAFT-ASSEMBLY` | release | Two devices, interrupted work | —<br>not run | .github/workflows/desktop-release.yml<br>.github/workflows/ios-release.yml<br>.github/workflows/android-release.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml |
 | `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
 | `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/workspaces.rs<br>crates/app-core/src/school_browser/policy.rs<br>crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
@@ -3337,6 +3339,56 @@ processing service and an enrolled physical iPhone.
 
 - `.github/workflows/ios-release.yml`
 - `docs/mobile-release.md`
+
+**Last recorded** never run
+
+### Mobile builds attach to the tag's draft before the desktop publishes (`RELEASE-DRAFT-ASSEMBLY`)
+
+**Area** release · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A version tag has just been pushed; IOS_TESTFLIGHT_ENABLED is true.
+
+**Steps**
+
+1. Within a few minutes of the push, open the repository's Releases page
+   and the Desktop release run.
+   - *Why:* The "Open the version's draft release" job must create exactly one
+     draft before the slow builds; a missing or second draft for the tag
+     would leave the mobile uploads waiting or split across releases.
+2. When the iOS and Android release runs finish, look at the draft's
+   assets and at whether the App Store release workflow started.
+   - *Why:* The IPA and APK must land in the draft without waiting for the
+     desktop installers, so iOS release succeeds and App Store submission
+     is not skipped by a slow desktop runner.
+3. After Desktop release publishes, read the release notes and assets.
+   - *Why:* Publishing must replace the draft's placeholder notes with the full
+     notes and keep the mobile assets beside the installers.
+
+**Where to look**
+
+The Releases page, and the Desktop, iOS, Android and App Store release
+runs in Actions.
+
+**Expected**
+
+One draft appears right after the push, gains the IPA and APK when their
+builds finish, and is published with the full notes and all five
+installers; App Store release runs after iOS release succeeds.
+
+**Why this is manual**
+
+Only a real version tag runs these workflows together against GitHub
+Releases and App Store Connect; no tag may be pushed to rehearse it.
+
+**Covers**
+
+- `.github/workflows/desktop-release.yml`
+- `.github/workflows/ios-release.yml`
+- `.github/workflows/android-release.yml`
 
 **Last recorded** never run
 

@@ -244,16 +244,19 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           cp "$RUNNER_TEMP"/ipa/*.ipa "$RUNNER_TEMP/IsctCompanion_${VERSION}_ios.ipa"
-          # The Desktop release workflow creates and publishes the release;
-          # wait for it rather than creating a release without its notes.
-          for attempt in $(seq 1 90); do
-            if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)" == false ]]; then
+          # Desktop release opens the version's draft as soon as the tag is
+          # pushed and alone creates it, writes its notes and publishes it.
+          # Uploading into the draft (or the published release) keeps this
+          # workflow, and the App Store submission that follows its success,
+          # independent of the desktop builds.
+          for _ in $(seq 1 60); do
+            if gh release view "$tag" > /dev/null 2>&1; then
               gh release upload "$tag" "$RUNNER_TEMP/IsctCompanion_${VERSION}_ios.ipa" --clobber
               exit 0
             fi
-            sleep 40
+            sleep 20
           done
-          echo "Release $tag was not published within an hour; the IPA is in this run's artifacts."
+          echo "Desktop release opened no release for $tag within 20 minutes; rerun its draft job, then this job. The IPA is in this run's artifacts."
           exit 1
       - name: Remove signing materials
         if: ${{ always() && env.UPLOAD == 'true' }}

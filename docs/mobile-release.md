@@ -4,7 +4,7 @@ A pushed `v<version>` tag starts two workflows beside the Desktop release:
 
 | Workflow | Output | Where it goes |
 |---|---|---|
-| `android-release.yml` | `IsctCompanion_<version>_android.apk` | Attached to the GitHub release once the Desktop release workflow has published it; also kept as a run artifact |
+| `android-release.yml` | `IsctCompanion_<version>_android.apk` | Attached to the version's GitHub release, which the Desktop release workflow opens as a draft when the tag is pushed and publishes once its installers are built; also kept as a run artifact |
 | `ios-release.yml` | `IsctCompanion_<version>_<build>.ipa` | Uploaded to TestFlight; on a tag also attached to the GitHub release as `IsctCompanion_<version>_ios.ipa` for sideloading; kept as a run artifact |
 
 Both build the Core SDK with the release profile from the tagged commit, take

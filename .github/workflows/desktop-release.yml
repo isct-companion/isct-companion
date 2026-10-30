@@ -64,6 +64,35 @@ jobs:
       - run: yarn test:types
       - run: cargo test -p app-core --locked
 
+  draft:
+    name: Open the version's draft release
+    # The iOS and Android release workflows attach their builds to this draft,
+    # so it opens at once on a tag and waits for neither the tests nor the
+    # installer builds: a slow or failed desktop runner then only needs a
+    # desktop rerun. A draft is visible to maintainers only; `publish` writes
+    # its notes and makes it public. Only this job creates the version release
+    # on a tag, so two workflows never open duplicate drafts for one tag.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: node scripts/desktop/desktop-release.mjs validate
+      - name: Create the draft unless the release exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          # A rerun finds the existing draft; `publish` guards a published one.
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            gh release create "$tag" --verify-tag --draft --title "IsctCompanion $tag" \
+              --notes 'Draft: the Desktop release workflow writes the notes when it publishes.'
+          fi
+
   build:
     name: Build (${{ matrix.target }})
     needs: [verify]
@@ -229,9 +258,10 @@ jobs:
 
   publish:
     name: Publish public release
-    needs: [build]
+    # Waits for `draft` so only one job can create the version release.
+    needs: [draft, build]
     if: >-
-      always() && !cancelled() &&
+      always() && !cancelled() && needs.draft.result != 'failure' &&
       ((needs.build.result == 'success') ||
        (needs.build.result == 'skipped' && inputs.source_run_id != '')) &&
       (github.event_name == 'push' || inputs.publish == true)
@@ -358,7 +388,7 @@ jobs:
             fi
             gh release upload "$UPDATER_TAG" "${packages[@]}" --clobber
           fi
-      - name: Upload complete release as a draft
+      - name: Write the notes, upload and publish the release
         shell: bash
         run: |
           set -euo pipefail
@@ -403,6 +433,9 @@ jobs:
           fi
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > draft-state.txt 2>/dev/null; then
             [[ "$(cat draft-state.txt)" == true || "$REPLACE_EXISTING" == true ]] || { echo 'A published release exists; enable replace_existing or use a new version.'; exit 1; }
+            # Usually the tag's early draft, which may already hold the mobile
+            # builds; only its notes and title are replaced.
+            gh release edit "$RELEASE_TAG" --title "IsctCompanion $RELEASE_TAG" --notes-file release-notes.md
           else
             # An existing tag needs no target_commitish; older workflow commits
             # without a branch ref otherwise require workflows:write permission.

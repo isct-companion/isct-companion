@@ -2766,6 +2766,48 @@ checks:
       - docs/mobile-release.md
     verified: null
 
+  - id: RELEASE-DRAFT-ASSEMBLY
+    area: release
+    title: Mobile builds attach to the tag's draft before the desktop publishes
+    persona: careless-multidevice
+    preconditions: |
+      A version tag has just been pushed; IOS_TESTFLIGHT_ENABLED is true.
+    steps:
+      - action: |
+          Within a few minutes of the push, open the repository's Releases page
+          and the Desktop release run.
+        reason: |
+          The "Open the version's draft release" job must create exactly one
+          draft before the slow builds; a missing or second draft for the tag
+          would leave the mobile uploads waiting or split across releases.
+      - action: |
+          When the iOS and Android release runs finish, look at the draft's
+          assets and at whether the App Store release workflow started.
+        reason: |
+          The IPA and APK must land in the draft without waiting for the
+          desktop installers, so iOS release succeeds and App Store submission
+          is not skipped by a slow desktop runner.
+      - action: |
+          After Desktop release publishes, read the release notes and assets.
+        reason: |
+          Publishing must replace the draft's placeholder notes with the full
+          notes and keep the mobile assets beside the installers.
+    observe: |
+      The Releases page, and the Desktop, iOS, Android and App Store release
+      runs in Actions.
+    expected: |
+      One draft appears right after the push, gains the IPA and APK when their
+      builds finish, and is published with the full notes and all five
+      installers; App Store release runs after iOS release succeeds.
+    why_manual: |
+      Only a real version tag runs these workflows together against GitHub
+      Releases and App Store Connect; no tag may be pushed to rehearse it.
+    covers:
+      - .github/workflows/desktop-release.yml
+      - .github/workflows/ios-release.yml
+      - .github/workflows/android-release.yml
+    verified: null
+
   - id: RELEASE-INSTALL
     area: release
     title: Installers on a clean machine of each platform
