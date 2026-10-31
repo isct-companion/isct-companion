@@ -201,6 +201,7 @@ pub trait SubmissionTransport: Send + Sync {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum SubmissionAction {
     /// Upload the snapshot and save it.
@@ -228,6 +229,7 @@ pub struct SnapshotFile {
 
 /// What a write changes on the LMS, by file name.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Effect {
     /// Not on the LMS yet.
@@ -243,6 +245,7 @@ pub struct Effect {
 
 /// Whether the person can still change their mind after the write.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Reversibility {
     /// Can be changed or removed again until the cut-off, in Unix seconds.
@@ -277,6 +280,7 @@ pub struct Preparation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SummaryFile {
     pub name: String,
@@ -287,6 +291,7 @@ pub struct SummaryFile {
 /// What the client's confirmation shows, and what `execute` must receive
 /// back unchanged.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SubmissionSummary {
     pub assignment_title: String,
@@ -346,6 +351,7 @@ pub struct ExecuteRequest {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum OperationState {
     /// Recorded; nothing sent.
@@ -383,6 +389,7 @@ impl OperationState {
 
 /// One write as callers see it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SubmissionOperation {
     pub id: String,
@@ -598,6 +605,9 @@ pub enum SubmissionError {
     InProgress,
     #[error("Whether an earlier write reached the LMS is not known yet")]
     OutcomeUnknown,
+    /// The person's switch, "Allow AI agents to write to LMS", is off.
+    #[error("Writing to the LMS is turned off in Settings")]
+    WritesDisabled,
 }
 
 impl From<rusqlite::Error> for SubmissionError {
@@ -618,6 +628,12 @@ impl From<serde_json::Error> for SubmissionError {
     }
 }
 
+impl From<crate::data::DataError> for SubmissionError {
+    fn from(error: crate::data::DataError) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
 impl From<Unsupported> for SubmissionError {
     fn from(reason: Unsupported) -> Self {
         Self::Unsupported(reason)
@@ -630,9 +646,12 @@ type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 /// tools.
 #[derive(Clone)]
 pub struct SubmissionService {
+    store: DataStore,
     workspaces: AssignmentWorkspaces,
     transport: Arc<dyn SubmissionTransport>,
     ledger: Arc<Ledger>,
+    /// Set once this run recovered what the last one left unsettled.
+    recovered: Arc<tokio::sync::OnceCell<()>>,
     now: Clock,
 }
 
@@ -662,15 +681,44 @@ impl SubmissionService {
             .parent()
             .ok_or_else(|| SubmissionError::Storage("The data folder is unknown".into()))?;
         Ok(Self {
+            store: store.clone(),
             workspaces,
             transport,
             ledger: Arc::new(Ledger::open(directory)?),
+            recovered: Arc::default(),
             now,
         })
     }
 
     fn now(&self) -> i64 {
         (self.now)()
+    }
+
+    /// Recovers what the last run left unsettled, once per run, before
+    /// anything else touches the ledger.
+    async fn ready(&self) -> Result<(), SubmissionError> {
+        self.recovered
+            .get_or_try_init(|| async { self.recover().await.map(|_| ()) })
+            .await
+            .map(|_| ())
+    }
+
+    /// Every LMS write today comes from an agent, so the person's switch
+    /// gates the write path itself, not only the tool that asks for it. It
+    /// is read again before each request that changes the LMS.
+    fn allowed(&self) -> Result<(), SubmissionError> {
+        if self.store.lms_writes_enabled()? {
+            Ok(())
+        } else {
+            Err(SubmissionError::WritesDisabled)
+        }
+    }
+
+    /// The runtime wake: the first one recovers the last run, every one
+    /// settles writes whose outcome is unknown. Returns how many settled.
+    pub async fn wake(&self) -> Result<usize, SubmissionError> {
+        self.ready().await?;
+        self.reconcile().await
     }
 
     /// Reads the LMS, snapshots `submit/` for a save, and returns the write
@@ -682,6 +730,7 @@ impl SubmissionService {
         assignment: &str,
         action: SubmissionAction,
     ) -> Result<Preparation, SubmissionError> {
+        self.ready().await?;
         let (detail, _) = self.workspaces.detail(assignment)?;
         let module = self.workspaces.lms_module(assignment)?;
         let remote = self.read(module).await?;
@@ -750,6 +799,7 @@ impl SubmissionService {
         &self,
         request: ExecuteRequest,
     ) -> Result<SubmissionOperation, SubmissionError> {
+        self.ready().await?;
         let now = self.now();
         let Some(preparation) = self
             .ledger
@@ -766,6 +816,7 @@ impl SubmissionService {
             };
         };
         confirm(&preparation.summary(), &request.summary)?;
+        self.allowed()?;
         if preparation.action == SubmissionAction::Save {
             self.check_files(&preparation).await?;
         }
@@ -788,6 +839,7 @@ impl SubmissionService {
     /// One write's state; a write whose outcome is unknown is read for
     /// first.
     pub async fn status(&self, operation: &str) -> Result<SubmissionOperation, SubmissionError> {
+        self.ready().await?;
         self.answer(self.known(operation)?).await
     }
 
@@ -899,7 +951,9 @@ impl SubmissionService {
         mut operation: Operation,
     ) -> Result<SubmissionOperation, SubmissionError> {
         let checked = match self.read(preparation.module).await {
-            Ok(remote) => self.recheck(&preparation, &operation, &remote),
+            Ok(remote) => self
+                .recheck(&preparation, &operation, &remote)
+                .and_then(|receipt| self.allowed().map(|()| receipt)),
             Err(error) => Err(error.into()),
         };
         match checked {
@@ -935,6 +989,13 @@ impl SubmissionService {
             }
             SubmissionAction::Remove => None,
         };
+        // The switch may have been turned off during a long upload.
+        if let Err(error) = self.allowed() {
+            let from = operation.state;
+            operation.failure = Some(error.code());
+            self.advance(&mut operation, OperationState::Failed, from)?;
+            return Err(error);
+        }
         let from = operation.state;
         operation.sent = true;
         operation.sent_at = Some(self.now());
@@ -975,7 +1036,21 @@ impl SubmissionService {
                 // Read right away; a write is never sent again.
                 self.settle(operation).await?
             }
-            Err(error) => self.fail(operation, &error)?,
+            Err(error) => {
+                // A refusal is read back too: what the LMS holds decides,
+                // and the refusal names the failure while nothing changed.
+                operation.answered = true;
+                operation.failure = Some(error.code());
+                operation.detail = Some(error.to_string());
+                if !self.advance(
+                    &mut operation,
+                    OperationState::Verifying,
+                    OperationState::Saving,
+                )? {
+                    return Ok(self.known(&operation.id)?.public());
+                }
+                self.settle(operation).await?
+            }
         };
         Ok(operation.public())
     }
@@ -1051,10 +1126,14 @@ impl SubmissionService {
                 .sent_at
                 .is_none_or(|sent| now - sent >= SETTLE_AFTER)
         {
-            let failure = if remote.state == operation.baseline && !operation.answered {
-                ErrorCode::Timeout
-            } else {
+            let failure = if remote.state != operation.baseline {
                 ErrorCode::SubmissionMismatch
+            } else if let Some(refused) = operation.failure {
+                refused
+            } else if operation.answered {
+                ErrorCode::SubmissionMismatch
+            } else {
+                ErrorCode::Timeout
             };
             Some((OperationState::Failed, Some(failure)))
         } else {
@@ -1082,7 +1161,7 @@ impl SubmissionService {
         Ok(operation)
     }
 
-    /// A write that did not reach the submission, or that the LMS refused.
+    /// A draft upload that failed: the submission was never touched.
     fn fail(
         &self,
         mut operation: Operation,

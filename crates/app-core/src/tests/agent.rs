@@ -26,7 +26,7 @@ impl Fixture {
     }
 
     fn service(&self) -> AgentService {
-        AgentService::new(self.store.clone(), self.workspaces())
+        AgentService::new(self.store.clone(), self.workspaces(), Default::default())
     }
 
     fn workspaces(&self) -> AssignmentWorkspaces {
@@ -224,12 +224,46 @@ fn every_tool_declares_object_schemas_and_its_effect() {
         if tool.effect == Effect::Read {
             assert!(tool.idempotent && !tool.destructive, "{}", tool.name);
         }
+        // Whatever a client's approval mode, an LMS write asks the person.
+        let asks = tool.meta.get("anthropic/requiresUserInteraction") == Some(&json!(true));
+        assert_eq!(asks, tool.effect == Effect::LmsWrite, "{}", tool.name);
+        if asks {
+            assert!(
+                tool.destructive && tool.open_world && !tool.read_only,
+                "{}",
+                tool.name
+            );
+        }
     }
+    let lms_writes = tools()
+        .iter()
+        .filter(|tool| tool.effect == Effect::LmsWrite)
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    assert_eq!(lms_writes, ["submission_save", "submission_remove"]);
     let names = tools().iter().map(|tool| tool.name).collect::<Vec<_>>();
     let mut unique = names.clone();
     unique.sort_unstable();
     unique.dedup();
     assert_eq!(unique.len(), names.len());
+}
+
+// An LMS write tool needs its own switch on top of agent access, checked
+// before its arguments are even read; the submission tools answer
+// `unavailable` until the school transport is attached.
+#[test]
+fn lms_write_tools_need_their_own_switch() {
+    use crate::error_code::{Coded, ErrorCode};
+    let fixture = Fixture::new();
+    let service = fixture.service();
+    let refused = service
+        .call("submission_save", json!({"preparationId": "p"}))
+        .unwrap_err();
+    assert_eq!(refused.code(), ErrorCode::LmsWritesDisabled);
+    let detached = service
+        .call("submission_status", json!({"operationId": "o"}))
+        .unwrap_err();
+    assert_eq!(detached.code(), ErrorCode::Unavailable);
 }
 
 #[test]
@@ -518,6 +552,7 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
             let cx = Context {
                 store: &fixture.store,
                 workspaces: &workspaces,
+                submissions: None,
                 view,
             };
             let mut value = tool.run(&cx, args.clone()).unwrap();

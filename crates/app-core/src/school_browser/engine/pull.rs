@@ -28,7 +28,7 @@ use chrono::{DateTime, Utc};
 pub(crate) struct Transport {
     pub(super) sign_in: SignInGate,
     pub(super) otp_setup: crate::school_auth::otp_setup::OtpSetupClient,
-    pub(crate) moodle: MoodleClient,
+    pub(crate) moodle: Arc<MoodleClient>,
     pub(crate) kyomu: Arc<KyomuClient>,
 }
 
@@ -93,7 +93,12 @@ impl SchoolBrowserEngine {
                 http.clone(),
                 cookies.clone(),
             ),
-            moodle: MoodleClient::new(http, cookies, sign_in, self.0.auth.clone()),
+            moodle: Arc::new(MoodleClient::new(
+                http,
+                cookies,
+                sign_in,
+                self.0.auth.clone(),
+            )),
             kyomu: kyomu.clone(),
         };
         self.0.transport.set(transport).map_err(|_| {
@@ -109,6 +114,11 @@ impl SchoolBrowserEngine {
 
     pub(crate) fn sign_in_gate(&self) -> Result<SignInGate, SchoolBrowserError> {
         Ok(self.transport()?.sign_in.clone())
+    }
+
+    /// The LMS client, shared with the submission service's transport.
+    pub(crate) fn moodle_client(&self) -> Result<Arc<MoodleClient>, SchoolBrowserError> {
+        Ok(self.transport()?.moodle.clone())
     }
 
     pub(super) fn transport(&self) -> Result<&Transport, SchoolBrowserError> {

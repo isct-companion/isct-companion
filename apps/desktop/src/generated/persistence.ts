@@ -465,7 +465,14 @@ export type CourseOverride = {
 
 export type AgentWrite = { at: string; tool: string };
 
-export type AgentAccess = { enabled: boolean; lastWrites: Array<AgentWrite> };
+export type AgentAccess = {
+  enabled: boolean;
+  /**
+   * "Allow AI agents to write to LMS"; absent reads as off.
+   */
+  lmsWrites?: boolean;
+  lastWrites: Array<AgentWrite>;
+};
 
 export type Notifications = {
   classes: boolean;
@@ -2060,7 +2067,8 @@ export type ErrorCode =
   | "submission-in-progress"
   | "submission-outcome-unknown"
   | "submission-rejected"
-  | "submission-mismatch";
+  | "submission-mismatch"
+  | "lms-writes-disabled";
 
 export type CoreFailure = {
   code: ErrorCode;
@@ -2200,6 +2208,7 @@ export const EMPTY_WORKSPACE: Workspace = {
     agentAccess: {
       enabled: false,
       lastWrites: [],
+      lmsWrites: false,
     },
     appearance: "system",
     cloud: {

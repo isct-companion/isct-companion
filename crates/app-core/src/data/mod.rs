@@ -684,6 +684,16 @@ fn catalog_offering_in(connection: &Connection, id: &str) -> Result<Option<Value
     .transpose()
 }
 
+/// "Allow AI agents to write to LMS": off unless agent access itself is on.
+fn lms_writes_enabled_in(connection: &Connection) -> Result<bool, DataError> {
+    Ok(read_setting(connection, "devicePreferences")?
+        .or(read_setting(connection, "settings")?)
+        .is_some_and(|value| {
+            value.pointer("/agentAccess/enabled") == Some(&Value::Bool(true))
+                && value.pointer("/agentAccess/lmsWrites") == Some(&Value::Bool(true))
+        }))
+}
+
 fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
     Ok(read_setting(connection, "devicePreferences")?
         .or(read_setting(connection, "settings")?)
@@ -987,6 +997,11 @@ impl DataStore {
 
     pub fn agent_access_enabled(&self) -> Result<bool, DataError> {
         agent_access_enabled_in(&*self.open()?)
+    }
+
+    /// Whether agents may write to the LMS, read at each write.
+    pub fn lms_writes_enabled(&self) -> Result<bool, DataError> {
+        lms_writes_enabled_in(&*self.open()?)
     }
 
     /// One agent tool's writes, on the same rules and commit path as user

@@ -193,12 +193,26 @@ async fn exchange(client: &reqwest::Client, request: NetRequest) -> Result<Respo
     for (name, value) in request.headers {
         builder = builder.header(name, value);
     }
+    let upload = matches!(request.body, Body::Bytes { .. });
     builder = match request.body {
         Body::None => builder,
         Body::Form(fields) => builder.form(&fields),
         Body::Json(value) => builder.json(&value),
+        Body::Bytes {
+            content_type,
+            bytes,
+        } => builder
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(bytes),
     };
-    let mut response = bounded(deadline, builder.send()).await?.map_err(classify)?;
+    let sent = if upload {
+        tokio::time::timeout_at(deadline, builder.send())
+            .await
+            .map_err(|_| NetError::Deadline)?
+    } else {
+        bounded(deadline, builder.send()).await?
+    };
+    let mut response = sent.map_err(classify)?;
     if response
         .content_length()
         .is_some_and(|length| length > max_bytes as u64)

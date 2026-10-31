@@ -351,6 +351,12 @@ export const SETTING_ENTRIES: SettingEntry[] = [
     terms: "mcp claude agent server エージェント",
   },
   {
+    section: "agent",
+    id: "lms-writes",
+    title: "settings.agent.allowLmsWrites",
+    terms: "lms submit submission hand in 提出 提交",
+  },
+  {
     section: "extensions",
     id: "sites",
     title: "settings.extensions.siteStylesScripts",

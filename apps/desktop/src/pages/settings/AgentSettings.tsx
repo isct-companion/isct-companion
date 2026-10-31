@@ -76,6 +76,28 @@ export function AgentSettings({
             }
           />
         </Row>
+        {/* LMS writes ride on agent access: Core allows them only with both on. */}
+        {access?.enabled && (
+          <Row
+            id="lms-writes"
+            title="settings.agent.allowLmsWrites"
+            hint={t("settings.agent.lmsWritesHint")}
+          >
+            <Toggle
+              checked={access.lmsWrites === true}
+              onChange={(lmsWrites) =>
+                update((draft) => {
+                  draft.settings.agentAccess ??= {
+                    enabled: false,
+                    lastWrites: [],
+                  };
+                  draft.settings.agentAccess.lmsWrites = lmsWrites;
+                  return draft;
+                })
+              }
+            />
+          </Row>
+        )}
       </SettingsGroup>
       {/* While access is off there is nothing to connect to; the switch says it all. */}
       {access?.enabled && (

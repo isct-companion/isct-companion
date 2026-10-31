@@ -1,8 +1,8 @@
 //! Authenticated MCP Streamable HTTP endpoint owned by the desktop process.
 
 use app_core::{
-    agent::{AgentError, Effect, ToolSpec},
-    error_code::Coded,
+    agent::{AgentError, ToolSpec},
+    error_code::{Coded, ErrorCode},
     runtime_tasks::RuntimeTasks,
     Core,
 };
@@ -17,7 +17,8 @@ use axum::{
 use rmcp::{
     model::{
         CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
+        MetaObject, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
+        ToolAnnotations,
     },
     service::RequestContext,
     transport::streamable_http_server::{
@@ -452,18 +453,21 @@ impl AgentHandler {
 const INTERNAL_ERROR: &str = "IsctCompanion could not complete the request. Try again later.";
 
 /// A failure as `{code, message}`: the stable code is what an agent acts
-/// on. Domain messages are the client's to read; local storage and
-/// compatibility failures can carry paths or SQL text, so clients get a
-/// generic message and the details go to the local log.
+/// on. Domain messages are the client's to read; local storage,
+/// compatibility and internal failures can carry paths or SQL text, so
+/// clients get a generic message and the details go to the local log.
 fn client_error(error: AgentError) -> String {
-    let message = match &error {
-        AgentError::Storage(_) | AgentError::Compatibility(_) => {
-            log::error!("[mcp] tool failed: {error}");
-            INTERNAL_ERROR.to_string()
-        }
-        other => other.to_string(),
+    let code = error.code();
+    let message = if matches!(
+        code,
+        ErrorCode::Storage | ErrorCode::Compatibility | ErrorCode::Internal
+    ) {
+        log::error!("[mcp] tool failed: {error}");
+        INTERNAL_ERROR.to_string()
+    } else {
+        error.to_string()
     };
-    json!({"code": error.code().name(), "message": message}).to_string()
+    json!({"code": code.name(), "message": message}).to_string()
 }
 
 impl ServerHandler for AgentHandler {
@@ -539,24 +543,28 @@ fn tool_result(value: Value) -> CallToolResult {
     result
 }
 
-/// A Core tool contract as MCP lists it. Every tool reads or writes this
-/// device's data only, never the open world.
+/// A Core tool contract as MCP lists it. Core's registry decides every hint
+/// and the `_meta`; this only spells them in rmcp's types.
 fn tool(spec: &ToolSpec) -> Tool {
-    let read = spec.effect == Effect::Read;
     let mut annotations = ToolAnnotations::new()
-        .read_only(read)
+        .read_only(spec.read_only)
         .idempotent(spec.idempotent)
-        .open_world(false);
-    if !read {
+        .open_world(spec.open_world);
+    if !spec.read_only {
         annotations = annotations.destructive(spec.destructive);
     }
-    Tool::new(
+    let tool = Tool::new(
         spec.name,
         spec.description,
         Arc::new(spec.input_schema.clone()),
     )
     .with_raw_output_schema(Arc::new(spec.output_schema.clone()))
-    .with_annotations(annotations)
+    .with_annotations(annotations);
+    if spec.meta.is_empty() {
+        tool
+    } else {
+        tool.with_meta(MetaObject(spec.meta.clone()))
+    }
 }
 
 #[cfg(test)]

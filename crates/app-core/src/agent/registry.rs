@@ -2,7 +2,7 @@
 //! argument and answer types, and the changes it reads. The HTTP adapter
 //! serves this list as `tools/list`; the JSON Schemas come from the Rust
 //! types themselves.
-use super::{assignments, reads, writes, AgentError, Context};
+use super::{assignments, reads, submissions, writes, AgentError, Context};
 use crate::workspace_changes::WorkspaceChange;
 use schemars::{generate::SchemaSettings, JsonSchema};
 use serde::{de::DeserializeOwned, Serialize};
@@ -17,17 +17,32 @@ pub enum Effect {
     /// Changes the person's own local data (plans, weekly events, hidden
     /// assignments), audited in the same transaction.
     LocalWrite,
+    /// Changes the school's LMS: hands work in or removes it. Needs the
+    /// person's LMS switch, and asks every client to confirm with the person
+    /// each time, whatever its approval mode.
+    LmsWrite,
 }
+
+/// The `_meta` key that has Claude Code ask the person before every call,
+/// even in bypass mode (`approach/mcp-submit-confirmation`).
+const REQUIRES_INTERACTION: &str = "anthropic/requiresUserInteraction";
 
 pub struct ToolSpec {
     pub name: &'static str,
     pub description: &'static str,
     pub effect: Effect,
+    /// Changes nothing (MCP `readOnlyHint`).
+    pub read_only: bool,
     /// May remove or overwrite what is there (MCP `destructiveHint`).
     pub destructive: bool,
     /// Repeating the call with the same arguments changes nothing more
     /// (MCP `idempotentHint`).
     pub idempotent: bool,
+    /// Reaches beyond this device, to the school's LMS (MCP
+    /// `openWorldHint`).
+    pub open_world: bool,
+    /// The tool's MCP `_meta`, as the adapter lists it.
+    pub meta: Map<String, Value>,
     pub input_schema: Map<String, Value>,
     pub output_schema: Map<String, Value>,
     pub(super) reads: &'static [WorkspaceChange],
@@ -79,6 +94,10 @@ static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
         entry::<writes::HideAssignment>(),
         entry::<writes::RestoreAssignment>(),
         entry::<assignments::WorkspaceCreate>(),
+        entry::<submissions::SubmissionPrepare>(),
+        entry::<submissions::SubmissionSave>(),
+        entry::<submissions::SubmissionRemove>(),
+        entry::<submissions::SubmissionStatus>(),
     ]
 });
 
@@ -91,13 +110,23 @@ pub(super) fn find(name: &str) -> Option<&'static ToolSpec> {
     TOOLS.iter().find(|tool| tool.name == name)
 }
 
+/// The side effect decides the hints and `_meta`; a tool adds only whether
+/// it overwrites and whether repeating it is safe.
 fn entry<T: Tool>() -> ToolSpec {
+    let lms_write = T::EFFECT == Effect::LmsWrite;
     ToolSpec {
         name: T::NAME,
         description: T::DESCRIPTION,
         effect: T::EFFECT,
-        destructive: T::DESTRUCTIVE,
+        read_only: T::EFFECT == Effect::Read,
+        destructive: T::DESTRUCTIVE || lms_write,
         idempotent: T::EFFECT == Effect::Read || T::IDEMPOTENT,
+        open_world: lms_write,
+        meta: if lms_write {
+            Map::from_iter([(REQUIRES_INTERACTION.to_string(), Value::Bool(true))])
+        } else {
+            Map::new()
+        },
         input_schema: schema::<T::Args>(SchemaSettings::draft2020_12().for_deserialize()),
         output_schema: schema::<T::Output>(SchemaSettings::draft2020_12().for_serialize()),
         reads: T::READS,

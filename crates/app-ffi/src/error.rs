@@ -81,6 +81,7 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::ResetUnsupported
         | C::MatrixScanEnded
         | C::AgentDisabled
+        | C::LmsWritesDisabled
         | C::SubmissionUnsupported => SdkError::Unavailable { detail },
         C::InvalidInput
         | C::TooLarge

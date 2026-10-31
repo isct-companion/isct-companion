@@ -46,6 +46,8 @@ struct LmsState {
     removes: usize,
     save: SaveOutcome,
     hold_saves: bool,
+    /// Turns the person's LMS switch off while the next upload runs.
+    switch_off_on_upload: Option<DataStore>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -82,6 +84,10 @@ impl SubmissionTransport for FakeLms {
                 .iter()
                 .map(|file| (file.name.clone(), std::fs::read(&file.path).unwrap()))
                 .collect::<Vec<_>>();
+            let switch_off = self.0.state.lock().unwrap().switch_off_on_upload.take();
+            if let Some(store) = switch_off {
+                lms_writes(&store, false);
+            }
             let mut lms = self.0.state.lock().unwrap();
             lms.uploads += 1;
             lms.uploaded_from
@@ -146,6 +152,16 @@ impl SubmissionTransport for FakeLms {
     }
 }
 
+/// Agent access on, and "Allow AI agents to write to LMS" as `allowed`.
+fn lms_writes(store: &DataStore, allowed: bool) {
+    store
+        .put_workspace_setting(
+            "devicePreferences",
+            json!({"agentAccess": {"enabled": true, "lmsWrites": allowed, "lastWrites": []}}),
+        )
+        .unwrap();
+}
+
 struct Fixture {
     root: PathBuf,
     store: DataStore,
@@ -190,6 +206,7 @@ impl Fixture {
                 Ok::<_, DataError>(())
             })
             .unwrap();
+        lms_writes(&store, true);
         let notes = NoteStore::default();
         notes.at(root.join("files"));
         let workspaces = AssignmentWorkspaces::new(
@@ -234,6 +251,7 @@ impl Fixture {
                 removes: 0,
                 save: SaveOutcome::Answered,
                 hold_saves: false,
+                switch_off_on_upload: None,
             }),
             save_started: tokio::sync::Notify::new(),
             release_save: tokio::sync::Notify::new(),
@@ -736,4 +754,41 @@ async fn restart_settles_interrupted_writes_by_reading_only() {
         Some(ErrorCode::Timeout)
     );
     assert_eq!(fixture.calls(), (0, 0, 0));
+}
+
+// The person's switch gates the write path itself: off, nothing is sent;
+// turned off during the upload, the save never leaves, and the write is
+// recorded as failed without having been sent.
+#[tokio::test]
+async fn lms_writes_need_the_persons_switch() {
+    let fixture = Fixture::new();
+    fixture.put("report.pdf", b"%PDF-1 report");
+    let service = fixture.service();
+    let prepared = service
+        .prepare(ASSIGNMENT, SubmissionAction::Save)
+        .await
+        .unwrap();
+    lms_writes(&fixture.store, false);
+    assert!(matches!(
+        service.execute(fixture.confirm(&prepared)).await,
+        Err(SubmissionError::WritesDisabled)
+    ));
+    assert_eq!(fixture.calls(), (0, 0, 0));
+
+    lms_writes(&fixture.store, true);
+    fixture.lms().switch_off_on_upload = Some(fixture.store.clone());
+    assert!(matches!(
+        service.execute(fixture.confirm(&prepared)).await,
+        Err(SubmissionError::WritesDisabled)
+    ));
+    let stopped = service.ledger.latest_for(&prepared.id).unwrap().unwrap();
+    assert_eq!(stopped.state, OperationState::Failed);
+    assert_eq!(stopped.failure, Some(ErrorCode::LmsWritesDisabled));
+    assert!(!stopped.sent);
+    assert_eq!(fixture.calls(), (1, 0, 0));
+
+    lms_writes(&fixture.store, true);
+    let done = service.execute(fixture.confirm(&prepared)).await.unwrap();
+    assert_eq!(done.state, OperationState::Succeeded);
+    assert_eq!(fixture.calls(), (2, 1, 0));
 }

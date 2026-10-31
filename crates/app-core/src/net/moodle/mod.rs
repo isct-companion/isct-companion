@@ -6,7 +6,9 @@
 //! dashboard's sesskey, plus Rust HTML parsing of course and activity pages.
 //! Both take only [`MoodleFunction`]s, a closed read-only list. The token
 //! path reads the custom timetable through the generic dashboard-block API;
-//! the cookie fallback also reads the block's other quarters.
+//! the cookie fallback also reads the block's other quarters. LMS writes
+//! (assignment submissions) are a separate closed list in `submission`,
+//! sent only for the submission service.
 //!
 //! Secrets: the token, `privatetoken`, passport, sesskey and cookies are never
 //! logged, formatted into errors or stored outside the OS vault. Requests
@@ -17,11 +19,13 @@ mod functions;
 mod mapping;
 mod reader;
 mod rest;
+mod submission;
 mod token;
 
 pub use functions::MoodleFunction;
 pub(crate) use mapping::months_to_read;
 pub(crate) use reader::LmsReader;
+pub(crate) use submission::LmsSubmissions;
 
 use crate::{
     net::{

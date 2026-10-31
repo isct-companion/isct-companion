@@ -112,7 +112,7 @@ fn initial_workspace_value(date: chrono::NaiveDate, device_id: &str, updated_at:
         "scheduledTasks": [reference_refresh_task(device_id), lms_background_refresh_task(device_id)],
         "settings": {
             "appearance": "system",
-            "agentAccess": {"enabled": false, "lastWrites": []},
+            "agentAccess": {"enabled": false, "lmsWrites": false, "lastWrites": []},
             "density": "comfortable",
             "locale": "en",
             "notifications": {

@@ -17,6 +17,7 @@ macro_rules! codes {
         /// failure a person acts on differently gets a new code.
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
         #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+        #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
         pub enum ErrorCode {
             $(#[serde(rename = $name)] $variant,)*
         }
@@ -113,6 +114,7 @@ codes! {
     SubmissionOutcomeUnknown => "submission-outcome-unknown",
     SubmissionRejected => "submission-rejected",
     SubmissionMismatch => "submission-mismatch",
+    LmsWritesDisabled => "lms-writes-disabled",
 }
 
 /// A public Core error: the code a shell shows copy for, and the values
@@ -513,6 +515,8 @@ coded!(AgentError, |e| match e {
     AgentError::Conflict(_) => C::Conflict,
     AgentError::Compatibility(_) => C::Compatibility,
     AgentError::Storage(_) => C::Storage,
+    AgentError::Unavailable(_) => C::Unavailable,
+    AgentError::Submission(e) => e.code(),
 });
 
 coded!(crate::submissions::TransportError, |e| {
@@ -543,6 +547,7 @@ impl Coded for crate::submissions::SubmissionError {
             E::Expired => C::SubmissionExpired,
             E::InProgress => C::SubmissionInProgress,
             E::OutcomeUnknown => C::SubmissionOutcomeUnknown,
+            E::WritesDisabled => C::LmsWritesDisabled,
         }
     }
 

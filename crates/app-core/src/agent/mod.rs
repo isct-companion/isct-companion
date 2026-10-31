@@ -8,15 +8,17 @@ mod assignments;
 mod dto;
 mod reads;
 mod registry;
+mod submissions;
 mod writes;
 
 pub use registry::{tools, Effect, ToolSpec};
 
 use crate::data::{AgentWriteError, DataError, DataStore};
+use crate::submissions::{SubmissionError, SubmissionService};
 use crate::workspace_changes::WorkspaceChange;
 use crate::workspaces::AssignmentWorkspaces;
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -33,6 +35,11 @@ pub enum AgentError {
     Compatibility(String),
     #[error("{0}")]
     Storage(String),
+    #[error("{0}")]
+    Unavailable(String),
+    /// An LMS write tool's failure, under its `submission-*` code.
+    #[error(transparent)]
+    Submission(SubmissionError),
 }
 
 impl From<&str> for AgentError {
@@ -68,26 +75,42 @@ impl From<AgentWriteError> for AgentError {
 pub struct AgentService {
     store: DataStore,
     workspaces: AssignmentWorkspaces,
+    /// Core's submission service, once the school transport is attached.
+    submissions: Arc<OnceLock<SubmissionService>>,
 }
 
 impl AgentService {
-    pub fn new(store: DataStore, workspaces: AssignmentWorkspaces) -> Self {
-        Self { store, workspaces }
+    pub fn new(
+        store: DataStore,
+        workspaces: AssignmentWorkspaces,
+        submissions: Arc<OnceLock<SubmissionService>>,
+    ) -> Self {
+        Self {
+            store,
+            workspaces,
+            submissions,
+        }
     }
 
     /// Runs one tool with its JSON arguments and answers with its JSON
     /// output, always an object. Access is checked on every call; a write
-    /// checks it again inside its own transaction.
+    /// checks it again inside its own transaction, and an LMS write also
+    /// needs the person's LMS switch, which the submission service reads
+    /// again before each request that changes the LMS.
     pub fn call(&self, name: &str, args: Value) -> Result<Value, AgentError> {
         let tool = registry::find(name).ok_or(AgentError::UnknownTool)?;
         if !self.store.agent_access_enabled()? {
             return Err(AgentError::Disabled);
+        }
+        if tool.effect == Effect::LmsWrite && !self.store.lms_writes_enabled()? {
+            return Err(AgentError::Submission(SubmissionError::WritesDisabled));
         }
         let view = || load_view(&self.store, tool.reads);
         tool.run(
             &Context {
                 store: &self.store,
                 workspaces: &self.workspaces,
+                submissions: self.submissions.get(),
                 view: &view,
             },
             args,
@@ -102,6 +125,7 @@ type View = (Arc<Value>, Arc<crate::schedule::SchoolReads>);
 pub(crate) struct Context<'a> {
     store: &'a DataStore,
     workspaces: &'a AssignmentWorkspaces,
+    submissions: Option<&'a SubmissionService>,
     view: &'a dyn Fn() -> Result<View, AgentError>,
 }
 

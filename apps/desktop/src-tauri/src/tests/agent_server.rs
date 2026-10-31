@@ -163,6 +163,15 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
     assert_eq!(delete_tool["annotations"]["readOnlyHint"], false);
     assert_eq!(delete_tool["annotations"]["destructiveHint"], true);
     assert_eq!(delete_tool["inputSchema"]["additionalProperties"], false);
+    assert!(delete_tool.get("_meta").is_none());
+    // An LMS write reaches the school and asks the person every time.
+    let save_tool = listed_tool("submission_save");
+    assert_eq!(save_tool["annotations"]["destructiveHint"], true);
+    assert_eq!(save_tool["annotations"]["openWorldHint"], true);
+    assert_eq!(
+        save_tool["_meta"]["anthropic/requiresUserInteraction"],
+        true
+    );
     let grades = rpc(
         &client,
         &connection,

@@ -449,7 +449,12 @@ contract!(CourseOverride {
 });
 
 contract!(AgentWrite { pub at: String, pub tool: String, });
-contract!(AgentAccess { pub enabled: bool, #[serde(default)] pub last_writes: Vec<AgentWrite>, });
+contract!(AgentAccess {
+    pub enabled: bool,
+    /// "Allow AI agents to write to LMS"; absent reads as off.
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub lms_writes: Option<bool>,
+    #[serde(default)] pub last_writes: Vec<AgentWrite>,
+});
 contract!(Notifications {
     pub classes: bool, pub assignments: bool,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exams: Option<bool>,

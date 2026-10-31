@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 159 checks must be re-run before the next release.**
+**9 of 160 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**150 checks have never been run or could not be run:**
+**151 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -57,6 +57,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-LECTURE-PANE-OVERLAYS` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
+- `DESKTOP-MCP-LMS-WRITE` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-FILE-SHARE-MACOS` — never verified
 - `DESKTOP-FILE-SHARE-WINDOWS` — never verified
@@ -218,6 +219,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
+| `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
 | `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
@@ -2379,7 +2381,8 @@ A built desktop app and a real MCP client.
      People could not get from a bare URL and token to a working client,
      so the copied text must work without editing. Every tool declares
      an output schema and hints; a client that rejects one drops or
-     refuses that tool, so all 17 must be listed and callable.
+     refuses that tool, so every tool in Core's registry must be listed
+     and callable.
 2. Read today and the schedule through the client and compare with the
    app window.
    - *Why:* The point of the endpoint is parity with the UI. A read that differs
@@ -2416,6 +2419,88 @@ mode holds needs the built app.
 17 tools, today/grades/GPA reads, 401 and 403 confirmed.
 
 Evidence: `docs/verification/core-consolidation.md#live-macos-acceptance`
+
+### An AI agent hands in and removes an assignment through MCP (`DESKTOP-MCP-LMS-WRITE`)
+
+**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A built desktop app signed in to a real LMS account, Claude Code
+connected through Settings → AI agent access, and an open individual
+file assignment the person chooses, with an empty LMS submission, that
+they may hand test files in to and withdraw (no cut-off passed).
+
+**Steps**
+
+1. With Allow AI agents to write to LMS off, ask the agent to create
+   the workspace, put a small PDF into submit/, prepare a save and run
+   submission_save.
+   - *Why:* The switch is the person's standing consent to LMS writes. The save
+     must come back as lms-writes-disabled with nothing on the LMS, while
+     preparing alone sends nothing.
+2. Turn the switch on, restart Claude Code in bypass mode
+   (--dangerously-skip-permissions) and ask it to save again. Read the
+   confirmation prompt before allowing it.
+   - *Why:* requiresUserInteraction must make Claude Code ask even in bypass
+     mode, and the prompt must show the echoed summary (title, file
+     names, sizes, SHA-256 prefixes, effect, reversibility). A prompt
+     that hides it has the person confirm blind.
+3. Allow it, open the assignment's LMS page in the app and compare the
+   file, its size and the status; then ask the agent to run the same
+   submission_save again.
+   - *Why:* The read-back must match the real LMS. The repeated call must answer
+     with the same operation id and upload nothing: the LMS page's last
+     modified time must not move.
+4. Ask the agent to prepare and run submission_remove, confirm the
+   prompt, then check the LMS page.
+   - *Why:* Removal deletes handed-in work. The prompt must appear in bypass
+     mode too and say it cannot be undone, and the LMS must show no
+     submission afterwards.
+5. Prepare a save of a file of tens of MB, allow it and turn Wi-Fi off
+   while it is saving. Turn it on after a minute, ask for another save
+   of other content, then call submission_status until it settles.
+   - *Why:* A dropped connection is what Core must settle by reading only. The
+     other save must be refused while the first is outcome_unknown, and
+     the first must end succeeded or failed with one upload at most (one
+     file on the LMS page).
+6. Remove the test submission so the assignment is as it was.
+   - *Why:* The assignment belongs to a real course; the check must leave no
+     test files handed in.
+
+**Where to look**
+
+Claude Code's confirmation prompts and tool results, the assignment's
+LMS page in the app (status, file names, sizes, last modified), and
+Settings → AI agent access → Recent agent changes.
+
+**Expected**
+
+With the switch off the save is refused as lms-writes-disabled. With it
+on, Claude Code asks before submission_save and submission_remove even
+in bypass mode and shows the summary; the LMS matches every result; a
+repeated save returns the same operation; the cut connection settles as
+succeeded or failed with at most one upload; the assignment ends with
+no submission.
+
+**Why this is manual**
+
+Needs a real LMS account and assignment, Moodle's live write endpoints,
+a real MCP client's confirmation UI and a real network drop. The Core
+tests drive the same paths only over a test transport.
+
+**Covers**
+
+- `crates/app-core/src/net/moodle/submission.rs`
+- `crates/app-core/src/submissions.rs`
+- `crates/app-core/src/submissions/**`
+- `crates/app-core/src/agent/submissions.rs`
+- `apps/desktop/src-tauri/src/agent_server.rs`
+- `apps/desktop/src/pages/settings/AgentSettings.tsx`
+
+**Last recorded** never run
 
 ### PDF viewer save toolbar and a large cached document (`DESKTOP-PDF-TOOLBAR`)
 

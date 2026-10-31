@@ -162,6 +162,13 @@ pub enum Body {
     None,
     Form(Vec<(String, String)>),
     Json(serde_json::Value),
+    /// Bytes under their content type, such as a multipart upload. Sending
+    /// them is bounded by the deadline alone: a large upload outlasts the
+    /// stall window before the server can answer.
+    Bytes {
+        content_type: String,
+        bytes: bytes::Bytes,
+    },
 }
 
 #[derive(Clone, Debug)]

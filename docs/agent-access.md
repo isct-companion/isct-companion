@@ -58,9 +58,9 @@ size and SHA-256. The agent writes the files to hand in into `submit/` itself.
 Write tools change only the person's own data on this device: the plan
 (`plan_add`, `plan_remove`), weekly personal events (`weekly_event_create`,
 `weekly_event_update`, `weekly_event_delete`) and locally hidden assignments
-(`hide_assignment`, `restore_assignment`), plus `workspace_create`. Tools
-that remove or overwrite carry `destructiveHint`; those safe to repeat carry
-`idempotentHint`.
+(`hide_assignment`, `restore_assignment`), plus `workspace_create` and
+`submission_prepare`. Tools that remove or overwrite carry
+`destructiveHint`; those safe to repeat carry `idempotentHint`.
 
 Writes pass through the same validation and versioned store as the
 application. Each write and its audit entry commit in one transaction, with
@@ -69,3 +69,66 @@ access checked again inside it; records with a source are marked
 The server returns the local result while cloud capture stays owned background
 work. If the connection breaks before a reply, read the current state before
 retrying a create.
+
+## Handing work in to the LMS
+
+Writing to the LMS needs a second switch under Allow local agents: **Allow
+AI agents to write to LMS**, off by default and kept on this device only.
+Core reads it on every LMS write call and again before each request that
+changes the LMS, so turning it off stops a write that has not sent its save.
+IsctCompanion never asks for confirmation itself
+(`approach/mcp-submit-confirmation`): the MCP client does. The two LMS write
+tools carry `destructiveHint`, `openWorldHint` and
+`_meta["anthropic/requiresUserInteraction"] = true`, which Claude Code honours
+even in bypass mode; Codex, Cursor and other clients follow their own
+approval settings.
+
+At this school every assignment has drafts off, so saving is submitting.
+A write takes two steps:
+
+1. `submission_prepare(assignmentId, action)` with `save` or `remove`.
+   Nothing is sent. For a save, Core copies the files now in `submit/` into
+   its own data folder by name, size and SHA-256 and reads the submission on
+   the LMS. The answer is a `preparationId`, an `expiresAt` and a `summary`:
+   the assignment title, the files with their size and SHA-256 prefix, what
+   is added, replaced or removed on the LMS, and whether the person can still
+   change or withdraw it afterwards (until the cut-off, while the assignment
+   stays open, or never for a removal). A save that would replace a
+   submission already on the LMS is refused with what it would replace. The
+   same content against the same LMS state gives the same preparation.
+2. `submission_save(preparationId, summary)` or
+   `submission_remove(preparationId, summary)`, with the summary passed back
+   unchanged. The client shows these arguments when it asks the person, and
+   Core refuses any difference from the preparation (`submission-confirmation-mismatch`).
+
+What Core guarantees, whatever the agent does:
+
+- Only what was prepared is sent: the snapshot, never a later `submit/`.
+  Files changed since the preparation (`submission-files-changed`), another
+  signed-in account (`submission-account-changed`) or a submission changed on
+  the LMS in the meantime (`submission-remote-conflict`) are refused before
+  anything is sent.
+- One write per account and assignment at a time. While one is running or
+  its outcome is unknown, other writes are refused (`submission-in-progress`,
+  `submission-outcome-unknown`).
+- Idempotency is Core's: it derives the write's identity from the account,
+  assignment, attempt, action and snapshot, so the same call again answers
+  with the same operation instead of writing twice.
+- Every write is read back from the LMS. `succeeded` means the LMS holds
+  exactly the snapshot's names and sizes; anything else is `failed`, with a
+  code such as `submission-rejected` or `submission-mismatch`.
+- A write whose answer was lost is `outcome_unknown`. Core settles it by
+  reading the LMS, right away, on the next start and in its periodic wake,
+  and never sends it again. It turns `failed` only after the LMS has had
+  three minutes to finish; executing again is then a new write, which the
+  client confirms again.
+- A write that has been sent is never reported undone by a local cancel.
+
+`submission_status(operationId)` answers with a write's state, reading the
+LMS first when its outcome is unknown. Only individual file assignments are
+supported; online text, drafts, submission statements, group work, timed
+assignments, ZIP hand-ins and file types named by group are refused with
+`submission-unsupported` and the reason. Operation records and snapshots stay
+on this device, outside backups and cloud sync, and are cleaned after success
+or expiry. The contract is recorded in slotledger as
+`approach/lms-submission-contract`.

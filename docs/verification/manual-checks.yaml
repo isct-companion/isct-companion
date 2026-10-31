@@ -1923,7 +1923,8 @@ checks:
           People could not get from a bare URL and token to a working client,
           so the copied text must work without editing. Every tool declares
           an output schema and hints; a client that rejects one drops or
-          refuses that tool, so all 17 must be listed and callable.
+          refuses that tool, so every tool in Core's registry must be listed
+          and callable.
       - action: |
           Read today and the schedule through the client and compare with the
           app window.
@@ -1958,6 +1959,86 @@ checks:
       result: pass
       notes: 17 tools, today/grades/GPA reads, 401 and 403 confirmed.
       evidence: docs/verification/core-consolidation.md#live-macos-acceptance
+
+  - id: DESKTOP-MCP-LMS-WRITE
+    area: desktop
+    title: An AI agent hands in and removes an assignment through MCP
+    persona: careless-multidevice
+    preconditions: |
+      A built desktop app signed in to a real LMS account, Claude Code
+      connected through Settings → AI agent access, and an open individual
+      file assignment the person chooses, with an empty LMS submission, that
+      they may hand test files in to and withdraw (no cut-off passed).
+    steps:
+      - action: |
+          With Allow AI agents to write to LMS off, ask the agent to create
+          the workspace, put a small PDF into submit/, prepare a save and run
+          submission_save.
+        reason: |
+          The switch is the person's standing consent to LMS writes. The save
+          must come back as lms-writes-disabled with nothing on the LMS, while
+          preparing alone sends nothing.
+      - action: |
+          Turn the switch on, restart Claude Code in bypass mode
+          (--dangerously-skip-permissions) and ask it to save again. Read the
+          confirmation prompt before allowing it.
+        reason: |
+          requiresUserInteraction must make Claude Code ask even in bypass
+          mode, and the prompt must show the echoed summary (title, file
+          names, sizes, SHA-256 prefixes, effect, reversibility). A prompt
+          that hides it has the person confirm blind.
+      - action: |
+          Allow it, open the assignment's LMS page in the app and compare the
+          file, its size and the status; then ask the agent to run the same
+          submission_save again.
+        reason: |
+          The read-back must match the real LMS. The repeated call must answer
+          with the same operation id and upload nothing: the LMS page's last
+          modified time must not move.
+      - action: |
+          Ask the agent to prepare and run submission_remove, confirm the
+          prompt, then check the LMS page.
+        reason: |
+          Removal deletes handed-in work. The prompt must appear in bypass
+          mode too and say it cannot be undone, and the LMS must show no
+          submission afterwards.
+      - action: |
+          Prepare a save of a file of tens of MB, allow it and turn Wi-Fi off
+          while it is saving. Turn it on after a minute, ask for another save
+          of other content, then call submission_status until it settles.
+        reason: |
+          A dropped connection is what Core must settle by reading only. The
+          other save must be refused while the first is outcome_unknown, and
+          the first must end succeeded or failed with one upload at most (one
+          file on the LMS page).
+      - action: |
+          Remove the test submission so the assignment is as it was.
+        reason: |
+          The assignment belongs to a real course; the check must leave no
+          test files handed in.
+    observe: |
+      Claude Code's confirmation prompts and tool results, the assignment's
+      LMS page in the app (status, file names, sizes, last modified), and
+      Settings → AI agent access → Recent agent changes.
+    expected: |
+      With the switch off the save is refused as lms-writes-disabled. With it
+      on, Claude Code asks before submission_save and submission_remove even
+      in bypass mode and shows the summary; the LMS matches every result; a
+      repeated save returns the same operation; the cut connection settles as
+      succeeded or failed with at most one upload; the assignment ends with
+      no submission.
+    why_manual: |
+      Needs a real LMS account and assignment, Moodle's live write endpoints,
+      a real MCP client's confirmation UI and a real network drop. The Core
+      tests drive the same paths only over a test transport.
+    covers:
+      - crates/app-core/src/net/moodle/submission.rs
+      - crates/app-core/src/submissions.rs
+      - crates/app-core/src/submissions/**
+      - crates/app-core/src/agent/submissions.rs
+      - apps/desktop/src-tauri/src/agent_server.rs
+      - apps/desktop/src/pages/settings/AgentSettings.tsx
+    verified: null
 
   - id: DESKTOP-PDF-TOOLBAR
     area: desktop
