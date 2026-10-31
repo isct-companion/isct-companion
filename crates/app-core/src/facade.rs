@@ -25,6 +25,8 @@ pub struct Core {
     pub agent: AgentService,
     /// Assignment workspaces under the selected course storage root.
     pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
+    /// LMS writes, once their transport is attached.
+    submissions: std::sync::OnceLock<crate::submissions::SubmissionService>,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
     /// Every network read of school and reference data; `Core::reset`
@@ -208,6 +210,7 @@ impl Core {
             #[cfg(feature = "agent")]
             agent: AgentService::new(store.clone(), assignment_workspaces.clone()),
             assignment_workspaces,
+            submissions: std::sync::OnceLock::new(),
             workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),
             sync,
@@ -292,6 +295,30 @@ impl Core {
         *owner = Some(engine.clone());
         self.sync.attach_school(engine.clone());
         Ok(engine)
+    }
+
+    /// Attaches the LMS write transport once, then settles what an earlier
+    /// run left unsettled, by reading only.
+    pub async fn attach_submissions(
+        &self,
+        transport: Arc<dyn crate::submissions::SubmissionTransport>,
+    ) -> Result<crate::submissions::SubmissionService, crate::submissions::SubmissionError> {
+        let service = crate::submissions::SubmissionService::open(
+            &self.store,
+            self.assignment_workspaces.clone(),
+            transport,
+        )?;
+        if self.submissions.set(service.clone()).is_err() {
+            return Err(crate::submissions::SubmissionError::Input(
+                "LMS submissions are already attached.".into(),
+            ));
+        }
+        service.recover().await?;
+        Ok(service)
+    }
+
+    pub fn submissions(&self) -> Option<&crate::submissions::SubmissionService> {
+        self.submissions.get()
     }
 
     pub fn school_browser(&self) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {
@@ -428,10 +455,15 @@ impl Core {
             Some(reminders) => Some(self.reminder_tick(reminders.sink, reminders.now).await),
             None => None,
         };
+        let submissions = match self.submissions.get() {
+            Some(submissions) => Some(submissions.reconcile().await),
+            None => None,
+        };
         WakeReport {
             runtime,
             cloud,
             reminders,
+            submissions,
         }
     }
 
@@ -480,6 +512,8 @@ pub struct WakeReport {
     pub runtime: Result<(), RuntimeError>,
     pub cloud: Option<Result<bool, CloudWakeError>>,
     pub reminders: Option<Result<bool, crate::schedule::ReminderError>>,
+    /// How many LMS writes whose outcome was unknown this wake settled.
+    pub submissions: Option<Result<usize, crate::submissions::SubmissionError>>,
 }
 
 #[derive(Debug, thiserror::Error)]

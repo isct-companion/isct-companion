@@ -24,7 +24,7 @@ use std::{
 pub use crate::school_browser::{SubmissionFile, MAX_SUBMISSION_BYTES, MAX_SUBMISSION_FILES};
 
 const META: &str = ".workspace.json";
-const SUBMIT_DIR: &str = "submit";
+pub(crate) const SUBMIT_DIR: &str = "submit";
 const BRIEF: &str = "ASSIGNMENT.md";
 #[cfg(feature = "workspace-archives")]
 const MAX_UNPACK_BYTES: u64 = 4 * 1024 * 1024 * 1024;
@@ -644,6 +644,38 @@ impl AssignmentWorkspaces {
             .unwrap_or_default()
             .to_string();
         Ok((detail, course))
+    }
+
+    /// The assignment's LMS module as its stored row names it, for the
+    /// submission service to read and write the LMS with.
+    pub fn lms_module(
+        &self,
+        assignment: &str,
+    ) -> Result<crate::submissions::LmsModule, WorkspaceError> {
+        let workspace = self
+            .store
+            .load_fields(&["assignments"])
+            .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
+        let row = workspace
+            .get("assignments")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|row| {
+                crate::schedule::visible(row)
+                    && row.get("id").and_then(serde_json::Value::as_str) == Some(assignment)
+            })
+            .ok_or_else(|| WorkspaceError::Input("The assignment was not found.".into()))?;
+        let cmid = row
+            .get("lmsCmid")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                WorkspaceError::Input("This assignment is not an LMS assignment.".into())
+            })?;
+        Ok(crate::submissions::LmsModule {
+            cmid,
+            course: row.get("lmsCourseId").and_then(serde_json::Value::as_u64),
+        })
     }
 
     pub fn find(&self, assignment: &str) -> Result<Option<WorkspaceInfo>, WorkspaceError> {

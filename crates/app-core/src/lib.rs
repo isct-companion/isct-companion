@@ -51,6 +51,7 @@ pub mod school_files;
 pub mod school_service;
 pub mod storage;
 pub mod study_profile;
+pub mod submissions;
 pub mod subscriptions;
 pub mod sync_engine;
 pub mod sync_gc;

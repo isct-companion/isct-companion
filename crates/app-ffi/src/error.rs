@@ -42,7 +42,14 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
     let code = error.code();
     let detail = code.name().to_owned();
     match code {
-        C::Conflict | C::CloudConflict | C::CloudConflictExhausted => SdkError::Conflict { detail },
+        C::Conflict
+        | C::CloudConflict
+        | C::CloudConflictExhausted
+        | C::SubmissionRemoteConflict
+        | C::SubmissionAccountChanged
+        | C::SubmissionFilesChanged
+        | C::SubmissionExpired
+        | C::SubmissionMismatch => SdkError::Conflict { detail },
         C::Storage
         | C::WriteDenied
         | C::VaultUnavailable
@@ -56,7 +63,9 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         C::SchoolMaintenance => SdkError::Maintenance { detail },
         C::Network | C::Offline | C::HostPaused => SdkError::Network { detail },
         C::Timeout | C::OtpTimedOut | C::CloudRetrying => SdkError::Timeout { detail },
-        C::Busy | C::ResetBusy => SdkError::Busy { detail },
+        C::Busy | C::ResetBusy | C::SubmissionInProgress | C::SubmissionOutcomeUnknown => {
+            SdkError::Busy { detail }
+        }
         C::Cancelled | C::SchoolPaused | C::ResetStopped => SdkError::Cancelled,
         C::Stopped => SdkError::Closed,
         C::Callback | C::ResetSignOut => SdkError::Callback { detail },
@@ -71,7 +80,8 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::OtpUnexpectedPage
         | C::ResetUnsupported
         | C::MatrixScanEnded
-        | C::AgentDisabled => SdkError::Unavailable { detail },
+        | C::AgentDisabled
+        | C::SubmissionUnsupported => SdkError::Unavailable { detail },
         C::InvalidInput
         | C::TooLarge
         | C::NoteTooLarge
@@ -95,7 +105,12 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::HandInFilesOnly
         | C::HandInEmpty
         | C::HandInNeedsZip
-        | C::HandInTooLarge => SdkError::InvalidInput { detail },
+        | C::HandInTooLarge
+        | C::SubmissionLimit
+        | C::SubmissionRemoteNotEmpty
+        | C::SubmissionNothingToRemove
+        | C::SubmissionConfirmationMismatch
+        | C::SubmissionRejected => SdkError::InvalidInput { detail },
     }
 }
 
