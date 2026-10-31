@@ -1128,6 +1128,8 @@
   "shareViewController.addAndOpenIsctCompanion": "追加して IsctCompanion を開く",
   "shareViewController.chooseInTheApp": "アプリで選ぶ",
   "shareViewController.isctcompanionNeverSubmitsForYou": "IsctCompanion が自動で提出することはありません。アプリを開いてファイルを確認し、ご自身でアップロードしてください。",
+  "shareViewController.noFilesCameThrough": "ファイルを受け取れませんでした。ファイルか写真を共有してください。テキストやリンクは提出できません。",
+  "shareViewController.theseFilesCouldNotBe": "これらのファイルを IsctCompanion に保存できませんでした。もう一度試すか、アプリを開いて追加してください。",
   "status.graded": "採点済",
   "status.open": "未提出",
   "status.submitted": "提出済",

@@ -1128,6 +1128,8 @@
   "shareViewController.addAndOpenIsctCompanion": "Add and open IsctCompanion",
   "shareViewController.chooseInTheApp": "Choose in the app",
   "shareViewController.isctcompanionNeverSubmitsForYou": "IsctCompanion never submits for you. Open the app to check the files and upload them yourself.",
+  "shareViewController.noFilesCameThrough": "No file came through. Share a file or photo; text and links can't be handed in.",
+  "shareViewController.theseFilesCouldNotBe": "These files could not be saved for IsctCompanion. Try again, or open the app and add them there.",
   "status.graded": "graded",
   "status.open": "open",
   "status.submitted": "submitted",

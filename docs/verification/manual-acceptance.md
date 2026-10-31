@@ -5408,8 +5408,10 @@ extension and the App Group.
 5. On the iPad, share a PDF from Files with the assignment picked in the
    sheet; open the app. Then drag a file from Files in Split View onto
    the upload card, and tap the card to add one more.
-   - *Why:* A file given an assignment in the sheet is handed in on the next
-     open and that page is shown. The card is the one drop target and
+   - *Why:* Files hands the sheet only a file URL, no content type; the sheet
+     must still show the PDF's thumbnail, and an empty strip with Add
+     greyed out means that URL was not read. A file given an assignment
+     in the sheet is handed in on the next open and that page is shown. The card is the one drop target and
      tapping it opens the Files picker; each adds to the card's list.
 6. Tap 「LMS にアップロード」, wait, and read the LMS page.
    - *Why:* Core fills the draft area through Moodle's own uploader and the page

@@ -1128,6 +1128,8 @@
   "shareViewController.addAndOpenIsctCompanion": "添加并打开 IsctCompanion",
   "shareViewController.chooseInTheApp": "在 App 中选择",
   "shareViewController.isctcompanionNeverSubmitsForYou": "IsctCompanion 不会替你自动提交。请打开 App 确认文件后自己上传。",
+  "shareViewController.noFilesCameThrough": "没有收到文件。请分享文件或照片，文字和链接无法提交。",
+  "shareViewController.theseFilesCouldNotBe": "这些文件没能存进 IsctCompanion。请再试一次，或打开 App 在里面添加。",
   "status.graded": "已评分",
   "status.open": "未提交",
   "status.submitted": "已提交",

@@ -29,7 +29,11 @@ A free Personal Team cannot sign the iCloud container, and `CKContainer`
 traps at launch without it. Such a build passes an entitlements file with only
 `keychain-access-groups` as `CODE_SIGN_ENTITLEMENTS` and adds `ISCT_NO_ICLOUD`
 to `SWIFT_ACTIVE_COMPILATION_CONDITIONS`, which opens the session without
-iCloud backup. OCR is unavailable on the Intel simulator.
+iCloud backup. That entitlements file also drops the App Group
+`group.app.isctcompanion`, which belongs to team `FB7AL944GK`: the share
+extension then cannot save to the inbox and its assignment list stays empty.
+Test sharing into the app with a build signed by that team. OCR is
+unavailable on the Intel simulator.
 
 ## Layout
 
