@@ -648,6 +648,7 @@ impl AssignmentWorkspaces {
 
     /// The assignment's LMS module as its stored row names it, for the
     /// submission service to read and write the LMS with.
+    #[cfg(feature = "agent")]
     pub fn lms_module(
         &self,
         assignment: &str,

@@ -26,7 +26,8 @@ pub struct Core {
     /// Assignment workspaces under the selected course storage root.
     pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
     /// LMS writes, once the school browser's transport is attached; the
-    /// MCP tools share the slot.
+    /// MCP tools share the slot. Only the desktop's agents write to the LMS.
+    #[cfg(feature = "agent")]
     submissions: Arc<std::sync::OnceLock<crate::submissions::SubmissionService>>,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
@@ -207,6 +208,7 @@ impl Core {
             runtime.downloads.clone(),
             runtime.download_session.clone(),
         );
+        #[cfg(feature = "agent")]
         let submissions = Arc::new(std::sync::OnceLock::new());
         Self {
             #[cfg(feature = "agent")]
@@ -216,6 +218,7 @@ impl Core {
                 submissions.clone(),
             ),
             assignment_workspaces,
+            #[cfg(feature = "agent")]
             submissions,
             workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),
@@ -295,9 +298,9 @@ impl Core {
         let http = crate::net::Http::new()
             .map_err(|error| SchoolBrowserError::Platform(error.to_string()))?;
         engine.attach_transport(http, cookies)?;
-        // Every shell gets LMS writes through Core; only the desktop offers
-        // them to agents. A ledger that cannot open leaves writes off and
-        // reads untouched.
+        // LMS writes exist only where agents do (the desktop). A ledger that
+        // cannot open leaves writes off and reads untouched.
+        #[cfg(feature = "agent")]
         let attached = engine
             .moodle_client()
             .map_err(|error| error.to_string())
@@ -305,6 +308,7 @@ impl Core {
                 self.attach_submissions(Arc::new(crate::net::moodle::LmsSubmissions::new(client)))
                     .map_err(|error| error.to_string())
             });
+        #[cfg(feature = "agent")]
         if let Err(error) = attached {
             crate::diagnostics::report("submissions", &error);
         }
@@ -318,6 +322,7 @@ impl Core {
 
     /// Opens the submission service over `transport`, once. What an earlier
     /// run left unsettled is recovered by its first call or the next wake.
+    #[cfg(feature = "agent")]
     fn attach_submissions(
         &self,
         transport: Arc<dyn crate::submissions::SubmissionTransport>,
@@ -334,6 +339,7 @@ impl Core {
         })
     }
 
+    #[cfg(feature = "agent")]
     pub fn submissions(&self) -> Option<&crate::submissions::SubmissionService> {
         self.submissions.get()
     }
@@ -472,6 +478,7 @@ impl Core {
             Some(reminders) => Some(self.reminder_tick(reminders.sink, reminders.now).await),
             None => None,
         };
+        #[cfg(feature = "agent")]
         let submissions = match self.submissions.get() {
             Some(submissions) => Some(submissions.wake().await),
             None => None,
@@ -480,6 +487,7 @@ impl Core {
             runtime,
             cloud,
             reminders,
+            #[cfg(feature = "agent")]
             submissions,
         }
     }
@@ -531,6 +539,7 @@ pub struct WakeReport {
     pub reminders: Option<Result<bool, crate::schedule::ReminderError>>,
     /// How many LMS writes whose outcome was unknown this wake settled; the
     /// first wake also recovers what the last run left unsettled.
+    #[cfg(feature = "agent")]
     pub submissions: Option<Result<usize, crate::submissions::SubmissionError>>,
 }
 

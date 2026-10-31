@@ -164,7 +164,9 @@ pub enum Body {
     Json(serde_json::Value),
     /// Bytes under their content type, such as a multipart upload. Sending
     /// them is bounded by the deadline alone: a large upload outlasts the
-    /// stall window before the server can answer.
+    /// stall window before the server can answer. Only LMS submissions
+    /// upload, and only the desktop submits.
+    #[cfg(feature = "agent")]
     Bytes {
         content_type: String,
         bytes: bytes::Bytes,

@@ -117,6 +117,7 @@ impl SchoolBrowserEngine {
     }
 
     /// The LMS client, shared with the submission service's transport.
+    #[cfg(feature = "agent")]
     pub(crate) fn moodle_client(&self) -> Result<Arc<MoodleClient>, SchoolBrowserError> {
         Ok(self.transport()?.moodle.clone())
     }

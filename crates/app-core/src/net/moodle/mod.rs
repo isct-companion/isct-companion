@@ -19,12 +19,14 @@ mod functions;
 mod mapping;
 mod reader;
 mod rest;
+#[cfg(feature = "agent")]
 mod submission;
 mod token;
 
 pub use functions::MoodleFunction;
 pub(crate) use mapping::months_to_read;
 pub(crate) use reader::LmsReader;
+#[cfg(feature = "agent")]
 pub(crate) use submission::LmsSubmissions;
 
 use crate::{

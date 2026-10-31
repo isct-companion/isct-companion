@@ -51,6 +51,7 @@ pub mod school_files;
 pub mod school_service;
 pub mod storage;
 pub mod study_profile;
+#[cfg(feature = "agent")]
 pub mod submissions;
 pub mod subscriptions;
 pub mod sync_engine;

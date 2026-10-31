@@ -519,6 +519,7 @@ coded!(AgentError, |e| match e {
     AgentError::Submission(e) => e.code(),
 });
 
+#[cfg(feature = "agent")]
 coded!(crate::submissions::TransportError, |e| {
     use crate::submissions::TransportError as E;
     match e {
@@ -527,6 +528,7 @@ coded!(crate::submissions::TransportError, |e| {
         E::SignInRequired => C::SignInRequired,
     }
 });
+#[cfg(feature = "agent")]
 impl Coded for crate::submissions::SubmissionError {
     fn code(&self) -> ErrorCode {
         use crate::submissions::SubmissionError as E;

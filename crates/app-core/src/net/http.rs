@@ -193,11 +193,15 @@ async fn exchange(client: &reqwest::Client, request: NetRequest) -> Result<Respo
     for (name, value) in request.headers {
         builder = builder.header(name, value);
     }
+    #[cfg(feature = "agent")]
     let upload = matches!(request.body, Body::Bytes { .. });
+    #[cfg(not(feature = "agent"))]
+    let upload = false;
     builder = match request.body {
         Body::None => builder,
         Body::Form(fields) => builder.form(&fields),
         Body::Json(value) => builder.json(&value),
+        #[cfg(feature = "agent")]
         Body::Bytes {
             content_type,
             bytes,
