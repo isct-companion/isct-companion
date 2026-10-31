@@ -1739,6 +1739,101 @@ checks:
       - apps/desktop/src/components/guide.tsx
     verified: null
 
+  - id: DESKTOP-TIMETABLE-MENU-AFTER-WEEK-STEP
+    area: desktop
+    title: The calendar's right-click menu opens at the pointer after a week step
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build of this commit with classes in this week and the next.
+    steps:
+      - action: |
+          On Today's calendar click › to show next week, then right-click any
+          class.
+        reason: |
+          The reported bug: after a week step the sliding grid kept its
+          animation in effect, became the containing block of the menu's
+          fixed anchor, and the menu opened down and right of the pointer by
+          the grid's offset from the window corner.
+      - action: |
+          Click ‹ and › several times quickly and right-click a class while
+          the grid is still sliding in.
+        reason: |
+          During the 250 ms slide the grid is transformed whatever its fill
+          mode; only a menu anchored to the pointer itself stays put then.
+      - action: |
+          Click This week and right-click a class again.
+        reason: |
+          Returning to this week used to clear the slide and hide the bug, so
+          a menu that is right here but wrong after › is still broken.
+    observe: |
+      Where the menu's top-left corner sits relative to the pointer.
+    expected: |
+      Each time the menu opens touching the pointer, down and to the right
+      (flipped only at a window edge), and its marks still apply.
+    why_manual: |
+      Where a menu lands is a glance on the real WebKit window; jsdom has no
+      layout, so no automated suite can see a containing block. Which marks
+      the menu offers and what they send is in
+      tests/e2e/today-and-lectures.test.tsx.
+    covers:
+      - apps/desktop/src/components/timetable/timetable.tsx
+      - apps/desktop/src/components/ui/overlays.tsx
+      - apps/desktop/src/pages/today/CalendarView.tsx
+      - apps/desktop/src/styles.css
+    verified: null
+
+  - id: DESKTOP-LECTURE-PANE-OVERLAYS
+    area: desktop
+    title: Overlays from a Lectures course cover the window and are not clipped
+    persona: undergraduate-senior
+    preconditions: |
+      A desktop build of this commit with a Lectures course that has an exam
+      on its LMS workspace, and the in-app tips reset (Settings → About →
+      Show again).
+    steps:
+      - action: |
+          On Lectures open the course with an exam and click Edit on its exam
+          card.
+        reason: |
+          A course's overlays used to mount inside the content pane, which has
+          `contain: layout paint`; the dialog was then centred in that pane,
+          its backdrop left the rail and the list undimmed, and its edges were
+          cut off.
+      - action: |
+          Close the dialog and, while a course tip is showing, look at the
+          tip near the pane's left edge.
+        reason: |
+          Anchored popovers kept their position but were clipped at the
+          pane's edges for the same reason.
+      - action: |
+          Collapse the lecture sidebar, switch to Today and straight back to
+          Lectures, and at once move the pointer onto the navigation rail.
+        reason: |
+          The floating list was fixed to the window; during the page's
+          entrance the page became its containing block and the list jumped
+          right and down by the page's own offset.
+    observe: |
+      The dialog and its backdrop, the tip's outline, and the floating list
+      while the page is still entering.
+    expected: |
+      The backdrop dims the whole window including the rail and the list, the
+      dialog sits in the window's centre whole; the tip is drawn whole; the
+      floating list opens at the page's left edge beside the rail and does not
+      move while the page settles.
+    why_manual: |
+      Clipping, centring and a list that jumps for 200 ms are glance checks on
+      the real WebKit window; jsdom has no layout or animations. That
+      overlays hide and return with their page is in
+      tests/e2e/app-shell.test.tsx, and with their course in
+      DESKTOP-PAGE-OVERLAYS.
+    covers:
+      - apps/desktop/src/app/KeptPage.tsx
+      - apps/desktop/src/components/ui/overlays.tsx
+      - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/pages/lectures/lectures.css
+      - apps/desktop/src/styles.css
+    verified: null
+
   - id: DESKTOP-WINDOWS-SNAP-LAYOUT
     area: desktop
     title: Windows Snap keeps the desktop shell and the open LMS reader

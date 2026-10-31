@@ -1,9 +1,7 @@
-import { Check } from "lucide-react";
 import { t, type MessageKey } from "../../i18n";
 import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
-import { useState } from "react";
-import { Menu } from "../ui";
+import { ContextMenu, type ContextAction } from "../ui";
 import { GuideTip } from "../guide";
 import { zoomFrom } from "../../app/course-zoom";
 import {
@@ -70,13 +68,9 @@ export type Block = {
   grid?: GridSlot | null;
 };
 
-/** One entry of a block's right-click menu. */
-export type BlockAction = {
-  label: string;
-  /** The block already is what this action sets. */
-  current?: boolean;
-  run: () => void;
-};
+/** One entry of a block's right-click menu; `current` when the block
+ * already is what the action sets. */
+export type BlockAction = ContextAction;
 
 export type DayColumn = {
   label: MessageKey;
@@ -138,17 +132,6 @@ export function WeekTimetable({
    * that page's title (`app/course-zoom`). */
   zoom?: boolean;
 }) {
-  const [menu, setMenu] = useState<{
-    x: number;
-    y: number;
-    actions: BlockAction[];
-  } | null>(null);
-  const openMenu = (event: React.MouseEvent, block: Block) => {
-    const actions = actionsFor?.(block) ?? [];
-    if (!actions.length) return;
-    event.preventDefault();
-    setMenu({ x: event.clientX, y: event.clientY, actions });
-  };
   // Every period is one row; Core places times on that axis
   // (`timetable_axis`), widened around classes outside the teaching day.
   const span = axisSpan(days.flatMap((column) => column.blocks));
@@ -217,7 +200,9 @@ export function WeekTimetable({
                   height: `${position.heightPercent}%`,
                 }}
               >
-                <b>{period.isBreak ? t("timetable.breakBand") : period.label}</b>
+                <b>
+                  {period.isBreak ? t("timetable.breakBand") : period.label}
+                </b>
                 <small>{period.start}</small>
               </div>
             );
@@ -307,84 +292,89 @@ export function WeekTimetable({
                 (column.noClasses && block.kind === "course");
               const exam = block.kind === "exam" && !cancelled;
               return (
-                <UiButton
-                  type="button"
-                  className={[
-                    "ttBlock",
-                    block.kind,
-                    block.dim ? "dim" : "",
-                    block.planned ? "planned" : "",
-                    cancelled ? "cancelled" : "",
-                    block.quiz ? "quiz" : "",
-                    block.sourceChanged ? "sourceChanged" : "",
-                    selectedId === block.id ? "selected" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  style={
-                    {
-                      "--course": block.color,
-                      // A 2px gutter keeps the card off the row rules.
-                      top: `calc(${position.topPercent}% + 2px)`,
-                      height: `calc(${position.heightPercent}% - 4px)`,
-                      ...(side === "left" && { right: "calc(50% + 1px)" }),
-                      ...(side === "right" && { left: "calc(50% + 1px)" }),
-                      // Overlapping blocks share the column, 1px apart.
-                      ...(lanes && {
-                        left: `calc(${(lanes.lane / lanes.lanes) * 100}% + 1px)`,
-                        right: `calc(${((lanes.lanes - lanes.lane - 1) / lanes.lanes) * 100}% + 1px)`,
-                      }),
-                    } as React.CSSProperties
-                  }
-                  title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}`}
+                <ContextMenu
                   key={block.key}
-                  onClick={(event) => {
-                    if (zoom && block.kind === "course")
-                      zoomFrom(event.currentTarget);
-                    onSelect?.(block);
-                  }}
-                  onContextMenu={(event) => openMenu(event, block)}
+                  actions={actionsFor?.(block) ?? []}
                 >
-                  {/* An exam or quiz says so before its title, so a short
+                  <UiButton
+                    type="button"
+                    className={[
+                      "ttBlock",
+                      block.kind,
+                      block.dim ? "dim" : "",
+                      block.planned ? "planned" : "",
+                      cancelled ? "cancelled" : "",
+                      block.quiz ? "quiz" : "",
+                      block.sourceChanged ? "sourceChanged" : "",
+                      selectedId === block.id ? "selected" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    style={
+                      {
+                        "--course": block.color,
+                        // A 2px gutter keeps the card off the row rules.
+                        top: `calc(${position.topPercent}% + 2px)`,
+                        height: `calc(${position.heightPercent}% - 4px)`,
+                        ...(side === "left" && { right: "calc(50% + 1px)" }),
+                        ...(side === "right" && { left: "calc(50% + 1px)" }),
+                        // Overlapping blocks share the column, 1px apart.
+                        ...(lanes && {
+                          left: `calc(${(lanes.lane / lanes.lanes) * 100}% + 1px)`,
+                          right: `calc(${((lanes.lanes - lanes.lane - 1) / lanes.lanes) * 100}% + 1px)`,
+                        }),
+                      } as React.CSSProperties
+                    }
+                    title={`${block.title}${block.subtitle ? ` · ${block.subtitle}` : ""} · ${block.timeLabel ?? `${block.startTime}–${block.endTime}`}${block.room ? ` · ${block.room}` : ""}`}
+                    onClick={(event) => {
+                      if (zoom && block.kind === "course")
+                        zoomFrom(event.currentTarget);
+                      onSelect?.(block);
+                    }}
+                  >
+                    {/* An exam or quiz says so before its title, so a short
                       block still reads as one. */}
-                  {exam ? (
-                    <b>
-                      <span className="ttExamTag">
-                        {t(block.quiz ? "common.quiz" : "common.exam")}
-                      </span>
-                      {block.sourceChanged && (
-                        <span
-                          className="ttSourceChanged"
-                          title={t("exam.thePublishedTimetableChangedAfter")}
-                        >
-                          !
+                    {exam ? (
+                      <b>
+                        <span className="ttExamTag">
+                          {t(block.quiz ? "common.quiz" : "common.exam")}
                         </span>
-                      )}
-                      {block.title}
-                    </b>
-                  ) : (
-                    <b>{block.title}</b>
-                  )}
-                  {/* A block drawn over whole periods names its own times;
+                        {block.sourceChanged && (
+                          <span
+                            className="ttSourceChanged"
+                            title={t("exam.thePublishedTimetableChangedAfter")}
+                          >
+                            !
+                          </span>
+                        )}
+                        {block.title}
+                      </b>
+                    ) : (
+                      <b>{block.title}</b>
+                    )}
+                    {/* A block drawn over whole periods names its own times;
                       a cancelled one says so instead of its room. */}
-                  {cancelled ? (
-                    <small className="ttRoom">{t("common.noClass")}</small>
-                  ) : snapped ? (
-                    <small className="ttRoom">
-                      {block.startTime}–{block.endTime}
-                    </small>
-                  ) : (
-                    block.room && <small className="ttRoom">{block.room}</small>
-                  )}
-                  {block.alternation && (
-                    <small className="ttAlternation">
-                      {alternationLabel(block.alternation)}
-                    </small>
-                  )}
-                  {block.subtitle && (
-                    <span className="ttCode">{block.subtitle}</span>
-                  )}
-                </UiButton>
+                    {cancelled ? (
+                      <small className="ttRoom">{t("common.noClass")}</small>
+                    ) : snapped ? (
+                      <small className="ttRoom">
+                        {block.startTime}–{block.endTime}
+                      </small>
+                    ) : (
+                      block.room && (
+                        <small className="ttRoom">{block.room}</small>
+                      )
+                    )}
+                    {block.alternation && (
+                      <small className="ttAlternation">
+                        {alternationLabel(block.alternation)}
+                      </small>
+                    )}
+                    {block.subtitle && (
+                      <span className="ttCode">{block.subtitle}</span>
+                    )}
+                  </UiButton>
+                </ContextMenu>
               );
             })}
             {column.isToday && nowOffset !== undefined && (
@@ -393,48 +383,6 @@ export function WeekTimetable({
           </div>
         ))}
       </div>
-      {/* A zero-size anchor at the pointer places the menu where the user
-          right-clicked. */}
-      <Menu
-        opened={Boolean(menu)}
-        onChange={(opened) => !opened && setMenu(null)}
-        position="bottom-start"
-        offset={2}
-        withinPortal
-      >
-        <Menu.Target>
-          <span
-            aria-hidden
-            style={{
-              position: "fixed",
-              left: menu?.x ?? 0,
-              top: menu?.y ?? 0,
-              width: 0,
-              height: 0,
-            }}
-          />
-        </Menu.Target>
-        <Menu.Dropdown>
-          {menu?.actions.map((action) => (
-            <Menu.Item
-              key={action.label}
-              leftSection={
-                action.current ? (
-                  <Check size={14} strokeWidth={1.75} aria-hidden />
-                ) : (
-                  <span className="uiMenuGap" />
-                )
-              }
-              onClick={() => {
-                setMenu(null);
-                action.run();
-              }}
-            >
-              {action.label}
-            </Menu.Item>
-          ))}
-        </Menu.Dropdown>
-      </Menu>
     </div>
   );
 }

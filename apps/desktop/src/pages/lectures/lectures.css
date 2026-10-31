@@ -1,6 +1,6 @@
 /* Lecture Desk: this quarter's lectures beside the open lecture's workspace. */
 .workspaceMain.lecturesMain { height: 100dvh; overflow: hidden; }
-.page.lectureDesk { flex-direction: row; gap: 20px; width: 100%; height: 100%; }
+.page.lectureDesk { position: relative; flex-direction: row; gap: 20px; width: 100%; height: 100%; }
 .lectureList { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; padding-right: 16px; border-right: 1px solid var(--line); }
 .lectureList > header { display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding: 4px 0 12px; }
 .lectureListTitle { display: flex; align-items: center; gap: 8px; }
@@ -54,10 +54,13 @@
 .lectureDesk[data-sidebar-collapsed="true"] > .splitWorkspace > .workspaceSeparator {
   width: 0; visibility: hidden;
 }
-/* Keep the same list mounted while the panel takes zero layout space. */
+/* Keep the same list mounted while the panel takes zero layout space. It
+   floats over the page's own left edge, so it moves with the page's entrance
+   instead of against the window; no panel between is positioned, so their
+   overflow does not clip it. */
 .lectureDesk[data-sidebar-collapsed="true"] .lectureList {
-  position: fixed; top: 8px; bottom: 60px; left: 76px; z-index: 7;
-  width: min(280px, calc(100vw - 84px)); padding: 12px;
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 7;
+  width: min(280px, 100%); padding: 12px;
   border: 1px solid var(--line); border-radius: var(--radius-panel);
   background: var(--surface-2); box-shadow: 0 12px 40px #0003;
   visibility: hidden; pointer-events: none;

@@ -1,4 +1,10 @@
-import { Dialog, DropdownMenu, Popover as PopoverPrimitive } from "radix-ui";
+import {
+  ContextMenu as ContextMenuPrimitive,
+  Dialog,
+  DropdownMenu,
+  Popover as PopoverPrimitive,
+} from "radix-ui";
+import { Check } from "lucide-react";
 import {
   createContext,
   useContext,
@@ -7,7 +13,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
 } from "react";
-import { usePageLayer } from "../../app/KeptPage";
+import { usePageLayer, useTopPageLayer } from "../../app/KeptPage";
 import { t } from "../../i18n";
 import { cx, spacing, type Size } from "./layout";
 import { CloseButton } from "./controls";
@@ -49,7 +55,9 @@ function DialogSurface({
   overlayProps,
   drawer,
 }: ModalProps & { drawer?: boolean }) {
-  const layer = usePageLayer();
+  // A modal covers the whole window, so it never mounts in a pane's nested
+  // layer, whose ancestors may confine and clip it.
+  const layer = useTopPageLayer();
   // Where focus returns on close, read while rendering the open state: a field
   // with autoFocus takes focus as the dialog commits, before Radix's focus
   // scope looks, and Radix then skips onOpenAutoFocus.
@@ -173,6 +181,7 @@ const Floating = createContext<{
   withArrow?: boolean;
   closeOnClickOutside?: boolean;
   onDismiss?: () => void;
+  updatePositionStrategy?: "optimized" | "always";
 }>({ position: "bottom", offset: 4 });
 type FloatingProps = {
   children: ReactNode;
@@ -188,6 +197,9 @@ type FloatingProps = {
   trapFocus?: boolean;
   closeOnClickOutside?: boolean;
   onDismiss?: () => void;
+  /** "always" follows the anchor every frame, for an anchor that a transform
+   * animation may still be moving. */
+  updatePositionStrategy?: "optimized" | "always";
 };
 function PopoverRoot({
   children,
@@ -200,6 +212,7 @@ function PopoverRoot({
   closeOnClickOutside,
   onDismiss,
   trapFocus,
+  updatePositionStrategy,
 }: FloatingProps) {
   return (
     <Floating.Provider
@@ -210,6 +223,7 @@ function PopoverRoot({
         withArrow,
         closeOnClickOutside,
         onDismiss,
+        updatePositionStrategy,
       }}
     >
       <PopoverPrimitive.Root
@@ -240,6 +254,7 @@ function PopoverContent({
         {...props}
         {...placement(config.position)}
         sideOffset={config.offset}
+        updatePositionStrategy={config.updatePositionStrategy}
         className={cx("uiPopover", className)}
         style={{ width: config.width, padding: spacing(p), ...props.style }}
         onOpenAutoFocus={(event) => event.preventDefault()}
@@ -263,6 +278,10 @@ function PopoverContent({
 export const Popover = Object.assign(PopoverRoot, {
   Target: ({ children }: { children: ReactNode }) => (
     <PopoverPrimitive.Trigger asChild>{children}</PopoverPrimitive.Trigger>
+  ),
+  /** Places the dropdown by this element without making it a toggle. */
+  Anchor: ({ children }: { children: ReactNode }) => (
+    <PopoverPrimitive.Anchor asChild>{children}</PopoverPrimitive.Anchor>
   ),
   Dropdown: PopoverContent,
 });
@@ -320,3 +339,51 @@ export const Menu = Object.assign(MenuRoot, {
     </DropdownMenu.Item>
   ),
 });
+
+/** One entry of a right-click menu; `current` draws its checkmark. */
+export type ContextAction = {
+  label: string;
+  current?: boolean;
+  run: () => void;
+};
+/**
+ * A right-click menu on `children`. Radix anchors it to the pointer itself
+ * rather than to an element, so no ancestor's transform, containment or
+ * animation can move it. Without actions the native menu is left alone.
+ */
+export function ContextMenu({
+  actions,
+  children,
+}: {
+  actions: readonly ContextAction[];
+  children: ReactNode;
+}) {
+  const layer = usePageLayer();
+  return (
+    <ContextMenuPrimitive.Root>
+      <ContextMenuPrimitive.Trigger asChild disabled={!actions.length}>
+        {children}
+      </ContextMenuPrimitive.Trigger>
+      <ContextMenuPrimitive.Portal container={layer}>
+        <ContextMenuPrimitive.Content className="uiMenu">
+          {actions.map((action) => (
+            <ContextMenuPrimitive.Item
+              key={action.label}
+              className="uiMenuItem"
+              onSelect={action.run}
+            >
+              <span>
+                {action.current ? (
+                  <Check size={14} strokeWidth={1.75} aria-hidden />
+                ) : (
+                  <span className="uiMenuGap" />
+                )}
+              </span>
+              {action.label}
+            </ContextMenuPrimitive.Item>
+          ))}
+        </ContextMenuPrimitive.Content>
+      </ContextMenuPrimitive.Portal>
+    </ContextMenuPrimitive.Root>
+  );
+}

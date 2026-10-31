@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**9 of 157 checks must be re-run before the next release.**
+**9 of 159 checks must be re-run before the next release.**
 
 - `SCHOOL-SIGNIN-SCIENCE` — covered paths changed after 7fdf1b6
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
@@ -29,7 +29,7 @@ an unverified area becomes an assumed-good one.
 - `NATIVE-ANDROID-EMULATOR` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**148 checks have never been run or could not be run:**
+**150 checks have never been run or could not be run:**
 
 - `SCHOOL-LMS-TOKEN-PULL` — never verified
 - `IDENTITY-FIRST-YEAR-GATE` — never verified
@@ -53,6 +53,8 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-CLOSE-WINDOW` — never verified
 - `DESKTOP-NARROW-WINDOW` — never verified
 - `DESKTOP-PAGE-OVERLAYS` — never verified
+- `DESKTOP-TIMETABLE-MENU-AFTER-WEEK-STEP` — never verified
+- `DESKTOP-LECTURE-PANE-OVERLAYS` — never verified
 - `DESKTOP-WINDOWS-SNAP-LAYOUT` — never verified
 - `DESKTOP-CAMPUS-WIFI` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
@@ -211,6 +213,8 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CLOSE-WINDOW` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/window_close.rs<br>apps/desktop/src-tauri/src/window_close_macos.rs<br>apps/desktop/src-tauri/src/window_close_windows.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
 | `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx |
+| `DESKTOP-TIMETABLE-MENU-AFTER-WEEK-STEP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/styles.css |
+| `DESKTOP-LECTURE-PANE-OVERLAYS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/styles.css |
 | `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/campus_wifi.rs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
@@ -2151,6 +2155,117 @@ hide-and-return behaviour itself is in tests/e2e/app-shell.test.tsx.
 - `apps/desktop/src/pages/today/CourseFinder.tsx`
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/components/guide.tsx`
+
+**Last recorded** never run
+
+### The calendar's right-click menu opens at the pointer after a week step (`DESKTOP-TIMETABLE-MENU-AFTER-WEEK-STEP`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build of this commit with classes in this week and the next.
+
+**Steps**
+
+1. On Today's calendar click › to show next week, then right-click any
+   class.
+   - *Why:* The reported bug: after a week step the sliding grid kept its
+     animation in effect, became the containing block of the menu's
+     fixed anchor, and the menu opened down and right of the pointer by
+     the grid's offset from the window corner.
+2. Click ‹ and › several times quickly and right-click a class while
+   the grid is still sliding in.
+   - *Why:* During the 250 ms slide the grid is transformed whatever its fill
+     mode; only a menu anchored to the pointer itself stays put then.
+3. Click This week and right-click a class again.
+   - *Why:* Returning to this week used to clear the slide and hide the bug, so
+     a menu that is right here but wrong after › is still broken.
+
+**Where to look**
+
+Where the menu's top-left corner sits relative to the pointer.
+
+**Expected**
+
+Each time the menu opens touching the pointer, down and to the right
+(flipped only at a window edge), and its marks still apply.
+
+**Why this is manual**
+
+Where a menu lands is a glance on the real WebKit window; jsdom has no
+layout, so no automated suite can see a containing block. Which marks
+the menu offers and what they send is in
+tests/e2e/today-and-lectures.test.tsx.
+
+**Covers**
+
+- `apps/desktop/src/components/timetable/timetable.tsx`
+- `apps/desktop/src/components/ui/overlays.tsx`
+- `apps/desktop/src/pages/today/CalendarView.tsx`
+- `apps/desktop/src/styles.css`
+
+**Last recorded** never run
+
+### Overlays from a Lectures course cover the window and are not clipped (`DESKTOP-LECTURE-PANE-OVERLAYS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+A desktop build of this commit with a Lectures course that has an exam
+on its LMS workspace, and the in-app tips reset (Settings → About →
+Show again).
+
+**Steps**
+
+1. On Lectures open the course with an exam and click Edit on its exam
+   card.
+   - *Why:* A course's overlays used to mount inside the content pane, which has
+     `contain: layout paint`; the dialog was then centred in that pane,
+     its backdrop left the rail and the list undimmed, and its edges were
+     cut off.
+2. Close the dialog and, while a course tip is showing, look at the
+   tip near the pane's left edge.
+   - *Why:* Anchored popovers kept their position but were clipped at the
+     pane's edges for the same reason.
+3. Collapse the lecture sidebar, switch to Today and straight back to
+   Lectures, and at once move the pointer onto the navigation rail.
+   - *Why:* The floating list was fixed to the window; during the page's
+     entrance the page became its containing block and the list jumped
+     right and down by the page's own offset.
+
+**Where to look**
+
+The dialog and its backdrop, the tip's outline, and the floating list
+while the page is still entering.
+
+**Expected**
+
+The backdrop dims the whole window including the rail and the list, the
+dialog sits in the window's centre whole; the tip is drawn whole; the
+floating list opens at the page's left edge beside the rail and does not
+move while the page settles.
+
+**Why this is manual**
+
+Clipping, centring and a list that jumps for 200 ms are glance checks on
+the real WebKit window; jsdom has no layout or animations. That
+overlays hide and return with their page is in
+tests/e2e/app-shell.test.tsx, and with their course in
+DESKTOP-PAGE-OVERLAYS.
+
+**Covers**
+
+- `apps/desktop/src/app/KeptPage.tsx`
+- `apps/desktop/src/components/ui/overlays.tsx`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/pages/lectures/lectures.css`
+- `apps/desktop/src/styles.css`
 
 **Last recorded** never run
 
