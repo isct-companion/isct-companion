@@ -1,8 +1,11 @@
 openapi: 3.0.3
 info:
   title: Science Tokyo LMS · Read API
-  version: 2026.10.22
-  description: '已在 Science Tokyo LMS /2025 实测的应用接入协议。包含 9 个读取函数、官方浏览器授权入口和资源下载；不是全部 470 个 Moodle 服务函数的镜像。
+  version: 2026.10.31
+  description: '已在 Science Tokyo LMS /2025 实测的应用接入协议。包含 12 个读取函数、官方浏览器授权入口和资源下载；不是全部 470 个 Moodle 服务函数的镜像。
+
+
+    写入候选（tag「Write candidates」、/webservice/upload.php 和 x-moodle-write-candidates）确认了函数由此服务开放，参数和行为读自 Moodle v4.5.10 源码；其中上传、保存、撤回在一个只有文件的作业上实测过一次，其余未实测。它们不属于 RpcRequest：读取路径不能表达写操作。
 
 
     REST 是单一 RPC 路径，通过 wsfunction 选择函数；这里保留真实路径，以 oneOf 描述不同请求，未虚构 /courses 等路由。响应模型只列接入相关字段，允许额外字段，不保证所有课程和权限组合都返回同样字段。
@@ -23,6 +26,8 @@ tags:
 - name: Browser authorization
 - name: Read RPC
 - name: Files
+- name: Write candidates
+  description: 2026-10-31 确认服务开放这些入口；参数和行为来自上游 v4.5.10 源码，上传、保存、撤回另实测过一次。
 paths:
   /webservice/rest/server.php:
     post:
@@ -105,6 +110,29 @@ paths:
                   wsfunction: tool_mobile_get_config
                   moodlewsrestformat: json
                   section: mobileapp
+              mod_quiz_get_quizzes_by_courses:
+                summary: 小测设置（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: mod_quiz_get_quizzes_by_courses
+                  moodlewsrestformat: json
+                  courseids[0]: 1001
+              mod_quiz_get_user_attempts:
+                summary: 本人的小测尝试（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: mod_quiz_get_user_attempts
+                  moodlewsrestformat: json
+                  quizid: 4001
+                  status: all
+                  includepreviews: 0
+              mod_quiz_get_quiz_access_information:
+                summary: 小测访问规则（合成示例）
+                value:
+                  wstoken: REPLACE_WITH_TOKEN
+                  wsfunction: mod_quiz_get_quiz_access_information
+                  moodlewsrestformat: json
+                  quizid: 4001
       responses:
         '200':
           description: 函数对应成功数据，或 MoodleError。响应形状由请求 wsfunction 决定；详见 x-moodle-functions 中的 responseSchema。
@@ -121,6 +149,9 @@ paths:
                 - $ref: '#/components/schemas/Discussions'
                 - $ref: '#/components/schemas/ActionEvents'
                 - $ref: '#/components/schemas/MobileConfig'
+                - $ref: '#/components/schemas/Quizzes'
+                - $ref: '#/components/schemas/UserAttempts'
+                - $ref: '#/components/schemas/QuizAccessInformation'
                 - $ref: '#/components/schemas/MoodleError'
               examples:
                 invalidtoken:
@@ -279,6 +310,41 @@ paths:
         '403': *id001
         '416':
           description: 范围不可满足；本次未实测。
+        default: *id001
+  /webservice/upload.php:
+    post:
+      tags:
+      - Write candidates
+      operationId: uploadDraftFiles
+      summary: 上传文件到本人草稿区（候选，实测一次）
+      description: 不是 REST 函数，token 字段名是 token 而不是 wstoken。站点信息 uploadfiles=1；2026-10-31 不带 token 和文件的 GET 返回 HTTP 200、errorcode=missingparam，说明网关放行此路径；同日一次实测上传了 193 字节和 24 字节的文件。上游：itemid 为 0 时新建草稿区并在每条结果中返回
+        itemid；同一草稿区内同名文件返回 filenameexist，单个文件超过站点上限返回 fileoversized，两者都是 HTTP 200 中的逐文件条目；总大小超过用户上限时抛出 userquotalimit。cron 清除
+        4 天前的草稿区。
+      security: []
+      x-verified: one write round trip with small files, 2026-10-31
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UploadDraftRequest'
+      responses:
+        '200':
+          description: 每个文件一条结果；认证或配额失败时为 MoodleError。
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/UploadedDraftFile'
+                - $ref: '#/components/schemas/MoodleError'
+              examples:
+                missingparam:
+                  summary: 不带 token 的 GET（实测）
+                  value:
+                    errorcode: missingparam
+        '403': *id001
         default: *id001
 components:
   schemas:
@@ -534,12 +600,86 @@ components:
               mimetype:
                 type: string
             additionalProperties: true
+        nosubmissions:
+          type: integer
+          format: int64
+          description: 1 表示线下作业，不接受在线提交。
+        submissiondrafts:
+          type: integer
+          format: int64
+          description: 1 表示先存草稿、再 submit_for_grading；0 表示保存即为 submitted。2026-10-31 的 83 个作业全为 0。
+        requiresubmissionstatement:
+          type: integer
+          format: int64
+          description: 1 表示提交前须接受提交声明；2026-10-31 全为 0。
+        submissionstatement:
+          type: string
+          description: 格式化后的声明 HTML；只在需要声明时返回。
+        timelimit:
+          type: integer
+          format: int64
+          description: 计时作业的秒数；0 表示不计时。站点还需开启 enabletimelimit。
+        attemptreopenmethod:
+          type: string
+          description: untilpass、manual 或 automatic；none 自上游 4.4 起弃用。实测只有 untilpass 和 manual。
+        maxattempts:
+          type: integer
+          format: int64
+          description: 最多尝试次数；-1 表示不限。新尝试只由教师评分或重开产生。
+        teamsubmission:
+          type: integer
+          format: int64
+        requireallteammemberssubmit:
+          type: integer
+          format: int64
+        teamsubmissiongroupingid:
+          type: integer
+          format: int64
+        preventsubmissionnotingroup:
+          type: integer
+          format: int64
+          description: 团队作业中不在组里的学生不能提交。
+        blindmarking:
+          type: integer
+          format: int64
+        markingworkflow:
+          type: integer
+          format: int64
+        sendnotifications:
+          type: integer
+          format: int64
+          description: 每次提交是否通知教师；实测全为 0。
+        configs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssignConfig'
       additionalProperties: true
       required:
       - id
       - cmid
       - name
       - duedate
+    AssignConfig:
+      type: object
+      properties:
+        plugin:
+          type: string
+          description: file、onlinetext、comments 或反馈插件名。
+        subtype:
+          type: string
+          description: assignsubmission 是提交插件，assignfeedback 是反馈插件。
+        name:
+          type: string
+          description: 例如 enabled、maxfilesubmissions、maxsubmissionsizebytes、filetypeslist、wordlimit、wordlimitenabled。
+        value:
+          type: string
+          description: 字符串原值；filetypeslist 为空表示不限类型。
+      additionalProperties: true
+      required:
+      - plugin
+      - subtype
+      - name
+      - value
     Submission:
       type: object
       properties:
@@ -552,6 +692,10 @@ components:
         attemptnumber:
           type: integer
           format: int64
+        latest:
+          type: integer
+          format: int64
+          description: 1 表示最新一次尝试。
         timecreated:
           type: integer
           format: int64
@@ -559,7 +703,11 @@ components:
         timemodified:
           type: integer
           format: int64
-          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。撤回提交不更新它。
+        timestarted:
+          type: integer
+          format: int64
+          description: 计时作业开始计时的时间；撤回提交不清除它。
         plugins:
           type: array
           items:
@@ -567,8 +715,37 @@ components:
             properties:
               type:
                 type: string
+                description: file、onlinetext 或 comments。
               name:
                 type: string
+              fileareas:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    area:
+                      type: string
+                      description: 文件提交为 submission_files，在线文本的嵌入文件为 submissions_onlinetext。
+                    files:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/FileEntry'
+                  additionalProperties: true
+              editorfields:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: 在线文本为 onlinetext。
+                    text:
+                      type: string
+                      description: 当前文本 HTML；重新保存时必须回填，否则可能被清空。
+                    format:
+                      type: integer
+                      format: int64
+                  additionalProperties: true
             additionalProperties: true
       additionalProperties: true
       required:
@@ -581,21 +758,56 @@ components:
           properties:
             submission:
               $ref: '#/components/schemas/Submission'
+            teamsubmission:
+              $ref: '#/components/schemas/Submission'
+            submissiongroup:
+              type: integer
+              format: int64
+            submissiongroupmemberswhoneedtosubmit:
+              type: array
+              items:
+                type: integer
+                format: int64
+            usergroups:
+              type: array
+              items:
+                type: integer
+                format: int64
+            submissionsenabled:
+              type: boolean
+              description: 至少一个提交插件已启用；线下作业为 false。
             locked:
               type: boolean
+              description: 教师锁定；锁定后不能保存或撤回。
             graded:
               type: boolean
+              description: 已评分。上游评分本身不关闭提交，只有成绩簿锁定才关闭。
             canedit:
+              type: boolean
+              description: 现在能否保存或撤回本人提交。上游等于开放规则、mod/assign:submit 权限和插件已启用三者同时满足；实测与 caneditowner 一致，并只随开放、截止、cutoff 时间变化。
+            caneditowner:
               type: boolean
             cansubmit:
               type: boolean
+              description: 是否还需要 submit_for_grading；只在仍开放、草稿开启、提交非空且状态不是 submitted 时为 true。
             extensionduedate:
               type: integer
               format: int64
-              description: Unix 时间戳，单位为秒；0 通常表示未设置。
+              description: Unix 时间戳，单位为秒；0 通常表示未设置。晚于 cutoffdate 时延长可编辑期。
+            timelimit:
+              type: integer
+              format: int64
+            blindmarking:
+              type: boolean
             gradingstatus:
               type: string
           additionalProperties: true
+        previousattempts:
+          type: array
+          description: 以前的尝试（不含当前一次）；只读。
+          items:
+            type: object
+            additionalProperties: true
         feedback:
           type: object
           properties:
@@ -750,10 +962,20 @@ components:
         uploadfiles:
           type: integer
           format: int64
-          description: 服务能力信息，不代表客户端被授权执行上传。
+          description: 服务能力信息，不代表客户端被授权执行上传。2026-10-31 实测为 1。
           enum:
           - 0
           - 1
+        usermaxuploadfilesize:
+          type: integer
+          format: int64
+          description: 单个上传文件的上限（字节）；实测 262144000。
+        userquota:
+          type: integer
+          format: int64
+          description: 私人文件配额（字节）；实测 104857600。
+        usercanmanageownfiles:
+          type: boolean
         functions:
           type: array
           items:
@@ -892,6 +1114,239 @@ components:
           items:
             $ref: '#/components/schemas/Warning'
       additionalProperties: true
+    Quizzes:
+      type: object
+      properties:
+        quizzes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Quiz'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+      additionalProperties: true
+      required:
+      - quizzes
+      - warnings
+    Quiz:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: quizid：mod_quiz 实例 ID。
+        coursemodule:
+          type: integer
+          format: int64
+          description: 课程模块 ID。
+        course:
+          type: integer
+          format: int64
+        timeopen:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        timeclose:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位为秒；0 通常表示未设置。
+        timelimit:
+          type: integer
+          format: int64
+          description: 秒；0 表示不限时。
+        attempts:
+          type: integer
+          format: int64
+          description: 允许的尝试次数；0 表示不限。
+        grademethod:
+          type: integer
+          format: int64
+          description: 1 最高分、2 平均分、3 第一次、4 最后一次。
+        preferredbehaviour:
+          type: string
+        overduehandling:
+          type: string
+          description: 只在学生现在能进入小测时返回；已关闭的小测不返回。
+        browsersecurity:
+          type: string
+          description: 只在学生现在能进入小测时返回。
+      additionalProperties: true
+      required:
+      - id
+      - coursemodule
+      - course
+      description: password 和 subnet 只返回给管理者；口令和 Safe Exam Browser 要从 QuizAccessInformation.activerulenames 判断。
+    UserAttempts:
+      type: object
+      properties:
+        attempts:
+          type: array
+          items:
+            type: object
+            properties:
+              attempt:
+                type: integer
+                format: int64
+              state:
+                type: string
+                description: inprogress、overdue、finished 或 abandoned。
+            additionalProperties: true
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+      additionalProperties: true
+      required:
+      - attempts
+    QuizAccessInformation:
+      type: object
+      properties:
+        canattempt:
+          type: boolean
+          description: 是否有作答权限，不表示现在开放。
+        canreviewmyattempts:
+          type: boolean
+        accessrules:
+          type: array
+          items:
+            type: string
+          description: 规则说明文本，按界面语言返回。
+        activerulenames:
+          type: array
+          items:
+            type: string
+          description: 例如 quizaccess_numattempts、quizaccess_openclosedate、quizaccess_password、quizaccess_seb、quizaccess_timelimit；2026-10-31 只见到前两项。
+        preventaccessreasons:
+          type: array
+          items:
+            type: string
+          description: 现在不能作答的原因；已关闭的小测有 1 条。
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warning'
+      additionalProperties: true
+      required:
+      - activerulenames
+      - preventaccessreasons
+    WriteWarnings:
+      type: array
+      items:
+        $ref: '#/components/schemas/Warning'
+      description: 候选写函数的返回。非空即为失败；空数组也不能单独证明成功，执行后用 mod_assign_get_submission_status 核对。warning 的 item 是本地化的原因文本，message 是固定英文。
+    RemoveSubmissionResult:
+      type: object
+      properties:
+        status:
+          type: boolean
+        warnings:
+          $ref: '#/components/schemas/WriteWarnings'
+      additionalProperties: true
+      required:
+      - status
+      - warnings
+    StartSubmissionResult:
+      type: object
+      properties:
+        submissionid:
+          type: integer
+          format: int64
+          description: 失败时为 0。
+        warnings:
+          $ref: '#/components/schemas/WriteWarnings'
+      additionalProperties: true
+      required:
+      - submissionid
+      - warnings
+    UnusedDraftItemid:
+      type: object
+      properties:
+        component:
+          type: string
+        contextid:
+          type: integer
+          format: int64
+        userid:
+          type: integer
+          format: int64
+        filearea:
+          type: string
+        itemid:
+          type: integer
+          format: int64
+        warnings:
+          $ref: '#/components/schemas/WriteWarnings'
+      additionalProperties: true
+      required:
+      - itemid
+    DeleteDraftFilesResult:
+      type: object
+      properties:
+        parentpaths:
+          type: array
+          items:
+            type: string
+        warnings:
+          $ref: '#/components/schemas/WriteWarnings'
+      additionalProperties: true
+      required:
+      - parentpaths
+    UploadDraftRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          description: 移动端 Web Service token；字段名是 token，不是 wstoken。
+          format: password
+          writeOnly: true
+        filepath:
+          type: string
+          default: /
+        itemid:
+          type: integer
+          format: int64
+          default: 0
+          description: 0 表示新建草稿区；其余文件用第一次返回的 itemid。
+      additionalProperties:
+        type: string
+        format: binary
+        description: 任意字段名的文件部分；文件名取自 multipart 的 filename。
+      required:
+      - token
+      description: 候选，2026-10-31 实测一次（小文件）。
+    UploadedDraftFile:
+      type: object
+      properties:
+        component:
+          type: string
+          description: user。
+        contextid:
+          type: integer
+          format: int64
+        userid:
+          type: integer
+          format: int64
+        filearea:
+          type: string
+          description: draft。
+        itemid:
+          type: integer
+          format: int64
+        filepath:
+          type: string
+        filename:
+          type: string
+        filesize:
+          type: integer
+          format: int64
+        errortype:
+          type: string
+          description: fileoversized 或 filenameexist；有此字段时该文件没有存入草稿区。
+        error:
+          type: string
+      additionalProperties: true
+      description: 成功时是存入的文件记录，失败时只有文件名、errortype 和 error。
     GetDashboardBlocksRequest:
       type: object
       required: [wstoken, wsfunction, moodlewsrestformat]
@@ -1161,6 +1616,301 @@ components:
       - wsfunction
       - moodlewsrestformat
       description: 自动登出策略不是 token 的到期时间。本次 forcelogout=0、autologout=0、autologouttime=86400；最后一项在自动登出关闭时不生效。
+    GetQuizzesRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_quiz_get_quizzes_by_courses
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        courseids[0]:
+          type: integer
+          format: int64
+          description: 首个课程 ID；多个课程用 courseids[1]、courseids[2] 等键。
+          minimum: 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      description: 学生看到的字段随小测是否开放而变；关闭后不返回作答设置。
+    GetUserAttemptsRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_quiz_get_user_attempts
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        quizid:
+          type: integer
+          format: int64
+          description: Quiz.id，不能传 cmid。
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - all
+          - finished
+          - unfinished
+          default: finished
+        includepreviews:
+          type: integer
+          format: int64
+          enum:
+          - 0
+          - 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - quizid
+      description: 只读；开始或保存作答的函数不在范围内。
+    GetQuizAccessInformationRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_quiz_get_quiz_access_information
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        quizid:
+          type: integer
+          format: int64
+          description: Quiz.id，不能传 cmid。
+          minimum: 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - quizid
+      description: 判断口令、Safe Exam Browser 和计时规则的唯一途径。
+    SaveSubmissionRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_assign_save_submission
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        assignmentid:
+          type: integer
+          format: int64
+          description: Assignment.id（assignid），不能传 cmid。
+          minimum: 1
+        plugindata[files_filemanager]:
+          type: integer
+          format: int64
+          description: 草稿区 itemid。草稿区整体替换文件区：没有放进草稿区的旧文件被删除；超出数量或大小的文件被静默跳过；类型限制在这条路径上不检查。缺省或 0 时不动文件区。
+        plugindata[onlinetext_editor][text]:
+          type: string
+          description: 在线文本 HTML。作业启用在线文本时每次都要发送，文本不变时回填当前文本；缺省时上游会写入 NULL，预计整次保存失败。
+        plugindata[onlinetext_editor][format]:
+          type: integer
+          format: int64
+          description: 文本格式；1 为 HTML。
+        plugindata[onlinetext_editor][itemid]:
+          type: integer
+          format: int64
+          description: 嵌入文件的草稿区；没有嵌入文件时为 0。
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - assignmentid
+      description: 候选，2026-10-31 在只有文件的作业上实测一次（在线文本未测）。未开放时返回 couldnotsavesubmission；内容全空时返回 submissionempty；用户被锁定时抛出 submissionslocked。草稿关闭时保存即为 submitted。
+    SubmitForGradingRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_assign_submit_for_grading
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        assignmentid:
+          type: integer
+          format: int64
+          minimum: 1
+        acceptsubmissionstatement:
+          type: integer
+          format: int64
+          enum:
+          - 0
+          - 1
+          description: 用户本人接受提交声明后才可为 1。
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - assignmentid
+      - acceptsubmissionstatement
+      description: 候选，未实测。只用于 submissiondrafts=1 且状态为 draft 的作业：上游不检查草稿开关和内容是否为空。之后不能再改，除非教师退回草稿。
+    RemoveSubmissionRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_assign_remove_submission
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        userid:
+          type: integer
+          format: int64
+          description: 本人 userid，取自 core_webservice_get_site_info。
+          minimum: 1
+        assignid:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - userid
+      - assignid
+      description: 候选，2026-10-31 实测一次。删除本次提交的文件和在线文本，状态回到 new（以后的尝试回到 reopened）；只在 canedit 时可用。内容无法恢复。
+    StartSubmissionRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - mod_assign_start_submission
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        assignid:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - assignid
+      description: 候选，未实测。只用于计时作业；写入 timestarted，计时无法撤销。warning 为 submissionnotopen、timelimitnotenabled 或 opensubmissionexists。
+    GetUnusedDraftItemidRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - core_files_get_unused_draft_itemid
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      description: 候选，未实测。上游只生成一个未用的编号，不写库；upload.php 的 itemid=0 也会新建草稿区。
+    DeleteDraftFilesRequest:
+      type: object
+      properties:
+        wstoken:
+          type: string
+          description: 移动端 Web Service token；不使用 sesskey、Cookie 或 Bearer header。
+          format: password
+          writeOnly: true
+        wsfunction:
+          type: string
+          enum:
+          - core_files_delete_draft_files
+        moodlewsrestformat:
+          type: string
+          enum:
+          - json
+          default: json
+        draftitemid:
+          type: integer
+          format: int64
+        files[0][filepath]:
+          type: string
+        files[0][filename]:
+          type: string
+      additionalProperties: true
+      required:
+      - wstoken
+      - wsfunction
+      - moodlewsrestformat
+      - draftitemid
+      description: 候选，未实测。每次用新的草稿区时不需要。
     RpcRequest:
       oneOf:
       - $ref: '#/components/schemas/GetSiteInfoRequest'
@@ -1172,6 +1922,9 @@ components:
       - $ref: '#/components/schemas/GetForumDiscussionsRequest'
       - $ref: '#/components/schemas/GetActionEventsRequest'
       - $ref: '#/components/schemas/GetMobileConfigRequest'
+      - $ref: '#/components/schemas/GetQuizzesRequest'
+      - $ref: '#/components/schemas/GetUserAttemptsRequest'
+      - $ref: '#/components/schemas/GetQuizAccessInformationRequest'
       discriminator:
         propertyName: wsfunction
         mapping:
@@ -1184,6 +1937,9 @@ components:
           mod_forum_get_forum_discussions: '#/components/schemas/GetForumDiscussionsRequest'
           core_calendar_get_action_events_by_timesort: '#/components/schemas/GetActionEventsRequest'
           tool_mobile_get_config: '#/components/schemas/GetMobileConfigRequest'
+          mod_quiz_get_quizzes_by_courses: '#/components/schemas/GetQuizzesRequest'
+          mod_quiz_get_user_attempts: '#/components/schemas/GetUserAttemptsRequest'
+          mod_quiz_get_quiz_access_information: '#/components/schemas/GetQuizAccessInformationRequest'
     PublicConfig:
       type: object
       properties:
@@ -1284,6 +2040,89 @@ x-moodle-functions:
   responseSchema: MobileConfig
   verified: native POST, 2026-10-20
   description: 自动登出策略不是 token 的到期时间。本次 forcelogout=0、autologout=0、autologouttime=86400；最后一项在自动登出关闭时不生效。
+- name: mod_quiz_get_quizzes_by_courses
+  summary: 小测设置
+  requestSchema: GetQuizzesRequest
+  responseSchema: Quizzes
+  verified: native POST through Core TokenTransport, 2026-10-31
+  description: 5 个小测均已关闭，attempts=1、timelimit=0、grademethod=1；关闭后不返回 overduehandling、browsersecurity 等作答设置，password 只返回给管理者。
+- name: mod_quiz_get_user_attempts
+  summary: 本人的小测尝试
+  requestSchema: GetUserAttemptsRequest
+  responseSchema: UserAttempts
+  verified: native POST through Core TokenTransport, 2026-10-31
+  description: 本季和上季的两个小测各有 1 次 finished 尝试。
+- name: mod_quiz_get_quiz_access_information
+  summary: 小测访问规则
+  requestSchema: GetQuizAccessInformationRequest
+  responseSchema: QuizAccessInformation
+  verified: native POST through Core TokenTransport, 2026-10-31
+  description: activerulenames 只有 quizaccess_numattempts 和 quizaccess_openclosedate，没有口令或 Safe Exam Browser。为此加入 Core 的只读 MoodleFunction 枚举。
+x-moodle-write-candidates:
+- name: webservice/upload.php
+  path: /webservice/upload.php
+  summary: 上传文件到本人草稿区
+  requestSchema: UploadDraftRequest
+  responseSchema: UploadedDraftFile
+  offered: uploadfiles=1 in site info; tokenless GET answered missingparam, 2026-10-31
+  verified: one write round trip, 2026-10-31 (small files only)
+  needed: true
+  source: webservice/upload.php
+  description: 写入枚举第一步。第一个文件用 itemid=0 并取回 itemid，其余文件用同一 itemid；逐文件检查 errortype。实测同名文件返回 filenameexist 且不覆盖；网关大小上限未测。
+- name: mod_assign_save_submission
+  summary: 保存提交（草稿关闭时即为提交）
+  requestSchema: SaveSubmissionRequest
+  responseSchema: WriteWarnings
+  offered: site info functions, 2026-10-31
+  verified: one write round trip on a file-only assignment, 2026-10-31
+  needed: true
+  source: mod/assign/externallib.php save_submission; mod/assign/locallib.php save_submission; mod/assign/submission/*/locallib.php save
+  description: 草稿区必须是最终的完整文件集合；每个已启用插件都要带数据。开放期内可以反复保存，过 cutoffdate 后不能再改。实测：成功返回 []，状态 submitted；新草稿区整体替换文件区；filetypeslist 不检查。在线文本未测。
+- name: mod_assign_remove_submission
+  summary: 撤回提交（删除内容）
+  requestSchema: RemoveSubmissionRequest
+  responseSchema: RemoveSubmissionResult
+  offered: site info functions, 2026-10-31
+  verified: one write round trip, 2026-10-31
+  needed: true
+  source: mod/assign/classes/external/remove_submission.php; mod/assign/locallib.php remove_submission
+  description: 只在 canedit 时可用，内容无法恢复；只在用户明确确认后执行。实测：status=true，状态回到 new、文件清空、timemodified 不变；再撤回返回 submissionnotfoundtoremove。
+- name: mod_assign_submit_for_grading
+  summary: 草稿改为已提交
+  requestSchema: SubmitForGradingRequest
+  responseSchema: WriteWarnings
+  offered: site info functions, 2026-10-31
+  verified: false
+  needed: only for submissiondrafts=1, none observed
+  source: mod/assign/externallib.php submit_for_grading; mod/assign/locallib.php submit_for_grading
+  description: 上游不检查草稿开关和内容是否为空，warning 不带原因；之后不能再改。
+- name: mod_assign_start_submission
+  summary: 开始计时作业
+  requestSchema: StartSubmissionRequest
+  responseSchema: StartSubmissionResult
+  offered: site info functions, 2026-10-31
+  verified: false
+  needed: only for timed assignments, none observed
+  source: mod/assign/classes/external/start_submission.php
+  description: 计时开始后无法撤销，撤回提交也不清除 timestarted。
+- name: core_files_get_unused_draft_itemid
+  summary: 取未用的草稿 itemid
+  requestSchema: GetUnusedDraftItemidRequest
+  responseSchema: UnusedDraftItemid
+  offered: site info functions, 2026-10-31
+  verified: false
+  needed: false
+  source: files/classes/external/get/unused_draft.php
+  description: upload.php 的 itemid=0 已能新建草稿区。
+- name: core_files_delete_draft_files
+  summary: 删除草稿区中的文件
+  requestSchema: DeleteDraftFilesRequest
+  responseSchema: DeleteDraftFilesResult
+  offered: site info functions, 2026-10-31
+  verified: false
+  needed: false
+  source: files/classes/external/delete/draft.php
+  description: 每次用新的草稿区时不需要；cron 清除 4 天前的草稿区。
 externalDocs:
   description: Moodle 上游服务实现
   url: https://github.com/moodle/moodle/tree/MOODLE_405_STABLE
