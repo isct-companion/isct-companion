@@ -3003,6 +3003,15 @@ checks:
       accepting test files, and a workspace with files in submit/.
     steps:
       - action: |
+          On an assignment whose description links files, choose Create
+          workspace, then open the folder and its ASSIGNMENT.md.
+        reason: |
+          Core now downloads the attachments with the app's school session
+          and writes the one ASSIGNMENT.md the phones and MCP agents also get:
+          the description as plain text, the due time in JST and every
+          attachment. A file it could not fetch is named under the card and
+          marked "not downloaded" in ASSIGNMENT.md instead of failing.
+      - action: |
           Choose Prepare in LMS from the assignment workspace. Inspect the
           right-hand official LMS page without clicking Save or Submit.
         reason: |

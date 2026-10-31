@@ -2,7 +2,7 @@
 //! argument and answer types, and the changes it reads. The HTTP adapter
 //! serves this list as `tools/list`; the JSON Schemas come from the Rust
 //! types themselves.
-use super::{reads, writes, AgentError, Context};
+use super::{assignments, reads, writes, AgentError, Context};
 use crate::workspace_changes::WorkspaceChange;
 use schemars::{generate::SchemaSettings, JsonSchema};
 use serde::{de::DeserializeOwned, Serialize};
@@ -69,6 +69,8 @@ static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
         entry::<reads::Gpa>(),
         entry::<reads::Requirements>(),
         entry::<reads::Recommended>(),
+        entry::<assignments::Assignment>(),
+        entry::<assignments::WorkspaceStatus>(),
         entry::<writes::PlanAdd>(),
         entry::<writes::PlanRemove>(),
         entry::<writes::WeeklyEventCreate>(),
@@ -76,6 +78,7 @@ static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
         entry::<writes::WeeklyEventDelete>(),
         entry::<writes::HideAssignment>(),
         entry::<writes::RestoreAssignment>(),
+        entry::<assignments::WorkspaceCreate>(),
     ]
 });
 

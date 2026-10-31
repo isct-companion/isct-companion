@@ -515,6 +515,7 @@
   "lms.activities": "Activities",
   "lms.actualSize": "Actual size",
   "lms.announcement": "Announcement",
+  "lms.attachmentsNotDownloaded": "Could not download {{names}}; ASSIGNMENT.md lists them.",
   "lms.bold": "Bold",
   "lms.browserStorageDesktopAppSaves": "Browser storage · desktop app saves to Documents",
   "lms.bulletList": "Bullet list",

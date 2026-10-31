@@ -25,6 +25,22 @@ const MAX_RETENTION_DAYS: u64 = 3650;
 /// long without writes; an active download keeps touching its file.
 const STALE_PARTIAL_AGE: Duration = Duration::from_secs(6 * 60 * 60);
 
+/// The school session course downloads use, as the shell registered it.
+#[derive(Clone, Default)]
+pub struct DownloadSession(Arc<std::sync::RwLock<Option<Arc<dyn SessionCookies>>>>);
+
+impl DownloadSession {
+    pub fn set(&self, session: Arc<dyn SessionCookies>) {
+        if let Ok(mut current) = self.0.write() {
+            *current = Some(session);
+        }
+    }
+
+    pub fn get(&self) -> Option<Arc<dyn SessionCookies>> {
+        self.0.read().ok().and_then(|current| current.clone())
+    }
+}
+
 /// A course's download folder: `<term>/<course>` under the files directory.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

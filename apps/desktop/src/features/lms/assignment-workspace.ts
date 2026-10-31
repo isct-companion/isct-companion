@@ -1,7 +1,6 @@
 import { t } from "../../i18n";
 import { errorCode, invoke } from "../../platform/native-error";
-import { openMaterial, type CourseFolder } from "./files";
-import type { AssignmentAttachment } from "../../platform/core-query";
+import type { CourseFolder } from "./files";
 
 /** A per-assignment folder (desktop only); see `apps/desktop/src-tauri/src/workspaces.rs`. */
 export type AssignmentWorkspace = {
@@ -12,53 +11,6 @@ export type AssignmentWorkspace = {
   zip: boolean;
   zipName: string;
 };
-
-/** Description HTML as plain text that keeps its paragraphs and list items. */
-function plainText(html: string): string {
-  const body = new DOMParser().parseFromString(html, "text/html").body;
-  body
-    .querySelectorAll("script,style,iframe,object,embed,form")
-    .forEach((node) => node.remove());
-  body.querySelectorAll("br").forEach((node) => node.replaceWith("\n"));
-  body.querySelectorAll("li").forEach((node) => node.prepend("- "));
-  body
-    .querySelectorAll("p,div,li,h1,h2,h3,h4,h5,h6,tr,pre")
-    .forEach((node) => node.append("\n"));
-  return (body.textContent ?? "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-/** `ASSIGNMENT.md`: what an editor or AI agent opened on the folder needs to know. */
-export function assignmentBrief(a: {
-  title: string;
-  course: string;
-  due?: string;
-  url?: string;
-  html: string;
-  attachments: string[];
-}): string {
-  const facts = [
-    `- Course: ${a.course}`,
-    a.due && `- Due: ${a.due}`,
-    a.url && `- LMS: ${a.url}`,
-    "- Hand in: put the files to submit in `submit/`",
-  ].filter(Boolean);
-  const text = plainText(a.html);
-  return (
-    [
-      `# ${a.title}`,
-      facts.join("\n"),
-      text,
-      a.attachments.length
-        ? `## Attachments\n\n${a.attachments.map((name) => `- ${name}`).join("\n")}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n") + "\n"
-  );
-}
 
 /** Core's main action for an assignment: open its LMS page, or upload `submit/` as the draft first. */
 export type HandInView = {
@@ -78,30 +30,18 @@ export const findWorkspace = (
 export const workspaceMissing = (error: unknown) =>
   errorCode(error) === "workspace-folder-missing";
 
-/** Download the attachments into the course folder, then build the workspace from them. */
-export async function createWorkspace(
-  context: CourseFolder,
-  assignment: { id: string; title: string },
-  files: readonly AssignmentAttachment[],
-  brief: (attachments: string[]) => string,
-): Promise<AssignmentWorkspace> {
-  const attachments = [];
-  for (const file of files) {
-    const material = await openMaterial(context, file.url, { download: true });
-    if (material.state !== "ready")
-      throw new Error(
-        `${file.name}: ${material.state === "failed" ? material.reason : material.state}`,
-      );
-    attachments.push({ path: material.file.path, name: file.name });
-  }
-  return invoke("create_assignment_workspace", {
-    context,
-    assignment: assignment.id,
-    title: assignment.title,
-    brief: brief(attachments.map((a) => a.name)),
-    attachments,
-  });
-}
+/** An attachment Core could not download into a new workspace. */
+export type MissingAttachment = { name: string; reason: string };
+
+/**
+ * Core downloads the attachments, writes `ASSIGNMENT.md` and creates the
+ * folder once; attachments it could not fetch come back as `missing`.
+ */
+export const createWorkspace = (assignment: string) =>
+  invoke<{ workspace: AssignmentWorkspace; missing: MissingAttachment[] }>(
+    "create_assignment_workspace",
+    { assignment },
+  );
 
 export const openWorkspace = (path: string, target: "finder" | "vscode") =>
   invoke<void>("open_workspace", { path, target });

@@ -4,6 +4,7 @@
 //! schemas of its own. Only the desktop serves MCP, so only it compiles
 //! this module (the `agent` feature).
 
+mod assignments;
 mod dto;
 mod reads;
 mod registry;
@@ -13,6 +14,7 @@ pub use registry::{tools, Effect, ToolSpec};
 
 use crate::data::{AgentWriteError, DataError, DataStore};
 use crate::workspace_changes::WorkspaceChange;
+use crate::workspaces::AssignmentWorkspaces;
 use serde_json::Value;
 use std::sync::Arc;
 use thiserror::Error;
@@ -65,11 +67,12 @@ impl From<AgentWriteError> for AgentError {
 #[derive(Clone)]
 pub struct AgentService {
     store: DataStore,
+    workspaces: AssignmentWorkspaces,
 }
 
 impl AgentService {
-    pub fn new(store: DataStore) -> Self {
-        Self { store }
+    pub fn new(store: DataStore, workspaces: AssignmentWorkspaces) -> Self {
+        Self { store, workspaces }
     }
 
     /// Runs one tool with its JSON arguments and answers with its JSON
@@ -84,6 +87,7 @@ impl AgentService {
         tool.run(
             &Context {
                 store: &self.store,
+                workspaces: &self.workspaces,
                 view: &view,
             },
             args,
@@ -97,6 +101,7 @@ type View = (Arc<Value>, Arc<crate::schedule::SchoolReads>);
 /// load (tests swap in a view over every field).
 pub(crate) struct Context<'a> {
     store: &'a DataStore,
+    workspaces: &'a AssignmentWorkspaces,
     view: &'a dyn Fn() -> Result<View, AgentError>,
 }
 

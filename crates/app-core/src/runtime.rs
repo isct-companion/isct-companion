@@ -45,6 +45,8 @@ pub struct CoreRuntime {
     pub notes: crate::notes::NoteStore,
     cloud: OnceLock<crate::cloud_sync::CloudSync>,
     pub downloads: crate::downloads::Downloader,
+    /// The school session the shell registered for course downloads.
+    pub download_session: crate::course_materials::DownloadSession,
     scheduler: Scheduler,
     tasks: RuntimeTasks,
     next_scheduled: Mutex<Instant>,
@@ -61,6 +63,7 @@ impl CoreRuntime {
             notes: crate::notes::NoteStore::default(),
             cloud: OnceLock::new(),
             downloads: crate::downloads::Downloader::default(),
+            download_session: crate::course_materials::DownloadSession::default(),
             scheduler: Scheduler::default(),
             tasks: RuntimeTasks::default(),
             next_scheduled: Mutex::new(Instant::now()),

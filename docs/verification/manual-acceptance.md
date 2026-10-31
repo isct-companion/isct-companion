@@ -3613,19 +3613,26 @@ accepting test files, and a workspace with files in submit/.
 
 **Steps**
 
-1. Choose Prepare in LMS from the assignment workspace. Inspect the
+1. On an assignment whose description links files, choose Create
+   workspace, then open the folder and its ASSIGNMENT.md.
+   - *Why:* Core now downloads the attachments with the app's school session
+     and writes the one ASSIGNMENT.md the phones and MCP agents also get:
+     the description as plain text, the due time in JST and every
+     attachment. A file it could not fetch is named under the card and
+     marked "not downloaded" in ASSIGNMENT.md instead of failing.
+2. Choose Prepare in LMS from the assignment workspace. Inspect the
    right-hand official LMS page without clicking Save or Submit.
    - *Why:* Verifies that the injected drag reaches Moodle's authenticated uploader
      and that assistance stops before the user commits the submission.
-2. Compare every displayed draft filename and size with submit/. Repeat
+3. Compare every displayed draft filename and size with submit/. Repeat
    using ZIP, then try a file type the assignment rejects.
    - *Why:* Confirms the uploaded data and archive selection, and that Moodle's
      own restrictions and error UI still govern the upload.
-3. Start from another assignment page, then prepare this assignment.
+4. Start from another assignment page, then prepare this assignment.
    Close and reopen the reader while the official form is visible.
    - *Why:* Checks target binding and native navigation: files must only enter
      the requested assignment, and reopening must not upload a second copy.
-4. Open an assignment accepting online text in the right-hand LMS pane.
+5. Open an assignment accepting online text in the right-hand LMS pane.
    Type Japanese and Chinese with the IME, paste text, select a word and
    use a TinyMCE formatting command. Leave without saving or submitting.
    Follow its external Google Form link, search from the Web address bar,

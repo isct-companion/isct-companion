@@ -1,23 +1,19 @@
-//! Native assignment-workspace commands. Core owns storage and archive rules;
-//! this adapter supplies the selected root and desktop openers.
+//! Native assignment-workspace commands. Core owns the workspaces, their
+//! storage root and archive rules; this adapter adds the desktop openers.
 
-use crate::lms_files::root;
 use crate::{coded, CommandError};
 use app_core::{
     course_materials::CourseKey,
     school_browser::SubmissionMessages,
-    workspaces::{Attachment, HandInView, WorkspaceError, WorkspaceInfo, Workspaces},
+    workspaces::{CreatedWorkspace, HandInView, WorkspaceError, WorkspaceInfo, Workspaces},
 };
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
+/// Workspaces under the root Core selected, fixed for this command.
 fn service(webview: &tauri::Webview, app: &AppHandle) -> Result<Workspaces, WorkspaceError> {
     crate::require_local_main(webview).map_err(|error| WorkspaceError::Input(error.to_string()))?;
-    Ok(Workspaces::new(
-        root(app)
-            .map_err(|error| WorkspaceError::Storage(error.to_string()))?
-            .0,
-    ))
+    crate::core_ports::core(app).assignment_workspaces.at()
 }
 
 async fn run_workspace<T>(
@@ -50,21 +46,20 @@ pub async fn assignment_workspace(
     Ok(run_workspace(&app, move || service.hand_in(&context, &assignment, closed)).await?)
 }
 
+/// Core downloads the attachments, writes `ASSIGNMENT.md` and creates the
+/// folder once; attachments it could not fetch come back as `missing`.
 #[tauri::command]
 pub async fn create_assignment_workspace(
     webview: tauri::Webview,
     app: AppHandle,
-    context: CourseKey,
     assignment: String,
-    title: String,
-    brief: String,
-    attachments: Vec<Attachment>,
-) -> Result<WorkspaceInfo, CommandError> {
-    let service = service(&webview, &app)?;
-    Ok(run_workspace(&app, move || {
-        service.create(&context, assignment, title, brief, attachments)
-    })
-    .await?)
+) -> Result<CreatedWorkspace, CommandError> {
+    crate::require_local_main(&webview)?;
+    let workspaces = crate::core_ports::core(&app).assignment_workspaces.clone();
+    Ok(crate::core_ports::runtime(&app)
+        .run(async move { workspaces.create(&assignment).await })
+        .await
+        .map_err(|error| WorkspaceError::Storage(error.to_string()))??)
 }
 
 /// `finder`: the workspace in the file manager; `vscode`: the whole folder.

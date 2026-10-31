@@ -364,15 +364,6 @@ fn assignment_detail(
     }
 }
 
-/// The assignment's workspace target, once Core knows its course folder.
-fn hand_in_target(
-    detail: &app_core::schedule::AssignmentDetail,
-) -> Result<app_core::workspaces::HandInTarget, SdkError> {
-    app_core::workspaces::HandInTarget::from_detail(detail).ok_or_else(|| SdkError::Unavailable {
-        detail: "This assignment's course folder is not known yet.".into(),
-    })
-}
-
 /// The phones' hand-in: files shared into the app go to the assignment's
 /// workspace `submit/` (the desktop's folder layout), and handing in fills the
 /// LMS draft area from it. Core never submits; the person saves the page.
@@ -408,9 +399,11 @@ impl Session {
     /// Assignments with files waiting to be handed in, for 今日's rows.
     pub fn waiting_hand_ins(&self) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let workspace = i.core.store.load_fields(&["assignments"])?;
-            let assignments = app_core::workspaces::Workspaces::new(i.files.clone())
-                .waiting(&workspace)
+            let assignments = i
+                .core
+                .assignment_workspaces
+                .waiting()
+                .map_err(workspace_error)?
                 .into_iter()
                 .map(|(assignment_id, files)| WaitingHandIn {
                     assignment_id,
@@ -426,13 +419,11 @@ impl Session {
         assignment_id: String,
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let detail = assignment_detail(&i, &assignment_id)?;
-            let files = match detail.files {
-                Some(course) => app_core::workspaces::Workspaces::new(i.files.clone())
-                    .submit_files(&course, &assignment_id)
-                    .map_err(workspace_error)?,
-                None => Vec::new(),
-            };
+            let files = i
+                .core
+                .assignment_workspaces
+                .submit_files(&assignment_id)
+                .map_err(workspace_error)?;
             Ok(OperationResult::Files {
                 files: project(files)?,
             })
@@ -446,15 +437,15 @@ impl Session {
         files: Vec<SharedFile>,
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let target = hand_in_target(&assignment_detail(&i, &assignment_id)?)?;
             let files = files
                 .into_iter()
                 .map(|file| (std::path::PathBuf::from(file.path), file.name))
                 .collect();
             Ok(OperationResult::Files {
                 files: project(
-                    app_core::workspaces::Workspaces::new(i.files.clone())
-                        .add_submit_files(&target, files)
+                    i.core
+                        .assignment_workspaces
+                        .add_submit_files(&assignment_id, files)
                         .map_err(|e| crate::error::coded(&e))?,
                 )?,
             })
@@ -466,11 +457,11 @@ impl Session {
         name: String,
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
-            let target = hand_in_target(&assignment_detail(&i, &assignment_id)?)?;
             Ok(OperationResult::Files {
                 files: project(
-                    app_core::workspaces::Workspaces::new(i.files.clone())
-                        .remove_submit_file(&target.course, &assignment_id, &name)
+                    i.core
+                        .assignment_workspaces
+                        .remove_submit_file(&assignment_id, &name)
                         .map_err(workspace_error)?,
                 )?,
             })
@@ -491,10 +482,11 @@ impl Session {
                 .ok_or_else(|| SdkError::Unavailable {
                     detail: "This assignment has no LMS page.".into(),
                 })?;
-            let target = hand_in_target(&detail)?;
-            let workspaces = app_core::workspaces::Workspaces::new(i.files.clone());
-            let workspace = workspaces
-                .find(&target.course, &assignment_id)
+            let workspaces = i.core.assignment_workspaces.at().map_err(workspace_error)?;
+            let workspace = i
+                .core
+                .assignment_workspaces
+                .find(&assignment_id)
                 .map_err(workspace_error)?
                 .ok_or_else(|| SdkError::InvalidInput {
                     detail: "There are no files to hand in.".into(),

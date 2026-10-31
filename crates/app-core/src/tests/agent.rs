@@ -6,6 +6,7 @@ use std::sync::{Arc, Barrier};
 struct Fixture {
     root: PathBuf,
     store: DataStore,
+    notes: crate::notes::NoteStore,
 }
 
 impl Fixture {
@@ -19,11 +20,22 @@ impl Fixture {
                 json!({"agentAccess":{"enabled":true,"lastWrites":[]}}),
             )
             .unwrap();
-        Self { root, store }
+        let notes = crate::notes::NoteStore::default();
+        notes.at(root.join("files"));
+        Self { root, store, notes }
     }
 
     fn service(&self) -> AgentService {
-        AgentService::new(self.store.clone())
+        AgentService::new(self.store.clone(), self.workspaces())
+    }
+
+    fn workspaces(&self) -> AssignmentWorkspaces {
+        AssignmentWorkspaces::new(
+            self.store.clone(),
+            self.notes.clone(),
+            crate::downloads::Downloader::default(),
+            crate::course_materials::DownloadSession::default(),
+        )
     }
 
     fn seed_offering(&self) {
@@ -502,8 +514,10 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
         // `today` stamps the moment it answered; only that may differ.
         let tool = registry::find(name).unwrap();
         let answer = |view: &dyn Fn() -> Result<View, AgentError>| {
+            let workspaces = fixture.workspaces();
             let cx = Context {
                 store: &fixture.store,
+                workspaces: &workspaces,
                 view,
             };
             let mut value = tool.run(&cx, args.clone()).unwrap();
@@ -519,4 +533,85 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
         );
     }
     assert!(!courses["courses"].as_array().unwrap().is_empty());
+}
+
+// An agent reads an assignment, has Core create its workspace once and sees
+// what it wrote into `submit/`; Core's next operation follows a newly
+// selected storage root.
+#[test]
+fn workspace_tools_create_once_report_submit_files_and_follow_the_root() {
+    let fixture = Fixture::new();
+    fixture.seed_offering();
+    let service = fixture.service();
+    let added = service
+        .call(
+            "plan_add",
+            json!({"offeringId":"202612345","term":"2026-3Q"}),
+        )
+        .unwrap();
+    let assignment = json!({
+        "id":"lms-assign:1", "kind":"assignment", "courseId":added["courseId"],
+        "title":"Report 1", "details":"<p>Write <b>two</b> pages.</p>",
+        "dueAt":"2026-10-20T14:59:00Z", "source":{"provider":"lms"}
+    });
+    fixture
+        .store
+        .write(None, |transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO assignments (id,value,hash,updated_at,updated_by,rev)
+                     VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','lms',1)",
+                    rusqlite::params!["lms-assign:1", assignment.to_string()],
+                )
+                .map_err(DataError::from)
+        })
+        .unwrap();
+    // Downloads are async; the desktop runs tools on a blocking thread.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let call = |name: &'static str| {
+        let service = service.clone();
+        runtime
+            .block_on(async move {
+                tokio::task::spawn_blocking(move || {
+                    service.call(name, json!({"assignmentId":"lms-assign:1"}))
+                })
+                .await
+            })
+            .unwrap()
+            .unwrap()
+    };
+    let read = call("assignment");
+    assert_eq!(read["notes"], "Write two pages.");
+    assert!(read.get("workspace").is_none());
+
+    let created = call("workspace_create");
+    assert_eq!(created["missing"], json!([]));
+    let path = PathBuf::from(created["path"].as_str().unwrap());
+    assert!(path.starts_with(fixture.root.join("files").canonicalize().unwrap()));
+    let brief = std::fs::read_to_string(path.join("ASSIGNMENT.md")).unwrap();
+    assert!(brief.starts_with("# Report 1\n\n"), "{brief}");
+    assert!(brief.contains("- Due: 2026-10-20 23:59 JST\n"), "{brief}");
+    assert!(brief.contains("\n\nWrite two pages.\n"), "{brief}");
+    assert_eq!(call("workspace_create")["path"], created["path"]);
+    assert_eq!(call("assignment")["workspace"]["path"], created["path"]);
+
+    std::fs::write(path.join("submit/report.pdf"), b"%PDF-1").unwrap();
+    let status = call("workspace_status");
+    assert_eq!(status["exists"], true);
+    assert_eq!(status["files"][0]["name"], "report.pdf");
+    assert_eq!(status["files"][0]["bytes"], 6);
+    assert_eq!(
+        status["files"][0]["sha256"],
+        "21af8e71c8703196df7fe1ff901869a88fe64c07bbaa83d838efb45a52b4f303"
+    );
+
+    fixture
+        .notes
+        .select_root(fixture.root.join("elsewhere"), || Ok::<(), String>(()))
+        .unwrap();
+    assert_eq!(call("workspace_status")["exists"], false);
 }

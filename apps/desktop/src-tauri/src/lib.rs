@@ -380,6 +380,11 @@ pub fn run() {
                 ))
             })?;
             app.manage(school_controller);
+            let runtime = core_ports::runtime(app.handle());
+            runtime.notes.at(lms_files::root(app.handle())?.0);
+            runtime
+                .download_session
+                .set(lms_downloader::session(app.handle()));
             let authorized = app
                 .state::<DesktopCloudService<OsSecretVault>>()
                 .authorized_providers()

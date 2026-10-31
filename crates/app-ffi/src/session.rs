@@ -736,6 +736,14 @@ async fn initialize(
             app_ocr::matrix_vision(),
         )),
     });
+    inner.core.runtime.notes.at(inner.files.clone());
+    if let Some(port) = inner.download_session.clone() {
+        inner
+            .core
+            .runtime
+            .download_session
+            .set(Arc::new(crate::ports::NativeCookies(port)));
+    }
     inner.core.start(&Handle::current())?;
     Ok(inner)
 }

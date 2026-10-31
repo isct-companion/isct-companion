@@ -515,6 +515,7 @@
   "lms.activities": "活动",
   "lms.actualSize": "实际大小",
   "lms.announcement": "公告",
+  "lms.attachmentsNotDownloaded": "无法下载 {{names}}，已在 ASSIGNMENT.md 中列出。",
   "lms.bold": "加粗",
   "lms.browserStorageDesktopAppSaves": "保存在浏览器中 · 桌面端应用会保存到“文稿”",
   "lms.bulletList": "无序列表",

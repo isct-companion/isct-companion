@@ -487,68 +487,6 @@ describe("outline scroll gravity", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Assignment workspace
-// ---------------------------------------------------------------------------
-
-const assignmentHtml = `<p>Implement the classes.</p><ul><li>Use Java 21</li><li>Write tests</li></ul>
-<a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/intro/OOP-2026-1B-problem.zip">problem</a>
-<a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/intro/OOP-2026-1B-problem.zip">again</a>
-<a href="https://example.com/pluginfile.php/evil.zip">elsewhere</a>`;
-
-describe("assignment brief", () => {
-  it("writes the brief with the facts, the description and the attachments", () => {
-    const brief = assignments.assignmentBrief({
-      title: "1B",
-      course: "OOP",
-      due: "2026/10/20 23:59 JST",
-      html: assignmentHtml,
-      attachments: ["OOP-2026-1B-problem.zip"],
-    });
-    expect(brief).toContain(
-      "# 1B\n\n- Course: OOP\n- Due: 2026/10/20 23:59 JST\n",
-    );
-    expect(brief).toContain("- Hand in: put the files to submit in `submit/`");
-    expect(brief).toContain(
-      "Implement the classes.\n- Use Java 21\n- Write tests",
-    );
-    expect(brief).toContain("## Attachments\n\n- OOP-2026-1B-problem.zip\n");
-  });
-
-  it("includes the LMS address only when one is given", () => {
-    const withUrl = assignments.assignmentBrief({
-      title: "1B",
-      course: "OOP",
-      url: "https://lms.s.isct.ac.jp/mod/assign/view.php?id=1",
-      html: "<p>Do it.</p>",
-      attachments: [],
-    });
-    expect(withUrl).toContain(
-      "- LMS: https://lms.s.isct.ac.jp/mod/assign/view.php?id=1",
-    );
-    const without = assignments.assignmentBrief({
-      title: "1B",
-      course: "OOP",
-      html: "<p>Do it.</p>",
-      attachments: [],
-    });
-    expect(without).not.toContain("- Due:");
-    expect(without).not.toContain("- LMS:");
-    expect(without).not.toContain("## Attachments");
-  });
-
-  it("strips scripts and keeps paragraph and list structure in the description", () => {
-    const brief = assignments.assignmentBrief({
-      title: "Lab",
-      course: "OOP",
-      html: "<script>alert(1)</script><p>First</p><ul><li>One</li><li>Two</li></ul>",
-      attachments: [],
-    });
-    expect(brief).not.toContain("alert");
-    expect(brief).toContain("First\n- One\n- Two");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Spring scroll
 // ---------------------------------------------------------------------------
 

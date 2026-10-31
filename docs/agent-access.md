@@ -43,14 +43,24 @@ assignments (`course`), the local course catalog (`search_catalog`), and the
 imported registration, grade, GPA, requirement and recommended-course records.
 They name the fields they return, so sync bookkeeping never reaches a client,
 and school HTML (assignment instructions, LMS pages) arrives as plain text.
-The server never contacts a school host and never exposes credentials,
-cookies, sessions or account and cloud settings.
+The server never exposes credentials, cookies, sessions or account and cloud
+settings.
+
+Assignment tools work on the same workspace folders as the app, under the
+course storage root chosen in Settings: `assignment(assignmentId)` reads one
+assignment with its description, attachments and workspace;
+`workspace_create(assignmentId)` has Core download the attachments (through
+the app's school session), write `ASSIGNMENT.md` and an empty `submit/`, and
+returns the absolute path, or the existing workspace as it is; and
+`workspace_status(assignmentId)` lists what `submit/` holds with each file's
+size and SHA-256. The agent writes the files to hand in into `submit/` itself.
 
 Write tools change only the person's own data on this device: the plan
 (`plan_add`, `plan_remove`), weekly personal events (`weekly_event_create`,
 `weekly_event_update`, `weekly_event_delete`) and locally hidden assignments
-(`hide_assignment`, `restore_assignment`). Tools that remove or overwrite
-carry `destructiveHint`; those safe to repeat carry `idempotentHint`.
+(`hide_assignment`, `restore_assignment`), plus `workspace_create`. Tools
+that remove or overwrite carry `destructiveHint`; those safe to repeat carry
+`idempotentHint`.
 
 Writes pass through the same validation and versioned store as the
 application. Each write and its audit entry commit in one transaction, with

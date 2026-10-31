@@ -23,6 +23,8 @@ pub struct Core {
     pub auth: Arc<SchoolAuthService>,
     #[cfg(feature = "agent")]
     pub agent: AgentService,
+    /// Assignment workspaces under the selected course storage root.
+    pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
     /// Every network read of school and reference data; `Core::reset`
@@ -196,9 +198,16 @@ impl Core {
             }),
             runtime: runtime.clone(),
         }));
+        let assignment_workspaces = crate::workspaces::AssignmentWorkspaces::new(
+            store.clone(),
+            runtime.notes.clone(),
+            runtime.downloads.clone(),
+            runtime.download_session.clone(),
+        );
         Self {
             #[cfg(feature = "agent")]
-            agent: AgentService::new(store.clone()),
+            agent: AgentService::new(store.clone(), assignment_workspaces.clone()),
+            assignment_workspaces,
             workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),
             sync,

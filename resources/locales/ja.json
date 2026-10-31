@@ -515,6 +515,7 @@
   "lms.activities": "その他の活動",
   "lms.actualSize": "実際のサイズ",
   "lms.announcement": "お知らせ",
+  "lms.attachmentsNotDownloaded": "{{names}} をダウンロードできませんでした。ASSIGNMENT.md に記載しています。",
   "lms.bold": "太字",
   "lms.browserStorageDesktopAppSaves": "ブラウザー内に保存 · デスクトップアプリでは書類フォルダーに保存します",
   "lms.bulletList": "箇条書き",

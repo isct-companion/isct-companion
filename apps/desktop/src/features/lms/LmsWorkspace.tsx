@@ -36,7 +36,6 @@ import { useClock } from "../../platform/use-clock";
 import type { PageProgress } from "../../platform/sync";
 import { ageText } from "../../app/sync-text";
 import { AssignmentWorkspaceFooter } from "./AssignmentWorkspaceCard";
-import { assignmentBrief } from "./assignment-workspace";
 import { announcements, formatLmsDate, contentText, safeUrl } from "./content";
 import { OfficialLmsView } from "./OfficialLmsView";
 import { SyllabusFrame } from "../../pages/courses/syllabus-frame";
@@ -877,23 +876,7 @@ export function LmsWorkspaceBody({
           <AssignmentWorkspaceFooter
             context={folder}
             assignment={a}
-            attachments={detail?.attachments ?? []}
             closed={closedIds.has(a.id)}
-            brief={(attachments) =>
-              assignmentBrief({
-                title: a.title,
-                course: course.title,
-                due:
-                  due &&
-                  formatJst(due, data.settings.locale, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  }) + " JST",
-                url: a.sourceUrl,
-                html: body || a.details || "",
-                attachments,
-              })
-            }
             submit={a.sourceUrl ? submit : undefined}
           />
         ) : (
