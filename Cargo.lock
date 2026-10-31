@@ -103,6 +103,7 @@ dependencies = [
  "rrule",
  "rusqlite",
  "rustls",
+ "schemars 1.2.3",
  "scraper",
  "semver",
  "serde",

@@ -239,6 +239,10 @@ summary,
 .pageLayer {
   display: contents;
 }
+/* A nested view's layer, hidden with its view (KeptPage). */
+.pageLayerHost[hidden] {
+  display: none;
+}
 .page {
   flex: 1;
   min-width: 0;
@@ -3520,9 +3524,19 @@ textarea.codeArea {
   height: 30px;
   font-size: calc(var(--type-note-size) * var(--text));
 }
+/* Radix places it under the input (today/CourseFinder.tsx): at least 340px
+   wide, inside the window, and never past the space below the input. */
 .courseFinderList {
-  position: fixed;
   z-index: 1000;
+  width: min(
+    max(var(--radix-popover-trigger-width), 340px),
+    calc(100vw - 16px)
+  );
+  max-width: none;
+  max-height: min(
+    420px,
+    calc(var(--radix-popover-content-available-height) - 12px)
+  );
   overflow: auto;
   padding: 4px;
   border: 1px solid var(--line);
@@ -3607,7 +3621,7 @@ textarea.codeArea {
 .todayPage:not(.todayNavigation) > .todayHeader,
 .todayPage:not(.todayNavigation) > .todayFlow > * {
   animation: todayRise var(--motion-duration-slow)
-    var(--motion-easing-emphasized) both;
+    var(--motion-easing-emphasized) backwards;
 }
 .todayPage:not(.todayNavigation) > .todayFlow > :nth-child(1) {
   animation-delay: 50ms;
@@ -3621,7 +3635,7 @@ textarea.codeArea {
 .todayNavigation > *,
 .todayNavigation > .todayFlow > * {
   animation: todayRailIn var(--motion-duration-slow)
-    var(--motion-easing-emphasized) both;
+    var(--motion-easing-emphasized) backwards;
 }
 .todayNavigation > .todayFlow {
   animation: none;
@@ -3641,7 +3655,7 @@ textarea.codeArea {
 .daySwap,
 .weekDay b {
   animation: daySwap var(--motion-duration-slow) var(--motion-easing-emphasized)
-    both;
+    backwards;
 }
 /* Stepping weeks slides the grid in from the arrow's side (approach/
    motion-week-swipe); the first draw and a reload do not move. */
@@ -3653,7 +3667,7 @@ textarea.codeArea {
 }
 .weekSlide {
   animation: weekSlide var(--motion-duration-slow)
-    var(--motion-easing-emphasized) both;
+    var(--motion-easing-emphasized) backwards;
 }
 @keyframes weekSlide {
   from {

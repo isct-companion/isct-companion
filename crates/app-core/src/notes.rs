@@ -57,6 +57,16 @@ impl NoteStore {
         }
     }
 
+    /// The storage root shells selected last, which every course-file
+    /// service uses; `None` before any shell reported one.
+    pub fn selected_root(&self) -> Option<PathBuf> {
+        self.0
+            .selected
+            .lock()
+            .ok()
+            .and_then(|selected| selected.clone())
+    }
+
     /// Persist a new storage selection while note operations are stopped, then
     /// publish it to future handles. The callback must not call back into notes.
     pub fn select_root<E>(

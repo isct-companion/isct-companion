@@ -10,6 +10,8 @@ default = []
 # ZIP packing of `submit/` and unpacking of attachments in assignment
 # workspaces; desktop only, the phones hand files in one by one.
 workspace-archives = ["dep:zip"]
+# The tools of the local MCP server; only the desktop serves one.
+agent = ["dep:schemars"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
 
 [dependencies]
@@ -47,6 +49,7 @@ prost = "0.14"
 data-encoding = "2"
 futures-util = "0.3"
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
+schemars = { version = "1.2", optional = true, features = ["chrono04"] }
 semver = "1"
 # Settings shows the OTP setup as a QR code for other authenticators.
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }

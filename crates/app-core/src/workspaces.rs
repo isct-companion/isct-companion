@@ -1,13 +1,19 @@
-//! Assignment workspace storage, archive and cleanup rules. Desktop opens a
-//! workspace in Finder or VS Code; the phones fill its `submit/` with what was
-//! shared into the app. Either way the hand-in reads `submit/`.
+//! Assignment workspace storage, archive and cleanup rules, and the one
+//! service every shell and the MCP tools create and fill workspaces through.
+//! Desktop opens a workspace in Finder or VS Code; the phones fill its
+//! `submit/` with what was shared into the app; an agent writes into it.
+//! Either way the hand-in reads `submit/`.
 
 use crate::{
-    course_materials::CourseKey,
+    course_materials::{CourseKey, CourseMaterials, DownloadSession, Material},
+    data::DataStore,
+    downloads::Downloader,
+    notes::NoteStore,
     schedule::AssignmentDetail,
     storage::{self, LocalFile, StorageError},
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{self, Read},
@@ -164,7 +170,7 @@ impl Workspaces {
     }
 
     /// Creates a workspace once. Existing files are never overwritten.
-    pub fn create(
+    fn create(
         &self,
         course: &CourseKey,
         assignment: String,
@@ -274,20 +280,24 @@ impl Workspaces {
     }
 
     /// Copies files a person shared into the assignment's `submit/`, creating
-    /// its workspace on first use. A name already taken gets a numbered one, so
-    /// nothing is overwritten; the sources are left as they are.
-    pub fn add_submit_files(
+    /// its workspace with `title` and `brief` on first use. A name already
+    /// taken gets a numbered one, so nothing is overwritten; the sources are
+    /// left as they are.
+    fn add_submit_files(
         &self,
-        target: &HandInTarget,
+        course: &CourseKey,
+        assignment: &str,
+        title: &str,
+        brief: &str,
         files: Vec<(PathBuf, String)>,
     ) -> Result<Vec<LocalFile>, HandInError> {
-        let info = match self.find(&target.course, &target.assignment)? {
+        let info = match self.find(course, assignment)? {
             Some(info) => info,
             None => self.create(
-                &target.course,
-                target.assignment.clone(),
-                target.title.clone(),
-                target.brief.clone(),
+                course,
+                assignment.into(),
+                title.into(),
+                brief.into(),
                 Vec::new(),
             )?,
         };
@@ -548,42 +558,308 @@ fn info(dir: &Path, meta: &Meta) -> WorkspaceInfo {
     }
 }
 
-/// One assignment as a phone hands files to it: its course folder, title and
-/// the `ASSIGNMENT.md` its workspace starts with, read from Core's
-/// `AssignmentDetail`.
-pub struct HandInTarget {
-    pub course: CourseKey,
-    pub assignment: String,
-    pub title: String,
-    pub brief: String,
+/// Assignment workspaces for every shell and the MCP tools: one
+/// `ASSIGNMENT.md`, the attachment downloads, and the course storage root
+/// as Core last selected it, fixed for the whole of each operation.
+#[derive(Clone)]
+pub struct AssignmentWorkspaces {
+    store: DataStore,
+    notes: NoteStore,
+    downloads: Downloader,
+    session: DownloadSession,
 }
 
-impl HandInTarget {
-    /// `None` while the assignment's course folder is not known yet.
-    pub fn from_detail(detail: &AssignmentDetail) -> Option<Self> {
-        let facts = [
-            detail.due_at.as_ref().map(|due| format!("- Due: {due}")),
-            detail
-                .source_url
-                .as_ref()
-                .map(|url| format!("- LMS: {url}")),
-            Some("- Hand in: put the files to submit in `submit/`".into()),
-        ];
-        let mut brief = format!(
-            "# {}\n\n{}\n",
-            detail.title,
-            facts.into_iter().flatten().collect::<Vec<_>>().join("\n")
-        );
-        if !detail.details.trim().is_empty() {
-            brief.push_str(&format!("\n{}\n", detail.details.trim()));
+/// An attachment `create` could not save into the new workspace.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingAttachment {
+    pub name: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedWorkspace {
+    pub workspace: WorkspaceInfo,
+    /// Listed in `ASSIGNMENT.md` as not downloaded; creating again does not
+    /// fetch them, opening them in the app does.
+    pub missing: Vec<MissingAttachment>,
+}
+
+/// One file of `submit/`, with what an agent needs to tell versions apart.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitFile {
+    pub name: String,
+    /// `None` for a folder, which is handed in only as ZIP.
+    pub bytes: Option<u64>,
+    pub sha256: Option<String>,
+}
+
+impl AssignmentWorkspaces {
+    pub fn new(
+        store: DataStore,
+        notes: NoteStore,
+        downloads: Downloader,
+        session: DownloadSession,
+    ) -> Self {
+        Self {
+            store,
+            notes,
+            downloads,
+            session,
         }
-        Some(Self {
-            course: detail.files.clone()?,
-            assignment: detail.assignment_id.clone(),
-            title: detail.title.clone(),
-            brief,
-        })
     }
+
+    /// Workspaces under the selected root, for one operation.
+    pub fn at(&self) -> Result<Workspaces, WorkspaceError> {
+        self.notes
+            .selected_root()
+            .map(Workspaces::new)
+            .ok_or_else(|| WorkspaceError::Storage("Course storage is not selected yet".into()))
+    }
+
+    /// The assignment as its page shows it, with its course's title.
+    pub fn detail(&self, assignment: &str) -> Result<(AssignmentDetail, String), WorkspaceError> {
+        let fields = crate::workspace_changes::loaded_fields(crate::schedule::reads_of(&[
+            crate::schedule::WorkspaceQuery::AssignmentDetail {
+                assignment_id: assignment.into(),
+            },
+        ]));
+        let (workspace, _, _) = self
+            .store
+            .view(&fields)
+            .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
+        let detail = crate::schedule::assignment_detail(&workspace, assignment)
+            .ok_or_else(|| WorkspaceError::Input("The assignment was not found.".into()))?;
+        let course = workspace
+            .get("courses")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|row| {
+                row.get("id").and_then(serde_json::Value::as_str) == Some(&detail.course_id)
+            })
+            .and_then(|row| row.get("title").and_then(serde_json::Value::as_str))
+            .unwrap_or_default()
+            .to_string();
+        Ok((detail, course))
+    }
+
+    pub fn find(&self, assignment: &str) -> Result<Option<WorkspaceInfo>, WorkspaceError> {
+        let (detail, _) = self.detail(assignment)?;
+        match detail.files {
+            Some(course) => self.at()?.find(&course, assignment),
+            None => Ok(None),
+        }
+    }
+
+    /// Creates the assignment's workspace once: downloads its attachments
+    /// into the course folder, copies them in and writes `ASSIGNMENT.md`.
+    /// An attachment that cannot be fetched is listed, not fatal.
+    pub async fn create(&self, assignment: &str) -> Result<CreatedWorkspace, WorkspaceError> {
+        let workspaces = self.at()?;
+        let (detail, course_title) = self.detail(assignment)?;
+        let course = folder(&detail)?;
+        if let Some(workspace) = workspaces.find(&course, assignment)? {
+            return Ok(CreatedWorkspace {
+                workspace,
+                missing: Vec::new(),
+            });
+        }
+        let materials = CourseMaterials::new(
+            self.store.clone(),
+            workspaces.root.clone(),
+            self.downloads.clone(),
+            self.session.get(),
+        );
+        let mut saved = Vec::new();
+        let mut missing = Vec::new();
+        for attachment in &detail.attachments {
+            let reason = match materials
+                .open(course.clone(), attachment.url.clone(), true, false, None)
+                .await
+            {
+                Ok(Material::Ready { file }) => {
+                    saved.push(Attachment {
+                        path: file.path,
+                        name: attachment.name.clone(),
+                    });
+                    continue;
+                }
+                Ok(Material::Failed { reason }) => format!("{reason:?}").to_lowercase(),
+                Ok(Material::TooLarge { .. }) => "too large".into(),
+                Ok(_) => "not a file".into(),
+                Err(error) => error.to_string(),
+            };
+            missing.push(MissingAttachment {
+                name: attachment.name.clone(),
+                reason,
+            });
+        }
+        let text = brief(&detail, &course_title, &missing);
+        let workspace = workspaces.create(&course, assignment.into(), detail.title, text, saved)?;
+        Ok(CreatedWorkspace { workspace, missing })
+    }
+
+    /// `submit/` with each file's size and digest; `None` without a workspace.
+    pub fn status(
+        &self,
+        assignment: &str,
+    ) -> Result<Option<(WorkspaceInfo, Vec<SubmitFile>)>, WorkspaceError> {
+        let Some(workspace) = self.find(assignment)? else {
+            return Ok(None);
+        };
+        let submit = Path::new(&workspace.path).join(SUBMIT_DIR);
+        let files = workspace
+            .submit_files
+            .iter()
+            .map(|name| digest(&submit.join(name), name))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some((workspace, files)))
+    }
+
+    /// Copies files a person shared into the assignment's `submit/`, creating
+    /// its workspace on first use without downloading anything.
+    pub fn add_submit_files(
+        &self,
+        assignment: &str,
+        files: Vec<(PathBuf, String)>,
+    ) -> Result<Vec<LocalFile>, HandInError> {
+        let workspaces = self.at()?;
+        let (detail, course_title) = self.detail(assignment)?;
+        let course = folder(&detail)?;
+        let pending = detail
+            .attachments
+            .iter()
+            .map(|attachment| MissingAttachment {
+                name: attachment.name.clone(),
+                reason: "not downloaded".into(),
+            })
+            .collect::<Vec<_>>();
+        let text = brief(&detail, &course_title, &pending);
+        workspaces.add_submit_files(&course, assignment, &detail.title, &text, files)
+    }
+
+    pub fn submit_files(&self, assignment: &str) -> Result<Vec<LocalFile>, WorkspaceError> {
+        match self.detail(assignment)?.0.files {
+            Some(course) => self.at()?.submit_files(&course, assignment),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    pub fn remove_submit_file(
+        &self,
+        assignment: &str,
+        name: &str,
+    ) -> Result<Vec<LocalFile>, WorkspaceError> {
+        let course = folder(&self.detail(assignment)?.0)?;
+        self.at()?.remove_submit_file(&course, assignment, name)
+    }
+
+    /// Assignments with files waiting to be handed in, by assignment id.
+    pub fn waiting(&self) -> Result<Vec<(String, usize)>, WorkspaceError> {
+        let workspace = self
+            .store
+            .load_fields(&["assignments"])
+            .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
+        Ok(self.at()?.waiting(&workspace))
+    }
+}
+
+/// The course folder an assignment's workspace lives under.
+fn folder(detail: &AssignmentDetail) -> Result<CourseKey, WorkspaceError> {
+    detail.files.clone().ok_or_else(|| {
+        WorkspaceError::Input("This assignment's course folder is not known yet.".into())
+    })
+}
+
+fn digest(path: &Path, name: &str) -> Result<SubmitFile, WorkspaceError> {
+    let kind = fs::symlink_metadata(path).map_err(storage_error)?;
+    if !kind.is_file() {
+        return Ok(SubmitFile {
+            name: name.into(),
+            bytes: None,
+            sha256: None,
+        });
+    }
+    let mut hasher = Sha256::new();
+    let mut file = fs::File::open(path).map_err(storage_error)?;
+    let mut buffer = vec![0; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(storage_error)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(SubmitFile {
+        name: name.into(),
+        bytes: Some(kind.len()),
+        sha256: Some(data_encoding::HEXLOWER.encode(&hasher.finalize())),
+    })
+}
+
+/// `ASSIGNMENT.md`: what an editor or AI agent opened on the folder needs to
+/// know. The description comes from the LMS page as plain text; the
+/// attachments are those copied in, plus any listed in `missing`.
+pub fn brief(detail: &AssignmentDetail, course: &str, missing: &[MissingAttachment]) -> String {
+    let due = detail.due_at.as_deref().map(|due| {
+        chrono::DateTime::parse_from_rfc3339(due)
+            .ok()
+            .and_then(|due| {
+                chrono::FixedOffset::east_opt(9 * 3600).map(|jst| {
+                    due.with_timezone(&jst)
+                        .format("%Y-%m-%d %H:%M JST")
+                        .to_string()
+                })
+            })
+            .unwrap_or_else(|| due.to_string())
+    });
+    let facts = [
+        (!course.is_empty()).then(|| format!("- Course: {course}")),
+        due.map(|due| format!("- Due: {due}")),
+        detail
+            .source_url
+            .as_ref()
+            .map(|url| format!("- LMS: {url}")),
+        Some("- Hand in: put the files to submit in `submit/`".into()),
+    ];
+    let description = match crate::html_text::plain_text(&detail.body_html) {
+        text if text.is_empty() => crate::html_text::plain_text(&detail.details),
+        text => text,
+    };
+    let attachments = detail
+        .attachments
+        .iter()
+        .map(|attachment| {
+            match missing
+                .iter()
+                .find(|missing| missing.name == attachment.name)
+            {
+                Some(missing) => {
+                    format!("- {} (not downloaded: {})", attachment.name, missing.reason)
+                }
+                None => format!("- {}", attachment.name),
+            }
+        })
+        .collect::<Vec<_>>();
+    let sections = [
+        format!("# {}", detail.title),
+        facts.into_iter().flatten().collect::<Vec<_>>().join("\n"),
+        description,
+        if attachments.is_empty() {
+            String::new()
+        } else {
+            format!("## Attachments\n\n{}", attachments.join("\n"))
+        },
+    ];
+    sections
+        .into_iter()
+        .filter(|section| !section.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+        + "\n"
 }
 
 /// The regular files of a workspace's `submit/`, by name.

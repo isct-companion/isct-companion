@@ -1,9 +1,10 @@
 //! One application service owner, shared by native shells and agent adapters.
+#[cfg(feature = "agent")]
+use crate::agent::AgentService;
 use crate::school_browser::{
     SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError, SchoolConnectResult,
 };
 use crate::{
-    agent::AgentService,
     data::{CommitObserver, DataStore, WorkspaceChangeSource},
     ports::EventSink,
     runtime::{CloudWakeError, CoreRuntime, RuntimeError},
@@ -20,7 +21,10 @@ pub struct Core {
     pub store: DataStore,
     pub runtime: Arc<CoreRuntime>,
     pub auth: Arc<SchoolAuthService>,
+    #[cfg(feature = "agent")]
     pub agent: AgentService,
+    /// Assignment workspaces under the selected course storage root.
+    pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
     /// Every network read of school and reference data; `Core::reset`
@@ -194,8 +198,16 @@ impl Core {
             }),
             runtime: runtime.clone(),
         }));
+        let assignment_workspaces = crate::workspaces::AssignmentWorkspaces::new(
+            store.clone(),
+            runtime.notes.clone(),
+            runtime.downloads.clone(),
+            runtime.download_session.clone(),
+        );
         Self {
-            agent: AgentService::new(store.clone()),
+            #[cfg(feature = "agent")]
+            agent: AgentService::new(store.clone(), assignment_workspaces.clone()),
+            assignment_workspaces,
             workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),
             sync,

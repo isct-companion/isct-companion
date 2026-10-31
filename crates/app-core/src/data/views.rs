@@ -261,6 +261,7 @@ impl DataStore {
 
     /// Every workspace field (`every_field`) as `connection` sees it, for a
     /// write that reads the workspace under its lock.
+    #[cfg(feature = "agent")]
     pub(super) fn whole_view_from(connection: &Connection) -> Result<Value, DataError> {
         let (mut workspace, _) = Self::view_from(connection, None)?;
         Self::school_fields_into(connection, &every_field(), &mut workspace)?;

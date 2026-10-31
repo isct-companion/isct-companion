@@ -95,7 +95,6 @@ codes! {
     OtpImportMultiple => "otp-import-multiple",
     OtpImportUnsupported => "otp-import-unsupported",
     AgentDisabled => "agent-disabled",
-    AgentWritesDisabled => "agent-writes-disabled",
     MatrixScanEnded => "matrix-scan-ended",
     MatrixUnreadable => "matrix-unreadable",
     GuideTooManyCourses => "guide-too-many-courses",
@@ -161,8 +160,9 @@ impl Coded for CoreFailure {
     }
 }
 
+#[cfg(feature = "agent")]
+use crate::agent::AgentError;
 use crate::{
-    agent::AgentError,
     app_updates::AppUpdateError,
     backup::BackupError,
     catalog::CatalogError,
@@ -493,9 +493,9 @@ coded!(MatrixScanError, |e| match e {
     MatrixScanError::Unavailable => C::Unavailable,
     MatrixScanError::Backend(_) => C::Internal,
 });
+#[cfg(feature = "agent")]
 coded!(AgentError, |e| match e {
     AgentError::Disabled => C::AgentDisabled,
-    AgentError::WritesDisabled => C::AgentWritesDisabled,
     AgentError::UnknownTool | AgentError::InvalidInput(_) => C::InvalidInput,
     AgentError::Conflict(_) => C::Conflict,
     AgentError::Compatibility(_) => C::Compatibility,

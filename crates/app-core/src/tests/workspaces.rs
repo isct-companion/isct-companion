@@ -314,20 +314,26 @@ fn shared_files_land_in_submit_without_overwriting_and_are_what_hand_in_reads() 
     fs::create_dir_all(&inbox).unwrap();
     let photo = inbox.join("IMG_0001.jpeg");
     fs::write(&photo, "page one").unwrap();
-    let target = HandInTarget {
-        course: course(),
-        assignment: "a1".into(),
-        title: "Report 3".into(),
-        brief: "# Report 3\n".into(),
-    };
     assert!(service.submit_files(&course(), "a1").unwrap().is_empty());
     // The first file creates the workspace; the same name again is numbered.
     let names = |files: Vec<LocalFile>| files.into_iter().map(|file| file.name).collect::<Vec<_>>();
     service
-        .add_submit_files(&target, vec![(photo.clone(), "page.jpeg".into())])
+        .add_submit_files(
+            &course(),
+            "a1",
+            "Report 3",
+            "# Report 3\n",
+            vec![(photo.clone(), "page.jpeg".into())],
+        )
         .unwrap();
     let listed = service
-        .add_submit_files(&target, vec![(photo.clone(), "page.jpeg".into())])
+        .add_submit_files(
+            &course(),
+            "a1",
+            "Report 3",
+            "# Report 3\n",
+            vec![(photo.clone(), "page.jpeg".into())],
+        )
         .unwrap();
     assert_eq!(names(listed), ["page (2).jpeg", "page.jpeg"]);
     assert!(photo.exists());
@@ -338,7 +344,13 @@ fn shared_files_land_in_submit_without_overwriting_and_are_what_hand_in_reads() 
     );
     // Folders and names reaching outside `submit/` are refused.
     assert!(service
-        .add_submit_files(&target, vec![(inbox.clone(), "inbox".into())])
+        .add_submit_files(
+            &course(),
+            "a1",
+            "Report 3",
+            "# Report 3\n",
+            vec![(inbox.clone(), "inbox".into())]
+        )
         .is_err());
     assert!(service
         .remove_submit_file(&course(), "a1", "../ASSIGNMENT.md")
@@ -364,15 +376,12 @@ fn waiting_lists_assignments_with_files_until_lms_shows_them_submitted() {
     let service = Workspaces::new(fixture.0.clone());
     let file = fixture.0.join("page.pdf");
     fs::write(&file, "page").unwrap();
-    let target = |assignment: &str| HandInTarget {
-        course: course(),
-        assignment: assignment.into(),
-        title: assignment.into(),
-        brief: String::new(),
-    };
     service
         .add_submit_files(
-            &target("a1"),
+            &course(),
+            "a1",
+            "a1",
+            "",
             vec![
                 (file.clone(), "one.pdf".into()),
                 (file.clone(), "two.pdf".into()),
@@ -380,11 +389,23 @@ fn waiting_lists_assignments_with_files_until_lms_shows_them_submitted() {
         )
         .unwrap();
     service
-        .add_submit_files(&target("a2"), vec![(file.clone(), "one.pdf".into())])
+        .add_submit_files(
+            &course(),
+            "a2",
+            "a2",
+            "",
+            vec![(file.clone(), "one.pdf".into())],
+        )
         .unwrap();
     // A workspace whose `submit/` is empty has nothing waiting.
     service
-        .add_submit_files(&target("a3"), vec![(file.clone(), "one.pdf".into())])
+        .add_submit_files(
+            &course(),
+            "a3",
+            "a3",
+            "",
+            vec![(file.clone(), "one.pdf".into())],
+        )
         .unwrap();
     service
         .remove_submit_file(&course(), "a3", "one.pdf")
@@ -397,4 +418,55 @@ fn waiting_lists_assignments_with_files_until_lms_shows_them_submitted() {
     // Once LMS shows the work submitted, its files no longer wait.
     let handed = serde_json::json!({ "assignments": [{ "id": "a1", "submission": "submitted" }, { "id": "a2", "submission": "graded" }] });
     assert!(service.waiting(&handed).is_empty());
+}
+
+// The one `ASSIGNMENT.md` every shell and agent starts from: the LMS
+// description as plain text (the row's notes when the page has none), the
+// due time in Japan time, and every attachment, saying which were not saved.
+#[test]
+fn brief_carries_the_description_due_time_and_each_attachment() {
+    let attachment = |name: &str| crate::schedule::AssignmentAttachment {
+        name: name.into(),
+        url: format!("https://lms.s.isct.ac.jp/2025/pluginfile.php/1/{name}"),
+    };
+    let mut detail = AssignmentDetail {
+        assignment_id: "a1".into(),
+        course_id: "c1".into(),
+        title: "Report 3".into(),
+        due_at: Some("2026-11-05T14:59:00Z".into()),
+        submission: None,
+        submission_status: None,
+        grade: None,
+        source_url: Some("https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=7".into()),
+        body_html: "<p>Answer <b>all</b> questions.</p><ul><li>PDF only</li></ul>".into(),
+        details: "row notes".into(),
+        attachments: vec![attachment("sheet.pdf"), attachment("data.csv")],
+        files: Some(course()),
+    };
+    let missing = [MissingAttachment {
+        name: "data.csv".into(),
+        reason: "login".into(),
+    }];
+    assert_eq!(
+        brief(&detail, "Physics I", &missing),
+        "# Report 3\n\n\
+         - Course: Physics I\n\
+         - Due: 2026-11-05 23:59 JST\n\
+         - LMS: https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=7\n\
+         - Hand in: put the files to submit in `submit/`\n\n\
+         Answer all questions.\n\n- PDF only\n\n\
+         ## Attachments\n\n\
+         - sheet.pdf\n\
+         - data.csv (not downloaded: login)\n"
+    );
+    // Without a description, due time, page or attachments, only what is
+    // known is written.
+    detail.body_html.clear();
+    detail.attachments.clear();
+    detail.due_at = None;
+    detail.source_url = None;
+    assert_eq!(
+        brief(&detail, "", &[]),
+        "# Report 3\n\n- Hand in: put the files to submit in `submit/`\n\nrow notes\n"
+    );
 }

@@ -6,7 +6,6 @@ import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { UiInput } from "../../components/ui";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import type { CourseFolder } from "./files";
-import type { AssignmentAttachment } from "../../platform/core-query";
 import {
   createWorkspace,
   deleteWorkspace,
@@ -25,16 +24,11 @@ import {
 export function AssignmentWorkspaceFooter({
   context,
   assignment,
-  attachments,
-  brief,
   closed,
   submit,
 }: {
   context: CourseFolder;
   assignment: { id: string; title: string; sourceUrl?: string };
-  /** The LMS files the assignment links, from Core's `AssignmentDetail`. */
-  attachments: readonly AssignmentAttachment[];
-  brief: (attachments: string[]) => string;
   /** In `TaskView.closedIds`: submitted, or past a deadline LMS no longer extends. */
   closed: boolean;
   /** Opens the assignment in the LMS; undefined when it has no LMS page. */
@@ -45,6 +39,8 @@ export function AssignmentWorkspaceFooter({
   // The workspace on screen, to tell a folder deleted in Finder from one never made.
   const shown = useRef<AssignmentWorkspace | null>(null);
   const [lost, setLost] = useState<string>();
+  /** Attachments Core could not download when it created the workspace. */
+  const [missing, setMissing] = useState<string[]>([]);
   const { busy, error, run } = useSubmissionGuard();
   const [zipName, setZipName] = useState("");
   const load = useCallback(
@@ -237,7 +233,8 @@ export function AssignmentWorkspaceFooter({
             disabled={busy}
             onClick={() =>
               void run(async () => {
-                await createWorkspace(context, assignment, attachments, brief);
+                const created = await createWorkspace(assignment.id);
+                setMissing(created.missing.map((file) => file.name));
                 await load();
               })
             }
@@ -246,6 +243,11 @@ export function AssignmentWorkspaceFooter({
           </button>
         )}
       </footer>
+      {missing.length > 0 && (
+        <p className="lmsWorkspaceError" role="status">
+          {t("lms.attachmentsNotDownloaded", { names: missing.join(", ") })}
+        </p>
+      )}
       {error && (
         <p className="lmsWorkspaceError" role="alert">
           {error}
