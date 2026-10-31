@@ -402,3 +402,7 @@ pub(super) async fn read_assign(
         .await;
     rows.into_iter().filter_map(Result::transpose).collect()
 }
+
+#[cfg(test)]
+#[path = "../../tests/net__moodle__rest.rs"]
+mod tests;

@@ -23,6 +23,9 @@ pub enum MoodleFunction {
     QuizGetQuizzesByCourses,
     QuizGetUserAttempts,
     QuizGetUserBestGrade,
+    /// The quiz's active access rules (password, Safe Exam Browser, time
+    /// limit); `QuizGetQuizzesByCourses` hides the password from students.
+    QuizGetQuizAccessInformation,
     ForumGetForumsByCourses,
     ForumGetForumDiscussions,
     PageGetPagesByCourses,
@@ -49,6 +52,7 @@ impl MoodleFunction {
             Self::QuizGetQuizzesByCourses => "mod_quiz_get_quizzes_by_courses",
             Self::QuizGetUserAttempts => "mod_quiz_get_user_attempts",
             Self::QuizGetUserBestGrade => "mod_quiz_get_user_best_grade",
+            Self::QuizGetQuizAccessInformation => "mod_quiz_get_quiz_access_information",
             Self::ForumGetForumsByCourses => "mod_forum_get_forums_by_courses",
             Self::ForumGetForumDiscussions => "mod_forum_get_forum_discussions",
             Self::PageGetPagesByCourses => "mod_page_get_pages_by_courses",
