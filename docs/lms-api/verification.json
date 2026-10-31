@@ -272,5 +272,662 @@
       ],
       "autologin_tested": false
     }
+  },
+  "writeSurfaceSurvey": {
+    "observedAt": "2026-10-31T05:44:59Z",
+    "client": {
+      "library": "reqwest",
+      "version": "0.13.5",
+      "tls": "rustls (ring) with the platform verifier; certificate verification enabled",
+      "cookieJar": false,
+      "redirects": "disabled",
+      "userAgent": "Mozilla/5.0 (compatible; IsctCompanion/0.1)"
+    },
+    "transport": "Core TokenTransport::call over the closed read-only MoodleFunction enum; the desktop app's stored token read once from the login keychain; no relaunch, cookie or sign-in",
+    "probe": "crates/app-core/src/tests/net__moodle__rest.rs write_surface_survey (ignored live test)",
+    "scope": "Read-only survey of settings and statuses of every assignment of the 46 timeline courses (2026-2Q and 2026-3Q surveyed, 2026-1Q as control), plus one write round trip (writeRoundTrip) with the user's go-ahead. No quiz attempt started. Synthetic counts only: no token, ids, names or course text.",
+    "upstreamReference": {
+      "tag": "v4.5.10",
+      "release": "4.5.10 (Build: 20260216)",
+      "note": "Upstream behaviour in README.md is read from this tag and is unconfirmed until a write test. The 4.5 branch head differs only in grading-allocation capability checks and a form label in the files read."
+    },
+    "siteInfo": {
+      "release": "4.5.10+ (Build: 20260227)",
+      "version": "2024100710.03",
+      "function_count": 470,
+      "uploadfiles": 1,
+      "downloadfiles": 1,
+      "usermaxuploadfilesize": 262144000,
+      "userquota": 104857600,
+      "usercanmanageownfiles": true
+    },
+    "uploadEndpointWithoutToken": {
+      "method": "GET",
+      "path": "/2025/webservice/upload.php",
+      "token_sent": false,
+      "file_sent": false,
+      "http": 200,
+      "content_type": "application/json; charset=utf-8",
+      "errorcode": "missingparam",
+      "note": "Observed by the 2026-10-31 run; the probe step was removed afterwards so that no repository code calls the upload endpoint."
+    },
+    "functions": {
+      "student_submission_write": [
+        "mod_assign_remove_submission",
+        "mod_assign_save_submission",
+        "mod_assign_start_submission",
+        "mod_assign_submit_for_grading"
+      ],
+      "view_logging_write": [
+        "mod_assign_view_assign",
+        "mod_assign_view_submission_status"
+      ],
+      "draft_files": [
+        "core_files_delete_draft_files",
+        "core_files_get_unused_draft_itemid"
+      ],
+      "teacher_only_assign_write": [
+        "mod_assign_lock_submissions",
+        "mod_assign_reveal_identities",
+        "mod_assign_revert_submissions_to_draft",
+        "mod_assign_save_grade",
+        "mod_assign_save_grades",
+        "mod_assign_save_user_extensions",
+        "mod_assign_set_user_flags",
+        "mod_assign_submit_grading_form",
+        "mod_assign_unlock_submissions",
+        "mod_assign_view_grading_table"
+      ],
+      "quiz_attempt_write": [
+        "mod_quiz_process_attempt",
+        "mod_quiz_save_attempt",
+        "mod_quiz_start_attempt"
+      ],
+      "ttws": [
+        "mod_ttws_add_submission",
+        "mod_ttws_delete_submission",
+        "mod_ttws_evaluate_assessment",
+        "mod_ttws_evaluate_submission",
+        "mod_ttws_get_assessment",
+        "mod_ttws_get_assessment_form_definition",
+        "mod_ttws_get_grades",
+        "mod_ttws_get_grades_report",
+        "mod_ttws_get_reviewer_assessments",
+        "mod_ttws_get_submission",
+        "mod_ttws_get_submission_assessments",
+        "mod_ttws_get_submissions",
+        "mod_ttws_get_ttws_access_information",
+        "mod_ttws_get_ttwss_by_courses",
+        "mod_ttws_get_user_plan",
+        "mod_ttws_update_assessment",
+        "mod_ttws_update_submission",
+        "mod_ttws_view_submission",
+        "mod_ttws_view_ttws"
+      ],
+      "ttws_matches_workshop_by_name": true,
+      "batch_call": [
+        "tool_mobile_call_external_functions"
+      ],
+      "private_files_write": [
+        "core_user_add_user_private_files",
+        "core_user_prepare_private_files_for_edition",
+        "core_user_update_private_files"
+      ],
+      "comments_write": [
+        "core_comment_add_comments",
+        "core_comment_delete_comments"
+      ],
+      "absent": [
+        "core_files_upload",
+        "mod_assign_copy_previous_attempt"
+      ]
+    },
+    "courses": {
+      "total": 46,
+      "byTerm": {
+        "2026-1Q": 15,
+        "2026-2Q": 11,
+        "2026-3Q": 11,
+        "2026-4Q": 9
+      }
+    },
+    "assignments": {
+      "total": 83,
+      "in_surveyed_terms": 32,
+      "by_term": {
+        "2026-1Q": 51,
+        "2026-2Q": 21,
+        "2026-3Q": 11
+      },
+      "course_warningcodes": {
+        "1": 9
+      },
+      "status_errors": 0,
+      "settings": {
+        "submissiondrafts": {
+          "0": 83
+        },
+        "requiresubmissionstatement": {
+          "0": 83
+        },
+        "submissionstatement_returned": 0,
+        "teamsubmission": {
+          "0": 83
+        },
+        "requireallteammemberssubmit": {
+          "0": 83
+        },
+        "preventsubmissionnotingroup": {
+          "0": 83
+        },
+        "timelimit": {
+          "0": 83
+        },
+        "nosubmissions": {
+          "0": 82,
+          "1": 1
+        },
+        "blindmarking": {
+          "0": 83
+        },
+        "markingworkflow": {
+          "0": 83
+        },
+        "sendnotifications": {
+          "0": 83
+        },
+        "attemptreopenmethod": {
+          "manual": 12,
+          "untilpass": 71
+        },
+        "maxattempts": {
+          "-1": 18,
+          "1": 61,
+          "2": 4
+        },
+        "cutoffdate_set": {
+          "false": 48,
+          "true": 35
+        },
+        "duedate_set": {
+          "true": 83
+        }
+      },
+      "plugins": {
+        "file_enabled": 80,
+        "file_maxfilesubmissions": {
+          "1": 4,
+          "2": 8,
+          "20": 60,
+          "5": 8
+        },
+        "file_maxsubmissionsizebytes": {
+          "1048576": 2,
+          "20971520": 1,
+          "262144000": 75,
+          "52428800": 2
+        },
+        "file_filetypeslist": {
+          "(any)": 50,
+          "*": 1,
+          ".ipynb": 3,
+          ".pdf": 12,
+          ".pdf,.docx,.doc": 9,
+          ".pdf,.py": 1,
+          ".pdf,.tex": 1,
+          ".png,.py": 1,
+          ".zip,.pdf": 1,
+          "document": 1
+        },
+        "onlinetext_enabled": 8,
+        "onlinetext_with_file": 6,
+        "onlinetext_wordlimitenabled": {
+          "0": 8
+        },
+        "comments_enabled": 83
+      },
+      "editability": [
+        {
+          "phase": "before-open",
+          "surveyed_term": true,
+          "status": "new",
+          "submissionsenabled": true,
+          "canedit": false,
+          "caneditowner": false,
+          "graded": false,
+          "count": 1
+        },
+        {
+          "phase": "before-due",
+          "surveyed_term": true,
+          "status": "submitted",
+          "submissionsenabled": true,
+          "canedit": true,
+          "caneditowner": true,
+          "graded": false,
+          "count": 2
+        },
+        {
+          "phase": "after-due",
+          "surveyed_term": true,
+          "status": "new",
+          "submissionsenabled": true,
+          "canedit": true,
+          "caneditowner": true,
+          "graded": false,
+          "count": 1
+        },
+        {
+          "phase": "after-due",
+          "surveyed_term": true,
+          "status": "submitted",
+          "submissionsenabled": true,
+          "canedit": true,
+          "caneditowner": true,
+          "graded": false,
+          "count": 16
+        },
+        {
+          "phase": "after-due",
+          "surveyed_term": false,
+          "status": "new",
+          "submissionsenabled": true,
+          "canedit": true,
+          "caneditowner": true,
+          "graded": false,
+          "count": 1
+        },
+        {
+          "phase": "after-due",
+          "surveyed_term": false,
+          "status": "submitted",
+          "submissionsenabled": true,
+          "canedit": true,
+          "caneditowner": true,
+          "graded": false,
+          "count": 28
+        },
+        {
+          "phase": "after-cutoff",
+          "surveyed_term": true,
+          "status": "submitted",
+          "submissionsenabled": true,
+          "canedit": false,
+          "caneditowner": false,
+          "graded": false,
+          "count": 3
+        },
+        {
+          "phase": "after-cutoff",
+          "surveyed_term": true,
+          "status": "submitted",
+          "submissionsenabled": true,
+          "canedit": false,
+          "caneditowner": false,
+          "graded": true,
+          "count": 9
+        },
+        {
+          "phase": "after-cutoff",
+          "surveyed_term": false,
+          "status": "new",
+          "submissionsenabled": true,
+          "canedit": false,
+          "caneditowner": false,
+          "graded": false,
+          "count": 13
+        },
+        {
+          "phase": "after-cutoff",
+          "surveyed_term": false,
+          "status": "submitted",
+          "submissionsenabled": true,
+          "canedit": false,
+          "caneditowner": false,
+          "graded": false,
+          "count": 5
+        },
+        {
+          "phase": "after-cutoff",
+          "surveyed_term": false,
+          "status": "submitted",
+          "submissionsenabled": true,
+          "canedit": false,
+          "caneditowner": false,
+          "graded": true,
+          "count": 3
+        },
+        {
+          "phase": "offline",
+          "surveyed_term": false,
+          "status": "new",
+          "submissionsenabled": false,
+          "canedit": false,
+          "caneditowner": false,
+          "graded": true,
+          "count": 1
+        }
+      ],
+      "phase_note": "phase is computed from allowsubmissionsfromdate, duedate and cutoffdate at observedAt; no extension was set, so it equals the effective window",
+      "current_submissions": {
+        "file_counts": {
+          "1": 54,
+          "2": 9,
+          "3": 1
+        },
+        "mimetypes": [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/x-ipynb+json",
+          "application/x-tex",
+          "application/zip",
+          "image/jpeg",
+          "image/png",
+          "text/csv",
+          "text/x-python"
+        ],
+        "onlinetext_nonempty_on_file_and_text": 0
+      },
+      "status_constant_across_all": {
+        "cansubmit": false,
+        "locked": false,
+        "extensionduedate_set": false,
+        "attemptnumber": 0,
+        "latest": 1,
+        "previousattempts": 0,
+        "warnings": 0,
+        "teamsubmission_returned": false,
+        "submissiongroup_set": false
+      }
+    },
+    "quizzes": {
+      "total": 5,
+      "in_surveyed_terms": 2,
+      "by_term": {
+        "2026-1Q": 3,
+        "2026-2Q": 1,
+        "2026-3Q": 1
+      },
+      "closed": 5,
+      "attempts": {
+        "1": 5
+      },
+      "timelimit": {
+        "0": 5
+      },
+      "grademethod": {
+        "1": 5
+      },
+      "preferredbehaviour": {
+        "deferredfeedback": 5
+      },
+      "password_field_returned": 0,
+      "fields_withheld_while_closed": [
+        "overduehandling",
+        "graceperiod",
+        "browsersecurity",
+        "navmethod",
+        "attemptonlast",
+        "canredoquestions",
+        "allowofflineattempts",
+        "hasquestions"
+      ],
+      "surveyed_access": [
+        {
+          "activerulenames": [
+            "quizaccess_numattempts",
+            "quizaccess_openclosedate"
+          ],
+          "canattempt": true,
+          "preventaccessreasons": 1,
+          "attempt_states": {
+            "finished": 1
+          }
+        },
+        {
+          "activerulenames": [
+            "quizaccess_numattempts",
+            "quizaccess_openclosedate"
+          ],
+          "canattempt": true,
+          "preventaccessreasons": 1,
+          "attempt_states": {
+            "finished": 1
+          }
+        }
+      ]
+    },
+    "writeRoundTrip": {
+      "observedAt": "2026-10-31T06:29:31Z",
+      "authorization": "User go-ahead in chat on 2026-10-31: write, then remove.",
+      "probe": "One-off ignored live test (raw write calls, hand-built multipart upload), run once and then removed from the repository: no code outside the future closed write enum calls a Moodle write function or the upload endpoint.",
+      "selection": "Personal assignment, submissiondrafts=0, no statement, no time limit, sendnotifications=0 and sendlatenotifications=0, submission new and empty, canedit=true, notgraded; prefer online text, then earliest due date. No candidate had online text.",
+      "assignment": {
+        "id": 2001,
+        "phase": "after-due",
+        "cutoffdate_set": false,
+        "plugins": {
+          "comments": {
+            "enabled": "1"
+          },
+          "file": {
+            "enabled": "1",
+            "filetypeslist": ".pdf,.docx,.doc",
+            "maxfilesubmissions": "20",
+            "maxsubmissionsizebytes": "262144000"
+          }
+        },
+        "completionsubmit": 1
+      },
+      "test_files": [
+        {
+          "filename": "test-a.pdf",
+          "bytes": 193
+        },
+        {
+          "filename": "test-x.txt",
+          "bytes": 24
+        }
+      ],
+      "baseline": {
+        "status": "new",
+        "attemptnumber": 0,
+        "files": [],
+        "onlinetextChars": 0,
+        "canedit": true,
+        "gradingstatus": "notgraded"
+      },
+      "steps": [
+        {
+          "step": "upload-new-draft",
+          "result": [
+            {
+              "errortype": null,
+              "filename": "test-a.pdf",
+              "filesize": 193,
+              "itemidSet": true,
+              "keys": [
+                "author",
+                "component",
+                "contextid",
+                "filearea",
+                "filename",
+                "filepath",
+                "filesize",
+                "itemid",
+                "license",
+                "source",
+                "userid"
+              ]
+            }
+          ],
+          "after": null
+        },
+        {
+          "step": "upload-same-name",
+          "result": [
+            {
+              "errortype": "filenameexist",
+              "filename": "test-a.pdf",
+              "filesize": null,
+              "itemidSet": false,
+              "keys": [
+                "error",
+                "errortype",
+                "filename",
+                "filepath",
+                "size"
+              ]
+            }
+          ],
+          "after": null
+        },
+        {
+          "step": "save-files-and-text",
+          "result": {
+            "warnings": []
+          },
+          "after": {
+            "status": "submitted",
+            "attemptnumber": 0,
+            "files": [
+              {
+                "filename": "test-a.pdf",
+                "filesize": 193,
+                "mimetype": "application/pdf",
+                "area": "submission_files"
+              }
+            ],
+            "onlinetextChars": 0,
+            "canedit": true,
+            "gradingstatus": "notgraded",
+            "timemodified_after_first_save_s": 0
+          }
+        },
+        {
+          "step": "upload-limit-draft",
+          "result": [
+            {
+              "errortype": null,
+              "filename": "test-x.txt",
+              "filesize": 24,
+              "itemidSet": true,
+              "keys": [
+                "author",
+                "component",
+                "contextid",
+                "filearea",
+                "filename",
+                "filepath",
+                "filesize",
+                "itemid",
+                "license",
+                "source",
+                "userid"
+              ]
+            }
+          ],
+          "after": null
+        },
+        {
+          "step": "save-over-limits",
+          "result": {
+            "warnings": []
+          },
+          "after": {
+            "status": "submitted",
+            "attemptnumber": 0,
+            "files": [
+              {
+                "filename": "test-x.txt",
+                "filesize": 24,
+                "mimetype": "text/plain",
+                "area": "submission_files"
+              }
+            ],
+            "onlinetextChars": 0,
+            "canedit": true,
+            "gradingstatus": "notgraded",
+            "timemodified_after_first_save_s": 1
+          }
+        },
+        {
+          "step": "resave-same-name",
+          "result": {
+            "warnings": []
+          },
+          "after": {
+            "status": "submitted",
+            "attemptnumber": 0,
+            "files": [
+              {
+                "filename": "test-a.pdf",
+                "filesize": 193,
+                "mimetype": "application/pdf",
+                "area": "submission_files"
+              }
+            ],
+            "onlinetextChars": 0,
+            "canedit": true,
+            "gradingstatus": "notgraded",
+            "timemodified_after_first_save_s": 4
+          }
+        },
+        {
+          "step": "remove",
+          "result": {
+            "status": true,
+            "submissionidSet": false,
+            "warnings": []
+          },
+          "after": {
+            "status": "new",
+            "attemptnumber": 0,
+            "files": [],
+            "onlinetextChars": 0,
+            "canedit": true,
+            "gradingstatus": "notgraded",
+            "timemodified_after_first_save_s": 4
+          }
+        },
+        {
+          "step": "remove-again",
+          "result": {
+            "status": false,
+            "submissionidSet": false,
+            "warnings": [
+              "submissionnotfoundtoremove"
+            ]
+          },
+          "after": {
+            "status": "new",
+            "attemptnumber": 0,
+            "files": [],
+            "onlinetextChars": 0,
+            "canedit": true,
+            "gradingstatus": "notgraded",
+            "timemodified_after_first_save_s": 4
+          }
+        }
+      ],
+      "final": {
+        "status": "new",
+        "attemptnumber": 0,
+        "files": [],
+        "onlinetextChars": 0,
+        "canedit": true,
+        "gradingstatus": "notgraded"
+      },
+      "final_matches_baseline_except_timemodified": true,
+      "timemodified_changed": true,
+      "duration_s": 4,
+      "not_tested": [
+        "online text with files (no blank candidate)",
+        "count and size limits (limits were 20 files, 250 MiB)",
+        "gateway upload size limit",
+        "whether receipts were sent"
+      ]
+    }
   }
 }
