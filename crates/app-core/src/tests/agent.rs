@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 
@@ -46,8 +47,6 @@ impl Drop for Fixture {
     }
 }
 
-const WRITES: AgentPolicy = AgentPolicy { allow_writes: true };
-
 #[test]
 fn trace_keeps_validation_write_audit_and_read_shape_together() {
     let fixture = Fixture::new();
@@ -55,28 +54,20 @@ fn trace_keeps_validation_write_audit_and_read_shape_together() {
     let created = service
         .call(
             "weekly_event_create",
-            &json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}),
-            WRITES,
-        )
+            json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}))
         .unwrap();
     let id = created["id"].as_str().unwrap();
-    assert_eq!(created["ok"], true);
     assert!(created.get("rev").is_none());
 
     let updated = service
         .call(
             "weekly_event_update",
-            &json!({"id":id,"room":"W9","endTime":"10:00"}),
-            WRITES,
+            json!({"id":id,"room":"W9","endTime":"10:00"}),
         )
         .unwrap();
-    assert_eq!(updated, json!({"ok":true,"id":id}));
+    assert_eq!(updated, json!({"id":id}));
     let schedule = service
-        .call(
-            "schedule",
-            &json!({"from":"2026-10-19","to":"2026-10-19"}),
-            WRITES,
-        )
+        .call("schedule", json!({"from":"2026-10-19","to":"2026-10-19"}))
         .unwrap();
     assert_eq!(schedule["events"][0]["room"], "W9");
     assert_eq!(schedule["events"][0]["endTime"], "10:00");
@@ -99,9 +90,7 @@ fn weekly_event_tools_meet_the_editor_rules_and_invalid_writes_do_not_commit() {
     let lab = service
         .call(
             "weekly_event_create",
-            &json!({"term":"2026-3Q","title":"Lab","days":[2],"startTime":"13:30","endTime":"15:10"}),
-            WRITES,
-        )
+            json!({"term":"2026-3Q","title":"Lab","days":[2],"startTime":"13:30","endTime":"15:10"}))
         .unwrap();
     let before = fixture.store.user_rows("personal_events").unwrap();
     for (tool, args) in [
@@ -126,7 +115,7 @@ fn weekly_event_tools_meet_the_editor_rules_and_invalid_writes_do_not_commit() {
             json!({"id":"missing","title":"Ghost"}),
         ),
     ] {
-        let error = service.call(tool, &args, WRITES).unwrap_err();
+        let error = service.call(tool, args.clone()).unwrap_err();
         assert!(matches!(error, AgentError::InvalidInput(_)), "{args}");
         assert_eq!(fixture.store.user_rows("personal_events").unwrap(), before);
     }
@@ -148,28 +137,31 @@ fn weekly_event_tools_meet_the_editor_rules_and_invalid_writes_do_not_commit() {
     ));
 
     service
-        .call("weekly_event_delete", &json!({"id":lab["id"]}), WRITES)
+        .call("weekly_event_delete", json!({"id":lab["id"]}))
         .unwrap();
     let error = service
-        .call("weekly_event_delete", &json!({"id":lab["id"]}), WRITES)
+        .call("weekly_event_delete", json!({"id":lab["id"]}))
         .unwrap_err();
     assert!(matches!(error, AgentError::InvalidInput(_)));
 }
 
+// Access off refuses reads and writes alike before anything is written;
+// unknown tools and unknown arguments are refused by the contract itself.
 #[test]
-fn authorization_and_write_policy_fail_before_mutation() {
+fn closed_access_and_unknown_calls_fail_before_mutation() {
     let fixture = Fixture::new();
     let service = fixture.service();
-    let denied = service
+    assert!(matches!(
+        service.call("submit_everything", json!({})),
+        Err(AgentError::UnknownTool)
+    ));
+    let error = service
         .call(
             "weekly_event_create",
-            &json!({"term":"2026-3Q","title":"No","days":[1],"startTime":"09:00","endTime":"09:30"}),
-            AgentPolicy {
-                allow_writes: false,
-            },
+            json!({"term":"2026-3Q","title":"Extra","days":[1],"startTime":"09:00","endTime":"09:30","colour":"red"}),
         )
         .unwrap_err();
-    assert!(matches!(denied, AgentError::WritesDisabled));
+    assert!(matches!(error, AgentError::InvalidInput(_)), "{error}");
     assert!(fixture
         .store
         .user_rows("personal_events")
@@ -184,9 +176,48 @@ fn authorization_and_write_policy_fail_before_mutation() {
         )
         .unwrap();
     assert!(matches!(
-        service.call("grades", &json!({}), WRITES),
+        service.call("grades", json!({})),
         Err(AgentError::Disabled)
     ));
+    assert!(matches!(
+        service.call(
+            "weekly_event_create",
+            json!({"term":"2026-3Q","title":"No","days":[1],"startTime":"09:00","endTime":"09:30"}),
+        ),
+        Err(AgentError::Disabled)
+    ));
+    assert!(fixture
+        .store
+        .user_rows("personal_events")
+        .unwrap()
+        .is_empty());
+}
+
+// What `tools/list` serves: every input and answer is a self-contained
+// object schema (structured results must be objects), arguments outside the
+// schema are refused, and the side effect decides the hints.
+#[test]
+fn every_tool_declares_object_schemas_and_its_effect() {
+    for tool in tools() {
+        for schema in [&tool.input_schema, &tool.output_schema] {
+            assert_eq!(schema.get("type"), Some(&json!("object")), "{}", tool.name);
+            assert!(!schema.contains_key("$defs"), "{}", tool.name);
+        }
+        assert_eq!(
+            tool.input_schema.get("additionalProperties"),
+            Some(&json!(false)),
+            "{}",
+            tool.name
+        );
+        if tool.effect == Effect::Read {
+            assert!(tool.idempotent && !tool.destructive, "{}", tool.name);
+        }
+    }
+    let names = tools().iter().map(|tool| tool.name).collect::<Vec<_>>();
+    let mut unique = names.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len());
 }
 
 #[test]
@@ -225,8 +256,7 @@ fn rejected_audit_rolls_back_every_row_of_plan_add() {
         .service()
         .call(
             "plan_add",
-            &json!({"offeringId":"202612345","term":"2026-3Q"}),
-            WRITES,
+            json!({"offeringId":"202612345","term":"2026-3Q"}),
         )
         .unwrap_err();
     assert!(matches!(error, AgentError::Storage(_)));
@@ -252,8 +282,7 @@ fn concurrent_plan_add_converges_on_one_course_and_plan_item() {
             barrier.wait();
             service.call(
                 "plan_add",
-                &json!({"offeringId":"202612345","term":"2026-3Q"}),
-                WRITES,
+                json!({"offeringId":"202612345","term":"2026-3Q"}),
             )
         }));
     }
@@ -300,8 +329,7 @@ fn plan_add_uses_the_shared_first_year_gate_before_writing() {
         .service()
         .call(
             "plan_add",
-            &json!({"offeringId":"202612399","term":"2026-4Q"}),
-            WRITES,
+            json!({"offeringId":"202612399","term":"2026-4Q"}),
         )
         .unwrap_err();
     assert_eq!(
@@ -321,23 +349,16 @@ fn schedule_and_courses_reject_reversed_ranges_and_unknown_quarters() {
     let fixture = Fixture::new();
     let service = fixture.service();
     let error = service
-        .call(
-            "schedule",
-            &json!({"from":"2026-10-20","to":"2026-10-19"}),
-            WRITES,
-        )
+        .call("schedule", json!({"from":"2026-10-20","to":"2026-10-19"}))
         .unwrap_err();
     assert_eq!(
         error.to_string(),
         "date range must be ordered and no longer than 366 days"
     );
-    assert_eq!(
-        service
-            .call("courses", &json!({"year":2026,"quarter":"5Q"}), WRITES)
-            .unwrap_err()
-            .to_string(),
-        "term must look like 2026-3Q, got 2026-5Q"
-    );
+    let error = service
+        .call("courses", json!({"year":2026,"quarter":"5Q"}))
+        .unwrap_err();
+    assert!(matches!(error, AgentError::InvalidInput(_)), "{error}");
 }
 
 #[test]
@@ -359,8 +380,7 @@ fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
     let added = service
         .call(
             "plan_add",
-            &json!({"offeringId":"202612346","term":"2026-4Q"}),
-            WRITES,
+            json!({"offeringId":"202612346","term":"2026-4Q"}),
         )
         .unwrap();
     assert_eq!(added["terms"], json!(["2026-3Q", "2026-4Q"]));
@@ -369,10 +389,13 @@ fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
     let ids: Vec<_> = ["3Q", "4Q"]
         .map(|quarter| {
             let courses = service
-                .call("courses", &json!({"year":2026,"quarter":quarter}), WRITES)
+                .call("courses", json!({"year":2026,"quarter":quarter}))
                 .unwrap();
-            assert_eq!(courses[0]["offeringId"], "202612346", "{quarter}");
-            courses[0]["id"].clone()
+            assert_eq!(
+                courses["courses"][0]["offeringId"], "202612346",
+                "{quarter}"
+            );
+            courses["courses"][0]["id"].clone()
         })
         .into();
     assert_eq!(ids[0], ids[1]);
@@ -380,15 +403,13 @@ fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
     service
         .call(
             "plan_remove",
-            &json!({"offeringId":"202612346","term":"2026-3Q"}),
-            WRITES,
+            json!({"offeringId":"202612346","term":"2026-3Q"}),
         )
         .unwrap();
     let again = service
         .call(
             "plan_add",
-            &json!({"offeringId":"202612346","term":"2026-3Q"}),
-            WRITES,
+            json!({"offeringId":"202612346","term":"2026-3Q"}),
         )
         .unwrap();
     assert_eq!(again["courseId"], ids[0]);
@@ -411,8 +432,7 @@ fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
     service
         .call(
             "plan_add",
-            &json!({"offeringId":"202612345","term":"2026-3Q"}),
-            WRITES,
+            json!({"offeringId":"202612345","term":"2026-3Q"}),
         )
         .unwrap();
     let course = fixture.store.user_rows("manual_courses").unwrap().remove(0);
@@ -439,8 +459,7 @@ fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
     let added = service
         .call(
             "plan_add",
-            &json!({"offeringId":"202612345","term":"2026-3Q"}),
-            WRITES,
+            json!({"offeringId":"202612345","term":"2026-3Q"}),
         )
         .unwrap();
     assert_eq!(added["courseId"], "2026-school-202612345");
@@ -460,21 +479,18 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
     service
         .call(
             "plan_add",
-            &json!({"offeringId":"202612345","term":"2026-3Q"}),
-            WRITES,
+            json!({"offeringId":"202612345","term":"2026-3Q"}),
         )
         .unwrap();
     service
         .call(
             "weekly_event_create",
-            &json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}),
-            WRITES,
-        )
+            json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}))
         .unwrap();
     let courses = service
-        .call("courses", &json!({"year":2026,"quarter":"3Q"}), WRITES)
+        .call("courses", json!({"year":2026,"quarter":"3Q"}))
         .unwrap();
-    let course = courses[0]["id"].as_str().unwrap().to_string();
+    let course = courses["courses"][0]["id"].as_str().unwrap().to_string();
     let every = || -> Result<View, AgentError> { Ok(fixture.store.load_reads()?) };
     for (name, args) in [
         ("today", json!({})),
@@ -484,18 +500,23 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
         ("recommended", json!({"departmentId":"math"})),
     ] {
         // `today` stamps the moment it answered; only that may differ.
+        let tool = registry::find(name).unwrap();
         let answer = |view: &dyn Fn() -> Result<View, AgentError>| {
-            let mut value = call_inner(&fixture.store, name, &args, view).unwrap();
+            let cx = Context {
+                store: &fixture.store,
+                view,
+            };
+            let mut value = tool.run(&cx, args.clone()).unwrap();
             if let Some(map) = value.as_object_mut() {
                 map.remove("now");
             }
             value
         };
         assert_eq!(
-            answer(&|| tool_view(&fixture.store, name)),
+            answer(&|| load_view(&fixture.store, tool.reads)),
             answer(&every),
             "{name}"
         );
     }
-    assert!(!courses.as_array().unwrap().is_empty());
+    assert!(!courses["courses"].as_array().unwrap().is_empty());
 }

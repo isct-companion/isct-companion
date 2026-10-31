@@ -364,7 +364,6 @@
   "deadlineText.dueInDuration": "{{duration}}后截止",
   "deadlineText.durationAgo": "{{duration}}前",
   "error.agent-disabled": "代理访问已在设置中关闭。",
-  "error.agent-writes-disabled": "代理修改已在设置中关闭。",
   "error.busy": "上一个任务尚未完成。",
   "error.callback": "应用无法连接系统服务。请重试。",
   "error.cancelled": "已取消。",

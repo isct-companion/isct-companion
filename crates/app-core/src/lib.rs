@@ -11,6 +11,7 @@
     )
 )]
 
+#[cfg(feature = "agent")]
 pub mod agent;
 pub mod app_updates;
 pub mod backup;
@@ -27,6 +28,7 @@ pub mod diagnostics;
 pub mod downloads;
 pub mod error_code;
 pub mod events;
+pub mod html_text;
 pub mod kyomu_guide;
 pub mod kyomu_ingest;
 pub mod lifecycle;

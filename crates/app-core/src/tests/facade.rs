@@ -1,7 +1,6 @@
 use super::*;
 use crate::workspace::{tests::ReadBack, WorkspaceIntent, WorkspaceMutation};
 use crate::{
-    agent::AgentPolicy,
     cloud_sync::{
         CloudFuture, CloudProvider, CloudSync, CloudSyncError, CloudTransport, CloudVersion,
     },
@@ -422,17 +421,19 @@ fn core_publishes_each_committed_write_once_whoever_made_it() {
 
     // An MCP tool writes outside WorkspaceService and is still published,
     // at once: it is the first background change.
-    core.agent
-        .call(
-            "weekly_event_create",
-            &json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}),
-            AgentPolicy { allow_writes: true },
-        )
-        .unwrap();
-    let (source, revision, names) = changes().last().cloned().unwrap();
-    assert_eq!((source, revision), (WorkspaceChangeSource::Mcp, None));
-    // A weekly event is a row of `personal_events`.
-    assert!(names.contains(&WorkspaceChange::Events), "{names:?}");
+    #[cfg(feature = "agent")]
+    {
+        core.agent
+            .call(
+                "weekly_event_create",
+                json!({"term":"2026-3Q","title":"Review","days":[1],"startTime":"09:00","endTime":"09:45"}),
+            )
+            .unwrap();
+        let (source, revision, names) = changes().last().cloned().unwrap();
+        assert_eq!((source, revision), (WorkspaceChangeSource::Mcp, None));
+        // A weekly event is a row of `personal_events`.
+        assert!(names.contains(&WorkspaceChange::Events), "{names:?}");
+    }
 
     // A failed delivery neither fails nor undoes the committed write.
     events.fail.store(true, Ordering::Relaxed);

@@ -71,8 +71,7 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::OtpUnexpectedPage
         | C::ResetUnsupported
         | C::MatrixScanEnded
-        | C::AgentDisabled
-        | C::AgentWritesDisabled => SdkError::Unavailable { detail },
+        | C::AgentDisabled => SdkError::Unavailable { detail },
         C::InvalidInput
         | C::TooLarge
         | C::NoteTooLarge

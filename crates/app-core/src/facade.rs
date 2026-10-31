@@ -1,9 +1,10 @@
 //! One application service owner, shared by native shells and agent adapters.
+#[cfg(feature = "agent")]
+use crate::agent::AgentService;
 use crate::school_browser::{
     SchoolBrowser, SchoolBrowserEngine, SchoolBrowserError, SchoolConnectResult,
 };
 use crate::{
-    agent::AgentService,
     data::{CommitObserver, DataStore, WorkspaceChangeSource},
     ports::EventSink,
     runtime::{CloudWakeError, CoreRuntime, RuntimeError},
@@ -20,6 +21,7 @@ pub struct Core {
     pub store: DataStore,
     pub runtime: Arc<CoreRuntime>,
     pub auth: Arc<SchoolAuthService>,
+    #[cfg(feature = "agent")]
     pub agent: AgentService,
     pub workspace: WorkspaceService,
     pub reminders: crate::schedule::ReminderService,
@@ -195,6 +197,7 @@ impl Core {
             runtime: runtime.clone(),
         }));
         Self {
+            #[cfg(feature = "agent")]
             agent: AgentService::new(store.clone()),
             workspace: WorkspaceService::new(store.clone()),
             reminders: crate::schedule::ReminderService::new(store.clone()),

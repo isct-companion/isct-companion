@@ -2043,7 +2043,6 @@ export type ErrorCode =
   | "otp-import-multiple"
   | "otp-import-unsupported"
   | "agent-disabled"
-  | "agent-writes-disabled"
   | "matrix-scan-ended"
   | "matrix-unreadable"
   | "guide-too-many-courses"

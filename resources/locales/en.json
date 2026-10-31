@@ -364,7 +364,6 @@
   "deadlineText.dueInDuration": "Due in {{duration}}",
   "deadlineText.durationAgo": "{{duration}} ago",
   "error.agent-disabled": "Agent access is turned off in Settings.",
-  "error.agent-writes-disabled": "Agent changes are turned off in Settings.",
   "error.busy": "The previous task has not finished yet.",
   "error.callback": "The app could not reach a system service. Try again.",
   "error.cancelled": "Cancelled.",

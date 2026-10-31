@@ -2262,7 +2262,9 @@ A built desktop app and a real MCP client.
    - *Why:* Initialization and the tool list are negotiated by the client, not
      by our tests; a real client is the only way to see that handshake.
      People could not get from a bare URL and token to a working client,
-     so the copied text must work without editing.
+     so the copied text must work without editing. Every tool declares
+     an output schema and hints; a client that rejects one drops or
+     refuses that tool, so all 17 must be listed and callable.
 2. Read today and the schedule through the client and compare with the
    app window.
    - *Why:* The point of the endpoint is parity with the UI. A read that differs

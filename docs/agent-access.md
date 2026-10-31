@@ -27,53 +27,35 @@ Local storage failures reach clients as a generic error; details stay in the
 app's log.
 The server contract is recorded in slotledger as `approach/mcp-local-server`.
 
-## Read tools
+## Tools
 
-- `today()`: today in Japan time: the school-calendar state (holiday,
-  no-class, replacement day), classes actually held, weekly personal events
-  falling today, open assignments not yet due, and open assignments overdue in the last 14 days
-- `schedule(from, to)`: registered or planned courses of the quarters in the
-  range, intensive dates, and the weekly personal events of those quarters
-- `courses(year, quarter)`: registered or planned courses of one quarter
-- `course(id)`
-- `search_catalog(query)`: each row carries `plannable`; only plannable rows
-  have the schedule `plan_add` needs. Open the others once in the app first,
-  since this server never contacts the syllabus site.
-- `registration(year?, term?)`
-- `grades()`
-- `gpa()`
-- `requirements()`
-- `recommended(departmentId?)`: the person's admission year; the department
-  defaults to the one chosen in Settings
+The server's `tools/list` is the reference. Every tool comes with its
+description, an input schema that refuses unknown arguments, an output schema
+and MCP hints, all from one registry in Core (`crates/app-core/src/agent`).
+Every answer is a JSON object, returned as text and as structured content. A
+failure is an error result whose text is `{"code", "message"}`; `code` is one
+of Core's stable error codes, such as `agent-disabled` or `invalid-input`.
 
-Results leave out sync bookkeeping (`rev`, `updatedAt`, `sourceKey`, …).
+Read tools carry `readOnlyHint` and answer from the local database: today's
+classes, events and open assignments (`today`), the courses and dates of a
+range or quarter (`schedule`, `courses`), one course with its LMS items and
+assignments (`course`), the local course catalog (`search_catalog`), and the
+imported registration, grade, GPA, requirement and recommended-course records.
+They name the fields they return, so sync bookkeeping never reaches a client,
+and school HTML (assignment instructions, LMS pages) arrives as plain text.
+The server never contacts a school host and never exposes credentials,
+cookies, sessions or account and cloud settings.
 
-School records are read from the local database. The server never contacts a
-school host and never exposes credentials, cookies, sessions, raw HTML or
-account/cloud settings.
+Write tools change only the person's own data on this device: the plan
+(`plan_add`, `plan_remove`), weekly personal events (`weekly_event_create`,
+`weekly_event_update`, `weekly_event_delete`) and locally hidden assignments
+(`hide_assignment`, `restore_assignment`). Tools that remove or overwrite
+carry `destructiveHint`; those safe to repeat carry `idempotentHint`.
 
-## Write tools
-
-- `plan_add(offeringId, term)` / `plan_remove(offeringId, term)`: `term` is
-  `YYYY-nQ` and must be one of the offering's quarters. `plan_add` plans an
-  offering running over several quarters (e.g. 3Q–4Q) into each of them and
-  returns those `terms`; `plan_remove` removes one quarter's plan. A course
-  already in the workspace is reused, never replaced, whichever quarter it was
-  added in.
-- `weekly_event_create(term, title, days, startTime, endTime, room?)`: a
-  weekly personal event (lab meeting, club, seminar) in one quarter; `days`
-  are 1 = Monday … 7 = Sunday and times are `HH:MM` in Japan time. One-off
-  events belong in the person's own calendar app.
-- `weekly_event_update(id, …)` / `weekly_event_delete(id)`: deleted events can
-  be neither changed nor deleted again
-- `hide_assignment(id)` / `restore_assignment(id)`
-
-Writes are limited to personal tables and pass through the same validation and
-versioned store as the application. They return the ids they touched, are
-marked `source.provider: "mcp"` where the record has a source, and appear under
-Settings → AI agent access as recent writes.
-
-Writes and their audit entry commit in one transaction, with permission checked
-inside that transaction. The server returns the local result while cloud
-capture remains owned background work. If the connection breaks before a reply,
-read the current state before retrying a create operation.
+Writes pass through the same validation and versioned store as the
+application. Each write and its audit entry commit in one transaction, with
+access checked again inside it; records with a source are marked
+`source.provider: "mcp"`, and Settings → AI agent access lists recent writes.
+The server returns the local result while cloud capture stays owned background
+work. If the connection breaks before a reply, read the current state before
+retrying a create.

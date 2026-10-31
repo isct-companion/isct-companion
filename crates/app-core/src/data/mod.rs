@@ -524,11 +524,13 @@ fn delete_user_record_in_transaction(
     Ok(true)
 }
 
+#[cfg(feature = "agent")]
 pub(crate) enum AgentWriteError {
     Disabled,
     Data(DataError),
 }
 
+#[cfg(feature = "agent")]
 impl From<DataError> for AgentWriteError {
     fn from(error: DataError) -> Self {
         Self::Data(error)
@@ -572,6 +574,7 @@ impl WorkspaceWrite<'_, '_> {
     }
 
     /// Every stored row of a user table, deleted ones included.
+    #[cfg(feature = "agent")]
     pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         if !DataStore::user_table(table) {
             return Err("table is not user-owned".into());
@@ -580,6 +583,7 @@ impl WorkspaceWrite<'_, '_> {
     }
 
     /// A detailed catalog offering; search-only rows cannot be planned.
+    #[cfg(feature = "agent")]
     pub(crate) fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
         catalog_offering_in(self.transaction, id)
     }
@@ -691,6 +695,7 @@ fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
         .unwrap_or(false))
 }
 
+#[cfg(feature = "agent")]
 fn record_agent_write_in(
     transaction: &rusqlite::Transaction<'_>,
     tool: &str,
@@ -987,6 +992,7 @@ impl DataStore {
     /// One agent tool's writes, on the same rules and commit path as user
     /// intents. Each row's revision is checked under this IMMEDIATE lock, and
     /// `action` reads the workspace as of that lock, not a preflight read.
+    #[cfg(feature = "agent")]
     pub(crate) fn agent_write<T>(
         &self,
         tool: &str,

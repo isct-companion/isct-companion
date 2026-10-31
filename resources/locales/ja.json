@@ -364,7 +364,6 @@
   "deadlineText.dueInDuration": "締切まで{{duration}}",
   "deadlineText.durationAgo": "{{duration}}前",
   "error.agent-disabled": "エージェントのアクセスは設定でオフになっています。",
-  "error.agent-writes-disabled": "エージェントによる変更は設定でオフになっています。",
   "error.busy": "前の処理がまだ終わっていません。",
   "error.callback": "システムのサービスに接続できませんでした。もう一度お試しください。",
   "error.cancelled": "キャンセルしました。",

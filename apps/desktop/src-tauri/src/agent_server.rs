@@ -1,7 +1,8 @@
 //! Authenticated MCP Streamable HTTP endpoint owned by the desktop process.
 
 use app_core::{
-    agent::{AgentError, AgentPolicy},
+    agent::{AgentError, Effect, ToolSpec},
+    error_code::Coded,
     runtime_tasks::RuntimeTasks,
     Core,
 };
@@ -16,7 +17,7 @@ use axum::{
 use rmcp::{
     model::{
         CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
+        PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
     },
     service::RequestContext,
     transport::streamable_http_server::{
@@ -25,7 +26,7 @@ use rmcp::{
     ErrorData, RoleServer, ServerHandler,
 };
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use std::{
     fs::OpenOptions,
     io::{ErrorKind, Read, Write},
@@ -429,9 +430,7 @@ impl AgentHandler {
         if !self.calls.spawn(async move {
             let _permit = permit;
             let result = tokio::task::spawn_blocking(move || {
-                core.agent
-                    .call(&name, &arguments, AgentPolicy { allow_writes: true })
-                    .map_err(client_error)
+                core.agent.call(&name, arguments).map_err(client_error)
             })
             .await
             .map_err(|error| {
@@ -452,17 +451,19 @@ impl AgentHandler {
 
 const INTERNAL_ERROR: &str = "IsctCompanion could not complete the request. Try again later.";
 
-/// Domain errors are the client's to act on; local storage/compatibility
-/// failures can carry paths or SQL text, so clients get a generic message
-/// and the details go to the local log.
+/// A failure as `{code, message}`: the stable code is what an agent acts
+/// on. Domain messages are the client's to read; local storage and
+/// compatibility failures can carry paths or SQL text, so clients get a
+/// generic message and the details go to the local log.
 fn client_error(error: AgentError) -> String {
-    match error {
+    let message = match &error {
         AgentError::Storage(_) | AgentError::Compatibility(_) => {
             log::error!("[mcp] tool failed: {error}");
-            INTERNAL_ERROR.into()
+            INTERNAL_ERROR.to_string()
         }
         other => other.to_string(),
-    }
+    };
+    json!({"code": error.code().name(), "message": message}).to_string()
 }
 
 impl ServerHandler for AgentHandler {
@@ -496,14 +497,17 @@ impl ServerHandler for AgentHandler {
                 ErrorData::internal_error(INTERNAL_ERROR, None)
             })?;
         Ok(ListToolsResult::with_all_items(if enabled {
-            tools()
+            app_core::agent::tools().iter().map(tool).collect()
         } else {
             Vec::new()
         }))
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
-        tools().into_iter().find(|tool| tool.name == name)
+        app_core::agent::tools()
+            .iter()
+            .find(|tool| tool.name == name)
+            .map(tool)
     }
 
     async fn call_tool(
@@ -526,58 +530,33 @@ impl ServerHandler for AgentHandler {
     }
 }
 
+/// Core answers every tool with an object, so it is also the structured
+/// result its output schema describes.
 fn tool_result(value: Value) -> CallToolResult {
     let mut result =
         CallToolResult::success(vec![rmcp::model::ContentBlock::text(value.to_string())]);
-    if value.is_object() {
-        result.structured_content = Some(value);
-    }
+    result.structured_content = Some(value);
     result
 }
 
-fn tool(
-    name: &'static str,
-    description: &'static str,
-    properties: Value,
-    required: &[&str],
-) -> Tool {
-    let properties = properties.as_object().cloned().unwrap_or_default();
-    let mut schema = Map::new();
-    schema.insert("type".into(), Value::String("object".into()));
-    schema.insert("properties".into(), Value::Object(properties));
-    schema.insert(
-        "required".into(),
-        Value::Array(
-            required
-                .iter()
-                .map(|item| Value::String((*item).into()))
-                .collect(),
-        ),
-    );
-    schema.insert("additionalProperties".into(), Value::Bool(false));
-    Tool::new(name, description, schema)
-}
-
-fn tools() -> Vec<Tool> {
-    vec![
-        tool("today", "Today in Japan time: the calendar state (holiday, replacement day), classes actually held, weekly personal events falling today, open assignments not yet due, open assignments overdue in the last 14 days, and the GPA summary.", json!({}), &[]),
-        tool("schedule", "Registered or planned courses of the quarters in an inclusive ISO date range (maximum 366 days), intensive dates and the weekly personal events of those quarters.", json!({"from":{"type":"string","format":"date"},"to":{"type":"string","format":"date"}}), &["from","to"]),
-        tool("courses", "Registered or planned courses for one academic quarter.", json!({"year":{"type":"integer"},"quarter":{"enum":["1Q","2Q","3Q","4Q"]}}), &["year","quarter"]),
-        tool("course", "One course with its LMS items, assignments and the link to its syllabus page.", json!({"id":{"type":"string"}}), &["id"]),
-        tool("search_catalog", "Search the local bilingual course catalog (the 教務 course search the app last read).", json!({"query":{"type":"string"}}), &["query"]),
-        tool("registration", "Imported read-only registration records.", json!({"year":{"type":"integer"},"term":{"enum":["1Q","2Q","3Q","4Q"]}}), &[]),
-        tool("grades", "Imported official grade records.", json!({}), &[]),
-        tool("gpa", "Imported GPA, GPT and credit summaries.", json!({}), &[]),
-        tool("requirements", "Imported graduation requirement progress.", json!({}), &[]),
-        tool("recommended", "Recommended courses for the person's admission year. departmentId defaults to the department chosen in Settings.", json!({"departmentId":{"type":"string"}}), &[]),
-        tool("plan_add", "Add a catalog offering from search_catalog to the person's local plan. term is YYYY-nQ and must be one of the offering's quarters; an offering running over several quarters (e.g. 3Q–4Q) is planned into all of them.", json!({"offeringId":{"type":"string"},"term":{"type":"string"}}), &["offeringId","term"]),
-        tool("plan_remove", "Remove an offering from the person's local plan.", json!({"offeringId":{"type":"string"},"term":{"type":"string"}}), &["offeringId","term"]),
-        tool("weekly_event_create", "Create a weekly personal event (a lab meeting, club meeting or seminar) in one quarter and return its id. term is YYYY-nQ; times are HH:MM in Japan time. One-off events belong in the person's own calendar app.", json!({"term":{"type":"string"},"title":{"type":"string"},"days":{"type":"array","items":{"type":"integer","minimum":1,"maximum":7},"minItems":1,"description":"Weekdays, 1 = Monday … 7 = Sunday."},"startTime":{"type":"string","pattern":"^[0-2][0-9]:[0-5][0-9]$"},"endTime":{"type":"string","pattern":"^[0-2][0-9]:[0-5][0-9]$"},"room":{"type":"string"}}), &["term","title","days","startTime","endTime"]),
-        tool("weekly_event_update", "Update a weekly personal event. Times are HH:MM in Japan time.", json!({"id":{"type":"string"},"title":{"type":"string"},"days":{"type":"array","items":{"type":"integer","minimum":1,"maximum":7},"minItems":1,"description":"Weekdays, 1 = Monday … 7 = Sunday."},"startTime":{"type":"string","pattern":"^[0-2][0-9]:[0-5][0-9]$"},"endTime":{"type":"string","pattern":"^[0-2][0-9]:[0-5][0-9]$"},"room":{"type":"string"}}), &["id"]),
-        tool("weekly_event_delete", "Delete a weekly personal event.", json!({"id":{"type":"string"}}), &["id"]),
-        tool("hide_assignment", "Hide an assignment locally without changing LMS.", json!({"id":{"type":"string"}}), &["id"]),
-        tool("restore_assignment", "Restore a locally hidden assignment.", json!({"id":{"type":"string"}}), &["id"]),
-    ]
+/// A Core tool contract as MCP lists it. Every tool reads or writes this
+/// device's data only, never the open world.
+fn tool(spec: &ToolSpec) -> Tool {
+    let read = spec.effect == Effect::Read;
+    let mut annotations = ToolAnnotations::new()
+        .read_only(read)
+        .idempotent(spec.idempotent)
+        .open_world(false);
+    if !read {
+        annotations = annotations.destructive(spec.destructive);
+    }
+    Tool::new(
+        spec.name,
+        spec.description,
+        Arc::new(spec.input_schema.clone()),
+    )
+    .with_raw_output_schema(Arc::new(spec.output_schema.clone()))
+    .with_annotations(annotations)
 }
 
 #[cfg(test)]

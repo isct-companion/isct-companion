@@ -1,20 +1,26 @@
-//! Agent read models and mutations shared by application adapters.
+//! The local MCP server's tools. Each tool is one contract in [`registry`]:
+//! its arguments, its answer, its side effect and the changes it reads. The
+//! desktop's HTTP adapter only exposes that list; it holds no tool names or
+//! schemas of its own. Only the desktop serves MCP, so only it compiles
+//! this module (the `agent` feature).
+
+mod dto;
+mod reads;
+mod registry;
+mod writes;
+
+pub use registry::{tools, Effect, ToolSpec};
 
 use crate::data::{AgentWriteError, DataError, DataStore};
-use serde_json::{json, Value};
+use crate::workspace_changes::WorkspaceChange;
+use serde_json::Value;
+use std::sync::Arc;
 use thiserror::Error;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AgentPolicy {
-    pub allow_writes: bool,
-}
 
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error("IsctCompanion agent access is disabled in Settings.")]
     Disabled,
-    #[error("Agent writes are disabled.")]
-    WritesDisabled,
     #[error("unknown tool")]
     UnknownTool,
     #[error("{0}")]
@@ -47,6 +53,14 @@ impl From<DataError> for AgentError {
         }
     }
 }
+impl From<AgentWriteError> for AgentError {
+    fn from(error: AgentWriteError) -> Self {
+        match error {
+            AgentWriteError::Disabled => Self::Disabled,
+            AgentWriteError::Data(error) => error.into(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AgentService {
@@ -58,37 +72,55 @@ impl AgentService {
         Self { store }
     }
 
-    pub fn call(&self, name: &str, args: &Value, policy: AgentPolicy) -> Result<Value, AgentError> {
+    /// Runs one tool with its JSON arguments and answers with its JSON
+    /// output, always an object. Access is checked on every call; a write
+    /// checks it again inside its own transaction.
+    pub fn call(&self, name: &str, args: Value) -> Result<Value, AgentError> {
+        let tool = registry::find(name).ok_or(AgentError::UnknownTool)?;
         if !self.store.agent_access_enabled()? {
             return Err(AgentError::Disabled);
         }
-        if is_write_tool(name) && !policy.allow_writes {
-            return Err(AgentError::WritesDisabled);
-        }
-        let mut value = call_inner(&self.store, name, args, &|| tool_view(&self.store, name))?;
-        slim(&mut value);
-        Ok(value)
+        let view = || load_view(&self.store, tool.reads);
+        tool.run(
+            &Context {
+                store: &self.store,
+                view: &view,
+            },
+            args,
+        )
     }
 }
 
-pub fn is_write_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "plan_add"
-            | "plan_remove"
-            | "weekly_event_create"
-            | "weekly_event_update"
-            | "weekly_event_delete"
-            | "hide_assignment"
-            | "restore_assignment"
-    )
+type View = (Arc<Value>, Arc<crate::schedule::SchoolReads>);
+
+/// What a tool runs against: the store, and the view its declared changes
+/// load (tests swap in a view over every field).
+pub(crate) struct Context<'a> {
+    store: &'a DataStore,
+    view: &'a dyn Fn() -> Result<View, AgentError>,
 }
 
-fn required<'a>(args: &'a Value, key: &str) -> Result<&'a str, AgentError> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| AgentError::InvalidInput(format!("{key} is required")))
+impl Context<'_> {
+    fn view(&self) -> Result<View, AgentError> {
+        (self.view)()
+    }
+}
+
+/// The fields of the shared view cache that `reads` name.
+fn load_view(store: &DataStore, reads: &[WorkspaceChange]) -> Result<View, AgentError> {
+    let fields = crate::workspace_changes::loaded_fields(reads.iter().copied());
+    let (workspace, school, _) = store.view(&fields)?;
+    Ok((workspace, school))
+}
+
+use crate::schedule::text;
+
+/// `value`, or an error naming the empty argument.
+fn non_empty<'a>(value: &'a str, name: &str) -> Result<&'a str, AgentError> {
+    if value.trim().is_empty() {
+        return Err(AgentError::InvalidInput(format!("{name} is required")));
+    }
+    Ok(value)
 }
 
 fn visible_rows(workspace: &Value, key: &str) -> Vec<Value> {
@@ -100,18 +132,6 @@ fn visible_rows(workspace: &Value, key: &str) -> Vec<Value> {
         .filter(|row| row.get("deletedAt").is_none() && row.get("missingSince").is_none())
         .cloned()
         .collect()
-}
-
-fn date_range(args: &Value) -> Result<(chrono::NaiveDate, chrono::NaiveDate), AgentError> {
-    let from = chrono::NaiveDate::parse_from_str(required(args, "from")?, "%Y-%m-%d")
-        .map_err(|_| "from must be an ISO date".to_string())?;
-    let to = chrono::NaiveDate::parse_from_str(required(args, "to")?, "%Y-%m-%d")
-        .map_err(|_| "to must be an ISO date".to_string())?;
-    let days = (to - from).num_days();
-    if !(0..=365).contains(&days) {
-        return Err("date range must be ordered and no longer than 366 days".into());
-    }
-    Ok((from, to))
 }
 
 /// `YYYY-nQ` → (year, quarter).
@@ -135,548 +155,8 @@ fn now_jst() -> Result<chrono::DateTime<chrono::FixedOffset>, AgentError> {
     Ok(chrono::Utc::now().with_timezone(&offset))
 }
 
-use crate::schedule::text;
-
-/// Courses on the timetable of `term`: registered at school or planned.
-/// Uses the shared schedule read model for the agent's course list.
-fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
-    crate::schedule::scheduled_courses(workspace, term)
-}
-
-/// The school-calendar row for a date: a personal exception first, then a
-/// holiday, no-class, break or replacement day. Mirrors `calendarState`.
-fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
-    crate::schedule::calendar_state(workspace, date)
-}
-
-/// Classes actually held on `date`, after holidays, replacement days and the
-/// quarter's teaching ranges. Mirrors `occurrencesOnDate` (courses only); the
-/// TypeScript version runs in the webview, which this binary cannot reach.
-fn classes_on(workspace: &Value, term: &str, date: chrono::NaiveDate) -> Vec<Value> {
-    crate::schedule::occurrences_on_date(
-        workspace,
-        term,
-        &date.to_string(),
-        crate::schedule::AgendaOptions {
-            include_personal: false,
-            ..crate::schedule::AgendaOptions::default()
-        },
-    )
-    .unwrap_or_default()
-    .into_iter()
-    .filter(|row| row.kind == crate::schedule::OccurrenceKind::Course)
-    .map(|row| {
-        json!({
-            "courseId": row.course_id, "code": row.subtitle, "title": row.title,
-            "startTime": row.start_time, "endTime": row.end_time, "room": row.room
-        })
-    })
-    .collect()
-}
-
-/// Weekly personal events that fall on `date` in `term`.
-fn events_on(workspace: &Value, term: &str, date: chrono::NaiveDate) -> Vec<Value> {
-    crate::schedule::occurrences_on_date(
-        workspace,
-        term,
-        &date.to_string(),
-        crate::schedule::AgendaOptions::default(),
-    )
-    .unwrap_or_default()
-    .into_iter()
-    .filter(|row| row.kind == crate::schedule::OccurrenceKind::Event)
-    .map(|row| {
-        json!({
-            "id": row.id, "title": row.title,
-            "startTime": row.start_time, "endTime": row.end_time, "room": row.room
-        })
-    })
-    .collect()
-}
-
-/// Sync bookkeeping an agent never needs; dropping it keeps answers small.
-fn slim(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            for key in [
-                "rev",
-                "updatedAt",
-                "updatedBy",
-                "lastSeenAt",
-                "sourceKey",
-                "provenance",
-                "hash",
-                "fetchedAt",
-                "missingSince",
-            ] {
-                object.remove(key);
-            }
-            object.values_mut().for_each(slim);
-        }
-        Value::Array(rows) => rows.iter_mut().for_each(slim),
-        _ => {}
-    }
-}
-
 fn fallback_term(date: chrono::NaiveDate) -> String {
     crate::schedule::Term::by_month(date).to_string()
-}
-
-fn write_result(details: Value) -> Value {
-    let mut result = json!({"ok": true});
-    if let (Some(result), Value::Object(details)) = (result.as_object_mut(), details) {
-        result.extend(details);
-    }
-    result
-}
-
-fn agent_write_result<T>(result: Result<T, AgentWriteError>) -> Result<T, AgentError> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(AgentWriteError::Disabled) => Err(AgentError::Disabled),
-        Err(AgentWriteError::Data(error)) => Err(error.into()),
-    }
-}
-
-/// A weekly personal event that has not been deleted, in the write's own
-/// snapshot.
-fn live_event(workspace: &Value, id: &str) -> Result<Value, DataError> {
-    visible_rows(workspace, "events")
-        .into_iter()
-        .find(|row| text(row, "id") == Some(id))
-        .ok_or_else(|| DataError::InvalidInput("event was not found".into()))
-}
-
-type View = (
-    std::sync::Arc<Value>,
-    std::sync::Arc<crate::schedule::SchoolReads>,
-);
-
-/// The changes a tool's answer is computed from, as the shared queries
-/// declare theirs. Tools absent here read tables directly or write through
-/// their own transaction, and load no view.
-fn tool_reads(name: &str) -> &'static [crate::workspace_changes::WorkspaceChange] {
-    use crate::workspace_changes::WorkspaceChange::*;
-    match name {
-        "today" => &[
-            Courses,
-            Registrations,
-            Finder,
-            Calendar,
-            Exams,
-            Plans,
-            Events,
-            Subscriptions,
-            Assignments,
-            Grades,
-            Settings,
-        ],
-        "schedule" => &[
-            Courses,
-            Registrations,
-            Finder,
-            Calendar,
-            Plans,
-            Events,
-            Settings,
-        ],
-        "courses" => &[Courses, Registrations, Finder, Calendar, Plans, Settings],
-        "course" => &[
-            Courses,
-            Registrations,
-            Finder,
-            Calendar,
-            Materials,
-            Assignments,
-            Exams,
-            Settings,
-        ],
-        "recommended" => &[Finder, Settings],
-        _ => &[],
-    }
-}
-
-/// The fields `name`'s answer reads, from the shared view cache.
-fn tool_view(store: &DataStore, name: &str) -> Result<View, AgentError> {
-    let fields = crate::workspace_changes::loaded_fields(tool_reads(name).iter().copied());
-    let (workspace, school, _) = store.view(&fields)?;
-    Ok((workspace, school))
-}
-
-fn call_inner(
-    store: &DataStore,
-    name: &str,
-    args: &Value,
-    view: &dyn Fn() -> Result<View, AgentError>,
-) -> Result<Value, AgentError> {
-    match name {
-        "today" => {
-            let (workspace, _) = view()?;
-            let now = now_jst()?;
-            let date = now.date_naive();
-            let iso = date.to_string();
-            let term = text(&workspace, "currentTerm")
-                .map(str::to_string)
-                .unwrap_or_else(|| fallback_term(date));
-            let due = |row: &Value| {
-                text(row, "dueAt").and_then(|due| chrono::DateTime::parse_from_rfc3339(due).ok())
-            };
-            let mut open = visible_rows(&workspace, "assignments")
-                .into_iter()
-                .filter(|row| {
-                    row.get("hidden") != Some(&Value::Bool(true))
-                        && !crate::schedule::assignment_submitted(row)
-                })
-                .collect::<Vec<_>>();
-            open.sort_by_key(|row| due(row));
-            let (upcoming, overdue): (Vec<_>, Vec<_>) = open
-                .into_iter()
-                .partition(|row| due(row).is_none_or(|due| due >= now));
-            let recent = now - chrono::Duration::days(14);
-            Ok(json!({
-                "now": now.to_rfc3339(), "date": iso, "term": term,
-                "calendar": calendar_state(&workspace, &iso),
-                "classes": classes_on(&workspace, &term, date),
-                "events": events_on(&workspace, &term, date),
-                "assignments": upcoming,
-                "overdue": overdue.into_iter()
-                    .filter(|row| due(row).is_some_and(|due| due >= recent)).collect::<Vec<_>>(),
-                "academicSummary": visible_rows(&workspace, "gpaSummary")
-            }))
-        }
-        "schedule" => {
-            let (workspace, _) = view()?;
-            let (from, to) = date_range(args)?;
-            let mut terms = std::collections::BTreeSet::new();
-            let mut cursor = from;
-            while cursor <= to {
-                terms.insert(fallback_term(cursor));
-                cursor += chrono::Duration::days(1);
-            }
-            Ok(json!({
-                "from": from.to_string(), "to": to.to_string(),
-                "courses": terms.iter()
-                    .flat_map(|term| scheduled_courses(&workspace, term)).collect::<Vec<_>>(),
-                "intensiveSchedules": visible_rows(&workspace, "intensiveSchedules").into_iter()
-                    .filter(|row| {
-                        let start = row.get("from").and_then(Value::as_str).and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok());
-                        let end = row.get("to").and_then(Value::as_str).and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok());
-                        matches!((start,end),(Some(start),Some(end)) if start <= to && end >= from)
-                    }).collect::<Vec<_>>(),
-                "events": visible_rows(&workspace, "events").into_iter()
-                    .filter(|row| text(row, "termId").is_some_and(|term| terms.contains(term)))
-                    .collect::<Vec<_>>()
-            }))
-        }
-        "courses" => {
-            let year = args
-                .get("year")
-                .and_then(Value::as_i64)
-                .ok_or("year is required")?;
-            let term = format!("{year}-{}", required(args, "quarter")?);
-            parse_term(&term)?;
-            let (workspace, _) = view()?;
-            Ok(Value::Array(scheduled_courses(&workspace, &term)))
-        }
-        "course" => {
-            let id = required(args, "id")?;
-            let (workspace, school) = view()?;
-            let course = visible_rows(&workspace, "courses")
-                .into_iter()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
-                .ok_or_else(|| "course was not found".to_string())?;
-            Ok(json!({
-                "course": course,
-                "lmsItems": store.table_rows("lms_items")?.into_iter()
-                    .filter(|row| row.get("courseId").and_then(Value::as_str) == Some(id)
-                        && row.get("visible") != Some(&Value::Bool(false))).collect::<Vec<_>>(),
-                "assignments": visible_rows(&workspace, "assignments").into_iter()
-                    .filter(|row| row.get("courseId").and_then(Value::as_str) == Some(id)
-                        && row.get("hidden") != Some(&Value::Bool(true))).collect::<Vec<_>>(),
-                "syllabusUrl": crate::schedule::course_detail(&workspace, &school, id).syllabus_url
-            }))
-        }
-        "search_catalog" => Ok(Value::Array(
-            store.catalog_search(required(args, "query")?)?,
-        )),
-        "registration" => {
-            let year = args.get("year").and_then(Value::as_i64);
-            let term = args.get("term").and_then(Value::as_str);
-            Ok(Value::Array(
-                store
-                    .table_rows("registrations")?
-                    .into_iter()
-                    .filter(|row| {
-                        let offering = row
-                            .get("offeringId")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default();
-                        let matches_year = year.is_none_or(|year| {
-                            offering.get(..4).and_then(|v| v.parse::<i64>().ok()) == Some(year)
-                        });
-                        let matches_term = term.is_none_or(|term| {
-                            let number = term.trim_end_matches('Q').parse::<u64>().ok();
-                            row.get("termId")
-                                .and_then(Value::as_str)
-                                .is_some_and(|value| value.ends_with(term))
-                                || row.get("quarters").and_then(Value::as_array).is_some_and(
-                                    |quarters| {
-                                        quarters.iter().any(|quarter| {
-                                            quarter.as_u64() == number
-                                                || quarter.as_str() == Some(term)
-                                        })
-                                    },
-                                )
-                        });
-                        matches_year && matches_term
-                    })
-                    .collect(),
-            ))
-        }
-        "grades" => Ok(Value::Array(store.table_rows("grades")?)),
-        "gpa" => Ok(json!({
-            "summary": store.table_rows("gpa_summary")?,
-            "byTerm": store.table_rows("gpa_by_term")?
-        })),
-        "requirements" => Ok(Value::Array(store.table_rows("requirement_progress")?)),
-        "recommended" => {
-            let (workspace, _) = view()?;
-            let department = args
-                .get("departmentId")
-                .and_then(Value::as_str)
-                .or_else(|| {
-                    workspace
-                        .pointer("/settings/departmentId")
-                        .and_then(Value::as_str)
-                })
-                .ok_or("departmentId is required: no department is chosen in Settings")?;
-            let admission = workspace
-                .pointer("/academicProfile/admissionYear")
-                .and_then(Value::as_i64);
-            Ok(Value::Array(
-                visible_rows(&workspace, "recommendedCourses")
-                    .into_iter()
-                    .filter(|row| {
-                        // Settings may hold a scoped id such as "school:ee".
-                        text(row, "departmentId").is_some_and(|id| {
-                            id == department || department.ends_with(&format!(":{id}"))
-                        }) && admission.is_none_or(|year| {
-                            row.get("admissionYear").and_then(Value::as_i64) == Some(year)
-                        })
-                    })
-                    .collect(),
-            ))
-        }
-        "plan_add" => {
-            let offering_id = required(args, "offeringId")?;
-            let term = required(args, "term")?;
-            let (year, quarter) = parse_term(term)?;
-            if store.catalog_offering(offering_id)?.is_none() {
-                return Err("offering was not found in the local catalog".into());
-            }
-            let details = agent_write_result(store.agent_write(name, |write, latest_workspace| {
-                let offering = write.catalog_offering(offering_id)?.ok_or_else(|| {
-                    DataError::InvalidInput(
-                        "offering is no longer available in the local catalog".into(),
-                    )
-                })?;
-                if offering.get("year").and_then(Value::as_i64) != Some(year) {
-                    return Err(DataError::InvalidInput(
-                        "offering does not belong to the requested academic year".into(),
-                    ));
-                }
-                let quarters = offering
-                    .get("quarters")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>();
-                if !quarters.is_empty() && !quarters.iter().any(|value| value == quarter) {
-                    return Err(DataError::InvalidInput(format!(
-                        "offering is taught in {}, not {quarter}",
-                        quarters.join(", ")
-                    )));
-                }
-                // A 3Q–4Q offering is planned into each of its quarters, like
-                // `AddCatalogCourses`.
-                let terms = if quarters.is_empty() {
-                    vec![term.to_string()]
-                } else {
-                    quarters
-                        .iter()
-                        .map(|quarter| format!("{year}-{quarter}"))
-                        .collect::<Vec<_>>()
-                };
-                for plan_term in &terms {
-                    let eligibility = crate::study_profile::catalog_course_eligibility(
-                        latest_workspace,
-                        plan_term,
-                        &offering,
-                    );
-                    if let Some(message) =
-                        crate::study_profile::ineligibility_message(&offering, eligibility)
-                    {
-                        return Err(DataError::InvalidInput(message));
-                    }
-                }
-                // One course per offering and year, whatever quarter it sits
-                // in. Use the transaction snapshot so a concurrent school
-                // ingest or local write cannot make this decision stale.
-                let canonical = format!("{year}-{offering_id}");
-                let existing = visible_rows(latest_workspace, "courses")
-                    .into_iter()
-                    .find(|row| {
-                        text(row, "id") == Some(canonical.as_str())
-                            || text(row, "offeringId") == Some(offering_id)
-                    });
-                // One builder serves this path and `AddCatalogCourses`; both
-                // resolve the teaching table first so a profile override
-                // reaches the meetings either way.
-                let course_value = crate::workspace::planned_catalog_course(
-                    &offering,
-                    &canonical,
-                    term,
-                    crate::workspace::workspace_content_locale(latest_workspace),
-                    &crate::schedule::teaching_periods(latest_workspace)
-                        .map_err(|error| {
-                            crate::data::DataError::InvalidInput(error.to_string())
-                        })?,
-                )?;
-                let stored_course = write
-                    .rows("manual_courses")?
-                    .into_iter()
-                    .find(|row| text(row, "offeringId") == Some(offering_id));
-                // A live course for the offering is reused; a deleted row is
-                // revived only when no other live course stands for it.
-                let course = match (stored_course, existing) {
-                    (Some(course), _) if course.get("deletedAt").is_none() => course,
-                    (_, Some(course)) => course,
-                    (stored, None) => write.put(
-                        "manual_courses",
-                        course_value,
-                        Some(
-                            stored
-                                .and_then(|row| row.get("rev").and_then(Value::as_u64))
-                                .unwrap_or(0),
-                        ),
-                    )?,
-                };
-                let course_id = text(&course, "id")
-                    .ok_or_else(|| {
-                        DataError::InvalidInput("course identity could not be created".into())
-                    })?
-                    .to_string();
-                let rows = write.rows("plan_items")?;
-                let mut plan_item = Value::Null;
-                for plan_term in &terms {
-                    let planned = rows.iter().find(|row| {
-                        text(row, "courseId") == Some(course_id.as_str())
-                            && text(row, "termId") == Some(plan_term.as_str())
-                            && row.get("deletedAt").is_none()
-                    });
-                    let row = match planned {
-                        Some(row) => row.clone(),
-                        None => {
-                            let plan_id = format!("mcp-plan:{plan_term}:{offering_id}");
-                            let value = json!({"id":plan_id.clone(),"kind":"plan-item","termId":plan_term,
-                                "offeringId":offering_id,"courseId":course_id,"state":"planned",
-                                "source":{"provider":"mcp"}});
-                            let expected = rows
-                                .iter()
-                                .find(|row| text(row, "id") == Some(plan_id.as_str()))
-                                .and_then(|row| row.get("rev"))
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0);
-                            write.put("plan_items", value, Some(expected))?
-                        }
-                    };
-                    if plan_term == term {
-                        plan_item = row;
-                    }
-                }
-                Ok(json!({"courseId":course_id,"planItemId":plan_item.get("id"),"terms":terms}))
-            }))?;
-            Ok(write_result(details))
-        }
-        "plan_remove" => {
-            let offering_id = required(args, "offeringId")?;
-            let term = required(args, "term")?;
-            parse_term(term)?;
-            let removed = agent_write_result(store.agent_write(name, |write, _| {
-                let mut removed = 0;
-                for row in write.rows("plan_items")? {
-                    if text(&row, "offeringId") == Some(offering_id)
-                        && text(&row, "termId") == Some(term)
-                        && row.get("deletedAt").is_none()
-                    {
-                        if let Some(id) = text(&row, "id") {
-                            write.delete(
-                                "plan_items",
-                                id,
-                                row.get("rev").and_then(Value::as_u64),
-                            )?;
-                            removed += 1;
-                        }
-                    }
-                }
-                if removed == 0 {
-                    return Err(DataError::InvalidInput(format!(
-                        "offering {offering_id} is not planned for {term}"
-                    )));
-                }
-                Ok(removed)
-            }))?;
-            Ok(write_result(json!({"removed": removed})))
-        }
-        "weekly_event_create" => {
-            let term = required(args, "term")?;
-            parse_term(term)?;
-            let draft = json!({
-                "title": required(args, "title")?,
-                "days": args.get("days").cloned().unwrap_or(Value::Null),
-                "startTime": required(args, "startTime")?,
-                "endTime": required(args, "endTime")?,
-                "room": args.get("room").cloned().unwrap_or(Value::Null),
-            });
-            let id = agent_write_result(store.agent_write(name, |write, current| {
-                crate::workspace::save_event(write, current, &draft, term, None)
-            }))?;
-            Ok(write_result(json!({ "id": id })))
-        }
-        "weekly_event_update" => {
-            let id = required(args, "id")?;
-            agent_write_result(store.agent_write(name, |write, current| {
-                let mut row = live_event(current, id)?;
-                for key in ["title", "days", "startTime", "endTime", "room"] {
-                    if let Some(value) = args.get(key) {
-                        row[key] = value.clone();
-                    }
-                }
-                let term = text(&row, "termId").unwrap_or_default().to_string();
-                crate::workspace::save_event(write, current, &row, &term, Some(id.into()))
-            }))?;
-            Ok(write_result(json!({ "id": id })))
-        }
-        "weekly_event_delete" => {
-            let id = required(args, "id")?;
-            agent_write_result(store.agent_write(name, |write, current| {
-                live_event(current, id)?;
-                crate::workspace::delete_event(write, current, id)
-            }))?;
-            Ok(write_result(json!({ "id": id })))
-        }
-        "hide_assignment" | "restore_assignment" => {
-            let id = required(args, "id")?;
-            let hidden = name == "hide_assignment";
-            agent_write_result(store.agent_write(name, |write, current| {
-                crate::workspace::set_assignment_mark(write, current, id, Some(hidden), None, None)
-            }))?;
-            Ok(write_result(json!({ "id": id })))
-        }
-        _ => Err(AgentError::UnknownTool),
-    }
 }
 
 #[cfg(test)]

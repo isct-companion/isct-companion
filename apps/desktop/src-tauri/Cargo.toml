@@ -16,7 +16,7 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 log = "0.4"
-app-core = { path = "../../../crates/app-core", features = ["ts", "workspace-archives"] }
+app-core = { path = "../../../crates/app-core", features = ["ts", "workspace-archives", "agent"] }
 app-ocr = { path = "../../../crates/app-ocr" }
 tokio = { version = "1", features = ["time", "sync", "fs", "io-util", "net"] }
 serde = { version = "1", features = ["derive"] }

@@ -131,19 +131,38 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
             .is_empty()
     );
     let call = |name: &str, args: Value| json!({"name":name,"arguments":args});
-    assert_eq!(
-        rpc(
-            &client,
-            &connection,
-            "tools/call",
-            call("grades", json!({}))
-        )
-        .await["result"]["isError"],
-        true
-    );
+    let closed = rpc(
+        &client,
+        &connection,
+        "tools/call",
+        call("grades", json!({})),
+    )
+    .await;
+    assert_eq!(closed["result"]["isError"], true);
+    // A failure carries Core's stable code for the agent to act on.
+    let failure: Value =
+        serde_json::from_str(closed["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(failure["code"], "agent-disabled");
     fixture.enabled(true);
     let listed = rpc(&client, &connection, "tools/list", json!({})).await;
-    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 17);
+    let tools = listed["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), app_core::agent::tools().len());
+    let listed_tool = |name: &str| {
+        tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    // The hints and schemas come from Core's contracts.
+    let today_tool = listed_tool("today");
+    assert_eq!(today_tool["annotations"]["readOnlyHint"], true);
+    assert_eq!(today_tool["annotations"]["openWorldHint"], false);
+    assert_eq!(today_tool["outputSchema"]["type"], "object");
+    let delete_tool = listed_tool("weekly_event_delete");
+    assert_eq!(delete_tool["annotations"]["readOnlyHint"], false);
+    assert_eq!(delete_tool["annotations"]["destructiveHint"], true);
+    assert_eq!(delete_tool["inputSchema"]["additionalProperties"], false);
     let grades = rpc(
         &client,
         &connection,
@@ -151,14 +170,9 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
         call("grades", json!({})),
     )
     .await;
-    assert_eq!(grades["result"]["content"][0]["text"], "[]");
-    assert!(grades["result"].get("structuredContent").is_none());
+    assert_eq!(grades["result"]["structuredContent"], json!({"grades": []}));
     let today = rpc(&client, &connection, "tools/call", call("today", json!({}))).await;
-    let mut expected = fixture
-        .core
-        .agent
-        .call("today", &json!({}), AgentPolicy { allow_writes: true })
-        .unwrap();
+    let mut expected = fixture.core.agent.call("today", json!({})).unwrap();
     let mut actual = today["result"]["structuredContent"].clone();
     // These are separate reads; the wall-clock timestamp naturally advances.
     let now = actual.as_object_mut().unwrap().remove("now").unwrap();
@@ -178,7 +192,7 @@ async fn http_protocol_permissions_mutations_and_shutdown() {
         ),
     )
     .await;
-    assert_eq!(created["result"]["structuredContent"]["ok"], true);
+    assert!(created["result"]["structuredContent"]["id"].is_string());
     let schedule = rpc(
         &client,
         &connection,
@@ -315,11 +329,7 @@ async fn cancelled_caller_does_not_abandon_admitted_write() {
     let schedule = fixture
         .core
         .agent
-        .call(
-            "schedule",
-            &json!({"from":"2026-10-19","to":"2026-10-19"}),
-            AgentPolicy { allow_writes: true },
-        )
+        .call("schedule", json!({"from":"2026-10-19","to":"2026-10-19"}))
         .unwrap();
     assert_eq!(schedule["events"][0]["title"], "Still committed");
     fixture.core.shutdown().await;
