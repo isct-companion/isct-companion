@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.CloudProvider
-import app.isctcompanion.core.DeliveryStatus
 import app.isctcompanion.core.Direction
 import app.isctcompanion.core.ProviderState
 import app.isctcompanion.design.Card
@@ -59,7 +58,6 @@ internal fun BackupPage() {
     var confirm by remember { mutableStateOf<Pair<String, suspend () -> Unit>?>(null) }
     val state = model.cloud
     val locked = busy || state?.syncing == true
-    val pending = state?.tasks.orEmpty().any { task -> task.deliveries.any { it.status != DeliveryStatus.COMPLETED } }
     fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     fun run(work: suspend () -> Unit) {
         scope.launch {
@@ -138,7 +136,7 @@ internal fun BackupPage() {
             Card {
                 versions.forEachIndexed { index, version ->
                     if (index > 0) RowDivider(inset = 16.dp)
-                    RestoreRow(Format.due(version.savedAt), version.device, !(locked || pending)) {
+                    RestoreRow(Format.due(version.savedAt), version.device, !locked) {
                         confirm = t(
                             "settings.backup.restoreTheVersionFromDate",
                             "date" to Format.due(version.savedAt),
@@ -149,27 +147,7 @@ internal fun BackupPage() {
                     }
                 }
             }
-            Footer(t("settings.backup.backupsOlderThan30Days"))
-        }
-        val points = state?.recoveryPoints.orEmpty().sortedByDescending { it.savedAt }
-        if (points.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            SectionLabel(t("settings.backup.localRecoveryFiles"))
-            Card {
-                points.forEachIndexed { index, point ->
-                    if (index > 0) RowDivider(inset = 16.dp)
-                    RestoreRow(Format.due(point.savedAt), null, !(locked || pending)) {
-                        confirm = t(
-                            "settings.backup.restoreTheVersionFromDate",
-                            "date" to Format.due(point.savedAt),
-                        ) to {
-                            model.restoreCloud(point.id)
-                            toast(t("settings.backup.restoredTheEarlierVersion"))
-                        }
-                    }
-                }
-            }
-            Footer(t("settings.backup.savedBeforeCloudChangesOr"))
+            Footer(t("settings.backup.historyKeepsHourlyThenDaily"))
         }
         Spacer(Modifier.height(8.dp))
         SectionLabel(t("settings.backup.backupFile"))

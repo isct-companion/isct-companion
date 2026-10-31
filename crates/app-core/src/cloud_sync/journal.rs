@@ -25,8 +25,6 @@ pub(super) struct Journal {
     #[serde(default)]
     pub(super) observed: String,
     #[serde(default)]
-    pub(super) workspace_id: Option<String>,
-    #[serde(default)]
     pub(super) pending_apply: Option<Value>,
     /// Rows and history of providers this binary cannot run. An unsigned macOS
     /// debug build has no iCloud but shares the journal with the signed app.

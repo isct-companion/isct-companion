@@ -165,7 +165,7 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
         (
             CoreEvent::CloudSyncState(SyncState::default()),
             "cloud-sync-state",
-            json!({"syncing":false,"automatic":false,"localVersion":"","providers":[],"versions":[],"tasks":[],"recoveryPoints":[]}),
+            json!({"syncing":false,"automatic":false,"localVersion":"","providers":[],"versions":[],"tasks":[]}),
         ),
     ];
     let mut covered = std::collections::HashSet::new();

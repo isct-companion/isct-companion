@@ -36,7 +36,8 @@ Settings offers two resets, both decided in Core (`crates/app-core/src/reset.rs`
   plans point at) stay.
 - **Full reset** deletes every table and settings row, the saved school
   credentials and the WebView cookies, then writes first-launch defaults with a
-  new device id. Cloud sync is disconnected first with a local recovery point.
+  new device id. Cloud sync is disconnected first; no local copy is kept, so
+  the data comes back only from a cloud copy or an exported backup file.
   The course folder (notes and downloads), cloud copies, cloud authorization
   and logs stay.
 
@@ -81,6 +82,8 @@ keys.
   provider's private app folder.
 - `IsctCompanion.credentials.json` is optional and contains only an authenticated
   encrypted school-credential bundle.
-- The credential encryption password is 8–12 characters and stays in a separate
-  device-local credential-vault entry. Another device must be given the same
-  password explicitly.
+- A new credential encryption password is 12–128 characters (Core's
+  `cloud_credentials::PASSWORD_LENGTH`; a passphrase fits) and stays in a
+  separate device-local credential-vault entry, saved only after the backup it
+  opened or wrote succeeded. Another device must be given the same password
+  explicitly.

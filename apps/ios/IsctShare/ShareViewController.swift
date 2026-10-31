@@ -33,9 +33,13 @@ final class ShareViewController: UIViewController {
 
     private func finish(save: Bool, open: Bool = false) {
         if save {
-            for file in state.files {
-                _ = try? SharedInbox.add(file.url, name: file.name, assignmentId: state.assignment)
+            // Without the App Group the inbox is unreachable; keep the sheet
+            // open on what was not saved rather than drop it silently.
+            state.files.removeAll { file in
+                (try? SharedInbox.add(file.url, name: file.name, assignmentId: state.assignment)) != nil
             }
+            state.failed = !state.files.isEmpty
+            if state.failed { return }
         }
         if open { ExtensionInput.openApp(from: self) }
         extensionContext?.completeRequest(returningItems: nil)
@@ -47,6 +51,8 @@ final class ShareViewController: UIViewController {
 final class ShareState {
     var files: [SharedFile] = []
     var loading = true
+    /// The inbox refused the files still listed.
+    var failed = false
     var choices: [SharedInbox.Choice] = []
     /// `nil`: decide in the app.
     var assignment: String?
@@ -71,6 +77,16 @@ private struct ShareView: View {
                             if state.loading { ProgressView().frame(width: 72, height: 92) }
                         }
                         .padding(.vertical, 4)
+                    }
+                    if !state.loading && state.files.isEmpty && !state.failed {
+                        Text(t("shareViewController.noFilesCameThrough"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    if state.failed {
+                        Label(t("shareViewController.theseFilesCouldNotBe"), systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
                     }
                 }
                 // Nothing is submitted from here or by itself: the person

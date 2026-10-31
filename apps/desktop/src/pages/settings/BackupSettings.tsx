@@ -19,6 +19,7 @@ import {
   SettingsHeader,
   Toggle,
 } from "../../components/forms";
+import { CREDENTIAL_PASSWORD_LENGTH } from "../../generated/persistence";
 import { formatDay } from "./subscription-status";
 import { ResetSettings } from "./ResetSettings";
 
@@ -29,7 +30,7 @@ const providerName: Record<CloudSyncProvider, string> = {
 
 /**
  * Sync runs on its own (slotledger approach/cloud-upload-queue): this page only chooses the
- * services and offers confirmed cloud versions and local recovery points.
+ * services and offers confirmed cloud versions to restore.
  */
 export function BackupSettings({
   data,
@@ -46,7 +47,6 @@ export function BackupSettings({
   const [syncError, setSyncError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [versionPage, setVersionPage] = useState(1);
-  const [recoveryPage, setRecoveryPage] = useState(1);
   const bridge = desktopBridge;
   const syncAvailable =
     caps["cloud-sync"].support === "supported" &&
@@ -106,9 +106,11 @@ export function BackupSettings({
     run("settings.backup.couldNotRestore", async () => {
       if (
         !(await confirmAction(
-          t("settings.backup.restoreTheVersionFromDate", {
-            date: when(version.savedAt),
-          }),
+          restoreWarning(
+            t("settings.backup.restoreTheVersionFromDate", {
+              date: when(version.savedAt),
+            }),
+          ),
           t("common.restore"),
         ))
       )
@@ -124,7 +126,7 @@ export function BackupSettings({
   const importFile = async (file: File) => {
     if (
       !(await confirmAction(
-        t("settings.backup.restoreThisFileOnAll"),
+        restoreWarning(t("settings.backup.restoreThisFileOnAll")),
         t("common.restore"),
       ))
     )
@@ -156,6 +158,10 @@ export function BackupSettings({
     pending.length === 0 &&
     Boolean(sync?.localVersion) &&
     enabled.every((p) => p.syncedVersion === sync?.localVersion);
+  // A restore is the newest edit. What this device has not uploaded is in no
+  // cloud version, so restoring over it cannot be undone from the list.
+  const restoreWarning = (message: string) =>
+    upToDate ? message : `${message} ${t("settings.backup.restoreIsFinal")}`;
   const versions = [
     ...new Map(
       (sync?.versions ?? []).map((version) => [
@@ -165,13 +171,8 @@ export function BackupSettings({
     ).values(),
   ];
   versions.sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt));
-  const recoveryPoints = [...(sync?.recoveryPoints ?? [])].sort(
-    (a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt),
-  );
   const versionPages = Math.max(1, Math.ceil(versions.length / 4));
-  const recoveryPages = Math.max(1, Math.ceil(recoveryPoints.length / 4));
   const shownVersionPage = Math.min(versionPage, versionPages);
-  const shownRecoveryPage = Math.min(recoveryPage, recoveryPages);
   const needsAttention = enabled.some((item) => item.error);
   const lastSynced = enabled
     .map((item) => item.lastSyncedAt)
@@ -293,7 +294,7 @@ export function BackupSettings({
       {versions.length > 0 && (
         <SettingsGroup
           title="settings.backup.earlierVersions"
-          footer={t("settings.backup.backupsOlderThan30Days")}
+          footer={t("settings.backup.historyKeepsHourlyThenDaily")}
         >
           {versions
             .slice((shownVersionPage - 1) * 4, shownVersionPage * 4)
@@ -313,7 +314,7 @@ export function BackupSettings({
                 <div className="actions">
                   <UiButton
                     className="button small"
-                    disabled={busy || sync?.syncing || pending.length > 0}
+                    disabled={busy || sync?.syncing}
                     onClick={() => void restoreVersion(version)}
                   >
                     {t("common.restore")}
@@ -328,49 +329,6 @@ export function BackupSettings({
               onChange={setVersionPage}
               total={versionPages}
               aria-label={t("settings.backup.earlierVersionPages")}
-            />
-          )}
-        </SettingsGroup>
-      )}
-      {(sync?.recoveryPoints?.length ?? 0) > 0 && (
-        <SettingsGroup
-          title="settings.backup.localRecoveryFiles"
-          footer={t("settings.backup.savedBeforeCloudChangesOr")}
-        >
-          {recoveryPoints
-            .slice((shownRecoveryPage - 1) * 4, shownRecoveryPage * 4)
-            .map((point) => (
-              <Row key={point.id} group titleText={when(point.savedAt)}>
-                <div className="actions">
-                  <UiButton
-                    className="textButton"
-                    onClick={() =>
-                      void saveExportFile(
-                        `IsctCompanion-${point.version.slice(0, 15)}.json`,
-                        () => bridge!.cloudRecoveryDocument!(point.id),
-                        notify,
-                      )
-                    }
-                  >
-                    {t("settings.backup.export")}
-                  </UiButton>
-                  <UiButton
-                    className="textButton"
-                    disabled={busy || sync?.syncing || pending.length > 0}
-                    onClick={() => void restoreVersion(point)}
-                  >
-                    {t("common.restore")}
-                  </UiButton>
-                </div>
-              </Row>
-            ))}
-          {recoveryPages > 1 && (
-            <Pagination
-              size="sm"
-              value={shownRecoveryPage}
-              onChange={setRecoveryPage}
-              total={recoveryPages}
-              aria-label={t("settings.backup.localRecoveryPages")}
             />
           )}
         </SettingsGroup>
@@ -425,13 +383,13 @@ export function BackupSettings({
   );
 }
 
-/** School logins in an encrypted Drive file, unlocked by an 8–12 character password. */
+/** School logins in an encrypted Drive file. Core decides whether a password
+ * restores the backup or encrypts a new one, and keeps it only on success. */
 function DriveCredentialSync({
   notify,
 }: {
   notify: (message: string) => void;
 }) {
-  const provider = "google-drive";
   const [configured, setConfigured] = useState(false);
   const [backupExists, setBackupExists] = useState<boolean | null>(null);
   // Password fields show only while setting up, changing or restoring.
@@ -455,7 +413,7 @@ function DriveCredentialSync({
       })
       .catch(() => undefined);
     void bridge
-      .cloudCredentialBackupStatus(provider)
+      .cloudCredentialBackupStatus()
       .then((value) => {
         if (!disposed) setBackupExists(value);
       })
@@ -484,15 +442,7 @@ function DriveCredentialSync({
   };
   const save = () =>
     run("settings.backup.couldNotEnableCredentialSync", async () => {
-      const bridge = desktopBridge!;
-      const wasConfigured = configured;
-      await bridge.setCloudCredentialSyncPassword(password);
-      try {
-        await bridge.syncCloudCredentials(provider, restoring);
-      } catch (error) {
-        if (!wasConfigured) await bridge.clearCloudCredentialSyncPassword();
-        throw error;
-      }
+      await desktopBridge!.enableCloudCredentialSync(password);
       reset();
       setConfigured(true);
       setBackupExists(true);
@@ -518,26 +468,39 @@ function DriveCredentialSync({
       ? "settings.backup.checkingGoogleDrive"
       : configured
         ? editing
-          ? "settings.backup.chooseANew812"
+          ? "settings.backup.chooseANewPassword"
           : "settings.extensions.on"
         : restoring
           ? "settings.backup.enterThePasswordSetOn"
           : editing
-            ? "settings.backup.chooseAn812Character"
+            ? "settings.backup.chooseAPassword"
             : "settings.main.off";
-  const valid =
-    length >= 8 && length <= 12 && (restoring || (confirmPassword && matches));
+  // A backup opens with whatever password made it, which earlier versions
+  // allowed shorter; only a new password meets the length Core requires.
+  const valid = restoring
+    ? length > 0
+    : length >= CREDENTIAL_PASSWORD_LENGTH.min &&
+      length <= CREDENTIAL_PASSWORD_LENGTH.max &&
+      Boolean(confirmPassword) &&
+      matches;
 
   return (
     <>
-      <Row id="credential-sync" group title={title} hint={t(hint)}>
+      <Row
+        id="credential-sync"
+        group
+        title={title}
+        hint={t(hint, CREDENTIAL_PASSWORD_LENGTH)}
+      >
         <div className="actions">
           {showFields && (
             <>
               <UiInput
                 type="password"
                 value={password}
-                minLength={8}
+                minLength={
+                  restoring ? undefined : CREDENTIAL_PASSWORD_LENGTH.min
+                }
                 autoComplete={restoring ? "current-password" : "new-password"}
                 placeholder={t(
                   restoring
@@ -552,7 +515,7 @@ function DriveCredentialSync({
                 <UiInput
                   type="password"
                   value={confirmPassword}
-                  minLength={8}
+                  minLength={CREDENTIAL_PASSWORD_LENGTH.min}
                   autoComplete="new-password"
                   placeholder={t("settings.backup.confirmPassword")}
                   aria-label={t(

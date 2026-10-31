@@ -93,7 +93,7 @@ impl From<ResetReport> for ResetSummary {
 impl Session {
     /// Clears what `request` names and returns what went. A repeat while a
     /// reset of the same kind runs joins it. A full reset first stops cloud
-    /// sync and keeps a local recovery point; no cloud copy changes.
+    /// sync; no cloud copy changes.
     pub async fn reset(
         &self,
         request: ResetRequest,

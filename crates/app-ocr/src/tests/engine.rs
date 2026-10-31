@@ -223,7 +223,10 @@ fn full_photo_native_pipeline() {
 fn filter_matches_frozen_typescript_reference_pixel_for_pixel() {
     use sha2::{Digest, Sha256};
     let sha256_hex = |bytes: &[u8]| -> String {
-        Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
     };
     let cases: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("../engine/fixtures/ts-filter.json")).unwrap();

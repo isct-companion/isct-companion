@@ -100,14 +100,14 @@ pub(crate) fn show_tray(app: &AppHandle) {
         return;
     }
     let built = (|| -> tauri::Result<()> {
-        let show = MenuItem::with_id(
+        let show = MenuItem::with_id(app, "tray-show", text(app, "tray.show"), true, None::<&str>)?;
+        let quit = MenuItem::with_id(
             app,
-            "tray-show",
-            text(app, "tray.show"),
+            "tray-quit",
+            text(app, "common.quit"),
             true,
             None::<&str>,
         )?;
-        let quit = MenuItem::with_id(app, "tray-quit", text(app, "common.quit"), true, None::<&str>)?;
         let menu = Menu::with_items(app, &[&show, &quit])?;
         let mut tray = TrayIconBuilder::with_id(TRAY)
             .tooltip("IsctCompanion")

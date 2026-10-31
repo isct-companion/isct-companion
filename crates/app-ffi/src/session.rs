@@ -66,7 +66,7 @@ pub(crate) struct Inner {
     shutdown: tokio::sync::Mutex<bool>,
     closed: CancellationToken,
     pub backup: BackupService,
-    /// Always present so imports and recovery go through the journal; the
+    /// Always present so imports and restores go through the journal; the
     /// providers only run when the shell installed a `NativeCloud`.
     sync: CloudSync,
     sync_services: CloudServices,
@@ -499,8 +499,8 @@ impl Session {
             })
         })
     }
-    /// Import a backup file: Core saves a recovery point, starts a new
-    /// restore generation and journals the apply so an interruption replays.
+    /// Import a backup file: Core writes it as this device's newest edits and
+    /// uploads it to every enabled cloud, where other devices merge it.
     pub fn apply_backup(&self, document: JsonValue) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
             i.sync
@@ -528,8 +528,8 @@ impl Session {
             })
         })
     }
-    /// Turning Drive on signs in first (a web session on iOS, the account
-    /// prompt on Android); a declined sign-in leaves it off with the reason.
+    /// Core signs in to Drive before turning it on (a web session on iOS,
+    /// the account prompt on Android).
     pub fn set_cloud_enabled(
         &self,
         provider: CloudProvider,
@@ -537,33 +537,19 @@ impl Session {
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |i, _| async move {
             let (sync, services) = i.cloud()?;
-            if enabled && matches!(provider, CloudProvider::GoogleDrive) {
-                let drive = i
-                    .drive
-                    .as_ref()
-                    .ok_or_else(|| unavailable("Google Drive"))?;
-                if !drive.authorized()? {
-                    if let Err(error) = drive.connect().await {
-                        let reason =
-                            (!matches!(error, SdkError::Cancelled)).then(|| error.to_string());
-                        return Ok(OperationResult::Cloud {
-                            state: project(
-                                sync.provider_result(
-                                    services.clone(),
-                                    project_input(provider)?,
-                                    false,
-                                    reason,
-                                )
-                                .await?,
-                            )?,
-                        });
-                    }
-                }
+            if enabled && matches!(provider, CloudProvider::GoogleDrive) && i.drive.is_none() {
+                return Err(unavailable("Google Drive"));
             }
+            let sign_in = crate::ports::DriveSignIn(i.drive.as_deref());
             Ok(OperationResult::Cloud {
                 state: project(
-                    sync.set_enabled(services.clone(), project_input(provider)?, enabled)
-                        .await?,
+                    sync.set_enabled(
+                        services.clone(),
+                        project_input(provider)?,
+                        enabled,
+                        &sign_in,
+                    )
+                    .await?,
                 )?,
             })
         })
@@ -710,7 +696,7 @@ async fn initialize(
     } else {
         None
     };
-    let backup = BackupService::new(core.store.clone(), core.runtime.notes.at(files.clone()));
+    let backup = BackupService::new(core.store.clone());
     core.runtime
         .attach_cloud(sync.clone())
         .map_err(runtime_error)?;

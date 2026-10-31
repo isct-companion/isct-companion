@@ -1,11 +1,11 @@
-//! Native cloud ports; queue, recovery and retry policy live in Core.
+//! Native cloud ports; queue, restore and retry policy live in Core.
 use crate::{cloud::DesktopCloudService, secrets::OsSecretVault};
 use crate::{coded, CommandError};
 use app_core::cloud_sync::document::{
     BoxFuture, CloudWorkspaceFile, DocumentCloud, DocumentError, WorkspaceTransport,
 };
-use app_core::cloud_sync::CloudServices;
 pub use app_core::cloud_sync::{CloudProvider, Direction, SyncState};
+use app_core::cloud_sync::{CloudServices, CloudSignIn};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc};
 use tauri::{AppHandle, Manager};
@@ -61,9 +61,6 @@ impl CloudSync {
     pub fn state(&self) -> Result<SyncState, CommandError> {
         self.0.state().map_err(coded)
     }
-    pub fn recovery_document(&self, id: &str) -> Result<String, CommandError> {
-        self.0.recovery_document(id).map_err(coded)
-    }
     pub async fn changed(app: &AppHandle) {
         if let Some(sync) = app.try_state::<Self>() {
             let result = match services(app) {
@@ -75,26 +72,15 @@ impl CloudSync {
             }
         }
     }
-    pub async fn provider_result(
-        &self,
-        app: &AppHandle,
-        provider: CloudProvider,
-        enabled: bool,
-        error: Option<String>,
-    ) -> Result<SyncState, CommandError> {
-        self.0
-            .provider_result(services(app)?, provider, enabled, error)
-            .await
-            .map_err(coded)
-    }
     pub async fn set_provider(
         &self,
         app: &AppHandle,
         provider: CloudProvider,
         enabled: bool,
+        sign_in: &dyn CloudSignIn,
     ) -> Result<SyncState, CommandError> {
         self.0
-            .set_enabled(services(app)?, provider, enabled)
+            .set_enabled(services(app)?, provider, enabled, sign_in)
             .await
             .map_err(coded)
     }

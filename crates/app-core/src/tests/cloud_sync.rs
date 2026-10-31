@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    data::DataStore,
-    notes::{CourseFolder, NoteStore, Notes},
-};
+use crate::data::DataStore;
 use serde_json::json;
 use std::{
     path::PathBuf,
@@ -15,7 +12,7 @@ use std::{
 use tokio::sync::Notify;
 
 fn document(revision: u64) -> Value {
-    json!({"tables":{"personal_events":[{"id":"plan","rev":revision}]},"localNotes":[]})
+    json!({"tables":{"personal_events":[{"id":"plan","rev":revision}]}})
 }
 
 fn journal() -> Journal {
@@ -463,8 +460,6 @@ struct Fixture {
     clouds: Option<Arc<dyn CloudTransport>>,
     observer: Arc<FakeObserver>,
     backup: BackupService,
-    notes: Notes,
-    note_store: NoteStore,
 }
 
 impl Fixture {
@@ -488,9 +483,7 @@ impl Fixture {
         let store = DataStore::initialize_dir(root.clone()).unwrap().0;
         let observer = Arc::new(FakeObserver::default());
         store.observe(observer.clone());
-        let note_store = NoteStore::default();
-        let notes = note_store.at(root.join("notes"));
-        let backup = BackupService::new(store.clone(), notes.clone());
+        let backup = BackupService::new(store.clone());
         let sync = CloudSync::new(root.join("cloud.json"), providers, providers).unwrap();
         Self {
             root,
@@ -500,8 +493,6 @@ impl Fixture {
             clouds,
             observer,
             backup,
-            notes,
-            note_store,
         }
     }
 
@@ -530,14 +521,6 @@ impl Fixture {
 
     fn titles(&self) -> Vec<String> {
         titles(&self.store.user_rows("personal_events").unwrap())
-    }
-
-    fn workspace(&self) -> Option<String> {
-        self.sync
-            .0
-            .journal
-            .read(|journal| journal.workspace_id.clone())
-            .unwrap()
     }
 
     fn automatic(&self) {
@@ -605,54 +588,6 @@ impl Drop for Fixture {
 
 fn temporary(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("isct-cloud-sync-{name}-{}", uuid::Uuid::new_v4()))
-}
-
-#[test]
-fn local_retention_commits_the_index_before_unlinking_only_expired_files() {
-    let fixture = Fixture::new("retention");
-    let now = chrono::Utc::now();
-    let directory = fixture.root.join("recovery");
-    std::fs::create_dir_all(&directory).unwrap();
-    let points = [1, 2, 3, 40, 50]
-        .iter()
-        .enumerate()
-        .map(|(index, days)| {
-            let version = version(&document(index as u64 + 1)).unwrap();
-            std::fs::write(directory.join(format!("{version}.json")), "{}").unwrap();
-            RecoveryPoint {
-                id: format!("local:{version}"),
-                version,
-                saved_at: (now - chrono::Duration::days(*days)).to_rfc3339(),
-            }
-        })
-        .collect::<Vec<_>>();
-    fixture
-        .sync
-        .0
-        .journal
-        .change(|journal| {
-            journal.state.recovery_points = points.clone();
-            Ok(())
-        })
-        .unwrap();
-    let missing = directory.join(format!("{}.json", points[0].version));
-    std::fs::remove_file(&missing).unwrap();
-    fixture.sync.prune_recovery().unwrap();
-    assert_eq!(fixture.sync.state().unwrap().recovery_points.len(), 5);
-    std::fs::write(missing, "{}").unwrap();
-    fixture.sync.prune_recovery().unwrap();
-    let state = fixture.sync.state().unwrap();
-    assert_eq!(state.recovery_points.len(), 4);
-    assert!(directory
-        .join(format!("{}.json", points[3].version))
-        .exists());
-    assert!(!directory
-        .join(format!("{}.json", points[4].version))
-        .exists());
-    assert!(!state
-        .recovery_points
-        .iter()
-        .any(|point| point.id == points[4].id));
 }
 
 #[tokio::test]
@@ -807,16 +742,9 @@ async fn automatic_launch_pulls_other_devices_changes_once_and_manual_launch_doe
     let mut phone = Fixture::new("launch-phone");
     phone.transport = mac.transport.clone();
     automatic(&phone);
-    // No cloud copy yet: quiet, and no workspace id the Mac's copy would then conflict with.
+    // No cloud copy yet: quiet.
     let state = phone.sync.resume(phone.services()).await.unwrap();
     assert!(state.providers[0].error.is_none());
-    assert!(phone
-        .sync
-        .0
-        .journal
-        .read(|journal| journal.workspace_id.clone())
-        .unwrap()
-        .is_none());
 
     mac.add_event("from mac");
     mac.sync
@@ -915,6 +843,11 @@ async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
     let changes = || fixture.observer.workspaces.lock().unwrap().clone();
     assert_eq!(changes(), [WorkspaceChangeSource::UserIntent; 3]);
 
+    // Another device's copy is merged in on the retry, so applying the result
+    // is a store write with its own source.
+    let other = Fixture::new("retry-other");
+    other.add_event("from another device");
+    *fixture.transport.remote.lock().unwrap() = Some(other.backup.snapshot().unwrap());
     let retried = fixture
         .sync
         .sync(fixture.services(), Direction::Upload)
@@ -924,7 +857,6 @@ async fn failed_delivery_is_durable_and_manual_retry_reuses_it() {
     let receipt = retried.tasks.iter().find(|row| row.id == task).unwrap();
     assert_eq!(receipt.deliveries[0].status, DeliveryStatus::Completed);
     assert_eq!(retried.providers[0].error, None);
-    // Applying the merged cloud copy is a store write with its own source.
     assert_eq!(changes().last(), Some(&WorkspaceChangeSource::CloudSync));
 }
 
@@ -1019,54 +951,6 @@ async fn caller_drop_does_not_cancel_delivery_or_overwrite_a_new_local_edit() {
     assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 2);
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn slow_note_gate_does_not_starve_unrelated_runtime_work() {
-    let fixture = Fixture::new("slow-note-gate");
-    let notes = fixture.notes.clone();
-    let (started_send, started_receive) = std::sync::mpsc::sync_channel(1);
-    let (release_send, release_receive) = std::sync::mpsc::sync_channel(1);
-    let blocker = std::thread::spawn(move || {
-        notes
-            .transaction(|_| {
-                started_send.send(()).unwrap();
-                let _ = release_receive.recv_timeout(Duration::from_secs(1));
-                Ok::<(), crate::notes::NoteError>(())
-            })
-            .unwrap();
-    });
-    started_receive
-        .recv_timeout(Duration::from_secs(1))
-        .unwrap();
-
-    assert!(fixture.sync.tick(fixture.services()).unwrap());
-    *fixture.sync.0.next_tick.lock().unwrap() = Instant::now();
-    assert!(!fixture.sync.tick(fixture.services()).unwrap());
-    let unrelated = tokio::spawn(async {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        "runtime-progress"
-    });
-    assert_eq!(
-        tokio::time::timeout(Duration::from_millis(200), unrelated)
-            .await
-            .unwrap()
-            .unwrap(),
-        "runtime-progress"
-    );
-
-    release_send.send(()).unwrap();
-    blocker.join().unwrap();
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while fixture.sync.0.tick_pass.available_permits() == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
-    *fixture.sync.0.next_tick.lock().unwrap() = Instant::now();
-    assert!(fixture.sync.tick(fixture.services()).unwrap());
-    fixture.sync.shutdown().await;
-}
-
 #[tokio::test]
 async fn shutdown_interrupts_remote_work_and_leaves_delivery_retryable() {
     let fixture = Fixture::new("shutdown");
@@ -1091,23 +975,10 @@ async fn shutdown_interrupts_remote_work_and_leaves_delivery_retryable() {
 }
 
 #[tokio::test]
-async fn pending_apply_survives_journal_failure_after_writing_notes_and_replays() {
+async fn pending_apply_survives_journal_failure_and_replays() {
     let fixture = Fixture::new("pending-apply-commit-failure");
     let source = Fixture::new("pending-apply-commit-source");
     source.add_event("replayed");
-    source
-        .notes
-        .save(
-            CourseFolder {
-                term: "2026-3Q".into(),
-                course: "cloud-recovery".into(),
-                section: "notes".into(),
-            },
-            String::new(),
-            "written before journal acknowledgement".into(),
-            "source-device",
-        )
-        .unwrap();
     let document = source.backup.snapshot().unwrap();
     fixture
         .sync
@@ -1132,13 +1003,6 @@ async fn pending_apply_survives_journal_failure_after_writing_notes_and_replays(
         fixture.sync.resume(fixture.services()).await,
         Err(CloudSyncError::Storage(_))
     ));
-    assert_eq!(
-        fixture.backup.snapshot().unwrap()["localNotes"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
     assert!(fixture
         .sync
         .0
@@ -1156,14 +1020,7 @@ async fn pending_apply_survives_journal_failure_after_writing_notes_and_replays(
     drop(connection);
 
     fixture.sync.resume(fixture.services()).await.unwrap();
-    assert_eq!(
-        fixture.backup.snapshot().unwrap()["localNotes"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-    // The replay applies the record tables too, not only the notes.
+    // The replay applies the records again without duplicating them.
     assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 1);
     assert!(fixture
         .sync
@@ -1171,106 +1028,6 @@ async fn pending_apply_survives_journal_failure_after_writing_notes_and_replays(
         .journal
         .read(|journal| journal.pending_apply.is_none())
         .unwrap());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn storage_root_change_keeps_pending_apply_for_the_fresh_backup_service() {
-    let fixture = Fixture::new("storage-root-change");
-    fixture.add_event("start-upload");
-    let source = Fixture::new("storage-root-change-source");
-    source
-        .notes
-        .save(
-            CourseFolder {
-                term: "2026-3Q".into(),
-                course: "cloud-recovery".into(),
-                section: "notes".into(),
-            },
-            String::new(),
-            "write only to the newly selected root".into(),
-            "source-device",
-        )
-        .unwrap();
-    *fixture.transport.remote.lock().unwrap() = Some(source.backup.snapshot().unwrap());
-    fixture.transport.block_push.store(true, Ordering::SeqCst);
-
-    let sync = fixture.sync.clone();
-    let old_services = fixture.services();
-    let caller = tokio::spawn(async move { sync.sync(old_services, Direction::Upload).await });
-    fixture.transport.started.notified().await;
-
-    // Hold the acknowledgement database after the post-network snapshot. The
-    // recovery file is written immediately before that blocked journal update,
-    // giving the storage selection a deterministic hand-off point.
-    let connection = rusqlite::Connection::open(&fixture.sync.0.journal.path).unwrap();
-    connection.execute_batch("BEGIN IMMEDIATE").unwrap();
-    fixture.transport.release.notify_one();
-    let recovery = fixture.root.join("recovery");
-    tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            let written = std::fs::read_dir(&recovery).ok().is_some_and(|entries| {
-                entries.filter_map(Result::ok).any(|entry| {
-                    entry.path().extension().and_then(|value| value.to_str()) == Some("json")
-                })
-            });
-            if written {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
-
-    let new_root = fixture.root.join("new-notes");
-    fixture
-        .note_store
-        .select_root(new_root.clone(), || Ok::<(), &str>(()))
-        .unwrap();
-    connection.execute_batch("COMMIT").unwrap();
-    drop(connection);
-    caller.await.unwrap().unwrap();
-
-    assert!(fixture
-        .sync
-        .0
-        .journal
-        .read(|journal| journal.pending_apply.is_some())
-        .unwrap());
-    let old_note_directory = fixture
-        .root
-        .join("notes/2026-3Q/cloud-recovery/notes/notes");
-    assert!(!old_note_directory.exists());
-
-    fixture.transport.block_push.store(false, Ordering::SeqCst);
-    let fresh_backup = BackupService::new(
-        fixture.store.clone(),
-        fixture.note_store.at(new_root.clone()),
-    );
-    let fresh_services = CloudServices {
-        backup: fresh_backup.clone(),
-        transport: fixture.transport.clone(),
-        events: fixture.observer.clone(),
-    };
-    fixture.sync.resume(fresh_services).await.unwrap();
-
-    assert!(fixture
-        .sync
-        .0
-        .journal
-        .read(|journal| journal.pending_apply.is_none())
-        .unwrap());
-    assert_eq!(
-        fresh_backup.snapshot().unwrap()["localNotes"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-    assert!(!old_note_directory.exists());
-    assert!(new_root
-        .join("material/2026-3Q/cloud-recovery/notes/notes")
-        .is_dir());
 }
 
 #[tokio::test]
@@ -1284,32 +1041,6 @@ async fn invalid_restore_is_compatibility_error_before_local_mutation() {
         .unwrap_err();
     assert!(matches!(error, CloudSyncError::Compatibility(_)));
     assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn maximum_remote_generation_restore_is_rejected_before_enqueue_or_apply() {
-    let fixture = Fixture::new("restore-generation-overflow");
-    fixture.add_event("keep-local");
-    let source = Fixture::new("restore-generation-overflow-source");
-    source.add_event("must-not-apply");
-    let document = source.backup.snapshot().unwrap();
-    let mut remote = document.clone();
-    remote["sync"] = json!({"generation":{"counter":u64::MAX,"id":"maximum-generation"}});
-    *fixture.transport.remote.lock().unwrap() = Some(remote);
-
-    let error = fixture
-        .sync
-        .restore_document(fixture.services(), document)
-        .await
-        .unwrap_err();
-    assert_eq!(
-        error,
-        CloudSyncError::Compatibility("Cloud generation is too large.".into())
-    );
-    assert!(fixture.sync.state().unwrap().tasks.is_empty());
-    let plans = fixture.store.user_rows("personal_events").unwrap();
-    assert_eq!(plans.len(), 1);
-    assert_eq!(plans[0]["title"], "keep-local");
 }
 
 #[tokio::test]
@@ -1352,17 +1083,19 @@ async fn idle_pass_neither_rewrites_the_journal_nor_publishes() {
 /// instead of rejecting either; every device then ends on one workspace with
 /// every record, including a never-synced tablet that brings its own data.
 #[tokio::test]
-async fn separately_started_workspaces_join_across_providers_and_every_device_converges() {
+async fn copies_started_separately_merge_across_providers_and_every_device_converges() {
     use CloudProvider::{GoogleDrive as Drive, Icloud};
     let clouds = Arc::new(MemoryClouds::default());
     let android = Fixture::on("join-android", &[Drive], &clouds);
     android.add_event("android");
+    // A restore uploads at once, as an ordinary newest edit.
     let imported = android.backup.snapshot().unwrap();
     android
         .sync
         .restore_document(android.services(), imported)
         .await
         .unwrap();
+    assert_eq!(clouds.titles(Drive), ["android"]);
     let iphone = Fixture::on("join-iphone", &[Icloud], &clouds);
     iphone.add_event("iphone");
     iphone
@@ -1370,11 +1103,6 @@ async fn separately_started_workspaces_join_across_providers_and_every_device_co
         .sync(iphone.services(), Direction::Upload)
         .await
         .unwrap();
-    let older = android.workspace().unwrap();
-    let newer = iphone.workspace().unwrap();
-    assert!(older < newer, "UUIDv7 workspace ids sort by creation");
-    assert_eq!(cloud_merge::generation(&clouds.document(Drive)).0, 1);
-    assert_eq!(cloud_merge::generation(&clouds.document(Icloud)).0, 0);
 
     let mac = Fixture::on("join-mac", &[Drive, Icloud], &clouds);
     mac.add_event("mac");
@@ -1388,15 +1116,7 @@ async fn separately_started_workspaces_join_across_providers_and_every_device_co
     assert_eq!(mac.titles(), all);
     for provider in [Drive, Icloud] {
         assert_eq!(clouds.titles(provider), all, "{provider:?}");
-        let joined = clouds.document(provider);
-        assert_eq!(cloud_merge::workspace(&joined), Some(older.as_str()));
-        assert_eq!(
-            cloud_merge::generation(&joined).0,
-            1,
-            "the older workspace keeps its generation, so the newer one's records survive it"
-        );
     }
-    assert_eq!(mac.workspace().as_deref(), Some(older.as_str()));
 
     let tablet = Fixture::on("join-tablet", &[Drive], &clouds);
     tablet.add_event("tablet");
@@ -1406,18 +1126,13 @@ async fn separately_started_workspaces_join_across_providers_and_every_device_co
             .sync(device.services(), Direction::Pull)
             .await
             .unwrap();
-        assert_eq!(device.workspace().as_deref(), Some(older.as_str()));
     }
     assert_eq!(iphone.titles(), all);
     assert_eq!(android.titles(), all);
     assert_eq!(
         tablet.titles(),
         ["android", "iphone", "mac", "tablet"].map(String::from),
-        "a device that never met the cloud joins it rather than yielding to its generation"
-    );
-    assert!(
-        !tablet.sync.state().unwrap().recovery_points.is_empty(),
-        "a join that changes local data saves a recovery point first"
+        "a device that never met the cloud keeps its records"
     );
     for device in [android, iphone, mac, tablet] {
         device.sync.shutdown().await;

@@ -23,11 +23,10 @@ impl Session {
     ) -> Result<Arc<Operation>, SdkError> {
         self.blocking(move |i| {
             let notes = i.core.runtime.notes.at(i.files.clone());
-            let device = i.backup.device_id().map_err(|e| crate::error::coded(&e))?;
             Ok(OperationResult::File {
                 file: project(
                     notes
-                        .save(project_input(context)?, id, text, &device)
+                        .save(project_input(context)?, id, text)
                         .map_err(note_error)?,
                 )?,
             })

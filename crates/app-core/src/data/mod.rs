@@ -178,7 +178,21 @@ fn intent_revision(connection: &Connection) -> Result<String, DataError> {
 pub(crate) const USER_BACKUP_SETTINGS: &[&str] =
     &["userPreferences", "academicProfile", "terms", "classGroups"];
 const BACKUP_KIND: &str = "IsctCompanion.local-backup";
-const BACKUP_SCHEMA_VERSION: u64 = 6;
+const BACKUP_SCHEMA_VERSION: u64 = 7;
+/// Version 6 also carried local notes and restore generations. Reading it
+/// ignores both, so a copy written by an earlier release still opens.
+const READABLE_SCHEMA_VERSIONS: &[u64] = &[6, BACKUP_SCHEMA_VERSION];
+
+/// The one document shape for exports, cloud copies and restores.
+pub(crate) fn backup_document(exported_at: Value, tables: Value) -> Value {
+    json!({
+        "schemaVersion": BACKUP_SCHEMA_VERSION,
+        "exportedAt": exported_at,
+        "kind": BACKUP_KIND,
+        "deviceId": "local-backup",
+        "tables": tables
+    })
+}
 
 fn merge_object(target: &mut Value, source: Value) {
     let (Some(target), Value::Object(source)) = (target.as_object_mut(), source) else {
@@ -226,7 +240,10 @@ pub fn parse_import(document: &str) -> Result<Value, DataError> {
         return Err("the file is not an IsctCompanion backup".into());
     }
     match parsed.get("schemaVersion") {
-        Some(version) if version.as_u64() == Some(BACKUP_SCHEMA_VERSION) => {}
+        Some(version)
+            if version
+                .as_u64()
+                .is_some_and(|version| READABLE_SCHEMA_VERSIONS.contains(&version)) => {}
         Some(version) => {
             return Err(DataError::compatibility(format!(
                 "the backup uses schema version {version}; this app reads version {BACKUP_SCHEMA_VERSION}"
@@ -241,9 +258,6 @@ pub fn parse_import(document: &str) -> Result<Value, DataError> {
         .get("tables")
         .and_then(Value::as_object)
         .ok_or_else(|| "import tables must be an object".to_string())?;
-    if !parsed.get("localNotes").is_some_and(Value::is_array) {
-        return Err("import localNotes must be an array".into());
-    }
     let required: HashSet<_> = USER_BACKUP_TABLES
         .iter()
         .copied()

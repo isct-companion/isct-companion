@@ -1,9 +1,7 @@
-use app_core::cloud_credentials;
+use app_core::cloud_credentials::CredentialBackup;
 use app_core::cloud_sync::document::{self, CloudWorkspaceFile, DocumentError, WorkspaceTransport};
-use app_core::cloud_sync::google_drive::{GoogleDrive, OAuthClient, Pkce, VAULT_ACCOUNT};
+use app_core::cloud_sync::google_drive::{GoogleDrive, OAuthClient, Pkce};
 pub use app_core::cloud_sync::CloudProvider;
-#[cfg(test)]
-use app_core::ports::SecretError;
 use app_core::ports::SecretVault;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -32,8 +30,6 @@ pub fn validate_redirect_uri(raw: &str) -> Result<Url, String> {
 const GOOGLE_DESKTOP_CLIENT_ID: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_ID");
 const GOOGLE_DESKTOP_CLIENT_SECRET: Option<&str> = option_env!("ISCT_GOOGLE_DESKTOP_CLIENT_SECRET");
 
-const ICLOUD_ACCOUNT: &str = "icloud";
-
 /// Drive's REST calls and token refresh live in Core; the desktop shell runs
 /// the loopback sign-in and keeps the iCloud store.
 pub struct DesktopCloudService<V: SecretVault> {
@@ -60,20 +56,16 @@ impl<V: SecretVault> DesktopCloudService<V> {
         self.drive.authorization().vault()
     }
 
-    /// Desktop sign-in: the system browser returns to a loopback listener.
+    /// Desktop Drive sign-in: the system browser returns to a loopback listener.
     pub async fn connect<F>(
         &self,
-        provider: CloudProvider,
         client_id: &str,
         redirect_uri: &str,
         open_browser: F,
-    ) -> Result<bool, String>
+    ) -> Result<(), String>
     where
         F: FnOnce(&str) -> Result<(), String>,
     {
-        if provider != CloudProvider::GoogleDrive {
-            return Err("This cloud provider does not sign in through a browser.".into());
-        }
         let redirect = validate_redirect_uri(redirect_uri)?;
         let port = redirect
             .port()
@@ -118,159 +110,25 @@ impl<V: SecretVault> DesktopCloudService<V> {
         }).await.map_err(|_| "OAuth callback task failed.".to_string())??;
         pkce.finish(client_id, &pending, &callback)
             .await
-            .map_err(|error| error.to_string())?;
-        Ok(true)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn drive_signed_in(&self) -> Result<bool, DocumentError> {
+        self.drive.authorization().authorized()
     }
 
     pub fn authorized_providers(&self) -> Result<Vec<CloudProvider>, String> {
-        let mut authorized = Vec::new();
-        if self
-            .drive
-            .authorization()
-            .authorized()
-            .map_err(|error| error.to_string())?
-        {
-            authorized.push(CloudProvider::GoogleDrive);
-        }
-        if self
-            .vault()
-            .load(ICLOUD_ACCOUNT)
-            .map_err(|error| error.to_string())?
-            .as_deref()
-            == Some("connected")
-        {
-            authorized.push(CloudProvider::Icloud);
-        }
-        Ok(authorized)
+        Ok(
+            if self.drive_signed_in().map_err(|error| error.to_string())? {
+                vec![CloudProvider::GoogleDrive]
+            } else {
+                Vec::new()
+            },
+        )
     }
 
-    pub fn disconnect(&self, provider: CloudProvider) -> Result<(), String> {
-        let account = match provider {
-            CloudProvider::GoogleDrive => VAULT_ACCOUNT,
-            CloudProvider::Icloud => ICLOUD_ACCOUNT,
-        };
-        self.vault()
-            .delete(account)
-            .map_err(|error| error.to_string())
-    }
-
-    #[cfg(target_os = "macos")]
-    pub async fn connect_icloud(&self) -> Result<bool, String> {
-        crate::icloud::account_available().await?;
-        self.vault()
-            .store(ICLOUD_ACCOUNT, "connected")
-            .map_err(|error| error.to_string())?;
-        Ok(true)
-    }
-
-    async fn read_file(
-        &self,
-        provider: CloudProvider,
-        name: &str,
-    ) -> Result<Option<Vec<u8>>, String> {
-        match provider {
-            CloudProvider::GoogleDrive => self
-                .drive
-                .read_file(name)
-                .await
-                .map_err(|error| error.to_string()),
-            CloudProvider::Icloud => {
-                #[cfg(target_os = "macos")]
-                return crate::icloud::read(name).await;
-                #[cfg(not(target_os = "macos"))]
-                return Err("iCloud sync is only available on Apple devices.".into());
-            }
-        }
-    }
-
-    async fn write_file(
-        &self,
-        provider: CloudProvider,
-        name: &str,
-        bytes: Vec<u8>,
-    ) -> Result<(), String> {
-        match provider {
-            CloudProvider::GoogleDrive => self
-                .drive
-                .write_file(name, bytes)
-                .await
-                .map_err(|error| error.to_string()),
-            CloudProvider::Icloud => {
-                #[cfg(target_os = "macos")]
-                return crate::icloud::write(name, bytes).await;
-                #[cfg(not(target_os = "macos"))]
-                return Err("iCloud sync is only available on Apple devices.".into());
-            }
-        }
-    }
-
-    pub fn credential_sync_configured(&self) -> Result<bool, String> {
-        Ok(self
-            .vault()
-            .load(cloud_credentials::PASSWORD_ACCOUNT)
-            .map_err(|error| error.to_string())?
-            .is_some())
-    }
-
-    pub fn set_credential_sync_password(&self, password: &str) -> Result<(), String> {
-        cloud_credentials::validate_password(password).map_err(|error| error.to_string())?;
-        self.vault()
-            .store(cloud_credentials::PASSWORD_ACCOUNT, password)
-            .map_err(|error| error.to_string())
-    }
-
-    pub fn clear_credential_sync_password(&self) -> Result<(), String> {
-        self.vault()
-            .delete(cloud_credentials::PASSWORD_ACCOUNT)
-            .map_err(|error| error.to_string())
-    }
-
-    pub async fn credential_backup_exists(&self, provider: CloudProvider) -> Result<bool, String> {
-        if !cloud_credentials::supports_provider(provider) {
-            return Ok(false);
-        }
-        Ok(self
-            .read_file(provider, cloud_credentials::FILE_NAME)
-            .await?
-            .is_some())
-    }
-
-    pub async fn back_up_credentials(
-        &self,
-        provider: CloudProvider,
-        payload: &str,
-    ) -> Result<(), String> {
-        let password = self
-            .vault()
-            .load(cloud_credentials::PASSWORD_ACCOUNT)
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "Credential sync is not configured on this device.".to_string())?;
-        let encrypted =
-            cloud_credentials::encrypt(payload, &password).map_err(|error| error.to_string())?;
-        self.write_file(provider, cloud_credentials::FILE_NAME, encrypted)
-            .await
-    }
-
-    pub async fn pull_credentials(
-        &self,
-        provider: CloudProvider,
-    ) -> Result<Option<String>, String> {
-        let Some(password) = self
-            .vault()
-            .load(cloud_credentials::PASSWORD_ACCOUNT)
-            .map_err(|error| error.to_string())?
-        else {
-            return Ok(None);
-        };
-        let Some(encrypted) = self
-            .read_file(provider, cloud_credentials::FILE_NAME)
-            .await?
-        else {
-            return Ok(None);
-        };
-        cloud_credentials::decrypt(&encrypted, &password)
-            .map(Some)
-            .map_err(|error| error.to_string())
+    pub fn credential_backup(&self) -> CredentialBackup<'_, V, GoogleDrive<Pkce<V>>> {
+        CredentialBackup::new(self.vault(), &self.drive)
     }
 }
 
@@ -302,12 +160,8 @@ impl<V: SecretVault> WorkspaceTransport for DesktopCloudService<V> {
     fn disconnect(&self, provider: CloudProvider) -> Result<(), DocumentError> {
         #[cfg(target_os = "macos")]
         if provider == CloudProvider::Icloud {
-            self.icloud.disconnect(provider)?;
+            return self.icloud.disconnect(provider);
         }
-        DesktopCloudService::disconnect(self, provider).map_err(DocumentError::Transport)
+        self.drive.disconnect(provider)
     }
 }
-
-#[cfg(test)]
-#[path = "tests/cloud.rs"]
-mod tests;

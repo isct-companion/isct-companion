@@ -1,33 +1,51 @@
 use super::*;
+use chrono::DurationRound;
 use serde_json::json;
 use std::sync::Mutex;
 
-fn document(notes: Value) -> Value {
-    json!({
-        "schemaVersion": 6,
-        "exportedAt": "2026-01-01T00:00:00Z",
-        "kind": "IsctCompanion.local-backup",
-        "deviceId": "local-backup",
-        "sync": {"workspaceId": "workspace-a"},
-        "tables": {},
-        "localNotes": notes
-    })
+/// A complete workspace document whose personal events are `events`.
+fn document(events: Value) -> Value {
+    let partial =
+        json!({"exportedAt": "2026-01-01T00:00:00Z", "tables": {"personal_events": events}});
+    cloud_merge::merge(&partial, &partial)
+}
+
+fn event_ids(document: &Value) -> Vec<&str> {
+    document["tables"]["personal_events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|event| event["id"].as_str())
+        .collect()
+}
+
+fn days_ago(file: &mut CloudWorkspaceFile, days: i64) {
+    file.updated_at = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
 }
 
 #[test]
-fn history_keeps_recent_edits_and_expires_old_versions_only_with_four_newer_copies() {
-    let now = chrono::Utc::now();
+fn rapid_edits_thin_out_and_versions_older_than_30_days_go_once_four_are_newer() {
     let mut file = make_workspace_file(json!({"old":true}), "Phone", Some("Phone"), None).unwrap();
-    file.updated_at = (now - chrono::Duration::days(60)).to_rfc3339();
+    days_ago(&mut file, 60);
+    // Twenty edits within one hour two days ago: one copy stands for that
+    // day, besides the four newest.
+    let base = (chrono::Utc::now() - chrono::Duration::days(2))
+        .duration_trunc(chrono::Duration::hours(1))
+        .unwrap();
     for edit in 1..=20 {
         file =
             make_workspace_file(json!({"edit":edit}), "Phone", Some("Phone"), Some(&file)).unwrap();
         if edit < 4 {
             assert!(file.previous.iter().any(|old| old.document["old"] == true));
         }
+        file.updated_at = (base + chrono::Duration::seconds(edit)).to_rfc3339();
     }
-    assert_eq!(file.previous.len(), 19);
-    assert!(!file.previous.iter().any(|old| old.document["old"] == true));
+    let kept = file
+        .previous
+        .iter()
+        .map(|old| old.document["edit"].as_i64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(kept, [19, 18, 17]);
     assert!(file
         .previous
         .iter()
@@ -37,9 +55,11 @@ fn history_keeps_recent_edits_and_expires_old_versions_only_with_four_newer_copi
 #[test]
 fn retained_history_stays_flat_and_restore_rotates_current() {
     let mut file = make_workspace_file(json!({"value":1}), "Laptop", Some("Laptop"), None).unwrap();
+    days_ago(&mut file, 10);
     for value in 2..=6 {
         file = make_workspace_file(json!({"value":value}), "Phone", Some("Phone"), Some(&file))
             .unwrap();
+        days_ago(&mut file, 10 - value);
         assert_eq!(file.previous.len(), (value - 1) as usize);
         assert!(file.previous.iter().all(|old| old.previous.is_empty()));
     }
@@ -56,14 +76,44 @@ fn retained_history_stays_flat_and_restore_rotates_current() {
     assert_eq!(restored.previous[0].document["value"], 6);
     assert_eq!(restored.previous.len(), 6);
     let mut skewed = restored.clone();
-    skewed.updated_at = (chrono::Utc::now() - chrono::Duration::days(90)).to_rfc3339();
+    days_ago(&mut skewed, 90);
     let next = make_workspace_file(json!({"value":7}), "Laptop", None, Some(&skewed)).unwrap();
     assert_eq!(next.previous[0].document, skewed.document); // conditional-write baseline survives clock skew
 }
 
 #[test]
+fn an_envelope_that_would_not_fit_drops_its_oldest_history_first() {
+    let large = "x".repeat(MAX_DOCUMENT_BYTES / 3);
+    let mut file =
+        make_workspace_file(json!({"value":0,"pad":large}), "Laptop", None, None).unwrap();
+    for value in 1..=3 {
+        days_ago(&mut file, 4 - value);
+        file = make_workspace_file(
+            json!({"value":value,"pad":large}),
+            "Laptop",
+            None,
+            Some(&file),
+        )
+        .unwrap();
+    }
+    assert!(serde_json::to_vec(&file).unwrap().len() <= MAX_DOCUMENT_BYTES);
+    let kept = file
+        .previous
+        .iter()
+        .map(|old| old.document["value"].as_i64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(kept, [2], "the copy just replaced stays, older ones go");
+}
+
+#[test]
 fn parses_workspace_wrapper_and_compares_only_restorable_content() {
     let file = make_workspace_file(document(json!([])), "device-a", None, None).unwrap();
+    assert_eq!(
+        parse_cloud_workspace(&serde_json::to_vec(&file).unwrap())
+            .unwrap()
+            .document["schemaVersion"],
+        7
+    );
     let parsed = parse_cloud_workspace(&serde_json::to_vec(&file).unwrap()).unwrap();
     let mut later = parsed.document.clone();
     later["exportedAt"] = Value::String("2026-02-01T00:00:00Z".into());
@@ -160,13 +210,7 @@ async fn conflict_retry_merges_the_new_remote_before_writing() {
     .await
     .unwrap();
 
-    let ids: Vec<_> = merged["localNotes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|note| note["id"].as_str())
-        .collect();
-    assert_eq!(ids, ["first-remote", "late-remote", "local"]);
+    assert_eq!(event_ids(&merged), ["first-remote", "late-remote", "local"]);
     let state = transport.state.lock().unwrap();
     assert_eq!(state.writes, 2);
     assert_eq!(state.saved.as_ref().unwrap().document, merged);
@@ -273,13 +317,7 @@ async fn tagged_writes_carry_the_tag_read_with_the_expected_revision() {
         .merge_and_push(provider, &document(json!([note("phone")])), "phone")
         .await
         .unwrap();
-    let ids: Vec<_> = merged["localNotes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|note| note["id"].as_str())
-        .collect();
-    assert_eq!(ids, ["mac", "phone"]);
+    assert_eq!(event_ids(&merged), ["mac", "phone"]);
     let store = cloud.transport().store();
     assert_eq!(*store.writes.lock().unwrap(), [None, Some("tag-1".into())]);
     let versions = cloud.versions(provider).await.unwrap();

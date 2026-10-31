@@ -103,7 +103,7 @@ fn removable(domain: Option<&str>) -> bool {
 }
 
 /// Clears what `scope` names and returns what went. A full reset first
-/// stops cloud sync and keeps a local recovery point; no cloud copy changes.
+/// stops cloud sync; no cloud copy changes.
 #[tauri::command]
 pub(crate) async fn reset_caches(
     webview: tauri::Webview,

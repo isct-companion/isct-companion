@@ -73,11 +73,8 @@ impl CoreRuntime {
 
     pub fn attach_cloud(&self, cloud: crate::cloud_sync::CloudSync) -> Result<(), RuntimeError> {
         self.cloud
-            .set(cloud.clone())
-            .map_err(|_| RuntimeError::CloudAlreadyAttached)?;
-        // Notes live outside school.db, so they report their own changes.
-        self.notes.on_change(move || cloud.request_capture());
-        Ok(())
+            .set(cloud)
+            .map_err(|_| RuntimeError::CloudAlreadyAttached)
     }
 
     /// Bring the next cloud capture forward after local content changed.

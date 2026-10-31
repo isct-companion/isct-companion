@@ -2097,6 +2097,8 @@ export const COURSE_PALETTE = [
   "#5c7d93",
 ] as const;
 
+export const CREDENTIAL_PASSWORD_LENGTH = { min: 12, max: 128 } as const;
+
 export const DEFAULT_ASSIGNMENT_LEADS = [1440, 60] as const;
 
 export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
