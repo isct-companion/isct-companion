@@ -496,7 +496,29 @@ fn read_tools_answer_the_same_from_their_own_fields_as_from_every_field() {
         .call("courses", json!({"year":2026,"quarter":"3Q"}))
         .unwrap();
     let course = courses["courses"][0]["id"].as_str().unwrap().to_string();
-    let every = || -> Result<View, AgentError> { Ok(fixture.store.load_reads()?) };
+    // LMS ingest stores `folderFiles: null` for an item that is not a folder.
+    let item = json!({
+        "id":"lms-item:1", "kind":"material", "courseId":course, "session":0,
+        "title":"Announcements", "type":"link", "module":"forum",
+        "bodyHtml":"<p>News</p>", "folderFiles":null, "resourceUrl":null,
+        "visible":true, "source":{"provider":"lms"}
+    });
+    fixture
+        .store
+        .write(None, |transaction| {
+            transaction
+                .execute(
+                    "INSERT INTO lms_items (id,value,hash,updated_at,updated_by,rev)
+                     VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','lms',1)",
+                    rusqlite::params!["lms-item:1", item.to_string()],
+                )
+                .map_err(DataError::from)
+        })
+        .unwrap();
+    let detail = service.call("course", json!({"id": course})).unwrap();
+    assert_eq!(detail["lmsItems"][0]["body"], "News");
+    assert!(detail["lmsItems"][0].get("folderFiles").is_none());
+    let every =|| -> Result<View, AgentError> { Ok(fixture.store.load_reads()?) };
     for (name, args) in [
         ("today", json!({})),
         ("schedule", json!({"from":"2026-10-01","to":"2026-10-31"})),

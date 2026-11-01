@@ -125,8 +125,8 @@ pub(super) struct LmsItem {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_url: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub folder_files: Vec<FolderFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder_files: Option<Vec<FolderFile>>,
     /// The page body, as plain text.
     #[serde(alias = "bodyHtml", skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
@@ -140,6 +140,7 @@ impl LmsItem {
             .as_deref()
             .map(plain_text)
             .filter(|body| !body.is_empty());
+        item.folder_files = item.folder_files.filter(|files| !files.is_empty());
         Ok(item)
     }
 }
